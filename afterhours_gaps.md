@@ -88,3 +88,24 @@ Objective-C++ (.mm) code (NSStatusItem + NSMenu) alongside the existing
 src/sokol_impl.mm, NOT in vendor. Upstream ask (optional): a hook to run app
 code without owning the main window, or a documented way to coexist with an
 app-owned NSStatusItem. Deferred to Phase 4.
+
+### #6 — Headless offscreen capture cannot supersample (hi-DPI screenshots)
+The WINDOWED Metal path already sets `desc.high_dpi = true`, so the live app is
+crisp on Retina — no gap there. But the HEADLESS capture path
+(`graphics::init` with `DisplayMode::Headless` → `metal_init`) creates a fixed
+`cfg.width x cfg.height` offscreen texture at 1x and renders into it directly.
+`graphics::Config.hidpi` is read ONLY by the raylib backend
+(`vendor/afterhours/src/backends/raylib/windowed.h`); the Sokol/Metal backend
+ignores it and never sets `graphics::render_scale()`. Rendering into a 2x-sized
+texture is NOT a workaround — the adaptive UI just lays out at the larger
+logical size (thin sidebar in a big canvas), it does not supersample.
+IMPACT: `--screenshot` PNGs used for docs + pixel-perfect phase validation are
+1x and look soft; they under-represent the (crisp) real window.
+WORKAROUND: none clean in app code without touching vendor. For validation we
+compare layout/proportion/color at 1x; treat softness as a capture artifact,
+not an app defect.
+UPSTREAM ASK (minimal): have the Metal headless path honor `Config.hidpi` —
+allocate the offscreen texture at `width*scale x height*scale`, set
+`render_scale(scale)`, and keep the ortho projection in logical pixels (same
+contract the windowed high_dpi path already uses), so the capture is a true
+@2x supersample. Deferred; do NOT patch vendor.

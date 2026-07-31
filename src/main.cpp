@@ -172,6 +172,14 @@ static void app_cleanup() {
 static int run_headless_screenshot(const std::string& path, int w, int h) {
     using namespace afterhours;
 
+    // NOTE on hi-DPI: the WINDOWED app already runs high_dpi=true, so the real
+    // window is crisp on Retina. This HEADLESS capture path, however, renders
+    // into a fixed w*h offscreen texture at 1x — the Metal backend does not
+    // supersample it (Config.hidpi is honored only by the raylib backend). We
+    // do NOT patch vendored afterhours; a crisp @2x headless capture needs an
+    // upstream change (see afterhours_gaps.md). Rendering into a 2x-sized
+    // texture does NOT help: the adaptive UI just lays out at the larger
+    // logical size (thin sidebar in a big canvas), it doesn't supersample.
     graphics::Config gcfg{};
     gcfg.display = graphics::DisplayMode::Headless;
     gcfg.width = w;
