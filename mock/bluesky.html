@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hanabi — blue-sky V2</title>
+<style>
+/* ============================================================
+   THEME TOKENS — reused verbatim from mock/index.html (dark)
+   ============================================================ */
+:root {
+  --bg: rgb(28,28,32);
+  --sidebar-bg: rgb(22,22,26);
+  --panel-bg: rgb(28,28,32);
+  --panel-bg-2: rgb(34,34,40);
+  --border: rgb(52,52,60);
+  --border-soft: rgba(255,255,255,0.05);
+  --text-primary: rgb(222,222,228);
+  --text-secondary: rgb(138,138,150);
+  --text-faint: rgb(96,96,108);
+  --accent: rgb(90,128,255);
+  --accent-soft: rgba(90,128,255,0.15);
+  --role-assistant: rgb(126,200,140);
+  --selected-bg: rgb(48,66,120);
+  --hover-bg: rgba(255,255,255,0.045);
+  --tag-blocked-fg: rgb(255,120,120);
+  --tag-blocked-bg: rgba(255,90,90,0.14);
+  --tag-ready-fg: rgb(126,210,150);
+  --tag-done-fg: rgb(120,160,255);
+  --code-bg: rgb(18,18,22);
+  --shadow: rgba(0,0,0,0.45);
+  --composer-bg: rgb(34,34,40);
+  --traffic-red:#ff5f57; --traffic-yellow:#febc2e; --traffic-green:#28c840;
+  --macbar-bg: rgba(30,30,34,0.72); --macbar-border: rgba(255,255,255,0.08);
+  --macbar-text: rgba(255,255,255,0.92);
+  --dot-grid: rgba(255,255,255,0.05);
+}
+* { box-sizing: border-box; margin:0; padding:0; }
+html, body { height:100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  font-size: 13px; line-height: 1.5;
+  display:flex; flex-direction:column; align-items:center;
+  min-height:100vh; padding: 26px 0 60px;
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(90,128,255,0.10), transparent 60%),
+    radial-gradient(1000px 700px at 110% 120%, rgba(126,200,140,0.06), transparent 55%),
+    #0d0d10;
+}
+
+/* window chrome — same dimensions/language as index.html */
+.window {
+  width: 1180px; max-width: calc(100% - 32px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px var(--shadow), 0 2px 6px rgba(0,0,0,0.3);
+  overflow: hidden; position: relative;
+}
+.titlebar {
+  height: 38px; display:flex; align-items:center; gap:8px;
+  padding: 0 14px; background: var(--macbar-bg);
+  border-bottom: 1px solid var(--macbar-border);
+  backdrop-filter: blur(12px);
+}
+.traffic { display:flex; gap:8px; }
+.traffic i { width:12px; height:12px; border-radius:50%; display:block; }
+.traffic .r{background:var(--traffic-red)} .traffic .y{background:var(--traffic-yellow)} .traffic .g{background:var(--traffic-green)}
+.tb-title { flex:1; text-align:center; font-size:12.5px; font-weight:600; color:var(--macbar-text); letter-spacing:.2px; }
+.tb-mark { color: var(--accent); font-size:15px; }
+
+.body { display:flex; min-height: 560px; }
+
+/* sidebar */
+.sidebar {
+  width: 250px; flex:0 0 250px; background: var(--sidebar-bg);
+  border-right: 1px solid var(--border); padding: 14px 10px; display:flex; flex-direction:column; gap:6px;
+}
+.side-label { font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-faint); font-weight:700; padding: 8px 8px 4px; }
+.smart-item, .chat-row {
+  display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px; cursor:pointer;
+  transition: background .12s ease, transform .12s ease;
+}
+.smart-item:hover, .chat-row:hover { background: var(--hover-bg); }
+.smart-item.sel { background: var(--selected-bg); }
+.smart-item .lbl, .chat-row .name { flex:1; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.smart-item .cnt { font-size:11px; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+.dotico { width:8px; height:8px; border-radius:50%; background:var(--accent); flex:0 0 8px; }
+.glyph.g-blocked { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--tag-blocked-fg); flex:0 0 10px; }
+.glyph.g-review { width:8px;height:8px;background:var(--tag-ready-fg);transform:rotate(45deg);border-radius:1px; flex:0 0 8px; }
+.glyph.g-working { width:9px;height:9px;border-radius:50%;border:1.6px solid var(--accent);flex:0 0 9px; animation: ring-pulse 1.6s ease-in-out infinite; }
+@keyframes ring-pulse { 0%,100%{opacity:.45} 50%{opacity:1} }
+
+/* main */
+.main { flex:1; display:flex; flex-direction:column; background: var(--panel-bg);
+  background-image: radial-gradient(var(--dot-grid) 1px, transparent 1px); background-size: 22px 22px; position:relative; overflow:hidden; }
+.viewhead { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--border); background:var(--panel-bg-2); }
+.viewhead h2 { font-size:14px; font-weight:700; }
+.viewhead .sub { font-size:11.5px; color:var(--text-secondary); flex:1; }
+.seg { display:flex; gap:4px; background:var(--code-bg); border-radius:8px; padding:3px; }
+.seg button { border:0; background:transparent; color:var(--text-secondary); font:inherit; font-size:12px; font-weight:600; padding:5px 11px; border-radius:6px; cursor:pointer; transition: background .15s ease, color .15s ease; }
+.seg button.on { background:var(--accent); color:#fff; }
+
+.stage { flex:1; position:relative; }
+.screen { position:absolute; inset:0; padding:26px; display:flex; align-items:center; justify-content:center; }
+
+/* ---- empty-state card ---- */
+.empty { text-align:center; max-width:420px; }
+.empty svg { display:block; margin:0 auto 18px; }
+.empty .float { animation: idle-float 4.5s ease-in-out infinite; transform-origin:center; }
+@keyframes idle-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+.empty h3 { font-size:17px; font-weight:700; margin-bottom:6px; letter-spacing:-.2px; }
+.empty p { font-size:13px; color:var(--text-secondary); line-height:1.6; }
+.empty .cta { margin-top:16px; display:inline-block; background:var(--accent); color:#fff; font-weight:600; font-size:12.5px; padding:8px 16px; border-radius:8px; cursor:pointer; border:0; font-family:inherit; transition: transform .12s ease, filter .12s ease; }
+.empty .cta:hover { filter:brightness(1.08); transform:translateY(-1px); }
+.empty .cta:active { transform:scale(.95); }
+
+/* entrance: fade + rise */
+.enter { opacity:0; transform:translateY(14px); animation: enter-up .5s cubic-bezier(.16,1,.3,1) forwards; }
+@keyframes enter-up { to { opacity:1; transform:translateY(0); } }
+
+/* cross-fade for screen switch */
+.screen { opacity:0; pointer-events:none; transition: opacity .28s ease, transform .28s ease; transform:scale(.985); }
+.screen.active { opacity:1; pointer-events:auto; transform:scale(1); }
+
+/* ---- inbox rows (staggered) ---- */
+.rows { width:100%; max-width:640px; display:flex; flex-direction:column; gap:8px; }
+.card {
+  background:var(--panel-bg-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px;
+  display:flex; align-items:center; gap:11px; cursor:pointer;
+  transition: transform .15s cubic-bezier(.16,1,.3,1), box-shadow .15s ease, border-color .15s ease;
+  opacity:0; transform:translateY(10px);
+}
+.card.in { animation: row-in .45s cubic-bezier(.16,1,.3,1) forwards; }
+@keyframes row-in { to { opacity:1; transform:translateY(0); } }
+.card:hover { transform:translateY(-3px); box-shadow:0 8px 22px rgba(0,0,0,.35); border-color:var(--accent); }
+.card:active { transform:scale(.985); }
+.card .ttl { flex:1; font-size:13px; font-weight:600; }
+.card .meta { font-size:11px; color:var(--text-faint); }
+.card .badge { background:var(--tag-blocked-fg); color:#fff; font-size:9px; font-weight:700; min-width:16px; height:16px; line-height:16px; text-align:center; border-radius:8px; padding:0 4px; }
+
+/* ---- skeleton shimmer ---- */
+.skel-wrap { width:100%; max-width:640px; display:flex; flex-direction:column; gap:8px; }
+.skel { background:var(--panel-bg-2); border:1px solid var(--border); border-radius:10px; padding:14px; display:flex; gap:11px; align-items:center; }
+.sh { position:relative; overflow:hidden; background:rgba(255,255,255,.05); border-radius:5px; }
+.sh::after { content:""; position:absolute; inset:0; transform:translateX(-100%);
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.09), transparent);
+  animation: shimmer 1.3s infinite; }
+@keyframes shimmer { 100%{ transform:translateX(100%); } }
+.sh.dot{ width:9px;height:9px;border-radius:50%; flex:0 0 9px; }
+.sh.line{ height:10px; flex:1; } .sh.short{ height:10px; width:70px; flex:0 0 70px; }
+
+/* count tick */
+.tickrow { display:flex; align-items:center; gap:10px; justify-content:center; margin-top:22px; font-size:12px; color:var(--text-secondary); }
+.tick { font-variant-numeric:tabular-nums; font-weight:700; font-size:15px; color:var(--accent); min-width:34px; text-align:right; }
+
+/* controls */
+.controls { position:absolute; bottom:14px; right:16px; display:flex; gap:8px; z-index:5; }
+.controls button { background:var(--code-bg); color:var(--text-secondary); border:1px solid var(--border); font:inherit; font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:8px; cursor:pointer; transition: transform .1s ease, color .12s ease, border-color .12s ease; }
+.controls button:hover { color:var(--text-primary); border-color:var(--accent); }
+.controls button:active { transform:scale(.93); }
+
+/* fixed caption */
+.caption { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); font-size:11px; color:var(--text-faint);
+  background:rgba(20,20,24,.7); border:1px solid var(--border); padding:5px 12px; border-radius:20px; backdrop-filter:blur(8px); letter-spacing:.2px; }
+.legend { position:absolute; top:12px; right:18px; font-size:10.5px; color:var(--text-faint); }
+</style>
+</head>
+<body>
+
+<div class="window">
+  <div class="titlebar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="tb-title"><span class="tb-mark">✦</span> hanabi</div>
+    <div style="width:52px"></div>
+  </div>
+
+  <div class="body">
+    <!-- sidebar (illustrative; static) -->
+    <div class="sidebar">
+      <div class="side-label">smart views</div>
+      <div class="smart-item sel"><span class="dotico"></span><span class="lbl">home</span><span class="cnt">0</span></div>
+      <div class="smart-item"><span class="glyph g-blocked"></span><span class="lbl">blocked</span><span class="cnt">0</span></div>
+      <div class="smart-item"><span class="glyph g-review"></span><span class="lbl">to review</span><span class="cnt">2</span></div>
+      <div class="smart-item"><span class="glyph g-working"></span><span class="lbl">working</span><span class="cnt">1</span></div>
+      <div class="side-label" style="margin-top:8px">folders</div>
+      <div class="chat-row"><span class="glyph g-review"></span><span class="name">roadmap Q3</span></div>
+      <div class="chat-row"><span class="glyph g-working"></span><span class="name">migration sweep</span></div>
+      <div class="chat-row"><span class="dotico" style="background:var(--role-assistant)"></span><span class="name">weekly notes</span></div>
+    </div>
+
+    <!-- main -->
+    <div class="main">
+      <div class="viewhead">
+        <h2 id="vh-title">home</h2>
+        <span class="sub" id="vh-sub">inbox zero — nothing needs you</span>
+        <div class="seg" id="seg">
+          <button data-v="home" class="on">home</button>
+          <button data-v="blocked">blocked</button>
+          <button data-v="thread">thread</button>
+          <button data-v="search">search</button>
+          <button data-v="folder">folder</button>
+          <button data-v="loading">loading</button>
+          <button data-v="inbox">inbox</button>
+        </div>
+      </div>
+
+      <div class="stage" id="stage">
+        <div class="legend" id="legend"></div>
+
+        <!-- HOME / inbox zero -->
+        <section class="screen active" data-v="home">
+          <div class="empty">
+            <svg class="float" width="150" height="120" viewBox="0 0 150 120" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <!-- person -->
+              <circle cx="46" cy="40" r="13" stroke="var(--accent)" stroke-width="2.4"/>
+              <path d="M31 84 q0 -22 15 -22 q15 0 15 22" stroke="var(--accent)" stroke-width="2.4"/>
+              <!-- plant in a pot -->
+              <path d="M96 88 h22 l-3 16 h-16 z" stroke="var(--role-assistant)" stroke-width="2.2"/>
+              <path d="M107 88 q0 -20 -9 -28 M107 88 q0 -22 10 -30 M107 88 q0 -12 0 -22" stroke="var(--role-assistant)" stroke-width="2.2"/>
+              <!-- cat curled -->
+              <path d="M60 100 q10 -16 26 0" stroke="var(--role-ready,var(--tag-ready-fg))" stroke-width="2.2"/>
+              <path d="M60 100 l-3 -7 M86 100 l3 -7" stroke="var(--tag-ready-fg)" stroke-width="2.2"/>
+              <!-- little spark -->
+              <path d="M124 30 l0 10 M119 35 l10 0" stroke="var(--accent)" stroke-width="2"/>
+            </svg>
+            <h3>you're all caught up</h3>
+            <p>needs you: zero. you: 100% caught up.<br>go touch some grass — we'll ping when it matters.</p>
+            <button class="cta">start something new</button>
+          </div>
+        </section>
+
+        <!-- BLOCKED empty -->
+        <section class="screen" data-v="blocked">
+          <div class="empty">
+            <svg class="float" width="150" height="118" viewBox="0 0 150 118" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <!-- open padlock, shackle up -->
+              <rect x="52" y="56" width="46" height="38" rx="6" stroke="var(--tag-ready-fg)" stroke-width="2.4"/>
+              <path d="M62 56 v-10 a13 13 0 0 1 26 0" stroke="var(--tag-ready-fg)" stroke-width="2.4"/>
+              <circle cx="75" cy="74" r="4" stroke="var(--tag-ready-fg)" stroke-width="2.2"/>
+              <path d="M75 78 v7" stroke="var(--tag-ready-fg)" stroke-width="2.2"/>
+              <!-- freed sparks -->
+              <path d="M28 40 l0 9 M24 44 l9 0 M118 44 l0 9 M114 48 l9 0" stroke="var(--accent)" stroke-width="2"/>
+            </svg>
+            <h3>nothing's blocked</h3>
+            <p>every thread's got what it needs. you're unblocked and free to roam.</p>
+          </div>
+        </section>
+
+        <!-- THREAD with no messages -->
+        <section class="screen" data-v="thread">
+          <div class="empty">
+            <svg class="float" width="150" height="112" viewBox="0 0 150 112" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <!-- empty chat bubble -->
+              <path d="M40 30 h70 a10 10 0 0 1 10 10 v30 a10 10 0 0 1 -10 10 H66 l-14 14 v-14 H40 a10 10 0 0 1 -10 -10 V40 a10 10 0 0 1 10 -10 z" stroke="var(--accent)" stroke-width="2.4"/>
+              <!-- dotted "waiting" dots -->
+              <circle cx="60" cy="55" r="2.4" fill="var(--text-faint)"/>
+              <circle cx="75" cy="55" r="2.4" fill="var(--text-faint)"/>
+              <circle cx="90" cy="55" r="2.4" fill="var(--text-faint)"/>
+            </svg>
+            <h3>a blank canvas</h3>
+            <p>no messages yet. say the first word and we'll take it from there.</p>
+            <button class="cta">write a message</button>
+          </div>
+        </section>
+
+        <!-- SEARCH no results -->
+        <section class="screen" data-v="search">
+          <div class="empty">
+            <svg class="float" width="150" height="112" viewBox="0 0 150 112" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="66" cy="52" r="24" stroke="var(--accent)" stroke-width="2.6"/>
+              <path d="M84 70 l18 18" stroke="var(--accent)" stroke-width="2.8"/>
+              <!-- empty inside -->
+              <path d="M56 52 h20" stroke="var(--text-faint)" stroke-width="2.2" stroke-dasharray="3 5"/>
+            </svg>
+            <h3>no matches</h3>
+            <p>nothing here for that one. try fewer words, or a different corner.</p>
+          </div>
+        </section>
+
+        <!-- EMPTY FOLDER -->
+        <section class="screen" data-v="folder">
+          <div class="empty">
+            <svg class="float" width="150" height="112" viewBox="0 0 150 112" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M36 44 h26 l7 8 h45 a6 6 0 0 1 6 6 v34 a6 6 0 0 1 -6 6 H36 a6 6 0 0 1 -6 -6 V50 a6 6 0 0 1 6 -6 z" stroke="var(--role-assistant)" stroke-width="2.4"/>
+              <path d="M62 78 l14 0" stroke="var(--text-faint)" stroke-width="2.2" stroke-dasharray="2 5"/>
+            </svg>
+            <h3>this folder's empty</h3>
+            <p>drop threads here to keep them together — or leave it as breathing room.</p>
+          </div>
+        </section>
+
+        <!-- LOADING skeleton shimmer -->
+        <section class="screen" data-v="loading">
+          <div class="skel-wrap">
+            <div class="skel"><span class="sh dot"></span><span class="sh line"></span><span class="sh short"></span></div>
+            <div class="skel"><span class="sh dot"></span><span class="sh line"></span><span class="sh short"></span></div>
+            <div class="skel"><span class="sh dot"></span><span class="sh line"></span><span class="sh short"></span></div>
+            <div class="skel"><span class="sh dot"></span><span class="sh line"></span><span class="sh short"></span></div>
+          </div>
+        </section>
+
+        <!-- INBOX with staggered rows + count tick -->
+        <section class="screen" data-v="inbox">
+          <div style="width:100%;max-width:640px">
+            <div class="rows" id="rows">
+              <div class="card"><span class="glyph g-blocked"></span><span class="ttl">payments retry loop</span><span class="meta">needs you · 2m</span><span class="badge">3</span></div>
+              <div class="card"><span class="glyph g-review"></span><span class="ttl">roadmap Q3 draft</span><span class="meta">ready to review · 14m</span></div>
+              <div class="card"><span class="glyph g-working"></span><span class="ttl">migration sweep</span><span class="meta">working · just now</span></div>
+              <div class="card"><span class="dotico" style="background:var(--role-assistant)"></span><span class="ttl">weekly notes</span><span class="meta">done · 1h</span></div>
+              <div class="card"><span class="glyph g-review"></span><span class="ttl">onboarding polish</span><span class="meta">ready to review · 2h</span></div>
+            </div>
+            <div class="tickrow">threads waiting on you: <span class="tick" id="tick">0</span></div>
+          </div>
+        </section>
+
+        <div class="controls">
+          <button id="replay">↻ replay motion</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="caption">hanabi — blue-sky V2 (empty states + motion)</div>
+
+<script>
+(function(){
+  var seg = document.getElementById('seg');
+  var stage = document.getElementById('stage');
+  var vhTitle = document.getElementById('vh-title');
+  var vhSub = document.getElementById('vh-sub');
+  var legend = document.getElementById('legend');
+  var subs = {
+    home: ['home','inbox zero — nothing needs you'],
+    blocked: ['blocked','nothing is waiting on someone else'],
+    thread: ['new thread','no messages yet'],
+    search: ['search','no results'],
+    folder: ['roadmap Q3','empty folder'],
+    loading: ['home','loading threads…'],
+    inbox: ['home','5 threads — staggered entrance + live count']
+  };
+  var notes = {
+    home:'empty state · fade+rise entrance · gentle idle float',
+    blocked:'empty state · idle float',
+    thread:'empty state · idle float',
+    search:'empty state · idle float',
+    folder:'empty state · idle float',
+    loading:'skeleton · shimmer sweep',
+    inbox:'staggered fade+slide rows · hover lift · press feedback · count tick'
+  };
+
+  function stagger(){
+    var cards = document.querySelectorAll('#rows .card');
+    cards.forEach(function(c,i){
+      c.classList.remove('in'); void c.offsetWidth;
+      c.style.animationDelay = (i*0.06)+'s';
+      c.classList.add('in');
+    });
+  }
+  function tick(){
+    var el = document.getElementById('tick'); if(!el) return;
+    var target = 3, cur = 0;
+    var iv = setInterval(function(){
+      cur++; el.textContent = cur;
+      if(cur>=target) clearInterval(iv);
+    }, 130);
+  }
+
+  function show(v){
+    var screens = stage.querySelectorAll('.screen');
+    screens.forEach(function(s){ s.classList.toggle('active', s.dataset.v===v); });
+    Array.prototype.forEach.call(seg.children, function(b){ b.classList.toggle('on', b.dataset.v===v); });
+    vhTitle.textContent = subs[v][0];
+    vhSub.textContent = subs[v][1];
+    legend.textContent = notes[v] || '';
+    if(v==='inbox'){ stagger(); tick(); }
+  }
+
+  seg.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return; show(b.dataset.v);
+  });
+
+  document.getElementById('replay').addEventListener('click', function(){
+    var active = stage.querySelector('.screen.active');
+    var v = active ? active.dataset.v : 'home';
+    // re-trigger entrance by toggling active off/on
+    active.classList.remove('active'); void active.offsetWidth;
+    setTimeout(function(){ show(v); }, 40);
+  });
+
+  show('home');
+})();
+</script>
+</body>
+</html>

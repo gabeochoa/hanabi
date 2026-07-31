@@ -118,3 +118,79 @@ API to size/evict those. If we hit the ceiling: do NOT patch vendor — record t
 exact knob needed here (e.g. configurable font-atlas dimensions, a texture-cache
 eviction hook) and work around in app code (e.g. our own image-cache eviction for
 textures we own). Placeholder until measured.
+
+---
+
+## Animation gaps (V2 / post-MVP — surfaced by docs/animation-assessment.md)
+
+The `Anim` declarative builder (`plugins/ui/animation_config.h`) and the
+key-based manager (`plugins/animation.h`) cover the core delight set (hover,
+press-spring-back, appear fade, loop pulse, idle float, count tick). The items
+below are the residual gaps for the "delightful V2" direction. All are
+NON-BLOCKING and have an app-code workaround (the manual per-frame lerp/spring
+pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
+
+### #8 — No per-item stagger / delay on declarative animations
+- **Gap:** `AnimationDef` (`animation_config.h:47-60`) has no `delay` /
+  `stagger_index`. Every `OnAppear` starts the frame the widget first renders,
+  so a list of rows fades in all at once — no cascade.
+- **Why wanted:** staggered fade+slide as threads load into the sidebar (a
+  signature "delightful" moment).
+- **App-code workaround:** use the key-based manager per row —
+  `animation::one_shot(RowFade, i, ...)` with a leading `.hold(i * 0.03f)`
+  segment before the fade, or gate each row's first-emit by index. See the
+  stagger-helper plan in the assessment §4.
+- **Minimal upstream help (optional):** a `delay` (and/or `stagger_index * step`)
+  field on `AnimationDef`, applied before the track goes active.
+
+### #9 — No exit / "leaving" animation (OnExit) in immediate mode
+- **Gap:** triggers are `OnAppear/OnClick/OnHover/OnFocus/Loop`
+  (`animation_config.h:14-20`) — there is no `OnExit`. In immediate mode, when a
+  row/tab's data is gone the widget simply isn't emitted next frame; nothing
+  keeps a departing widget alive to animate out.
+- **Why wanted:** rows/tabs fading or sliding out when closed; a true screen
+  cross-fade (outgoing pane fades while incoming fades in).
+- **App-code workaround:** app-owned "keep-alive" — hold a departing item in a
+  fading set for N ms and drive its `with_opacity`/`with_translate` from a manual
+  tween before dropping it; for screens, one `transitionT` float (same shape as
+  the sidebar smoothstep) crossfading both panes.
+- **Minimal upstream help (optional):** an `OnExit`/leaving lifecycle, or a
+  "keep this widget alive M ms after its last emit and run its exit anim" hook.
+  This is the single biggest structural gap; hard in pure immediate-mode.
+
+### #10 — No one-shot "value/state changed" trigger on a widget
+- **Gap:** the declarative triggers are interaction/appearance edges; there's no
+  "this widget's underlying value changed" trigger to fire a one-shot flash.
+- **Why wanted:** a row flashing/pulsing once when its status flips to
+  needs-you/blocked.
+- **App-code workaround:** detect the transition in the owning system
+  (sidebar/row) and fire a `one_shot` fade via the key-based manager, or drive a
+  short manual tween. The manager's `on_change`/`on_step`
+  (`animation.h:219-230`) covers the *counter* case cleanly.
+- **Minimal upstream help (optional):** an `OnValueChanged`-style trigger, or a
+  documented pattern for app-driven one-shot widget anims.
+
+### #11 — No shimmer-sweep / gradient-mask primitive
+- **Gap:** a pulsing-opacity skeleton is trivial (`loop().opacity(...)`), but a
+  moving *shimmer sweep* (highlight band translating across a placeholder) needs
+  a gradient mask / animated `background-position`-style effect, which the
+  drawing layer doesn't expose. `loop().translate_x(...)` on a highlight widget
+  approximates it coarsely.
+- **Why wanted:** polished skeleton/shimmer loading placeholders.
+- **App-code workaround:** approximate with a translating highlight rect via
+  `with_on_draw_fg`, or accept a pulsing skeleton (Supported) for MVP-of-V2.
+- **Minimal upstream help (optional):** a linear-gradient fill / mask primitive
+  in the sokol drawing helpers.
+
+### #12 — No drag gesture + spring-to-slot path
+- **Gap:** interaction triggers are boolean edges (`OnClick/OnHover/OnFocus`);
+  there's no pointer-delta drag model, and no "animate toward a moving/dropped
+  target" affordance in either system.
+- **Why wanted:** spring-based tab reorder (drag a tab, others spring aside, it
+  settles into its slot).
+- **App-code workaround:** track drag delta app-side on the existing manual
+  tab hit-test (see gap #3) and, on drop, run a manual spring — reuse
+  `afterhours::ui::anim::spring(...)` (`animation_config.h:261-279`) on an
+  app-owned `AnimTrack`, or the key-based `.to(target, dur, easing)`.
+- **Minimal upstream help (optional):** a drag-gesture helper returning a live
+  delta, and/or a "spring an owned value toward a target" convenience.
