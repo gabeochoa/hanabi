@@ -61,3 +61,30 @@ Nothing here BLOCKED Phase 2 — every item has a working app-code workaround.
   semantics for overlapping absolutely-positioned interactive widgets, or a
   helper that returns the top-most clicked element among overlapping siblings.
   Low priority.
+
+## 4. Status-glyph shapes — NOT a gap (real primitives reachable)
+- **Context:** Phase 2.1 replaced the sidebar rows' text tag chip + attention
+  dot with a dedicated SHAPE-per-status glyph (red up-triangle = blocked,
+  green diamond = review, blue dot = done). This needed non-rectangular
+  drawing inside a render system.
+- **Resolution:** afterhours DOES expose the primitives — the sokol backend
+  (`backends/sokol/drawing_helpers.h`) provides `afterhours::draw_triangle`,
+  `afterhours::draw_poly` (used with 4 sides for the diamond), and
+  `afterhours::draw_circle_v`. And the immediate-mode UI exposes a per-widget
+  custom-draw hook: `ComponentConfig::with_on_draw_fg(std::function<void(
+  RectangleType)>)`, invoked by the renderer with the widget's final on-screen
+  rect (`plugins/ui/rendering.h`). So the glyphs are drawn with REAL distinct
+  shapes (no rectangle approximation) via a small transparent glyph-slot widget
+  whose `on_draw_fg` paints the shape. See `SidebarSystem::draw_glyph` in
+  `src/ecs/sidebar_system.h`. Logged here only as a discovery note — this was
+  NOT a gap; the library had everything needed.
+
+## 5. macOS menu-bar extra (NSStatusItem)
+hanabi wants a menu-bar/status-bar item (up by the clock) that shows a
+blocked-on-you count and opens a new chat on click. afterhours only creates a
+normal Sokol app window (sapp_run) — there is no NSStatusItem / menu-bar-extra
+/ LSUIElement path in the library. Workaround plan: implement it in our OWN
+Objective-C++ (.mm) code (NSStatusItem + NSMenu) alongside the existing
+src/sokol_impl.mm, NOT in vendor. Upstream ask (optional): a hook to run app
+code without owning the main window, or a documented way to coexist with an
+app-owned NSStatusItem. Deferred to Phase 4.
