@@ -1,0 +1,27 @@
+# Build artifacts
+output/
+*.o
+*.d
+*.dSYM
+a.out
+*.exe
+
+# macOS
+.DS_Store
+._*
+
+# IDE / editor
+.vscode/
+.idea/
+.cache/
+compile_commands.json
+
+# Local config / secrets (never commit backend config)
+.env
+.env.*
+settings.json
+
+# Claude / agent local state
+.claude/
+.claw_town/
+.tasks/
