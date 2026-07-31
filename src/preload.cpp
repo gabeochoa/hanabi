@@ -146,7 +146,7 @@ Preload& Preload::make_singleton() {
                              afterhours::Color{0, 122, 204, 255});
 
         // Configure font sizing tiers (values are h720 reference pixels)
-        // Small=10 (badges, hashes, meta), Medium=12 (row content),
+        // Small=10 (badges, hashes, secondary info), Medium=12 (row content),
         // Large=14 (section headers, toolbar/tabs), XL=17 (menu bar)
         auto& theme = ui::imm::ThemeDefaults::get().theme;
         theme.font_sizing.small = 10.0f;

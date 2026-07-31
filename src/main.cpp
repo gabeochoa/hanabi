@@ -136,24 +136,30 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     gcfg.width = w;
     gcfg.height = h;
     gcfg.target_fps = 60;
+    fprintf(stderr, "DBG before init\n"); fflush(stderr);
     if (!graphics::init(gcfg)) {
         fprintf(stderr, "headless init failed (no GPU?)\n");
         return 1;
     }
+    fprintf(stderr, "DBG after init\n"); fflush(stderr);
 
     Preload::get().init("hanabi").make_singleton();
     setup_app_state();
+    fprintf(stderr, "DBG after setup_app_state\n"); fflush(stderr);
 
     SystemManager sm;
     app_state::systemManager = &sm;
     build_systems(sm);
+    fprintf(stderr, "DBG after build_systems\n"); fflush(stderr);
 
     // Render several frames so async data loads and layout settles.
     constexpr int kFrames = 45;
     for (int i = 0; i < kFrames; ++i) {
+        fprintf(stderr, "DBG frame %d begin\n", i); fflush(stderr);
         graphics::begin_frame();
         graphics::clear_background(afterhours::Color{28, 28, 32, 255});
         sm.run(1.0f / 60.0f);
+        fprintf(stderr, "DBG frame %d ran\n", i); fflush(stderr);
         graphics::end_frame();
     }
 
