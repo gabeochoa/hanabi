@@ -22,12 +22,18 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(r.width), pixels(r.height)})
                 .with_absolute_position()
                 .with_translate(r.x, r.y)
-                .with_custom_background(theme::SIDEBAR_BG)
+                .with_custom_background(theme::sidebar_bg())
                 .with_roundness(0.0f)
                 .with_render_layer(5)
                 .with_debug_name("status_bar_bg"));
 
         std::string left = "backend: " + app->backend_label;
+        int blocked = 0;
+        for (const auto& s : app->sessions)
+            if (s.tag == api::ThreadTag::Blocked) ++blocked;
+        if (blocked > 0)
+            left += "   \xe2\x97\x8f " + std::to_string(blocked) +
+                    " blocked on you";
         div(ctx, mk(uiRoot, 3001),
             ComponentConfig{}
                 .with_label(left)
@@ -37,7 +43,7 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(5), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(8)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::TEXT_SECONDARY)
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(FontSize::Small)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -56,7 +62,7 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(5), .right = pixels(12),
                                       .bottom = pixels(4), .left = pixels(8)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::TEXT_SECONDARY)
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(FontSize::Small)
                 .with_alignment(TextAlignment::Right)
                 .with_roundness(0.0f)

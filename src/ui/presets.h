@@ -34,14 +34,14 @@ using afterhours::ui::imm::ComponentConfig;
 // ============================================================================
 
 // Standard button. Default style is primary (blue bg, white text).
-// Override bg/text for secondary (.with_custom_background(theme::BUTTON_SECONDARY))
-// or destructive (.with_custom_background(theme::STATUS_DELETED)) variants.
+// Override bg/text for secondary (.with_custom_background(theme::button_secondary()))
+// or destructive (.with_custom_background(theme::destructive())) variants.
 //
 // Default size: children() x h720(32). No explicit font size (uses framework default).
 // Toolbar/tab buttons should chain .with_font_size() and .with_size() as needed.
 inline ComponentConfig Button(const std::string& label, bool enabled = true) {
-    auto bg = enabled ? theme::BUTTON_PRIMARY : theme::DISABLED_BG;
-    auto text = enabled ? Color{255, 255, 255, 255} : theme::DISABLED_TEXT;
+    auto bg = enabled ? theme::button_primary() : theme::disabled_bg();
+    auto text = enabled ? Color{255, 255, 255, 255} : theme::disabled_text();
     auto config = ComponentConfig{}
         .with_label(label)
         .with_size(ComponentSize{children(), h720(32)})
@@ -86,8 +86,8 @@ inline ComponentConfig SectionHeader(const std::string& label) {
 // Sets hover, cursor, flex direction, alignment, gap, and roundness.
 // Default size: percent(1.0f) x h720(FILE_ROW_HEIGHT).
 inline ComponentConfig SelectableRow(bool selected) {
-    auto bg = selected ? theme::SELECTED_BG : theme::SIDEBAR_BG;
-    auto hover = selected ? theme::SELECTED_BG : theme::HOVER_BG;
+    auto bg = selected ? theme::selected_bg() : theme::sidebar_bg();
+    auto hover = selected ? theme::selected_bg() : theme::hover_bg();
     return ComponentConfig{}
         .with_size(ComponentSize{percent(1.0f),
                                  h720(static_cast<float>(theme::layout::FILE_ROW_HEIGHT))})
@@ -136,7 +136,7 @@ inline ComponentConfig BodyText(const std::string& label) {
         .with_label(label)
         .with_size(ComponentSize{percent(1.0f), children()})
         .with_transparent_bg()
-        .with_custom_text_color(theme::TEXT_PRIMARY)
+        .with_custom_text_color(theme::text_primary())
         .with_font_size(FontSize::Medium)
         .with_alignment(TextAlignment::Left)
         .with_roundness(0.0f);
@@ -149,7 +149,7 @@ inline ComponentConfig MetaText(const std::string& label) {
         .with_label(label)
         .with_size(ComponentSize{children(), children()})
         .with_transparent_bg()
-        .with_custom_text_color(theme::TEXT_SECONDARY)
+        .with_custom_text_color(theme::text_secondary())
         .with_font_size(h720(16))
         .with_roundness(0.0f);
 }
@@ -160,7 +160,7 @@ inline ComponentConfig EmptyStateText(const std::string& label) {
     return ComponentConfig{}
         .with_label(label)
         .with_size(ComponentSize{percent(1.0f), children()})
-        .with_custom_text_color(theme::EMPTY_STATE_TEXT)
+        .with_custom_text_color(theme::empty_state_text())
         .with_alignment(TextAlignment::Center)
         .with_roundness(0.0f);
 }
@@ -171,7 +171,7 @@ inline ComponentConfig CaptionText(const std::string& label) {
     return ComponentConfig{}
         .with_label(label)
         .with_size(ComponentSize{children(), children()})
-        .with_custom_text_color(theme::TEXT_SECONDARY)
+        .with_custom_text_color(theme::text_secondary())
         .with_font_size(h720(16))
         .with_roundness(0.0f);
 }
@@ -185,7 +185,7 @@ inline ComponentConfig DialogMessage(const std::string& text) {
         .with_padding(Padding{
             .top = h720(8), .right = w1280(16),
             .bottom = h720(8), .left = w1280(16)})
-        .with_custom_text_color(theme::TEXT_PRIMARY)
+        .with_custom_text_color(theme::text_primary())
         .with_alignment(TextAlignment::Left);
 }
 
@@ -198,7 +198,7 @@ inline ComponentConfig DialogMessage(const std::string& text) {
 inline ComponentConfig RowSeparator() {
     return ComponentConfig{}
         .with_size(ComponentSize{percent(1.0f), pixels(1)})
-        .with_custom_background(theme::ROW_SEPARATOR)
+        .with_custom_background(theme::row_separator())
         .with_roundness(0.0f);
 }
 
@@ -209,7 +209,7 @@ inline ComponentConfig ScrollPanel() {
         .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
         .with_overflow(Overflow::Auto, Axis::Y)
         .with_flex_direction(FlexDirection::Column)
-        .with_custom_background(theme::SIDEBAR_BG)
+        .with_custom_background(theme::sidebar_bg())
         .with_roundness(0.0f);
 }
 
