@@ -12,6 +12,7 @@
 #include <string>
 
 #include "../util/format.h"
+#include "tab_model.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -179,64 +180,20 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Open `id` in a tab: focus if already open, else create a new tab.
+    // Delegates to the graphics-free, headlessly-tested tabflow logic.
     static void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                     const std::string& id) {
-        for (auto tabId : strip.tabOrder) {
-            auto opt = EntityHelper::getEntityForID(tabId);
-            if (opt.valid() && opt->has<Tab>() &&
-                opt->get<Tab>().sessionId == id) {
-                switch_to_tab(app, opt.asE());
-                return;
-            }
-        }
-        // New tab.
-        if (auto* old = find_singleton_entity<Tab, ActiveTab>())
-            old->removeComponent<ActiveTab>();
-
-        auto& e = EntityHelper::createEntity();
-        auto& tab = e.addComponent<Tab>();
-        tab.sessionId = id;
-        const auto* sum = app.find_summary(id);
-        tab.label = sum ? (sum->title.empty() ? id : sum->title) : id;
-        e.addComponent<ActiveTab>();
-        strip.tabOrder.push_back(e.id);
-
-        app.selectedId = id;
-        app.requestOpenId = id;  // loader fetches the transcript
-        app.view = SmartView::Chat;
+        tabflow::open_session_in_tab(strip, app, id);
     }
 
     static void switch_to_tab(AppComponent& app, Entity& newTab) {
-        if (auto* old = find_singleton_entity<Tab, ActiveTab>())
-            old->removeComponent<ActiveTab>();
-        newTab.addComponent<ActiveTab>();
-        auto& tab = newTab.get<Tab>();
-        app.selectedId = tab.sessionId;
-        app.requestOpenId = tab.sessionId;
-        app.view = SmartView::Chat;
+        tabflow::switch_to_tab(app, newTab);
     }
 
     static void close_tab(TabStripComponent& strip, AppComponent& app,
                           afterhours::EntityID tabId, size_t index,
                           bool wasActive) {
-        if (index < strip.tabOrder.size())
-            strip.tabOrder.erase(strip.tabOrder.begin() +
-                                 static_cast<long>(index));
-        auto opt = EntityHelper::getEntityForID(tabId);
-        if (opt.valid()) opt.asE().cleanup = true;
-
-        if (wasActive) {
-            if (!strip.tabOrder.empty()) {
-                size_t ni = std::min(index, strip.tabOrder.size() - 1);
-                auto no = EntityHelper::getEntityForID(strip.tabOrder[ni]);
-                if (no.valid() && no->has<Tab>()) switch_to_tab(app, no.asE());
-            } else {
-                // No tabs left → back to Home digest, clear open transcript.
-                app.selectedId.clear();
-                app.openSession.reset();
-                app.view = SmartView::Home;
-            }
-        }
+        tabflow::close_tab(strip, app, tabId, index, wasActive);
     }
 };
 

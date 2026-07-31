@@ -15,6 +15,7 @@
 #include <string>
 
 #include "../util/format.h"
+#include "thread_model.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -76,8 +77,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
   private:
     // ---- attention model helpers ----
+    // Delegate the pure classification to the graphics-free, headlessly-tested
+    // ecs::model layer so the tested logic IS the shipped logic.
     static bool is_attention(api::ThreadState s) {
-        return s == api::ThreadState::Attention;
+        return ecs::model::is_attention(s);
     }
     static int blocked_count(const AppComponent& app) {
         int n = 0;
@@ -94,17 +97,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     //   Review (agent-verified) -> GREEN DIAMOND (square rotated 45 deg)
     //   Done -> BLUE DOT (filled circle)
     //   working / parked / archived -> NO glyph (calm)
-    enum class Glyph { None, Triangle, Diamond, Dot };
+    using Glyph = ecs::model::Glyph;
 
     // Precedence follows the mock's JS ordering: blocked, then review, then
     // done, then a bare Attention state (waiting-on-you) which also earns the
-    // urgent triangle.
+    // urgent triangle. (Pure logic lives in ecs::model::glyph_for.)
     static Glyph glyph_for(const api::SessionSummary& s) {
-        if (s.tag == api::ThreadTag::Blocked) return Glyph::Triangle;
-        if (s.tag == api::ThreadTag::Review) return Glyph::Diamond;
-        if (s.tag == api::ThreadTag::Done) return Glyph::Dot;
-        if (s.state == api::ThreadState::Attention) return Glyph::Triangle;
-        return Glyph::None;
+        return ecs::model::glyph_for(s);
     }
 
     static theme::Color glyph_color(Glyph g) {

@@ -212,6 +212,18 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         graphics::clear_background(theme::window_bg());
         sm.run(1.0f / 60.0f);
         graphics::end_frame();
+        // Test-only instrumentation: log time-to-first-frame once, so the perf
+        // harness (scripts/measure_launch.sh) can gate cold launch against the
+        // FirstFrame metric in addition to the internal "Startup" init log.
+        if (i == 0) {
+            auto firstFrame = std::chrono::high_resolution_clock::now();
+            auto firstFrameMs =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    firstFrame - app_state::startTime)
+                    .count();
+            log_info("FirstFrame: {} ms", firstFrameMs);
+            fflush(stdout);
+        }
     }
 
     bool ok = graphics::capture_frame(path);

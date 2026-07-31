@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../util/format.h"
+#include "thread_model.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -43,23 +44,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 break;
             case SmartView::Blocked:
                 render_digest(ctx, panel.ent(), *app, "Blocked on you",
-                              r.height,
-                              [](const api::SessionSummary& s) {
-                                  return s.tag == api::ThreadTag::Blocked;
-                              });
+                              r.height, ecs::model::in_blocked_view);
                 break;
             case SmartView::Review:
                 render_digest(ctx, panel.ent(), *app, "Ready for review",
-                              r.height,
-                              [](const api::SessionSummary& s) {
-                                  return s.state == api::ThreadState::Ready;
-                              });
+                              r.height, ecs::model::in_review_view);
                 break;
             case SmartView::Starred:
                 render_digest(ctx, panel.ent(), *app, "Starred", r.height,
-                              [](const api::SessionSummary& s) {
-                                  return s.starred;
-                              });
+                              ecs::model::in_starred_view);
                 break;
         }
     }
