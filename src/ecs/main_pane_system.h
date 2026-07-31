@@ -321,6 +321,195 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("home_section"));
     }
 
+    // ---------------- Sub-agent panel (transcript-only) --------------------
+    //
+    // The mock (mock/assets/ui.js `subItemHtml` / `renderTranscript`) renders a
+    // panel at the TOP of the transcript listing each sub-agent as a row with a
+    // status shape (working ring / done dot / blocked triangle), a title, and a
+    // status note. Per docs/decisions.md this visualization lives ONLY here in
+    // the transcript, never in the sidebar.
+    //
+    // IMPORTANT — data source: the current api types (api::Session / api::Message
+    // in src/api/types.h) carry NO sub-agent / sub-session / child field, and the
+    // MockClient seeds none. The mock HTML's `subs:[{title,state,note}]` array has
+    // no representation in the C++ model. So we drive this panel from the one real
+    // per-step signal that DOES exist: Tool-role messages. Each tool message is a
+    // discrete agent work-step (a shell/sql/etc run), which is exactly the "a
+    // sub-task ran" notion the panel visualizes. We render them as "done" steps
+    // (they carry a completed result), keyed for collapse by message id. See the
+    // task report for the precise api-type addition needed to fully populate the
+    // mock's richer running/blocked sub-agent rows.
+    enum class SubGlyph { Working, Done, Blocked };
+
+    static theme::Color sub_glyph_color(SubGlyph g) {
+        switch (g) {
+            case SubGlyph::Working: return theme::accent();
+            case SubGlyph::Done: return theme::tag_done_fg();
+            case SubGlyph::Blocked: return theme::tag_blocked_fg();
+        }
+        return theme::text_faint();
+    }
+
+    // Draw the sub-agent status shape centered in `rect`. Replicates the sidebar's
+    // shape vocabulary locally (no dependency on sidebar_system.h): a hollow ring
+    // for a running sub-agent, a filled dot for done, an up-triangle for blocked.
+    static void draw_sub_glyph(RectangleType rect, SubGlyph g) {
+        const theme::Color c = sub_glyph_color(g);
+        const float cx = rect.x + rect.width * 0.5f;
+        const float cy = rect.y + rect.height * 0.5f;
+        switch (g) {
+            case SubGlyph::Working:
+                // Hollow ring (outline, not filled) — mirrors the mock's
+                // .glyph.g-working animated pulse ring, minus the animation.
+                afterhours::draw_ring(cx, cy, 3.0f, 4.6f, 24, c);
+                break;
+            case SubGlyph::Done:
+                afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 4.0f, c);
+                break;
+            case SubGlyph::Blocked:
+                afterhours::draw_triangle(
+                    afterhours::vec2{cx, cy - 4.5f},
+                    afterhours::vec2{cx - 5.0f, cy + 4.5f},
+                    afterhours::vec2{cx + 5.0f, cy + 4.5f}, c);
+                break;
+        }
+    }
+
+    // One sub-agent row: [shape] title · status, click toggles the detail note.
+    void sub_item(UIContext<InputAction>& ctx, Entity& parent, int id,
+                  AppComponent& app, const std::string& key, SubGlyph g,
+                  const std::string& title, const std::string& note) {
+        bool open = app.expandedSubAgents.count(key) != 0;
+        auto row = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(6), .right = pixels(14),
+                                      .bottom = pixels(6), .left = pixels(14)})
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_bg())
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.0f)
+                .with_debug_name("sub_item"));
+        row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (row.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (open) app.expandedSubAgents.erase(key);
+            else app.expandedSubAgents.insert(key);
+        }
+
+        // Header line: shape glyph slot + title + "·" + status.
+        auto head = div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("si_head"));
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(12), pixels(16)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg([g](RectangleType rect) {
+                    draw_sub_glyph(rect, g);
+                })
+                .with_debug_name("si_glyph"));
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(title, 34))
+                .with_size(ComponentSize{children(), pixels(16)})
+                .with_margin(Margin{.top = pixels(0), .right = pixels(8),
+                                    .bottom = pixels(0), .left = pixels(6)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(12.5f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("si_title"));
+        if (!note.empty() && !open) {
+            div(ctx, mk(head.ent(), 3),
+                ComponentConfig{}
+                    .with_label("\xc2\xb7  " + fmtutil::ellipsize(note, 40))
+                    .with_size(ComponentSize{percent(0.6f), pixels(16)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(12.0f)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("si_status"));
+        }
+
+        // Expanded detail: the full note, wrapped, indented under the title.
+        if (open && !note.empty()) {
+            float noteW = 700.0f;
+            float nh = estimate_height(note, noteW - 24.0f);
+            div(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_label(note)
+                    .with_size(ComponentSize{percent(1.0f), pixels(nh - 20.0f)})
+                    .with_margin(Margin{.top = pixels(2), .right = pixels(0),
+                                        .bottom = pixels(2), .left = pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(FontSize::Medium)
+                    .with_text_overflow(TextOverflow::Wrap)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("si_detail"));
+        }
+    }
+
+    // Panel at the top of the transcript listing the thread's sub-agent steps.
+    // Returns true if a panel was rendered.
+    bool sub_agent_panel(UIContext<InputAction>& ctx, Entity& scroll,
+                         AppComponent& app) {
+        // Collect the Tool-role steps (see class-doc: the one real per-step
+        // signal in the current api model).
+        std::vector<const api::Message*> steps;
+        for (const auto& m : app.openSession->messages)
+            if (m.role == api::Role::Tool) steps.push_back(&m);
+        if (steps.empty()) return false;
+
+        auto panel = div(ctx, mk(scroll, 8000),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(700), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(2), .right = pixels(0),
+                                    .bottom = pixels(12), .left = pixels(0)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_roundness(0.28f)
+                .with_debug_name("subpanel"));
+
+        // Head: "SUB-AGENTS (n)".
+        div(ctx, mk(panel.ent(), 1),
+            ComponentConfig{}
+                .with_label("SUB-AGENTS (" + std::to_string(steps.size()) + ")")
+                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_padding(Padding{.top = pixels(8), .right = pixels(12),
+                                      .bottom = pixels(6), .left = pixels(14)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(11.0f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("subpanel_head"));
+
+        int i = 0;
+        for (const auto* m : steps) {
+            std::string title = m->subtitle.empty() ? "step" : m->subtitle;
+            sub_item(ctx, panel.ent(), 10 + i, app, m->id, SubGlyph::Done,
+                     title, m->text);
+            ++i;
+        }
+        return true;
+    }
+
     // ---------------- Chat transcript --------------------------------------
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, float paneW, float paneH) {
@@ -347,6 +536,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         float listH = paneH - 46.0f;
         if (listH < 20.0f) listH = 20.0f;
+        // Empty-thread state: an open thread with no messages shows the empty
+        // state rather than a blank pane (mirrors the mock's empty screen).
+        if (app.openSession->messages.empty()) {
+            note(ctx, parent, "Nothing here yet");
+            return;
+        }
+
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
@@ -354,6 +550,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(14),
                                       .bottom = pixels(6), .left = pixels(18)})
                 .with_debug_name("transcript_scroll"));
+
+        // Sub-agent panel sits above the messages when the thread has steps.
+        sub_agent_panel(ctx, scroll.ent(), app);
 
         int i = 0;
         for (const auto& m : app.openSession->messages)
@@ -382,6 +581,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         switch (r) {
             case api::Role::User: return theme::bubble_user_bg();
             case api::Role::Assistant: return theme::bubble_assistant_bg();
+            // Tool activity reads as a distinct, subtler surface than the
+            // conversational bubbles: a faint accent-over-panel tint (mirrors
+            // the mock's monospace-ish "Tool · shell … · lint clean" block).
+            // theme::over pre-blends the low-alpha tint over the pane surface
+            // into an opaque color (afterhours gap #13 workaround).
+            case api::Role::Tool:
+                return theme::over(theme::accent_soft(), theme::panel_bg());
             default: return theme::bubble_other_bg();
         }
     }
@@ -445,7 +651,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(m.text)
                 .with_size(ComponentSize{percent(1.0f), pixels(h - 24.0f)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
+                // Tool bodies read subtler than conversational text (mock's
+                // muted "Tool · …" block); other roles keep primary text.
+                .with_custom_text_color(m.role == api::Role::Tool
+                                            ? theme::text_secondary()
+                                            : theme::text_primary())
                 .with_font_size(FontSize::Medium)
                 .with_text_overflow(TextOverflow::Wrap)
                 .with_alignment(TextAlignment::Left)
