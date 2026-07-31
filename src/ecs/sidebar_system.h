@@ -12,10 +12,13 @@
 // requests that thread be opened in a tab (handled by TabBarSystem/Loader).
 // The collapse toggle flips layout.sidebarCollapsed; Cmd+B does the same.
 
+#include <algorithm>
+#include <cctype>
 #include <string>
 
 #include "../util/format.h"
 #include "../ui/icons.h"
+#include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "thread_model.h"
 #include "ui_imports.h"
 
@@ -26,6 +29,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
+
+        // Apply a pending star-toggle request (set by a row's star affordance).
+        // The mutation lives HERE so this owned system is the single writer of
+        // the sessions vector's starred flag — flipping it updates the Starred
+        // smart-view count + membership immediately, on the very next render.
+        if (!app->requestToggleStar.empty()) {
+            for (auto& s : app->sessions) {
+                if (s.id == app->requestToggleStar) {
+                    s.starred = !s.starred;
+                    break;
+                }
+            }
+            app->requestToggleStar.clear();
+        }
 
         // Cmd+B toggles the sidebar.
         bool cmdDown = afterhours::graphics::is_key_down(343) ||
@@ -51,7 +68,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
-        if (!folded) render_search(ctx, panel.ent());
+        if (!folded) render_search(ctx, panel.ent(), *app);
         render_smart_views(ctx, panel.ent(), *app, folded);
 
         if (folded) return;  // rail stops after icon views
@@ -67,19 +84,83 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(theme::sidebar_bg())
                 .with_debug_name("sidebar_scroll"));
 
-        // "FOLDERS" section label (mirrors the mock's second section header).
-        section_label(ctx, scroll.ent(), 5, "FOLDERS");
-        render_folder(ctx, scroll.ent(), 10, "Stars", "stars", *app);
-        render_folder(ctx, scroll.ent(), 20, "Oncall", "oncall", *app);
-        render_folder(ctx, scroll.ent(), 30, "Experiments", "experiments",
-                      *app);
-        render_folder(ctx, scroll.ent(), 40, "Recent", "recent", *app);
+        // "FOLDERS" section label + fold-all control (mirrors the mock's
+        // second section header, which carries a fold-all affordance).
+        folders_section_head(ctx, scroll.ent(), 4, *app);
+
+        // Live search filter: when the query is non-empty, folders only render
+        // matching rows and empty folders are hidden. Track whether ANY row
+        // survived so we can show a no-results empty state.
+        const std::string q = lower(app->searchQuery);
+        int shown = 0;
+        shown += render_folder(ctx, scroll.ent(), 10, "Stars", "stars", *app, q);
+        shown += render_folder(ctx, scroll.ent(), 20, "Oncall", "oncall", *app,
+                               q);
+        shown += render_folder(ctx, scroll.ent(), 30, "Experiments",
+                               "experiments", *app, q);
+        shown += render_folder(ctx, scroll.ent(), 40, "Recent", "recent", *app,
+                               q);
         // Low-signal archived section, greyed.
-        render_folder(ctx, scroll.ent(), 50, "Archived", "__archived__", *app,
-                      /*archived=*/true);
+        shown += render_folder(ctx, scroll.ent(), 50, "Archived", "__archived__",
+                               *app, q, /*archived=*/true);
+
+        // No-results empty state (only meaningful with a non-empty query).
+        if (!q.empty() && shown == 0) {
+            div(ctx, mk(scroll.ent(), 900),
+                ComponentConfig{}
+                    .with_label("No matches for \"" + app->searchQuery + "\"")
+                    .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                    .with_padding(Padding{.top = pixels(8), .right = pixels(14),
+                                          .bottom = pixels(4),
+                                          .left = pixels(14)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(12.0f)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("sb_no_results"));
+        }
     }
 
   private:
+    // ---- text helpers ----
+    // ASCII-lowercase a copy (search is case-insensitive; titles are UTF-8 but
+    // case-folding only the ASCII range is sufficient for these labels).
+    static std::string lower(const std::string& s) {
+        std::string out = s;
+        std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return out;
+    }
+    // Does `haystack` (already lowercased) contain the lowercased `needle`?
+    static bool title_matches(const std::string& title, const std::string& q) {
+        if (q.empty()) return true;
+        return lower(title).find(q) != std::string::npos;
+    }
+
+    // Draw a small folder chevron: pointing DOWN when expanded, RIGHT when
+    // collapsed (mirrors the mock, whose .chev rotates -90deg on .collapsed).
+    // Drawn as a filled triangle so it stays crisp without needing a separate
+    // rotated atlas cell (the atlas has no chevron-right).
+    static void draw_chevron(RectangleType rect, bool collapsed,
+                             theme::Color c) {
+        const float cx = rect.x + rect.width * 0.5f;
+        const float cy = rect.y + rect.height * 0.5f;
+        const float s = 3.6f;  // half-extent
+        if (collapsed) {
+            // Right-pointing: apex on the right, base on the left.
+            afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
+                                      afterhours::vec2{cx - s, cy + s},
+                                      afterhours::vec2{cx + s, cy}, c);
+        } else {
+            // Down-pointing: apex at bottom, base along the top.
+            afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
+                                      afterhours::vec2{cx + s, cy - s},
+                                      afterhours::vec2{cx, cy + s}, c);
+        }
+    }
+
     // ---- attention model helpers ----
     // Delegate the pure classification to the graphics-free, headlessly-tested
     // ecs::model layer so the tested logic IS the shipped logic.
@@ -267,7 +348,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- search (unfolded only) ----
-    void render_search(UIContext<InputAction>& ctx, Entity& parent) {
+    void render_search(UIContext<InputAction>& ctx, Entity& parent,
+                       AppComponent& app) {
         // Wrap in a full-width padded row so the search field itself never
         // extends past the sidebar (margins on a percent(1.0) child overflow).
         auto wrap = div(ctx, mk(parent, 2),
@@ -281,10 +363,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_wrap"));
-        // Search field: a row-flex pill holding a magnifier sprite slot + the
-        // "Search" placeholder text, so the icon sits in the left gutter and
-        // the text flows after it (text-label padding alone doesn't offset the
-        // glyph origin reliably here).
+        // Search field: a row-flex pill holding a magnifier sprite slot + an
+        // editable text_input, so the icon sits in the left gutter and the
+        // typed query flows after it. The input is bound directly to
+        // app.searchQuery (afterhours' text_input syncs the std::string), so
+        // the folder tree filters live as the user types.
         auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(30)})
@@ -306,17 +389,45 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 13.0f,
                     -1.0f))
                 .with_debug_name("sb_search_icon"));
-        div(ctx, mk(field.ent(), 2),
+
+        // Editable field bound to app.searchQuery. text_input() reads/writes
+        // the std::string reference and drains typed chars while focused
+        // (click to focus). Whatever's in searchQuery drives the filter below.
+        bool hasQuery = !app.searchQuery.empty();
+        afterhours::text_input::text_input(
+            ctx, mk(field.ent(), 2), app.searchQuery,
             ComponentConfig{}
-                .with_label("Search")
-                .with_size(ComponentSize{pixels(110), pixels(20)})
+                .with_size(ComponentSize{percent(hasQuery ? 0.78f : 0.86f),
+                                         pixels(20)})
                 .with_padding(Padding{.left = pixels(6)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(hasQuery ? theme::text_primary()
+                                                 : theme::text_faint())
                 .with_font_size(12.5f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_text"));
+
+        // Clear affordance (only when a query is present): an ✕ that empties
+        // the query and restores the full tree.
+        if (hasQuery) {
+            auto clr = button(ctx, mk(field.ent(), 3),
+                ComponentConfig{}
+                    .with_label("\xc3\x97")
+                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(14.0f)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.3f)
+                    .with_debug_name("sb_search_clear"));
+            if (clr) app.searchQuery.clear();
+        }
     }
 
     // ---- section label (mock .sb-section-label: 10.5px uppercase faint,
@@ -335,6 +446,65 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_section_label"));
+    }
+
+    // ---- FOLDERS section header: label + fold-all control ----
+    // The mock's Folders section header carries a fold-all affordance that
+    // collapses/expands EVERY folder at once. Clicking it toggles
+    // app.foldAllFolders and applies that state to every folder key, so all
+    // folders snap open or closed together.
+    void folders_section_head(UIContext<InputAction>& ctx, Entity& parent,
+                              int base, AppComponent& app) {
+        auto head = div(ctx, mk(parent, base),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(6), .right = pixels(8),
+                                      .bottom = pixels(4), .left = pixels(14)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sb_folders_head"));
+
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label("FOLDERS")
+                .with_size(ComponentSize{percent(0.72f), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(10.5f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_folders_label"));
+
+        // Fold-all button (chevrons-down-up sprite). Its tint brightens when
+        // all folders are currently folded, echoing the mock's active state.
+        theme::Color foldTint =
+            app.foldAllFolders ? theme::text_secondary() : theme::text_faint();
+        auto foldBtn = button(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(20), pixels(18)})
+                .with_custom_background(theme::sidebar_bg())
+                .with_custom_hover_bg(theme::hover_bg())
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.3f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "fold_all", "\xe2\x87\x85", foldTint, 14.0f, -1.0f))
+                .with_debug_name("sb_fold_all"));
+        if (foldBtn) {
+            app.foldAllFolders = !app.foldAllFolders;
+            // Apply to every folder key so all fold/unfold in lockstep.
+            static const char* kKeys[] = {"stars", "oncall", "experiments",
+                                          "recent", "__archived__"};
+            if (app.foldAllFolders) {
+                for (const char* k : kKeys) app.collapsedFolders.insert(k);
+            } else {
+                app.collapsedFolders.clear();
+            }
+        }
     }
 
     // ---- smart views ----
@@ -402,15 +572,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         theme::Color txt =
             active ? theme::text_primary() : theme::text_secondary();
 
+        // Folded rail: a smart view whose count > 0 gets a small attention dot
+        // at the icon's top-right corner (Blocked = red, others = accent), so
+        // the thin rail still signals "something waits here" without labels —
+        // matching the mock's rail badge.
+        bool railDot = folded && count > 0;
+        theme::Color dotColor = (view == SmartView::Blocked)
+                                    ? theme::tag_blocked_fg()
+                                    : theme::accent();
+        auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph, txt,
+                                               16.0f, -1.0f);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(folded ? 26 : 18), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_on_draw_fg(hanabi::icons::draw_fg(icon_name,
-                                                        fallback_glyph, txt,
-                                                        16.0f, -1.0f))
+                .with_on_draw_fg([iconDraw, railDot, dotColor](
+                                     RectangleType rect) {
+                    iconDraw(rect);
+                    if (railDot) {
+                        const float cx = rect.x + rect.width * 0.5f + 8.0f;
+                        const float cy = rect.y + rect.height * 0.5f - 7.0f;
+                        afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 3.2f,
+                                                  dotColor);
+                    }
+                })
                 .with_debug_name("sv_icon"));
 
         if (folded) return;
@@ -443,24 +630,36 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- folder group ----
-    void render_folder(UIContext<InputAction>& ctx, Entity& parent, int base,
-                       const std::string& name, const std::string& key,
-                       AppComponent& app, bool archived = false) {
-        // Collect member threads.
+    // Renders a collapsible folder. Returns the number of chat rows actually
+    // rendered (used by the caller to drive the search no-results state).
+    // `q` is the already-lowercased search query ("" = no filter).
+    int render_folder(UIContext<InputAction>& ctx, Entity& parent, int base,
+                      const std::string& name, const std::string& key,
+                      AppComponent& app, const std::string& q,
+                      bool archived = false) {
+        // Collect member threads, honoring the live search filter.
         std::vector<const api::SessionSummary*> members;
         for (const auto& s : app.sessions) {
             bool match = archived
                              ? (s.state == api::ThreadState::Archived)
                              : (s.folder == key &&
                                 s.state != api::ThreadState::Archived);
-            if (match) members.push_back(&s);
+            if (match && title_matches(s.title, q)) members.push_back(&s);
         }
-        if (members.empty()) return;
+        // Hide a folder with no (matching) members. With an active query this
+        // is what drops non-matching folders out of the tree.
+        if (members.empty()) return 0;
+
+        bool collapsed = app.collapsedFolders.count(key) > 0;
+        // A live search overrides collapse: matches must be visible, so a
+        // matching folder auto-expands while filtering (mirrors the mock, where
+        // search results are always shown regardless of prior fold state).
+        if (!q.empty()) collapsed = false;
 
         theme::Color headColor =
             archived ? theme::text_faint() : theme::text_secondary();
 
-        // Folder header (name + count).
+        // Folder header (clickable: toggles this folder's collapse state).
         auto head = div(ctx, mk(parent, base),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(26)})
@@ -469,19 +668,37 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(10)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
+                .with_custom_background(theme::sidebar_bg())
+                .with_custom_hover_bg(theme::hover_bg())
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
                 .with_debug_name("folder_head"));
-        // Folder chevron (sprite) + name. The ▾ marker is now a Lucide
-        // "chevron-down" sprite; the folder name stays text.
+
+        // Clicking the header toggles collapse for this folder key. Disabled
+        // while a query is active (results stay pinned open).
+        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (q.empty() && head.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (app.collapsedFolders.count(key))
+                app.collapsedFolders.erase(key);
+            else
+                app.collapsedFolders.insert(key);
+            // Any explicit per-folder toggle drops out of "fold all" mode.
+            app.foldAllFolders = false;
+        }
+
+        // Folder chevron: a shape triangle (down = expanded, right = collapsed)
+        // drawn via on_draw_fg — the atlas has no chevron-right, so rotating a
+        // drawn triangle is the crisp, dependency-free way to show both states.
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(16), pixels(18)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "chevron_down", "\xe2\x96\xbe", headColor, 13.0f, -1.0f))
+                .with_on_draw_fg([collapsed, headColor](RectangleType rect) {
+                    draw_chevron(rect, collapsed, headColor);
+                })
                 .with_debug_name("folder_chevron"));
         div(ctx, mk(head.ent(), 4),
             ComponentConfig{}
@@ -504,10 +721,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("folder_count"));
 
+        // Collapsed: header only, no body rows (but the folder + its matches
+        // still counted so the header is visible).
+        if (collapsed) return static_cast<int>(members.size());
+
         int i = 0;
         for (const auto* s : members) {
             render_chat_row(ctx, parent, base + 1 + (++i), *s, app, archived);
         }
+        return static_cast<int>(members.size());
     }
 
     // ---- high-signal chat row ----
@@ -574,14 +796,41 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // and the (full-row) highlight bg looks off-center against the text.
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(s.title, 32))
-                .with_size(ComponentSize{percent(0.92f), pixels(20)})
+                .with_label(fmtutil::ellipsize(s.title, 30))
+                .with_size(ComponentSize{percent(0.80f), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(12.5f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));
+
+        // Star affordance: a small star glyph at the row's right edge. Starred
+        // rows show it filled/accent always; unstarred rows show a faint star
+        // (a persistent-but-quiet affordance — immediate-mode UI has no
+        // hover-only reveal without extra state, so we keep it always visible
+        // but low-contrast until set). Clicking requests a toggle, applied at
+        // the top of the next frame by this system (see for_each_with).
+        theme::Color starColor =
+            s.starred ? theme::tag_ready_fg() : theme::text_faint();
+        std::string sid = s.id;
+        auto star = button(ctx, mk(row.ent(), 3),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(18), pixels(20)})
+                .with_custom_background(selected ? theme::selected_bg()
+                                                 : theme::sidebar_bg())
+                .with_custom_hover_bg(theme::hover_bg())
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.3f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "star", s.starred ? "\xe2\x98\x85" : "\xe2\x98\x86",
+                    starColor, 12.0f, -1.0f))
+                .with_debug_name("row_star"));
+        if (star) {
+            app.requestToggleStar = sid;
+        }
     }
 };
 
