@@ -1,64 +1,51 @@
-# hanabi — icon strategy (native macOS look, licensing-safe)
+# hanabi — icon strategy (SIMPLE: one replaceable spritesheet)
 
-Goal: look like a native SwiftUI/AppKit app. Two viable paths; we do BOTH —
-real SF Symbols when running on macOS, a bundled MIT fallback set otherwise.
+Decision (user, 2026-07-31): keep it simple. No installs, no per-icon files, no
+SF-Symbols licensing risk. Ship ONE icon spritesheet file that we can replace
+later. Look "made in Swift" via an SF-like open icon set.
 
-## The SF Symbols licensing reality (important)
-- SF Symbols are Apple-licensed and may be used ONLY on Apple platforms (macOS/
-  iOS/etc.). You may NOT redistribute the symbol font/SVGs or ship them on
-  non-Apple platforms. You may NOT extract-and-embed the glyphs as your own
-  assets in the repo.
-- BUT: a native macOS app is ALLOWED to RENDER SF Symbols at runtime via the OS
-  API — the glyphs come from the operating system, not from our repo. That's the
-  compliant, zero-redistribution path, and it's exactly what makes an app look
-  "made in Swift".
-- => We must NOT commit any SF Symbol SVG/font into the repo. Render them from
-  the OS at runtime instead (below), and keep a separately-licensed fallback set
-  in the repo for the (non-macOS / API-unavailable) case.
+## Chosen set: LUCIDE (ISC license)
+- ISC: free for commercial + personal use, NO attribution required, freely
+  redistributable. Cleanest terms of any option; single source (unlike
+  open-symbols, which mixes several sets each with their own license).
+- Lucide is a fork of Feather — thin, rounded, consistent strokes that read as
+  SF-adjacent, so the app looks native without using Apple assets.
+- Keep resources/icons/LICENSE (the ISC text) next to the spritesheet.
 
-## Path A (macOS runtime) — render real SF Symbols from the OS  [PREFERRED on mac]
-- AppKit exposes: `[NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:nil]`
-  (Obj-C) — available macOS 11+. This returns an OS-provided image; nothing is
-  bundled or redistributed. We call it from a tiny Objective-C++ (.mm) shim
-  (same pattern as src/sokol_impl.mm — does NOT touch vendor/afterhours).
-- Rendering into afterhours' Metal/Sokol UI: rasterize the NSImage to RGBA
-  bytes (draw into a bitmap context / CGImage) and upload as a texture the UI
-  draws — OR draw the symbol into the same offscreen path used elsewhere. This
-  is app code in our .mm, not a vendor change.
-- Symbol names are just strings ("gearshape", "plus", "sidebar.left",
-  "magnifyingglass", "triangle.fill", "circle.fill", "diamond.fill",
-  "chevron.right", "folder", "archivebox", "pin.fill", "xmark"). We keep a
-  small hanabi→SF-name map so the rest of the UI stays backend-neutral.
-- Gate on availability: if `imageWithSystemSymbolName` returns nil (older OS)
-  fall back to Path B.
+## Format: a SINGLE spritesheet file (replaceable)
+- **C++ app:** one PNG atlas `resources/icons/icons.png` (e.g. a grid of NxN
+  cells, all icons white/monochrome on transparent so we can tint per-theme at
+  draw time) + a tiny atlas map `resources/icons/icons.atlas` (or a generated
+  header) of `name -> {row,col}` (or x,y,w,h). The app loads the ONE texture at
+  startup and blits the sub-rect for each icon; tint via vertex color. To change
+  icons later, regenerate the single PNG (+ map). No dependency, no install.
+- **HTML mock:** one inline SVG sprite (`<svg style="display:none"><symbol
+  id="ic-gear">…</symbol>…</svg>` then `<use href="#ic-gear">`). Single block,
+  swappable, self-contained (no external refs — keeps the mock file standalone).
+- Same icon NAMES on both sides (hanabi-neutral: gear, plus, search, sidebar,
+  folder, folder-grid, pin, archive, close, chevron, home, blocked, review,
+  star) so mock and app stay in lockstep and the set is swappable.
 
-## Path B (fallback / non-mac) — bundled MIT-licensed icon set  [always in repo]
-Ship a small set of open, commercial-OK SVGs so the app is self-sufficient and
-the repo has no Apple assets. Best matches for the SF look (all free for
-commercial use, redistributable):
-- Lucide (ISC license) — https://lucide.dev — clean, SF-ish stroke icons. TOP PICK.
-- Feather (MIT) — https://feathericons.com — minimal stroke, very SF-like.
-- Remix Icon (Apache-2.0) — outlined + filled variants (good for our filled glyphs).
-- Tabler Icons (MIT), Iconoir (MIT) — also fine.
-- (buzap/open-symbols converts OSS sets INTO the SF Symbols format for Apple
-  apps — same idea as OrchardKit; but for a fallback we just need the raw SVGs,
-  so Lucide/Feather directly is simpler. Do NOT ship anything labeled as actual
-  Apple SF Symbols.)
-Chosen fallback: LUCIDE (ISC) — closest to the SF stroke weight/rounding. Vendor
-a handful of the ~15 SVGs we actually use into resources/icons/ with the ISC
-LICENSE file. Attribution kept in resources/icons/LICENSE.
+## Icons we need (chrome; ~15)
+gear(settings), plus(new task), search, sidebar(collapse toggle), chevron(fold),
+folder, folder-grid(all-folders), pin, archive, close(x), home, blocked, review,
+star, working-ring. (Status GLYPHS — blocked triangle / review diamond / done
+dot — stay DRAWN vector shapes in the app; they're not from the sheet.)
 
-## Decision
-- macOS build: Path A (OS-rendered SF Symbols) for the authentic system look.
-- Fallback + any non-mac: Path B (bundled Lucide SVGs, ISC).
-- NEVER commit Apple SF Symbol assets to the repo. The macOS path renders them
-  from the OS at runtime only.
-- Icon lookup goes behind a small `icon(name)` indirection so callers use
-  hanabi-neutral names; the mac shim maps to SF names, the fallback maps to a
-  bundled SVG.
+## Explicitly NOT doing (now)
+- NOT bundling Apple SF Symbols (Apple-licensed, non-redistributable).
+- NOT rendering SF Symbols from the OS via an Obj-C++ NSImage shim — possible
+  later for extra native polish, but it's more complexity than the one-file
+  spritesheet and NOT needed to look native. Left as an optional future note.
+- NOT adding any package/dependency/CDN. One file in the repo, that's it.
 
-## Phase placement
-- Currently the app draws glyphs as vector shapes (triangle/diamond/circle) via
-  afterhours draw primitives — fine for status glyphs. The SF-Symbol work is a
-  polish phase (chrome icons: gear, plus, search, sidebar toggle, folder, pin,
-  archive, close). See docs/phased-plan.md Phase H (icons).
+## How to (re)generate the sheet (later, Phase H)
+- Pull the ~15 Lucide SVGs by name, normalize to a common box, rasterize into a
+  single PNG grid (monochrome/white on transparent), emit the name->cell map.
+  A small offline script (scripts/gen_icons.*) does this; committing the OUTPUT
+  (icons.png + map + LICENSE) is what matters — the script is a convenience.
+
+## Phase
+- Phase H (docs/phased-plan.md): swap ad-hoc chrome icons to the Lucide
+  spritesheet; keep drawn status glyphs. License-audit gate: repo has NO Apple
+  assets; the set is ISC/MIT with LICENSE present; icons load from the single sheet.
