@@ -90,18 +90,22 @@ Validate against docs/mock-phases/phaseF.html:
 menu-bar NSStatusItem (blocked count + new chat), real Spotlight kickoff, global hotkey,
 native notifications, offline cache. Validated per-item when built.
 
-## Phase H — Native icons (SwiftUI-native look)
-Build: replace ad-hoc chrome icons with real SF Symbols rendered from the OS on
-macOS (via an NSImage imageWithSystemSymbolName .mm shim — NO Apple assets in the
-repo, NO vendor edit), and a bundled Lucide (ISC) fallback set for non-mac /
-older-OS. Icon lookup behind a hanabi-neutral `icon(name)` indirection. See docs/icons.md.
+## Phase H — Native icons (single replaceable spritesheet)
+Build: swap ad-hoc chrome icons to ONE Lucide (ISC) spritesheet — a single
+`resources/icons/icons.png` atlas (monochrome/white on transparent, tinted per
+theme at draw time) + a tiny `name->cell` map; the app loads the one texture at
+startup and blits sub-rects. HTML mock uses one inline `<svg><symbol>` sprite
+block. No installs, no per-icon files, no dependency, no Apple assets. Same
+hanabi-neutral names on both sides so it stays swappable. See docs/icons.md.
 Validate (screenshot + license audit):
-- [ ] Chrome icons (gear, plus, search, sidebar toggle, folder, pin, archive, close)
-      render as crisp SF Symbols on macOS 11+ — visually match the system look.
+- [ ] Chrome icons (gear, plus, search, sidebar toggle, chevron, folder,
+      folder-grid, pin, archive, close, home, star) render from the single sheet,
+      crisp, SF-adjacent look; tinted correctly for the dark theme.
 - [ ] Status glyphs (triangle/diamond/dot) remain the drawn vector shapes (intentional).
-- [ ] Repo contains NO Apple SF Symbol font/SVG assets (grep audit); fallback set is
-      Lucide ISC with its LICENSE file present in resources/icons/.
-- [ ] On a simulated no-symbol path, the Lucide fallback renders (no missing icons).
+- [ ] Repo contains NO Apple SF Symbol assets (grep audit); the set is Lucide ISC
+      with resources/icons/LICENSE present; NO added package/CDN/dependency.
+- [ ] Swapping the sheet is a single-file replace (icons.png + map) — documented.
+
 
 ## Phase P — Launch-time performance (HARD GATE: cold launch < 250 ms)
 Goal: the app must LAUNCH in under 250 ms (cold), measured to first fully-rendered
