@@ -136,30 +136,24 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     gcfg.width = w;
     gcfg.height = h;
     gcfg.target_fps = 60;
-    fprintf(stderr, "DBG before init\n"); fflush(stderr);
     if (!graphics::init(gcfg)) {
         fprintf(stderr, "headless init failed (no GPU?)\n");
         return 1;
     }
-    fprintf(stderr, "DBG after init\n"); fflush(stderr);
 
     Preload::get().init("hanabi").make_singleton();
     setup_app_state();
-    fprintf(stderr, "DBG after setup_app_state\n"); fflush(stderr);
 
     SystemManager sm;
     app_state::systemManager = &sm;
     build_systems(sm);
-    fprintf(stderr, "DBG after build_systems\n"); fflush(stderr);
 
     // Render several frames so async data loads and layout settles.
     constexpr int kFrames = 45;
     for (int i = 0; i < kFrames; ++i) {
-        fprintf(stderr, "DBG frame %d begin\n", i); fflush(stderr);
         graphics::begin_frame();
         graphics::clear_background(afterhours::Color{28, 28, 32, 255});
         sm.run(1.0f / 60.0f);
-        fprintf(stderr, "DBG frame %d ran\n", i); fflush(stderr);
         graphics::end_frame();
     }
 
@@ -174,7 +168,14 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
 }
 
 int main(int argc, char* argv[]) {
-    argh::parser cmdl(argc, argv);
+    argh::parser cmdl;
+    // --screenshot takes a path value. It MUST be pre-registered as a param;
+    // otherwise argh parses the space-separated form ("--screenshot <path>")
+    // as a bare flag plus a positional arg, cmdl.params() comes back empty,
+    // and we silently fall through to the windowed run() path — which opens a
+    // real Metal window and never exits in a headless/one-shot context.
+    cmdl.add_params({"--screenshot"});
+    cmdl.parse(argc, argv);
 
     // --version prints and exits.
     if (cmdl["--version"] || cmdl["-V"]) {
@@ -185,10 +186,8 @@ int main(int argc, char* argv[]) {
     app_state::startTime = std::chrono::high_resolution_clock::now();
 
     // --screenshot <path>: headless one-shot render + capture (docs/smoke).
-    std::string shot;
-    for (auto& [name, value] : cmdl.params()) {
-        if (name == "screenshot") shot = value;
-    }
+    // Accepts both "--screenshot <path>" and "--screenshot=<path>".
+    std::string shot = cmdl("screenshot").str();
     if (!shot.empty()) {
         return run_headless_screenshot(shot, 1100, 760);
     }
