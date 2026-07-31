@@ -428,7 +428,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.top = pixels(2), .right = pixels(8),
-                                      .bottom = pixels(2), .left = pixels(16)})
+                                      .bottom = pixels(2), .left = pixels(10)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
                 .with_custom_hover_bg(theme::hover_bg())

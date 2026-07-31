@@ -34,3 +34,12 @@ status field.
 ## Follow-ups to resolve during build
 - #8 Spotlight: determine the real macOS mechanism (App Intents vs Service vs
   URL scheme) and whether it needs a signed/bundled .app. Report options.
+
+## Update (2026-07-31, session)
+- THEME: dark-only for now. Light tokens stay in theme.h (single swappable
+  Tokens struct) so enabling light later is a one-line set_mode() — but don't
+  spend effort polishing light-mode layout yet. afterhours' token system makes
+  the eventual switch trivial.
+- SIDEBAR ROWS: no indent for folder threads. The shape-per-status glyph carries
+  the meaning, so rows sit flush (left pad matches the folder header) to reclaim
+  horizontal space for titles.
