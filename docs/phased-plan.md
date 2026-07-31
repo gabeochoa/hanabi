@@ -13,7 +13,18 @@ Global validation rules (apply EVERY phase — the agent must check all):
   section label 10.5, counts 11, transcript h2 14). No invented sizes.
 - PANEL LAYOUT matches: sidebar 280px (52px folded), title bar 38px, tab strip 38px,
   status bar 26px, transcript fills the rest. Panels aligned, no gaps/overlaps.
-- Spacing/padding visually matches the mock (row density, header paddings).
+- PADDING & MARGIN match the mock per-element (row paddings, header paddings,
+  section-label paddings, card paddings, gaps between items). Audit each container's
+  inner padding and inter-item spacing against docs/spec-metrics.md; flag any that
+  reads tighter/looser than the mock.
+- VERTICAL CENTERING (check explicitly, every row/header/button): the glyph/icon,
+  title text, count, and any trailing control must be VERTICALLY CENTERED within
+  their row's height — no item sitting high or low. Check: sidebar thread rows
+  (glyph vs title baseline), smart-view rows (icon vs label vs count), folder
+  headers (chevron vs name vs count), the title bar (brand vs gear), tab strip
+  (label vs close), status bar text, and the transcript header. Icons/glyphs in a
+  fixed-size slot must be centered in that slot. This is the #1 "looks off" bug —
+  call out ANY vertical misalignment with the specific element.
 - Colors match tokens (dark default): bg 28/28/32, sidebar 22/22/26, accent 90/128/255.
 - Alignment: glyphs, chevrons, counts vertically centered in rows; columns aligned.
 - Compare SIDE BY SIDE with docs/mock-phases/phaseN.html rendered at 1180x760 —
@@ -176,3 +187,48 @@ Validate:
 - [ ] No vendor edits; any memory knob afterhours doesn't expose -> afterhours_gaps.md.
 
 
+
+## Phase R — Refactoring / code-health pass (scheduled)
+Purpose: consolidate after several feature phases so the codebase stays clean as it
+grows. NOT a behavior change — pure internal quality. Do NOT touch vendor/.
+Scope:
+- De-duplicate layout/padding constants: centralize the pixel spec (row heights,
+  paddings, gaps, glyph/icon sizes) into ONE place (e.g. src/ui/metrics.h) that the
+  systems read, so mock-parity values live in a single source of truth (mirrors
+  docs/spec-metrics.md). Removes magic numbers scattered across sidebar/main-pane/tab systems.
+- Ensure the graphics-free model headers (thread_model.h, tab_model.h) remain the
+  single home for state/glyph/smart-view/tab logic; fold any drifted duplicate logic back.
+- Tidy the icon system (src/ui/icons.h) + theme tokens; make sure light tokens still
+  compile even though dark-only is shipped.
+- Split any oversized system headers; consistent naming; remove dead code.
+- Keep the e2e/perf suite green throughout (make test); no perf regression.
+Validate:
+- [ ] make -j4 clean (0 warnings); make test green; no behavior/visual change (screenshot diff vs pre-refactor).
+- [ ] Pixel constants come from one metrics source; systems reference it.
+- [ ] Perf baseline unchanged (startup/RSS within noise).
+- [ ] vendor/ untouched; afterhours_gaps.md updated with anything the refactor wanted but couldn't do upstream.
+
+## Phase V — Backend API verification (Navi + AgentCloud) via the adapter
+Purpose: prove hanabi's api::Client + config-driven HTTP adapter can target BOTH the
+current backend AND its successor, WITHOUT hardcoding either or naming them in the repo.
+(Everything stays generic: base_url/token/paths/field-map from runtime config; the repo
+never contains a real endpoint, key, schema, or product name. Mock stays the default.)
+Scope:
+- Confirm the adapter's Config field-map is sufficient for the two real API response
+  shapes (session list, transcript, message roles/blocks). Add config knobs for any
+  shape difference (e.g. an OPTIONAL thread-`state`/attention field the client reads if
+  present, else derives client-side — see the derived high-signal rules).
+- Verify auth is pluggable enough for a device-code / bearer-token flow supplied at runtime
+  (no auth baked in). Streaming (SSE) as an optional adapter capability behind config.
+- Provide a config-only way (env / local ~/.config/hanabi/config.json, untracked) to point
+  at either backend for a manual smoke test — documented, but NO real values committed.
+- A `cancel`/abort adapter method stub (no-op on mock) so the interface is ready if a
+  backend exposes it.
+Validate:
+- [ ] With no config: mock backend renders (unchanged zero-config default).
+- [ ] The adapter maps BOTH real API shapes via config field-name overrides (proven with a
+      local, uncommitted fixture per shape — fixtures are generic/sanitized, never real data).
+- [ ] Optional `state` field: populated when the backend supplies it; derived client-side when absent.
+- [ ] Repo audit: NO real endpoint/key/schema/product-name committed; still generic + mock-default.
+- [ ] Streaming + cancel are optional adapter capabilities (present in the interface, gated by config).
+NOTE: detailed (non-committed) parity findings live in the user's workspace notes, not the repo.
