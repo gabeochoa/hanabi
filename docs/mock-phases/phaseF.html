@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hanabi — Phase F</title>
+<style>
+/* ============================================================
+   THEME TOKENS — single swappable set (mirrors the C++ plan)
+   ============================================================ */
+:root {
+  /* dark palette (anchor) */
+  --bg: rgb(28,28,32);
+  --sidebar-bg: rgb(22,22,26);
+  --panel-bg: rgb(28,28,32);
+  --panel-bg-2: rgb(34,34,40);
+  --border: rgb(52,52,60);
+  --border-soft: rgba(255,255,255,0.05);
+  --text-primary: rgb(222,222,228);
+  --text-secondary: rgb(138,138,150);
+  --text-faint: rgb(96,96,108);
+  --accent: rgb(90,128,255);
+  --accent-soft: rgba(90,128,255,0.15);
+  --role-user: rgb(90,128,255);
+  --role-assistant: rgb(126,200,140);
+  --role-system: rgb(180,150,90);
+  --role-tool: rgb(150,130,200);
+  --selected-bg: rgb(48,66,120);
+  --hover-bg: rgba(255,255,255,0.045);
+  --dot: rgb(90,128,255);
+  --tag-blocked-fg: rgb(255,120,120);
+  --tag-blocked-bg: rgba(255,90,90,0.14);
+  --tag-ready-fg: rgb(126,210,150);
+  --tag-ready-bg: rgba(120,210,140,0.14);
+  --tag-done-fg: rgb(120,160,255);
+  --tag-done-bg: rgba(90,128,255,0.16);
+  --code-bg: rgb(18,18,22);
+  --shadow: rgba(0,0,0,0.45);
+  --composer-bg: rgb(34,34,40);
+  --traffic-red:#ff5f57; --traffic-yellow:#febc2e; --traffic-green:#28c840;
+  --macbar-bg: rgba(30,30,34,0.72); --macbar-border: rgba(255,255,255,0.08);
+  --macbar-text: rgba(255,255,255,0.92); --macbar-hover: rgba(255,255,255,0.14);
+  --dot-grid: rgba(255,255,255,0.05);
+}
+
+[data-theme="light"] {
+  --bg: rgb(244,244,247);
+  --sidebar-bg: rgb(236,236,240);
+  --panel-bg: rgb(252,252,253);
+  --panel-bg-2: rgb(246,246,249);
+  --border: rgb(216,216,222);
+  --border-soft: rgba(0,0,0,0.05);
+  --text-primary: rgb(34,34,42);
+  --text-secondary: rgb(120,120,132);
+  --text-faint: rgb(168,168,178);
+  --accent: rgb(58,102,248);
+  --accent-soft: rgba(58,102,248,0.12);
+  --role-user: rgb(58,102,248);
+  --role-assistant: rgb(46,150,80);
+  --role-system: rgb(168,128,40);
+  --role-tool: rgb(126,96,196);
+  --selected-bg: rgb(214,226,255);
+  --hover-bg: rgba(0,0,0,0.04);
+  --dot: rgb(58,102,248);
+  --tag-blocked-fg: rgb(200,44,44);
+  --tag-blocked-bg: rgba(220,60,60,0.12);
+  --tag-ready-fg: rgb(30,140,66);
+  --tag-ready-bg: rgba(40,160,80,0.14);
+  --tag-done-fg: rgb(48,92,224);
+  --tag-done-bg: rgba(58,102,248,0.12);
+  --code-bg: rgb(240,240,244);
+  --shadow: rgba(0,0,0,0.16);
+  --composer-bg: rgb(248,248,250);
+  --macbar-bg: rgba(245,245,247,0.72); --macbar-border: rgba(0,0,0,0.10);
+  --macbar-text: rgba(0,0,0,0.82); --macbar-hover: rgba(0,0,0,0.08);
+  --dot-grid: rgba(0,0,0,0.055);
+}
+
+* { box-sizing: border-box; margin:0; padding:0; }
+html, body { height:100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background: transparent;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  font-size: 13px;
+  line-height: 1.5;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  min-height:100vh;
+  padding: 0;
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(90,128,255,0.10), transparent 60%),
+    radial-gradient(1000px 700px at 110% 120%, rgba(126,200,140,0.06), transparent 55%),
+    #0d0d10;
+}
+[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(58,102,248,0.10), transparent 60%),
+    radial-gradient(1000px 700px at 110% 120%, rgba(46,150,80,0.05), transparent 55%),
+    #c9cad0;
+}
+
+/* ============================================================
+   WINDOW CHROME
+   ============================================================ */
+.window {
+  width: 1180px;
+  height: 760px;
+  max-width: 100%;
+  max-height: calc(100vh - 76px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px var(--shadow), 0 2px 6px rgba(0,0,0,0.3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.titlebar {
+  height: 38px;
+  flex: 0 0 38px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  gap: 12px;
+  -webkit-user-select: none; user-select:none;
+}
+.traffic { display:flex; gap:8px; align-items:center; }
+.traffic .light { width:12px; height:12px; border-radius:50%; }
+.traffic .red{background:var(--traffic-red);}
+.traffic .yellow{background:var(--traffic-yellow);}
+.traffic .green{background:var(--traffic-green);}
+.titlebar .title {
+  flex:1; text-align:center; font-weight:600; font-size:12.5px;
+  color: var(--text-secondary); letter-spacing:0.2px;
+}
+.titlebar .title b { color: var(--text-primary); font-weight:700; }
+.titlebar-actions { display:flex; gap:6px; align-items:center; }
+.iconbtn {
+  width: 28px; height:26px; border-radius:7px; border:1px solid transparent;
+  background: transparent; color: var(--text-secondary);
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  transition: background .12s, color .12s;
+}
+.iconbtn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.iconbtn svg { width:16px; height:16px; }
+
+/* ============================================================
+   BODY LAYOUT
+   ============================================================ */
+.body { flex:1; display:flex; min-height:0; }
+
+/* ---------- SIDEBAR ---------- */
+.sidebar {
+  flex: 0 0 280px;
+  width: 280px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  transition: width .18s ease, flex-basis .18s ease;
+  overflow: hidden;
+}
+.window.folded .sidebar { flex-basis: 52px; width:52px; }
+
+/* sidebar header: brand + action icons (new task, settings, collapse) */
+.sb-header {
+  display:flex; align-items:center; gap:4px;
+  padding: 9px 8px 5px 14px; min-height:40px; box-sizing:border-box;
+}
+.sb-brand { display:flex; align-items:center; gap:7px; flex:1; min-width:0; }
+.sb-mark { color: var(--accent); font-size:15px; line-height:1; }
+.sb-brandname {
+  font-size:13.5px; font-weight:700; color: var(--text-primary);
+  letter-spacing:0.2px; white-space:nowrap;
+}
+.sb-actions { display:flex; align-items:center; gap:1px; flex:0 0 auto; }
+.sb-actions .iconbtn {
+  width:26px; height:26px; border-radius:7px; color: var(--text-faint);
+}
+.sb-actions .iconbtn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.sb-actions .iconbtn svg { width:16px; height:16px; }
+.sb-collapse .ic-unfold { display:none; }
+/* folded: stack the action icons vertically in the thin rail, hide brand,
+   flip the collapse chevron to an expand chevron */
+.window.folded .sb-header {
+  flex-direction:column; gap:2px; padding:9px 0 5px; min-height:0;
+}
+.window.folded .sb-brand { display:none; }
+.window.folded .sb-actions { flex-direction:column; gap:2px; }
+.window.folded .sb-collapse { order:-1; }   /* expand toggle on top in the rail */
+.window.folded .sb-collapse .ic-fold { display:none; }
+.window.folded .sb-collapse .ic-unfold { display:block; }
+
+/* search */
+.sb-top { padding: 10px 10px 6px; }
+.search {
+  display:flex; align-items:center; gap:6px;
+  background: var(--panel-bg-2); border:1px solid var(--border);
+  border-radius:8px; padding: 5px 8px;
+}
+.search svg { width:13px; height:13px; color:var(--text-faint); flex:0 0 auto; }
+.search input {
+  border:none; background:transparent; outline:none; color:var(--text-primary);
+  font-size:12.5px; width:100%; font-family:inherit;
+}
+.search input::placeholder { color: var(--text-faint); }
+.window.folded .search { justify-content:center; padding:6px; }
+.window.folded .search input { display:none; }
+
+/* smart views */
+.sb-section-label {
+  font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px;
+  color: var(--text-faint); font-weight:600; padding: 10px 14px 5px;
+}
+.window.folded .sb-section-label { display:none; }
+
+.smart-list { padding: 0 8px; }
+.smart-item {
+  display:flex; align-items:center; gap:10px;
+  padding: 6px 8px; border-radius:8px; cursor:pointer; color: var(--text-secondary);
+  position:relative; transition: background .1s;
+}
+.smart-item:hover { background: var(--hover-bg); color: var(--text-primary); }
+.smart-item.active { background: var(--selected-bg); color: var(--text-primary); }
+.smart-item .ic { width:18px; height:18px; flex:0 0 18px; display:flex; align-items:center; justify-content:center; }
+.smart-item .ic svg { width:16px; height:16px; }
+.smart-item .lbl { flex:1; font-size:13px; font-weight:500; white-space:nowrap; }
+.smart-item .cnt {
+  font-size:11px; color: var(--text-faint); font-variant-numeric: tabular-nums;
+  min-width:16px; text-align:right;
+}
+.smart-item.active .cnt { color: var(--text-primary); }
+.window.folded .smart-item .lbl, .window.folded .smart-item .cnt { display:none; }
+.window.folded .smart-item { justify-content:center; padding:8px 0; margin: 2px 4px; }
+
+/* badge on folded rail */
+.rail-badge {
+  position:absolute; top:2px; right:6px;
+  background: var(--tag-blocked-fg); color:#fff;
+  font-size:9px; font-weight:700; min-width:15px; height:15px; line-height:15px;
+  border-radius:8px; text-align:center; padding:0 3px; display:none;
+}
+.window.folded .smart-item .rail-badge { display:block; }
+
+/* folders + chats (unfolded only) */
+.sb-scroll { flex:1; overflow-y:auto; overflow-x:hidden; }
+.window.folded .sb-scroll { overflow:hidden; }
+.window.folded .folders, .window.folded .recent-chats { display:none; }
+
+.folder-group { padding: 0 8px; }
+.folder-head {
+  display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:7px;
+  cursor:pointer; color: var(--text-secondary); font-size:12px; font-weight:600;
+}
+.folder-head:hover { background: var(--hover-bg); }
+.folder-head .chev { width:12px; height:12px; transition: transform .12s; flex:0 0 12px; }
+.folder-head.collapsed .chev { transform: rotate(-90deg); }
+.folder-head .fico { width:13px; height:13px; flex:0 0 13px; color: var(--text-faint); }
+.archived-group { margin-top:4px; }
+.archived-group .fname { color: var(--text-faint); }
+.folder-head .fname { flex:1; }
+.folder-head .fcount { font-size:11px; color:var(--text-faint); font-weight:500; }
+.folder-head .fcount.attn { color: var(--accent); font-weight:700; }
+.folder-body { overflow:hidden; padding-left: 14px; margin-left: 13px; border-left: 1px solid var(--border); }
+.folder-head.collapsed + .folder-body { display:none; }
+
+/* chat row */
+.chat-row {
+  display:flex; align-items:center; gap:8px; padding:3px 8px 3px 10px;
+  border-radius:6px; cursor:pointer; color: var(--text-secondary);
+  transition: background .1s; line-height:1.25;
+}
+.chat-row:hover { background: var(--hover-bg); }
+/* status glyph — a DEDICATED SHAPE per status (not color-only), shown only
+   when the thread needs attention (waiting/blocked/review/done). Self-running,
+   parked and archived show nothing. */
+.chat-row .glyph { width:9px; height:9px; flex:0 0 9px; margin-left:1px; position:relative; display:none; }
+.chat-row.has-glyph .glyph { display:block; }
+/* blocked = red UP-TRIANGLE (most urgent) */
+.glyph.g-blocked { width:0; height:0; background:transparent;
+  border-left:5px solid transparent; border-right:5px solid transparent;
+  border-bottom:9px solid var(--tag-blocked-fg); }
+/* review = green DIAMOND (agent-verified, ready to look) */
+.glyph.g-review { width:8px; height:8px; background: var(--tag-ready-fg); transform: rotate(45deg); border-radius:1px; }
+/* done = blue DOT (finished) */
+.glyph.g-done { width:8px; height:8px; background: var(--tag-done-fg); border-radius:50%; }
+/* working = HOLLOW ring (a sub-agent is running) — outline, not filled */
+.glyph.g-working { display:block !important; width:9px; height:9px;
+  background:transparent; border:1.6px solid var(--text-faint); border-radius:50%;
+  box-sizing:border-box; animation: ring-pulse 1.6s ease-in-out infinite; }
+@keyframes ring-pulse { 0%,100%{ opacity:.45 } 50%{ opacity:1 } }
+/* the working ring on a parent row sits just right of the status shape */
+.chat-row .glyph.g-working { flex:0 0 9px; margin-left:-2px; border-color: var(--accent); }
+
+/* ---- sub-agents (nested, collapsed by default) ---- */
+.chat-item {}
+.subtoggle { width:13px; height:13px; flex:0 0 13px; display:flex; align-items:center; justify-content:center;
+  color: var(--text-faint); cursor:pointer; border-radius:4px; }
+.subtoggle:hover { color: var(--text-primary); background: var(--hover-bg); }
+.subtoggle .chev { width:11px; height:11px; transition: transform .12s; }
+.chat-item.collapsed .subtoggle .chev { transform: rotate(-90deg); }
+.subtoggle-spacer { width:13px; flex:0 0 13px; }   /* align rows without subs */
+.subcount { font-size:10px; color: var(--text-faint); font-variant-numeric:tabular-nums;
+  min-width:14px; text-align:right; flex:0 0 auto; }
+.subrows { padding-left: 22px; }
+.chat-item.collapsed .subrows { display:none; }
+.subrow { display:flex; align-items:center; gap:7px; padding:2px 8px 2px 4px; border-radius:6px;
+  cursor:pointer; color: var(--text-faint); position:relative; line-height:1.2; }
+.subrow:hover { background: var(--hover-bg); }
+.subrow .subtwig { width:8px; height:1px; background: var(--border); flex:0 0 8px; }
+.subrow .ctitle { flex:1; font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color: var(--text-faint); }
+.subrow.running .ctitle { color: var(--text-secondary); }
+.subrow.done .ctitle { color: var(--text-faint); }
+.subrow .glyph { width:8px; height:8px; flex:0 0 8px; }
+.chat-row .ctitle {
+  flex:1; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  color: var(--text-secondary);
+}
+.chat-row.attn .ctitle { font-weight:700; color: var(--text-primary); }
+.chat-row.running .ctitle { color: var(--text-faint); }        /* dimmed, calm */
+.chat-row.parked { opacity:0.42; }
+.chat-row.parked .ctitle { color: var(--text-faint); }
+.tag {
+  font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:5px;
+  letter-spacing:0.3px; flex:0 0 auto; text-transform:uppercase;
+}
+.tag.blocked { color:var(--tag-blocked-fg); background:var(--tag-blocked-bg); }
+.tag.ready { color:var(--tag-ready-fg); background:var(--tag-ready-bg); }
+.tag.done { color:var(--tag-done-fg); background:var(--tag-done-bg); }
+
+.recent-label { margin-top:4px; }
+
+/* All Folders overview */
+.folder-ov { margin-bottom: 22px; }
+.folder-ov-head {
+  display:flex; align-items:center; gap:8px; margin-bottom:10px;
+  padding-bottom:6px; border-bottom:1px solid var(--border);
+}
+.folder-ov-head .fo-name { font-size:14px; font-weight:700; color:var(--text-primary); flex:1; }
+.folder-ov-head .fo-count { font-size:12px; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+.folder-ov-head .fo-badge {
+  font-size:11px; font-weight:700; color:#fff; background:var(--accent);
+  border-radius:6px; padding:2px 8px;
+}
+
+/* keep search hidden in folded rail */
+.window.folded .sb-top { display:none; }
+
+/* ---------- MAIN ---------- */
+.main { flex:1; display:flex; flex-direction:column; min-width:0; background: var(--bg); }
+
+/* tab strip */
+.tabstrip {
+  flex:0 0 38px; height:38px; display:flex; align-items:stretch;
+  border-bottom:1px solid var(--border); background: var(--sidebar-bg);
+  overflow-x:auto; overflow-y:hidden;
+}
+.tabstrip::-webkit-scrollbar { height:0; }
+.tab {
+  display:flex; align-items:center; gap:8px; padding: 0 12px;
+  border-right:1px solid var(--border); cursor:pointer; color: var(--text-secondary);
+  font-size:12.5px; max-width:220px; position:relative; white-space:nowrap; flex:0 0 auto;
+}
+.tab:hover { background: var(--hover-bg); }
+.tab.active { background: var(--bg); color: var(--text-primary); }
+.tab.active::after {
+  content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px; background: var(--accent);
+}
+.tab .tt { max-width:160px; overflow:hidden; text-overflow:ellipsis; }
+.tab .tclose {
+  width:16px; height:16px; border-radius:4px; display:flex; align-items:center; justify-content:center;
+  color: var(--text-faint); flex:0 0 16px;
+}
+.tab .tclose:hover { background: var(--hover-bg); color: var(--text-primary); }
+.tab .tclose svg { width:10px; height:10px; }
+.tab-add {
+  display:flex; align-items:center; justify-content:center; width:34px; flex:0 0 34px;
+  cursor:pointer; color: var(--text-faint);
+}
+.tab-add:hover { color: var(--text-primary); background: var(--hover-bg); }
+.tab-add svg { width:14px; height:14px; }
+
+/* content area */
+.content { flex:1; min-height:0; position:relative; }
+.screen { position:absolute; inset:0; display:none; flex-direction:column; }
+.screen.active { display:flex; }
+
+/* ---------- TRANSCRIPT ---------- */
+.transcript-head {
+  flex:0 0 auto; padding:12px 20px 10px; border-bottom:1px solid var(--border-soft);
+  display:flex; align-items:center; gap:10px;
+}
+.transcript-head h2 { font-size:14px; font-weight:700; color:var(--text-primary); }
+.transcript-head .sub { font-size:11.5px; color:var(--text-secondary); }
+.transcript { flex:1; overflow-y:auto; padding: 16px 20px 8px; }
+.msg { display:flex; gap:12px; margin-bottom:18px; max-width:760px; }
+.msg .avatar {
+  width:26px; height:26px; border-radius:7px; flex:0 0 26px; margin-top:1px;
+  display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#fff;
+}
+.msg.user .avatar{ background: var(--role-user); }
+.msg.assistant .avatar{ background: var(--role-assistant); }
+.msg.tool .avatar{ background: var(--role-tool); }
+.msg.system .avatar{ background: var(--role-system); }
+.msg .bubble { flex:1; min-width:0; }
+.msg .meta { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.msg .role { font-size:11px; font-weight:700; letter-spacing:0.2px; }
+.msg.user .role{ color: var(--role-user); }
+.msg.assistant .role{ color: var(--role-assistant); }
+.msg.tool .role{ color: var(--role-tool); }
+.msg.system .role{ color: var(--role-system); }
+.msg .ts { font-size:10.5px; color: var(--text-faint); }
+.msg .text { color: var(--text-primary); font-size:13px; }
+.msg .text p { margin-bottom:7px; }
+.msg .text ul { margin: 4px 0 8px 18px; }
+.msg .text li { margin-bottom:3px; }
+.msg.tool .text, .msg.system .text { color: var(--text-secondary); font-size:12.5px; }
+.codeblock {
+  background: var(--code-bg); border:1px solid var(--border); border-radius:8px;
+  padding:10px 12px; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size:12px; color: var(--text-primary); overflow-x:auto; margin:6px 0 8px; line-height:1.55;
+}
+.codeblock .cm { color: var(--text-faint); }
+.codeblock .kw { color: var(--role-user); }
+.codeblock .st { color: var(--role-assistant); }
+
+/* composer */
+.composer {
+  flex:0 0 auto; border-top:1px solid var(--border); padding:10px 16px; display:flex; gap:10px; align-items:flex-end;
+  background: var(--panel-bg);
+}
+.composer .field {
+  flex:1; background: var(--composer-bg); border:1px solid var(--border); border-radius:10px;
+  padding:9px 12px; color: var(--text-primary); font-family:inherit; font-size:13px;
+  resize:none; outline:none; min-height:38px; max-height:120px; line-height:1.4;
+}
+.composer .field::placeholder { color: var(--text-faint); }
+.composer .field:focus { border-color: var(--accent); }
+.send-btn {
+  background: var(--accent); border:none; color:#fff; border-radius:9px; height:38px; width:38px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; flex:0 0 38px;
+}
+.send-btn:hover { filter:brightness(1.08); }
+.send-btn svg { width:16px; height:16px; }
+
+/* ---------- SMART VIEW SCREENS ---------- */
+.sv {
+  flex:1; overflow-y:auto; padding: 26px 34px;
+  background-image: radial-gradient(var(--dot-grid) 1.2px, transparent 1.2px);
+  background-size: 22px 22px; background-position: -1px -1px;
+}
+.sv-wrap { max-width: 720px; margin:0 auto; }
+.sv h1 { font-size:20px; font-weight:700; margin-bottom:2px; }
+.sv .sv-sub { color: var(--text-secondary); font-size:12.5px; margin-bottom:22px; }
+.sv h3 {
+  font-size:12px; text-transform:uppercase; letter-spacing:0.6px; color: var(--text-secondary);
+  font-weight:700; margin: 26px 0 10px;
+}
+.sv h3:first-of-type { margin-top:0; }
+
+/* numbered digest list */
+.digest { list-style:none; counter-reset: d; }
+.digest li {
+  counter-increment:d; display:flex; gap:14px; padding:12px 0; border-bottom:1px solid var(--border-soft);
+  align-items:flex-start;
+}
+.digest li::before {
+  content: counter(d); flex:0 0 22px; width:22px; height:22px; border-radius:50%;
+  background: var(--accent-soft); color: var(--accent); font-size:11px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; margin-top:1px;
+}
+.digest .dinfo { flex:1; min-width:0; }
+.digest .dtitle { font-size:13.5px; font-weight:600; color: var(--text-primary); }
+.digest .dctx { font-size:12px; color: var(--text-secondary); margin-top:2px; }
+.digest .daction { flex:0 0 auto; }
+.mini-btn {
+  background: transparent; border:1px solid var(--border); color: var(--text-primary);
+  border-radius:7px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer; font-family:inherit;
+  white-space:nowrap;
+}
+.mini-btn:hover { background: var(--hover-bg); border-color: var(--accent); }
+.mini-btn.primary { background: var(--accent); border-color: var(--accent); color:#fff; }
+.mini-btn.primary:hover { filter:brightness(1.08); }
+
+/* finished list */
+.finished li {
+  display:flex; gap:10px; align-items:baseline; padding:7px 0; color: var(--text-secondary); font-size:12.5px;
+  list-style:none; border-bottom:1px solid var(--border-soft);
+}
+.finished .fcheck { color: var(--role-assistant); flex:0 0 auto; }
+.finished .fname { color: var(--text-primary); font-weight:600; }
+.finished .fago { margin-left:auto; color: var(--text-faint); font-size:11px; }
+
+/* pinned to digest (user-chosen always-surface items) */
+.pinned { list-style:none; }
+.pinned li {
+  display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--border-soft);
+}
+.pinned .pin-dot { flex:0 0 auto; font-size:11px; opacity:0.65; line-height:1.3; }
+.pinned .pinfo { flex:1; min-width:0; }
+.pinned .ptitle { font-size:13px; font-weight:600; color: var(--text-primary); }
+.pinned .pctx { font-size:12px; color: var(--text-secondary); margin-top:2px; }
+.pinned .unpin {
+  flex:0 0 auto; background:transparent; border:none; color: var(--text-faint);
+  font-size:15px; line-height:1; cursor:pointer; padding:2px 4px; border-radius:5px; font-family:inherit;
+}
+.pinned .unpin:hover { background: var(--hover-bg); color: var(--text-secondary); }
+
+/* self-running collapsed */
+.selfrun-head {
+  display:flex; align-items:center; gap:8px; cursor:pointer; color: var(--text-faint);
+  font-size:12px; text-transform:uppercase; letter-spacing:0.6px; font-weight:700; margin-top:26px;
+}
+.selfrun-head .chev { width:12px; height:12px; transition:transform .12s; }
+.selfrun-head.collapsed .chev { transform: rotate(-90deg); }
+.selfrun-body { margin-top:8px; }
+.selfrun-head.collapsed + .selfrun-body { display:none; }
+.selfrun-row {
+  display:flex; align-items:center; gap:10px; padding:5px 0; color: var(--text-faint); font-size:12px;
+}
+.selfrun-row .spin {
+  width:11px; height:11px; border:2px solid var(--text-faint); border-top-color:transparent;
+  border-radius:50%; animation: spin 1s linear infinite; flex:0 0 11px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* blocked / ready card rows */
+.card {
+  border:1px solid var(--border); background: var(--panel-bg-2); border-radius:10px;
+  padding:14px 16px; margin-bottom:12px;
+}
+.card .chead { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+.card .cname { font-size:13.5px; font-weight:700; flex:1; }
+.card .cneed {
+  font-size:12px; color: var(--text-secondary); margin-bottom:4px;
+}
+.card .cneed b { color: var(--text-primary); }
+.card .cctx { font-size:12px; color: var(--text-secondary); margin-bottom:12px; }
+.card .cactions { display:flex; gap:8px; }
+.card .steps { list-style:none; margin:6px 0 12px; }
+.card .steps li { font-size:12px; color: var(--text-secondary); padding:3px 0 3px 20px; position:relative; }
+.card .steps li::before {
+  content:''; position:absolute; left:4px; top:8px; width:6px; height:6px; border-radius:50%;
+  background: var(--role-assistant);
+}
+.checkpass { color: var(--role-assistant); font-size:11.5px; font-weight:600; display:flex; align-items:center; gap:5px; }
+.checkpass svg { width:13px; height:13px; }
+.reviewnote { font-size:12.5px; color: var(--text-secondary); line-height:1.55; margin:8px 0 12px; }
+
+/* ============================================================
+   SPOTLIGHT MODAL
+   ============================================================ */
+.overlay {
+  position:absolute; inset:0; background: rgba(0,0,0,0.42);
+  display:none; align-items:flex-start; justify-content:center; padding-top:120px; z-index:50;
+  backdrop-filter: blur(2px);
+}
+.overlay.open { display:flex; }
+.spotlight {
+  width: 560px; max-width:90%; background: var(--panel-bg); border:1px solid var(--border);
+  border-radius:14px; box-shadow: 0 30px 80px var(--shadow); overflow:hidden;
+}
+.spotlight .sl-input {
+  display:flex; align-items:center; gap:12px; padding: 16px 18px; border-bottom:1px solid var(--border);
+}
+.spotlight .sl-input svg { width:20px; height:20px; color: var(--accent); flex:0 0 20px; }
+.spotlight .sl-input input {
+  border:none; background:transparent; outline:none; color: var(--text-primary);
+  font-size:17px; width:100%; font-family:inherit;
+}
+.spotlight .sl-input input::placeholder { color: var(--text-faint); }
+.sl-section { font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-faint);
+  font-weight:600; padding:12px 18px 4px; }
+.sl-item {
+  display:flex; align-items:center; gap:12px; padding:9px 18px; cursor:pointer; color: var(--text-primary);
+}
+.sl-item:hover, .sl-item.sel { background: var(--selected-bg); }
+.sl-item .sic { width:16px; height:16px; color: var(--text-secondary); flex:0 0 16px; display:flex; }
+.sl-item .sic svg { width:16px; height:16px; }
+.sl-item .slabel { flex:1; font-size:13px; }
+.sl-item .skey { font-size:10.5px; color: var(--text-faint); font-family: ui-monospace, monospace;
+  border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+.sl-foot { padding:8px 18px; border-top:1px solid var(--border); font-size:11px; color: var(--text-faint);
+  display:flex; gap:16px; }
+.sl-foot kbd { font-family: ui-monospace, monospace; background: var(--panel-bg-2);
+  border:1px solid var(--border); border-radius:4px; padding:0 5px; }
+
+/* ============================================================
+   MENU-BAR POPOVER
+   ============================================================ */
+.menubar-pop {
+  position:absolute; top:44px; right:14px; width: 300px; z-index:40;
+  background: var(--panel-bg); border:1px solid var(--border); border-radius:12px;
+  box-shadow: 0 20px 50px var(--shadow); overflow:hidden; display:none;
+}
+.menubar-pop.open { display:block; }
+.menubar-pop::before {
+  content:''; position:absolute; top:-6px; right:26px; width:12px; height:12px;
+  background: var(--panel-bg); border-left:1px solid var(--border); border-top:1px solid var(--border);
+  transform: rotate(45deg);
+}
+.mb-head { padding:12px 14px 8px; font-size:12px; font-weight:700; color: var(--text-primary); }
+.mb-newtask { padding: 0 14px 12px; }
+.mb-newtask .mbfield {
+  width:100%; background: var(--composer-bg); border:1px solid var(--border); border-radius:9px;
+  padding:8px 11px; color: var(--text-primary); font-size:12.5px; outline:none; font-family:inherit;
+}
+.mb-newtask .mbfield::placeholder { color: var(--text-faint); }
+.mb-sec { font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color: var(--text-faint);
+  font-weight:700; padding: 4px 14px; border-top:1px solid var(--border); }
+.mb-row { display:flex; align-items:center; gap:9px; padding:8px 14px; cursor:pointer; }
+.mb-row:hover { background: var(--hover-bg); }
+.mb-row .mtitle { flex:1; font-size:12.5px; color: var(--text-primary); font-weight:600;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mb-row .msub { font-size:11px; color: var(--text-secondary); }
+.mb-foot { padding:9px 14px; border-top:1px solid var(--border); }
+
+/* scrollbars */
+::-webkit-scrollbar { width:9px; height:9px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius:6px; border:2px solid transparent;
+  background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); background-clip: padding-box; }
+
+/* tooltip (folded rail) */
+[data-tip] { position:relative; }
+.window.folded [data-tip]:hover::after {
+  content: attr(data-tip); position:absolute; left:100%; top:50%; transform: translateY(-50%);
+  margin-left:10px; background: var(--panel-bg); color: var(--text-primary); border:1px solid var(--border);
+  padding:3px 8px; border-radius:6px; font-size:11px; white-space:nowrap; z-index:60;
+  box-shadow: 0 4px 12px var(--shadow);
+}
+/* ===== macOS system menu bar (outside the app window) ===== */
+.macbar {
+  position: sticky; top:0; z-index:100;
+  width:100%; height:26px; flex:0 0 26px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 0 12px; box-sizing:border-box;
+  background: var(--macbar-bg);
+  border-bottom: 1px solid var(--macbar-border);
+  backdrop-filter: saturate(180%) blur(20px);
+  font-size: 13px; color: var(--macbar-text);
+  -webkit-user-select:none; user-select:none;
+}
+.macbar-left, .macbar-right { display:flex; align-items:center; gap:16px; }
+.macbar-left { gap:15px; }
+.macbar .apple { width:13px; height:15px; display:inline-block;
+  -webkit-mask: no-repeat center/contain; mask: no-repeat center/contain;
+  background: var(--macbar-text);
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 384 512'><path d='M318 268c-1-58 47-86 49-88-27-39-68-45-83-45-35-4-69 21-87 21s-45-20-74-20c-38 1-73 22-93 56-40 69-10 171 28 227 19 27 41 58 70 57 28-1 39-18 73-18s44 18 74 17c31 0 50-28 68-55 22-31 31-61 31-63-1-1-59-23-60-91zM262 74c15-19 26-45 23-71-22 1-49 15-65 34-14 16-27 42-24 67 25 2 50-12 66-30z'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 384 512'><path d='M318 268c-1-58 47-86 49-88-27-39-68-45-83-45-35-4-69 21-87 21s-45-20-74-20c-38 1-73 22-93 56-40 69-10 171 28 227 19 27 41 58 70 57 28-1 39-18 73-18s44 18 74 17c31 0 50-28 68-55 22-31 31-61 31-63-1-1-59-23-60-91zM262 74c15-19 26-45 23-71-22 1-49 15-65 34-14 16-27 42-24 67 25 2 50-12 66-30z'/></svg>");
+}
+.macbar-app { font-weight:700; }
+.macbar-menu { font-weight:400; opacity:0.92; }
+.macbar-sys { font-weight:400; opacity:0.92; }
+.statusitem {
+  display:flex; align-items:center; gap:3px; padding:0 5px; height:20px;
+  border-radius:5px; cursor:pointer;
+}
+.statusitem:hover { background: var(--macbar-hover); }
+.statusitem .si-mark { color: var(--accent); font-size:14px; line-height:1; }
+.statusitem .si-badge {
+  background: var(--tag-blocked-fg); color:#fff; font-size:9px; font-weight:800;
+  min-width:14px; height:14px; line-height:14px; text-align:center; border-radius:7px; padding:0 3px;
+}
+
+/* stage that holds the app window under the system bar */
+.stage { flex:1; width:100%; display:flex; align-items:flex-start; justify-content:center;
+  padding: 26px 24px 24px; box-sizing:border-box; }
+
+/* menu-bar EXTRA popover: anchored under the status item, top-right of screen */
+.menubar-pop {
+  position: fixed; top:30px; right:12px; width: 300px; z-index:110;
+  background: var(--panel-bg); border:1px solid var(--border); border-radius:12px;
+  box-shadow: 0 20px 50px var(--shadow); overflow:hidden; display:none;
+}
+.mb-mark { color: var(--accent); }
+.mb-primary {
+  width:100%; display:flex; align-items:center; justify-content:center; gap:7px;
+  background: var(--accent); color:#fff; border:none; border-radius:9px;
+  padding:9px 11px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit;
+}
+.mb-primary:hover { filter: brightness(1.08); }
+.mb-primary svg { width:15px; height:15px; }
+
+/* ===== Settings modal ===== */
+.settings {
+  width: 460px; max-width: 92vw; background: var(--panel-bg);
+  border:1px solid var(--border); border-radius:14px; box-shadow: 0 24px 60px var(--shadow);
+  overflow:hidden;
+}
+.set-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 14px 16px; border-bottom:1px solid var(--border);
+  font-size:14px; font-weight:700; color: var(--text-primary);
+}
+.set-row {
+  display:flex; align-items:center; gap:14px; padding: 14px 16px;
+  border-bottom:1px solid var(--border);
+}
+.set-row:last-child { border-bottom:none; }
+.set-label { flex:1; }
+.set-title { font-size:13px; font-weight:600; color: var(--text-primary); }
+.set-sub { font-size:11.5px; color: var(--text-secondary); margin-top:2px; }
+.segmented { display:flex; background: var(--panel-bg-2); border:1px solid var(--border);
+  border-radius:9px; padding:2px; gap:2px; }
+.seg-opt { border:none; background:transparent; color: var(--text-secondary);
+  font-size:12px; font-weight:600; padding:5px 12px; border-radius:7px; cursor:pointer; font-family:inherit; }
+.seg-opt:hover { color: var(--text-primary); }
+.seg-opt.active { background: var(--accent); color:#fff; }
+.switch { position:relative; display:inline-block; width:38px; height:22px; flex:0 0 38px; }
+.switch input { opacity:0; width:0; height:0; }
+.switch .track { position:absolute; inset:0; background: var(--border); border-radius:22px; transition:.15s; cursor:pointer; }
+.switch .track::before { content:''; position:absolute; width:18px; height:18px; left:2px; top:2px;
+  background:#fff; border-radius:50%; transition:.15s; }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::before { transform: translateX(16px); }
+
+
+.phase-caption {
+  position: fixed; left: 10px; bottom: 8px; z-index: 500;
+  font-size: 10px; color: rgba(255,255,255,0.32); letter-spacing:0.3px;
+  font-family: ui-monospace, Menlo, monospace; -webkit-user-select:none; user-select:none;
+}
+[data-theme="light"] .phase-caption { color: rgba(0,0,0,0.30); }
+</style>
+</head>
+<body>
+
+
+<!-- ===== macOS SYSTEM MENU BAR (outside the app window — the real bar up by the clock) ===== -->
+<div class="macbar">
+  <div class="macbar-left">
+     <span class="apple"></span>
+     <span class="macbar-app">hanabi</span>
+     <span class="macbar-menu">File</span>
+     <span class="macbar-menu">Edit</span>
+     <span class="macbar-menu">View</span>
+     <span class="macbar-menu">Window</span>
+     <span class="macbar-menu">Help</span>
+  </div>
+  <div class="macbar-right">
+     <!-- hanabi menu-bar EXTRA (NSStatusItem): fireworks mark + blocked-count badge -->
+     <span class="statusitem" id="menubarBtn" title="hanabi — new chat">
+       <span class="si-mark">✦</span><span class="si-badge">3</span>
+     </span>
+     <span class="macbar-sys">100%</span>
+     <span class="macbar-sys">Thu 1:58 PM</span>
+  </div>
+</div>
+
+<div class="stage">
+<div class="window" id="window">
+
+  <!-- TITLEBAR -->
+  <div class="titlebar">
+    <div class="traffic">
+      <span class="light red"></span><span class="light yellow"></span><span class="light green"></span>
+    </div>
+    <div class="title"><b>hanabi</b></div>
+  </div>
+
+  <div class="body">
+    <!-- ============ SIDEBAR ============ -->
+    <div class="sidebar">
+
+      <!-- sidebar header: brand + search + actions (new task, settings, collapse) -->
+      <div class="sb-header">
+        <span class="sb-brand"><span class="sb-mark">✦</span><span class="sb-brandname">hanabi</span></span>
+        <div class="sb-actions">
+          <button class="iconbtn" data-tip="New task" title="New task" onclick="openSpotlight()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button class="iconbtn" data-tip="Settings" title="Settings" onclick="openSettings()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.8 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 5 13.6a1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 5 6.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.4 5 1.6 1.6 0 0 0 11.5 3.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+          </button>
+          <button class="iconbtn sb-collapse" id="collapseBtn" title="Toggle sidebar (Cmd+B)">
+            <svg class="ic-fold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>
+            <svg class="ic-unfold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- search (under the brand row) -->
+      <div class="sb-top">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search threads…">
+        </div>
+      </div>
+
+      <div class="sb-scroll">
+        <!-- smart views -->
+        <div class="sb-section-label">Views</div>
+        <div class="smart-list" id="smartList">
+          <div class="smart-item active" data-view="home" data-tip="Home">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></span>
+            <span class="lbl">Home</span><span class="cnt"></span>
+          </div>
+          <div class="smart-item" data-view="blocked" data-tip="Blocked">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></span>
+            <span class="lbl">Blocked</span><span class="cnt">3</span>
+            <span class="rail-badge">3</span>
+          </div>
+          <div class="smart-item" data-view="ready" data-tip="Review">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="lbl">Review</span><span class="cnt">2</span>
+          </div>
+          <div class="smart-item" data-view="starred" data-tip="Starred">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.9 6 6.6.9-4.8 4.6 1.1 6.5L12 18l-5.8 3 1.1-6.5L2.5 9.9 9 9z"/></svg></span>
+            <span class="lbl">Starred</span><span class="cnt">3</span>
+          </div>
+          <div class="smart-item" data-view="folders" data-tip="All folders">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+            <span class="lbl">All Folders</span><span class="cnt"></span>
+          </div>
+        </div>
+
+        <!-- folders -->
+        <div class="folders">
+          <div class="sb-section-label">Folders</div>
+          <div class="folder-group">
+            <div class="folder-head" onclick="toggleFolder(this)">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+              <span class="fname">Stars — subs</span><span class="fcount">4</span>
+            </div>
+            <div class="folder-body" data-chats="stars"></div>
+          </div>
+          <div class="folder-group">
+            <div class="folder-head" onclick="toggleFolder(this)">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+              <span class="fname">Oncall</span><span class="fcount">3</span>
+            </div>
+            <div class="folder-body" data-chats="oncall"></div>
+          </div>
+          <div class="folder-group">
+            <div class="folder-head collapsed" onclick="toggleFolder(this)">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+              <span class="fname">Experiments</span><span class="fcount">2</span>
+            </div>
+            <div class="folder-body" data-chats="experiments"></div>
+          </div>
+        </div>
+
+        <!-- recent flat list -->
+        <div class="recent-chats">
+          <div class="sb-section-label recent-label">Recent</div>
+          <div class="folder-group" data-chats="recent"></div>
+        </div>
+
+        <!-- archived (collapsed by default, low signal) -->
+        <div class="folders archived-group">
+          <div class="folder-group">
+            <div class="folder-head collapsed" onclick="toggleFolder(this)">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+              <svg class="fico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>
+              <span class="fname">Archived</span><span class="fcount" data-archived-count></span>
+            </div>
+            <div class="folder-body" data-chats="archived"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ MAIN ============ -->
+    <div class="main">
+      <div class="tabstrip" id="tabstrip">
+        <div id="tabs" style="display:flex;"></div>
+      </div>
+
+      <div class="content" id="content">
+        <!-- transcript screen -->
+        <div class="screen" id="screen-chat" data-screen="chat">
+          <div class="transcript-head">
+            <h2 id="chatTitle">—</h2>
+            <span class="sub" id="chatSub"></span>
+          </div>
+          <div class="transcript" id="transcript"></div>
+          <div class="composer">
+            <textarea class="field" rows="1" placeholder="Message this thread…"></textarea>
+            <button class="send-btn" title="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- HOME digest -->
+        <div class="screen active" id="screen-home" data-screen="home">
+          <div class="sv"><div class="sv-wrap">
+            <h1>Home</h1>
+            <div class="sv-sub">Your digest — you shouldn't have to open threads to know what's up.</div>
+
+            <h3>Waiting on you</h3>
+            <ol class="digest">
+              <li>
+                <div class="dinfo">
+                  <div class="dtitle">Multi-tier pricing rollout</div>
+                  <div class="dctx">Ready to publish the pricing config diff — needs your land approval.</div>
+                </div>
+                <div class="daction"><button class="mini-btn primary" onclick="openChat('t1')">Review</button></div>
+              </li>
+              <li>
+                <div class="dinfo">
+                  <div class="dtitle">Stars payout reconciliation</div>
+                  <div class="dctx">Found a $ mismatch in 2 accounts — asking whether to hold or proceed.</div>
+                </div>
+                <div class="daction"><button class="mini-btn primary" onclick="openChat('t2')">Decide</button></div>
+              </li>
+              <li>
+                <div class="dinfo">
+                  <div class="dtitle">Creator onboarding copy</div>
+                  <div class="dctx">Drafted 3 variants of the welcome QP — pick one to ship.</div>
+                </div>
+                <div class="daction"><button class="mini-btn primary" onclick="openChat('t3')">Pick</button></div>
+              </li>
+            </ol>
+
+            <h3>Pinned to digest</h3>
+            <ul class="pinned">
+              <li>
+                <span class="pin-dot">📌</span>
+                <div class="pinfo">
+                  <div class="ptitle">Daily churn number</div>
+                  <div class="pctx">Yesterday: 1.42% — down 0.06pt week-over-week.</div>
+                </div>
+                <button class="unpin" title="Unpin from digest" aria-label="Unpin">×</button>
+              </li>
+              <li>
+                <span class="pin-dot">📌</span>
+                <div class="pinfo">
+                  <div class="ptitle">Tier migration watch</div>
+                  <div class="pctx">Backfill at 61% — I'll flag if it stalls or errors.</div>
+                </div>
+                <button class="unpin" title="Unpin from digest" aria-label="Unpin">×</button>
+              </li>
+            </ul>
+
+            <h3>Finished since you last looked</h3>
+            <ul class="finished">
+              <li><span class="fcheck">✓</span><span class="fname">Subscription churn query</span><span> — pulled 90-day cohort, results attached.</span><span class="fago">12m</span></li>
+              <li><span class="fcheck">✓</span><span class="fname">Flaky test triage</span><span> — root-caused to a race in the payout worker.</span><span class="fago">1h</span></li>
+              <li><span class="fcheck">✓</span><span class="fname">Dashboard refresh</span><span> — rebuilt the DAU panel, numbers match.</span><span class="fago">3h</span></li>
+            </ul>
+
+            <div class="selfrun-head collapsed" onclick="this.classList.toggle('collapsed')">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+              Self-running (4)
+            </div>
+            <div class="selfrun-body">
+              <div class="selfrun-row"><span class="spin"></span> Backfilling entitlement table — 61% </div>
+              <div class="selfrun-row"><span class="spin"></span> Migrating tier schema — running tests </div>
+              <div class="selfrun-row"><span class="spin"></span> Nightwatch on D948213 — CI green, landing </div>
+              <div class="selfrun-row"><span class="spin"></span> Weekly metrics digest — assembling </div>
+            </div>
+          </div></div>
+        </div>
+
+        <!-- BLOCKED -->
+        <div class="screen" id="screen-blocked" data-screen="blocked">
+          <div class="sv"><div class="sv-wrap">
+            <h1>Blocked on you</h1>
+            <div class="sv-sub">Only threads where the last gate is a call only you can make.</div>
+
+            <div class="card">
+              <div class="chead"><span class="cname">Multi-tier pricing rollout</span><span class="tag blocked">Blocked</span></div>
+              <div class="cneed"><b>Needs:</b> your approval to land the pricing config diff (D948120).</div>
+              <div class="cctx">All CI is green and the shadow test matched prod within 0.3%. Nothing else is waiting — this ships the moment you approve.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t1')">Approve &amp; land</button><button class="mini-btn" onclick="openChat('t1')">Open thread</button></div>
+            </div>
+
+            <div class="card">
+              <div class="chead"><span class="cname">Stars payout reconciliation</span><span class="tag blocked">Blocked</span></div>
+              <div class="cneed"><b>Needs:</b> a decision — hold the batch or proceed with 2 accounts flagged.</div>
+              <div class="cctx">2 of 4,812 accounts show a $12.40 and $3.10 delta vs ledger. Likely a rounding artifact, but proceeding is irreversible for this cycle.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t2')">Decide</button><button class="mini-btn" onclick="openChat('t2')">See the two accounts</button></div>
+            </div>
+
+            <div class="card">
+              <div class="chead"><span class="cname">Creator welcome QP copy</span><span class="tag blocked">Blocked</span></div>
+              <div class="cneed"><b>Needs:</b> you to pick one of 3 drafted variants to ship.</div>
+              <div class="cctx">All 3 pass the brand-voice check. Variant B scored highest on clarity; A is warmest. Your call decides what goes live Monday.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t3')">Pick a variant</button></div>
+            </div>
+          </div></div>
+        </div>
+
+        <!-- READY -->
+        <div class="screen" id="screen-ready" data-screen="ready">
+          <div class="sv"><div class="sv-wrap">
+            <h1>Review</h1>
+            <div class="sv-sub">Agent-verified and ready for you to look — you don't need to test.</div>
+
+            <div class="card">
+              <div class="chead"><span class="cname">Tier upgrade flow</span><span class="tag ready">Review</span></div>
+              <div class="checkpass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg> Agent tested it: all 214 tests pass · lint + type-check clean · before/after captured</div>
+              <div class="reviewnote">The agent subscribed at Tier 1, upgraded to Tier 2, and confirmed the proration line appears. Verified end-to-end — just give it a look.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t4')">Look</button><button class="mini-btn">View evidence ↗</button></div>
+            </div>
+
+            <div class="card">
+              <div class="chead"><span class="cname">Payout worker race fix</span><span class="tag ready">Review</span></div>
+              <div class="checkpass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg> Agent tested it: repro no longer fires in 500 stress runs · CI green</div>
+              <div class="reviewnote">The agent ran 3 concurrent payouts on the test tenant and confirmed the ledger writes exactly once per payout. Verified — just give it a look.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t5')">Look</button><button class="mini-btn">View evidence ↗</button></div>
+            </div>
+          </div></div>
+        </div>
+
+        <!-- STARRED -->
+        <div class="screen" id="screen-starred" data-screen="starred">
+          <div class="sv"><div class="sv-wrap">
+            <h1>Starred</h1>
+            <div class="sv-sub">Pinned threads, always on top.</div>
+            <div id="starredList"></div>
+          </div></div>
+        </div>
+
+        <!-- FOLDERS overview (reuses starred-like list) -->
+        <div class="screen" id="screen-folders" data-screen="folders">
+          <div class="sv"><div class="sv-wrap">
+            <h1>All folders</h1>
+            <div class="sv-sub">Everything, grouped.</div>
+            <div id="foldersList"></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div><!-- /#window -->
+
+  <!-- SETTINGS (modal) -->
+  <div class="overlay" id="settingsOverlay">
+    <div class="settings" onclick="event.stopPropagation()">
+      <div class="set-head"><span>Settings</span>
+        <button class="iconbtn" onclick="closeSettings()" title="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="set-row">
+        <div class="set-label"><div class="set-title">Appearance</div><div class="set-sub">Match the system, or force light / dark.</div></div>
+        <div class="segmented">
+          <button class="seg-opt" data-theme-opt="system" onclick="setThemePref('system')">System</button>
+          <button class="seg-opt" data-theme-opt="light"  onclick="setThemePref('light')">Light</button>
+          <button class="seg-opt" data-theme-opt="dark"   onclick="setThemePref('dark')">Dark</button>
+        </div>
+      </div>
+      <div class="set-row">
+        <div class="set-label"><div class="set-title">Restore tabs on launch</div><div class="set-sub">Reopen where you left off.</div></div>
+        <label class="switch"><input type="checkbox" checked><span class="track"></span></label>
+      </div>
+      <div class="set-row">
+        <div class="set-label"><div class="set-title">Menu-bar item</div><div class="set-sub">Show hanabi ✦ up by the clock, with a blocked count.</div></div>
+        <label class="switch"><input type="checkbox" checked><span class="track"></span></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="spotlightOverlay">
+    <div class="spotlight" onclick="event.stopPropagation()">
+      <div class="sl-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" id="spotlightInput" placeholder="Start a task…" autocomplete="off">
+      </div>
+      <div class="sl-section">Suggested</div>
+      <div class="sl-item sel">
+        <span class="sic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 20V4M6 20v-4"/></svg></span>
+        <span class="slabel">Pull last 90 days of subscription churn</span><span class="skey">↵</span>
+      </div>
+      <div class="sl-item">
+        <span class="sic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
+        <span class="slabel">Draft a diff to add the Tier 3 gate</span>
+      </div>
+      <div class="sl-item">
+        <span class="sic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+        <span class="slabel">Watch CI on D948120 and land when green</span>
+      </div>
+      <div class="sl-section">Recent</div>
+      <div class="sl-item">
+        <span class="sic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 4v4h4"/></svg></span>
+        <span class="slabel">Re-run the payout reconciliation</span>
+      </div>
+      <div class="sl-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> run</span><span><kbd>esc</kbd> close</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- hanabi menu-bar EXTRA popover (anchored under the status item, outside the window) -->
+  <div class="menubar-pop" id="menubarPop">
+    <div class="mb-head"><span class="mb-mark">✦</span> hanabi</div>
+    <div class="mb-newtask">
+      <button class="mb-primary" onclick="menubarNewChat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+        New chat
+      </button>
+    </div>
+    <div class="mb-sec">Blocked on you · 3</div>
+    <div class="mb-row" onclick="fromMenubar('t1')">
+      <span class="tag blocked">Blocked</span>
+      <div style="flex:1;min-width:0;"><div class="mtitle">Multi-tier pricing rollout</div><div class="msub">Approve to land</div></div>
+    </div>
+    <div class="mb-row" onclick="fromMenubar('t2')">
+      <span class="tag blocked">Blocked</span>
+      <div style="flex:1;min-width:0;"><div class="mtitle">Stars payout reconciliation</div><div class="msub">Hold or proceed?</div></div>
+    </div>
+    <div class="mb-row" onclick="fromMenubar('t3')">
+      <span class="tag blocked">Blocked</span>
+      <div style="flex:1;min-width:0;"><div class="mtitle">Creator welcome QP copy</div><div class="msub">Pick a variant</div></div>
+    </div>
+    <div class="mb-foot"><button class="mini-btn" style="width:100%" onclick="fromMenubar('t1')">Open hanabi</button></div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   SAMPLE DATA (all invented)
+   ============================================================ */
+const THREADS = {
+  // attn = DONE or WAITING-ON-YOU  -> dot + bold
+  // running = self-running          -> dimmed, calm
+  // parked = muted/greyed
+  t1: { title:"Multi-tier pricing rollout", state:"attn", tag:"blocked", folder:"stars", star:true,
+        sub:"waiting on you · 8m", msgs:[
+    {role:"system", ts:"3h", text:"Task: land the multi-tier pricing config once CI is green."},
+    {role:"assistant", ts:"2h", text:"Built the config diff <b>D948120</b> adding Tier 1/2/3 price points. Running the shadow comparison against prod now."},
+    {role:"tool", ts:"1h", text:"shadow_compare → 4,812 accounts · max delta 0.3% · within tolerance ✓"},
+    {role:"assistant", ts:"12m", text:"All CI green, shadow matched. This is the config being added:", code:
+      '<span class="cm"># pricing/tiers.cinc</span>\n<span class="kw">tiers</span> = {\n  <span class="st">"tier_1"</span>: { price_usd: 4.99 },\n  <span class="st">"tier_2"</span>: { price_usd: 9.99 },\n  <span class="st">"tier_3"</span>: { price_usd: 19.99 },\n}', after:"Nothing else is blocking. <b>I need your approval to land.</b>"},
+    {role:"user", ts:"—", text:"", placeholder:true}
+  ]},
+  t2: { title:"Stars payout reconciliation", state:"attn", tag:"blocked", folder:"stars", star:false,
+        subs:[{title:"Ledger diff scan", state:"running"},{title:"Duplicate-payout check", state:"done"}],
+        sub:"waiting on you · 22m", msgs:[
+    {role:"system", ts:"5h", text:"Task: reconcile this cycle's Stars payouts against the ledger before the batch runs."},
+    {role:"assistant", ts:"40m", text:"Reconciled 4,812 accounts. 4,810 match to the cent. Two don't:"},
+    {role:"assistant", ts:"38m", text:"", list:["acct 8842 — ledger $128.60, computed $116.20 (Δ $12.40)","acct 1097 — ledger $54.10, computed $51.00 (Δ $3.10)"]},
+    {role:"assistant", ts:"22m", text:"Both look like a rounding artifact in a promo credit, but proceeding commits the batch — it's irreversible for this cycle. <b>Hold, or proceed and I'll flag the two for manual follow-up?</b>"},
+  ]},
+  t3: { title:"Creator welcome QP copy", state:"attn", tag:"done", folder:"stars", star:false,
+        sub:"done · 1h", msgs:[
+    {role:"system", ts:"2h", text:"Task: draft welcome QP copy for new Stars creators. 3 variants, brand-voice compliant."},
+    {role:"assistant", ts:"1h", text:"Three variants, all passing the brand-voice check:"},
+    {role:"assistant", ts:"1h", text:"", list:["A (warmest): \u201cWelcome — your fans can now support you directly. Let\u2019s set up Stars.\u201d","B (clearest): \u201cStars are on. Turn on receiving to start earning from your fans.\u201d","C (shortest): \u201cYou\u2019re in. Set up Stars \u2192\u201d"]},
+    {role:"assistant", ts:"1h", text:"B scored highest on clarity; A is warmest. <b>Which ships Monday?</b>"},
+  ]},
+  t4: { title:"Tier upgrade flow", state:"ready", tag:"ready", folder:"experiments", star:false,
+        sub:"ready for review · 30m", msgs:[
+    {role:"system", ts:"4h", text:"Task: implement in-app upgrade from Tier 1 → Tier 2 with proration."},
+    {role:"assistant", ts:"1h", text:"Implemented the upgrade path with a proration line item on the receipt. Wrote 18 new tests."},
+    {role:"tool", ts:"35m", text:"buck test → 214 passed, 0 failed · lint clean · type check clean ✓"},
+    {role:"assistant", ts:"30m", text:"Deployed to staging. <b>Test link is ready</b> — subscribe at Tier 1, upgrade to Tier 2, and confirm the proration line."},
+  ]},
+  t5: { title:"Payout worker race fix", state:"ready", tag:"ready", folder:"oncall", star:true,
+        sub:"ready for review · 2h", msgs:[
+    {role:"system", ts:"6h", text:"Task: root-cause and fix intermittent double-writes in the payout worker."},
+    {role:"assistant", ts:"3h", text:"Root cause: two workers could claim the same payout row between the read and the lock. Fixed with a conditional update guard."},
+    {role:"tool", ts:"2h", text:"stress_run(500) → 0 double writes · CI green ✓"},
+    {role:"assistant", ts:"2h", text:"Confident it's fixed. Ready for you to verify on the test tenant."},
+  ]},
+  t6: { title:"Backfill entitlement table", state:"running", tag:null, folder:"experiments", star:false,
+        subs:[{title:"Chunk 1–500k", state:"done"},{title:"Chunk 500k–1M", state:"running"},{title:"Row validator", state:"running"}],
+        sub:"self-running · 61%", msgs:[
+    {role:"system", ts:"2h", text:"Task: backfill the entitlement table for legacy subscribers."},
+    {role:"assistant", ts:"5m", text:"Backfill in progress — 61% through 2.1M rows. No action needed; I'll surface it when done or if I hit a snag."},
+  ]},
+  t7: { title:"Tier schema migration", state:"running", tag:null, folder:"experiments", star:false,
+        sub:"self-running · tests", msgs:[
+    {role:"assistant", ts:"9m", text:"Running the migration test suite before applying. Quiet until there's something to decide."},
+  ]},
+  t8: { title:"Nightwatch: D948213", state:"running", tag:null, folder:"oncall", star:false,
+        sub:"self-running · landing", msgs:[
+    {role:"assistant", ts:"4m", text:"CI green on all signals. Landing the diff now — will report the SHA when it's in."},
+  ]},
+  t9: { title:"Weekly metrics digest", state:"running", tag:null, folder:"oncall", star:false,
+        sub:"self-running", msgs:[
+    {role:"assistant", ts:"1m", text:"Assembling the weekly subs metrics digest. Nothing for you yet."},
+  ]},
+  t10:{ title:"Old A/B: paywall color", state:"parked", tag:null, folder:"experiments", star:false,
+        sub:"parked", msgs:[
+    {role:"system", ts:"3w", text:"Muted. Experiment concluded — kept for reference."},
+    {role:"assistant", ts:"3w", text:"Result was flat. Parked this thread; it won't ask for anything."},
+  ]},
+  t11:{ title:"Churn query (Q3 cohort)", state:"done", tag:"done", folder:"stars", star:true,
+        sub:"done · 12m", msgs:[
+    {role:"system", ts:"1h", text:"Task: pull 90-day churn for the Q3 subscriber cohort."},
+    {role:"tool", ts:"14m", text:"query returned 41,208 rows · exported to results.csv ✓"},
+    {role:"assistant", ts:"12m", text:"Done — 90-day churn came in at 6.2%, down 0.8pt from Q2. Results attached; want a breakdown by tier?"},
+  ]},
+  t12:{ title:"Docs: onboarding runbook", state:"parked", tag:null, folder:"recent", star:false,
+        sub:"parked", msgs:[
+    {role:"assistant", ts:"1w", text:"Muted reference thread. No attention needed."},
+  ]},
+  t13:{ title:"Legacy gifting migration", state:"archived", tag:null, folder:null, star:false,
+        sub:"archived · 2mo", msgs:[
+    {role:"system", ts:"2mo", text:"Task: migrate legacy gifting rows to the new ledger."},
+    {role:"assistant", ts:"2mo", text:"Migration completed and reconciled. Archiving — nothing left to do here."},
+  ]},
+  t14:{ title:"2024 pricing experiment writeup", state:"archived", tag:null, folder:null, star:false,
+        sub:"archived · 5mo", msgs:[
+    {role:"assistant", ts:"5mo", text:"Final writeup shipped. Archived for reference."},
+  ]},
+};
+
+const FOLDER_MEMBERS = {
+  stars: ["t1","t2","t3","t11"],
+  oncall: ["t5","t8","t9"],
+  experiments: ["t4","t6","t7","t10"],
+  recent: ["t1","t2","t11","t4","t6","t12"],
+  archived: ["t13","t14"],
+};
+const FOLDER_LABEL = { stars:"Stars — subs", oncall:"Oncall", experiments:"Experiments" };
+
+// How many threads in a set are waiting on the user (attn/done + not parked).
+function waitingCount(ids){
+  return ids.filter(id=>{ const t=THREADS[id]; return (t.state==="attn"||t.state==="done"); }).length;
+}
+
+/* ============================================================
+   RENDER SIDEBAR CHAT ROWS
+   ============================================================ */
+const TAG_LABEL = { blocked:"Blocked", ready:"Review", done:"Done" };
+function tagHtml(tag){
+  if(!tag) return "";
+  return '<span class="tag '+tag+'">'+(TAG_LABEL[tag]||tag)+'</span>';
+}
+function chatRowHtml(id){
+  const t = THREADS[id];
+  let cls = "chat-row";
+  // glyph: dedicated SHAPE per attention status (not color-only)
+  //   blocked -> red up-triangle | review -> green diamond | done -> blue dot
+  let glyph = "";
+  if(t.tag==="blocked"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-blocked"></span>'; }
+  else if(t.tag==="ready"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-review"></span>'; }
+  else if(t.state==="done"||t.tag==="done"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-done"></span>'; }
+  else if(t.state==="attn"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-blocked"></span>'; }
+  else if(t.state==="running") cls+=" running";
+  else if(t.state==="parked"||t.state==="archived") cls+=" parked";
+
+  const subs = t.subs || [];
+  const hasSubs = subs.length > 0;
+  const working = subs.some(s=>s.state==="running");
+  // hollow working ring sits to the RIGHT of the status shape when a sub-agent runs
+  const ring = working ? '<span class="glyph g-working" title="a sub-agent is working"></span>' : "";
+  // disclosure chevron (collapsed by default) only when there are sub-agents
+  const chev = hasSubs
+    ? '<span class="subtoggle" onclick="event.stopPropagation();toggleSubs(this)">'+
+        '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M6 9l6 6 6-6"/></svg>'+
+      '</span>'
+    : '<span class="subtoggle-spacer"></span>';
+
+  const subRows = hasSubs
+    ? '<div class="subrows">'+subs.map(subRowHtml).join('')+'</div>'
+    : "";
+
+  return '<div class="chat-item'+(hasSubs?' has-subs collapsed':'')+'">'+
+    '<div class="'+cls+'" onclick="openChat(\''+id+'\')">'+
+      chev + glyph + ring +
+      '<span class="ctitle">'+t.title+'</span>'+
+      (hasSubs?'<span class="subcount">'+subs.length+'</span>':'')+
+    '</div>'+
+    subRows +
+  '</div>';
+}
+function subRowHtml(s){
+  let g = '<span class="glyph g-working"></span>';         // running sub-agent
+  if(s.state==="done") g = '<span class="glyph g-done"></span>';
+  else if(s.state==="blocked") g = '<span class="glyph g-blocked"></span>';
+  const cls = "subrow" + (s.state==="running"?" running":"") + (s.state==="done"?" done":"");
+  return '<div class="'+cls+'"><span class="subtwig"></span>'+g+
+    '<span class="ctitle">'+s.title+'</span></div>';
+}
+function toggleSubs(el){
+  const item = el.closest('.chat-item');
+  if(item) item.classList.toggle('collapsed');
+}
+function renderSidebar(){
+  document.querySelectorAll('[data-chats]').forEach(el=>{
+    const key = el.getAttribute('data-chats');
+    const ids = FOLDER_MEMBERS[key] || [];
+    el.innerHTML = ids.map(chatRowHtml).join('');
+  });
+  // folder-header attention rollups: show "N waiting" only when >0, else plain count
+  document.querySelectorAll('.folder-group').forEach(g=>{
+    const body = g.querySelector('.folder-body'); if(!body) return;
+    const key = body.getAttribute('data-chats');
+    const ids = FOLDER_MEMBERS[key] || [];
+    const w = waitingCount(ids);
+    const cnt = g.querySelector('.fcount'); if(!cnt) return;
+    if(w>0){ cnt.textContent = w+" waiting"; cnt.classList.add('attn'); }
+    else   { cnt.textContent = ids.length; cnt.classList.remove('attn'); }
+  });
+  // archived count (low-signal, plain count only)
+  const ac = document.querySelector('[data-archived-count]');
+  if(ac) ac.textContent = (FOLDER_MEMBERS.archived||[]).length;
+  // starred screen
+  const starred = Object.keys(THREADS).filter(id=>THREADS[id].star);
+  document.getElementById('starredList').innerHTML = starred.map(starCardHtml).join('');
+  // All Folders overview: one card per folder (count + waiting rollup), then its chats
+  let fo = "";
+  for(const f of ["stars","oncall","experiments"]){
+    const ids = FOLDER_MEMBERS[f], w = waitingCount(ids);
+    fo += '<div class="folder-ov">'+
+            '<div class="folder-ov-head">'+
+              '<span class="fo-name">'+FOLDER_LABEL[f]+'</span>'+
+              (w>0 ? '<span class="fo-badge">'+w+' waiting</span>'
+                   : '<span class="fo-count">'+ids.length+'</span>')+
+            '</div>'+
+            ids.map(starCardHtml).join('')+
+          '</div>';
+  }
+  document.getElementById('foldersList').innerHTML = fo;
+}
+function starCardHtml(id){
+  const t = THREADS[id];
+  return '<div class="card" style="padding:11px 14px;margin-bottom:8px;cursor:pointer" onclick="openChat(\''+id+'\')">'+
+    '<div class="chead" style="margin-bottom:2px"><span class="cname" style="font-size:13px">'+t.title+'</span>'+tagHtml(t.tag)+'</div>'+
+    '<div class="cctx" style="margin:0">'+t.sub+'</div></div>';
+}
+
+/* ============================================================
+   TABS + TRANSCRIPT
+   ============================================================ */
+let openTabs = [];       // array of thread ids
+let activeTab = null;
+
+function renderTabs(){
+  const wrap = document.getElementById('tabs');
+  wrap.innerHTML = openTabs.map(id=>{
+    const t = THREADS[id];
+    const act = id===activeTab ? ' active':'';
+    return '<div class="tab'+act+'" onclick="focusTab(\''+id+'\')">'+
+      '<span class="tt">'+t.title+'</span>'+
+      '<span class="tclose" onclick="event.stopPropagation();closeTab(\''+id+'\')">'+
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>'+
+      '</span></div>';
+  }).join('');
+}
+
+function openChat(id){
+  if(!openTabs.includes(id)) openTabs.push(id);
+  activeTab = id;
+  renderTabs();
+  showScreen('chat');
+  renderTranscript(id);
+  setActiveSmart(null);
+}
+function focusTab(id){
+  activeTab = id;
+  renderTabs();
+  showScreen('chat');
+  renderTranscript(id);
+  setActiveSmart(null);
+}
+function closeTab(id){
+  const i = openTabs.indexOf(id);
+  if(i>-1) openTabs.splice(i,1);
+  if(activeTab===id){
+    if(openTabs.length){ activeTab = openTabs[Math.max(0,i-1)]; renderTranscript(activeTab); showScreen('chat'); }
+    else { activeTab=null; showScreen('home'); setActiveSmart('home'); }
+  }
+  renderTabs();
+}
+
+function renderTranscript(id){
+  const t = THREADS[id];
+  document.getElementById('chatTitle').textContent = t.title;
+  document.getElementById('chatSub').textContent = t.sub;
+  const roleLabel = {user:"You", assistant:"Assistant", tool:"Tool", system:"System"};
+  const avatar = {user:"Y", assistant:"A", tool:"T", system:"S"};
+  let html = "";
+  for(const m of t.msgs){
+    if(m.placeholder) continue;
+    let body = "";
+    if(m.text) body += '<p>'+m.text+'</p>';
+    if(m.code) body += '<div class="codeblock">'+m.code+'</div>';
+    if(m.after) body += '<p>'+m.after+'</p>';
+    if(m.list) body += '<ul>'+m.list.map(x=>'<li>'+x+'</li>').join('')+'</ul>';
+    html += '<div class="msg '+m.role+'">'+
+      '<div class="avatar">'+avatar[m.role]+'</div>'+
+      '<div class="bubble">'+
+        '<div class="meta"><span class="role">'+roleLabel[m.role]+'</span><span class="ts">'+m.ts+'</span></div>'+
+        '<div class="text">'+body+'</div>'+
+      '</div></div>';
+  }
+  document.getElementById('transcript').innerHTML = html;
+  document.getElementById('transcript').scrollTop = 0;
+}
+
+/* ============================================================
+   SCREENS / SMART VIEWS
+   ============================================================ */
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const el = document.getElementById('screen-'+name);
+  if(el) el.classList.add('active');
+}
+function setActiveSmart(view){
+  document.querySelectorAll('.smart-item').forEach(i=>i.classList.remove('active'));
+  if(view){
+    const el = document.querySelector('.smart-item[data-view="'+view+'"]');
+    if(el) el.classList.add('active');
+  }
+}
+document.getElementById('smartList').addEventListener('click', e=>{
+  const item = e.target.closest('.smart-item');
+  if(!item) return;
+  const view = item.getAttribute('data-view');
+  setActiveSmart(view);
+  showScreen(view);
+});
+
+/* ============================================================
+   SIDEBAR COLLAPSE
+   ============================================================ */
+function toggleSidebar(){ document.getElementById('window').classList.toggle('folded'); }
+document.getElementById('collapseBtn').addEventListener('click', toggleSidebar);
+
+function toggleFolder(el){ el.classList.toggle('collapsed'); }
+
+/* ============================================================
+   THEME  (System / Light / Dark — chosen in Settings)
+   ============================================================ */
+let themePref = 'system';   // 'system' | 'light' | 'dark'
+function systemPrefersDark(){
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function applyTheme(){
+  const html = document.documentElement;
+  const eff = themePref==='system' ? (systemPrefersDark() ? 'dark':'light') : themePref;
+  html.setAttribute('data-theme', eff);
+  // reflect selection in the settings segmented control if it's mounted
+  document.querySelectorAll('.seg-opt[data-theme-opt]').forEach(b=>{
+    b.classList.toggle('active', b.getAttribute('data-theme-opt')===themePref);
+  });
+}
+function setThemePref(p){ themePref = p; applyTheme(); }
+if(window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ if(themePref==='system') applyTheme(); });
+}
+
+/* ============================================================
+   SETTINGS (modal — holds theme + prefs)
+   ============================================================ */
+function openSettings(){ document.getElementById('settingsOverlay').classList.add('open'); applyTheme(); }
+function closeSettings(){ document.getElementById('settingsOverlay').classList.remove('open'); }
+
+/* ============================================================
+   SPOTLIGHT
+   ============================================================ */
+function openSpotlight(){
+  document.getElementById('spotlightOverlay').classList.add('open');
+  setTimeout(()=>document.getElementById('spotlightInput').focus(),40);
+}
+function closeSpotlight(){ document.getElementById('spotlightOverlay').classList.remove('open'); }
+document.getElementById('spotlightOverlay').addEventListener('click', closeSpotlight);
+
+/* ============================================================
+   MAC MENU-BAR EXTRA (system status item — lives outside the window)
+   ============================================================ */
+function toggleMenubar(){ document.getElementById('menubarPop').classList.toggle('open'); }
+document.getElementById('menubarBtn').addEventListener('click', (e)=>{ e.stopPropagation(); toggleMenubar(); });
+document.addEventListener('click', (e)=>{
+  const pop = document.getElementById('menubarPop');
+  const btn = document.getElementById('menubarBtn');
+  if(pop.classList.contains('open') && !pop.contains(e.target) && !btn.contains(e.target)){
+    pop.classList.remove('open');
+  }
+});
+// Menu-bar's primary action = start a new chat/task.
+function menubarNewChat(){ toggleMenubar(); openSpotlight(); }
+function fromMenubar(id){ toggleMenubar(); openChat(id); }
+
+/* ============================================================
+   KEYBOARD
+   ============================================================ */
+document.addEventListener('keydown', e=>{
+  const meta = e.metaKey || e.ctrlKey;
+  if(meta && e.key.toLowerCase()==='b'){ e.preventDefault(); toggleSidebar(); }
+  else if(meta && e.key.toLowerCase()==='k'){ e.preventDefault(); openSpotlight(); }
+  else if(e.key==='Escape'){ closeSpotlight(); closeSettings(); document.getElementById('menubarPop').classList.remove('open'); }
+});
+
+/* init */
+applyTheme();
+renderSidebar();
+</script>
+
+<div class="phase-caption">hanabi — Phase F: full (smart-view screens + light/dark)</div>
+</body>
+</html>
