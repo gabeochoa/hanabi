@@ -89,3 +89,42 @@ Validate against docs/mock-phases/phaseF.html:
 ## Phase G — Native integrations (deferred; own validation later)
 menu-bar NSStatusItem (blocked count + new chat), real Spotlight kickoff, global hotkey,
 native notifications, offline cache. Validated per-item when built.
+
+## Phase H — Native icons (SwiftUI-native look)
+Build: replace ad-hoc chrome icons with real SF Symbols rendered from the OS on
+macOS (via an NSImage imageWithSystemSymbolName .mm shim — NO Apple assets in the
+repo, NO vendor edit), and a bundled Lucide (ISC) fallback set for non-mac /
+older-OS. Icon lookup behind a hanabi-neutral `icon(name)` indirection. See docs/icons.md.
+Validate (screenshot + license audit):
+- [ ] Chrome icons (gear, plus, search, sidebar toggle, folder, pin, archive, close)
+      render as crisp SF Symbols on macOS 11+ — visually match the system look.
+- [ ] Status glyphs (triangle/diamond/dot) remain the drawn vector shapes (intentional).
+- [ ] Repo contains NO Apple SF Symbol font/SVG assets (grep audit); fallback set is
+      Lucide ISC with its LICENSE file present in resources/icons/.
+- [ ] On a simulated no-symbol path, the Lucide fallback renders (no missing icons).
+
+## Phase P — Launch-time performance (HARD GATE: cold launch < 250 ms)
+Goal: the app must LAUNCH in under 250 ms (cold), measured to first fully-rendered
+frame. Current baseline: ~132 ms warm-path init (headless) / ~25 ms warm — already
+under budget on the init metric, but this phase makes it a measured, enforced gate
+on the REAL windowed launch (window create → first frame presented), and squeezes
+it further. Do NOT touch vendor.
+Work:
+- Instrument true cold launch: from process start to first presented frame (not just
+  the internal "Startup" init log). Add a one-shot timer that logs "FirstFrame: N ms".
+- Measure cold (first run after build, caches cold) and warm; record both in todo.md.
+- Optimize the hot spots without changing behavior: defer non-critical work off the
+  launch path (lazy-load fonts/resources not needed for frame 1; avoid eager scans;
+  ensure the mock seed + first list render is the only synchronous work); confirm the
+  async loader doesn't block the first frame; check font atlas build cost; avoid
+  debug-only overhead in release. Keep RAM in budget too (watch RSS doesn't balloon).
+- Add a lightweight, repeatable measurement script (scripts/measure_launch.sh) that
+  runs the app, captures FirstFrame ms + peak RSS, and prints pass/fail vs 250 ms.
+Validate:
+- [ ] Cold launch to first frame < 250 ms, measured on aspen, reported in todo.md
+      with the exact number and the method.
+- [ ] Warm launch number also recorded.
+- [ ] Peak RSS still lean (no regression vs the ~50 MB headless / ~70 MB windowed baseline).
+- [ ] scripts/measure_launch.sh exists and prints PASS (<250ms) / FAIL with the number.
+- [ ] No vendor/afterhours edits (any needed capability -> afterhours_gaps.md).
+
