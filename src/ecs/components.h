@@ -8,6 +8,7 @@
 
 #include "../../vendor/afterhours/src/core/base_component.h"
 #include "../api/client.h"
+#include "transcript_cache.h"
 
 namespace ecs {
 
@@ -56,6 +57,12 @@ struct AppComponent : public afterhours::BaseComponent {
     std::future<api::Result<api::Session>> transcriptFuture;
     bool transcriptPending = false;
     std::string transcriptPendingId;
+
+    // Phase X: LRU transcript cache (last 20 msgs x last 5 threads). On a
+    // cache HIT the loader sets openSession synchronously (no fetch, no Loading
+    // flash); on a MISS it takes the async get_session path and inserts the
+    // result. Bounds RAM: the 20x5 cap is the only growth point.
+    TranscriptCache transcriptCache;
 
     // Set by the list system to request a (re)load; consumed by loader.
     bool requestListRefresh = true;

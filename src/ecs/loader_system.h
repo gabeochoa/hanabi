@@ -48,12 +48,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             std::string id = app.requestOpenId;
             app.requestOpenId.clear();
             app.selectedId = id;
-            app.transcriptPending = true;
-            app.transcriptPendingId = id;
-            app.transcriptState = LoadState::Loading;
-            api::Client* c = app.client.get();
-            app.transcriptFuture = std::async(
-                std::launch::async, [c, id] { return c->get_session(id); });
+
+            // Phase X fast path: cache HIT -> render synchronously, no async
+            // round-trip, no Loading flash. Marks the thread most-recently-used
+            // so "last 5 interacted with" stays accurate on every open/switch.
+            if (auto hit = app.transcriptCache.get(id)) {
+                app.openSession = std::move(*hit);
+                app.transcriptState = LoadState::Loaded;
+                app.transcriptError.clear();
+                // Mock is static -> cache is authoritative (no revalidation).
+                // SEAM: a live backend would kick a background revalidate here
+                // and swap in fresh data if it changed. Not built for the mock.
+            } else {
+                // MISS: existing async fetch path.
+                app.transcriptPending = true;
+                app.transcriptPendingId = id;
+                app.transcriptState = LoadState::Loading;
+                api::Client* c = app.client.get();
+                app.transcriptFuture = std::async(
+                    std::launch::async, [c, id] { return c->get_session(id); });
+            }
         }
         if (app.transcriptPending && app.transcriptFuture.valid()) {
             if (app.transcriptFuture.wait_for(std::chrono::seconds(0)) ==
@@ -61,6 +75,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 auto r = app.transcriptFuture.get();
                 app.transcriptPending = false;
                 if (r.ok) {
+                    // Insert into the cache (capped to the last 20 msgs) and
+                    // mark most-recently-used, then render.
+                    app.transcriptCache.put(r.value);
                     app.openSession = std::move(r.value);
                     app.transcriptState = LoadState::Loaded;
                     app.transcriptError.clear();
