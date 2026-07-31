@@ -40,26 +40,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 render_transcript(ctx, panel.ent(), *app, r.width, r.height);
                 break;
             case SmartView::Home:
-                render_home(ctx, panel.ent(), *app, r.height);
+                render_home(ctx, panel.ent(), *app, r.width, r.height);
                 break;
             case SmartView::Blocked:
                 render_digest(ctx, panel.ent(), *app, "Blocked on you",
-                              r.height, ecs::model::in_blocked_view);
+                              r.width, r.height, ecs::model::in_blocked_view);
                 break;
             case SmartView::Review:
                 render_digest(ctx, panel.ent(), *app, "Ready for review",
-                              r.height, ecs::model::in_review_view);
+                              r.width, r.height, ecs::model::in_review_view);
                 break;
             case SmartView::Starred:
-                render_digest(ctx, panel.ent(), *app, "Starred", r.height,
-                              ecs::model::in_starred_view);
+                render_digest(ctx, panel.ent(), *app, "Starred", r.width,
+                              r.height, ecs::model::in_starred_view);
                 break;
         }
     }
 
   private:
     static void header(UIContext<InputAction>& ctx, Entity& parent,
-                       const std::string& title, const std::string& sub) {
+                       const std::string& title, const std::string& sub,
+                       float titlePx = 14.0f) {
         auto h = div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(46)})
@@ -74,10 +75,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(h.ent(), 1),
             ComponentConfig{}
                 .with_label(fmtutil::ellipsize(title, 48))
-                .with_size(ComponentSize{percent(0.7f), pixels(22)})
+                .with_size(ComponentSize{percent(0.7f), pixels(24)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(FontSize::Large)
+                .with_font_size(titlePx)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("main_title"));
@@ -88,7 +89,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{percent(0.3f), pixels(22)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(FontSize::Small)
+                    .with_font_size(11.0f)
                     .with_alignment(TextAlignment::Right)
                     .with_roundness(0.0f)
                     .with_debug_name("main_sub"));
@@ -106,16 +107,43 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("main_note"));
     }
 
+    // Content wrapper capped at 720px wide (mirrors the mock's `.sv-wrap`
+    // max-width). Left-aligned so it lines up with the header title's left
+    // inset (the header is a separate fixed row, so left-align keeps the h1
+    // and the card column on the same left edge rather than drifting apart).
+    static Entity& centered_wrap(UIContext<InputAction>& ctx, Entity& scroll,
+                                 int id, float innerW) {
+        float wrapW = innerW < 720.0f ? innerW : 720.0f;
+        auto row = div(ctx, mk(scroll, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_justify_content(JustifyContent::FlexStart)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sv_center"));
+        auto wrap = div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(wrapW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sv_wrap"));
+        return wrap.ent();
+    }
+
     // ---------------- Digest views (Blocked / Review / Starred) ------------
     template <typename Pred>
     void render_digest(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const std::string& title,
-                       float paneH, Pred pred) {
+                       float paneW, float paneH, Pred pred) {
         std::vector<const api::SessionSummary*> rows;
         for (const auto& s : app.sessions)
             if (pred(s)) rows.push_back(&s);
 
-        header(ctx, parent, title, std::to_string(rows.size()));
+        header(ctx, parent, title, std::to_string(rows.size()), 20.0f);
 
         if (rows.empty()) {
             note(ctx, parent, "Nothing here right now.");
@@ -133,7 +161,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("digest_scroll"));
 
         int i = 0;
-        for (const auto* s : rows) digest_card(ctx, scroll.ent(), ++i, *s, app);
+        Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
+        for (const auto* s : rows) digest_card(ctx, wrap, ++i, *s, app);
     }
 
     static const char* tag_label(api::ThreadTag t) {
@@ -198,7 +227,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.74f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(FontSize::Medium)
+                .with_font_size(13.5f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("dc_name"));
@@ -212,7 +241,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                           .left = pixels(6)})
                     .with_custom_background(tag_bg(s.tag))
                     .with_custom_text_color(tag_fg(s.tag))
-                    .with_font_size(FontSize::Small)
+                    .with_font_size(9.5f)
                     .with_alignment(TextAlignment::Center)
                     .with_roundness(0.3f)
                     .with_debug_name("dc_tag"));
@@ -225,7 +254,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
-                .with_font_size(FontSize::Small)
+                .with_font_size(12.0f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("dc_sub"));
@@ -233,8 +262,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---------------- Home digest ------------------------------------------
     void render_home(UIContext<InputAction>& ctx, Entity& parent,
-                     AppComponent& app, float paneH) {
-        header(ctx, parent, "Home", "");
+                     AppComponent& app, float paneW, float paneH) {
+        header(ctx, parent, "Home", "", 20.0f);
 
         float listH = paneH - 46.0f;
         if (listH < 40.0f) listH = 40.0f;
@@ -246,24 +275,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("home_scroll"));
 
+        Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
+
         // Ordered: (a) waiting on you, (b) finished, (c) running (count only).
         int shown = 0, running = 0;
-        section_label(ctx, scroll.ent(), 1, "Waiting on you");
+        section_label(ctx, wrap, 1, "WAITING ON YOU");
         for (const auto& s : app.sessions)
             if (s.state == api::ThreadState::Attention &&
                 s.tag == api::ThreadTag::Blocked)
-                digest_card(ctx, scroll.ent(), ++shown, s, app);
+                digest_card(ctx, wrap, ++shown, s, app);
 
-        section_label(ctx, scroll.ent(), 900, "Finished since you looked");
+        section_label(ctx, wrap, 900, "FINISHED SINCE YOU LOOKED");
         for (const auto& s : app.sessions)
             if (s.state == api::ThreadState::Attention &&
                 s.tag != api::ThreadTag::Blocked)
-                digest_card(ctx, scroll.ent(), ++shown, s, app);
+                digest_card(ctx, wrap, ++shown, s, app);
 
         for (const auto& s : app.sessions)
             if (s.state == api::ThreadState::Running) ++running;
-        section_label(ctx, scroll.ent(), 1800,
-                      "Self-running (" + std::to_string(running) + ")");
+        section_label(ctx, wrap, 1800,
+                      "SELF-RUNNING (" + std::to_string(running) + ")");
     }
 
     static void section_label(UIContext<InputAction>& ctx, Entity& parent,
@@ -272,11 +303,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(text)
                 .with_size(ComponentSize{percent(1.0f), pixels(24)})
-                .with_margin(Margin{.top = pixels(10), .right = pixels(0),
-                                    .bottom = pixels(2), .left = pixels(0)})
+                .with_margin(Margin{.top = pixels(16), .right = pixels(0),
+                                    .bottom = pixels(4), .left = pixels(0)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(FontSize::Small)
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(12.0f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("home_section"));

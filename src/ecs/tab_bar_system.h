@@ -102,7 +102,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_translate(tabX, r.y)
                     .with_custom_background(bg)
                     .with_custom_text_color(txt)
-                    .with_font_size(FontSize::Small)
+                    .with_font_size(12.5f)
                     .with_alignment(TextAlignment::Left)
                     .with_padding(Padding{.left = pixels(12),
                                           .right = pixels(24)})
