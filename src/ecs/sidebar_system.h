@@ -292,16 +292,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("sb_brand_name"));
 
-            // New task.
+            // New task → open the composer (Phase K composer system renders it).
             auto newBtn = button(ctx, mk(header.ent(), 2),
                 icon_btn_sprite("plus", "+").with_debug_name("sb_new"));
-            (void)newBtn;
+            if (newBtn) {
+                if (auto* app = find_singleton<AppComponent>())
+                    app->composerOpen = true;
+            }
 
-            // Settings.
+            // Settings → open the settings overlay (Phase K settings system).
             auto setBtn = button(ctx, mk(header.ent(), 3),
                 icon_btn_sprite("gear", "\xe2\x9a\x99")
                     .with_debug_name("sb_settings"));
-            (void)setBtn;
+            if (setBtn) {
+                if (auto* app = find_singleton<AppComponent>())
+                    app->showSettings = true;
+            }
         }
 
         // Collapse / expand toggle (present in both states).
