@@ -717,11 +717,6 @@ body {
       <span class="light red"></span><span class="light yellow"></span><span class="light green"></span>
     </div>
     <div class="title"><b>hanabi</b></div>
-    <div class="titlebar-actions">
-      <button class="iconbtn" id="spotlightBtn" title="Command palette (Cmd+K)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      </button>
-    </div>
   </div>
 
   <div class="body">
@@ -1378,7 +1373,6 @@ function openSpotlight(){
   setTimeout(()=>document.getElementById('spotlightInput').focus(),40);
 }
 function closeSpotlight(){ document.getElementById('spotlightOverlay').classList.remove('open'); }
-document.getElementById('spotlightBtn').addEventListener('click', openSpotlight);
 document.getElementById('spotlightOverlay').addEventListener('click', closeSpotlight);
 
 /* ============================================================
