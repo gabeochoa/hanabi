@@ -1,25 +1,51 @@
 # hanabi
 
 A small, fast **native desktop client** for browsing conversation sessions.
-It loads your threads locally and renders them in a clean, minimal interface —
-a session list on the left, the full transcript on the right.
+A single collapsible sidebar (smart views + folders) on the left, VS Code-style
+tabs across the top, and the full transcript in the main pane.
 
 Built with **C++23**, the [afterhours](https://github.com/gabeochoa/afterhours)
 ECS + immediate-mode UI framework, and **Sokol** (Metal on macOS) for rendering.
 
 <!-- screenshot goes here -->
 
+## Features
+
+- **Collapsible single sidebar.** One sidebar with two states: a folded thin
+  rail (icon-only smart views + collapse/expand toggle) and an unfolded full
+  state (brand + search + New task + Settings + collapse; smart-view list with
+  counts; folders; recent; a low-signal collapsed Archived section). The width
+  animates with a smoothstep ease. Toggle via the header button **or Cmd+B**.
+- **Tabbed chat panels.** Clicking a thread opens it in a tab (or focuses the
+  existing one); an active-tab accent underline, per-tab close (×), and **Cmd+W**
+  to close the active tab. Switching tabs swaps the transcript.
+- **Tab persistence.** The open tab set and the active tab are saved and
+  restored across launches.
+- **High-signal rows.** A row shows an attention dot + bold title **only** when
+  it's done or waiting on you. Self-running threads are dimmed and calm (no dot,
+  no bold); parked and archived threads are greyed. At most one tag chip per row
+  (Blocked / Review / Done). The status bar shows the blocked-on-you count.
+- **Smart views.** Home (a digest ordered waiting-on-you → finished →
+  self-running), Blocked, Review (agent-verified / ready to look at), and
+  Starred — each swaps the main pane. Plus user folders + Archived.
+- **Light / dark theming.** All colors flow from a single swappable token set
+  (`src/ui/theme.h`), switchable at runtime and persisted. Dark by default.
+
 ## Design
 
 Hanabi talks to a data source through a small, backend-agnostic `Client`
 interface (`src/api/client.h`). Two implementations ship:
 
-- **`mock`** *(default)* — deterministic, in-memory sample data. The app builds
-  and runs standalone with **no configuration and no network access**.
+- **`mock`** *(default)* — deterministic, in-memory sample data (a spread of
+  thread states so smart views / folders / high-signal rows all have real
+  content to render). The app builds and runs standalone with **no
+  configuration and no network access**.
 - **`http`** — a generic REST adapter. It has **no service baked in**: the base
   URL, auth token, request paths, and even the JSON field names it reads are
   **all supplied at runtime** via environment variables. Nothing about any
-  particular backend is compiled into this repository.
+  particular backend is compiled into this repository. The high-signal
+  attention model degrades to a calm/unknown state when the backend doesn't
+  supply one.
 
 This keeps the app useful out of the box and lets you point it at whatever
 backend you like without touching the code.
@@ -72,12 +98,13 @@ that is git-ignored.
 src/
 ├── api/          # backend-agnostic client interface + mock/http adapters
 ├── ecs/          # entities, components, and per-frame systems
-│   ├── loader_system.h        # async data loading
-│   ├── layout_system.h        # panel geometry
-│   ├── session_list_system.h  # left sidebar
-│   ├── transcript_system.h    # right transcript pane
-│   └── status_bar_system.h    # bottom bar
-├── ui/           # theme + design-system presets
+│   ├── loader_system.h     # async data loading
+│   ├── layout_system.h     # panel geometry + sidebar collapse animation
+│   ├── sidebar_system.h    # collapsible sidebar (smart views, folders, rows)
+│   ├── tab_bar_system.h    # VS Code-style closable tabs + tab flow/restore
+│   ├── main_pane_system.h  # smart-view digests + transcript
+│   └── status_bar_system.h # bottom bar (backend + blocked count)
+├── ui/           # theme (swappable light/dark tokens) + design-system presets
 └── util/         # small helpers (formatting, process)
 ```
 
