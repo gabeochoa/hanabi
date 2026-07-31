@@ -36,10 +36,12 @@ status field.
   URL scheme) and whether it needs a signed/bundled .app. Report options.
 
 ## Update (2026-07-31, session)
-- THEME: dark-only for now. Light tokens stay in theme.h (single swappable
-  Tokens struct) so enabling light later is a one-line set_mode() — but don't
-  spend effort polishing light-mode layout yet. afterhours' token system makes
-  the eventual switch trivial.
+- THEME: dark is the polished default. Light tokens live in theme.h (single
+  swappable Tokens struct) and enabling light is a one-line set_mode(). Chrome
+  now renders correctly in BOTH modes (sprite icons tint live from theme::t, so
+  they re-color on switch — verified dark + light). We still don't spend effort
+  polishing full light-mode LAYOUT yet, but light is no longer "off"; afterhours'
+  token system makes the eventual full switch trivial.
 - SIDEBAR ROWS: no indent for folder threads. The shape-per-status glyph carries
   the meaning, so rows sit flush (left pad matches the folder header) to reclaim
   horizontal space for titles.

@@ -76,7 +76,7 @@ std::string as_string(const json& obj, const std::string& key) {
 Result<std::string> HttpClient::get(const std::string& path) {
     if (!cfg_.http_ready())
         return Result<std::string>::failure(
-            "http backend not configured (set HANABI_BASE_URL)");
+            "http backend not configured (set HANABI_API_BASE_URL)");
 
     SplitUrl s = split_url(cfg_.base_url);
     httplib::Client cli(s.origin.c_str());

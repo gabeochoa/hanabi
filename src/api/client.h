@@ -35,7 +35,7 @@ struct Config {
 
     // Generic REST configuration (only used by the http backend).
     // All read from the environment at startup:
-    //   HANABI_BASE_URL      e.g. https://example.invalid/api
+    //   HANABI_API_BASE_URL  e.g. https://example.invalid/api
     //   HANABI_TOKEN         opaque bearer token (never logged, never stored)
     //   HANABI_SESSIONS_PATH path for the session list   (default "/sessions")
     //   HANABI_MESSAGES_PATH path template for a transcript, with "{id}"

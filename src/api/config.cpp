@@ -19,7 +19,9 @@ Config Config::from_env() {
     Config c;
     c.backend = env_or("HANABI_BACKEND", "mock");
 
-    c.base_url = env_or("HANABI_BASE_URL", "");
+    // Base URL: prefer the descriptive HANABI_API_BASE_URL (documented name);
+    // fall back to the shorter HANABI_BASE_URL for backward compatibility.
+    c.base_url = env_or("HANABI_API_BASE_URL", env_or("HANABI_BASE_URL", ""));
     c.token = env_or("HANABI_TOKEN", "");
     c.sessions_path = env_or("HANABI_SESSIONS_PATH", c.sessions_path);
     c.messages_path = env_or("HANABI_MESSAGES_PATH", c.messages_path);
