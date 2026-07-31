@@ -57,7 +57,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (folded) return;  // rail stops after icon views
 
         // Scrollable region: folders + recent + archived.
-        float used = 40.0f + 42.0f + 148.0f;  // header + search + views
+        // header(40) + search(40) + VIEWS label(25) + views(148).
+        float used = 40.0f + 40.0f + 25.0f + 148.0f;
         float scrollH = r.height - used;
         if (scrollH < 40.0f) scrollH = 40.0f;
         auto scroll = div(ctx, mk(panel.ent(), 5),
@@ -66,6 +67,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(theme::sidebar_bg())
                 .with_debug_name("sidebar_scroll"));
 
+        // "FOLDERS" section label (mirrors the mock's second section header).
+        section_label(ctx, scroll.ent(), 5, "FOLDERS");
         render_folder(ctx, scroll.ent(), 10, "Stars", "stars", *app);
         render_folder(ctx, scroll.ent(), 20, "Oncall", "oncall", *app);
         render_folder(ctx, scroll.ent(), 30, "Experiments", "experiments",
@@ -168,8 +171,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                             : FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(8), .right = pixels(8),
-                                      .bottom = pixels(4), .left = pixels(10)})
+                .with_padding(Padding{.top = pixels(9), .right = pixels(8),
+                                      .bottom = pixels(5), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_header"));
@@ -288,8 +291,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(6), .right = pixels(8),
-                                      .bottom = pixels(6), .left = pixels(8)})
+                .with_padding(Padding{.top = pixels(5), .right = pixels(8),
+                                      .bottom = pixels(5), .left = pixels(8)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_roundness(0.3f)
                 .with_debug_name("sb_search"));
@@ -300,31 +303,52 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 14.0f,
+                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 13.0f,
                     -1.0f))
                 .with_debug_name("sb_search_icon"));
         div(ctx, mk(field.ent(), 2),
             ComponentConfig{}
                 .with_label("Search")
                 .with_size(ComponentSize{pixels(110), pixels(18)})
-                .with_padding(Padding{.left = pixels(4)})
+                .with_padding(Padding{.left = pixels(6)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
-                .with_font_size(FontSize::Small)
+                .with_font_size(12.5f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_text"));
     }
 
+    // ---- section label (mock .sb-section-label: 10.5px uppercase faint,
+    // padding 10/14/5) ----
+    void section_label(UIContext<InputAction>& ctx, Entity& parent, int id,
+                       const std::string& text) {
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(text)
+                .with_size(ComponentSize{percent(1.0f), pixels(25)})
+                .with_padding(Padding{.top = pixels(10), .right = pixels(14),
+                                      .bottom = pixels(5), .left = pixels(14)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(10.5f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_section_label"));
+    }
+
     // ---- smart views ----
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, bool folded) {
+        // "VIEWS" section label (unfolded only, per the mock).
+        if (!folded) section_label(ctx, parent, 25, "VIEWS");
+
         auto container = div(ctx, mk(parent, 3),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(148)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(6), .right = pixels(8),
+                .with_padding(Padding{.top = pixels(0), .right = pixels(8),
                                       .bottom = pixels(2), .left = pixels(8)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -381,12 +405,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(folded ? 26 : 20), pixels(22)})
+                .with_size(ComponentSize{pixels(folded ? 26 : 18), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_on_draw_fg(hanabi::icons::draw_fg(icon_name,
                                                         fallback_glyph, txt,
-                                                        15.0f, -1.0f))
+                                                        16.0f, -1.0f))
                 .with_debug_name("sv_icon"));
 
         if (folded) return;
@@ -395,10 +419,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(label)
                 .with_size(ComponentSize{percent(0.72f), pixels(22)})
-                .with_padding(Padding{.left = pixels(6)})
+                .with_padding(Padding{.left = pixels(10)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
-                .with_font_size(FontSize::Small)
+                .with_font_size(13.0f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
@@ -411,7 +435,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_custom_text_color(active ? theme::text_primary()
                                                    : theme::text_faint())
-                    .with_font_size(FontSize::Small)
+                    .with_font_size(11.0f)
                     .with_alignment(TextAlignment::Right)
                     .with_roundness(0.0f)
                     .with_debug_name("sv_count"));
@@ -465,7 +489,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.8f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(headColor)
-                .with_font_size(FontSize::Small)
+                .with_font_size(12.0f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("folder_name"));
@@ -475,7 +499,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(24), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
-                .with_font_size(FontSize::Small)
+                .with_font_size(11.0f)
                 .with_alignment(TextAlignment::Right)
                 .with_roundness(0.0f)
                 .with_debug_name("folder_count"));
@@ -496,8 +520,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool selected = app.selectedId == s.id;
         Glyph glyph = glyph_for(s);
 
-        // Denser rows: 24px tall with tight vertical padding (was 28px), so
-        // more threads fit — matching the mock's compact sidebar feel.
+        // Denser rows: 24px tall with tight vertical padding, so more threads
+        // fit — matching the mock's compact sidebar feel. Rows are indented
+        // (left pad) to sit under their folder header, mirroring the mock's
+        // indented .folder-body (padding-left 14 + margin-left 13).
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(24)})
@@ -505,7 +531,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.top = pixels(2), .right = pixels(8),
-                                      .bottom = pixels(2), .left = pixels(10)})
+                                      .bottom = pixels(2), .left = pixels(22)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
                 .with_custom_hover_bg(theme::hover_bg())
@@ -547,7 +573,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.92f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
-                .with_font_size(FontSize::Small)
+                .with_font_size(12.5f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));
