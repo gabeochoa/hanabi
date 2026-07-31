@@ -15,6 +15,7 @@
 #include <string>
 
 #include "../util/format.h"
+#include "../ui/icons.h"
 #include "thread_model.h"
 #include "ui_imports.h"
 
@@ -174,32 +175,55 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_header"));
 
         if (!folded) {
-            // Brand mark + name.
-            div(ctx, mk(header.ent(), 1),
+            // Brand mark (sprite) + name. The ✦ mark is now a Lucide "sparkle"
+            // sprite drawn via on_draw_fg; the "hanabi" wordmark stays text.
+            auto brand = div(ctx, mk(header.ent(), 1),
                 ComponentConfig{}
-                    .with_label("\xe2\x9c\xa6 hanabi")
                     .with_size(ComponentSize{percent(0.62f), pixels(24)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("sb_brand"));
+            div(ctx, mk(brand.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "brand", "\xe2\x9c\xa6", theme::text_primary(), 15.0f,
+                        -1.0f))
+                    .with_debug_name("sb_brand_mark"));
+            div(ctx, mk(brand.ent(), 2),
+                ComponentConfig{}
+                    .with_label("hanabi")
+                    .with_size(ComponentSize{pixels(120), pixels(24)})
+                    .with_padding(Padding{.left = pixels(4)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
                     .with_font_size(FontSize::Medium)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("sb_brand"));
+                    .with_debug_name("sb_brand_name"));
 
             // New task.
             auto newBtn = button(ctx, mk(header.ent(), 2),
-                icon_btn("+").with_debug_name("sb_new"));
+                icon_btn_sprite("plus", "+").with_debug_name("sb_new"));
             (void)newBtn;
 
             // Settings.
             auto setBtn = button(ctx, mk(header.ent(), 3),
-                icon_btn("\xe2\x9a\x99").with_debug_name("sb_settings"));
+                icon_btn_sprite("gear", "\xe2\x9a\x99")
+                    .with_debug_name("sb_settings"));
             (void)setBtn;
         }
 
         // Collapse / expand toggle (present in both states).
         auto collapseBtn = button(ctx, mk(header.ent(), 4),
-            icon_btn(folded ? "\xc2\xbb" : "\xc2\xab")
+            icon_btn_sprite(folded ? "sidebar_open" : "sidebar_close",
+                            folded ? "\xc2\xbb" : "\xc2\xab")
                 .with_debug_name("sb_collapse"));
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
@@ -221,6 +245,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             .with_roundness(0.3f);
     }
 
+    // Sprite-icon button: same 26x26 chrome button as icon_btn, but instead of
+    // a text glyph it blits the Lucide atlas sprite `name` (tinted) via
+    // on_draw_fg, keeping the widget label empty. `fallback_glyph` is the
+    // legacy unicode text drawn only if the atlas fails to load. Routed through
+    // icons::draw_fg so a future icon-source swap is localized.
+    static ComponentConfig icon_btn_sprite(const std::string& name,
+                                           const std::string& fallback_glyph) {
+        return ComponentConfig{}
+            .with_label(" ")
+            .with_size(ComponentSize{pixels(26), pixels(26)})
+            .with_custom_background(theme::sidebar_bg())
+            .with_custom_hover_bg(theme::hover_bg())
+            .with_click_activation(ClickActivationMode::Press)
+            .with_roundness(0.3f)
+            .with_on_draw_fg(hanabi::icons::draw_fg(
+                name, fallback_glyph, theme::text_secondary(), 16.0f));
+    }
+
     // ---- search (unfolded only) ----
     void render_search(UIContext<InputAction>& ctx, Entity& parent) {
         // Wrap in a full-width padded row so the search field itself never
@@ -236,18 +278,42 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_wrap"));
-        div(ctx, mk(wrap.ent(), 1),
+        // Search field: a row-flex pill holding a magnifier sprite slot + the
+        // "Search" placeholder text, so the icon sits in the left gutter and
+        // the text flows after it (text-label padding alone doesn't offset the
+        // glyph origin reliably here).
+        auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_label("\xf0\x9f\x94\x8d  Search")
                 .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.top = pixels(6), .right = pixels(8),
                                       .bottom = pixels(6), .left = pixels(8)})
                 .with_custom_background(theme::panel_bg_2())
+                .with_roundness(0.3f)
+                .with_debug_name("sb_search"));
+        div(ctx, mk(field.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(18), pixels(18)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 14.0f,
+                    -1.0f))
+                .with_debug_name("sb_search_icon"));
+        div(ctx, mk(field.ent(), 2),
+            ComponentConfig{}
+                .with_label("Search")
+                .with_size(ComponentSize{pixels(110), pixels(18)})
+                .with_padding(Padding{.left = pixels(4)})
+                .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(FontSize::Small)
                 .with_alignment(TextAlignment::Left)
-                .with_roundness(0.3f)
-                .with_debug_name("sb_search"));
+                .with_roundness(0.0f)
+                .with_debug_name("sb_search_text"));
     }
 
     // ---- smart views ----
@@ -270,20 +336,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (s.starred) ++starred;
         }
 
-        smart_item(ctx, container.ent(), 1, "\xe2\x8c\x82", "Home",
+        smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
                    SmartView::Home, -1, app, folded);
-        smart_item(ctx, container.ent(), 2, "\xe2\x9b\x94", "Blocked",
-                   SmartView::Blocked, blocked, app, folded);
-        smart_item(ctx, container.ent(), 3, "\xe2\x9c\x93", "Review",
+        smart_item(ctx, container.ent(), 2, "blocked", "\xe2\x9b\x94",
+                   "Blocked", SmartView::Blocked, blocked, app, folded);
+        smart_item(ctx, container.ent(), 3, "review", "\xe2\x9c\x93", "Review",
                    SmartView::Review, review, app, folded);
-        smart_item(ctx, container.ent(), 4, "\xe2\x98\x85", "Starred",
+        smart_item(ctx, container.ent(), 4, "star", "\xe2\x98\x85", "Starred",
                    SmartView::Starred, starred, app, folded);
     }
 
     void smart_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
-                    const std::string& icon, const std::string& label,
-                    SmartView view, int count, AppComponent& app,
-                    bool folded) {
+                    const std::string& icon_name,
+                    const std::string& fallback_glyph,
+                    const std::string& label, SmartView view, int count,
+                    AppComponent& app, bool folded) {
         bool active = app.view == view;
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
@@ -313,13 +380,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_label(icon)
+                .with_label(" ")
                 .with_size(ComponentSize{pixels(folded ? 26 : 20), pixels(22)})
                 .with_transparent_bg()
-                .with_custom_text_color(txt)
-                .with_font_size(FontSize::Small)
-                .with_alignment(TextAlignment::Center)
                 .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(icon_name,
+                                                        fallback_glyph, txt,
+                                                        15.0f, -1.0f))
                 .with_debug_name("sv_icon"));
 
         if (folded) return;
@@ -381,9 +448,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("folder_head"));
+        // Folder chevron (sprite) + name. The ▾ marker is now a Lucide
+        // "chevron-down" sprite; the folder name stays text.
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
-                .with_label("\xe2\x96\xbe " + name)
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(16), pixels(18)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "chevron_down", "\xe2\x96\xbe", headColor, 13.0f, -1.0f))
+                .with_debug_name("folder_chevron"));
+        div(ctx, mk(head.ent(), 4),
+            ComponentConfig{}
+                .with_label(name)
                 .with_size(ComponentSize{percent(0.8f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(headColor)
