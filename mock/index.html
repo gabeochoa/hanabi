@@ -270,16 +270,24 @@ body {
 
 /* chat row */
 .chat-row {
-  display:flex; align-items:center; gap:8px; padding:6px 8px 6px 10px;
-  border-radius:7px; cursor:pointer; color: var(--text-secondary);
-  transition: background .1s;
+  display:flex; align-items:center; gap:8px; padding:3px 8px 3px 10px;
+  border-radius:6px; cursor:pointer; color: var(--text-secondary);
+  transition: background .1s; line-height:1.25;
 }
 .chat-row:hover { background: var(--hover-bg); }
-.chat-row .dot {
-  width:7px; height:7px; border-radius:50%; background: var(--dot); flex:0 0 7px;
-  opacity:0; margin-left:1px;
-}
-.chat-row.attn .dot { opacity:1; }
+/* status glyph — a DEDICATED SHAPE per status (not color-only), shown only
+   when the thread needs attention (waiting/blocked/review/done). Self-running,
+   parked and archived show nothing. */
+.chat-row .glyph { width:9px; height:9px; flex:0 0 9px; margin-left:1px; position:relative; display:none; }
+.chat-row.has-glyph .glyph { display:block; }
+/* blocked = red UP-TRIANGLE (most urgent) */
+.glyph.g-blocked { width:0; height:0; background:transparent;
+  border-left:5px solid transparent; border-right:5px solid transparent;
+  border-bottom:9px solid var(--tag-blocked-fg); }
+/* review = green DIAMOND (agent-verified, ready to look) */
+.glyph.g-review { width:8px; height:8px; background: var(--tag-ready-fg); transform: rotate(45deg); border-radius:1px; }
+/* done = blue DOT (finished) */
+.glyph.g-done { width:8px; height:8px; background: var(--tag-done-fg); border-radius:50%; }
 .chat-row .ctitle {
   flex:1; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   color: var(--text-secondary);
@@ -1185,11 +1193,17 @@ function tagHtml(tag){
 function chatRowHtml(id){
   const t = THREADS[id];
   let cls = "chat-row";
-  if(t.state==="attn"||t.state==="done") cls+=" attn";
+  // glyph: dedicated SHAPE per attention status (not color-only)
+  //   blocked -> red up-triangle | review -> green diamond | done -> blue dot
+  let glyph = "";
+  if(t.tag==="blocked"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-blocked"></span>'; }
+  else if(t.tag==="ready"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-review"></span>'; }
+  else if(t.state==="done"||t.tag==="done"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-done"></span>'; }
+  else if(t.state==="attn"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-blocked"></span>'; }
   else if(t.state==="running") cls+=" running";
   else if(t.state==="parked"||t.state==="archived") cls+=" parked";
   return '<div class="'+cls+'" onclick="openChat(\''+id+'\')">'+
-    '<span class="dot"></span>'+
+    glyph +
     '<span class="ctitle">'+t.title+'</span>'+
     tagHtml(t.tag)+
   '</div>';
