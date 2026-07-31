@@ -97,6 +97,50 @@ Validate against docs/mock-phases/phaseF.html:
 - [ ] Light theme: toggle in Settings flips tokens; both themes match their mock variant.
 - [ ] h1 20px; card names 13px; body 12–12.5px.
 
+## Phase I — Interactive sidebar (match mock behavior)
+The sidebar renders the right structure but is mostly static. Wire the mock's
+real interactions (owner file: `src/ecs/sidebar_system.h`; shared state added
+up-front to `components.h`).
+Validate (screenshot + behavior):
+- [ ] Folder headers collapse/expand on click (chevron rotates ▸/▾), state per
+      folder held in a `collapsedFolders` set; body hides when collapsed.
+- [ ] "Fold all folders" control in the Folders section header toggles every
+      folder at once.
+- [ ] Search field filters the thread tree live as you type (afterhours
+      text_input); non-matching rows/folders hide; empty query restores all.
+- [ ] Search no-results shows the empty state ("No matches for '<q>'").
+- [ ] Star toggle on a row (or context affordance) flips `starred`, updates the
+      Starred count + view immediately.
+- [ ] Folded rail: smart-view icons show a small attention dot when their count
+      > 0 (Blocked especially), matching the mock rail.
+
+## Phase J — Transcript detail + sub-agent panel
+The transcript renders role bubbles but lacks the mock's richer surfaces (owner
+file: new `src/ecs/transcript_system.h`, extracted from main_pane; `components.h`
+gets sub-agent view state).
+Validate:
+- [ ] Sub-agent panel at the TOP of the transcript when a thread has children:
+      each sub-agent row with a working-ring (running) or status glyph (done),
+      label, collapsible. NOT shown in the sidebar (per decisions).
+- [ ] Tool blocks render distinctly (monospace-ish, "shell · 214 passed" style)
+      vs assistant/user/system bubbles.
+- [ ] Empty-thread state ("Nothing here yet") when a thread has 0 messages.
+- [ ] Timestamps + role labels align; long text wraps; scroll works.
+
+## Phase K — Settings panel + composer
+Two mock surfaces the app is missing entirely (owner files: new
+`src/ecs/settings_system.h` + `src/ecs/composer_system.h`; `components.h` gets a
+`showSettings` flag + composer draft state).
+Validate:
+- [ ] Settings gear opens a real settings panel (overlay/sheet): theme
+      light/dark/system toggle wired to `Settings::set_theme` + `theme::set_mode`
+      live; closes on gear/Esc/outside-click.
+- [ ] Theme switch takes effect immediately (icons re-tint, tokens swap) and
+      persists across relaunch (now that the settings-path bug is fixed).
+- [ ] Composer: read-only browse + a "New task" affordance (Cmd+N / the + in the
+      title bar) opens a compose row to kick off a new thread (mock backend
+      accepts it; reply-inline still deferred per decisions).
+
 ## Phase G — Native integrations (deferred; own validation later)
 menu-bar NSStatusItem (blocked count + new chat), real Spotlight kickoff, global hotkey,
 native notifications, offline cache. Validated per-item when built.

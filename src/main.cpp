@@ -15,10 +15,12 @@
 
 #include "api/client.h"
 #include "ecs/components.h"
+#include "ecs/composer_system.h"
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
 #include "ecs/main_pane_system.h"
 #include "ecs/sidebar_system.h"
+#include "ecs/settings_system.h"
 #include "ecs/status_bar_system.h"
 #include "ecs/tab_bar_system.h"
 #include "ui/theme.h"
@@ -100,6 +102,8 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::MainPaneSystem>());
     sm.register_update_system(std::make_unique<ecs::TabBarSystem>());
     sm.register_update_system(std::make_unique<ecs::StatusBarSystem>());
+    sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
+    sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
 
     // Post-layout (autolayout, interactions).
     ui_imm::registerUIPostLayoutSystems(sm);

@@ -3,6 +3,7 @@
 #include <future>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,33 @@ struct AppComponent : public afterhours::BaseComponent {
     std::vector<std::string> restoreTabIds;
     std::string restoreActiveId;
     bool restoreDone = false;
+
+    // ---- Interaction state (Phases I/J/K) — pre-staged here so each system
+    // owns only its own file and never races on this shared component. ----
+
+    // Phase I (sidebar): per-folder collapse state (folder key -> collapsed),
+    // a global fold-all flag, and the live search query. The sidebar system
+    // reads/writes these; empty query = show everything.
+    std::set<std::string> collapsedFolders;
+    bool foldAllFolders = false;
+    std::string searchQuery;
+
+    // Phase I: request to toggle a thread's starred flag (set by sidebar row,
+    // consumed by whichever system owns the summary mutation).
+    std::string requestToggleStar;
+
+    // Phase J (transcript): which sub-agent rows are expanded in the sub-agent
+    // panel (child session id -> expanded). Sub-agent viz lives in the
+    // transcript only, never the sidebar.
+    std::set<std::string> expandedSubAgents;
+
+    // Phase K (settings/composer): settings overlay visibility + the theme
+    // currently selected in the panel ("dark"/"light"/"system"); composer
+    // open state + its draft text for kicking off a new task.
+    bool showSettings = false;
+    std::string themeChoice = "dark";
+    bool composerOpen = false;
+    std::string composerDraft;
 };
 
 // Layout rectangles recomputed each frame from the window size.
