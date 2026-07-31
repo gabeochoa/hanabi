@@ -62,6 +62,13 @@ macOS), Make build. Runs standalone on a mock backend by default.
 - Extracted Gabe's thread-management model -> docs/sidebar-model.md.
 
 ## Known issues
-- Headless --screenshot path hangs after the 12:59 transcript edit (regressed).
-  Transcript body text clips to the right edge. Both to be resolved in the
-  Phase-2 reimplementation (current transcript system will be replaced).
+- (RESOLVED) Headless --screenshot hang: root cause was --screenshot arg
+  parsing silently opening a window; fixed in src/main.cpp. Verified: exits 0,
+  writes a valid 1100x760 PNG of the real UI.
+- (RESOLVED, verified) Transcript body text now wraps correctly inside bubbles.
+
+## Feasibility (answered — see docs/afterhours-feasibility.md)
+- NO upstream afterhours change needed. afterhours ships tab_container();
+  sibling app floatinghotel already implements VS Code-style closable tabs
+  (tab_bar_system.h), animated collapsible sidebar (sidebar_system.h), and
+  draggable split panes (split_panel.h) in app code. Phase 2 mirrors those.
