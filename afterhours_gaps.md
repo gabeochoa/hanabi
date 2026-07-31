@@ -265,3 +265,49 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   pipeline (same fix that would resolve #13 for the general case), so a
   low-alpha `with_custom_background` composites over whatever it's drawn on —
   no per-call-site backdrop knowledge or manual pre-blend needed.
+
+### #16 — No OS appearance (light/dark) query
+- **Gap:** afterhours exposes no way to read the host OS's current appearance
+  (macOS `AppleInterfaceStyle` / `NSApp.effectiveAppearance`, or the equivalent
+  on other platforms). There is nothing like `graphics::os_appearance()` or a
+  changed-notification hook.
+- **How it showed up:** Phase K settings panel offers a THEME choice of
+  Light / Dark / System. Light and Dark work fully (Settings::set_theme +
+  theme::set_mode). "System" cannot be honored — there is no reachable signal
+  for what the OS is set to.
+- **Why wanted:** "match system" is a standard, expected theme option in a
+  native desktop app; users toggle OS dark mode and expect the app to follow.
+- **App-code workaround (used):** "System" is a labelled *choice* that is
+  remembered in `AppComponent::themeChoice == "system"` but currently falls
+  back to the Dark palette for rendering (with a note in the panel footnote).
+  See src/ecs/settings_system.h (apply_theme).
+- **Minimal upstream help (optional):** a `graphics::os_appearance()` returning
+  {Light, Dark, Unknown} plus an appearance-changed callback so "System" can be
+  resolved live without app-side platform code.
+
+### #17 — imm `text_input` ignores `with_font_size` and `with_custom_background`
+- **Gap:** the immediate-mode `text_input` widget
+  (vendor/afterhours/src/plugins/ui/text_input/component.h) DERIVES its font
+  size from the field's computed HEIGHT (`derived_fs = field_h * 0.5f`) and
+  forces its inner field background to `Theme::Usage::Secondary` from
+  `ctx.theme`. So `ComponentConfig::with_font_size(...)` and
+  `with_custom_background(...)` passed to `text_input` are silently ignored:
+  a tall field yields an oversized font that overflows, and the field surface
+  can't be tinted with the app's own theme tokens.
+- **How it showed up:** Phase K composer input. A 72px-tall field rendered the
+  draft at ~36px (overflowing the box); setting `.with_font_size(FontSize::Small)`
+  had no effect; the field stayed a dark `Theme::Usage::Secondary` surface even
+  in the app's Light theme (so it reads dark-on-a-light-sheet).
+- **Why wanted:** an app with its own token-based theme needs the text field to
+  (a) size its font independently of field height and (b) use the app's
+  surface color, so the input matches the rest of the themed UI in both modes.
+- **App-code workaround (used):** constrain the field to a single-line height
+  (~34px) so the height-derived font (~17px) is readable and doesn't overflow;
+  accept that the field's inner surface is themed by `ctx.theme` rather than the
+  app tokens (dark in both modes). Add a caption above the field for labelling
+  since placeholder/label styling is likewise not honored here. See
+  src/ecs/composer_system.h (render_input).
+- **Minimal upstream help (optional):** honor an explicit `with_font_size` on
+  `text_input` when provided (fall back to the height-derived size only when
+  unset), and let `with_custom_background` override the forced
+  `Theme::Usage::Secondary` field fill.
