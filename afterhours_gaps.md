@@ -237,3 +237,31 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   `load_texture` (and set `mipmap_filter = LINEAR` for trilinear), or add a
   `load_texture` variant/param to opt into mipmaps + an anisotropy level, so
   minified textures don't alias.
+
+### #15 — low-alpha `with_custom_background` renders OPAQUE (UI rect fill, not just textures)
+- **Gap:** same root cause as #13 (sokol_gl default pipeline has blending
+  disabled), but it bites the ordinary UI path, not just texture blits. A
+  translucent color passed to `ComponentConfig::with_custom_background(Color{r,g,b,a})`
+  with a < 255 is filled by `draw_rectangle` (sokol drawing_helpers.h) as a
+  FULLY OPAQUE quad — the alpha byte reaches `sgl_c4b` but the non-blended
+  pipeline discards it. So a "soft tint" surface (e.g. a status pill authored
+  as `{220,60,60,31}` ≈ 12% red) renders as a SATURATED SOLID block, and any
+  same-hue label text on it drops to zero contrast (invisible).
+- **How it showed up:** hanabi digest tag chips (BLOCKED/DONE) rendered as solid
+  red/blue rectangles with no visible label — the intended subtle translucent
+  pill was impossible via alpha alone. Pixel-sampled: token said a=31, screen
+  showed a=255.
+- **Why wanted:** translucent tint surfaces are a core UI idiom (chips, hover
+  overlays, selection washes, badges) — you want to author "12% of accent over
+  whatever's behind" and have it composite, not force-pick an opaque color per
+  surface/theme.
+- **App-code workaround (used):** pre-composite the tint OVER the known surface
+  color into an opaque color before handing it to `with_custom_background`.
+  Added `theme::over(fg, bg)` (src-over in app code) and blend the tag bg over
+  the card surface (`theme::over(tag_bg, panel_bg_2())`). Works, but the caller
+  must KNOW the exact backdrop color — brittle when surfaces stack or the
+  backdrop is itself dynamic. See src/ui/theme.h (over) + src/ecs/main_pane_system.h (tag_bg).
+- **Minimal upstream help (optional):** enable src-over blending on the UI fill
+  pipeline (same fix that would resolve #13 for the general case), so a
+  low-alpha `with_custom_background` composites over whatever it's drawn on —
+  no per-call-site backdrop knowledge or manual pre-blend needed.
