@@ -26,13 +26,16 @@ test_perf.cpp to tighten):
 - **FirstFrame (process start → first frame rendered): ~22–31 ms**  (new
   test-only "FirstFrame: N ms" log, gated on i==0 in run_headless_screenshot).
   GATE metric for launch. Budget < 250 ms (Phase P). ~10x headroom.
-- **Peak RSS (headless, `/usr/bin/time -l`): ~47 MB** (~49.7 MB bytes).
-  Budget < 250 MB (Phase X). ~5x headroom.
+- **Peak RSS (headless, `/usr/bin/time -l`): ~47 MB** (~50.2 MB bytes).
+  Budget < 250 MB (Phase X). ~5x headroom. Bounded by the transcript cache's
+  20-msg x 5-thread cap (the only growth point); RSS plateaus while cycling
+  through many threads (LRU evicts past 5).
 - **Peak RSS (windowed w/ Metal window, `ps -o rss`): ~68–70 MB.**
-- **Thread-switch latency: ~0.004 ms/switch** (current UNCACHED path: tabflow
-  focus + MockClient::get_session, which is what LoaderSystem runs per open).
-  Regression guard < 5.0 ms/switch. STRICT sub-ms cached-switch assertion is
-  PENDING Phase X (transcript LRU cache not built yet).
+- **Thread-switch latency (UNCACHED baseline): ~0.005 ms/switch** (tabflow
+  focus + MockClient::get_session). Regression guard < 5.0 ms/switch.
+- **Thread-switch latency (CACHED, Phase X): ~0.0005 ms/switch** (tabflow focus
+  + TranscriptCache HIT, served synchronously, no fetch, no Loading flash).
+  STRICT gate < 1.0 ms/switch — now REAL + PASSING in tests/e2e/test_perf.cpp.
 Run gates: `make test` (unit+e2e+perf+launch) or `scripts/run_tests.sh`. Not
 over-engineered — these are the baselines to watch as features + the cache land.
 
