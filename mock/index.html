@@ -40,6 +40,7 @@
   --traffic-red:#ff5f57; --traffic-yellow:#febc2e; --traffic-green:#28c840;
   --macbar-bg: rgba(30,30,34,0.72); --macbar-border: rgba(255,255,255,0.08);
   --macbar-text: rgba(255,255,255,0.92); --macbar-hover: rgba(255,255,255,0.14);
+  --dot-grid: rgba(255,255,255,0.05);
 }
 
 [data-theme="light"] {
@@ -72,6 +73,7 @@
   --composer-bg: rgb(248,248,250);
   --macbar-bg: rgba(245,245,247,0.72); --macbar-border: rgba(0,0,0,0.10);
   --macbar-text: rgba(0,0,0,0.82); --macbar-hover: rgba(0,0,0,0.08);
+  --dot-grid: rgba(0,0,0,0.055);
 }
 
 * { box-sizing: border-box; margin:0; padding:0; }
@@ -257,6 +259,9 @@ body {
 .folder-head:hover { background: var(--hover-bg); }
 .folder-head .chev { width:12px; height:12px; transition: transform .12s; flex:0 0 12px; }
 .folder-head.collapsed .chev { transform: rotate(-90deg); }
+.folder-head .fico { width:13px; height:13px; flex:0 0 13px; color: var(--text-faint); }
+.archived-group { margin-top:4px; }
+.archived-group .fname { color: var(--text-faint); }
 .folder-head .fname { flex:1; }
 .folder-head .fcount { font-size:11px; color:var(--text-faint); font-weight:500; }
 .folder-head .fcount.attn { color: var(--accent); font-weight:700; }
@@ -407,7 +412,11 @@ body {
 .send-btn svg { width:16px; height:16px; }
 
 /* ---------- SMART VIEW SCREENS ---------- */
-.sv { flex:1; overflow-y:auto; padding: 26px 34px; }
+.sv {
+  flex:1; overflow-y:auto; padding: 26px 34px;
+  background-image: radial-gradient(var(--dot-grid) 1.2px, transparent 1.2px);
+  background-size: 22px 22px; background-position: -1px -1px;
+}
 .sv-wrap { max-width: 720px; margin:0 auto; }
 .sv h1 { font-size:20px; font-weight:700; margin-bottom:2px; }
 .sv .sv-sub { color: var(--text-secondary); font-size:12.5px; margin-bottom:22px; }
@@ -450,6 +459,21 @@ body {
 .finished .fname { color: var(--text-primary); font-weight:600; }
 .finished .fago { margin-left:auto; color: var(--text-faint); font-size:11px; }
 
+/* pinned to digest (user-chosen always-surface items) */
+.pinned { list-style:none; }
+.pinned li {
+  display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--border-soft);
+}
+.pinned .pin-dot { flex:0 0 auto; font-size:11px; opacity:0.65; line-height:1.3; }
+.pinned .pinfo { flex:1; min-width:0; }
+.pinned .ptitle { font-size:13px; font-weight:600; color: var(--text-primary); }
+.pinned .pctx { font-size:12px; color: var(--text-secondary); margin-top:2px; }
+.pinned .unpin {
+  flex:0 0 auto; background:transparent; border:none; color: var(--text-faint);
+  font-size:15px; line-height:1; cursor:pointer; padding:2px 4px; border-radius:5px; font-family:inherit;
+}
+.pinned .unpin:hover { background: var(--hover-bg); color: var(--text-secondary); }
+
 /* self-running collapsed */
 .selfrun-head {
   display:flex; align-items:center; gap:8px; cursor:pointer; color: var(--text-faint);
@@ -489,6 +513,7 @@ body {
 }
 .checkpass { color: var(--role-assistant); font-size:11.5px; font-weight:600; display:flex; align-items:center; gap:5px; }
 .checkpass svg { width:13px; height:13px; }
+.reviewnote { font-size:12.5px; color: var(--text-secondary); line-height:1.55; margin:8px 0 12px; }
 
 /* ============================================================
    SPOTLIGHT MODAL
@@ -741,9 +766,9 @@ body {
             <span class="lbl">Blocked</span><span class="cnt">3</span>
             <span class="rail-badge">3</span>
           </div>
-          <div class="smart-item" data-view="ready" data-tip="Ready">
+          <div class="smart-item" data-view="ready" data-tip="Review">
             <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></span>
-            <span class="lbl">Ready</span><span class="cnt">2</span>
+            <span class="lbl">Review</span><span class="cnt">2</span>
           </div>
           <div class="smart-item" data-view="starred" data-tip="Starred">
             <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.9 6 6.6.9-4.8 4.6 1.1 6.5L12 18l-5.8 3 1.1-6.5L2.5 9.9 9 9z"/></svg></span>
@@ -785,6 +810,18 @@ body {
         <div class="recent-chats">
           <div class="sb-section-label recent-label">Recent</div>
           <div class="folder-group" data-chats="recent"></div>
+        </div>
+
+        <!-- archived (collapsed by default, low signal) -->
+        <div class="folders archived-group">
+          <div class="folder-group">
+            <div class="folder-head collapsed" onclick="toggleFolder(this)">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+              <svg class="fico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>
+              <span class="fname">Archived</span><span class="fcount" data-archived-count></span>
+            </div>
+            <div class="folder-body" data-chats="archived"></div>
+          </div>
         </div>
       </div>
 
@@ -843,6 +880,26 @@ body {
               </li>
             </ol>
 
+            <h3>Pinned to digest</h3>
+            <ul class="pinned">
+              <li>
+                <span class="pin-dot">📌</span>
+                <div class="pinfo">
+                  <div class="ptitle">Daily churn number</div>
+                  <div class="pctx">Yesterday: 1.42% — down 0.06pt week-over-week.</div>
+                </div>
+                <button class="unpin" title="Unpin from digest" aria-label="Unpin">×</button>
+              </li>
+              <li>
+                <span class="pin-dot">📌</span>
+                <div class="pinfo">
+                  <div class="ptitle">Tier migration watch</div>
+                  <div class="pctx">Backfill at 61% — I'll flag if it stalls or errors.</div>
+                </div>
+                <button class="unpin" title="Unpin from digest" aria-label="Unpin">×</button>
+              </li>
+            </ul>
+
             <h3>Finished since you last looked</h3>
             <ul class="finished">
               <li><span class="fcheck">✓</span><span class="fname">Subscription churn query</span><span> — pulled 90-day cohort, results attached.</span><span class="fago">12m</span></li>
@@ -895,28 +952,21 @@ body {
         <!-- READY -->
         <div class="screen" id="screen-ready" data-screen="ready">
           <div class="sv"><div class="sv-wrap">
-            <h1>Ready to test</h1>
-            <div class="sv-sub">Checks passed. Kick the tires, then approve.</div>
+            <h1>Review</h1>
+            <div class="sv-sub">Agent-verified and ready for you to look — you don't need to test.</div>
 
             <div class="card">
-              <div class="chead"><span class="cname">Tier upgrade flow</span><span class="tag ready">Ready</span></div>
-              <div class="checkpass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg> All 214 tests passed · lint clean · type check clean</div>
-              <ul class="steps">
-                <li>Open the test link on the staging build</li>
-                <li>Subscribe at Tier 1, then upgrade to Tier 2</li>
-                <li>Confirm proration line item appears in receipt</li>
-              </ul>
-              <div class="cactions"><button class="mini-btn primary">Open test link ↗</button><button class="mini-btn" onclick="openChat('t4')">Open thread</button></div>
+              <div class="chead"><span class="cname">Tier upgrade flow</span><span class="tag ready">Review</span></div>
+              <div class="checkpass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg> Agent tested it: all 214 tests pass · lint + type-check clean · before/after captured</div>
+              <div class="reviewnote">The agent subscribed at Tier 1, upgraded to Tier 2, and confirmed the proration line appears. Verified end-to-end — just give it a look.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t4')">Look</button><button class="mini-btn">View evidence ↗</button></div>
             </div>
 
             <div class="card">
-              <div class="chead"><span class="cname">Payout worker race fix</span><span class="tag ready">Ready</span></div>
-              <div class="checkpass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg> Repro no longer fires in 500 stress runs · CI green</div>
-              <ul class="steps">
-                <li>Trigger 3 concurrent payouts on the test tenant</li>
-                <li>Verify ledger writes exactly once per payout</li>
-              </ul>
-              <div class="cactions"><button class="mini-btn primary">Open test link ↗</button><button class="mini-btn" onclick="openChat('t5')">Open thread</button></div>
+              <div class="chead"><span class="cname">Payout worker race fix</span><span class="tag ready">Review</span></div>
+              <div class="checkpass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg> Agent tested it: repro no longer fires in 500 stress runs · CI green</div>
+              <div class="reviewnote">The agent ran 3 concurrent payouts on the test tenant and confirmed the ledger writes exactly once per payout. Verified — just give it a look.</div>
+              <div class="cactions"><button class="mini-btn primary" onclick="openChat('t5')">Look</button><button class="mini-btn">View evidence ↗</button></div>
             </div>
           </div></div>
         </div>
@@ -1059,14 +1109,14 @@ const THREADS = {
     {role:"assistant", ts:"1h", text:"B scored highest on clarity; A is warmest. <b>Which ships Monday?</b>"},
   ]},
   t4: { title:"Tier upgrade flow", state:"ready", tag:"ready", folder:"experiments", star:false,
-        sub:"ready to test · 30m", msgs:[
+        sub:"ready for review · 30m", msgs:[
     {role:"system", ts:"4h", text:"Task: implement in-app upgrade from Tier 1 → Tier 2 with proration."},
     {role:"assistant", ts:"1h", text:"Implemented the upgrade path with a proration line item on the receipt. Wrote 18 new tests."},
     {role:"tool", ts:"35m", text:"buck test → 214 passed, 0 failed · lint clean · type check clean ✓"},
     {role:"assistant", ts:"30m", text:"Deployed to staging. <b>Test link is ready</b> — subscribe at Tier 1, upgrade to Tier 2, and confirm the proration line."},
   ]},
   t5: { title:"Payout worker race fix", state:"ready", tag:"ready", folder:"oncall", star:true,
-        sub:"ready to test · 2h", msgs:[
+        sub:"ready for review · 2h", msgs:[
     {role:"system", ts:"6h", text:"Task: root-cause and fix intermittent double-writes in the payout worker."},
     {role:"assistant", ts:"3h", text:"Root cause: two workers could claim the same payout row between the read and the lock. Fixed with a conditional update guard."},
     {role:"tool", ts:"2h", text:"stress_run(500) → 0 double writes · CI green ✓"},
@@ -1104,6 +1154,15 @@ const THREADS = {
         sub:"parked", msgs:[
     {role:"assistant", ts:"1w", text:"Muted reference thread. No attention needed."},
   ]},
+  t13:{ title:"Legacy gifting migration", state:"archived", tag:null, folder:null, star:false,
+        sub:"archived · 2mo", msgs:[
+    {role:"system", ts:"2mo", text:"Task: migrate legacy gifting rows to the new ledger."},
+    {role:"assistant", ts:"2mo", text:"Migration completed and reconciled. Archiving — nothing left to do here."},
+  ]},
+  t14:{ title:"2024 pricing experiment writeup", state:"archived", tag:null, folder:null, star:false,
+        sub:"archived · 5mo", msgs:[
+    {role:"assistant", ts:"5mo", text:"Final writeup shipped. Archived for reference."},
+  ]},
 };
 
 const FOLDER_MEMBERS = {
@@ -1111,6 +1170,7 @@ const FOLDER_MEMBERS = {
   oncall: ["t5","t8","t9"],
   experiments: ["t4","t6","t7","t10"],
   recent: ["t1","t2","t11","t4","t6","t12"],
+  archived: ["t13","t14"],
 };
 const FOLDER_LABEL = { stars:"Stars — subs", oncall:"Oncall", experiments:"Experiments" };
 
@@ -1122,16 +1182,17 @@ function waitingCount(ids){
 /* ============================================================
    RENDER SIDEBAR CHAT ROWS
    ============================================================ */
+const TAG_LABEL = { blocked:"Blocked", ready:"Review", done:"Done" };
 function tagHtml(tag){
   if(!tag) return "";
-  return '<span class="tag '+tag+'">'+tag+'</span>';
+  return '<span class="tag '+tag+'">'+(TAG_LABEL[tag]||tag)+'</span>';
 }
 function chatRowHtml(id){
   const t = THREADS[id];
   let cls = "chat-row";
   if(t.state==="attn"||t.state==="done") cls+=" attn";
   else if(t.state==="running") cls+=" running";
-  else if(t.state==="parked") cls+=" parked";
+  else if(t.state==="parked"||t.state==="archived") cls+=" parked";
   return '<div class="'+cls+'" onclick="openChat(\''+id+'\')">'+
     '<span class="dot"></span>'+
     '<span class="ctitle">'+t.title+'</span>'+
@@ -1154,6 +1215,9 @@ function renderSidebar(){
     if(w>0){ cnt.textContent = w+" waiting"; cnt.classList.add('attn'); }
     else   { cnt.textContent = ids.length; cnt.classList.remove('attn'); }
   });
+  // archived count (low-signal, plain count only)
+  const ac = document.querySelector('[data-archived-count]');
+  if(ac) ac.textContent = (FOLDER_MEMBERS.archived||[]).length;
   // starred screen
   const starred = Object.keys(THREADS).filter(id=>THREADS[id].star);
   document.getElementById('starredList').innerHTML = starred.map(starCardHtml).join('');
