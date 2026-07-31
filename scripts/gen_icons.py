@@ -162,6 +162,13 @@ def main():
     compose = ["magick", "-size", f"{sheet_w}x{sheet_h}", "xc:none"]
     for cell, x, y in cell_pngs:
         compose += ["(", cell, ")", "-geometry", f"+{x}+{y}", "-composite"]
+    # Force every RGB channel to white while PRESERVING alpha. The app tints
+    # the atlas at draw time via a color multiply (draw_texture_pro), so the
+    # stroke RGB MUST be white (tint*white == tint); black strokes would make
+    # tint*0 == black and ignore the theme color entirely — invisible in dark
+    # mode. Some ImageMagick builds' CopyOpacity path above leaves the RGB
+    # black, so we assert white here as the final, backend-independent step.
+    compose += ["-channel", "RGB", "-evaluate", "set", "100%", "+channel"]
     compose += ["-type", "TrueColorAlpha", f"PNG32:{ATLAS_PNG}"]
     run(compose)
     print(f"wrote {ATLAS_PNG} ({sheet_w}x{sheet_h}, {rows}x{COLS} grid, {CELL}px cells)")
