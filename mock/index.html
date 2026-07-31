@@ -288,6 +288,34 @@ body {
 .glyph.g-review { width:8px; height:8px; background: var(--tag-ready-fg); transform: rotate(45deg); border-radius:1px; }
 /* done = blue DOT (finished) */
 .glyph.g-done { width:8px; height:8px; background: var(--tag-done-fg); border-radius:50%; }
+/* working = HOLLOW ring (a sub-agent is running) — outline, not filled */
+.glyph.g-working { display:block !important; width:9px; height:9px;
+  background:transparent; border:1.6px solid var(--text-faint); border-radius:50%;
+  box-sizing:border-box; animation: ring-pulse 1.6s ease-in-out infinite; }
+@keyframes ring-pulse { 0%,100%{ opacity:.45 } 50%{ opacity:1 } }
+/* the working ring on a parent row sits just right of the status shape */
+.chat-row .glyph.g-working { flex:0 0 9px; margin-left:-2px; border-color: var(--accent); }
+
+/* ---- sub-agents (nested, collapsed by default) ---- */
+.chat-item {}
+.subtoggle { width:13px; height:13px; flex:0 0 13px; display:flex; align-items:center; justify-content:center;
+  color: var(--text-faint); cursor:pointer; border-radius:4px; }
+.subtoggle:hover { color: var(--text-primary); background: var(--hover-bg); }
+.subtoggle .chev { width:11px; height:11px; transition: transform .12s; }
+.chat-item.collapsed .subtoggle .chev { transform: rotate(-90deg); }
+.subtoggle-spacer { width:13px; flex:0 0 13px; }   /* align rows without subs */
+.subcount { font-size:10px; color: var(--text-faint); font-variant-numeric:tabular-nums;
+  min-width:14px; text-align:right; flex:0 0 auto; }
+.subrows { padding-left: 22px; }
+.chat-item.collapsed .subrows { display:none; }
+.subrow { display:flex; align-items:center; gap:7px; padding:2px 8px 2px 4px; border-radius:6px;
+  cursor:pointer; color: var(--text-faint); position:relative; line-height:1.2; }
+.subrow:hover { background: var(--hover-bg); }
+.subrow .subtwig { width:8px; height:1px; background: var(--border); flex:0 0 8px; }
+.subrow .ctitle { flex:1; font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color: var(--text-faint); }
+.subrow.running .ctitle { color: var(--text-secondary); }
+.subrow.done .ctitle { color: var(--text-faint); }
+.subrow .glyph { width:8px; height:8px; flex:0 0 8px; }
 .chat-row .ctitle {
   flex:1; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   color: var(--text-secondary);
@@ -1098,6 +1126,7 @@ const THREADS = {
     {role:"user", ts:"—", text:"", placeholder:true}
   ]},
   t2: { title:"Stars payout reconciliation", state:"attn", tag:"blocked", folder:"stars", star:false,
+        subs:[{title:"Ledger diff scan", state:"running"},{title:"Duplicate-payout check", state:"done"}],
         sub:"waiting on you · 22m", msgs:[
     {role:"system", ts:"5h", text:"Task: reconcile this cycle's Stars payouts against the ledger before the batch runs."},
     {role:"assistant", ts:"40m", text:"Reconciled 4,812 accounts. 4,810 match to the cent. Two don't:"},
@@ -1126,6 +1155,7 @@ const THREADS = {
     {role:"assistant", ts:"2h", text:"Confident it's fixed. Ready for you to verify on the test tenant."},
   ]},
   t6: { title:"Backfill entitlement table", state:"running", tag:null, folder:"experiments", star:false,
+        subs:[{title:"Chunk 1–500k", state:"done"},{title:"Chunk 500k–1M", state:"running"},{title:"Row validator", state:"running"}],
         sub:"self-running · 61%", msgs:[
     {role:"system", ts:"2h", text:"Task: backfill the entitlement table for legacy subscribers."},
     {role:"assistant", ts:"5m", text:"Backfill in progress — 61% through 2.1M rows. No action needed; I'll surface it when done or if I hit a snag."},
@@ -1202,10 +1232,43 @@ function chatRowHtml(id){
   else if(t.state==="attn"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-blocked"></span>'; }
   else if(t.state==="running") cls+=" running";
   else if(t.state==="parked"||t.state==="archived") cls+=" parked";
-  return '<div class="'+cls+'" onclick="openChat(\''+id+'\')">'+
-    glyph +
-    '<span class="ctitle">'+t.title+'</span>'+
+
+  const subs = t.subs || [];
+  const hasSubs = subs.length > 0;
+  const working = subs.some(s=>s.state==="running");
+  // hollow working ring sits to the RIGHT of the status shape when a sub-agent runs
+  const ring = working ? '<span class="glyph g-working" title="a sub-agent is working"></span>' : "";
+  // disclosure chevron (collapsed by default) only when there are sub-agents
+  const chev = hasSubs
+    ? '<span class="subtoggle" onclick="event.stopPropagation();toggleSubs(this)">'+
+        '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M6 9l6 6 6-6"/></svg>'+
+      '</span>'
+    : '<span class="subtoggle-spacer"></span>';
+
+  const subRows = hasSubs
+    ? '<div class="subrows">'+subs.map(subRowHtml).join('')+'</div>'
+    : "";
+
+  return '<div class="chat-item'+(hasSubs?' has-subs collapsed':'')+'">'+
+    '<div class="'+cls+'" onclick="openChat(\''+id+'\')">'+
+      chev + glyph + ring +
+      '<span class="ctitle">'+t.title+'</span>'+
+      (hasSubs?'<span class="subcount">'+subs.length+'</span>':'')+
+    '</div>'+
+    subRows +
   '</div>';
+}
+function subRowHtml(s){
+  let g = '<span class="glyph g-working"></span>';         // running sub-agent
+  if(s.state==="done") g = '<span class="glyph g-done"></span>';
+  else if(s.state==="blocked") g = '<span class="glyph g-blocked"></span>';
+  const cls = "subrow" + (s.state==="running"?" running":"") + (s.state==="done"?" done":"");
+  return '<div class="'+cls+'"><span class="subtwig"></span>'+g+
+    '<span class="ctitle">'+s.title+'</span></div>';
+}
+function toggleSubs(el){
+  const item = el.closest('.chat-item');
+  if(item) item.classList.toggle('collapsed');
 }
 function renderSidebar(){
   document.querySelectorAll('[data-chats]').forEach(el=>{
