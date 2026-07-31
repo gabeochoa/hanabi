@@ -54,7 +54,7 @@ $(OBJ_DIR)/main:
 	@mkdir -p $(OBJ_DIR)/main
 
 .DEFAULT_GOAL := all
-all: $(MAIN_EXE)
+all: $(MAIN_EXE) copy-resources
 
 $(MAIN_EXE): $(MAIN_OBJS) | $(OUTPUT_DIR)/.stamp
 	@echo "Linking $(MAIN_EXE)..."

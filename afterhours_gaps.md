@@ -194,3 +194,46 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   app-owned `AnimTrack`, or the key-based `.to(target, dur, easing)`.
 - **Minimal upstream help (optional):** a drag-gesture helper returning a live
   delta, and/or a "spring an owned value toward a target" convenience.
+
+### #13 — draw_texture_pro has no alpha blending (sgl default pipeline)
+- **Gap:** `afterhours::draw_texture_pro` (sokol backend,
+  drawing_helpers.h ~1222) emits a textured quad but does NOT enable alpha
+  blending, and `begin_drawing` calls `sgl_defaults()` every frame which loads
+  the sokol_gl DEFAULT pipeline (blending disabled by default in sokol_gfx).
+  Result: a white-on-transparent PNG atlas blits its transparent pixels
+  (rgb=0, a=0) as OPAQUE BLACK squares — per-texel alpha is ignored. (Filled
+  shapes/text look fine because shapes are opaque and fontstash uses its own
+  blended pipeline.)
+- **Why wanted:** blitting monochrome icon sprites from a tinted atlas (Phase H
+  chrome icons) — the whole point is per-texel alpha for the icon shape.
+- **App-code workaround (used):** create ONE blend-enabled `sgl_pipeline`
+  (`src_alpha` / `one_minus_src_alpha`) lazily in app code and wrap each blit in
+  `sgl_push_pipeline(); sgl_load_pipeline(pip); draw_texture_pro(...);
+  sgl_pop_pipeline();`. All `sgl_*`/`sg_*` symbols are already reachable from
+  app TUs (drawing_helpers.h calls them), so no vendor edit is needed. See
+  src/ui/icons.h (AtlasTexture::blend_pipeline + draw_fg).
+- **Minimal upstream help (optional):** either enable blending in the sokol_gl
+  default pipeline used for 2D UI, or add a `draw_texture_pro` variant that
+  pushes a blend pipeline around the quad, so callers don't each roll their own.
+
+### #14 — load_texture sampler has no mipmaps (aliases when minified)
+- **Gap:** `afterhours::load_texture` (sokol backend) creates its image with a
+  sampler using `mipmap_filter = SG_FILTER_NEAREST` and a single mip level (no
+  mipmap chain is generated). So when a texture is drawn much SMALLER than its
+  source resolution, the GPU does bilinear minification off the full-res level
+  with no mip pyramid — thin high-contrast features (line-icon strokes) alias /
+  shimmer badly. There is no app-side way to request mipmap generation,
+  trilinear, or anisotropic filtering through `load_texture`.
+- **Why wanted:** a monochrome icon atlas authored at a comfortable size then
+  drawn small (Phase H chrome icons: a 64px cell drawn at ~16px = 4x
+  minification) aliases visibly.
+- **App-code workaround (used):** author the atlas NEAR the real draw size so
+  the minification ratio stays <= ~2x, which plain bilinear handles cleanly.
+  We regenerated icons.png at 32px cells (was 64px). Icons draw at ~14-16px
+  logical (up to ~32px on a 2x-retina window), so 32px cells keep the sampled
+  ratio in bilinear's clean range. See scripts/gen_icons.py (CELL=32) +
+  src/ui/icons_atlas.h.
+- **Minimal upstream help (optional):** generate a mipmap chain in
+  `load_texture` (and set `mipmap_filter = LINEAR` for trilinear), or add a
+  `load_texture` variant/param to opt into mipmaps + an anisotropy level, so
+  minified textures don't alias.
