@@ -13,11 +13,14 @@ Settings::Settings() {}
 Settings::~Settings() {}
 
 std::string Settings::get_settings_path() const {
+    // afterhours' get_config_path() already returns a per-app config dir
+    // (it appends the app name, e.g. .../Application Support/hanabi). Only add
+    // our own "hanabi" subdir when falling back to the bare cwd, otherwise we'd
+    // nest as .../hanabi/hanabi and settings would silently never load.
     auto configDir = afterhours::files::get_config_path();
     if (configDir.empty()) {
-        configDir = std::filesystem::current_path();
+        configDir = std::filesystem::current_path() / "hanabi";
     }
-    configDir /= "hanabi";
     std::error_code ec;
     std::filesystem::create_directories(configDir, ec);
     return (configDir / "settings.json").string();
