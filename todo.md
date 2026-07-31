@@ -4,6 +4,7 @@ A small, fast native desktop client for browsing conversation sessions.
 
 ## Product constraints
 - [x] Version-controlled with a clean history.
+- [x] Pushed to a new GitHub repo (gabeochoa/hanabi, private).
 - [x] Backend-agnostic: the app never hardcodes a service. A generic, runtime-configured
       HTTP adapter sits behind the same interface as the default in-memory mock.
 - [ ] Match the reference desktop look (light/dark themes, accent color, native window chrome,
