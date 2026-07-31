@@ -17,9 +17,11 @@
 #include "ecs/components.h"
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
-#include "ecs/session_list_system.h"
+#include "ecs/main_pane_system.h"
+#include "ecs/sidebar_system.h"
 #include "ecs/status_bar_system.h"
-#include "ecs/transcript_system.h"
+#include "ecs/tab_bar_system.h"
+#include "ui/theme.h"
 
 // A no-op render system so begin/clear happen in app_frame.
 struct MainRenderSystem : afterhours::System<> {
@@ -38,6 +40,10 @@ static void setup_app_state() {
     Settings::get().auto_save_enabled = false;
     Settings::get().load_save_file();
 
+    // Apply persisted theme (dark default).
+    theme::set_mode(Settings::get().get_theme() == "light" ? theme::Mode::Light
+                                                           : theme::Mode::Dark);
+
     ui_imm::initUIContext(Settings::get().get_window_width(),
                           Settings::get().get_window_height());
 
@@ -54,13 +60,25 @@ static void setup_app_state() {
     app.backend_label = app.client ? app.client->backend_label() : "none";
     app.requestListRefresh = true;
 
-    // Restore last-open session if we have one.
-    const std::string& last = Settings::get().get_last_session();
-    if (!last.empty()) app.requestOpenId = last;
+    // Restore persisted tab set (opened once the list loads).
+    app.restoreTabIds = Settings::get().get_open_tabs();
+    app.restoreActiveId = Settings::get().get_active_tab();
+    // Back-compat: if no tab set persisted, fall back to last_session.
+    if (app.restoreTabIds.empty()) {
+        const std::string& last = Settings::get().get_last_session();
+        if (!last.empty()) {
+            app.restoreTabIds.push_back(last);
+            app.restoreActiveId = last;
+        }
+    }
 
     // Layout singleton.
     auto& layoutEntity = EntityHelper::createEntity();
     layoutEntity.addComponent<ecs::LayoutComponent>();
+
+    // Tab strip singleton.
+    auto& stripEntity = EntityHelper::createEntity();
+    stripEntity.addComponent<ecs::TabStripComponent>();
 
     Settings::get().auto_save_enabled = true;
 }
@@ -73,12 +91,14 @@ static void build_systems(afterhours::SystemManager& sm) {
     ui_imm::registerUIPreLayoutSystems(sm);
 
     // Data + layout must run before UI-creating systems.
+    sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
     sm.register_update_system(std::make_unique<ecs::LoaderSystem>());
     sm.register_update_system(std::make_unique<ecs::LayoutSystem>());
 
     // UI-creating systems (draw order: later on top).
-    sm.register_update_system(std::make_unique<ecs::SessionListSystem>());
-    sm.register_update_system(std::make_unique<ecs::TranscriptSystem>());
+    sm.register_update_system(std::make_unique<ecs::SidebarSystem>());
+    sm.register_update_system(std::make_unique<ecs::MainPaneSystem>());
+    sm.register_update_system(std::make_unique<ecs::TabBarSystem>());
     sm.register_update_system(std::make_unique<ecs::StatusBarSystem>());
 
     // Post-layout (autolayout, interactions).
@@ -107,14 +127,33 @@ static void app_init() {
 static void app_frame() {
     float dt = afterhours::graphics::get_frame_time();
     afterhours::graphics::begin_drawing();
-    afterhours::graphics::clear_background(afterhours::Color{28, 28, 32, 255});
+    afterhours::graphics::clear_background(theme::window_bg());
     app_state::systemManager->run(dt);
     afterhours::graphics::end_drawing();
 }
 
 static void app_cleanup() {
-    // Persist the last-open session for next launch.
-    auto q = afterhours::EntityQuery({.force_merge = true})
+    using namespace afterhours;
+    // Persist the open tab set + active tab for next launch.
+    auto stripQ = EntityQuery({.force_merge = true})
+                      .whereHasComponent<ecs::TabStripComponent>()
+                      .gen();
+    if (!stripQ.empty()) {
+        auto& strip = stripQ[0].get().get<ecs::TabStripComponent>();
+        std::vector<std::string> ids;
+        std::string active;
+        for (auto tabId : strip.tabOrder) {
+            auto o = EntityHelper::getEntityForID(tabId);
+            if (o.valid() && o->has<ecs::Tab>()) {
+                ids.push_back(o->get<ecs::Tab>().sessionId);
+                if (o->has<ecs::ActiveTab>())
+                    active = o->get<ecs::Tab>().sessionId;
+            }
+        }
+        Settings::get().set_open_tabs(std::move(ids), active);
+    }
+
+    auto q = EntityQuery({.force_merge = true})
                  .whereHasComponent<ecs::AppComponent>()
                  .gen();
     if (!q.empty()) {
@@ -122,6 +161,8 @@ static void app_cleanup() {
         if (!app.selectedId.empty())
             Settings::get().set_last_session(app.selectedId);
     }
+    Settings::get().set_theme(theme::mode() == theme::Mode::Light ? "light"
+                                                                  : "dark");
     Settings::get().write_save_file();
 }
 
@@ -148,11 +189,19 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     app_state::systemManager = &sm;
     build_systems(sm);
 
+    auto readyTime = std::chrono::high_resolution_clock::now();
+    auto startupMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         readyTime - app_state::startTime)
+                         .count();
+    log_info("Startup: {} ms", startupMs);
+    fflush(stdout);
+    fflush(stderr);
+
     // Render several frames so async data loads and layout settles.
     constexpr int kFrames = 45;
     for (int i = 0; i < kFrames; ++i) {
         graphics::begin_frame();
-        graphics::clear_background(afterhours::Color{28, 28, 32, 255});
+        graphics::clear_background(theme::window_bg());
         sm.run(1.0f / 60.0f);
         graphics::end_frame();
     }
