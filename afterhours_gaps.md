@@ -109,3 +109,12 @@ allocate the offscreen texture at `width*scale x height*scale`, set
 `render_scale(scale)`, and keep the ortho projection in logical pixels (same
 contract the windowed high_dpi path already uses), so the capture is a true
 @2x supersample. Deferred; do NOT patch vendor.
+
+### #7 — (watch) memory knobs for RAM budget < 250 MB
+hanabi targets peak RSS < 250 MB. Not a gap yet (baseline ~70 MB windowed), but
+IF we later need to cap/evict GPU-side memory (font atlas is fixed 2048x2048 in
+setup_sokol_gl_and_fonts; per-texture image cache), afterhours may not expose an
+API to size/evict those. If we hit the ceiling: do NOT patch vendor — record the
+exact knob needed here (e.g. configurable font-atlas dimensions, a texture-cache
+eviction hook) and work around in app code (e.g. our own image-cache eviction for
+textures we own). Placeholder until measured.

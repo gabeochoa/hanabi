@@ -124,7 +124,51 @@ Validate:
 - [ ] Cold launch to first frame < 250 ms, measured on aspen, reported in todo.md
       with the exact number and the method.
 - [ ] Warm launch number also recorded.
-- [ ] Peak RSS still lean (no regression vs the ~50 MB headless / ~70 MB windowed baseline).
+- [ ] Peak RSS still lean (see RAM budget below).
 - [ ] scripts/measure_launch.sh exists and prints PASS (<250ms) / FAIL with the number.
 - [ ] No vendor/afterhours edits (any needed capability -> afterhours_gaps.md).
+
+## Phase X — Thread-switch speed + transcript cache + RAM budget
+Two perf requirements, one phase (they trade off, so validate together):
+
+### Fast thread switching via a transcript LRU cache
+Problem TODAY: every thread open triggers a fresh async `get_session` fetch
+(src/ecs/loader_system.h) — even re-opening a thread you just viewed. Switching
+tabs should feel INSTANT for recently-seen threads.
+Build:
+- Add an in-memory LRU cache: keep the LAST 20 MESSAGES for the LAST 5 THREADS
+  the user interacted with. Key by session id; evict least-recently-used past 5.
+- On thread open/tab switch: if the id is in the cache, render from cache
+  SYNCHRONOUSLY (no async round-trip, no Loading flash) — instant switch. Then
+  optionally revalidate in the background (for the live backend) and swap in
+  fresh data if it changed; the mock backend needs no revalidation.
+- Cap cached messages at 20 per thread (most-recent) to bound memory; full
+  history still fetched on demand when the user scrolls up (later; for MVP the
+  cache is the fast path and a full fetch backs it).
+- Keep it behind the api::Client abstraction — the cache lives in the app layer
+  (AppComponent / a small TranscriptCache), backend-agnostic; mock + http both
+  benefit. No vendor changes.
+Validate:
+- [ ] Switching between 5 recently-opened threads is instant — no Loading state
+      flashes (verify: open 5 threads, tab between them; transcript appears
+      immediately on switch).
+- [ ] Cache holds ≤ 5 threads × ≤ 20 messages; the 6th distinct thread evicts the LRU.
+- [ ] Opening a 6th (uncached) thread still works (async fetch path intact).
+- [ ] No memory growth beyond the bound as you switch among many threads.
+
+### RAM budget: keep total under 250 MB
+Target: peak RSS < 250 MB (goal; current baseline ~50 MB headless / ~70 MB
+windowed, so we have headroom — this phase keeps it there as features + the
+cache land).
+Build/measure:
+- Record peak RSS (windowed, real use: open several tabs, switch, scroll) in todo.md.
+- Ensure the transcript cache's 20×5 bound is the only unbounded-ish growth point
+  and that it's actually bounded (measure RSS after cycling through 30+ threads —
+  must plateau, not climb).
+- Watch the font atlas / texture memory and image cache; cap or evict if needed.
+Validate:
+- [ ] Peak RSS < 250 MB in realistic use (multiple tabs open + heavy switching), in todo.md.
+- [ ] RSS plateaus (does not climb unbounded) after cycling through many threads.
+- [ ] No vendor edits; any memory knob afterhours doesn't expose -> afterhours_gaps.md.
+
 
