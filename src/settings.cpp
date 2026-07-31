@@ -83,4 +83,9 @@ void Settings::set_open_tabs(std::vector<std::string> ids,
 }
 
 const std::string& Settings::get_theme() const { return theme_; }
-void Settings::set_theme(const std::string& mode) { theme_ = mode; }
+void Settings::set_theme(const std::string& mode) {
+    theme_ = mode;
+    // Persist immediately so a theme change survives relaunch without callers
+    // having to remember to write_save_file() themselves.
+    if (auto_save_enabled) write_save_file();
+}

@@ -77,6 +77,16 @@ class Client {
     // Fetch a full transcript for one session id.
     virtual Result<Session> get_session(const std::string& id) = 0;
 
+    // Kick off a NEW session from a prompt (composer "New task"). Returns the
+    // new session id on success. The mock creates an in-memory session; the
+    // http adapter POSTs to a configurable path. Default impl reports that the
+    // backend doesn't support kickoff, so adapters can opt in incrementally.
+    virtual Result<std::string> create_session(const std::string& prompt) {
+        (void)prompt;
+        return Result<std::string>::failure(
+            "this backend does not support creating sessions");
+    }
+
     // Human-readable label for the active backend (for the status bar).
     virtual std::string backend_label() const = 0;
 };

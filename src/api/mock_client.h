@@ -19,8 +19,10 @@ class MockClient : public Client {
     Result<std::vector<SessionSummary>> list_sessions() override {
         auto sessions = seed();
         std::vector<SessionSummary> out;
-        out.reserve(sessions.size());
+        out.reserve(sessions.size() + created_.size());
         for (auto& s : sessions) out.push_back(s.summary);
+        // Sessions created this run (via the composer) live only in memory.
+        for (auto& s : created_) out.push_back(s.summary);
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),
                   [](const SessionSummary& a, const SessionSummary& b) {
@@ -30,6 +32,9 @@ class MockClient : public Client {
     }
 
     Result<Session> get_session(const std::string& id) override {
+        for (auto& s : created_) {
+            if (s.summary.id == id) return Result<Session>::success(s);
+        }
         for (auto& s : seed()) {
             if (s.summary.id == id)
                 return Result<Session>::success(s);
@@ -37,7 +42,35 @@ class MockClient : public Client {
         return Result<Session>::failure("no such session: " + id);
     }
 
+    // Compose a NEW in-memory session from the prompt. Deterministic id; the
+    // prompt becomes the title + the first (user) message. Lives only for this
+    // process run (the mock is otherwise stateless) — enough to drive the
+    // composer end to end without any backend.
+    Result<std::string> create_session(const std::string& prompt) override {
+        std::string title = prompt.empty() ? "New task" : prompt;
+        if (title.size() > 60) title = title.substr(0, 57) + "...";
+        std::string id = "new" + std::to_string(created_.size() + 1);
+        Session s;
+        s.summary = sum(id, title, 0, "active", ThreadState::Running,
+                        ThreadTag::None, "recent", false,
+                        prompt.empty() ? "" : prompt);
+        if (!prompt.empty()) {
+            Message m;
+            m.id = id + "-m1";
+            m.role = Role::User;
+            m.text = prompt;
+            m.created_at = 0;
+            s.messages.push_back(std::move(m));
+        }
+        created_.push_back(std::move(s));
+        return Result<std::string>::success(id);
+    }
+
   private:
+    // Sessions created via the composer during this run (mock is otherwise
+    // stateless). Merged into list_sessions/get_session above.
+    std::vector<Session> created_;
+
     static int64_t hrs_ago(int64_t h) {
         // Fixed reference time so the sample list is stable across runs.
         constexpr int64_t kRef = 1785500000;  // arbitrary fixed epoch
