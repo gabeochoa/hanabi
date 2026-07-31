@@ -280,7 +280,7 @@ body {
 
 /* chat row */
 .chat-row {
-  display:flex; align-items:center; gap:8px; padding:3px 8px 3px 10px;
+  display:flex; align-items:center; gap:7px; padding:3px 8px 3px 6px;
   border-radius:6px; cursor:pointer; color: var(--text-secondary);
   transition: background .1s; line-height:1.25; position:relative;
 }
@@ -296,11 +296,16 @@ body {
   flex:0 0 5px; margin-left:auto; display:none;
 }
 .chat-row.open-tab .opendot { display:block; }
-/* status glyph — a DEDICATED SHAPE per status (not color-only), shown only
-   when the thread needs attention (waiting/blocked/review/done). Self-running,
-   parked and archived show nothing. */
-.chat-row .glyph { width:9px; height:9px; flex:0 0 9px; margin-left:1px; position:relative; display:none; }
-.chat-row.has-glyph .glyph { display:block; }
+/* status glyph — a DEDICATED SHAPE per status, shown only when the thread
+   needs attention (waiting/blocked/review/done). The glyph SLOT is always
+   present so the title column stays aligned: an attention row shows its shape
+   (the shape acts as the indent); a calm row (running/parked/archived) shows
+   an empty slot of the same width, so it's indented by the icon's width. */
+.chat-row .glyph { width:9px; height:9px; flex:0 0 9px; position:relative; }
+/* the drawn shapes only appear on attention rows */
+.chat-row:not(.has-glyph) .glyph.g-blocked,
+.chat-row:not(.has-glyph) .glyph.g-review,
+.chat-row:not(.has-glyph) .glyph.g-done { visibility:hidden; }
 /* blocked = red UP-TRIANGLE (most urgent) */
 .glyph.g-blocked { width:0; height:0; background:transparent;
   border-left:5px solid transparent; border-right:5px solid transparent;
@@ -1258,7 +1263,9 @@ function chatRowHtml(id){
   let cls = "chat-row";
   // glyph: dedicated SHAPE per attention status (not color-only)
   //   blocked -> red up-triangle | review -> green diamond | done -> blue dot
-  let glyph = "";
+  // The glyph SHAPE acts as the row's indent. Calm rows (no shape) still emit
+  // an empty glyph slot of the same width, so titles stay column-aligned.
+  let glyph = '<span class="glyph"></span>';  // empty placeholder slot by default
   if(t.tag==="blocked"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-blocked"></span>'; }
   else if(t.tag==="ready"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-review"></span>'; }
   else if(t.state==="done"||t.tag==="done"){ cls+=" attn has-glyph"; glyph='<span class="glyph g-done"></span>'; }
