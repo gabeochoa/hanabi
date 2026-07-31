@@ -23,6 +23,7 @@
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/tab_model.h"
 #include "../../src/ecs/thread_model.h"
+#include "../../src/ecs/transcript_cache.h"
 
 static int g_failures = 0;
 static int g_skipped = 0;
@@ -301,27 +302,141 @@ static void test_backend_agnostic_defaults() {
 }
 
 // ---------------------------------------------------------------------------
-// 6) Transcript cache (PENDING — Phase X). The LRU cache (last 20 msgs x 5
-//    threads) is NOT implemented yet (see docs/phased-plan.md "Phase X" and
-//    src/ecs/loader_system.h, which fires a fresh async get_session on every
-//    open). We assert the CURRENT behavior (each open re-fetches) and mark the
-//    intended cache assertion as SKIPPED so the harness is ready without
-//    faking a pass. When the TranscriptCache lands, flip this to a real check.
+// 6) Transcript LRU cache (Phase X). The cache (last 20 msgs x last 5 threads)
+//    lives in the app layer behind api::Client so mock + http both benefit.
+//    We assert the SHIPPED decision: on a cache HIT the transcript is served
+//    synchronously and NO get_session fetch fires; on a MISS the fetch runs
+//    and the result is inserted (capped to 20 msgs); the 6th distinct thread
+//    evicts the LRU; re-opening an evicted thread re-fetches.
+//
+//    Fetch-counting is done with an instrumented Client wrapper. The loader's
+//    real resolution logic is mirrored by resolve_transcript() below, which
+//    calls the SAME TranscriptCache methods the LoaderSystem calls (cache.get
+//    on open, cache.put on a miss's result) — so the tested logic IS the
+//    shipped logic. (The loader wraps the miss fetch in std::async; here we run
+//    it synchronously to keep the test deterministic and headless.)
 // ---------------------------------------------------------------------------
-static void test_transcript_cache_pending() {
-    std::printf("test_transcript_cache_pending\n");
-    // Current interface: get_session always returns fresh data (no cache).
-    api::MockClient m;
-    auto a = m.get_session("t1");
-    auto b = m.get_session("t1");
-    CHECK(a.ok && b.ok);
-    CHECK(a.value.messages.size() == b.value.messages.size());
-    std::printf(
-        "  SKIP: LRU transcript cache (<=20 msgs x <=5 threads, instant "
-        "re-open, LRU eviction) not implemented yet — pending Phase X "
-        "(docs/phased-plan.md). Harness ready; will assert cache-hit avoids a "
-        "new fetch once TranscriptCache lands.\n");
-    ++g_skipped;
+
+// Instrumented client: counts get_session calls to prove cache hits avoid a
+// fetch. Delegates to the mock for the actual (deterministic) data.
+struct CountingClient : api::Client {
+    api::MockClient inner;
+    int getSessionCalls = 0;
+
+    std::string backend_label() const override { return inner.backend_label(); }
+    api::Result<std::vector<api::SessionSummary>> list_sessions() override {
+        return inner.list_sessions();
+    }
+    api::Result<api::Session> get_session(const std::string& id) override {
+        ++getSessionCalls;
+        return inner.get_session(id);
+    }
+};
+
+// Mirrors LoaderSystem's transcript resolution: cache HIT -> serve
+// synchronously (no fetch); MISS -> fetch + insert (capped). Returns true on a
+// cache hit (i.e. NO fetch happened).
+static bool resolve_transcript(ecs::AppComponent& app, api::Client& client,
+                               const std::string& id) {
+    app.selectedId = id;
+    if (auto hit = app.transcriptCache.get(id)) {
+        app.openSession = std::move(*hit);
+        app.transcriptState = ecs::LoadState::Loaded;
+        return true;  // synchronous hit, no fetch
+    }
+    auto r = client.get_session(id);
+    if (r.ok) {
+        app.transcriptCache.put(r.value);
+        app.openSession = std::move(r.value);
+        app.transcriptState = ecs::LoadState::Loaded;
+    } else {
+        app.openSession.reset();
+        app.transcriptState = ecs::LoadState::Error;
+    }
+    return false;  // miss -> fetched
+}
+
+static void test_transcript_cache() {
+    std::printf("test_transcript_cache\n");
+    reset_world();
+    auto& appE = afterhours::EntityHelper::createEntity();
+    auto& app = appE.addComponent<ecs::AppComponent>();
+    CountingClient client;
+
+    // (a) First open of t1 is a MISS -> fetches once, serves + caches.
+    bool hit = resolve_transcript(app, client, "t1");
+    CHECK(!hit);
+    CHECK(client.getSessionCalls == 1);
+    CHECK(app.openSession.has_value());
+    CHECK(app.transcriptState == ecs::LoadState::Loaded);
+    CHECK(app.transcriptCache.contains("t1"));
+
+    // (a) Re-opening t1 is a cache HIT -> served SYNCHRONOUSLY, NO new fetch.
+    hit = resolve_transcript(app, client, "t1");
+    CHECK(hit);
+    CHECK(client.getSessionCalls == 1);  // unchanged: no fetch on a hit
+    CHECK(app.openSession.has_value());
+    CHECK(app.openSession->summary.id == "t1");
+
+    // (b) Cached transcript is capped at 20 messages (most-recent).
+    {
+        auto cached = app.transcriptCache.get("t1");
+        CHECK(cached.has_value());
+        CHECK(cached->messages.size() <= ecs::kCacheMaxMessagesPerThread);
+        // And the cap is over the LAST 20: verify the tail matches the source.
+        auto full = client.inner.get_session("t1");
+        CHECK(full.ok);
+        if (full.value.messages.size() > ecs::kCacheMaxMessagesPerThread) {
+            CHECK(cached->messages.size() == ecs::kCacheMaxMessagesPerThread);
+            CHECK(cached->messages.back().id == full.value.messages.back().id);
+        }
+    }
+
+    // Cap is genuinely enforced even for an oversized synthetic transcript.
+    {
+        api::Session big;
+        big.summary.id = "big";
+        for (int i = 0; i < 50; ++i) {
+            api::Message m;
+            m.id = "bm" + std::to_string(i);
+            big.messages.push_back(m);
+        }
+        app.transcriptCache.put(big);
+        auto got = app.transcriptCache.get("big");
+        CHECK(got.has_value());
+        CHECK(got->messages.size() == ecs::kCacheMaxMessagesPerThread);
+        CHECK(got->messages.back().id == "bm49");   // kept the newest
+        CHECK(got->messages.front().id == "bm30");  // dropped the oldest 30
+    }
+
+    // Fresh app for the eviction test so recency is well-defined.
+    reset_world();
+    auto& app2E = afterhours::EntityHelper::createEntity();
+    auto& app2 = app2E.addComponent<ecs::AppComponent>();
+    CountingClient client2;
+
+    // (c) Open 5 distinct threads -> all cached, one fetch each.
+    const char* five[] = {"t1", "t2", "t3", "t4", "t5"};
+    for (const auto* id : five) CHECK(!resolve_transcript(app2, client2, id));
+    CHECK(client2.getSessionCalls == 5);
+    CHECK(app2.transcriptCache.size() == ecs::kCacheMaxThreads);
+
+    // Touch t1 so it becomes most-recent; t2 is now the LRU.
+    CHECK(resolve_transcript(app2, client2, "t1"));  // hit, no fetch
+    CHECK(client2.getSessionCalls == 5);
+
+    // Opening a 6th distinct thread evicts the LRU (t2), still <=5 threads.
+    CHECK(!resolve_transcript(app2, client2, "t6"));
+    CHECK(client2.getSessionCalls == 6);
+    CHECK(app2.transcriptCache.size() == ecs::kCacheMaxThreads);
+    CHECK(!app2.transcriptCache.contains("t2"));  // evicted (was LRU)
+    CHECK(app2.transcriptCache.contains("t1"));   // touched -> retained
+    CHECK(app2.transcriptCache.contains("t6"));   // newest
+
+    // (d) Re-opening the evicted thread (t2) RE-FETCHES (async path intact).
+    CHECK(!resolve_transcript(app2, client2, "t2"));  // miss -> fetch
+    CHECK(client2.getSessionCalls == 7);
+    CHECK(app2.transcriptCache.contains("t2"));
 }
 
 int main() {
@@ -332,7 +447,7 @@ int main() {
     test_tab_open_focus_no_duplicate();
     test_tab_close_fallback();
     test_backend_agnostic_defaults();
-    test_transcript_cache_pending();
+    test_transcript_cache();
 
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {

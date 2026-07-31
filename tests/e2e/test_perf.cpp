@@ -1,12 +1,13 @@
 // Perf regression micro-benchmarks (headless, in-process, deterministic).
 //
 // (1) Thread-switch latency: times switching among a few threads through the
-//     REAL code path that runs today — the tabflow switch + a MockClient
-//     get_session fetch (this is what LoaderSystem does on every open, since
-//     there is NO transcript cache yet). We MEASURE and print the number and
-//     assert a GENEROUS current-path ceiling. The strict sub-millisecond
-//     cached-switch assertion is PENDING Phase X (transcript LRU cache) — see
-//     docs/phased-plan.md; we don't fake it.
+//     REAL code path. Two measurements:
+//       * UNCACHED baseline: tabflow switch + a MockClient get_session fetch
+//         (what the loader ran before the cache). Regression guard only.
+//       * CACHED switch (Phase X): tabflow switch + a TranscriptCache HIT
+//         (what the loader runs today for a recently-seen thread) — served
+//         synchronously, no fetch. This is the instant-switch path; we assert
+//         a STRICT sub-millisecond ceiling on it.
 //
 // Emits measured numbers to stdout so trends are visible in CI logs.
 
@@ -23,11 +24,13 @@
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/tab_model.h"
+#include "../../src/ecs/transcript_cache.h"
 
-// Generous ceiling for the CURRENT (uncached) in-process switch path. This is
-// a regression guard, not the Phase-X target. When the LRU cache lands, add a
-// separate sub-millisecond assertion for cache HITS and tighten this.
+// Generous ceiling for the UNCACHED switch path (regression guard, not a
+// target). The Phase-X cache HIT path has its own strict sub-ms assertion.
 static constexpr double kSwitchCeilingMs = 5.0;
+// Phase X: a cache HIT must be well under a millisecond in-process.
+static constexpr double kCachedSwitchCeilingMs = 1.0;
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -85,17 +88,46 @@ int main() {
 
     std::printf("  switches:        %d\n", totalSwitches);
     std::printf("  total:           %.2f ms\n", totalMs);
-    std::printf("  per-switch (avg): %.4f ms  (current UNCACHED path)\n",
+    std::printf("  per-switch (avg): %.4f ms  (UNCACHED baseline path)\n",
                 perSwitchMs);
     std::printf("  (sink=%zu, prevents dead-code elimination)\n", sink);
     std::printf("  ceiling (regression guard): %.1f ms/switch\n",
                 kSwitchCeilingMs);
-    std::printf(
-        "  PENDING Phase X: sub-millisecond CACHED-switch assertion once the "
-        "transcript LRU cache lands (docs/phased-plan.md). Baseline recorded "
-        "above.\n");
 
     CHECK(perSwitchMs < kSwitchCeilingMs);
+
+    // --- Phase X: CACHED switch path (transcript LRU cache HIT) ---------------
+    // Prime the cache with the 5 recently-interacted threads, then time
+    // switching among them through the REAL cached path: tabflow focus + a
+    // TranscriptCache HIT (served synchronously, no get_session fetch). This is
+    // what the loader runs today for a recently-seen thread.
+    ecs::AppComponent& capp = app;
+    for (const auto& id : ids) {
+        auto r = client.get_session(id);
+        capp.transcriptCache.put(r.value);  // cap to 20, mark MRU
+    }
+
+    auto c0 = std::chrono::high_resolution_clock::now();
+    size_t csink = 0;
+    for (int c = 0; c < kCycles; ++c) {
+        for (const auto& id : ids) {
+            ecs::tabflow::open_session_in_tab(strip, capp, id);  // focus existing
+            auto hit = capp.transcriptCache.get(id);  // cache HIT (no fetch)
+            if (hit) csink += hit->messages.size();
+        }
+    }
+    auto c1 = std::chrono::high_resolution_clock::now();
+    double cachedTotalMs =
+        std::chrono::duration<double, std::milli>(c1 - c0).count();
+    double cachedPerSwitchMs = cachedTotalMs / totalSwitches;
+
+    std::printf("  per-switch (avg): %.4f ms  (CACHED path, Phase X)\n",
+                cachedPerSwitchMs);
+    std::printf("  (csink=%zu)\n", csink);
+    std::printf("  ceiling (cached, strict): %.1f ms/switch\n",
+                kCachedSwitchCeilingMs);
+
+    CHECK(cachedPerSwitchMs < kCachedSwitchCeilingMs);
 
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {
