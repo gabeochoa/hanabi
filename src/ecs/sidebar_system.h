@@ -309,7 +309,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(field.ent(), 2),
             ComponentConfig{}
                 .with_label("Search")
-                .with_size(ComponentSize{pixels(110), pixels(18)})
+                .with_size(ComponentSize{pixels(110), pixels(20)})
                 .with_padding(Padding{.left = pixels(6)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -567,10 +567,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (attn) titleColor = theme::text_primary();
         else if (running || parked || archived) titleColor = theme::text_faint();
 
+        // Title height matches the row's content box (row 24 − top/bottom
+        // pad 2 = 20) so the label's own vertical-centering lands the text on
+        // the row's true center — otherwise a child shorter than the content
+        // box lets fontstash's ascent/descent asymmetry push the glyphs low,
+        // and the (full-row) highlight bg looks off-center against the text.
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(fmtutil::ellipsize(s.title, 32))
-                .with_size(ComponentSize{percent(0.92f), pixels(18)})
+                .with_size(ComponentSize{percent(0.92f), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(12.5f)
