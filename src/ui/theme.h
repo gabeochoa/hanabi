@@ -186,6 +186,23 @@ inline void toggle_mode() {
 // reads the ACTIVE token set, so a runtime theme swap is reflected everywhere
 // without touching any call site. Call as `theme::sidebar_bg()`.
 // ---------------------------------------------------------------------------
+// Alpha-composite `fg` (which may be translucent) OVER opaque `bg`, returning
+// an OPAQUE color. Needed because the sokol_gl default pipeline used for UI
+// rect fills has alpha blending disabled (afterhours gap #13): a low-alpha
+// custom_background renders fully opaque instead of tinting. Pre-blending here
+// gives us the color that real src-over blending would have produced, so a
+// "soft tint" chip reads as a subtle pill (not a saturated solid block).
+inline Color over(Color fg, Color bg) {
+    const float a = fg.a / 255.0f;
+    auto mix = [a](unsigned char f, unsigned char b) -> unsigned char {
+        float v = f * a + b * (1.0f - a);
+        if (v < 0.0f) v = 0.0f;
+        if (v > 255.0f) v = 255.0f;
+        return static_cast<unsigned char>(v + 0.5f);
+    };
+    return Color{mix(fg.r, bg.r), mix(fg.g, bg.g), mix(fg.b, bg.b), 255};
+}
+
 inline Color window_bg() { return t.window_bg; }
 inline Color sidebar_bg() { return t.sidebar_bg; }
 inline Color panel_bg() { return t.panel_bg; }

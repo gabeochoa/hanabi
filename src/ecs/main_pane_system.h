@@ -182,11 +182,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
     static theme::Color tag_bg(api::ThreadTag t) {
+        // The tag_*_bg tokens are intentionally low-alpha "soft tints". The UI
+        // rect fill can't alpha-blend (afterhours gap #13), so pre-composite the
+        // tint OVER the card surface (panel_bg_2) into an opaque color — giving
+        // the intended subtle pill instead of a saturated solid block.
+        const theme::Color surface = theme::panel_bg_2();
         switch (t) {
-            case api::ThreadTag::Blocked: return theme::tag_blocked_bg();
-            case api::ThreadTag::Review: return theme::tag_ready_bg();
-            case api::ThreadTag::Done: return theme::tag_done_bg();
-            default: return theme::panel_bg();
+            case api::ThreadTag::Blocked:
+                return theme::over(theme::tag_blocked_bg(), surface);
+            case api::ThreadTag::Review:
+                return theme::over(theme::tag_ready_bg(), surface);
+            case api::ThreadTag::Done:
+                return theme::over(theme::tag_done_bg(), surface);
+            default: return surface;
         }
     }
 
