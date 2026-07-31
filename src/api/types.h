@@ -21,6 +21,35 @@ enum class Role {
     Tool,
 };
 
+// High-signal attention state of a thread. This is the single notion the UI
+// uses to decide whether a row shouts (dot + bold) or stays calm. It is
+// deliberately backend-agnostic: an adapter maps whatever a real service
+// reports into one of these. The mock supplies a spread of states so the UI
+// has something real to render; the http adapter simply leaves it Unknown.
+//
+//   Attention  — DONE or WAITING-ON-YOU. The only state that earns a dot+bold.
+//   Ready      — agent-verified, ready for the user to review (no test step).
+//   Running    — self-running / in progress. Dimmed and quiet, never nudges.
+//   Parked     — muted. Greyed, never counts, never nudges.
+//   Archived   — retired. Greyed, low-signal.
+//   Unknown    — no state info (default for the generic http adapter).
+enum class ThreadState {
+    Unknown,
+    Attention,
+    Ready,
+    Running,
+    Parked,
+    Archived,
+};
+
+// At most one tag chip is shown per row, and only when relevant.
+enum class ThreadTag {
+    None,
+    Blocked,
+    Review,
+    Done,
+};
+
 // One message inside a session transcript.
 struct Message {
     std::string id;
@@ -43,6 +72,16 @@ struct SessionSummary {
     std::string status;
     // Optional preview snippet of the latest message.
     std::string preview;
+
+    // High-signal attention model (see ThreadState / ThreadTag above). The
+    // mock backend populates these; the generic http adapter leaves them at
+    // their defaults so it degrades to a plain, calm list.
+    ThreadState state = ThreadState::Unknown;
+    ThreadTag tag = ThreadTag::None;
+    // Optional user-defined folder this thread is filed under ("" = none).
+    std::string folder;
+    // User-pinned to the top / Starred view.
+    bool starred = false;
 };
 
 // A full session: summary + ordered transcript.
