@@ -26,3 +26,8 @@ A small, fast native desktop client for browsing conversation sessions.
 ## Done
 - Repo scaffold, mock + http adapters, ECS UI (session list / transcript / status bar).
 - Layout fix + baseline.
+
+## Layout revisions (design)
+- [ ] Merge the icon rail + session list into ONE collapsible sidebar:
+      folded = thin dense rail (icons/avatars only); unfolded = full chat list.
+- [ ] Open chats in panels/tabs (VS Code editor-tab style) so you can tab between open threads.
