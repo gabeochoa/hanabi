@@ -268,12 +268,16 @@ body {
 .folder-head .fname { flex:1; }
 .folder-head .fcount { font-size:11px; color:var(--text-faint); font-weight:500; }
 .folder-head .fcount.attn { color: var(--accent); font-weight:700; }
-.folder-body { overflow:hidden; padding-left: 6px; margin-left: 7px; border-left: 1px solid var(--border); }
+/* Threaded rows sit only SLIGHTLY inset under the folder header — the status
+   glyph acts as the indent, not a big left margin. Keep the thin left rail so
+   rows still read as grouped "under" the folder, but keep the inset small.
+   (offset = margin-left 4 + border 1 + padding-left 2 = 7px, was 14px) */
+.folder-body { overflow:hidden; padding-left: 2px; margin-left: 4px; border-left: 1px solid var(--border); }
 .folder-head.collapsed + .folder-body { display:none; }
 
 /* chat row */
 .chat-row {
-  display:flex; align-items:center; gap:7px; padding:3px 8px 3px 6px;
+  display:flex; align-items:center; gap:7px; padding:3px 8px 3px 4px;
   border-radius:6px; cursor:pointer; color: var(--text-secondary);
   transition: background .1s; line-height:1.25; position:relative;
 }

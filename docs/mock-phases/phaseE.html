@@ -50,6 +50,8 @@
    parked and archived show nothing. */
 .chat-row .glyph { width:9px; height:9px; flex:0 0 9px; margin-left:1px; position:relative; display:none; }
 .chat-row.has-glyph .glyph { display:block; }
+/* pin folder-body inset to this snapshot's original look (insulated from the reduced-indent change in shared hanabi.css) */
+.folder-body { padding-left: 6px; margin-left: 7px; }
 /* the working ring on a parent row sits just right of the status shape */
 .chat-row .glyph.g-working { flex:0 0 9px; margin-left:-2px; border-color: var(--accent); }
 /* ---- sub-agents (nested, collapsed by default) ---- */

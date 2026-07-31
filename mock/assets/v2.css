@@ -6,8 +6,11 @@
    the "glyph acts as row indent" change now baked into hanabi.css).
    ============================================================ */
 
-/* --- glyph/row overrides: restore bluesky's original chat-row look --- */
-.chat-row { gap:8px; padding:3px 8px 3px 10px; }
+/* --- glyph/row overrides: bluesky keeps its glyph-hidden-on-calm look, but
+   its row indent is reconciled to hanabi's reduced inset (padding-left 4, gap 7
+   — was 10/8) so threaded rows sit only slightly under the folder header,
+   matching the MVP mock. folder-body inset is shared from hanabi.css (7px). --- */
+.chat-row { gap:7px; padding:3px 8px 3px 4px; }
 .chat-row .glyph { margin-left:1px; display:none; }
 .chat-row.has-glyph .glyph { display:block; }
 
