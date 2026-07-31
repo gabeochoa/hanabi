@@ -1,0 +1,154 @@
+/* ============================================================
+   v2.css — blue-sky-only additions layered ON TOP of hanabi.css
+   (empty-state illustrations + interaction motion). Loaded AFTER
+   hanabi.css so these rules win. Also carries the small glyph/row
+   overrides that keep bluesky's exact original look (bluesky predates
+   the "glyph acts as row indent" change now baked into hanabi.css).
+   ============================================================ */
+
+/* --- glyph/row overrides: restore bluesky's original chat-row look --- */
+.chat-row { gap:8px; padding:3px 8px 3px 10px; }
+.chat-row .glyph { margin-left:1px; display:none; }
+.chat-row.has-glyph .glyph { display:block; }
+
+/* ============================================================
+   V2 — EMPTY-STATE ILLUSTRATIONS  (STATIC art — never animated)
+   Original inline-SVG line illustrations in the accent palette
+   + a warm, terse one-liner. The ART stays still by design;
+   only surrounding UI chrome (below) animates.
+   ============================================================ */
+.empty {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; gap:14px; padding: 34px 20px; min-height: 240px;
+  color: var(--text-secondary);
+}
+.empty .art {
+  width: 132px; height: 108px; flex:0 0 auto;
+  /* IMPORTANT: no animation / no transition — the illustration is STATIC */
+}
+.empty .art svg { width:100%; height:100%; display:block; }
+/* line-illustration strokes use the accent + a soft muted stroke */
+.empty .art .ln { stroke: var(--accent); stroke-width:2; fill:none;
+  stroke-linecap:round; stroke-linejoin:round; }
+.empty .art .ln-soft { stroke: var(--text-faint); stroke-width:2; fill:none;
+  stroke-linecap:round; stroke-linejoin:round; }
+.empty .art .fill-soft { fill: var(--accent-soft); stroke:none; }
+.empty .art .fill-accent { fill: var(--accent); stroke:none; }
+.empty .art .dot { fill: var(--accent); }
+.empty .e-title { font-size:15px; font-weight:700; color: var(--text-primary); }
+.empty .e-msg { font-size:12.5px; color: var(--text-secondary); max-width: 320px; line-height:1.5; }
+/* compact empty used inside the sidebar (search / folder) */
+.empty.compact { min-height:0; padding: 22px 14px; gap:10px; }
+.empty.compact .art { width: 96px; height: 78px; }
+.empty.compact .e-title { font-size:13px; }
+.empty.compact .e-msg { font-size:11.5px; }
+/* sidebar empties should not inherit chat-row hover */
+.sb-empty { padding: 4px 6px; }
+
+/* "preview empty" toggle on the Home digest */
+.home-empty-toggle {
+  position:absolute; top:20px; right:20px; z-index:5;
+  display:flex; align-items:center; gap:6px;
+  background: var(--panel-bg-2); border:1px solid var(--border);
+  border-radius:8px; padding:4px 9px; font-size:11px; font-weight:600;
+  color: var(--text-secondary); cursor:pointer; font-family:inherit;
+  transition: background .12s, border-color .12s, transform .12s cubic-bezier(.2,.9,.3,1.4);
+}
+.home-empty-toggle:hover { background: var(--hover-bg); border-color: var(--accent); color: var(--text-primary); }
+.home-empty-toggle:active { transform: scale(0.94); }
+.home-empty-toggle svg { width:12px; height:12px; }
+#screen-home .sv { position:relative; }
+/* when previewing the inbox-zero state, hide the real digest content */
+#homeReal { transition: opacity .18s ease; }
+#homeEmpty { display:none; }
+.sv-wrap.show-empty #homeReal { display:none; }
+.sv-wrap.show-empty #homeEmpty { display:block; }
+
+/* ============================================================
+   V2 — DELIGHTFUL MOTION  (on UI CHROME only, never on empty art)
+   Short, ease-out / spring feels; subtle-tasteful, not gaudy.
+   ============================================================ */
+/* staggered row fade+slide as a thread list loads */
+@keyframes row-in {
+  from { opacity:0; transform: translateY(6px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+.anim-rows .chat-row,
+.anim-rows .card,
+.anim-rows .digest li,
+.anim-rows .finished li,
+.anim-rows .pinned li { animation: row-in .34s cubic-bezier(.2,.7,.3,1) both; }
+/* stagger via nth-child delays (kept short) */
+.anim-rows .chat-row:nth-child(1),.anim-rows .card:nth-child(1),.anim-rows .digest li:nth-child(1),.anim-rows .finished li:nth-child(1),.anim-rows .pinned li:nth-child(1){ animation-delay:.02s }
+.anim-rows .chat-row:nth-child(2),.anim-rows .card:nth-child(2),.anim-rows .digest li:nth-child(2),.anim-rows .finished li:nth-child(2),.anim-rows .pinned li:nth-child(2){ animation-delay:.06s }
+.anim-rows .chat-row:nth-child(3),.anim-rows .card:nth-child(3),.anim-rows .digest li:nth-child(3),.anim-rows .finished li:nth-child(3),.anim-rows .pinned li:nth-child(3){ animation-delay:.10s }
+.anim-rows .chat-row:nth-child(4),.anim-rows .card:nth-child(4),.anim-rows .digest li:nth-child(4),.anim-rows .finished li:nth-child(4),.anim-rows .pinned li:nth-child(4){ animation-delay:.14s }
+.anim-rows .chat-row:nth-child(5),.anim-rows .card:nth-child(5),.anim-rows .digest li:nth-child(5),.anim-rows .finished li:nth-child(5),.anim-rows .pinned li:nth-child(5){ animation-delay:.18s }
+.anim-rows .chat-row:nth-child(n+6),.anim-rows .card:nth-child(n+6){ animation-delay:.22s }
+
+/* hover lift on cards/rows (fast, subtle) */
+.card { transition: transform .14s cubic-bezier(.2,.8,.3,1), box-shadow .14s ease, border-color .14s ease; }
+.card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.28); border-color: var(--border); }
+.digest li, .finished li, .pinned li { transition: transform .12s cubic-bezier(.2,.8,.3,1); }
+.digest li:hover, .finished li:hover, .pinned li:hover { transform: translateX(2px); }
+.chat-row { transition: background .1s, transform .12s cubic-bezier(.2,.8,.3,1); }
+.chat-row:hover { transform: translateX(2px); }
+
+/* press feedback (scale-down + spring back) on buttons */
+.mini-btn, .send-btn, .iconbtn, .seg-opt, .mb-primary, .sec-btn {
+  transition: background .12s, color .12s, border-color .12s, filter .12s,
+              transform .12s cubic-bezier(.2,.9,.3,1.5);
+}
+.mini-btn:active, .send-btn:active, .iconbtn:active, .seg-opt:active,
+.mb-primary:active, .sec-btn:active { transform: scale(0.92); }
+
+/* smart-view / screen cross-fade on switch */
+@keyframes screen-in { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+.screen.active > .sv,
+.screen.active > .transcript-head { animation: screen-in .2s ease both; }
+
+/* skeleton shimmer (loading state demo) */
+.skel-wrap { display:none; max-width:720px; }
+.sv-wrap.show-skel #homeReal, .sv-wrap.show-skel #homeEmpty { display:none; }
+.sv-wrap.show-skel .skel-wrap { display:block; }
+.skel {
+  height:14px; border-radius:6px; margin:10px 0;
+  background: linear-gradient(90deg, var(--panel-bg-2) 25%, var(--hover-bg) 37%, var(--panel-bg-2) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+.skel.w-40 { width:40%; } .skel.w-60 { width:60%; } .skel.w-80 { width:80%; }
+.skel.card-skel { height:64px; border-radius:10px; margin:12px 0; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* count / badge tick */
+@keyframes badge-tick {
+  0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); }
+}
+.tick { animation: badge-tick .32s cubic-bezier(.2,.9,.3,1.5); }
+
+/* "replay motion" control — unobtrusive, bottom-left of content */
+.replay-motion {
+  position:absolute; left:14px; bottom:12px; z-index:6;
+  display:flex; align-items:center; gap:6px;
+  background: var(--panel-bg-2); border:1px solid var(--border);
+  border-radius:8px; padding:5px 10px; font-size:11px; font-weight:600;
+  color: var(--text-secondary); cursor:pointer; font-family:inherit; opacity:0.85;
+  transition: background .12s, border-color .12s, color .12s, opacity .12s, transform .12s cubic-bezier(.2,.9,.3,1.4);
+}
+.replay-motion:hover { opacity:1; background: var(--hover-bg); border-color: var(--accent); color: var(--text-primary); }
+.replay-motion:active { transform: scale(0.93); }
+.replay-motion svg { width:12px; height:12px; }
+.replay-motion.spin-once svg { animation: spin .6s cubic-bezier(.3,.1,.2,1); }
+
+/* fixed caption marking this as the exploratory variant */
+.v2-caption {
+  position: fixed; left: 12px; bottom: 10px; z-index: 200;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.55);
+  background: rgba(30,30,34,0.6);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 7px; padding: 4px 9px;
+  backdrop-filter: saturate(160%) blur(10px);
+  -webkit-user-select:none; user-select:none; pointer-events:none;
+}
