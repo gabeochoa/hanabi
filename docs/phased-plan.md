@@ -188,47 +188,144 @@ Validate:
 
 
 
-## Phase R — Refactoring / code-health pass (scheduled)
-Purpose: consolidate after several feature phases so the codebase stays clean as it
-grows. NOT a behavior change — pure internal quality. Do NOT touch vendor/.
-Scope:
-- De-duplicate layout/padding constants: centralize the pixel spec (row heights,
-  paddings, gaps, glyph/icon sizes) into ONE place (e.g. src/ui/metrics.h) that the
-  systems read, so mock-parity values live in a single source of truth (mirrors
-  docs/spec-metrics.md). Removes magic numbers scattered across sidebar/main-pane/tab systems.
-- Ensure the graphics-free model headers (thread_model.h, tab_model.h) remain the
-  single home for state/glyph/smart-view/tab logic; fold any drifted duplicate logic back.
-- Tidy the icon system (src/ui/icons.h) + theme tokens; make sure light tokens still
-  compile even though dark-only is shipped.
-- Split any oversized system headers; consistent naming; remove dead code.
-- Keep the e2e/perf suite green throughout (make test); no perf regression.
-Validate:
-- [ ] make -j4 clean (0 warnings); make test green; no behavior/visual change (screenshot diff vs pre-refactor).
-- [ ] Pixel constants come from one metrics source; systems reference it.
-- [ ] Perf baseline unchanged (startup/RSS within noise).
-- [ ] vendor/ untouched; afterhours_gaps.md updated with anything the refactor wanted but couldn't do upstream.
+## Phase R — Consolidation & Refactor (scheduled code-health pass)
+Purpose: consolidate after the feature phases so the codebase stays clean as it grows.
+This is a PURE REFACTOR — no behavior change, no visual change. It exists to pay down
+the duplication that accreted while chasing mock parity (many explicit with_font_size
+calls, repeated row/label builders, scattered pixel constants). Do NOT touch vendor/.
 
-## Phase V — Backend API verification (Navi + AgentCloud) via the adapter
-Purpose: prove hanabi's api::Client + config-driven HTTP adapter can target BOTH the
-current backend AND its successor, WITHOUT hardcoding either or naming them in the repo.
-(Everything stays generic: base_url/token/paths/field-map from runtime config; the repo
-never contains a real endpoint, key, schema, or product name. Mock stays the default.)
+ENTRY GATES (all must be true before starting):
+- [ ] All feature phases (A–F UI, G native, H icons) are green / accepted; no open
+      feature work mid-flight that this refactor would collide with.
+- [ ] Perf phases (P launch, X switch/RAM) are green — we have a recorded pre-refactor
+      baseline (FirstFrame ms, cached-switch ms, peak RSS) to compare against.
+- [ ] make test is green and screenshots match the mocks (this is the "known-good"
+      baseline the refactor must not disturb).
+- [ ] A pre-refactor screenshot set is captured and saved as the comparison baseline.
+
 Scope:
-- Confirm the adapter's Config field-map is sufficient for the two real API response
-  shapes (session list, transcript, message roles/blocks). Add config knobs for any
-  shape difference (e.g. an OPTIONAL thread-`state`/attention field the client reads if
-  present, else derives client-side — see the derived high-signal rules).
-- Verify auth is pluggable enough for a device-code / bearer-token flow supplied at runtime
-  (no auth baked in). Streaming (SSE) as an optional adapter capability behind config.
-- Provide a config-only way (env / local ~/.config/hanabi/config.json, untracked) to point
-  at either backend for a manual smoke test — documented, but NO real values committed.
-- A `cancel`/abort adapter method stub (no-op on mock) so the interface is ready if a
-  backend exposes it.
-Validate:
-- [ ] With no config: mock backend renders (unchanged zero-config default).
-- [ ] The adapter maps BOTH real API shapes via config field-name overrides (proven with a
-      local, uncommitted fixture per shape — fixtures are generic/sanitized, never real data).
-- [ ] Optional `state` field: populated when the backend supplies it; derived client-side when absent.
-- [ ] Repo audit: NO real endpoint/key/schema/product-name committed; still generic + mock-default.
-- [ ] Streaming + cancel are optional adapter capabilities (present in the interface, gated by config).
-NOTE: detailed (non-committed) parity findings live in the user's workspace notes, not the repo.
+- CONSOLIDATE the graphics-free model headers (src/ecs/thread_model.h,
+  src/ecs/tab_model.h, src/ecs/transcript_cache.h): audit for overlapping types and
+  logic, extract shared types, and settle a single `ecs::model` namespace convention
+  for the graphics-free state layer. (thread_model.h already uses `ecs::model`;
+  tab_model.h uses `ecs::tabflow` and transcript_cache.h uses `ecs` — reconcile these
+  onto one convention so the "model" layer is discoverable and consistent.) Keep these
+  headers graphics-free (state/glyph/smart-view/tab/cache logic only, no draw calls).
+- DEDUPE render helpers across the systems (sidebar_system.h, main_pane_system.h,
+  tab_bar_system.h, and the transcript rendering path): pull the repeated row / label /
+  section-header builders into shared helpers instead of copy-pasted blocks.
+- TYPOGRAPHY helper: the layout-audit added many explicit with_font_size(<px>) calls
+  (sidebar ~10, main pane ~8, tab bar ~2, status bar ~2). Replace the scattered raw
+  font-size literals with a small typography helper keyed to the spec type scale
+  (9…20 from docs/spec-metrics.md) so a size is named once, not repeated as a literal.
+- TIGHTEN theme-token usage: ensure ALL colors come from theme::t (no stray rgb()
+  literals left in the systems), and that any tint/color is read LIVE at draw time
+  (not captured once at init) — this matters for the light/dark icon-tint work so a
+  theme flip re-tints correctly.
+- REDUCE per-system duplication: extract the shared layout constants (row height,
+  paddings, gaps, glyph/icon slot sizes) into ONE place that mirrors
+  docs/spec-metrics.md, so mock-parity numbers live in a single source of truth and the
+  systems reference it instead of redeclaring magic numbers.
+- Split any oversized system headers; consistent naming; remove dead code.
+
+EXIT GATES (all must hold — this is what proves it stayed a pure refactor):
+- [ ] make -j4 builds clean with 0 warnings.
+- [ ] make test green (e2e + perf suite) throughout.
+- [ ] Screenshots UNCHANGED vs the pre-refactor baseline (pixel diff ≈ 0) — a pure
+      refactor changes no pixels.
+- [ ] Perf gate still green: FirstFrame ms, cached-switch ms, and peak RSS all within
+      noise of the pre-refactor baseline (no regression).
+- [ ] Font sizes flow through the typography helper / spec scale; no stray size literals.
+- [ ] All colors come from theme::t; no stray color literals; tint read live.
+- [ ] Pixel constants come from the single metrics source; systems reference it.
+- [ ] Model layer uses one consistent `ecs::model` namespace convention; headers stay
+      graphics-free.
+- [ ] vendor/ untouched; afterhours_gaps.md updated with anything the refactor wanted
+      but couldn't do upstream.
+
+## Phase API — Real-Backend Parity (Navi + AgentCloud)
+Purpose: VERIFY (mostly a paper + fixture exercise, minimal code) that hanabi's HTTP
+adapter — the one behind the mock+adapter seam, env-configured via
+HANABI_BACKEND / HANABI_API_BASE_URL / HANABI_TOKEN (NEVER hardcoded) — maps cleanly
+onto two real backends: the Navi API (proven in the wild by a Rust TUI client) and
+AgentCloud (the successor orchestration service). The mock stays the zero-config
+default; the real API is never hardcoded and never named with any internal URL.
+Detail that doesn't fit here lives in docs/api-parity.md.
+
+ENTRY GATES:
+- [ ] The mock+adapter seam is in place: api::Client interface (src/api/client.h),
+      mock_client.h as the zero-config default, http_client.h behind runtime config.
+- [ ] Env-config path works: HANABI_BACKEND selects mock vs http;
+      HANABI_API_BASE_URL / HANABI_TOKEN supply base URL + bearer at runtime (nothing
+      baked into the repo).
+- [ ] make test green with the mock backend (default) — the known-good baseline.
+
+Scope — VERIFY the adapter maps onto the Navi API with no backend work:
+- LIST: sessions list maps to the sessions endpoint, including `has_more` pagination.
+- TRANSCRIPT: per-session messages map to roles (user/assistant/system) and block
+  types (including tool-call / tool-result blocks).
+- STREAM: the user-scoped SSE realtime channel maps to the adapter's optional
+  streaming capability; the client filters events by session_id and handles the event
+  kinds (text / thinking / tool-call / done / title-update / …).
+- KICKOFF/CONTINUE: chat POST maps to kickoff (omit the session id for a new session)
+  and continue; the response arrives over SSE.
+- SEARCH: the hybrid (vector + keyword) search endpoint maps to the adapter's search.
+- MUTATE: session PATCH maps to pin / archive (status) / title-edit.
+- FOLDERS: the session-folders CRUD + reorder endpoints map to the sidebar folder model.
+- AUTH: the device-code flow (request a code → user enters it at the auth URL → poll →
+  receive a token; refresh via the refresh endpoint) fits the pluggable
+  bearer/device-code auth — supplied at runtime, never baked in.
+- EXTRAS (note as available, not required for MVP): export / share / fork / skills /
+  schedules / nodes / preferences / workspaces.
+
+Scope — note the AgentCloud (successor) adaptation:
+- AgentCloud shares the same session / message / stream / event concept-shape, but is
+  OpenAPI-spec-driven: its openapi.json is the capability source of truth (including
+  default-model and harness enums the client should READ from the spec, not hardcode).
+- It adds a structured `sessionOptions` object plus a "session-options patch" model for
+  per-session config, and a durable typed-event journal (e.g. a recap/journal event
+  wire-shape) for streaming.
+- So targeting AgentCloud = generate/consume the client from openapi.json + adopt the
+  sessionOptions-patch model + consume the journal events. Keep it behind the SAME
+  adapter seam; no second bespoke client.
+
+Scope — the TWO real gaps (present on BOTH backends) + hanabi's plan:
+- GAP 1 — no explicit thread-STATE field. Neither backend exposes a high-signal state
+  (blocked / needs-you / review / done); they only expose status (active/archived) +
+  an is-processing flag + a sub-session status. hanabi must DERIVE its high-signal
+  states client-side from those primitives (recommended near-term). If the server later
+  adds a real `state` field, the adapter reads it when present and falls back to the
+  derive rules when absent (OPTIONAL config-driven field).
+- GAP 2 — no hard cancel/abort of a running turn. Steering / queueing works, but a true
+  cancel would need a small new backend endpoint. Keep a `cancel`/abort adapter method
+  in the interface (no-op on mock, gated by config) so hanabi is ready if a backend
+  exposes it — but do NOT block on it.
+
+VERIFICATION STEPS:
+- Prove each Navi mapping above against a LOCAL, UNCOMMITTED, sanitized fixture per
+  response shape (generic sample data — never real user data, never a real endpoint).
+- Document the derive-client-side thread-state plan (the mapping from
+  status + is-processing + sub-session status → blocked/needs-you/review/done) in
+  docs/api-parity.md.
+- Provide a config-only smoke test that hits a real backend, gated behind env vars
+  (HANABI_BACKEND=http + HANABI_API_BASE_URL + HANABI_TOKEN), SKIPPED BY DEFAULT so CI
+  and the default build never touch a real backend.
+
+EXIT GATES:
+- [ ] With NO config: the mock backend renders (unchanged zero-config default).
+- [ ] The adapter maps ALL Navi endpoints above (list / transcript / SSE / kickoff /
+      search / pin / archive / folders / auth) via config field-name overrides, proven
+      with the local uncommitted fixtures — NO backend work required.
+- [ ] Derived thread-state plan documented; adapter reads an optional `state` field when
+      the backend supplies one, derives client-side otherwise.
+- [ ] AgentCloud adaptation noted: consume openapi.json (models + default-model/harness
+      enums), adopt the sessionOptions-patch model, consume the journal events — all
+      behind the same seam.
+- [ ] Streaming (SSE) and cancel/abort are OPTIONAL adapter capabilities (present in the
+      interface, gated by config; cancel is a no-op on mock).
+- [ ] The real-backend smoke test exists, is env-gated, and is SKIPPED BY DEFAULT.
+- [ ] Repo audit: NO real endpoint / key / token / schema / internal URL / company name
+      committed anywhere; still generic + mock-default. vendor/ untouched.
+NOTE: everything stays behind the mock+adapter seam; the real API is never hardcoded and
+the mock remains the zero-config default. Detailed parity findings live in
+docs/api-parity.md (generic — no real values).
