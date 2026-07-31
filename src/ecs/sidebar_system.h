@@ -86,28 +86,75 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return n;
     }
 
-    static const char* tag_label(api::ThreadTag t) {
-        switch (t) {
-            case api::ThreadTag::Blocked: return "BLOCKED";
-            case api::ThreadTag::Review: return "REVIEW";
-            case api::ThreadTag::Done: return "DONE";
-            default: return "";
-        }
+    // ---- status glyph (shape-per-status) ----
+    // The compact sidebar rows no longer carry a text tag chip. Instead each
+    // attention-worthy row gets a small SHAPE-per-status glyph at its left,
+    // so status is readable by SHAPE (not color alone), mirroring the mock:
+    //   Blocked / needs-you -> RED UP-TRIANGLE  (most urgent)
+    //   Review (agent-verified) -> GREEN DIAMOND (square rotated 45 deg)
+    //   Done -> BLUE DOT (filled circle)
+    //   working / parked / archived -> NO glyph (calm)
+    enum class Glyph { None, Triangle, Diamond, Dot };
+
+    // Precedence follows the mock's JS ordering: blocked, then review, then
+    // done, then a bare Attention state (waiting-on-you) which also earns the
+    // urgent triangle.
+    static Glyph glyph_for(const api::SessionSummary& s) {
+        if (s.tag == api::ThreadTag::Blocked) return Glyph::Triangle;
+        if (s.tag == api::ThreadTag::Review) return Glyph::Diamond;
+        if (s.tag == api::ThreadTag::Done) return Glyph::Dot;
+        if (s.state == api::ThreadState::Attention) return Glyph::Triangle;
+        return Glyph::None;
     }
-    static theme::Color tag_fg(api::ThreadTag t) {
-        switch (t) {
-            case api::ThreadTag::Blocked: return theme::tag_blocked_fg();
-            case api::ThreadTag::Review: return theme::tag_ready_fg();
-            case api::ThreadTag::Done: return theme::tag_done_fg();
+
+    static theme::Color glyph_color(Glyph g) {
+        switch (g) {
+            case Glyph::Triangle: return theme::tag_blocked_fg();  // red
+            case Glyph::Diamond: return theme::tag_ready_fg();     // green
+            case Glyph::Dot: return theme::tag_done_fg();          // blue
             default: return theme::text_faint();
         }
     }
-    static theme::Color tag_bg(api::ThreadTag t) {
-        switch (t) {
-            case api::ThreadTag::Blocked: return theme::tag_blocked_bg();
-            case api::ThreadTag::Review: return theme::tag_ready_bg();
-            case api::ThreadTag::Done: return theme::tag_done_bg();
-            default: return theme::sidebar_bg();
+
+    // Draw the status glyph centered inside `rect` (the on-screen rect of the
+    // small glyph slot). Uses afterhours' real shape primitives — filled
+    // triangle, a 4-sided poly rotated 45 deg for the diamond, and a circle —
+    // so the three statuses are visually distinct by SHAPE, not just color.
+    static void draw_glyph(RectangleType rect, Glyph g) {
+        if (g == Glyph::None) return;
+        const theme::Color c = glyph_color(g);
+        const float cx = rect.x + rect.width * 0.5f;
+        const float cy = rect.y + rect.height * 0.5f;
+        switch (g) {
+            case Glyph::Triangle: {
+                // Up-pointing equilateral-ish triangle, ~9px tall / 10px wide.
+                const float half_w = 5.0f;
+                const float half_h = 4.5f;
+                afterhours::draw_triangle(
+                    afterhours::vec2{cx, cy - half_h},          // apex (top)
+                    afterhours::vec2{cx - half_w, cy + half_h}, // bottom-left
+                    afterhours::vec2{cx + half_w, cy + half_h}, // bottom-right
+                    c);
+                break;
+            }
+            case Glyph::Diamond: {
+                // Diamond = a 4-sided regular poly with vertices at
+                // top/bottom/left/right. draw_poly's first vertex sits at
+                // angle 0 (pointing right), so with rotation 0 the four
+                // vertices already land at right/up/left/down -> a diamond.
+                // (Rotating 45 deg would instead give an axis-aligned square.)
+                // Circumradius ~5.6 gives an ~8px diamond, matching the mock.
+                afterhours::draw_poly(afterhours::vec2{cx, cy}, 4, 5.6f, 0.0f,
+                                      c);
+                break;
+            }
+            case Glyph::Dot: {
+                // 8px filled circle.
+                afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 4.0f, c);
+                break;
+            }
+            default:
+                break;
         }
     }
 
@@ -370,15 +417,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool running = s.state == api::ThreadState::Running;
         bool parked = s.state == api::ThreadState::Parked;
         bool selected = app.selectedId == s.id;
+        Glyph glyph = glyph_for(s);
 
+        // Denser rows: 24px tall with tight vertical padding (was 28px), so
+        // more threads fit — matching the mock's compact sidebar feel.
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_size(ComponentSize{percent(1.0f), pixels(24)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(4), .right = pixels(8),
-                                      .bottom = pixels(4), .left = pixels(18)})
+                .with_padding(Padding{.top = pixels(2), .right = pixels(8),
+                                      .bottom = pixels(2), .left = pixels(16)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
                 .with_custom_hover_bg(theme::hover_bg())
@@ -392,53 +442,38 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.requestOpenTab = s.id;
         }
 
-        // Attention dot (only when attn).
+        // Status glyph slot: a small transparent box whose foreground draw
+        // paints the shape-per-status glyph. Nothing is drawn when calm.
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_label(attn ? "\xe2\x97\x8f" : " ")
-                .with_size(ComponentSize{pixels(12), pixels(18)})
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(12), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_text_color(attn ? theme::dot()
-                                             : theme::sidebar_bg())
                 .with_font_size(FontSize::Small)
-                .with_alignment(TextAlignment::Center)
                 .with_roundness(0.0f)
-                .with_debug_name("row_dot"));
+                .with_on_draw_fg([glyph](RectangleType rect) {
+                    draw_glyph(rect, glyph);
+                })
+                .with_debug_name("row_glyph"));
 
         // Title. attn=bold(primary), running=dim(faint), parked/archived=grey.
+        // Bold is approximated via the primary text color (immediate-mode UI
+        // has no per-label weight); the mock's bold-on-attention intent is
+        // preserved by the primary/secondary/faint color split.
         theme::Color titleColor = theme::text_secondary();
         if (attn) titleColor = theme::text_primary();
         else if (running || parked || archived) titleColor = theme::text_faint();
 
-        bool hasTag = s.tag != api::ThreadTag::None;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(s.title, hasTag ? 22 : 30))
-                .with_size(ComponentSize{percent(hasTag ? 0.66f : 0.9f),
-                                         pixels(18)})
+                .with_label(fmtutil::ellipsize(s.title, 32))
+                .with_size(ComponentSize{percent(0.92f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(FontSize::Small)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));
-
-        // One tag chip max.
-        if (hasTag) {
-            div(ctx, mk(row.ent(), 3),
-                ComponentConfig{}
-                    .with_label(tag_label(s.tag))
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_padding(Padding{.top = pixels(1), .right = pixels(5),
-                                          .bottom = pixels(1),
-                                          .left = pixels(5)})
-                    .with_custom_background(tag_bg(s.tag))
-                    .with_custom_text_color(tag_fg(s.tag))
-                    .with_font_size(FontSize::Small)
-                    .with_alignment(TextAlignment::Center)
-                    .with_roundness(0.3f)
-                    .with_debug_name("row_tag"));
-        }
     }
 };
 

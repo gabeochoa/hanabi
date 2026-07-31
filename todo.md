@@ -48,12 +48,21 @@ Not over-engineered — this is just the baseline to watch as features land.
       Blocked = tag==Blocked; Review = state==Ready (agent-verified);
       Starred = starred. Selectable, swap the main pane.
       + user Folders (Stars / Oncall / Experiments / Recent) + Archived.
-- [x] High-signal sidebar: attention dot + bold title ONLY when
-      DONE/WAITING-ON-YOU (state==Attention). Running threads dimmed/calm (no
-      dot/bold). Parked & archived greyed. One tag chip max (Blocked/Review/
-      Done). Status bar shows the blocked-on-you count.
+- [x] High-signal sidebar: SHAPE-per-status glyph + bold-ish title ONLY when
+      attention-worthy. Running threads dimmed/calm (no glyph). Parked &
+      archived greyed. Status bar shows the blocked-on-you count.
       (model: api::ThreadState + api::ThreadTag on SessionSummary; mock supplies
       the sample states; http adapter leaves them Unknown/None = calm.)
+      Phase 2.1 (DONE): dropped the sidebar text tag chip + plain attention
+      dot; replaced with a dedicated SHAPE-per-status glyph so status reads by
+      shape, not color alone — RED up-triangle (blocked/needs-you), GREEN
+      diamond (review/agent-verified), BLUE dot (done). Drawn with afterhours'
+      real primitives (draw_triangle / draw_poly(4) / draw_circle_v) via the
+      per-widget with_on_draw_fg custom-draw hook (see SidebarSystem::draw_glyph
+      + glyph_for in src/ecs/sidebar_system.h). Rows made denser (24px, was
+      28px). Tag chips remain on the smart-view main-pane cards. VERIFIED:
+      make -j4 clean, make test 1/1, headless --screenshot exit 0 valid
+      1100x760 PNG.
 - [ ] Kick off a task from a system launcher (Spotlight/global hotkey) AND from
       a macOS menu-bar (status bar) icon.  (Phase 4)
 - [x] HTML design mock FIRST, to discuss interface/design before C++.
