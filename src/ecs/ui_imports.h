@@ -34,15 +34,30 @@ using afterhours::ui::FontSize;
 using afterhours::ui::FlexWrap;
 using afterhours::ui::Overflow;
 using afterhours::ui::TextOverflow;
+using afterhours::ui::Axis;
+using afterhours::ui::ClickActivationMode;
+using afterhours::ui::resolve_to_pixels;
 
 namespace ecs {
 
-// Find the first singleton component of type T (optionally requiring U too).
-template <typename T>
+// Find the first singleton component of type T (optionally requiring more).
+template <typename T, typename... Filters>
 inline T* find_singleton() {
-    auto q = EntityQuery({.force_merge = true}).whereHasComponent<T>().gen();
-    if (q.empty()) return nullptr;
-    return &q[0].get().template get<T>();
+    auto q = EntityQuery({.force_merge = true}).whereHasComponent<T>();
+    (q.template whereHasComponent<Filters>(), ...);
+    auto results = q.gen();
+    if (results.empty()) return nullptr;
+    return &results[0].get().template get<T>();
+}
+
+// Find the first entity carrying component T (optionally plus filters).
+template <typename T, typename... Filters>
+inline Entity* find_singleton_entity() {
+    auto q = EntityQuery({.force_merge = true}).whereHasComponent<T>();
+    (q.template whereHasComponent<Filters>(), ...);
+    auto results = q.gen();
+    if (results.empty()) return nullptr;
+    return &results[0].get();
 }
 
 }  // namespace ecs
