@@ -147,6 +147,12 @@ class MockClient : public Client {
                  "follow-up?",
                  hrs_ago(0) - 1320, ""},
             };
+            s.sub_agents = {
+                {"t2s1", "Ledger diff scan", SubAgentState::Running,
+                 "comparing 4,812 rows against the ledger"},
+                {"t2s2", "Duplicate-payout check", SubAgentState::Done,
+                 "no duplicates found"},
+            };
             v.push_back(std::move(s));
         }
         {
@@ -262,6 +268,14 @@ class MockClient : public Client {
                  "Backfill in progress - 61% through 2.1M rows. No action "
                  "needed; I'll surface it when done or if I hit a snag.",
                  hrs_ago(0) - 300, ""},
+            };
+            s.sub_agents = {
+                {"t6s1", "Chunk 1\xe2\x80\x93""500k", SubAgentState::Done,
+                 "500k rows written"},
+                {"t6s2", "Chunk 500k\xe2\x80\x93""1M", SubAgentState::Running,
+                 "at row 812k"},
+                {"t6s3", "Row validator", SubAgentState::Running,
+                 "checksums matching so far"},
             };
             v.push_back(std::move(s));
         }

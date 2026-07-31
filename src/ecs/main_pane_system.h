@@ -466,14 +466,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // Panel at the top of the transcript listing the thread's sub-agent steps.
     // Returns true if a panel was rendered.
+    static SubGlyph sub_glyph_for(api::SubAgentState st) {
+        switch (st) {
+            case api::SubAgentState::Running: return SubGlyph::Working;
+            case api::SubAgentState::Done: return SubGlyph::Done;
+            case api::SubAgentState::Blocked: return SubGlyph::Blocked;
+        }
+        return SubGlyph::Working;
+    }
+
+    static const char* sub_state_note(api::SubAgentState st) {
+        switch (st) {
+            case api::SubAgentState::Running: return "running";
+            case api::SubAgentState::Done: return "done";
+            case api::SubAgentState::Blocked: return "blocked";
+        }
+        return "";
+    }
+
     bool sub_agent_panel(UIContext<InputAction>& ctx, Entity& scroll,
                          AppComponent& app) {
-        // Collect the Tool-role steps (see class-doc: the one real per-step
-        // signal in the current api model).
+        // Prefer real sub-agents when the session carries them; otherwise fall
+        // back to deriving steps from Tool-role messages (the one per-step
+        // signal that always exists).
+        const auto& subs = app.openSession->sub_agents;
         std::vector<const api::Message*> steps;
-        for (const auto& m : app.openSession->messages)
-            if (m.role == api::Role::Tool) steps.push_back(&m);
-        if (steps.empty()) return false;
+        if (subs.empty()) {
+            for (const auto& m : app.openSession->messages)
+                if (m.role == api::Role::Tool) steps.push_back(&m);
+            if (steps.empty()) return false;
+        }
+
+        const size_t count = subs.empty() ? steps.size() : subs.size();
 
         auto panel = div(ctx, mk(scroll, 8000),
             ComponentConfig{}
@@ -489,7 +513,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Head: "SUB-AGENTS (n)".
         div(ctx, mk(panel.ent(), 1),
             ComponentConfig{}
-                .with_label("SUB-AGENTS (" + std::to_string(steps.size()) + ")")
+                .with_label("SUB-AGENTS (" + std::to_string(count) + ")")
                 .with_size(ComponentSize{percent(1.0f), pixels(28)})
                 .with_padding(Padding{.top = pixels(8), .right = pixels(12),
                                       .bottom = pixels(6), .left = pixels(14)})
@@ -501,11 +525,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("subpanel_head"));
 
         int i = 0;
-        for (const auto* m : steps) {
-            std::string title = m->subtitle.empty() ? "step" : m->subtitle;
-            sub_item(ctx, panel.ent(), 10 + i, app, m->id, SubGlyph::Done,
-                     title, m->text);
-            ++i;
+        if (!subs.empty()) {
+            for (const auto& sa : subs) {
+                std::string note =
+                    std::string(sub_state_note(sa.state)) +
+                    (sa.note.empty() ? "" : " \xc2\xb7 " + sa.note);
+                sub_item(ctx, panel.ent(), 10 + i, app, sa.id,
+                         sub_glyph_for(sa.state), sa.title, note);
+                ++i;
+            }
+        } else {
+            for (const auto* m : steps) {
+                std::string title = m->subtitle.empty() ? "step" : m->subtitle;
+                sub_item(ctx, panel.ent(), 10 + i, app, m->id, SubGlyph::Done,
+                         title, m->text);
+                ++i;
+            }
         }
         return true;
     }

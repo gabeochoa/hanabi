@@ -84,10 +84,28 @@ struct SessionSummary {
     bool starred = false;
 };
 
+// A sub-agent (child worker) running under a session. Visualized ONLY in the
+// transcript sub-agent panel (never the sidebar), per docs/decisions.md.
+enum class SubAgentState {
+    Running,
+    Done,
+    Blocked,
+};
+
+struct SubAgent {
+    std::string id;
+    std::string title;
+    SubAgentState state = SubAgentState::Running;
+    std::string note;
+};
+
 // A full session: summary + ordered transcript.
 struct Session {
     SessionSummary summary;
     std::vector<Message> messages;
+    // Optional child workers. Empty for most sessions; the transcript panel
+    // falls back to deriving steps from Tool-role messages when this is empty.
+    std::vector<SubAgent> sub_agents;
 };
 
 // Result of a fetch. `ok == false` carries a human-readable error in `error`.
