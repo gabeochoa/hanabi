@@ -129,10 +129,13 @@ bundle: $(MAIN_EXE) copy-resources
 .PHONY: all clean clean-all deps copy-resources output run bundle
 
 # ==============================================================================
-# UNIT TESTS
+# TESTS  (unit + headless e2e + perf regression gates)
 # ==============================================================================
 
 TEST_CXXFLAGS := $(CXXSTD) -g -O0 -Wall -Wextra \
+    -Wno-deprecated-literal-operator -Wno-sign-conversion
+# Perf benchmark wants optimizations on (measures the real hot path).
+PERF_CXXFLAGS := $(CXXSTD) -O2 -Wall -Wextra \
     -Wno-deprecated-literal-operator -Wno-sign-conversion
 TEST_INCLUDES := -isystem vendor/ -I.
 TEST_DIR := $(OUTPUT_DIR)/tests
@@ -144,12 +147,25 @@ $(TEST_DIR)/test_api: tests/unit/test_api.cpp src/api/config.cpp src/api/http_cl
 	@echo "Compiling test_api..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
-TEST_EXES := $(TEST_DIR)/test_api
+# Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
+# defaults) against the mock + the real afterhours ECS core. No graphics linked.
+$(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+	@echo "Compiling test_e2e..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
-test: $(TEST_EXES)
-	@echo "Running unit tests..."
+# Headless perf micro-benchmark: in-process thread-switch latency (built -O2).
+$(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp | $(TEST_DIR)
+	@echo "Compiling test_perf..."
+	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
+UNIT_TEST_EXES := $(TEST_DIR)/test_api
+E2E_TEST_EXES := $(TEST_DIR)/test_e2e
+PERF_TEST_EXES := $(TEST_DIR)/test_perf
+
+# Shared runner: run each exe, count pass/fail, non-zero exit on any failure.
+define RUN_TESTS
 	@PASS=0; FAIL=0; \
-	for t in $(TEST_EXES); do \
+	for t in $(1); do \
 	    if $$t; then PASS=$$((PASS + 1)); \
 	    else FAIL=$$((FAIL + 1)); fi; \
 	done; \
@@ -157,8 +173,35 @@ test: $(TEST_EXES)
 	echo "Results: $$PASS/$$(( PASS + FAIL )) passed, $$FAIL failed"; \
 	echo "========================================"; \
 	[ "$$FAIL" -eq 0 ]
+endef
 
-.PHONY: test
+# Unit + e2e run under `make unit-e2e`.
+unit-e2e: $(UNIT_TEST_EXES) $(E2E_TEST_EXES)
+	@echo "Running unit + e2e tests..."
+	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES))
+
+# Just the e2e suite.
+e2e: $(E2E_TEST_EXES)
+	@echo "Running e2e tests..."
+	$(call RUN_TESTS,$(E2E_TEST_EXES))
+
+# Perf: in-process switch-latency benchmark + the launch/RSS gate (needs the
+# app built). measure_launch.sh runs the app in the background with a timeout
+# and pkill cleanup — see the script.
+perf: $(PERF_TEST_EXES) $(MAIN_EXE)
+	@echo "Running perf micro-benchmark..."
+	$(call RUN_TESTS,$(PERF_TEST_EXES))
+	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
+	@bash scripts/measure_launch.sh
+
+# `make test` = unit + e2e + perf (the full harness, one command).
+test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
+	@echo "Running unit + e2e tests..."
+	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES))
+	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
+	@bash scripts/measure_launch.sh
+
+.PHONY: test unit-e2e e2e perf
 
 count:
 	git ls-files | grep "src" | grep -v "resources" | grep -v "vendor" | xargs wc -l | sort -rn

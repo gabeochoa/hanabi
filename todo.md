@@ -15,15 +15,26 @@ macOS), Make build. Runs standalone on a mock backend by default.
 - [x] Startup time: log + keep low (currently logs "Startup: N ms").
 - [x] RAM: track RSS; keep lean. Sokol/Metal backend (fast) — chosen.
 
-## Perf baseline (Phase 2, measured on cli:aspen 2026-07-31)
+## Perf baseline (refreshed 2026-07-31 on cli:aspen — via scripts/run_tests.sh)
 Captured with the headless one-shot render path (graphics init + full system
-build + 45 frames + PNG capture + shutdown), zero-config mock backend:
-- **Startup (init → systems ready): ~132 ms**  (from the app's "Startup: N ms"
-  log; measured on the same code path the windowed app uses).
-- **Peak RSS (headless, `/usr/bin/time -l`): ~49.8 MB** (49,823,744 bytes).
+build + 45 frames + PNG capture + shutdown), zero-config mock backend. These
+are the numbers the perf-regression gates watch (thresholds are the project's
+hard budgets; edit the constants in scripts/measure_launch.sh / tests/e2e/
+test_perf.cpp to tighten):
+- **Startup (init → systems ready): ~19–28 ms**  (app's "Startup: N ms" log;
+  same code path the windowed app uses).
+- **FirstFrame (process start → first frame rendered): ~22–31 ms**  (new
+  test-only "FirstFrame: N ms" log, gated on i==0 in run_headless_screenshot).
+  GATE metric for launch. Budget < 250 ms (Phase P). ~10x headroom.
+- **Peak RSS (headless, `/usr/bin/time -l`): ~47 MB** (~49.7 MB bytes).
+  Budget < 250 MB (Phase X). ~5x headroom.
 - **Peak RSS (windowed w/ Metal window, `ps -o rss`): ~68–70 MB.**
-- Total headless run wall time: ~0.21 s real.
-Not over-engineered — this is just the baseline to watch as features land.
+- **Thread-switch latency: ~0.004 ms/switch** (current UNCACHED path: tabflow
+  focus + MockClient::get_session, which is what LoaderSystem runs per open).
+  Regression guard < 5.0 ms/switch. STRICT sub-ms cached-switch assertion is
+  PENDING Phase X (transcript LRU cache not built yet).
+Run gates: `make test` (unit+e2e+perf+launch) or `scripts/run_tests.sh`. Not
+over-engineered — these are the baselines to watch as features + the cache land.
 
 ## Captured requests (running log)
 - [x] MVP: session list + transcript, mock default.  (scaffold)
