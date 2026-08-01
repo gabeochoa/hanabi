@@ -574,6 +574,164 @@ Result<Message> HttpClient::send_message(const std::string& session_id,
     }
 }
 
+// --- SSE streaming (Phase STREAM) -------------------------------------------
+//
+// Pure parser: split accumulated bytes into complete "data: {json}\n\n" frames
+// and drive the sink for each. Config-mapped field names + type values, so
+// nothing about any backend's event naming is baked in. Transport-free and
+// unit-tested against fixture text (see tests/unit/test_stream.cpp).
+bool parse_sse_chunk(const std::string& bytes, const Config& cfg,
+                     const StreamSink& sink, std::string& carry,
+                     std::string& assembled) {
+    carry += bytes;
+    bool done = false;
+
+    // Frames are separated by a blank line ("\n\n"). Process every complete
+    // frame; keep the trailing partial in `carry` for the next call.
+    size_t pos = 0;
+    for (;;) {
+        size_t sep = carry.find("\n\n", pos);
+        if (sep == std::string::npos) break;
+        std::string frame = carry.substr(pos, sep - pos);
+        pos = sep + 2;
+
+        // A frame may hold several "data:" lines (SSE allows multi-line data);
+        // concatenate their payloads. Ignore comment lines (":" prefix) and any
+        // non-data field lines (event:/id:/retry:) — the type lives in the JSON.
+        std::string data;
+        size_t lp = 0;
+        while (lp < frame.size()) {
+            size_t nl = frame.find('\n', lp);
+            std::string line =
+                frame.substr(lp, nl == std::string::npos ? std::string::npos
+                                                         : nl - lp);
+            lp = (nl == std::string::npos) ? frame.size() : nl + 1;
+            // Strip a trailing CR (CRLF line endings).
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.rfind("data:", 0) == 0) {
+                std::string payload = line.substr(5);
+                // A single optional leading space after "data:" is stripped.
+                if (!payload.empty() && payload.front() == ' ')
+                    payload.erase(0, 1);
+                data += payload;
+            }
+        }
+        if (data.empty()) continue;
+
+        json j;
+        try {
+            j = json::parse(data);
+        } catch (...) {
+            continue;  // malformed frame: skip it, keep streaming.
+        }
+        if (!j.is_object()) continue;
+
+        const std::string type = as_string(j, cfg.field_event_type);
+        if (type == cfg.event_type_text) {
+            const std::string t = as_string(j, cfg.field_event_text);
+            assembled += t;
+            sink.emit_delta(t);
+        } else if (type == cfg.event_type_thinking) {
+            sink.emit_event(
+                StreamEvent{StreamEventKind::Thinking,
+                            as_string(j, cfg.field_event_text)});
+        } else if (type == cfg.event_type_tool_call) {
+            sink.emit_event(
+                StreamEvent{StreamEventKind::ToolCall,
+                            as_string(j, cfg.field_event_text)});
+        } else if (type == cfg.event_type_title_update) {
+            sink.emit_event(
+                StreamEvent{StreamEventKind::TitleUpdate,
+                            as_string(j, cfg.field_event_title)});
+        } else if (type == cfg.event_type_done) {
+            sink.emit_event(StreamEvent{StreamEventKind::Done, ""});
+            done = true;
+        }
+        // Unknown type: ignored (forward-compatible).
+    }
+
+    carry.erase(0, pos);
+    return done;
+}
+
+// Stream a reply over SSE. POSTs to the configured stream path (with {id}
+// substituted) and feeds the response body through parse_sse_chunk. Uses
+// httplib's content-receiver so frames are parsed as they arrive; TLS-guarded
+// exactly like post_json/get. On any transport failure the sink's on_error is
+// invoked and the base-class fallback is NOT used (supports_stream() gated it).
+void HttpClient::send_message_streaming(const std::string& session_id,
+                                        const std::string& prompt,
+                                        const StreamSink& sink) {
+    if (!cfg_.stream_ready()) {
+        // Should be unreachable (supports_stream() gates the caller), but stay
+        // honest: fall back to the synchronous path.
+        Client::send_message_streaming(session_id, prompt, sink);
+        return;
+    }
+
+    SplitUrl s = split_url(cfg_.base_url);
+    const std::string path = replace_id(cfg_.stream_path, session_id);
+
+#ifndef HANABI_ENABLE_TLS
+    if (s.origin.rfind("https://", 0) == 0) {
+        sink.emit_error(
+            "https backend requires a TLS build (rebuild with HANABI_TLS=1)");
+        return;
+    }
+#endif
+
+    // Request body mirrors send_message: { <field_session_id>: id,
+    // <field_prompt>: prompt }.
+    json body;
+    body[cfg_.field_session_id] = session_id;
+    body[cfg_.field_prompt] = prompt;
+    const std::string bodyStr = body.dump();
+
+    std::string carry;
+    std::string assembled;
+    bool sawDone = false;
+
+    try {
+        httplib::Client cli(s.origin.c_str());
+        cli.set_connection_timeout(5, 0);
+        cli.set_read_timeout(60, 0);  // a streamed reply can run a while.
+        cli.set_follow_location(true);
+
+        httplib::Headers headers;
+        if (!cfg_.token.empty())
+            headers.emplace("Authorization", "Bearer " + cfg_.token);
+        headers.emplace("Accept", "text/event-stream");
+
+        auto res = cli.Post(
+            (s.prefix + path).c_str(), headers, bodyStr, "application/json",
+            [&](const char* data, size_t len) -> bool {
+                bool d = parse_sse_chunk(std::string(data, len), cfg_, sink,
+                                         carry, assembled);
+                if (d) sawDone = true;
+                return true;  // keep receiving.
+            });
+        if (!res) {
+            sink.emit_error("stream request failed (no response)");
+            return;
+        }
+        if (res->status < 200 || res->status >= 300) {
+            sink.emit_error("http status " + std::to_string(res->status));
+            return;
+        }
+    } catch (const std::exception& ex) {
+        sink.emit_error(std::string("stream request failed: ") + ex.what());
+        return;
+    }
+
+    // Assemble the final Message from the accumulated text deltas and hand it
+    // to on_done (the parser reported the Done EVENT; finalization is ours).
+    (void)sawDone;
+    Message final;
+    final.role = Role::Assistant;
+    final.text = assembled;
+    sink.emit_done(final);
+}
+
 // --- Device-code auth transport (Phase AUTH) --------------------------------// The real HTTP POST behind DeviceCodeFlow. It reads the ORIGIN from cfg
 // (base_url) and posts to cfg-supplied paths; nothing about any endpoint is
 // hardcoded. TLS-guarded exactly like get(): an https origin without a TLS

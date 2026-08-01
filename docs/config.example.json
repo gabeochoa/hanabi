@@ -8,6 +8,17 @@
   "sessions_path": "/sessions",
   "messages_path": "/sessions/{id}/messages",
 
+  "_stream_note": "OPTIONAL live token-by-token replies (Phase STREAM). Leave stream_path empty (or omit it) to disable http streaming — the app then uses the synchronous send path. When set (and backend is http), a reply is streamed over server-sent events: the adapter POSTs to stream_path and reads text/event-stream 'data: {json}' frames, mapping each frame's fields via the names below. All values are GENERIC placeholders; nothing about any real service is baked in. The offline mock streams with NO config at all.",
+  "stream_path": "/sessions/{id}/stream",
+  "field_event_type": "type",
+  "field_event_text": "text",
+  "field_event_title": "title",
+  "event_type_text": "text",
+  "event_type_thinking": "thinking",
+  "event_type_tool_call": "tool_call",
+  "event_type_done": "done",
+  "event_type_title_update": "title_update",
+
   "_field_note": "Field-name overrides map the adapter onto your backend's JSON shape. The defaults below match a sessions:[] + messages-with-blocks[] layout; change only if your backend differs.",
   "field_updated_at": "updatedAt",
   "field_created_at": "createdAt",

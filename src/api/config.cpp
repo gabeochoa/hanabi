@@ -79,6 +79,17 @@ void load_config_file(Config& c) {
     str("field_block_text_type", c.field_block_text_type);
     str("field_prompt", c.field_prompt);
     str("field_session_id", c.field_session_id);
+    // Streaming (Phase STREAM). All optional; empty stream_path keeps http
+    // streaming OFF (the app falls back to the synchronous send path).
+    str("stream_path", c.stream_path);
+    str("field_event_type", c.field_event_type);
+    str("field_event_text", c.field_event_text);
+    str("field_event_title", c.field_event_title);
+    str("event_type_text", c.event_type_text);
+    str("event_type_thinking", c.event_type_thinking);
+    str("event_type_tool_call", c.event_type_tool_call);
+    str("event_type_done", c.event_type_done);
+    str("event_type_title_update", c.event_type_title_update);
     // Device-code auth (Phase AUTH). All optional; empty endpoint paths keep
     // auth OFF.
     str("auth_device_path", c.auth_device_path);
@@ -134,6 +145,23 @@ Config Config::from_env() {
     c.field_prompt = env_or("HANABI_FIELD_PROMPT", c.field_prompt);
     c.field_session_id =
         env_or("HANABI_FIELD_SESSION_ID", c.field_session_id);
+
+    // Streaming (Phase STREAM). Stream path defaults EMPTY => http streaming is
+    // opt-in; the mock streams unconditionally. Event field names + type values
+    // are generic + overridable, exactly like the field_* mapping above.
+    c.stream_path = env_or("HANABI_STREAM_PATH", c.stream_path);
+    c.field_event_type = env_or("HANABI_FIELD_EVENT_TYPE", c.field_event_type);
+    c.field_event_text = env_or("HANABI_FIELD_EVENT_TEXT", c.field_event_text);
+    c.field_event_title =
+        env_or("HANABI_FIELD_EVENT_TITLE", c.field_event_title);
+    c.event_type_text = env_or("HANABI_EVENT_TYPE_TEXT", c.event_type_text);
+    c.event_type_thinking =
+        env_or("HANABI_EVENT_TYPE_THINKING", c.event_type_thinking);
+    c.event_type_tool_call =
+        env_or("HANABI_EVENT_TYPE_TOOL_CALL", c.event_type_tool_call);
+    c.event_type_done = env_or("HANABI_EVENT_TYPE_DONE", c.event_type_done);
+    c.event_type_title_update =
+        env_or("HANABI_EVENT_TYPE_TITLE_UPDATE", c.event_type_title_update);
 
     // Block-array transcript shape (optional; defaults match a common
     // blocks:[{type,content}] layout, ignored when the array is absent).

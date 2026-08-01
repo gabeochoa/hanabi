@@ -137,6 +137,31 @@ struct AppComponent : public afterhours::BaseComponent {
     bool sendPending = false;
     std::string sendSessionId;  // which session the in-flight reply targets
 
+    // Phase STREAM: live token-by-token replies. When the active backend
+    // supports_stream(), the transcript composer routes Send through here
+    // instead of the synchronous sendFuture path above (the two are mutually
+    // exclusive per turn). One-shot request flag (mirrors requestSendPrompt),
+    // serviced by LoaderSystem. On start the loader appends a User bubble + an
+    // empty Assistant bubble, seeds the token queue from the mock's stream
+    // plan, then drains a few tokens PER FRAME into streamBuffer and rewrites
+    // the live Assistant message's text. On done it finalizes + refreshes the
+    // cache. Deterministic + offline for the mock: no worker thread, no timers.
+    enum class StreamPhase { Idle, Thinking, Streaming, Done };
+    std::string requestStreamPrompt;   // reply into the OPEN session, streamed.
+    bool streamActive = false;         // a stream is in flight.
+    std::string streamSessionId;       // which session the stream targets.
+    StreamPhase streamPhase = StreamPhase::Idle;
+    std::string streamBuffer;          // the in-progress assistant text so far.
+    std::vector<std::string> streamQueue;  // remaining ordered text chunks.
+    size_t streamCursor = 0;           // index of the next chunk to drain.
+    // Index of the live (in-progress) Assistant message inside
+    // openSession->messages, so the loader can rewrite its text each frame.
+    size_t streamMsgIndex = 0;
+    // The fully-assembled final Message, remembered so the loader can stamp its
+    // final id/created_at when the drain completes.
+    api::Message streamFinal;
+
+
     // Phase AUTH (device-code login). The flow lives here as an optional so
     // the whole app is unchanged when auth is not configured (authFlow stays
     // empty, showAuth false, no overlay appears). main.cpp constructs the flow

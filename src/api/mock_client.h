@@ -94,6 +94,93 @@ class MockClient : public Client {
     // fully functional against it.
     bool supports_send() const override { return true; }
 
+    // The mock also STREAMS (Phase STREAM): the whole point of the offline demo
+    // is a live token-by-token reply with no network. See send_message_streaming
+    // and prepare_stream below.
+    bool supports_stream() const override { return true; }
+
+    // A streamed reply, split into deterministic word/token chunks so the UI
+    // fills in incrementally. Two consumers:
+    //
+    //   * send_message_streaming() (below) drives the whole sequence
+    //     synchronously (a Thinking event, then every text chunk as a delta,
+    //     then Done with the final Message). This is the pure, testable path:
+    //     it proves the chunks reassemble into the exact one-shot reply, with
+    //     no timers and no network.
+    //
+    //   * the LOADER wants to drain a few chunks PER FRAME so the bubble fills
+    //     over multiple ticks. It calls prepare_stream() to append the turn +
+    //     get the chunk vector up front, then feeds chunks to its own sink as
+    //     it ticks (no worker thread, no sleep). See loader_system.h.
+    //
+    // The reply text is identical to synth_reply() (the synchronous mock), so a
+    // streamed and a non-streamed send read the same — only the DELIVERY
+    // differs. Fully generic: no company/product/service name anywhere.
+    struct StreamPlan {
+        std::string session_id;      // the session the turn was appended to.
+        std::vector<std::string> chunks;  // ordered text deltas (concat = text).
+        Message final;               // the fully-assembled assistant Message.
+        bool ok = false;
+        std::string error;
+    };
+
+    // Append the User prompt + a synthetic Assistant reply to the session (the
+    // same mutation send_message does), then split that reply into ordered text
+    // chunks. Returns the plan so the loader can drain chunks per-frame. On an
+    // unknown session returns ok=false with an error (never mutates).
+    StreamPlan prepare_stream(const std::string& session_id,
+                              const std::string& prompt) {
+        StreamPlan plan;
+        plan.session_id = session_id;
+        Session* target = find_mutable(session_id);
+        if (!target) {
+            plan.error = "no such session: " + session_id;
+            return plan;
+        }
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int turn = static_cast<int>(target->messages.size());
+
+        Message user;
+        user.id = session_id + "-u" + std::to_string(turn + 1);
+        user.role = Role::User;
+        user.text = prompt;
+        user.created_at = now;
+        target->messages.push_back(user);
+
+        Message reply;
+        reply.id = session_id + "-a" + std::to_string(turn + 2);
+        reply.role = Role::Assistant;
+        reply.text = synth_reply(prompt);
+        reply.created_at = now + 1;
+        target->messages.push_back(reply);
+
+        target->summary.updated_at = now + 1;
+        target->summary.preview = one_line(reply.text);
+
+        plan.final = reply;
+        plan.chunks = split_chunks(reply.text);
+        plan.ok = true;
+        return plan;
+    }
+
+    // Interface streaming path. Drives the sink with the WHOLE reply in order:
+    // a Thinking event, every text chunk as a delta, then Done with the final
+    // Message. Deterministic, offline, no timers — the per-frame pacing is the
+    // loader's concern (via prepare_stream). This synchronous form is what the
+    // test exercises to prove the chunks reassemble to the exact reply.
+    void send_message_streaming(const std::string& session_id,
+                                const std::string& prompt,
+                                const StreamSink& sink) override {
+        StreamPlan plan = prepare_stream(session_id, prompt);
+        if (!plan.ok) {
+            sink.emit_error(plan.error);
+            return;
+        }
+        sink.emit_event(StreamEvent{StreamEventKind::Thinking, ""});
+        for (const auto& c : plan.chunks) sink.emit_delta(c);
+        sink.emit_done(plan.final);
+    }
+
     // Continue a session: append the User prompt AND a synthetic, deterministic
     // Assistant reply to that session's transcript, refresh its updated_at +
     // preview so the sidebar reflects the new activity, and return the
@@ -143,6 +230,27 @@ class MockClient : public Client {
         if (p.size() > 80) p = p.substr(0, 77) + "...";
         return "Got it \xe2\x80\x94 working on: " + p +
                ". I'll follow up here as I make progress.";
+    }
+
+    // Split a reply into ordered, whitespace-preserving chunks for streaming.
+    // Each chunk is a run up to and INCLUDING the following space, so
+    // concatenating every chunk reproduces the source text EXACTLY (the
+    // streaming test asserts this). Deterministic: same text -> same chunks,
+    // no timers, no randomness. An empty reply yields no chunks.
+    static std::vector<std::string> split_chunks(const std::string& text) {
+        std::vector<std::string> out;
+        size_t i = 0;
+        const size_t n = text.size();
+        while (i < n) {
+            size_t sp = text.find(' ', i);
+            if (sp == std::string::npos) {
+                out.push_back(text.substr(i));
+                break;
+            }
+            out.push_back(text.substr(i, sp - i + 1));  // include the space.
+            i = sp + 1;
+        }
+        return out;
     }
 
     // Collapse to a single line for preview/echo use (no embedded newlines).

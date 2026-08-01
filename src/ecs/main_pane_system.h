@@ -944,9 +944,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // Sub-agent panel sits above the messages when the thread has steps.
             sub_agent_panel(ctx, scroll.ent(), app);
 
+            // Is a live stream filling one of these bubbles right now? If so,
+            // that message index gets the "thinking…" / caret affordance while
+            // the phase isn't Done. Only applies to the OPEN session's stream.
+            const bool streamingHere =
+                app.streamActive &&
+                app.streamSessionId == app.openSession->summary.id &&
+                app.streamPhase != AppComponent::StreamPhase::Done;
+            const size_t liveIdx = app.streamMsgIndex;
+
             int i = 0;
-            for (const auto& m : app.openSession->messages)
-                render_bubble(ctx, scroll.ent(), i++, m, paneW);
+            for (const auto& m : app.openSession->messages) {
+                const bool isLive =
+                    streamingHere && static_cast<size_t>(i) == liveIdx;
+                render_bubble(ctx, scroll.ent(), i, m, paneW, isLive,
+                              app.streamPhase);
+                ++i;
+            }
         }
 
         render_composer(ctx, parent, app, paneW, kComposerH);
@@ -995,10 +1009,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // Screenshot affordance: HANABI_STREAM_DEMO=<text> fires a STREAMED
+        // reply ONCE (sets the one-shot requestStreamPrompt) so a headless
+        // capture shows the live token-by-token bubble. Pair it with
+        // HANABI_STREAM_DEMO_MAXTOKENS=<K> (read in the loader) to FREEZE the
+        // drain after K tokens for the mid-stream shot; leave it unset for the
+        // completed shot. Ignored when unset; no network (the mock streams).
+        static bool streamDemoFired = false;
+        if (!streamDemoFired && app.openSession && app.client &&
+            app.client->supports_stream()) {
+            if (const char* d = std::getenv("HANABI_STREAM_DEMO"); d && *d) {
+                streamDemoFired = true;
+                app.requestStreamPrompt = d;
+            }
+        }
+
         const bool canSend = app.client && app.client->supports_send();
+        const bool canStream = app.client && app.client->supports_stream();
         const std::string openId =
             app.openSession ? app.openSession->summary.id : std::string();
-        const bool sending = app.sendPending && app.sendSessionId == openId;
+        // "Sending" covers BOTH the synchronous reply in flight and a live
+        // stream draining into this thread — either disables the composer.
+        const bool sending =
+            (app.sendPending && app.sendSessionId == openId) ||
+            (app.streamActive && app.streamSessionId == openId);
         const bool hasText = !replyDraft.empty();
         const bool sendEnabled = canSend && hasText && !sending;
 
@@ -1082,9 +1116,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.35f)
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
-            // Hand the reply to the loader via the one-shot flag; it runs
-            // send_message async and appends the exchange to the transcript.
-            app.requestSendPrompt = replyDraft;
+            // Route through the STREAMING path when the backend supports it
+            // (the mock does), so the reply fills in token-by-token; otherwise
+            // fall back to the synchronous one-shot path (no regression). Both
+            // are one-shot flags serviced by LoaderSystem; setting only one per
+            // turn keeps them mutually exclusive.
+            if (canStream)
+                app.requestStreamPrompt = replyDraft;
+            else
+                app.requestSendPrompt = replyDraft;
             replyDraft.clear();
         }
 
@@ -1180,7 +1220,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // full-width tinted bands. System / Tool messages take the quieter
     // metadata treatment (see render_meta_line / render_tool_block).
     void render_bubble(UIContext<InputAction>& ctx, Entity& parent, int index,
-                       const api::Message& m, float paneWidth) {
+                       const api::Message& m, float paneWidth,
+                       bool isLive = false,
+                       AppComponent::StreamPhase streamPhase =
+                           AppComponent::StreamPhase::Idle) {
         // System messages are conversation METADATA, not dialogue: render them
         // as a quiet centered caption, never a bubble.
         if (m.role == api::Role::System) {
@@ -1196,12 +1239,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const bool isUser = (m.role == api::Role::User);
 
+        // The visible body text. While a reply is streaming into THIS assistant
+        // bubble, show a subtle live affordance: a "thinking…" placeholder
+        // before the first token lands, then the partial text followed by a
+        // block caret so it reads as an active, filling reply (not a finished
+        // one). The underlying api::Message is untouched — this is a display-
+        // only decoration of the in-progress text.
+        std::string body = m.text;
+        if (isLive) {
+            if (body.empty() ||
+                streamPhase == AppComponent::StreamPhase::Thinking) {
+                body = "thinking\xe2\x80\xa6";
+            } else {
+                body += " \xe2\x96\x8b";  // trailing block caret (U+258B).
+            }
+        }
+
         // Usable content column, capped at kBubbleCap for readability.
         float avail = paneWidth - 60.0f;
         if (avail < 160.0f) avail = 160.0f;
         float bubbleW = avail < kBubbleCap ? avail : kBubbleCap;
         float textW = bubbleW - 28.0f;
-        float h = estimate_height(m.text, textW);
+        float h = estimate_height(body, textW);
 
         // Full-width row: justify FlexEnd (user, right) or FlexStart
         // (assistant, left). This is what turns a stack of bands into a
@@ -1235,11 +1294,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("bubble"));
 
         // Sender line: role + optional subtitle + relative age. User rows put
-        // the label right-aligned so it tracks the bubble's trailing edge.
+        // the label right-aligned so it tracks the bubble's trailing edge. A
+        // live (streaming) assistant bubble shows a quiet "· streaming…" hint
+        // instead of an age (it has no final timestamp yet).
         std::string label = role_label(m.role);
         if (!m.subtitle.empty()) label += "  \xc2\xb7  " + m.subtitle;
-        std::string age = fmtutil::relative_time(m.created_at);
-        if (!age.empty()) label += "   " + age;
+        if (isLive) {
+            label += "  \xc2\xb7  streaming\xe2\x80\xa6";
+        } else {
+            std::string age = fmtutil::relative_time(m.created_at);
+            if (!age.empty()) label += "   " + age;
+        }
         div(ctx, mk(bubble.ent(), 1),
             ComponentConfig{}
                 .with_label(label)
@@ -1254,7 +1319,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         div(ctx, mk(bubble.ent(), 2),
             ComponentConfig{}
-                .with_label(m.text)
+                .with_label(body)
                 .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())

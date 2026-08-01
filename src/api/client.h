@@ -89,6 +89,38 @@ struct Config {
     std::string field_prompt = "prompt";
     std::string field_session_id = "session_id";
 
+    // --- Streaming (Phase STREAM) -----------------------------------------
+    // Live token-by-token replies over a server-sent-events (SSE) channel. Like
+    // every other path here this is FULLY generic + opt-in: the stream path
+    // defaults EMPTY (so an http backend honestly reports supports_stream()
+    // == false unless configured), and each SSE event field name has a generic
+    // default a backend can override, exactly like the field_* mapping above.
+    //
+    //   HANABI_STREAM_PATH   path the http adapter POSTs to for a STREAMED
+    //                        reply; the response is text/event-stream ("data:
+    //                        {json}\n\n" frames). Empty by default => http
+    //                        streaming disabled (the app uses the synchronous
+    //                        send_message path instead). The mock streams with
+    //                        NO config at all.
+    //
+    // Each SSE data frame is a JSON object read with these field names:
+    //   field_event_type   the event kind ("text"/"thinking"/"tool_call"/
+    //                       "done"/"title_update"); generic values, all
+    //                       overridable so the adapter matches a backend's
+    //                       naming without code changes.
+    //   field_event_text   the text delta carried by a text/thinking event.
+    //   field_event_title  the new title carried by a title_update event.
+    std::string stream_path;  // empty = http streaming disabled (opt-in)
+    std::string field_event_type = "type";
+    std::string field_event_text = "text";
+    std::string field_event_title = "title";
+    // The generic event-type VALUES the adapter recognizes (all overridable).
+    std::string event_type_text = "text";
+    std::string event_type_thinking = "thinking";
+    std::string event_type_tool_call = "tool_call";
+    std::string event_type_done = "done";
+    std::string event_type_title_update = "title_update";
+
     // --- Device-code auth (Phase AUTH) ------------------------------------
     // A generic RFC 8628-style device-code flow. NOTHING here names any real
     // service: the two endpoint paths default EMPTY (so auth is OFF unless
@@ -130,12 +162,70 @@ struct Config {
     // it can't send and the composer stays in its disabled state.
     bool send_ready() const { return !base_url.empty() && !chat_path.empty(); }
 
+    // True when the http backend is configured to STREAM a reply: a base URL
+    // plus a stream path. When false, an http adapter reports supports_stream()
+    // == false and the app uses the synchronous send_message path instead. The
+    // mock streams unconditionally (no config needed).
+    bool stream_ready() const {
+        return !base_url.empty() && !stream_path.empty();
+    }
+
     // True when the device-code flow has the minimum it needs: a base URL plus
     // both endpoint paths. When false, no auth UI ever appears and the app
     // behaves exactly as before (mock default, or a static HANABI_TOKEN).
     bool auth_ready() const {
         return !base_url.empty() && !auth_device_path.empty() &&
                !auth_token_path.empty();
+    }
+};
+
+// --- Streaming events (Phase STREAM) --------------------------------------
+//
+// A live reply arrives as an ordered sequence of typed events. The enum is
+// deliberately GENERIC — it mirrors the "stream" row of docs/api-parity.md
+// (text / thinking / tool-call / done / title-update) without naming any
+// backend-specific kind, so the same UI drives the mock and any real adapter.
+enum class StreamEventKind {
+    Text,         // an incremental chunk of assistant reply text (payload=text)
+    Thinking,     // the agent is reasoning; drives a "thinking…" affordance
+    ToolCall,     // a tool/step is running (payload = a short human label)
+    Done,         // the reply is complete; on_done() carries the final Message
+    TitleUpdate,  // the session title changed (payload = the new title)
+    Error,        // the stream failed (payload = a human-readable reason)
+};
+
+// One streaming event: a kind plus an optional string payload whose meaning
+// depends on the kind (see the enum). Kept tiny + copyable.
+struct StreamEvent {
+    StreamEventKind kind = StreamEventKind::Text;
+    std::string payload;  // text delta / label / title / error, per kind.
+};
+
+// A small bundle of callbacks the caller (the loader) installs to receive a
+// streamed reply. Every callback is optional (a default-constructed
+// std::function is simply not invoked) so a caller can subscribe to only what
+// it needs. The adapter drives these as the reply arrives:
+//   on_delta  — append this text chunk to the in-progress assistant bubble.
+//   on_event  — a non-text event (Thinking / ToolCall / TitleUpdate / …).
+//   on_done   — the reply is complete; carries the final assembled Message.
+//   on_error  — the stream failed; carries a human-readable reason.
+struct StreamSink {
+    std::function<void(const std::string& delta)> on_delta;
+    std::function<void(const StreamEvent& ev)> on_event;
+    std::function<void(const Message& final)> on_done;
+    std::function<void(const std::string& error)> on_error;
+
+    void emit_delta(const std::string& d) const {
+        if (on_delta) on_delta(d);
+    }
+    void emit_event(const StreamEvent& e) const {
+        if (on_event) on_event(e);
+    }
+    void emit_done(const Message& m) const {
+        if (on_done) on_done(m);
+    }
+    void emit_error(const std::string& e) const {
+        if (on_error) on_error(e);
     }
 };
 
@@ -179,6 +269,37 @@ class Client {
     // configured. Default false so a backend that hasn't wired send stays
     // honestly disabled.
     virtual bool supports_send() const { return false; }
+
+    // Whether this client can STREAM a reply token-by-token (Phase STREAM).
+    // The mock DOES (its whole reason for being is the offline demo story); the
+    // http adapter does only when a stream path is configured. Default false so
+    // a backend that hasn't wired streaming stays on the synchronous path.
+    virtual bool supports_stream() const { return false; }
+
+    // Continue an OPEN session, delivering the assistant reply INCREMENTALLY
+    // through `sink`. Mirrors send_message but reports chunks as they arrive
+    // (on_delta), non-text events (on_event), and a final assembled Message
+    // (on_done) — or a failure (on_error).
+    //
+    // DEFAULT IMPL — a graceful fallback so a NON-streaming adapter still works
+    // through this path: run the synchronous send_message() and, on success,
+    // hand the whole reply to on_done() as a single (implicit) delta + done; on
+    // failure call on_error(). This means the loader can always call
+    // send_message_streaming() and get correct behavior regardless of whether
+    // the backend truly streams — supports_stream() only decides whether the
+    // reply arrives in pieces or all at once.
+    virtual void send_message_streaming(const std::string& session_id,
+                                        const std::string& prompt,
+                                        const StreamSink& sink) {
+        Result<Message> r = send_message(session_id, prompt);
+        if (!r.ok) {
+            sink.emit_error(r.error);
+            return;
+        }
+        // Non-streaming backend: deliver the full text as one delta, then done.
+        sink.emit_delta(r.value.text);
+        sink.emit_done(r.value);
+    }
 
     // Human-readable label for the active backend (for the status bar).
     virtual std::string backend_label() const = 0;
