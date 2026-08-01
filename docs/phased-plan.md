@@ -168,9 +168,14 @@ Validate:
       title bar) opens a compose row to kick off a new thread (mock backend
       accepts it; reply-inline still deferred per decisions).
 
-## Phase G — Native integrations (deferred; own validation later)
-menu-bar NSStatusItem (blocked count + new chat), real Spotlight kickoff, global hotkey,
-native notifications, offline cache. Validated per-item when built.
+## Phase G — Native integrations (menu-bar DONE; rest deferred)
+- [x] **menu-bar NSStatusItem** — DONE (`src/menubar.mm`/`.h`, merged c9b5c32). Shows the blocked
+      count ("✦ N" / "✦" calm, same derivation as the status bar) with a dropdown: Show hanabi,
+      New task…, Quit. Installed on the first windowed frame (never in headless capture); menu
+      actions route into C++ via atomic flags drained per-frame (`AppComponent::requestNewTask`).
+      Verified via NSLog + a standalone NSApp harness (TCC blocks menu screencapture on this box).
+- [ ] real Spotlight kickoff, global hotkey, native notifications, offline cache — deferred,
+      validated per-item when built.
 
 ## Phase H — Native icons (single replaceable spritesheet)
 Build: swap ad-hoc chrome icons to ONE Lucide (ISC) spritesheet — a single
