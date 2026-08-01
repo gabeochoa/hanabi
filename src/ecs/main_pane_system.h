@@ -183,11 +183,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Collapse internal runs of whitespace to single spaces and trim ends, so
     // titles with stray double-spaces ("watchdog   mana…") read cleanly and
     // don't waste width before the ellipsis. Cheap, allocation-light.
+    // Display-only strip of a single leading "[P] " / "[P]" parked marker. The
+    // sidebar strips this for its row labels (the status glyph already conveys
+    // parked/attention); the Home digest cards must match so "[P] Foo" shows as
+    // "Foo". This is a LABEL-only transform — the underlying SessionSummary is
+    // never mutated, so state derivation is unaffected. Conservative: one
+    // leading marker only.
+    static std::string strip_parked_marker(const std::string& in) {
+        size_t i = 0;
+        while (i < in.size() && (in[i] == ' ' || in[i] == '\t')) ++i;
+        if (in.compare(i, 3, "[P]") == 0) {
+            i += 3;
+            while (i < in.size() && (in[i] == ' ' || in[i] == '\t')) ++i;
+            return in.substr(i);
+        }
+        return in;
+    }
+
     static std::string normalize_title(const std::string& in) {
+        const std::string src = strip_parked_marker(in);
         std::string out;
-        out.reserve(in.size());
+        out.reserve(src.size());
         bool prev_space = false;
-        for (char c : in) {
+        for (char c : src) {
             const bool ws = (c == ' ' || c == '\t' || c == '\n' || c == '\r');
             if (ws) {
                 if (!out.empty() && !prev_space) out.push_back(' ');
@@ -820,7 +838,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            AppComponent& app, float paneW, float paneH) {
         std::string title = "Select a thread";
         if (app.openSession) {
-            const auto& t = app.openSession->summary.title;
+            std::string t = normalize_title(app.openSession->summary.title);
             title = t.empty() ? "(untitled)" : t;
         } else if (app.transcriptState == LoadState::Loading) {
             title = "Loading\xe2\x80\xa6";
