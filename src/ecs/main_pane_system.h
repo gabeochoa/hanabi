@@ -66,6 +66,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
+    // The one AppComponent (transcript render needs it for expand/fold state).
+    static AppComponent* app_singleton() {
+        auto q = afterhours::EntityQuery({.force_merge = true})
+                     .whereHasComponent<AppComponent>()
+                     .gen();
+        return q.empty() ? nullptr : &q[0].get().get<AppComponent>();
+    }
+
     static void header(UIContext<InputAction>& ctx, Entity& parent,
                        const std::string& title, const std::string& sub,
                        float titlePx = theme::type::LG) {
@@ -1416,11 +1424,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Text-metrics model for height/line estimation. Calibrated against the
+    // real rendered font (FontSize::Medium ~13-14px): the proportional UI face
+    // averages ~6.2px/glyph and wraps at ~15px line pitch. The old 8px/18px
+    // model massively OVER-estimated — a body box came out ~2x its text, so the
+    // wrapped text rendered bottom-aligned inside a tall empty box (a big gap
+    // above every assistant turn). Keeping all three helpers on one model so
+    // box height, line count, and truncation stay consistent.
+    static constexpr float kGlyphW = 6.2f;   // avg px per glyph @ Medium
+    static constexpr float kLinePitch = 15.0f;  // px per wrapped line
+    static int wrap_perline(float widthPx) {
+        int p = static_cast<int>((widthPx - 10.0f) / kGlyphW);
+        return p < 8 ? 8 : p;
+    }
+
     static float estimate_height(const std::string& text, float widthPx) {
-        float charW = 8.0f;
-        float wrapW = widthPx - 10.0f;
-        int perLine = static_cast<int>(wrapW / charW);
-        if (perLine < 8) perLine = 8;
+        int perLine = wrap_perline(widthPx);
         int lines = 0;
         size_t start = 0;
         while (start <= text.size()) {
@@ -1432,7 +1451,61 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             start = nl + 1;
         }
         if (lines < 1) lines = 1;
-        return 24.0f + static_cast<float>(lines) * 18.0f;
+        return 20.0f + static_cast<float>(lines) * kLinePitch;
+    }
+
+    // Estimated WRAPPED line count of `text` at `widthPx` (same model as
+    // estimate_height). Used to decide whether a body is long enough to fold.
+    static int count_lines(const std::string& text, float widthPx) {
+        int perLine = wrap_perline(widthPx);
+        int lines = 0;
+        size_t start = 0;
+        while (start <= text.size()) {
+            size_t nl = text.find('\n', start);
+            size_t end = (nl == std::string::npos) ? text.size() : nl;
+            int len = static_cast<int>(end - start);
+            lines += (len <= 0) ? 1 : (len + perLine - 1) / perLine;
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return lines < 1 ? 1 : lines;
+    }
+
+    // Return the first `maxLines` WRAPPED lines of `text` (approx: we cut on
+    // newline boundaries and, within a long unbroken line, on perLine chars).
+    // Used to render a folded preview of a very long message so a huge paste
+    // doesn't build thousands of glyph quads (RAM) or dominate the pane.
+    static std::string first_n_lines(const std::string& text, float widthPx,
+                                     int maxLines) {
+        int perLine = wrap_perline(widthPx);
+        std::string out;
+        int used = 0;
+        size_t start = 0;
+        while (start <= text.size() && used < maxLines) {
+            size_t nl = text.find('\n', start);
+            size_t end = (nl == std::string::npos) ? text.size() : nl;
+            std::string seg = text.substr(start, end - start);
+            // account for wrapping of a long segment
+            int segLines =
+                seg.empty() ? 1
+                            : (static_cast<int>(seg.size()) + perLine - 1) /
+                                  perLine;
+            if (used + segLines > maxLines) {
+                int allow = maxLines - used;
+                size_t chars = static_cast<size_t>(allow) *
+                               static_cast<size_t>(perLine);
+                if (chars < seg.size()) seg = seg.substr(0, chars);
+                out += seg;
+                used = maxLines;
+                break;
+            }
+            if (!out.empty()) out += "\n";
+            out += seg;
+            used += segLines;
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return out;
     }
 
     // Max bubble content width — caps the reading column so a conversational
@@ -1552,7 +1625,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // Assistant: full-column document turn (no bubble container).
         float textW = paneWidth - 34.0f;  // author-column inset both sides
-        float h = estimate_height(body, textW);
+        // FOLD a very long body: cap the rendered text at kFoldLines and offer a
+        // "Show N more lines" toggle (critique #58 + Gabe's "long messages blow
+        // up RAM" — a folded body renders ~kFoldLines of glyphs instead of
+        // thousands, so a giant pasted log/diff can't balloon the vertex count).
+        // Never fold the live-streaming message (it's actively growing). Keyed
+        // by message id in AppComponent::expandedMsgs (default folded).
+        constexpr int kFoldLines = 40;
+        const int lineCount = count_lines(body, textW);
+        AppComponent* app = app_singleton();
+        const std::string mkey = m.id.empty()
+                                     ? ("msg" + std::to_string(index))
+                                     : m.id;
+        const bool expanded = app && app->expandedMsgs.count(mkey) != 0;
+        const bool foldable = !isLive && lineCount > kFoldLines && !expanded;
+        std::string shown = foldable
+                                ? first_n_lines(body, textW, kFoldLines)
+                                : body;
+        float h = estimate_height(shown, textW);
         auto turn = div(ctx, mk(parent, 200 + index * 10),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
@@ -1577,7 +1667,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("asst_who"));
         div(ctx, mk(turn.ent(), 2),
             ComponentConfig{}
-                .with_label(body)
+                .with_label(shown)
                 .with_size(ComponentSize{percent(1.0f), pixels(h - 18.0f)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
@@ -1586,6 +1676,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("asst_text"));
+        // Fold toggle: shown when the body is long. Collapsed = "Show N more
+        // lines"; expanded = "Show less". Clicking toggles expandedMsgs[mkey].
+        if (app && !isLive && (foldable || (expanded && lineCount > kFoldLines))) {
+            const int hidden = lineCount - kFoldLines;
+            std::string flabel = expanded
+                                     ? "Show less"
+                                     : ("Show " + std::to_string(hidden) +
+                                        " more lines");
+            auto fbtn = div(ctx, mk(turn.ent(), 3),
+                ComponentConfig{}
+                    .with_label(flabel)
+                    .with_size(ComponentSize{children(), pixels(24)})
+                    .with_margin(Margin{.top = pixels(4)})
+                    .with_padding(Padding{.top = pixels(3), .right = pixels(11),
+                                          .bottom = pixels(3), .left = pixels(11)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_roundness(0.35f)
+                    .with_debug_name("asst_fold_btn"));
+            fbtn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            if (fbtn.ent().get<afterhours::ui::HasClickListener>().down) {
+                if (expanded) app->expandedMsgs.erase(mkey);
+                else app->expandedMsgs.insert(mkey);
+            }
+        }
     }
 
     // A System message: a quiet, centered, muted caption — conversation
@@ -1621,13 +1741,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string key = msgs[lo].id.empty()
                                     ? ("pile" + std::to_string(keyIndex))
                                     : msgs[lo].id;
-        AppComponent* app = nullptr;
-        {
-            auto q = afterhours::EntityQuery({.force_merge = true})
-                         .whereHasComponent<AppComponent>()
-                         .gen();
-            if (!q.empty()) app = &q[0].get().get<AppComponent>();
-        }
+        AppComponent* app = app_singleton();
         const bool open = app && app->expandedPiles.count(key) != 0;
 
         // A short summary from the tool subtitles (or a generic "step").

@@ -112,6 +112,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // collapsed — keeps a tool-heavy thread scannable and bounds render cost.
     std::set<std::string> expandedPiles;
 
+    // Transcript: which long assistant messages the user has expanded. A very
+    // tall body is capped at a fold height with a "Show N more lines" toggle
+    // (keeps a huge pasted log/diff from dominating the pane AND bounds the
+    // rendered vertex/entity count — a long message no longer blows up RAM).
+    // The set holds the message ids that are expanded; default folded.
+    std::set<std::string> expandedMsgs;
+
     // Phase K (settings/composer): settings overlay visibility + the theme
     // currently selected in the panel ("dark"/"light"/"system"); composer
     // open state + its draft text for kicking off a new task.

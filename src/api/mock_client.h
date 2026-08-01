@@ -873,10 +873,34 @@ class MockClient : public Client {
                  "reset it. leak?",
                  days_ago(3) - 5400, ""},
                 {"m2", Role::Assistant,
-                 "Grabbed a heap dump at hour 6 and hour 18. The delta is "
-                 "almost entirely a per-request parser cache that never "
-                 "evicts. It's keyed by full payload, so unique payloads pile "
-                 "up forever. Bounding it with an LRU cap.",
+                 "Grabbed a heap dump at hour 6 and hour 18 and diffed them. "
+                 "The growth is almost entirely one structure, so here's the "
+                 "full breakdown:\n\n"
+                 "1. ParserCache holds 1.7GB of the 1.9GB total delta.\n"
+                 "2. It's keyed by the FULL request payload (not a hash), so "
+                 "every unique body is a distinct entry.\n"
+                 "3. There is no eviction path at all \xe2\x80\x94 entries are "
+                 "inserted on parse and never removed.\n"
+                 "4. Ingest sees ~40k unique payloads/hour, so the map grows "
+                 "unbounded until the OOM killer resets the process.\n\n"
+                 "Contributing factors I ruled OUT:\n"
+                 "- Not the connection pool (steady at 64 sockets).\n"
+                 "- Not the metrics buffer (flushes every 10s, flat).\n"
+                 "- Not goroutine/thread leak (count is stable at ~120).\n"
+                 "- Not fragmentation (RSS tracks live-heap closely in the "
+                 "dump).\n\n"
+                 "The fix I'm applying:\n"
+                 "a. Replace the unbounded map with an LRU capped at 50k "
+                 "entries (~120MB at the observed avg entry size).\n"
+                 "b. Key by a 16-byte content hash instead of the full payload "
+                 "\xe2\x80\x94 drops per-entry overhead ~8x.\n"
+                 "c. Add a metric (parser_cache.entries + .evictions) so we "
+                 "can alert if it ever saturates again.\n"
+                 "d. Backfill a regression test that parses 200k unique "
+                 "payloads and asserts the cache stays bounded.\n\n"
+                 "Expected result: steady-state RSS drops from ~climbing-2GB/day "
+                 "to a flat ~400MB. Rolling it behind a flag so we can shadow "
+                 "it for a day before making it the default.",
                  days_ago(3) - 1800, ""},
                 {"m3", Role::Tool,
                  "heap diff \xe2\x86\x92 ParserCache 1.7GB / 1.9GB total growth",
