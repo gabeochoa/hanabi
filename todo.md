@@ -100,6 +100,10 @@ over-engineered — these are the baselines to watch as features + the cache lan
 - Phase 4: macOS integrations — menu-bar (NSStatusItem) icon + Spotlight/global
       hotkey quick task kickoff.
 - Phase 5: POLISH — perf pass (RAM/startup budgets), theming, native chrome.
+- Phase AUTH (planned — see docs/phased-plan.md "Phase AUTH"): in-app device-code
+      LOGIN so no hand-made token file is needed. Request a code -> approve in
+      browser -> poll -> store + auto-refresh the token into config.json. Mock
+      needs no auth; endpoints runtime-configured, never hardcoded.
 
 ## Done
 - Repo scaffold, mock + http adapters, ECS UI (session list / transcript / status bar).

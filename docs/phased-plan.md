@@ -384,3 +384,43 @@ EXIT GATES:
 NOTE: everything stays behind the mock+adapter seam; the real API is never hardcoded and
 the mock remains the zero-config default. Detailed parity findings live in
 docs/api-parity.md (generic — no real values).
+
+## Phase AUTH — Device-code login (kill the manual token file)
+Purpose: replace the hand-made ~/.config/hanabi/config.json token with a real
+in-app login so a user never has to paste a token. The backend already supports
+a device-code / OAuth-style flow purpose-built for native clients (proven by the
+Rust TUI): request a code, user approves it in a browser, poll until authorized,
+receive + store a token, and refresh it before it expires.
+
+ENTRY GATES:
+- [ ] Phase API adapter works against a real backend (DONE — verified live).
+- [ ] Config file + env config path in place (DONE).
+- [ ] make test green with mock default.
+
+Scope:
+- LOGIN: add an adapter/auth method that runs the device-code exchange:
+  POST <auth base>/auth/code -> { userCode, verificationUrl, deviceCode, interval };
+  show the userCode + open verificationUrl (native open); poll
+  POST <auth base>/auth/poll { deviceCode } until authorized -> { token, refreshToken?, expiresAt? }.
+- PERSIST: write the resulting token (and refresh token / expiry) into the SAME
+  config.json the app already reads (so a manual file and a logged-in file are
+  interchangeable). Never log the token. File stays mode 600 / git-ignored.
+- REFRESH: before a request (or on a 401), if a refresh token + expiry exist,
+  auto-refresh (POST <auth base>/auth/refresh) and rewrite the stored token.
+- UI: a "Sign in" affordance (settings panel or an empty-state when http backend
+  is selected but unauthenticated). Shows the device code + a copy/open button;
+  a spinner while polling; success returns to the session list.
+- CONFIG: all auth paths are runtime-configurable (HANABI_AUTH_*), never
+  hardcoded — same seam rules as the rest of the adapter. Auth endpoints for a
+  specific backend live only in a local config, not the repo.
+- GRACEFUL: mock backend needs no auth (unchanged zero-config default); a
+  backend that doesn't expose the device-code flow degrades to the manual
+  token/config path.
+
+EXIT GATES:
+- [ ] A user with NO token can sign in from the app and reach their sessions,
+      with nothing pasted by hand.
+- [ ] Token + refresh persisted to config.json (mode 600, git-ignored); a stale
+      token auto-refreshes (or re-prompts) instead of failing silently.
+- [ ] Mock stays zero-config default; make test green; no token ever logged.
+- [ ] No real auth endpoint / token / company name committed; vendor untouched.
