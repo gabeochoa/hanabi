@@ -60,7 +60,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
   private:
     static void header(UIContext<InputAction>& ctx, Entity& parent,
                        const std::string& title, const std::string& sub,
-                       float titlePx = 14.0f) {
+                       float titlePx = theme::type::LG) {
         auto h = div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(46)})
@@ -107,13 +107,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("main_note"));
     }
 
-    // Content wrapper capped at 720px wide (mirrors the mock's `.sv-wrap`
-    // max-width). Left-aligned so it lines up with the header title's left
-    // inset (the header is a separate fixed row, so left-align keeps the h1
-    // and the card column on the same left edge rather than drifting apart).
+    // Content wrapper capped so the reading column stays comfortable but fills
+    // more of the wide (~820px) main pane than the old 720 cap did (which left
+    // a ~76px dead margin on the right). 900px keeps line lengths sane while
+    // reading as an intentionally-composed column, not a half-used pane. When
+    // the pane is narrower than the cap the wrap just tracks the pane width.
+    // Left-aligned so it lines up with the header title's left inset (the
+    // header is a separate fixed row, so left-align keeps the h1 and the card
+    // column on the same left edge rather than drifting apart).
     static Entity& centered_wrap(UIContext<InputAction>& ctx, Entity& scroll,
                                  int id, float innerW) {
-        float wrapW = innerW < 720.0f ? innerW : 720.0f;
+        constexpr float kCap = 900.0f;
+        float wrapW = innerW < kCap ? innerW : kCap;
         auto row = div(ctx, mk(scroll, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
@@ -143,7 +148,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         for (const auto& s : app.sessions)
             if (pred(s)) rows.push_back(&s);
 
-        header(ctx, parent, title, std::to_string(rows.size()), 20.0f);
+        header(ctx, parent, title, std::to_string(rows.size()), theme::type::H1);
 
         if (rows.empty()) {
             note(ctx, parent, "Nothing here right now.");
@@ -198,41 +203,55 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Renders one digest card. `emphasizeMeta` gives the subtitle/metadata a
+    // bit more weight/contrast — used for the actionable "waiting on you"
+    // rows so the most-actionable signal reads stronger than passive ones.
     void digest_card(UIContext<InputAction>& ctx, Entity& parent, int id,
-                     const api::SessionSummary& s, AppComponent& app) {
+                     const api::SessionSummary& s, AppComponent& app,
+                     bool emphasizeMeta = false) {
+        // The card is a raised surface (panel_bg_2, one step ELEVATED above the
+        // pane's panel_bg) plus a hairline border so it reads as floating above
+        // the pane in BOTH modes — in light the border is what sells the lift
+        // (panel_bg_2 is a hair darker than the white pane, so fill alone would
+        // read recessed). Consistent 14/16 padding keeps text off the edges.
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(56)})
+                .with_size(ComponentSize{percent(1.0f), pixels(60)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.top = pixels(4), .right = pixels(0),
-                                    .bottom = pixels(6), .left = pixels(0)})
-                .with_padding(Padding{.top = pixels(8), .right = pixels(14),
-                                      .bottom = pixels(8), .left = pixels(14)})
+                                    .bottom = pixels(8), .left = pixels(0)})
+                .with_padding(Padding{.top = pixels(11), .right = pixels(16),
+                                      .bottom = pixels(11), .left = pixels(16)})
                 .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_bg())
                 .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(0.3f)
+                .with_roundness(theme::layout::ROUNDNESS_BOX)
                 .with_debug_name("digest_card"));
         card.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (card.ent().get<afterhours::ui::HasClickListener>().down)
             app.requestOpenTab = s.id;
 
-        // Title row (name + tag).
+        // Title row: name (grows) + tag chip pinned right, both vertically
+        // centered. space-between pushes the chip to the trailing edge so it
+        // sits consistently top-right rather than floating mid-card.
         auto top = div(ctx, mk(card.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("dc_top"));
         div(ctx, mk(top.ent(), 1),
             ComponentConfig{}
                 .with_label(fmtutil::ellipsize(s.title, 40))
-                .with_size(ComponentSize{percent(0.74f), pixels(18)})
+                .with_size(ComponentSize{percent(
+                    s.tag != api::ThreadTag::None ? 0.78f : 1.0f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::TITLE)
@@ -244,24 +263,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(tag_label(s.tag))
                     .with_size(ComponentSize{children(), pixels(16)})
-                    .with_padding(Padding{.top = pixels(1), .right = pixels(6),
-                                          .bottom = pixels(1),
-                                          .left = pixels(6)})
+                    .with_padding(Padding{.top = pixels(2), .right = pixels(7),
+                                          .bottom = pixels(2),
+                                          .left = pixels(7)})
                     .with_custom_background(tag_bg(s.tag))
                     .with_custom_text_color(tag_fg(s.tag))
                     .with_font_size(theme::type::CHIP)
                     .with_alignment(TextAlignment::Center)
-                    .with_roundness(0.3f)
+                    .with_roundness(theme::layout::ROUNDNESS_BADGE)
                     .with_debug_name("dc_tag"));
         }
 
-        // Subtitle / preview.
+        // Subtitle / preview. Actionable rows get slightly more contrast
+        // (text_primary vs the passive text_secondary) so the most-actionable
+        // metadata ("waiting on you \xc2\xb7 8m") stands out.
         div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
                 .with_label(s.preview.empty() ? s.status : s.preview)
                 .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
+                                    .bottom = pixels(0), .left = pixels(0)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(emphasizeMeta ? theme::text_primary()
+                                                      : theme::text_secondary())
                 .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -271,7 +295,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // ---------------- Home digest ------------------------------------------
     void render_home(UIContext<InputAction>& ctx, Entity& parent,
                      AppComponent& app, float paneW, float paneH) {
-        header(ctx, parent, "Home", "", 20.0f);
+        header(ctx, parent, "Home", "", theme::type::H1);
 
         float listH = paneH - 46.0f;
         if (listH < 40.0f) listH = 40.0f;
@@ -285,34 +309,71 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
 
-        // Ordered: (a) waiting on you, (b) finished, (c) running (count only).
-        int shown = 0, running = 0;
-        section_label(ctx, wrap, 1, "WAITING ON YOU");
-        for (const auto& s : app.sessions)
-            if (s.state == api::ThreadState::Attention &&
-                s.tag == api::ThreadTag::Blocked)
-                digest_card(ctx, wrap, ++shown, s, app);
-
-        section_label(ctx, wrap, 900, "FINISHED SINCE YOU LOOKED");
-        for (const auto& s : app.sessions)
-            if (s.state == api::ThreadState::Attention &&
-                s.tag != api::ThreadTag::Blocked)
-                digest_card(ctx, wrap, ++shown, s, app);
-
-        for (const auto& s : app.sessions)
+        // Partition the sessions into the attention buckets ONCE so we know
+        // whether each section is non-empty BEFORE rendering its header. An
+        // empty section renders nothing at all (no orphaned header, no void) —
+        // on a calm/real backend the attention buckets are all empty, so Home
+        // must lead straight with an "all caught up" line + RECENT rather than
+        // three dead headers stacked above the list.
+        std::vector<const api::SessionSummary*> waiting, finished;
+        int running = 0;
+        for (const auto& s : app.sessions) {
+            if (s.state == api::ThreadState::Attention) {
+                if (s.tag == api::ThreadTag::Blocked)
+                    waiting.push_back(&s);
+                else
+                    finished.push_back(&s);
+            }
             if (s.state == api::ThreadState::Running) ++running;
-        section_label(ctx, wrap, 1800,
-                      "SELF-RUNNING (" + std::to_string(running) + ")");
+        }
+        const bool anyAttention =
+            !waiting.empty() || !finished.empty() || running > 0;
+
+        int shown = 0;
+        bool first = true;  // tracks the first rendered section (tighter top).
+        if (!waiting.empty()) {
+            section_label(ctx, wrap, 1, "Waiting on you", first);
+            first = false;
+            // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
+            for (const auto* s : waiting) digest_card(ctx, wrap, ++shown, *s, app, true);
+        }
+        if (!finished.empty()) {
+            section_label(ctx, wrap, 900, "Finished since you looked", first);
+            first = false;
+            for (const auto* s : finished) digest_card(ctx, wrap, ++shown, *s, app);
+        }
+        // Self-running work is a COUNT-only signal (no actionable cards). A full
+        // section header for it would strand an orphaned label above a
+        // card-sized void, so surface the count as one compact faint line
+        // instead — the signal without the gap.
+        if (running > 0) {
+            div(ctx, mk(wrap, 1800),
+                ComponentConfig{}
+                    .with_label(std::to_string(running) +
+                                (running == 1 ? " agent self-running"
+                                              : " agents self-running"))
+                    .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                    .with_margin(Margin{.top = pixels(first ? 4 : 14),
+                                        .right = pixels(0), .bottom = pixels(2),
+                                        .left = pixels(2)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("home_running_line"));
+            first = false;
+        }
 
         // Recent / all conversations. A calm backend (e.g. the generic http
         // adapter, which leaves every thread's high-signal state at its default
         // and files nothing into a folder) produces NO attention/finished/
-        // running rows — so the three sections above are all empty and Home
-        // would otherwise look blank even with a fully-loaded list. Show the
-        // most recent conversations here so Home is always useful and the
-        // loaded threads are reachable straight from the landing view. Capped
-        // so a huge list doesn't build hundreds of cards on the home pane
-        // (the sidebar's Recent folder holds the full set). Skip archived.
+        // running rows — so the buckets above are all empty and skipped. In
+        // that case lead with a tasteful "all caught up" line so Home reads as
+        // intentionally calm, then the RECENT list keeps every loaded thread
+        // reachable straight from the landing view. Capped so a huge list
+        // doesn't build hundreds of cards on the home pane (the sidebar's
+        // Recent folder holds the full set). Skip archived.
         std::vector<const api::SessionSummary*> recent;
         for (const auto& s : app.sessions)
             if (s.state != api::ThreadState::Archived) recent.push_back(&s);
@@ -320,25 +381,48 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                   [](const api::SessionSummary* a, const api::SessionSummary* b) {
                       return a->updated_at > b->updated_at;
                   });
+        if (!anyAttention) {
+            div(ctx, mk(wrap, 800),
+                preset::EmptyStateText("You're all caught up.")
+                    .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                    .with_margin(Margin{.top = pixels(2), .right = pixels(0),
+                                        .bottom = pixels(6), .left = pixels(2)})
+                    .with_font_size(theme::type::BODY)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("home_caught_up"));
+        }
         if (!recent.empty()) {
-            section_label(ctx, wrap, 2600, "RECENT");
+            section_label(ctx, wrap, 2600, "Recent", first);
             constexpr size_t kMaxRecent = 20;
             for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
                 digest_card(ctx, wrap, ++shown, *recent[k], app);
         }
     }
 
+    static std::string upper(std::string s) {
+        for (char& c : s)
+            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 32);
+        return s;
+    }
+
+    // Section header: a distinct LABEL — uppercase, letter-spaced, faint —
+    // so it reads as a quiet grouping label vs the larger primary-color card
+    // titles beneath it. `first` drops the leading margin so the top section
+    // doesn't push a gap under the h1.
     static void section_label(UIContext<InputAction>& ctx, Entity& parent,
-                              int id, const std::string& text) {
+                              int id, const std::string& text,
+                              bool first = false) {
         div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_label(text)
-                .with_size(ComponentSize{percent(1.0f), pixels(24)})
-                .with_margin(Margin{.top = pixels(16), .right = pixels(0),
-                                    .bottom = pixels(4), .left = pixels(0)})
+                .with_label(upper(text))
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_margin(Margin{.top = pixels(first ? 4 : 20),
+                                    .right = pixels(0), .bottom = pixels(6),
+                                    .left = pixels(2)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::MD)
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::LABEL)
+                .with_letter_spacing(1.0f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("home_section"));
