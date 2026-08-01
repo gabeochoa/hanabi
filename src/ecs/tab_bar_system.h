@@ -94,25 +94,39 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             afterhours::Color txt =
                 isActive ? tab_colors::tab_text_act() : tab_colors::tab_text();
 
-            button(ctx, mk(uiRoot, 910 + static_cast<int>(i)),
+            auto tabBtn = button(ctx, mk(uiRoot, 910 + static_cast<int>(i)),
                 ComponentConfig{}
-                    .with_label(fmtutil::ellipsize(tab.label, 22))
+                    .with_label(" ")
                     .with_size(ComponentSize{pixels(tabW), pixels(tabH)})
                     .with_absolute_position()
                     .with_translate(tabX, r.y)
                     .with_custom_background(bg)
-                    .with_custom_text_color(txt)
-                    .with_font_size(theme::type::ROW)
-                    .with_alignment(TextAlignment::Left)
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
                     .with_padding(Padding{.left = pixels(12),
                                           .right = pixels(24)})
-                    .with_align_items(AlignItems::Center)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.35f)
                     .with_rounded_corners(
                         afterhours::ui::imm::RoundedCorners().all_sharp().top_round().get())
                     .with_render_layer(6)
                     .with_debug_name("tab_" + tab.sessionId));
+            // Label as a centered child whose height EQUALS the strip content
+            // box (tabH), so the label's own vertical-centering lands the text
+            // on the tab's true center instead of fontstash ascent/descent
+            // pushing the glyphs low (same recipe as the sidebar chat rows).
+            div(ctx, mk(tabBtn.ent(), 1),
+                ComponentConfig{}
+                    .with_label(fmtutil::ellipsize(tab.label, 22))
+                    .with_size(ComponentSize{percent(1.0f), pixels(tabH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(txt)
+                    .with_font_size(theme::type::ROW)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(6)
+                    .with_debug_name("tab_label"));
 
             // Active underline accent.
             if (isActive) {
