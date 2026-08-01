@@ -1194,6 +1194,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 render_bubble(ctx, col, i, m, colW, isLive, app.streamPhase);
                 ++i;
             }
+
+            // Auto-stick-to-bottom WHILE STREAMING (critique #94/#71): a live
+            // reply grows the content, so pin the scroll to the bottom each
+            // frame so the caret/newest text stays visible (ChatGPT/Claude
+            // behavior). We only force it during an active stream — otherwise
+            // the user's own scroll position is respected. clamp_scroll() uses
+            // last frame's content/viewport, so setting a large offset lands at
+            // the true bottom.
+            if (streamingHere &&
+                scroll.ent().has<afterhours::ui::HasScrollView>()) {
+                auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+                sv.scroll_offset.y = 1e9f;
+                sv.clamp_scroll();
+            }
         }
 
         // Composer only when the backend can actually reply (see canReply).
