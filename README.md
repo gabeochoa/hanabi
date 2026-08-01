@@ -107,11 +107,18 @@ If `http` is selected but no base URL is set, the app cleanly falls back to the
 ### HTTPS backends need a TLS build
 
 The default build has no networking dependencies and speaks plain `http://`
-only. A real `https://` backend requires an OpenSSL-linked build:
+only. For a real `https://` backend, either use the one-shot **`make run`**
+(auto-enables TLS when OpenSSL is installed) or build TLS explicitly:
 
 ```bash
-make HANABI_TLS=1      # needs OpenSSL (brew install openssl@3)
+make run               # builds (TLS auto-on if OpenSSL present) and launches
+# or:
+make HANABI_TLS=1      # explicit TLS build (needs: brew install openssl@3)
 ```
+
+`make run` records the last build mode and only recompiles when it changes, so
+repeat runs are fast. If OpenSSL isn't installed it still builds + launches, but
+an https config then shows a clean error instead of connecting (or crashing).
 
 Nothing about any endpoint or credential lives in this repository — real values
 stay in your local (git-ignored) `config.json` or your shell.

@@ -108,7 +108,34 @@ copy-resources:
 
 output: $(MAIN_EXE) copy-resources
 
-run: output
+# `make run` — one command: build (with TLS auto-enabled when OpenSSL is
+# available, so an https:// backend config Just Works) and launch. If OpenSSL
+# isn't found it still builds + runs, but only plain http:// backends connect
+# (an https config then shows a clean error instead of crashing).
+# A small stamp file records whether the last build was TLS or not; if the mode
+# flips we `clean` first, because toggling HANABI_TLS changes compile flags that
+# make's timestamp check alone wouldn't pick up on the existing .o files.
+run:
+	@if [ -n "$$(brew --prefix openssl@3 2>/dev/null)" ]; then \
+		want=tls; \
+	else \
+		want=notls; \
+	fi; \
+	stamp="$(OUTPUT_DIR)/.tls_state"; \
+	prev="$$(cat $$stamp 2>/dev/null || echo none)"; \
+	if [ "$$want" != "$$prev" ]; then \
+		echo "==> build mode changed ($$prev -> $$want) — cleaning first"; \
+		$(MAKE) clean >/dev/null; \
+	fi; \
+	if [ "$$want" = "tls" ]; then \
+		echo "==> OpenSSL found — building with TLS (https backends enabled)"; \
+		$(MAKE) HANABI_TLS=1 output; \
+	else \
+		echo "==> OpenSSL not found — building WITHOUT TLS (http:// only)."; \
+		echo "    For an https backend: brew install openssl@3, then 'make run' again."; \
+		$(MAKE) output; \
+	fi; \
+	mkdir -p $(OUTPUT_DIR); echo "$$want" > "$$stamp"
 	./$(MAIN_EXE)
 
 # macOS .app bundle
