@@ -18,12 +18,21 @@
 namespace ecs {
 
 namespace tab_colors {
+// The tab strip is the recessed chrome plane (sidebar_bg == L0). An ACTIVE tab
+// is the RAISED surface (panel_bg == L1) that visually connects to the content
+// panel directly below it, so the active tab reads as "lifted out of" the strip
+// — the clear filled state the review asked for. Inactive tabs sit flush in the
+// strip; on hover they get a faint overlay wash.
 inline afterhours::Color strip_bg() { return theme::sidebar_bg(); }
-inline afterhours::Color tab_active() { return theme::window_bg(); }
-inline afterhours::Color tab_hover() { return theme::hover_bg(); }
+inline afterhours::Color tab_active() { return theme::panel_bg(); }
+inline afterhours::Color tab_hover() {
+    return theme::over(theme::hover_bg(), theme::sidebar_bg());
+}
 inline afterhours::Color tab_text() { return theme::text_secondary(); }
 inline afterhours::Color tab_text_act() { return theme::text_primary(); }
-inline afterhours::Color close_hover() { return theme::hover_bg(); }
+inline afterhours::Color close_hover() {
+    return theme::over(theme::hover_bg(), theme::panel_bg());
+}
 inline afterhours::Color border() { return theme::border(); }
 inline afterhours::Color accent() { return theme::accent(); }
 }  // namespace tab_colors
@@ -71,7 +80,22 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         float tabX = r.x;
         float tabH = r.height;
         const float minW = 90.0f;
-        const float maxW = 200.0f;
+        const float maxWCap = 200.0f;
+        // Right edge the tabs must never cross (the main-pane width). A tab or
+        // its × drawn past this would bleed off the window frame.
+        const float stripRight = r.x + r.width;
+
+        // Cap total tab area so N tabs never overflow the strip. If the tabs
+        // at their natural width would exceed the available strip, shrink the
+        // per-tab max width so they share the space evenly. Never let a tab go
+        // below minW — if even minW-width tabs won't all fit, we stop drawing
+        // once we hit the right edge (below), so nothing renders off-frame.
+        const size_t nTabs = strip.tabOrder.size();
+        float maxW = maxWCap;
+        if (nTabs > 0) {
+            float perTab = r.width / static_cast<float>(nTabs);
+            maxW = std::clamp(perTab, minW, maxWCap);
+        }
 
         for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
             auto tabId = strip.tabOrder[i];
@@ -84,6 +108,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             float labelW =
                 static_cast<float>(tab.label.size()) * 7.0f + 44.0f;
             float tabW = std::clamp(labelW, minW, maxW);
+
+            // Overflow guard: if this tab would extend past the strip's right
+            // edge, clamp its width to whatever room is left; if there's no
+            // usable room (< minW), stop — draw NOTHING past the edge so no tab
+            // or × ever bleeds off the window frame.
+            float room = stripRight - tabX;
+            if (room < minW) break;
+            if (tabX + tabW > stripRight) tabW = room;
 
             bool hovered = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{tabX, r.y, tabW, tabH});

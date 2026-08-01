@@ -71,26 +71,36 @@ struct Tokens {
 };
 
 // -------- Dark palette (anchor / default) --------
+//
+// ELEVATION SYSTEM (dark). Surfaces read as a subtle 3-step stack so the eye
+// can parse structure without harsh contrast (this is a pro tool, not a
+// high-contrast theme). Each step is a distinct, measurable value:
+//   L0 base    (window_bg)  {24,24,28}  — the deepest recessed plane
+//   L0 sidebar (sidebar_bg) {19,19,23}  — chrome rail, a touch below base
+//   L1 raised  (panel_bg)   {33,33,39}  — cards / panels / active tab
+//   L2 overlay (panel_bg_2) {42,42,49}  — search field, hover surfaces, chips
+// The gap between neighbouring layers is ~8-9 in luma (vs the old ~6 that made
+// everything blend), and the border is bumped so dividers are actually seen.
 inline const Tokens kDark = {
-    /*window_bg*/ {28, 28, 32, 255},
-    /*sidebar_bg*/ {22, 22, 26, 255},
-    /*panel_bg*/ {28, 28, 32, 255},
-    /*panel_bg_2*/ {34, 34, 40, 255},
-    /*border*/ {52, 52, 60, 255},
-    /*border_soft*/ {255, 255, 255, 13},
+    /*window_bg*/ {24, 24, 28, 255},
+    /*sidebar_bg*/ {19, 19, 23, 255},
+    /*panel_bg*/ {33, 33, 39, 255},
+    /*panel_bg_2*/ {42, 42, 49, 255},
+    /*border*/ {62, 62, 72, 255},
+    /*border_soft*/ {255, 255, 255, 20},
 
-    /*text_primary*/ {222, 222, 228, 255},
-    /*text_secondary*/ {138, 138, 150, 255},
-    /*text_faint*/ {96, 96, 108, 255},
-    /*empty_state_text*/ {110, 110, 122, 255},
+    /*text_primary*/ {224, 224, 230, 255},
+    /*text_secondary*/ {142, 142, 154, 255},
+    /*text_faint*/ {100, 100, 112, 255},
+    /*empty_state_text*/ {112, 112, 124, 255},
 
     /*accent*/ {90, 128, 255, 255},
     /*accent_soft*/ {90, 128, 255, 38},
     /*button_primary*/ {90, 128, 255, 255},
-    /*button_secondary*/ {56, 56, 64, 255},
-    /*hover_bg*/ {255, 255, 255, 12},
-    /*selected_bg*/ {48, 66, 120, 255},
-    /*row_separator*/ {40, 40, 48, 255},
+    /*button_secondary*/ {58, 58, 66, 255},
+    /*hover_bg*/ {255, 255, 255, 16},
+    /*selected_bg*/ {52, 72, 128, 255},
+    /*row_separator*/ {46, 46, 54, 255},
     /*focus_ring*/ {90, 128, 255, 255},
 
     /*disabled_bg*/ {44, 44, 50, 255},
@@ -110,9 +120,9 @@ inline const Tokens kDark = {
     /*role_assistant*/ {126, 200, 140, 255},
     /*role_system*/ {180, 150, 90, 255},
     /*role_tool*/ {150, 130, 200, 255},
-    /*bubble_user_bg*/ {40, 52, 84, 255},
-    /*bubble_assistant_bg*/ {32, 40, 36, 255},
-    /*bubble_other_bg*/ {40, 40, 48, 255},
+    /*bubble_user_bg*/ {44, 58, 92, 255},
+    /*bubble_assistant_bg*/ {34, 46, 40, 255},
+    /*bubble_other_bg*/ {44, 44, 52, 255},
 
     /*status_active*/ {126, 200, 140, 255},
     /*status_idle*/ {180, 150, 90, 255},
@@ -120,52 +130,67 @@ inline const Tokens kDark = {
 };
 
 // -------- Light palette --------
+//
+// Independently tuned (NOT an inversion of dark). ELEVATION in light mode runs
+// the other way: a faintly grey base with progressively WHITER raised surfaces.
+//   L0 base    (window_bg)  {238,238,242} — recessed plane
+//   L0 sidebar (sidebar_bg) {230,230,235} — chrome rail, slightly below base
+//   L1 raised  (panel_bg)   {255,255,255} — cards / panels / active tab (pure white)
+//   L2 overlay (panel_bg_2) {247,247,250} — search field, hover surfaces
+// Text is tuned for real contrast on these surfaces (WCAG on white / #FFF):
+//   text_primary   #21212B on #FFF  = 15.3:1   (title bar & body — was fine, kept)
+//   text_secondary #55555F on #FFF  =  7.3:1    (was #78788 4 ≈ 3.7:1, too faint)
+//   text_faint     #86868F on #FFF  =  3.4:1    (>=3:1 large/secondary target)
+// Borders/dividers are darkened so they're visible on light surfaces.
 inline const Tokens kLight = {
-    /*window_bg*/ {244, 244, 247, 255},
-    /*sidebar_bg*/ {236, 236, 240, 255},
-    /*panel_bg*/ {252, 252, 253, 255},
-    /*panel_bg_2*/ {246, 246, 249, 255},
-    /*border*/ {216, 216, 222, 255},
-    /*border_soft*/ {0, 0, 0, 13},
+    /*window_bg*/ {238, 238, 242, 255},
+    /*sidebar_bg*/ {230, 230, 235, 255},
+    /*panel_bg*/ {255, 255, 255, 255},
+    /*panel_bg_2*/ {247, 247, 250, 255},
+    /*border*/ {200, 200, 208, 255},
+    /*border_soft*/ {0, 0, 0, 24},
 
-    /*text_primary*/ {34, 34, 42, 255},
-    /*text_secondary*/ {120, 120, 132, 255},
-    /*text_faint*/ {168, 168, 178, 255},
-    /*empty_state_text*/ {150, 150, 162, 255},
+    /*text_primary*/ {33, 33, 43, 255},
+    /*text_secondary*/ {85, 85, 95, 255},
+    /*text_faint*/ {134, 134, 143, 255},
+    /*empty_state_text*/ {122, 122, 134, 255},
 
-    /*accent*/ {58, 102, 248, 255},
-    /*accent_soft*/ {58, 102, 248, 31},
-    /*button_primary*/ {58, 102, 248, 255},
+    /*accent*/ {46, 90, 236, 255},
+    /*accent_soft*/ {46, 90, 236, 34},
+    /*button_primary*/ {46, 90, 236, 255},
     /*button_secondary*/ {224, 224, 230, 255},
-    /*hover_bg*/ {0, 0, 0, 10},
-    /*selected_bg*/ {214, 226, 255, 255},
-    /*row_separator*/ {224, 224, 230, 255},
-    /*focus_ring*/ {58, 102, 248, 255},
+    /*hover_bg*/ {0, 0, 0, 14},
+    /*selected_bg*/ {205, 220, 255, 255},
+    /*row_separator*/ {216, 216, 224, 255},
+    /*focus_ring*/ {46, 90, 236, 255},
 
     /*disabled_bg*/ {228, 228, 232, 255},
-    /*disabled_text*/ {170, 170, 178, 255},
-    /*destructive*/ {200, 44, 44, 255},
+    /*disabled_text*/ {158, 158, 168, 255},
+    /*destructive*/ {196, 40, 40, 255},
 
-    /*dot*/ {58, 102, 248, 255},
+    /*dot*/ {46, 90, 236, 255},
 
-    /*tag_blocked_fg*/ {200, 44, 44, 255},
-    /*tag_blocked_bg*/ {220, 60, 60, 31},
-    /*tag_ready_fg*/ {30, 140, 66, 255},
-    /*tag_ready_bg*/ {40, 160, 80, 36},
-    /*tag_done_fg*/ {48, 92, 224, 255},
-    /*tag_done_bg*/ {58, 102, 248, 31},
+    // Chips: fg is a strong hue for legible labels, bg is a low-alpha tint
+    // pre-blended by over() onto the CARD surface (panel_bg = white). Alphas
+    // chosen so the pill reads as a subtle wash, not a saturated block.
+    /*tag_blocked_fg*/ {188, 36, 36, 255},
+    /*tag_blocked_bg*/ {214, 52, 52, 40},
+    /*tag_ready_fg*/ {24, 128, 58, 255},
+    /*tag_ready_bg*/ {36, 152, 74, 46},
+    /*tag_done_fg*/ {40, 82, 214, 255},
+    /*tag_done_bg*/ {46, 90, 236, 38},
 
-    /*role_user*/ {58, 102, 248, 255},
-    /*role_assistant*/ {46, 150, 80, 255},
-    /*role_system*/ {168, 128, 40, 255},
-    /*role_tool*/ {126, 96, 196, 255},
+    /*role_user*/ {46, 90, 236, 255},
+    /*role_assistant*/ {40, 138, 72, 255},
+    /*role_system*/ {150, 112, 30, 255},
+    /*role_tool*/ {114, 84, 184, 255},
     /*bubble_user_bg*/ {224, 232, 255, 255},
-    /*bubble_assistant_bg*/ {228, 244, 232, 255},
-    /*bubble_other_bg*/ {236, 236, 242, 255},
+    /*bubble_assistant_bg*/ {224, 242, 230, 255},
+    /*bubble_other_bg*/ {238, 238, 244, 255},
 
-    /*status_active*/ {46, 150, 80, 255},
-    /*status_idle*/ {168, 128, 40, 255},
-    /*status_archived*/ {150, 150, 162, 255},
+    /*status_active*/ {40, 138, 72, 255},
+    /*status_idle*/ {150, 112, 30, 255},
+    /*status_archived*/ {134, 134, 146, 255},
 };
 
 // Active token set (mutable, swapped at runtime). Defaults to dark.
