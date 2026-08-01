@@ -259,6 +259,27 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             graphics::end_frame();
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
         }
+
+        // Screenshot affordance: HANABI_VIEW=blocked|review|starred|home forces
+        // the landing smart-view so a headless capture can photograph any view
+        // (including an empty one) without a click. Set AFTER the wait loop so a
+        // restored tab's auto-open (which sets view=Chat) can't clobber it; we
+        // also drop the selection so the smart-view — not a stale transcript —
+        // renders. Ignored when unset. Only honored in --screenshot.
+        if (const char* v = std::getenv("HANABI_VIEW")) {
+            std::string vs(v);
+            ecs::SmartView sv = appForWait->view;
+            bool set = true;
+            if (vs == "blocked") sv = ecs::SmartView::Blocked;
+            else if (vs == "review") sv = ecs::SmartView::Review;
+            else if (vs == "starred") sv = ecs::SmartView::Starred;
+            else if (vs == "home") sv = ecs::SmartView::Home;
+            else set = false;
+            if (set) {
+                appForWait->view = sv;
+                appForWait->selectedId.clear();
+            }
+        }
     }
 
     // Render several frames so async data loads and layout settles.

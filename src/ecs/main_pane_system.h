@@ -44,15 +44,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 break;
             case SmartView::Blocked:
                 render_digest(ctx, panel.ent(), *app, "Blocked on you",
-                              r.width, r.height, ecs::model::in_blocked_view);
+                              r.width, r.height, ecs::model::in_blocked_view,
+                              "Nothing is waiting on you. \xf0\x9f\x8e\x89");
                 break;
             case SmartView::Review:
                 render_digest(ctx, panel.ent(), *app, "Ready for review",
-                              r.width, r.height, ecs::model::in_review_view);
+                              r.width, r.height, ecs::model::in_review_view,
+                              "No threads are ready for review yet.");
                 break;
             case SmartView::Starred:
                 render_digest(ctx, panel.ent(), *app, "Starred", r.width,
-                              r.height, ecs::model::in_starred_view);
+                              r.height, ecs::model::in_starred_view,
+                              "No starred conversations. Star a thread to pin "
+                              "it here.");
                 break;
         }
     }
@@ -103,6 +107,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(60)})
                 .with_padding(Padding{.top = pixels(20), .right = pixels(18),
                                       .bottom = pixels(8), .left = pixels(18)})
+                .with_font_size(theme::type::BODY)
                 .with_alignment(TextAlignment::Left)
                 .with_debug_name("main_note"));
     }
@@ -152,7 +157,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     template <typename Pred>
     void render_digest(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const std::string& title,
-                       float paneW, float paneH, Pred pred) {
+                       float paneW, float paneH, Pred pred,
+                       const std::string& emptyMsg = "Nothing here right now.") {
         std::vector<const api::SessionSummary*> rows;
         for (const auto& s : app.sessions)
             if (pred(s)) rows.push_back(&s);
@@ -160,7 +166,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         header(ctx, parent, title, std::to_string(rows.size()), theme::type::H1);
 
         if (rows.empty()) {
-            note(ctx, parent, "Nothing here right now.");
+            note(ctx, parent, emptyMsg);
             return;
         }
 
@@ -279,6 +285,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return phrase + "  \xc2\xb7  " + age;
     }
 
+    // Sub-line for a card rendered INSIDE a homogeneous grouped section (Home's
+    // Waiting / Finished / Self-running). The section HEADER already names the
+    // state (and carries its color), so restating "waiting on you" on every card
+    // — plus a red BLOCKED chip — was the same fact three times (v5 defect #4:
+    // "7 identical red chips = noise"). In grouped mode we therefore drop the
+    // chip and show only the DISCRIMINATING detail that actually differs between
+    // sibling cards: the age, or a running card's progress ("61%", "tests",
+    // "landing"). We derive it by stripping a leading state phrase from the mock
+    // preview ("waiting on you \xc2\xb7 22m" -> "22m", "self-running \xc2\xb7 61%" -> "61%");
+    // a real backend (no preview) falls back to the relative age.
+    static std::string grouped_meta(const api::SessionSummary& s) {
+        const std::string age = fmtutil::relative_time(s.updated_at);
+        if (!s.preview.empty()) {
+            // Take the detail AFTER the first " \xc2\xb7 " separator, i.e. drop the
+            // redundant leading state phrase the section header already conveys.
+            const std::string sep = "\xc2\xb7";
+            size_t p = s.preview.find(sep);
+            if (p != std::string::npos) {
+                std::string tail = s.preview.substr(p + sep.size());
+                // trim surrounding spaces
+                size_t a = tail.find_first_not_of(' ');
+                size_t b = tail.find_last_not_of(' ');
+                if (a != std::string::npos)
+                    return tail.substr(a, b - a + 1);
+            }
+            // No separator: the preview is itself the detail — keep it verbatim.
+            return s.preview;
+        }
+        return age;  // real backend: age is the discriminating detail.
+    }
+
     static const char* tag_label(api::ThreadTag t) {        switch (t) {
             case api::ThreadTag::Blocked: return "BLOCKED";
             case api::ThreadTag::Review: return "REVIEW";
@@ -344,7 +381,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // rows so the most-actionable signal reads stronger than passive ones.
     void digest_card(UIContext<InputAction>& ctx, Entity& parent, int id,
                      const api::SessionSummary& s, AppComponent& app,
-                     bool emphasizeMeta = false, float cardWidthPx = 0.0f) {
+                     bool emphasizeMeta = false, float cardWidthPx = 0.0f,
+                     bool grouped = false) {
         // The card is a raised surface (panel_bg_2, one step ELEVATED above the
         // pane's panel_bg) plus a hairline border so it reads as floating above
         // the pane in BOTH modes — in light the border is what sells the lift
@@ -383,7 +421,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("dc_top"));
-        const bool hasTag = has_chip(s);
+        // In a grouped section the header already names (and colors) the state,
+        // so we suppress the per-card chip to kill the "N identical chips" noise
+        // (v5 #4). The title then gets the full card width.
+        const bool hasTag = has_chip(s) && !grouped;
         const float titleFrac = hasTag ? 0.78f : 1.0f;
         // Decouple truncation from a fixed char cap: budget from the card's
         // REAL available title width so a wide card fills its line before
@@ -409,7 +450,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("dc_name"));
-        if (has_chip(s)) {
+        if (hasTag) {
             div(ctx, mk(top.ent(), 2),
                 ComponentConfig{}
                     .with_label(chip_label(s))
@@ -432,7 +473,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // more contrast (text_primary vs the passive text_secondary).
         div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
-                .with_label(card_meta(s))
+                .with_label(grouped ? grouped_meta(s) : card_meta(s))
                 .with_size(ComponentSize{percent(1.0f), pixels(16)})
                 .with_margin(Margin{.top = pixels(3), .right = pixels(0),
                                     .bottom = pixels(0), .left = pixels(0)})
@@ -488,20 +529,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             section_label(ctx, wrap, 1,
                           "Waiting on you \xc2\xb7 " +
                               std::to_string(waiting.size()),
-                          first);
+                          first, theme::tag_blocked_fg());
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
             for (const auto* s : waiting)
-                digest_card(ctx, wrap, ++shown, *s, app, true, cardW);
+                digest_card(ctx, wrap, ++shown, *s, app, true, cardW, true);
         }
         if (!finished.empty()) {
             section_label(ctx, wrap, 900,
                           "Finished since you looked \xc2\xb7 " +
                               std::to_string(finished.size()),
-                          first);
+                          first, theme::tag_done_fg());
             first = false;
             for (const auto* s : finished)
-                digest_card(ctx, wrap, ++shown, *s, app, false, cardW);
+                digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
         }
         // Self-running work: a real section with real cards (title + relative
         // age), headed "SELF-RUNNING (N)" like the mock. Rendering the actual
@@ -511,10 +552,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             section_label(ctx, wrap, 1800,
                           "Self-running \xc2\xb7 " +
                               std::to_string(selfRunning.size()),
-                          first);
+                          first, theme::tag_ready_fg());
             first = false;
             for (const auto* s : selfRunning)
-                digest_card(ctx, wrap, ++shown, *s, app, false, cardW);
+                digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
         }
 
         // Recent / all conversations. A calm backend (e.g. the generic http
@@ -570,7 +611,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // doesn't push a gap under the h1.
     static void section_label(UIContext<InputAction>& ctx, Entity& parent,
                               int id, const std::string& text,
-                              bool first = false) {
+                              bool first = false,
+                              theme::Color color = theme::text_faint()) {
         div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(upper(text))
@@ -579,7 +621,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     .right = pixels(0), .bottom = pixels(6),
                                     .left = pixels(2)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(color)
                 .with_font_size(theme::type::LABEL)
                 .with_letter_spacing(1.0f)
                 .with_alignment(TextAlignment::Left)
