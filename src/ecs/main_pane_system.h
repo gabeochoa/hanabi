@@ -1110,10 +1110,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // The transcript pane splits into a scrolling message column (grows to
-        // fill) and a persistent composer row pinned to the bottom (v3 #30 —
-        // kills the empty dark band). Header is 46; the composer is a fixed
-        // strip; the scroll takes whatever's left.
-        constexpr float kComposerH = 74.0f;
+        // fill) and a persistent composer row pinned to the bottom. But a
+        // READ-ONLY backend (no send/stream capability) should NOT show a dead,
+        // disabled Send box — a greyed input the user can't use is worse than
+        // none (critique #25/#98). So when the backend can't reply we HIDE the
+        // composer entirely and give the whole pane to the transcript. Header
+        // is 46; the composer (when shown) is a fixed strip.
+        const bool canReply =
+            app.client &&
+            (app.client->supports_send() || app.client->supports_stream());
+        const float kComposerH = canReply ? 74.0f : 0.0f;
         float listH = paneH - 46.0f - kComposerH;
         if (listH < 20.0f) listH = 20.0f;
 
@@ -1131,8 +1137,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // shows a blank void.
         if (app.openSession->messages.empty()) {
             div(ctx, mk(scroll.ent(), 1),
-                preset::EmptyStateText("No messages yet â "
-                                       "start the conversation below.")
+                preset::EmptyStateText(
+                    canReply ? "No messages yet \xe2\x80\x94 start the "
+                               "conversation below."
+                             : "No messages in this thread.")
                     .with_size(ComponentSize{percent(1.0f), pixels(40)})
                     .with_padding(Padding{.top = pixels(28), .right = pixels(18),
                                           .bottom = pixels(8),
@@ -1188,7 +1196,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        render_composer(ctx, parent, app, paneW, kComposerH);
+        // Composer only when the backend can actually reply (see canReply).
+        if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);
     }
 
     // Persistent composer pinned to the bottom of the transcript pane. A real,
