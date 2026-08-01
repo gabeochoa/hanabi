@@ -1,5 +1,6 @@
 #include "http_client.h"
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -71,6 +72,117 @@ std::string as_string(const json& obj, const std::string& key) {
     return "";
 }
 
+// --- Diagnostic dump (dev aid, OFF by default) ------------------------------
+// When HANABI_DUMP is set in the environment, print the SHAPE of the real
+// backend's data to stderr so we can see what fields real objects carry that
+// the adapter/mock don't yet model. This never runs unless the flag is set,
+// never touches the UI, and never logs the auth token (only response bodies).
+bool dump_enabled() {
+    const char* v = std::getenv("HANABI_DUMP");
+    return v && *v && std::string(v) != "0";
+}
+
+// Render a single JSON value compactly for a one-line dump (strings truncated).
+std::string brief(const json& v, size_t max = 48) {
+    std::string s;
+    if (v.is_string()) {
+        s = v.get<std::string>();
+    } else {
+        s = v.dump();
+    }
+    if (s.size() > max) s = s.substr(0, max) + "\xe2\x80\xa6";
+    // Keep it single-line.
+    for (char& c : s)
+        if (c == '\n' || c == '\r') c = ' ';
+    return s;
+}
+
+// Dump the parsed summary fields + the RAW top-level keys (and a sample of any
+// keys the adapter currently ignores) for the first `limit` sessions.
+void dump_session_list(const json& arr, const Config& cfg, size_t limit) {
+    fprintf(stderr, "[HANABI_DUMP] session list: %zu objects\n",
+            arr.size());
+    // Which keys does the adapter actually consume?
+    const std::vector<std::string> known = {
+        cfg.field_id, cfg.field_title, cfg.field_updated_at, cfg.field_status,
+        cfg.field_preview};
+    size_t n = 0;
+    for (const auto& e : arr) {
+        if (n >= limit) break;
+        SessionSummary s;
+        s.id = as_string(e, cfg.field_id);
+        s.title = as_string(e, cfg.field_title);
+        s.updated_at = as_epoch(e, cfg.field_updated_at);
+        s.status = as_string(e, cfg.field_status);
+        fprintf(stderr,
+                "[HANABI_DUMP]  #%zu parsed: id=%s title=\"%s\" status=%s "
+                "updated_at=%lld state=Unknown tag=None folder=\"\" starred=0\n",
+                n, brief(s.id, 24).c_str(), brief(s.title, 32).c_str(),
+                brief(s.status, 16).c_str(),
+                static_cast<long long>(s.updated_at));
+        if (e.is_object()) {
+            // All top-level keys present on this object.
+            std::string allkeys;
+            for (auto it = e.begin(); it != e.end(); ++it) {
+                if (!allkeys.empty()) allkeys += ",";
+                allkeys += it.key();
+            }
+            fprintf(stderr, "[HANABI_DUMP]  #%zu raw keys: %s\n", n,
+                    allkeys.c_str());
+            // Keys the adapter IGNORES today, with a sample value each — this
+            // is the material for making the mock resemble reality (e.g.
+            // isProcessing / subSessionStatus / isPinned / workspaceId / model).
+            std::string ignored;
+            for (auto it = e.begin(); it != e.end(); ++it) {
+                if (std::find(known.begin(), known.end(), it.key()) !=
+                    known.end())
+                    continue;
+                if (!ignored.empty()) ignored += " ";
+                ignored += it.key() + "=" + brief(it.value());
+            }
+            if (!ignored.empty())
+                fprintf(stderr, "[HANABI_DUMP]  #%zu ignored: %s\n", n,
+                        ignored.c_str());
+        }
+        ++n;
+    }
+    fflush(stderr);
+}
+
+// Dump the parsed message fields + raw block types for the first `limit`
+// messages of a transcript.
+void dump_transcript(const json& arr, const Config& cfg, size_t limit) {
+    fprintf(stderr, "[HANABI_DUMP] transcript: %zu messages\n", arr.size());
+    size_t n = 0;
+    for (const auto& e : arr) {
+        if (n >= limit) break;
+        const std::string role = as_string(e, cfg.field_role);
+        std::string text = as_string(e, cfg.field_text);
+        std::string subtitle;
+        std::string blockTypes;
+        if (e.is_object() && e.contains(cfg.field_blocks) &&
+            e.at(cfg.field_blocks).is_array()) {
+            for (const auto& b : e.at(cfg.field_blocks)) {
+                if (!b.is_object()) continue;
+                const std::string bt = as_string(b, cfg.field_block_type);
+                if (!blockTypes.empty()) blockTypes += ",";
+                blockTypes += bt;
+                if (bt == cfg.field_block_text_type && text.empty())
+                    text = as_string(b, cfg.field_block_content);
+                else if (bt != cfg.field_block_text_type && subtitle.empty())
+                    subtitle = bt;
+            }
+        }
+        fprintf(stderr,
+                "[HANABI_DUMP]  msg#%zu role=%s text=\"%s\" subtitle=%s "
+                "blockTypes=[%s]\n",
+                n, brief(role, 12).c_str(), brief(text, 60).c_str(),
+                brief(subtitle, 20).c_str(), blockTypes.c_str());
+        ++n;
+    }
+    fflush(stderr);
+}
+
 }  // namespace
 
 Result<std::string> HttpClient::get(const std::string& path) {
@@ -136,6 +248,8 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {
             return Result<std::vector<SessionSummary>>::failure(
                 "unexpected response shape for session list");
 
+        if (dump_enabled()) dump_session_list(*arr, cfg_, 10);
+
         for (const auto& e : *arr) {
             SessionSummary s;
             s.id = as_string(e, cfg_.field_id);
@@ -143,6 +257,24 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {
             s.updated_at = as_epoch(e, cfg_.field_updated_at);
             s.status = as_string(e, cfg_.field_status);
             s.preview = as_string(e, cfg_.field_preview);
+            // Derive a light client-side high-signal state from the generic
+            // fields the backend already reports, so a real (calm) backend's
+            // rows are filed sensibly instead of all landing Unknown:
+            //   status == "archived"  -> Archived (greyed, low-signal section)
+            //   isProcessing == true  -> Running  (self-running, quiet)
+            //   otherwise             -> Unknown  (calm; shows in Recent)
+            // This is intentionally conservative: it never fabricates an
+            // Attention/Ready state (those need real signal the generic
+            // adapter doesn't have), it only routes rows out of the catch-all
+            // when the backend gives an unambiguous hint. All field names stay
+            // generic/configurable — nothing about any endpoint is assumed.
+            if (s.status == "archived") {
+                s.state = ThreadState::Archived;
+            } else if (e.is_object() && e.contains("isProcessing") &&
+                       e.at("isProcessing").is_boolean() &&
+                       e.at("isProcessing").get<bool>()) {
+                s.state = ThreadState::Running;
+            }
             out.push_back(std::move(s));
         }
     } catch (const std::exception& ex) {
@@ -170,6 +302,8 @@ Result<Session> HttpClient::get_session(const std::string& id) {
         if (!arr)
             return Result<Session>::failure(
                 "unexpected response shape for transcript");
+
+        if (dump_enabled()) dump_transcript(*arr, cfg_, 5);
 
         for (const auto& e : *arr) {
             Message m;
