@@ -251,8 +251,7 @@ Scope:
 - CONSOLIDATE the graphics-free model headers (src/ecs/thread_model.h,
   src/ecs/tab_model.h, src/ecs/transcript_cache.h): audit for overlapping types and
   logic, extract shared types, and settle a single `ecs::model` namespace convention
-  for the graphics-free state layer. (thread_model.h already uses `ecs::model`;
-  a single `ecs::model` namespace convention for the graphics-free state layer.
+  for the graphics-free state layer.
   (DONE: thread_model.h, tab_model.h, and transcript_cache.h now all live under
   `ecs::model` — the tab flow was `ecs::tabflow` and the cache was bare `ecs`;
   both reconciled onto `ecs::model` so the "model" layer is one discoverable,
