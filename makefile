@@ -232,6 +232,16 @@ $(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp | $(TEST_DIR)
 	@echo "Compiling test_perf..."
 	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Read-only REAL-backend smoke: list_sessions + get_session against the ACTUAL
+# configured http backend (no mutations). Compiled WITH the TLS flags so it can
+# speak https; self-skips (exit 0) when no http backend is configured. This is
+# the pre-push "does it work with real data?" check — NOT part of the default
+# offline `make test` (it hits the network). Uses CXXFLAGS (which carry
+# -DHANABI_ENABLE_TLS + OpenSSL paths only when HANABI_TLS=1).
+$(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+	@echo "Compiling test_real..."
+	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
+
 UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
@@ -275,7 +285,18 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 
-.PHONY: test unit-e2e e2e perf
+.PHONY: test unit-e2e e2e perf test-real
+
+# `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
+# test WITH TLS (so it can reach an https backend) and runs it against the
+# ACTUAL configured backend. Read-only: list_sessions + get_session, never any
+# mutation. Self-skips cleanly if no http backend is configured. Run this
+# before pushing to confirm hanabi works with real data, not just the mock:
+#     make test-real
+test-real:
+	@$(MAKE) HANABI_TLS=1 $(TEST_DIR)/test_real
+	@echo "Running read-only real-backend smoke (test_real)..."
+	@$(TEST_DIR)/test_real
 
 count:
 	git ls-files | grep "src" | grep -v "resources" | grep -v "vendor" | xargs wc -l | sort -rn

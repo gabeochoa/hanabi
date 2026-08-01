@@ -160,6 +160,20 @@ struct AppComponent : public afterhours::BaseComponent {
     // The fully-assembled final Message, remembered so the loader can stamp its
     // final id/created_at when the drain completes.
     api::Message streamFinal;
+    // The streamed reply is COLLECTED on a worker thread (not the UI thread) so
+    // a slow-network send never beach-balls the app. The future yields the
+    // ordered text chunks + the final Message; the loader polls it per frame
+    // (non-blocking wait_for(0)) and only begins the visible drain once it is
+    // ready. Mirrors the sendFuture/transcriptFuture async pattern.
+    struct StreamCollected {
+        std::vector<std::string> chunks;
+        api::Message finalMsg;
+        std::string error;
+    };
+    std::future<StreamCollected> streamCollectFuture;
+    bool streamCollecting = false;      // a worker is gathering the reply.
+    std::string streamPendingPrompt;    // prompt being collected (for the User bubble).
+    std::string streamPendingSession;   // session the collection targets.
 
 
     // Phase AUTH (device-code login). The flow lives here as an optional so

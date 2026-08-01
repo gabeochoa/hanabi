@@ -210,61 +210,90 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // incremental. A screenshot demo can cap the drain (see below).
         constexpr size_t kTokensPerFrame = 2;
 
-        // --- START ---
+        // --- START (kick): collect the reply on a WORKER THREAD ---
+        // A streamed send used to call send_message_streaming() directly here,
+        // on the UI thread — which blocks the whole app (beachball) for the
+        // entire network round-trip on a real backend. Instead we launch the
+        // collection async and poll it below; the UI stays responsive while the
+        // reply is gathered. The sink captures deltas into a queue; a
+        // non-streaming backend simply yields one delta.
         if (!app.requestStreamPrompt.empty() && !app.streamActive &&
-            !app.selectedId.empty() && app.client &&
+            !app.streamCollecting && !app.selectedId.empty() && app.client &&
             app.openSession &&
             app.openSession->summary.id == app.selectedId) {
             std::string prompt = app.requestStreamPrompt;
             std::string id = app.selectedId;
             app.requestStreamPrompt.clear();
+            app.streamCollecting = true;
+            app.streamPendingPrompt = prompt;
+            app.streamPendingSession = id;
+            // Show the "thinking" affordance immediately so the send feels
+            // instant even before the first chunk arrives.
+            app.streamPhase = AppComponent::StreamPhase::Thinking;
+            api::Client* c = app.client.get();
+            app.streamCollectFuture = std::async(
+                std::launch::async, [c, id, prompt]() {
+                    AppComponent::StreamCollected out;
+                    api::StreamSink sink;
+                    sink.on_delta = [&out](const std::string& d) {
+                        out.chunks.push_back(d);
+                    };
+                    sink.on_done = [&out](const api::Message& m) {
+                        out.finalMsg = m;
+                    };
+                    sink.on_error = [&out](const std::string& e) {
+                        out.error = e;
+                    };
+                    c->send_message_streaming(id, prompt, sink);
+                    return out;
+                });
+        }
 
-            // Collect the reply's chunks + final Message up front. The sink
-            // captures every text delta into a local queue; a non-streaming
-            // backend simply yields one delta. No UI mutation happens in here.
-            std::vector<std::string> chunks;
-            api::Message finalMsg;
-            std::string streamErr;
-            api::StreamSink sink;
-            sink.on_delta = [&chunks](const std::string& d) {
-                chunks.push_back(d);
-            };
-            sink.on_done = [&finalMsg](const api::Message& m) { finalMsg = m; };
-            sink.on_error = [&streamErr](const std::string& e) {
-                streamErr = e;
-            };
-            app.client->send_message_streaming(id, prompt, sink);
+        // --- START (collect done): the worker finished gathering the reply ---
+        if (app.streamCollecting && app.streamCollectFuture.valid() &&
+            app.streamCollectFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            AppComponent::StreamCollected got = app.streamCollectFuture.get();
+            app.streamCollecting = false;
+            const std::string id = app.streamPendingSession;
+            const std::string prompt = app.streamPendingPrompt;
+            app.streamPendingPrompt.clear();
+            app.streamPendingSession.clear();
 
-            if (!streamErr.empty()) {
-                app.transcriptError = streamErr;
-                return;
+            // The open thread may have changed while we were collecting; only
+            // apply the result if the target thread is still open.
+            if (!app.openSession || app.openSession->summary.id != id) {
+                app.streamPhase = AppComponent::StreamPhase::Idle;
+            } else if (!got.error.empty()) {
+                app.transcriptError = got.error;
+                app.streamPhase = AppComponent::StreamPhase::Idle;
+            } else {
+                // Append the User bubble + an empty Assistant bubble that fills
+                // in as we drain. The live Assistant message's index is
+                // remembered so the drain can rewrite its text each frame.
+                api::Message um;
+                um.role = api::Role::User;
+                um.id = id + "-u" +
+                        std::to_string(app.openSession->messages.size());
+                um.text = prompt;
+                um.created_at = got.finalMsg.created_at;
+                app.openSession->messages.push_back(std::move(um));
+
+                api::Message assistant = got.finalMsg;
+                assistant.text.clear();  // starts empty; fills as we drain.
+                app.openSession->messages.push_back(assistant);
+                app.streamMsgIndex = app.openSession->messages.size() - 1;
+
+                app.streamActive = true;
+                app.streamSessionId = id;
+                app.streamBuffer.clear();
+                app.streamQueue = std::move(got.chunks);
+                app.streamCursor = 0;
+                app.streamFinal = got.finalMsg;
+                app.streamPhase = app.streamQueue.empty()
+                                      ? AppComponent::StreamPhase::Done
+                                      : AppComponent::StreamPhase::Thinking;
             }
-
-            // Append the User bubble + an empty Assistant bubble that will fill
-            // in as we drain. The live Assistant message's index is remembered
-            // so the drain can rewrite its text each frame.
-            api::Message um;
-            um.role = api::Role::User;
-            um.id = id + "-u" +
-                    std::to_string(app.openSession->messages.size());
-            um.text = prompt;
-            um.created_at = finalMsg.created_at;
-            app.openSession->messages.push_back(std::move(um));
-
-            api::Message assistant = finalMsg;
-            assistant.text.clear();  // starts empty; fills as we drain.
-            app.openSession->messages.push_back(assistant);
-            app.streamMsgIndex = app.openSession->messages.size() - 1;
-
-            app.streamActive = true;
-            app.streamSessionId = id;
-            app.streamBuffer.clear();
-            app.streamQueue = std::move(chunks);
-            app.streamCursor = 0;
-            app.streamFinal = finalMsg;
-            app.streamPhase = app.streamQueue.empty()
-                                  ? AppComponent::StreamPhase::Done
-                                  : AppComponent::StreamPhase::Thinking;
         }
 
         if (!app.streamActive) return;
