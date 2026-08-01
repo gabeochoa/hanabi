@@ -25,3 +25,7 @@ settings.json
 .claude/
 .claw_town/
 .tasks/
+
+# local backend config (may contain a token) — never commit
+config.json
+**/config.json

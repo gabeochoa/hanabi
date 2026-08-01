@@ -66,31 +66,55 @@ make test       # run unit tests
 
 ## Configuration (optional)
 
-By default the app runs on the `mock` backend. To point it at a real REST
-backend, set environment variables — none of these have committed defaults:
+By default the app runs on the zero-config `mock` backend (offline sample data,
+no network). To point it at a real REST backend you have two options — a **config
+file** (easiest) or **environment variables**. If both are present, env vars
+override the file.
+
+### Option A — config file (recommended)
+
+Copy the template and fill in your values:
+
+```bash
+mkdir -p ~/.config/hanabi
+cp docs/config.example.json ~/.config/hanabi/config.json
+$EDITOR ~/.config/hanabi/config.json    # set api_base_url + token
+```
+
+That's it — no environment variables needed. The app reads
+`~/.config/hanabi/config.json` (or `$XDG_CONFIG_HOME/hanabi/config.json`, or a
+path given by `$HANABI_CONFIG`) at startup. A real `config.json` is git-ignored
+so a token can never be committed. Delete the file (or set `"backend": "mock"`)
+to go back to offline sample data. See `docs/config.example.json` for every key.
+
+### Option B — environment variables
+
+Every config key also has an env var, which overrides the file:
 
 | Variable | Meaning | Default |
 |---|---|---|
+| `HANABI_CONFIG` | path to a config JSON (overrides the default location) | *(auto)* |
 | `HANABI_BACKEND` | `mock` or `http` | `mock` |
-| `HANABI_BASE_URL` | base URL, e.g. `https://example.test/api` | *(none)* |
+| `HANABI_API_BASE_URL` | base URL, e.g. `https://example.test/api` | *(none)* |
 | `HANABI_TOKEN` | bearer token (never logged or stored) | *(none)* |
 | `HANABI_SESSIONS_PATH` | path for the session list | `/sessions` |
 | `HANABI_MESSAGES_PATH` | transcript path template (`{id}` placeholder) | `/sessions/{id}/messages` |
-| `HANABI_FIELD_*` | JSON field-name overrides (`ID`, `TITLE`, `UPDATED_AT`, `STATUS`, `PREVIEW`, `MESSAGES`, `ROLE`, `TEXT`, `CREATED_AT`) | generic names |
+| `HANABI_FIELD_*` | JSON field-name overrides (`ID`, `TITLE`, `UPDATED_AT`, `STATUS`, `PREVIEW`, `MESSAGES`, `ROLE`, `TEXT`, `CREATED_AT`, `BLOCKS`, `BLOCK_TYPE`, `BLOCK_CONTENT`, `BLOCK_TEXT_TYPE`) | generic names |
 
-If `http` is selected but `HANABI_BASE_URL` is unset, the app cleanly falls
-back to the `mock` backend.
+If `http` is selected but no base URL is set, the app cleanly falls back to the
+`mock` backend.
+
+### HTTPS backends need a TLS build
+
+The default build has no networking dependencies and speaks plain `http://`
+only. A real `https://` backend requires an OpenSSL-linked build:
 
 ```bash
-HANABI_BACKEND=http \
-HANABI_BASE_URL=https://example.test/api \
-HANABI_TOKEN=… \
-  ./output/hanabi
+make HANABI_TLS=1      # needs OpenSSL (brew install openssl@3)
 ```
 
-Configuration is read from the environment only — no endpoints or credentials
-live in this repository. Keep any real values in your shell or a local `.env`
-that is git-ignored.
+Nothing about any endpoint or credential lives in this repository — real values
+stay in your local (git-ignored) `config.json` or your shell.
 
 ## Layout
 

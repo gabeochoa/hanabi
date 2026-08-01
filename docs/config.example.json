@@ -1,0 +1,23 @@
+{
+  "_comment": "Copy this to ~/.config/hanabi/config.json (or point HANABI_CONFIG at it) and fill in your values. With this file present you do NOT need any HANABI_* env vars. Env vars, if set, override the file. Delete the file (or set backend to \"mock\") to use the zero-config offline sample data.",
+
+  "backend": "http",
+  "api_base_url": "https://YOUR-HOST/api/v1",
+  "token": "YOUR_BEARER_TOKEN",
+
+  "sessions_path": "/sessions",
+  "messages_path": "/sessions/{id}/messages",
+
+  "_field_note": "Field-name overrides map the adapter onto your backend's JSON shape. The defaults below match a sessions:[] + messages-with-blocks[] layout; change only if your backend differs.",
+  "field_updated_at": "updatedAt",
+  "field_created_at": "createdAt",
+  "field_id": "id",
+  "field_title": "title",
+  "field_status": "status",
+  "field_messages": "messages",
+  "field_role": "role",
+  "field_blocks": "blocks",
+  "field_block_type": "type",
+  "field_block_content": "content",
+  "field_block_text_type": "text"
+}
