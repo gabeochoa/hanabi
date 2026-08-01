@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <string>
 
+#include "../test_hooks.h"
 #include "../util/format.h"
 #include "tab_model.h"
 #include "ui_imports.h"
@@ -118,7 +119,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             if (tabX + tabW > stripRight) tabW = room;
 
             bool hovered = afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, RectangleType{tabX, r.y, tabW, tabH});
+                               ctx.mouse.pos,
+                               RectangleType{tabX, r.y, tabW, tabH}) ||
+                           // Test-only: force one tab's hover branch (to
+                           // capture the hovered-tab styling headlessly).
+                           // No-op unless HANABI_TEST_HOVER=tab:<sessionId>.
+                           hanabi::test_hooks::force_hover("tab:" +
+                                                           tab.sessionId);
 
             afterhours::Color bg = isActive  ? tab_colors::tab_active()
                                    : hovered ? tab_colors::tab_hover()

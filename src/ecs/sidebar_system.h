@@ -16,6 +16,7 @@
 #include <cctype>
 #include <string>
 
+#include "../test_hooks.h"
 #include "../util/format.h"
 #include "../ui/icons.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
@@ -899,7 +900,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // a filled accent star; a hovered-unstarred row shows a faint hollow
         // star to toggle; an unhovered-unstarred row shows nothing.
         bool rowHovered = ctx.was_hot(row.ent().id) ||
-                          ctx.is_hot(row.ent().id);
+                          ctx.is_hot(row.ent().id) ||
+                          // Test-only: force one row's hover (e.g. to capture
+                          // the star-on-hover affordance headlessly). No-op
+                          // unless HANABI_TEST_HOVER=row:<sessionId>.
+                          hanabi::test_hooks::force_hover("row:" + s.id);
         if (s.starred || rowHovered) {
             theme::Color starColor =
                 s.starred ? theme::tag_ready_fg() : theme::text_faint();

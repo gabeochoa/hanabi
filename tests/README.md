@@ -98,3 +98,57 @@ See `todo.md` → **Perf baseline** for the dated snapshot.
   validation in `docs/phased-plan.md`.
 - No `vendor/` (afterhours) file is modified by any test; missing capabilities
   are logged in `afterhours_gaps.md`.
+
+## End-to-end screenshot harness (`scripts/screens.sh`)
+
+`bash scripts/screens.sh` captures a PNG of **every screen / notable UI state**
+the headless `--screenshot` path can reach, into `/tmp/hanabi_screens/`
+(override with `HANABI_SCREENS_OUT`). One command, review-them-all-at-once.
+It exits non-zero if any capture is missing or not exactly 1100×760.
+
+Per state it writes the matching `settings.json`, runs the app headless with a
+per-shot timeout, `pkill`s any stray `hanabi.exe`, and verifies dimensions.
+
+**Isolation / safety.** Each capture runs with `HOME` pointed at a throwaway
+temp dir, so our `settings.json` is written and read *there* — the user's real
+`~/Library/Application Support/hanabi/settings.json` is never touched by a
+render. As belt-and-suspenders, the script also backs the real file up front
+and restores it byte-for-byte on exit (trap), asserting an md5 match. Backend
+is forced to the zero-config mock (`HANABI_BACKEND=mock`) and runtime backend
+config is isolated (`HANABI_CONFIG=/tmp/none_$$`).
+
+**States captured:** `home_dark`, `home_light`, `transcript_dark`,
+`transcript_light`, `transcript_t6_dark` (different sub-agent panel),
+`hover_row_star_dark`, `hover_tab_dark`.
+
+**States NOT capturable headlessly today** (the script prints these too, with
+reasons): the Blocked/Review/Starred **smart views** (active view is set by a
+sidebar *click*, not persisted in settings — only Home/Chat are reachable via
+`open_tabs`); **sidebar_folded** (`sidebarCollapsed` is toggle-only, not
+persisted); the **settings / composer overlays** (`showSettings`/`composerOpen`
+are keypress-toggled, never read from settings); and **transcript_empty** (the
+zero-config mock's sample sessions all have ≥1 message). Each would need a new
+persisted setting or a small test-only env knob (e.g. `HANABI_TEST_VIEW`,
+`HANABI_TEST_OVERLAY`) read once in `setup_app_state`.
+
+### Test-only hover hook (`src/test_hooks.h`)
+
+The headless capture has no mouse, so true hover states (row star-on-hover,
+tab hover) can't arise from hit-testing. `src/test_hooks.h` adds a tiny hook,
+`hanabi::test_hooks::force_hover(name)`, gated **entirely** behind the
+`HANABI_TEST_HOVER` env var: it returns true only when that var is set and
+equals `name`, and is a **hard no-op returning false when unset** — so every
+normal windowed run, every ordinary screenshot, and every test that doesn't opt
+in renders byte-identically to before the hook existed (the env var is read
+once and cached). It only ever turns a hover branch *on*; it never suppresses a
+real hover and never mutates app/UI state. It is wired into exactly two hover
+branches:
+
+- sidebar chat row → `HANABI_TEST_HOVER=row:<sessionId>` reveals that row's
+  hollow-star affordance (target an *unstarred* row, e.g. `row:t2`).
+- content tab → `HANABI_TEST_HOVER=tab:<sessionId>` lights that tab's hover bg
+  (target a *non-active* tab, e.g. `tab:t6`).
+
+No `vendor/` file is modified; the hover hot-state machinery lives in vendored
+afterhours (which we don't patch), so the hook is applied in *our* render code
+at the point where we already branch on hover.
