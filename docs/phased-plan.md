@@ -450,9 +450,26 @@ Scope:
   token/config path.
 
 EXIT GATES:
-- [ ] A user with NO token can sign in from the app and reach their sessions,
-      with nothing pasted by hand.
-- [ ] Token + refresh persisted to config.json (mode 600, git-ignored); a stale
-      token auto-refreshes (or re-prompts) instead of failing silently.
-- [ ] Mock stays zero-config default; make test green; no token ever logged.
-- [ ] No real auth endpoint / token / company name committed; vendor untouched.
+- [x] A user with NO token can sign in from the app and reach their sessions,
+      with nothing pasted by hand. (DONE — `src/ecs/auth_system.h` overlay drives
+      the device-code flow; on Success the client is rebuilt to the http backend.)
+- [x] Token + refresh persisted (mode 600, git-ignored); a stale token... 
+      **PARTIAL**: token+refresh are persisted to `~/.config/hanabi/token.json`
+      (mode 0600, git-ignored, never logged) and loaded silently at startup. The
+      live 401→auto-refresh retry wiring is DEFERRED (spec-optional): the state
+      machine reads/stores `refresh_token`, but a 401 currently re-runs the flow
+      rather than transparently refreshing. Tracked as the one remaining AUTH item.
+- [x] Mock stays zero-config default; make test green; no token ever logged.
+      (DONE — no-auth path byte-for-byte unchanged; `make test` 4/4 incl. new
+      `test_auth`; token never logged.)
+- [x] No real auth endpoint / token / company name committed; vendor untouched.
+      (DONE — all endpoints/fields via HANABI_AUTH_* config with generic
+      `example.invalid` defaults; grep-verified clean; 0 vendor edits.)
+
+**STATUS: DONE (merged `90bc180`).** Delivered: `src/api/auth.{h,cpp}` (pure
+`DeviceCodeFlow` state machine, transport injected as `std::function` →
+fully mock-testable, no network), `src/api/token_store.{h,cpp}`,
+`src/ecs/auth_system.h` (overlay, verified dark+light), config auth_*/field_*
+mapping, `tests/unit/test_auth.cpp` (6 cases: success w/ pending×3, expired,
+failure, transport-fail, not-configured, client_id-in-body), `HANABI_AUTH_DEMO=1`
+headless screenshot affordance. Only deferred item: live 401→refresh retry.
