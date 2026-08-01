@@ -81,7 +81,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
-        if (!folded) render_search(ctx, panel.ent(), *app, r.width);
+        if (!folded) render_search(ctx, panel.ent(), *app, r.x, r.y, r.width);
         render_smart_views(ctx, panel.ent(), *app, folded, r.width);
 
         if (folded) return;  // rail stops after icon views
@@ -163,6 +163,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // families flush to a single edge.
     static constexpr float kCountColW = 30.0f;   // count box width
     static constexpr float kCountRightPad = 12.0f;  // inset from panel right
+    // Per-row trailing relative-time column width ("2h" / "Jul 28"). Wide
+    // enough for a short absolute date so old rows aren't clipped; kept small
+    // so the title still gets most of the row.
+    static constexpr float kRowTimeColW = 46.0f;
     // A count's LEFT edge (== its column start x) is the same for every
     // section: panelW − kCountRightPad − kCountColW. Given a section's own
     // left inset, the label column width is that start-x minus the left inset
@@ -177,30 +181,52 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- time-based grouping for the un-foldered "Recent" catch-all ----
     // Real backends return sessions with no folder and mostly-calm state, so a
-    // flat "Recent (102)" catch-all isn't scannable. We bucket the catch-all's
-    // sessions by their updated_at into chat-app-standard groups. The
-    // classification is a pure, now-injected function so it is deterministic
-    // (updated_at is unix epoch seconds; 0 = unknown). Kept local to this owned
-    // file so this change touches a single file.
-    enum class TimeBucket { Today, ThisWeek, Earlier };
+    // flat "Recent (102)" catch-all isn't scannable. Worse: on a real backend
+    // ~all sessions are older than a week, so a coarse Today/This-Week/Earlier
+    // split dumped ~100 rows into ONE flat "Earlier (100)" bucket — still not
+    // scannable. So we bucket into the finer chat-app-standard set:
+    //   Today / Yesterday / Previous 7 Days / Previous 30 Days / Older
+    // Each non-empty bucket is its own collapsible dated section, so a big
+    // backlog breaks into several scannable groups. The classification is a
+    // pure, now-injected function so it is deterministic (updated_at is unix
+    // epoch seconds; 0 = unknown). Kept local to this owned file.
+    enum class TimeBucket { Today, Yesterday, PrevWeek, PrevMonth, Older };
 
-    // Classify `updated_at` relative to `now` (both unix epoch seconds):
-    //   Today    = same LOCAL calendar day as `now`
-    //   ThisWeek = within the last 7*24h (rolling), and not Today
-    //   Earlier  = older than 7 days, in the future (clock skew), or unknown(0)
+    // Classify `updated_at` relative to `now` (both unix epoch seconds). The
+    // day boundaries are LOCAL-calendar based (so "Today"/"Yesterday" match the
+    // user's wall clock), and the wider buckets are rolling day-count windows
+    // measured from local midnight so a session doesn't drift between buckets
+    // within a day:
+    //   Today      = same LOCAL calendar day as `now`
+    //   Yesterday  = the local calendar day before today
+    //   PrevWeek   = 2..7 days before today (this week's earlier days)
+    //   PrevMonth  = 8..30 days before today
+    //   Older      = >30 days, in the future (clock skew), or unknown(0)
     static TimeBucket time_bucket(int64_t updated_at, int64_t now) {
-        if (updated_at <= 0) return TimeBucket::Earlier;   // unknown
-        if (updated_at > now) return TimeBucket::Earlier;  // future / skew
+        if (updated_at <= 0) return TimeBucket::Older;   // unknown
+        if (updated_at > now) return TimeBucket::Older;  // future / skew
+        // Whole-day difference between the two LOCAL calendar dates. We compare
+        // by local midnight of each so DST / partial days don't misbucket.
+        const int64_t day = 24 * 60 * 60;
         std::time_t nt = static_cast<std::time_t>(now);
         std::time_t ut = static_cast<std::time_t>(updated_at);
         std::tm ntm{};
         std::tm utm{};
         localtime_r(&nt, &ntm);
         localtime_r(&ut, &utm);
-        if (ntm.tm_year == utm.tm_year && ntm.tm_yday == utm.tm_yday)
-            return TimeBucket::Today;
-        if (now - updated_at < 7 * 24 * 60 * 60) return TimeBucket::ThisWeek;
-        return TimeBucket::Earlier;
+        // Local midnight (00:00:00) of each date.
+        std::tm nmid = ntm;
+        nmid.tm_hour = nmid.tm_min = nmid.tm_sec = 0;
+        std::tm umid = utm;
+        umid.tm_hour = umid.tm_min = umid.tm_sec = 0;
+        std::time_t n0 = std::mktime(&nmid);
+        std::time_t u0 = std::mktime(&umid);
+        int64_t days = static_cast<int64_t>((n0 - u0) / day);
+        if (days <= 0) return TimeBucket::Today;
+        if (days == 1) return TimeBucket::Yesterday;
+        if (days <= 7) return TimeBucket::PrevWeek;
+        if (days <= 30) return TimeBucket::PrevMonth;
+        return TimeBucket::Older;
     }
 
     // Stable display label + collapse key per bucket. The key drives the
@@ -209,18 +235,52 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static const char* time_bucket_label(TimeBucket b) {
         switch (b) {
             case TimeBucket::Today: return "Today";
-            case TimeBucket::ThisWeek: return "This Week";
-            case TimeBucket::Earlier: return "Earlier";
+            case TimeBucket::Yesterday: return "Yesterday";
+            case TimeBucket::PrevWeek: return "Previous 7 Days";
+            case TimeBucket::PrevMonth: return "Previous 30 Days";
+            case TimeBucket::Older: return "Older";
         }
-        return "Earlier";
+        return "Older";
     }
     static const char* time_bucket_key(TimeBucket b) {
         switch (b) {
             case TimeBucket::Today: return "__t_today__";
-            case TimeBucket::ThisWeek: return "__t_week__";
-            case TimeBucket::Earlier: return "__t_earlier__";
+            case TimeBucket::Yesterday: return "__t_yesterday__";
+            case TimeBucket::PrevWeek: return "__t_week__";
+            case TimeBucket::PrevMonth: return "__t_month__";
+            case TimeBucket::Older: return "__t_older__";
         }
-        return "__t_earlier__";
+        return "__t_older__";
+    }
+
+    // Compact right-aligned per-row timestamp derived from `updated_at`
+    // (relative to `now`). Recent rows read as a relative age ("now","5m",
+    // "3h","2d","4w"); anything older than the finest week bucket reads as an
+    // absolute short date ("Jul 28") so a year-old row isn't a giant "58w".
+    // Returns "" for an unknown (0) or future timestamp so the slot stays
+    // blank rather than lying. Pure + now-injected for headless testing.
+    static std::string row_time_label(int64_t updated_at, int64_t now) {
+        if (updated_at <= 0 || updated_at > now) return "";
+        int64_t secs = now - updated_at;
+        const int64_t day = 24 * 60 * 60;
+        if (secs < 60) return "now";
+        if (secs < 60 * 60) return std::to_string(secs / 60) + "m";
+        if (secs < day) return std::to_string(secs / 3600) + "h";
+        if (secs < 7 * day) return std::to_string(secs / day) + "d";
+        // Older than a week: absolute short date ("Jul 28"), and append the
+        // year when it differs from now's year so an old row is unambiguous.
+        std::time_t ut = static_cast<std::time_t>(updated_at);
+        std::time_t nt = static_cast<std::time_t>(now);
+        std::tm utm{};
+        std::tm ntm{};
+        localtime_r(&ut, &utm);
+        localtime_r(&nt, &ntm);
+        char buf[24];
+        if (utm.tm_year == ntm.tm_year)
+            std::strftime(buf, sizeof(buf), "%b %-d", &utm);
+        else
+            std::strftime(buf, sizeof(buf), "%b %-d %Y", &utm);
+        return std::string(buf);
     }
 
     // ASCII-lowercase a copy (search is case-insensitive; titles are UTF-8 but
@@ -274,13 +334,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- status glyph (shape-per-status) ----
-    // The compact sidebar rows no longer carry a text tag chip. Instead each
-    // attention-worthy row gets a small SHAPE-per-status glyph at its left,
-    // so status is readable by SHAPE (not color alone), mirroring the mock:
+    // The compact sidebar rows no longer carry a text tag chip. Instead EVERY
+    // row gets a leading indicator slot of the SAME size, so no row looks
+    // "unlabeled". Attention-worthy rows get a SHAPE-per-status glyph (status
+    // readable by SHAPE, not color alone, mirroring the mock); calm rows get a
+    // small neutral resting dot rather than a blank slot:
     //   Blocked / needs-you -> RED UP-TRIANGLE  (most urgent)
     //   Review (agent-verified) -> GREEN DIAMOND (square rotated 45 deg)
     //   Done -> BLUE DOT (filled circle)
-    //   working / parked / archived -> NO glyph (calm)
+    //   working / parked / archived / calm -> small FAINT neutral dot (calm)
     using Glyph = ecs::model::Glyph;
 
     // Precedence follows the mock's JS ordering: blocked, then review, then
@@ -302,12 +364,29 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // Draw the status glyph centered inside `rect` (the on-screen rect of the
     // small glyph slot). Uses afterhours' real shape primitives — filled
     // triangle, a 4-sided poly rotated 45 deg for the diamond, and a circle —
-    // so the three statuses are visually distinct by SHAPE, not just color.
+    // so the three attention statuses are visually distinct by SHAPE, not just
+    // color. EVERY row draws SOMETHING in this slot: an attention row gets its
+    // shape-glyph, a calm row gets a small NEUTRAL dot (not blank), so no row
+    // reads as "unlabeled / second-class". The calm dot is deliberately small
+    // and faint (a resting bullet), distinct in both size and color from the
+    // blue Done dot, so shape+color still separates the four states:
+    //   Triangle (red)   blocked / waiting-on-you
+    //   Diamond  (green) ready for review
+    //   Dot 4px  (blue)  done
+    //   Dot 2.4px(faint) calm  (working / parked / archived / no signal)
     static void draw_glyph(RectangleType rect, Glyph g) {
-        if (g == Glyph::None) return;
-        const theme::Color c = glyph_color(g);
         const float cx = rect.x + rect.width * 0.5f;
         const float cy = rect.y + rect.height * 0.5f;
+        if (g == Glyph::None) {
+            // Calm rows: a small, faint resting bullet so the row still reads
+            // as intentionally-labeled (calm), not blank/broken. Smaller than
+            // the 4px Done dot and drawn in the faint token so it never
+            // competes with a real status.
+            afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 2.4f,
+                                      theme::text_faint());
+            return;
+        }
+        const theme::Color c = glyph_color(g);
         switch (g) {
             case Glyph::Triangle: {
                 // Up-pointing equilateral-ish triangle, ~9px tall / 10px wide.
@@ -504,7 +583,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // fixed siblings overflows the row every frame. So we size the text field
     // in PIXELS = the field's inner content width minus those reserved slots.
     void render_search(UIContext<InputAction>& ctx, Entity& parent,
-                       AppComponent& app, float panelW) {
+                       AppComponent& app, float panelX, float panelY,
+                       float panelW) {
         // Wrap in a full-width padded row so the search field itself never
         // extends past the sidebar (margins on a percent(1.0) child overflow).
         auto wrap = div(ctx, mk(parent, 2),
@@ -595,6 +675,40 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("sb_search_clear"));
             if (clr) app.searchQuery.clear();
         }
+
+        // Placeholder (defect 13): afterhours' text_input has no native
+        // placeholder AND it forces an opaque Secondary fill over its own rect
+        // (gap #17), so a placeholder painted *behind* the input is covered.
+        // We instead overlay a faint "Search conversations" ON TOP of the empty
+        // input via an absolutely-positioned child (out of flex flow, so it
+        // never shifts the field) whose on_draw_fg paints the hint text. Only
+        // rendered while the query is empty; the moment the user types, the
+        // real glyphs replace it. The field origin is derived from the sidebar
+        // panel geometry: panel(panelX,panelY) → header 40 → search wrap
+        // (top pad 4) → field (left pad 8 + magnifier slot 18). See the search
+        // layout notes above for the reserved slots.
+        if (app.searchQuery.empty()) {
+            const float phX = panelX + 10.0f + 8.0f + 18.0f + 4.0f;  // text start
+            const float phY = panelY + 40.0f + 4.0f;                 // field top
+            const float phW = panelW - (phX - panelX) - 12.0f;
+            div(ctx, mk(parent, 9),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(phW > 20.0f ? phW : 20.0f),
+                                             pixels(30)})
+                    .with_absolute_position()
+                    .with_translate(phX, phY)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(3)
+                    .with_on_draw_fg([](RectangleType rect) {
+                        const float px = theme::type::ROW;
+                        const float ty = rect.y + rect.height * 0.5f - px * 0.5f;
+                        afterhours::draw_text("Search conversations", rect.x, ty,
+                                              px, theme::text_faint());
+                    })
+                    .with_debug_name("sb_search_placeholder"));
+        }
     }
 
     // ---- section label (mock .sb-section-label: 10.5px uppercase faint,
@@ -664,13 +778,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (foldBtn) {
             app.foldAllFolders = !app.foldAllFolders;
             // Apply to every folder key so all fold/unfold in lockstep. The
-            // Recent catch-all renders as time-group headers (Today / This
-            // Week / Earlier) rather than a single "recent" header, so fold-all
-            // targets those bucket keys too.
+            // Recent catch-all renders as time-group headers (Today /
+            // Yesterday / Previous 7/30 Days / Older) rather than a single
+            // "recent" header, so fold-all targets those bucket keys too.
             static const char* kKeys[] = {
-                "stars",       "oncall",     "experiments",
-                "__t_today__", "__t_week__", "__t_earlier__",
-                "__archived__"};
+                "stars",           "oncall",       "experiments",
+                "__t_today__",     "__t_yesterday__", "__t_week__",
+                "__t_month__",     "__t_older__",  "__archived__"};
             if (app.foldAllFolders) {
                 for (const char* k : kKeys) app.collapsedFolders.insert(k);
             } else {
@@ -983,13 +1097,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- time-based grouping for the Recent catch-all ----
-    // Splits `members` into Today / This Week / Earlier buckets by updated_at
-    // (relative to the system clock) and renders each NON-EMPTY bucket as its
-    // own collapsible group, reusing the folder-header + collapse machinery.
-    // Buckets render newest-first (Today, This Week, Earlier); within a bucket
-    // the order is whatever the members vector already carries (newest-first
-    // from the backend sort). Each bucket gets its own id block so entity ids
-    // never collide (base + 0..N per bucket; buckets are >=250 apart).
+    // Splits `members` into Today / Yesterday / Previous 7 Days / Previous 30
+    // Days / Older buckets by updated_at (relative to the system clock) and
+    // renders each NON-EMPTY bucket as its own collapsible group, reusing the
+    // folder-header + collapse machinery. This turns a real backend's flat
+    // "Recent (100)" — which a coarse 3-bucket split would just re-pile into
+    // one "Earlier (100)" — into several scannable dated sections. Buckets
+    // render newest-first; within a bucket the order is whatever the members
+    // vector already carries (newest-first from the backend sort). Each bucket
+    // gets its own id block so entity ids never collide.
     int render_time_groups(
         UIContext<InputAction>& ctx, Entity& parent, int base,
         const std::vector<const api::SessionSummary*>& members,
@@ -997,12 +1113,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
 
         // Partition, preserving each member's incoming (newest-first) order.
-        std::vector<const api::SessionSummary*> today, week, earlier;
+        std::vector<const api::SessionSummary*> today, yesterday, week, month,
+            older;
         for (const auto* s : members) {
             switch (time_bucket(s->updated_at, now)) {
                 case TimeBucket::Today: today.push_back(s); break;
-                case TimeBucket::ThisWeek: week.push_back(s); break;
-                case TimeBucket::Earlier: earlier.push_back(s); break;
+                case TimeBucket::Yesterday: yesterday.push_back(s); break;
+                case TimeBucket::PrevWeek: week.push_back(s); break;
+                case TimeBucket::PrevMonth: month.push_back(s); break;
+                case TimeBucket::Older: older.push_back(s); break;
             }
         }
 
@@ -1010,19 +1129,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Each bucket is rendered as its own collapsible group. The id blocks
         // are spaced 300 apart (well above any realistic bucket row count) so
         // entity ids never collide across buckets or with the next folder's
-        // base (folders are 1000 apart).
+        // base (folders are 1000 apart; 5 buckets * 300 = 1500 would exceed the
+        // 1000 spacing, so time-groups get a WIDER 200-apart base range that
+        // fits inside the Recent folder's 4000..4999 block — see note). We keep
+        // each bucket to a 200-id slot; 5 * 200 = 1000, exactly the folder
+        // spacing, and a bucket can hold ~199 rows before touching the next
+        // slot (plenty for a real backlog).
         struct B {
             TimeBucket b;
             const std::vector<const api::SessionSummary*>* rows;
         };
         const B order[] = {{TimeBucket::Today, &today},
-                           {TimeBucket::ThisWeek, &week},
-                           {TimeBucket::Earlier, &earlier}};
+                           {TimeBucket::Yesterday, &yesterday},
+                           {TimeBucket::PrevWeek, &week},
+                           {TimeBucket::PrevMonth, &month},
+                           {TimeBucket::Older, &older}};
         int slot = 0;
         for (const auto& e : order) {
             if (!e.rows->empty()) {
                 shown += render_group(
-                    ctx, parent, base + slot * 300, time_bucket_label(e.b),
+                    ctx, parent, base + slot * 200, time_bucket_label(e.b),
                     time_bucket_key(e.b), *e.rows, app, q, panelW, archived);
             }
             ++slot;
@@ -1097,19 +1223,31 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         //
         // Width is in PIXELS, not percent(1.0): afterhours has no flex-grow
         // (afterhours_gaps.md #18), so a percent(1.0f) title in this NoWrap
-        // row means 100% of the row and would overflow past the glyph + star
-        // siblings every frame. The row content box = panelW − row pad
-        // (left 22 + right 8) = panelW − 30. Reserve the 12px glyph slot and
-        // ALWAYS the 18px star slot (the star renders only on hover / when
-        // starred, but reserving its slot unconditionally keeps the title
-        // width — and thus the row layout — stable so rows don't reflow when
-        // hovered). Title width = panelW − 30 − 12 − 18 = panelW − 60,
-        // clamped to a sane min so a narrow sidebar never goes negative.
-        float rowTitleW = panelW - 60.0f;
+        // row means 100% of the row and would overflow past the glyph + time +
+        // star siblings every frame. The row content box = panelW − row pad
+        // (left 22 + right 8) = panelW − 30. Reserve, in order:
+        //   glyph slot   12px  (leading status indicator — always drawn)
+        //   time slot    kRowTimeColW (trailing relative-time — always reserved)
+        //   star slot    18px  (renders on hover / when starred, but ALWAYS
+        //                       reserved so the row doesn't reflow on hover)
+        // Title width = panelW − 30 − 12 − kRowTimeColW − 18, clamped to a sane
+        // min so a narrow sidebar never goes negative. The time + star slots
+        // are ADJACENT on the right (time left of star) and both fixed, so the
+        // faint timestamp never collides with the star/glyph (gap #18 width
+        // math — we size every column in pixels).
+        float rowTitleW = panelW - 30.0f - 12.0f - kRowTimeColW - 18.0f;
         if (rowTitleW < 40.0f) rowTitleW = 40.0f;
+        // Ellipsize to the title column's width. At ROW size a char is ~6.4px;
+        // budget conservatively (÷6.6) so a long title truncates INSIDE its
+        // column instead of bleeding under the timestamp. Clamp to a sane
+        // range so a narrow sidebar still shows a few chars and a wide one
+        // doesn't over-truncate.
+        size_t titleChars = static_cast<size_t>(rowTitleW / 6.6f);
+        if (titleChars < 8) titleChars = 8;
+        if (titleChars > 40) titleChars = 40;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(s.title, 34))
+                .with_label(fmtutil::ellipsize(s.title, titleChars))
                 .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
@@ -1117,6 +1255,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));
+
+        // Per-row relative timestamp: a small, faint, right-aligned age
+        // ("2h","3d","Jul 28") so a row is more than a bare title. Subtle by
+        // design (SM size, faint token) so it reads as metadata, not a second
+        // title. Fixed-width slot sized in pixels (gap #18) sitting just left
+        // of the star slot, so it never collides with the star or the leading
+        // glyph. Empty label (unknown/future updated_at) => the slot renders
+        // blank but still reserves its width, keeping row layout stable.
+        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
+        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
+        div(ctx, mk(row.ent(), 4),
+            ComponentConfig{}
+                .with_label(ageLabel)
+                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("row_time"));
 
         // Star affordance: shown when the row is HOVERED, or always when the
         // thread is already starred (so starred state stays visible at rest).

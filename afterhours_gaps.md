@@ -311,6 +311,23 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   `text_input` when provided (fall back to the height-derived size only when
   unset), and let `with_custom_background` override the forced
   `Theme::Usage::Secondary` field fill.
+- **Follow-on (2026-08-01, sidebar search): no placeholder / empty-state hint.**
+  `text_input` has no `with_placeholder(...)` — an empty field renders as a
+  bare box, so the sidebar search read as an unlabeled box + magnifier
+  (hostile-review defect 13). Compounding it, the forced opaque
+  `Theme::Usage::Secondary` fill (above) means a placeholder painted BEHIND the
+  input is COVERED by the field's own fill — you can't just draw hint text under
+  it. **App-code workaround (used):** paint a faint "Search conversations" hint
+  as an ABSOLUTELY-positioned overlay child (out of flex flow, so it never
+  shifts the input) at a higher render layer than the input, drawn via
+  `on_draw_fg` + `afterhours::draw_text` and rendered only while the query is
+  empty. The overlay's screen origin is derived from the sidebar panel geometry
+  (panel xy → header height → search-wrap/field paddings + magnifier slot). See
+  `src/ecs/sidebar_system.h` (render_search, `sb_search_placeholder`).
+  **Minimal upstream help (optional):** add `with_placeholder(std::string)` to
+  `text_input` that renders the faint hint inside the field when the bound
+  string is empty (drawn on top of the field fill, cleared on first keystroke) —
+  the standard text-field affordance.
 
 ### #18 — no flex-grow: can't pin a trailing element to the right edge
 - **Gap:** afterhours' flex layout has no `flex-grow` / "fill remaining space" on a
