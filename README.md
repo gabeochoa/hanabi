@@ -1,8 +1,10 @@
 # hanabi
 
-A small, fast **native desktop client** for browsing conversation sessions.
+A small, fast **native desktop client** for AI assistant conversations.
 A single collapsible sidebar (smart views + folders) on the left, VS Code-style
-tabs across the top, and the full transcript in the main pane.
+tabs across the top, and the full transcript — with an inline composer — in the
+main pane. Browse your threads, kick off new tasks, and reply inline with a live
+token-by-token stream.
 
 Built with **C++23**, the [afterhours](https://github.com/gabeochoa/afterhours)
 ECS + immediate-mode UI framework, and **Sokol** (Metal on macOS) for rendering.
@@ -21,13 +23,32 @@ ECS + immediate-mode UI framework, and **Sokol** (Metal on macOS) for rendering.
   to close the active tab. Switching tabs swaps the transcript.
 - **Tab persistence.** The open tab set and the active tab are saved and
   restored across launches.
-- **High-signal rows.** A row shows an attention dot + bold title **only** when
-  it's done or waiting on you. Self-running threads are dimmed and calm (no dot,
-  no bold); parked and archived threads are greyed. At most one tag chip per row
-  (Blocked / Review / Done). The status bar shows the blocked-on-you count.
-- **Smart views.** Home (a digest ordered waiting-on-you → finished →
-  self-running), Blocked, Review (agent-verified / ready to look at), and
-  Starred — each swaps the main pane. Plus user folders + Archived.
+- **Interactive composer.** A persistent composer at the bottom of the
+  transcript. Type a reply and **Send** to continue an open thread, or use
+  **New task** (`+` / Cmd+N) to kick one off. Replies stream back **live,
+  token-by-token** — the assistant bubble appears immediately and fills in as
+  tokens arrive, with a *thinking… / streaming…* affordance. Works fully offline
+  against the mock; a config-driven SSE adapter drives it against a real backend.
+- **In-app device-code login.** Point hanabi at a real backend without pasting a
+  token: an in-app device-code flow shows a short code + a verification URL,
+  polls until you approve in your browser, then persists the token (mode 0600,
+  git-ignored). Entirely opt-in and config-driven — the zero-config mock needs
+  no auth.
+- **Menu-bar extra.** A native `NSStatusItem` shows the blocked-on-you count
+  (`✦ N`) with a dropdown: Show hanabi, New task…, Quit — ambient presence
+  without opening the window.
+- **High-signal rows.** A row shows a status glyph + bold title **only** when
+  it's blocked, needs you, review, or done — with a dedicated *shape* per state
+  (red triangle blocked, green diamond review, dot done). Self-running threads
+  are dimmed and calm; parked/archived are greyed; scheduled/cron rows are muted
+  with a distinct repeat glyph. The status bar shows the blocked-on-you count.
+- **Starred threads.** Star any thread from its sidebar row; stars persist across
+  launches and surface in the Starred smart view.
+- **Smart views.** Home (a digest grouped waiting-on-you → finished →
+  self-running, each header color-coded by state), Blocked, Review, and Starred —
+  each swaps the main pane. Plus user folders + Archived.
+- **Native icons.** A single Lucide (ISC) spritesheet — one replaceable
+  `resources/icons/icons.png` atlas, tinted per theme at draw time.
 - **Light / dark theming.** All colors flow from a single swappable token set
   (`src/ui/theme.h`), switchable at runtime and persisted. Dark by default.
 
@@ -39,16 +60,21 @@ interface (`src/api/client.h`). Two implementations ship:
 - **`mock`** *(default)* — deterministic, in-memory sample data (a spread of
   thread states so smart views / folders / high-signal rows all have real
   content to render). The app builds and runs standalone with **no
-  configuration and no network access**.
+  configuration and no network access** — including interactive replies and
+  live streaming, simulated locally.
 - **`http`** — a generic REST adapter. It has **no service baked in**: the base
-  URL, auth token, request paths, and even the JSON field names it reads are
-  **all supplied at runtime** via environment variables. Nothing about any
-  particular backend is compiled into this repository. The high-signal
-  attention model degrades to a calm/unknown state when the backend doesn't
-  supply one.
+  URL, auth token, request/chat/stream/auth paths, and even the JSON field names
+  it reads are **all supplied at runtime** via a config file or environment
+  variables. Nothing about any particular backend is compiled into this
+  repository. The high-signal attention model degrades to a calm/unknown state
+  when the backend doesn't supply one.
 
-This keeps the app useful out of the box and lets you point it at whatever
-backend you like without touching the code.
+Every capability sits behind that one seam: browse (`list_sessions` /
+`get_session`), kick off (`create_session`), reply (`send_message`), stream
+(`send_message_streaming`), and authenticate (device-code flow) all have a
+zero-config mock implementation and a config-driven http one. This keeps the app
+useful out of the box and lets you point it at whatever backend you like without
+touching the code.
 
 ## Build
 
@@ -99,7 +125,10 @@ Every config key also has an env var, which overrides the file:
 | `HANABI_TOKEN` | bearer token (never logged or stored) | *(none)* |
 | `HANABI_SESSIONS_PATH` | path for the session list | `/sessions` |
 | `HANABI_MESSAGES_PATH` | transcript path template (`{id}` placeholder) | `/sessions/{id}/messages` |
-| `HANABI_FIELD_*` | JSON field-name overrides (`ID`, `TITLE`, `UPDATED_AT`, `STATUS`, `PREVIEW`, `MESSAGES`, `ROLE`, `TEXT`, `CREATED_AT`, `BLOCKS`, `BLOCK_TYPE`, `BLOCK_CONTENT`, `BLOCK_TEXT_TYPE`) | generic names |
+| `HANABI_CHAT_PATH` | POST path for kickoff/reply (`{id}` for reply) | *(opt-in)* |
+| `HANABI_STREAM_PATH` | SSE path for a live streamed reply (`{id}`) | *(opt-in)* |
+| `HANABI_AUTH_*` | device-code endpoints/fields (`DEVICE_PATH`, `TOKEN_PATH`, `CLIENT_ID`, `SCOPE`, …) | *(opt-in)* |
+| `HANABI_FIELD_*` | JSON field-name overrides (`ID`, `TITLE`, `UPDATED_AT`, `STATUS`, `PREVIEW`, `MESSAGES`, `ROLE`, `TEXT`, `CREATED_AT`, `BLOCKS`, `BLOCK_TYPE`, `BLOCK_CONTENT`, `BLOCK_TEXT_TYPE`, `PROMPT`, `EVENT_*`) | generic names |
 
 If `http` is selected but no base URL is set, the app cleanly falls back to the
 `mock` backend.
@@ -128,15 +157,26 @@ stay in your local (git-ignored) `config.json` or your shell.
 ```
 src/
 ├── api/          # backend-agnostic client interface + mock/http adapters
+│   ├── client.h            # the Client seam (list/get/create/send/stream/auth)
+│   ├── mock_client.h       # zero-config offline sample data (+ mock stream)
+│   ├── http_client.*       # generic REST adapter (config-driven; SSE parser)
+│   ├── auth.*              # device-code login state machine (pure, testable)
+│   ├── token_store.*       # persist the acquired token (mode 0600, ignored)
+│   └── config.*            # file + env config (nothing baked in)
 ├── ecs/          # entities, components, and per-frame systems
-│   ├── loader_system.h     # async data loading
+│   ├── loader_system.h     # async data loading + streamed-reply token drain
 │   ├── layout_system.h     # panel geometry + sidebar collapse animation
 │   ├── sidebar_system.h    # collapsible sidebar (smart views, folders, rows)
 │   ├── tab_bar_system.h    # VS Code-style closable tabs + tab flow/restore
-│   ├── main_pane_system.h  # smart-view digests + transcript
+│   ├── main_pane_system.h  # smart-view digests + transcript + composer
+│   ├── composer_system.h   # New-task sheet
+│   ├── settings_system.h   # settings overlay (theme toggle)
+│   ├── auth_system.h       # device-code login overlay
 │   └── status_bar_system.h # bottom bar (backend + blocked count)
-├── ui/           # theme (swappable light/dark tokens) + design-system presets
-└── util/         # small helpers (formatting, process)
+├── ui/           # theme (swappable light/dark tokens) + presets + icon atlas
+├── util/         # small helpers (formatting, process)
+├── menubar.*     # native NSStatusItem menu-bar extra (Obj-C++)
+└── settings.*    # persisted window/tabs/theme/starred state
 ```
 
 ## License
