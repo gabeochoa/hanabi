@@ -267,6 +267,54 @@ static void test_tab_close_fallback() {
     CHECK(!app.openSession.has_value());
 }
 
+// Explicit tab SWITCHING (Gabe: "make sure switching tabs works"): with several
+// tabs open, switching to any one must (a) keep EXACTLY one ActiveTab marker,
+// (b) set selectedId to that tab, (c) set requestOpenId so the loader reloads
+// the transcript, and (d) set the Chat view — across repeated back-and-forth
+// switches with no leak/duplicate.
+static void test_tab_switch_between_open_tabs() {
+    std::printf("test_tab_switch_between_open_tabs\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t5");
+    CHECK(strip.tabOrder.size() == 3);
+
+    auto tab_for = [&](const std::string& sid) -> afterhours::Entity* {
+        for (auto id : strip.tabOrder) {
+            auto o = afterhours::EntityHelper::getEntityForID(id);
+            if (o.valid() && o->has<ecs::Tab>() &&
+                o->get<ecs::Tab>().sessionId == sid)
+                return &o.asE();
+        }
+        return nullptr;
+    };
+    auto active_count = [&]() {
+        int n = 0;
+        for (auto id : strip.tabOrder) {
+            auto o = afterhours::EntityHelper::getEntityForID(id);
+            if (o.valid() && o->has<ecs::ActiveTab>()) ++n;
+        }
+        return n;
+    };
+
+    // Switch to each open tab in turn (including back-and-forth) and assert the
+    // invariants hold every time.
+    for (const char* target : {"t1", "t5", "t4", "t1", "t4"}) {
+        auto* e = tab_for(target);
+        CHECK(e != nullptr);
+        if (!e) continue;
+        app.requestOpenId.clear();  // prove the switch sets it fresh
+        ecs::model::switch_to_tab(app, *e);
+        CHECK(app.selectedId == target);
+        CHECK(app.requestOpenId == target);  // triggers transcript reload
+        CHECK(app.view == ecs::SmartView::Chat);
+        CHECK(active_count() == 1);  // exactly one active, no leak/dup
+        CHECK(strip.tabOrder.size() == 3);  // switching never adds/removes tabs
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 5) http adapter defaults: with no env config, make_client() returns the
 //    mock; a default summary (what the generic http adapter yields) is calm.
@@ -453,6 +501,7 @@ int main() {
     test_smart_view_filters();
     test_tab_open_focus_no_duplicate();
     test_tab_close_fallback();
+    test_tab_switch_between_open_tabs();
     test_backend_agnostic_defaults();
     test_transcript_cache();
 
