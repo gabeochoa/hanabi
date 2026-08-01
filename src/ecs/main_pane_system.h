@@ -1154,11 +1154,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const size_t liveIdx = app.streamMsgIndex;
 
             int i = 0;
-            for (const auto& m : app.openSession->messages) {
+            const auto& msgs = app.openSession->messages;
+            const int n = static_cast<int>(msgs.size());
+            while (i < n) {
+                const auto& m = msgs[i];
+                // Collapse a RUN of >=2 consecutive tool-role messages into one
+                // "N tool calls" pile (navi-website pattern). A lone tool call
+                // stays a normal block. Never pile the one that's live-streaming
+                // (rare, but keep it visible). This also bounds render cost on a
+                // tool-heavy thread — a collapsed pile is one row, not N blocks.
+                if (m.role == api::Role::Tool) {
+                    int j = i;
+                    while (j < n && msgs[j].role == api::Role::Tool) ++j;
+                    const int runLen = j - i;
+                    if (runLen >= 2) {
+                        tool_pile(ctx, col, i, msgs, i, j, colW);
+                        i = j;
+                        continue;
+                    }
+                }
                 const bool isLive =
                     streamingHere && static_cast<size_t>(i) == liveIdx;
-                render_bubble(ctx, col, i, m, colW, isLive,
-                              app.streamPhase);
+                render_bubble(ctx, col, i, m, colW, isLive, app.streamPhase);
                 ++i;
             }
         }
@@ -1590,6 +1607,105 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Center)
                 .with_roundness(0.0f)
                 .with_debug_name("meta_line"));
+    }
+
+    // A collapsed PILE of >=2 consecutive tool-role messages: one summary row
+    // ("N tool calls · first, second…") that expands to the individual tool
+    // blocks on click (navi-website pattern). Default collapsed — keeps a
+    // tool-heavy transcript scannable and bounds render cost. `keyIndex` is the
+    // pile's stable id source; [lo,hi) is the run within `msgs`.
+    void tool_pile(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
+                   const std::vector<api::Message>& msgs, int lo, int hi,
+                   float paneWidth) {
+        const int count = hi - lo;
+        const std::string key = msgs[lo].id.empty()
+                                    ? ("pile" + std::to_string(keyIndex))
+                                    : msgs[lo].id;
+        AppComponent* app = nullptr;
+        {
+            auto q = afterhours::EntityQuery({.force_merge = true})
+                         .whereHasComponent<AppComponent>()
+                         .gen();
+            if (!q.empty()) app = &q[0].get().get<AppComponent>();
+        }
+        const bool open = app && app->expandedPiles.count(key) != 0;
+
+        // A short summary from the tool subtitles (or a generic "step").
+        auto short_of = [](const api::Message& m) {
+            std::string s = m.subtitle.empty() ? std::string("step") : m.subtitle;
+            return s;
+        };
+        std::string names = short_of(msgs[lo]);
+        if (count >= 2) names += ", " + short_of(msgs[lo + 1]);
+        if (count > 2) names += "\xe2\x80\xa6";  // ellipsis
+
+        float blockW = paneWidth - 60.0f;
+        if (blockW < 160.0f) blockW = 160.0f;
+        if (blockW > kBubbleCap) blockW = kBubbleCap;
+
+        auto wrap = div(ctx, mk(parent, 260 + keyIndex * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(blockW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(6), .right = pixels(0),
+                                    .bottom = pixels(6), .left = pixels(0)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("tool_pile"));
+
+        // Summary row (the interactive header).
+        auto head = div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(0), .right = pixels(11),
+                                      .bottom = pixels(0), .left = pixels(11)})
+                .with_custom_background(
+                    theme::over(theme::accent_soft(), theme::panel_bg()))
+                .with_custom_hover_bg(theme::hover_over(
+                    theme::over(theme::accent_soft(), theme::panel_bg())))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("pile_head"));
+        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (app && head.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (open) app->expandedPiles.erase(key);
+            else app->expandedPiles.insert(key);
+        }
+        // chevron (rotates via the glyph choice) + label + count badge
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label(open ? "\xe2\x96\xbe" : "\xe2\x96\xb8")  // ▾ / ▸
+                .with_size(ComponentSize{pixels(14), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::role_tool())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("pile_chev"));
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(std::to_string(count) + " tool calls  \xc2\xb7  " +
+                            names)
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_margin(Margin{.left = pixels(6)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("pile_label"));
+
+        // Expanded: render each tool block below the summary.
+        if (open) {
+            for (int k = lo; k < hi; ++k)
+                render_tool_block(ctx, wrap.ent(), 1000 + k, msgs[k], paneWidth);
+        }
     }
 
     // A Tool message: a distinct, subtler contained block (left-aligned, a

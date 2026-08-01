@@ -106,6 +106,12 @@ struct AppComponent : public afterhours::BaseComponent {
     // transcript only, never the sidebar.
     std::set<std::string> expandedSubAgents;
 
+    // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
+    // collapse into one "N tool calls" summary row (like the navi website); the
+    // set holds the pile keys (first tool msg id) the user has expanded. Default
+    // collapsed — keeps a tool-heavy thread scannable and bounds render cost.
+    std::set<std::string> expandedPiles;
+
     // Phase K (settings/composer): settings overlay visibility + the theme
     // currently selected in the panel ("dark"/"light"/"system"); composer
     // open state + its draft text for kicking off a new task.
