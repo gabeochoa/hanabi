@@ -1094,8 +1094,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Center)
                     .with_debug_name("transcript_empty"));
         } else {
+            // Capped, CENTERED reading column (critique #5/#6): a real transcript
+            // ran text edge-to-edge across the wide pane (~110ch/line) which is
+            // brutal to read — cap the message column to ~720px (~68ch, the
+            // comfortable-reading measure ChatGPT/Claude use) and center it.
+            constexpr float kMsgCol = 720.0f;
+            float innerW = paneW - 36.0f;
+            float colW = innerW < kMsgCol ? innerW : kMsgCol;
+            Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW);
+
             // Sub-agent panel sits above the messages when the thread has steps.
-            sub_agent_panel(ctx, scroll.ent(), app);
+            sub_agent_panel(ctx, col, app);
 
             // Is a live stream filling one of these bubbles right now? If so,
             // that message index gets the "thinking…" / caret affordance while
@@ -1110,7 +1119,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             for (const auto& m : app.openSession->messages) {
                 const bool isLive =
                     streamingHere && static_cast<size_t>(i) == liveIdx;
-                render_bubble(ctx, scroll.ent(), i, m, paneW, isLive,
+                render_bubble(ctx, col, i, m, colW, isLive,
                               app.streamPhase);
                 ++i;
             }
@@ -1402,11 +1411,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool isUser = (m.role == api::Role::User);
 
         // The visible body text. While a reply is streaming into THIS assistant
-        // bubble, show a subtle live affordance: a "thinking…" placeholder
-        // before the first token lands, then the partial text followed by a
-        // block caret so it reads as an active, filling reply (not a finished
-        // one). The underlying api::Message is untouched — this is a display-
-        // only decoration of the in-progress text.
+        // turn, show a subtle live affordance: a "thinking…" placeholder before
+        // the first token lands, then the partial text followed by a block caret
+        // so it reads as an active, filling reply. The underlying api::Message is
+        // untouched — this is a display-only decoration. Secrets are redacted at
+        // render time (never shoulder-surf a pasted key/JWT).
         std::string body = redact_secrets(m.text);
         if (isLive) {
             if (body.empty() ||
@@ -1417,49 +1426,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        // Usable content column, capped at kBubbleCap for readability.
-        float avail = paneWidth - 60.0f;
-        if (avail < 160.0f) avail = 160.0f;
-        float bubbleW = avail < kBubbleCap ? avail : kBubbleCap;
-        float textW = bubbleW - 28.0f;
-        float h = estimate_height(body, textW);
-
-        // Full-width row: justify FlexEnd (user, right) or FlexStart
-        // (assistant, left). This is what turns a stack of bands into a
-        // two-sided conversation.
-        auto row = div(ctx, mk(parent, 200 + index * 10),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), children()})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(isUser ? JustifyContent::FlexEnd
-                                             : JustifyContent::FlexStart)
-                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
-                                    .bottom = pixels(5), .left = pixels(0)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("bubble_row"));
-
-        // The bubble: a contained card with padding, a subtle role-tinted
-        // surface, and a hairline border so it reads as a floating chip in both
-        // themes (the border sells the lift in light mode).
-        auto bubble = div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(bubbleW), pixels(h)})
-                .with_custom_background(bubble_bg(m.role))
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(7), .right = pixels(14),
-                                      .bottom = pixels(9), .left = pixels(14)})
-                .with_roundness(0.4f)
-                .with_debug_name("bubble"));
-
-        // Sender line: role + optional subtitle + relative age. User rows put
-        // the label right-aligned so it tracks the bubble's trailing edge. A
-        // live (streaming) assistant bubble shows a quiet "· streaming…" hint
-        // instead of an age (it has no final timestamp yet).
-        std::string label = role_label(m.role);
+        // ---- DOC-FEED layout (critique verdict) -------------------------------
+        // The assistant answer is long-form (prose + code + tool traces) so it
+        // renders as a FULL-COLUMN document turn — an author row (colored name +
+        // timestamp) then the body flowing the full reading column, NOT trapped
+        // in a bubble (a bubble balloons to ~85% and floats text in dead padding
+        // — critique #7/#15/#16). The short USER prompt keeps a compact
+        // right-aligned tinted bubble (iMessage-style) so authorship is instantly
+        // clear without fragmenting the turn.
+        std::string label = isUser ? "You" : "hanabi";
         if (!m.subtitle.empty()) label += "  \xc2\xb7  " + m.subtitle;
         if (isLive) {
             label += "  \xc2\xb7  streaming\xe2\x80\xa6";
@@ -1467,29 +1442,95 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             std::string age = fmtutil::relative_time(m.created_at);
             if (!age.empty()) label += "   " + age;
         }
-        div(ctx, mk(bubble.ent(), 1),
+
+        if (isUser) {
+            // Right-aligned compact bubble. Cap width so a short prompt doesn't
+            // stretch; size height to content.
+            float bubbleW = paneWidth * 0.82f;
+            if (bubbleW > 520.0f) bubbleW = 520.0f;
+            float h = estimate_height(body, bubbleW - 28.0f);
+            auto row = div(ctx, mk(parent, 200 + index * 10),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_margin(Margin{.top = pixels(10), .right = pixels(0),
+                                        .bottom = pixels(6), .left = pixels(0)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("user_row"));
+            auto bub = div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(bubbleW), children()})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_custom_background(bubble_bg(m.role))
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_padding(Padding{.top = pixels(7), .right = pixels(14),
+                                          .bottom = pixels(8), .left = pixels(14)})
+                    .with_roundness(0.42f)
+                    .with_debug_name("user_bubble"));
+            div(ctx, mk(bub.ent(), 1),
+                ComponentConfig{}
+                    .with_label(label)
+                    .with_size(ComponentSize{percent(1.0f), pixels(15)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::role_user())
+                    .with_font_size(FontSize::Small)
+                    .with_alignment(TextAlignment::Right)
+                    .with_roundness(0.0f)
+                    .with_debug_name("user_who"));
+            div(ctx, mk(bub.ent(), 2),
+                ComponentConfig{}
+                    .with_label(body)
+                    .with_size(ComponentSize{percent(1.0f), pixels(h - 22.0f)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(FontSize::Medium)
+                    .with_text_overflow(TextOverflow::Wrap)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("user_text"));
+            return;
+        }
+
+        // Assistant: full-column document turn (no bubble container).
+        float textW = paneWidth - 34.0f;  // author-column inset both sides
+        float h = estimate_height(body, textW);
+        auto turn = div(ctx, mk(parent, 200 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(12), .right = pixels(0),
+                                    .bottom = pixels(6), .left = pixels(0)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("asst_turn"));
+        // Author row: colored "hanabi" name + timestamp, ranked above the body.
+        div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{percent(1.0f), pixels(15)})
+                .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                .with_margin(Margin{.bottom = pixels(4)})
                 .with_transparent_bg()
-                .with_custom_text_color(role_color(m.role))
+                .with_custom_text_color(theme::role_assistant())
                 .with_font_size(FontSize::Small)
-                .with_alignment(isUser ? TextAlignment::Right
-                                       : TextAlignment::Left)
+                .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("bubble_role"));
-
-        div(ctx, mk(bubble.ent(), 2),
+                .with_debug_name("asst_who"));
+        div(ctx, mk(turn.ent(), 2),
             ComponentConfig{}
                 .with_label(body)
-                .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
+                .with_size(ComponentSize{percent(1.0f), pixels(h - 18.0f)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
                 .with_text_overflow(TextOverflow::Wrap)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("bubble_text"));
+                .with_debug_name("asst_text"));
     }
 
     // A System message: a quiet, centered, muted caption — conversation
