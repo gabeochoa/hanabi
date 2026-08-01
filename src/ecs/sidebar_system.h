@@ -30,6 +30,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
 
+        // The immediate-mode text_input forces its field background to the UI
+        // theme's Secondary color and its text to theme.font (gap #17), ignoring
+        // per-widget colors. Point those at hanabi tokens so the search field's
+        // inner surface blends into its pill (panel_bg_2) instead of rendering
+        // as a jarring default dark-blue box, and its text uses our palette.
+        ctx.theme.secondary = theme::panel_bg_2();
+        ctx.theme.surface = theme::panel_bg_2();
+        ctx.theme.font = theme::text_primary();
+        ctx.theme.font_muted = theme::text_faint();
+
         // Apply a pending star-toggle request (set by a row's star affordance).
         // The mutation lives HERE so this owned system is the single writer of
         // the sessions vector's starred flag — flipping it updates the Starred
@@ -398,14 +408,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Editable field bound to app.searchQuery. text_input() reads/writes
         // the std::string reference and drains typed chars while focused
-        // (click to focus). Whatever's in searchQuery drives the filter below.
+        // (click to focus). It forces its own Secondary background (gap #17),
+        // so we let it FILL the pill's remaining width (percent 1.0) — that way
+        // its inner surface reads as the whole field instead of a nested box.
         bool hasQuery = !app.searchQuery.empty();
         afterhours::text_input::text_input(
             ctx, mk(field.ent(), 2), app.searchQuery,
             ComponentConfig{}
-                .with_size(ComponentSize{percent(hasQuery ? 0.78f : 0.86f),
-                                         pixels(20)})
-                .with_padding(Padding{.left = pixels(6)})
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
                                                  : theme::text_faint())
@@ -802,8 +812,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // and the (full-row) highlight bg looks off-center against the text.
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(s.title, 30))
-                .with_size(ComponentSize{percent(0.80f), pixels(20)})
+                .with_label(fmtutil::ellipsize(s.title, 34))
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(theme::type::ROW)
@@ -811,31 +821,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));
 
-        // Star affordance: a small star glyph at the row's right edge. Starred
-        // rows show it filled/accent always; unstarred rows show a faint star
-        // (a persistent-but-quiet affordance — immediate-mode UI has no
-        // hover-only reveal without extra state, so we keep it always visible
-        // but low-contrast until set). Clicking requests a toggle, applied at
-        // the top of the next frame by this system (see for_each_with).
-        theme::Color starColor =
-            s.starred ? theme::tag_ready_fg() : theme::text_faint();
-        std::string sid = s.id;
-        auto star = button(ctx, mk(row.ent(), 3),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(18), pixels(20)})
-                .with_custom_background(selected ? theme::selected_bg()
-                                                 : theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_bg())
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
-                .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "star", s.starred ? "\xe2\x98\x85" : "\xe2\x98\x86",
-                    starColor, 12.0f, -1.0f))
-                .with_debug_name("row_star"));
-        if (star) {
-            app.requestToggleStar = sid;
+        // Star affordance: shown when the row is HOVERED, or always when the
+        // thread is already starred (so starred state stays visible at rest).
+        // Uses was_hot (previous frame's hot id) since the current frame's hot
+        // state isn't resolved until after this render pass. A starred row shows
+        // a filled accent star; a hovered-unstarred row shows a faint hollow
+        // star to toggle; an unhovered-unstarred row shows nothing.
+        bool rowHovered = ctx.was_hot(row.ent().id) ||
+                          ctx.is_hot(row.ent().id);
+        if (s.starred || rowHovered) {
+            theme::Color starColor =
+                s.starred ? theme::tag_ready_fg() : theme::text_faint();
+            std::string sid = s.id;
+            auto star = button(ctx, mk(row.ent(), 3),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_custom_background(selected ? theme::selected_bg()
+                                                     : theme::sidebar_bg())
+                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.3f)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "star", s.starred ? "\xe2\x98\x85" : "\xe2\x98\x86",
+                        starColor, 12.0f, -1.0f))
+                    .with_debug_name("row_star"));
+            if (star) {
+                app.requestToggleStar = sid;
+            }
         }
     }
 };

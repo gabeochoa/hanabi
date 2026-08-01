@@ -108,7 +108,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                           .right = pixels(24)})
                     .with_align_items(AlignItems::Center)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
+                    .with_roundness(0.35f)
+                    .with_rounded_corners(
+                        afterhours::ui::imm::RoundedCorners().all_sharp().top_round().get())
                     .with_render_layer(6)
                     .with_debug_name("tab_" + tab.sessionId));
 
