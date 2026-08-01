@@ -236,12 +236,23 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         // sleeping a beat each iteration so we actually wait real time and
         // don't spin the CPU. The mock resolves on the first poll, so it exits
         // this loop immediately (adds ~0 wait).
-        constexpr auto kMaxWait = std::chrono::seconds(5);
+        // We wait for the session LIST to load AND, if a tab is open, for that
+        // tab's TRANSCRIPT to finish loading too — otherwise against the real
+        // (async network) backend the capture fires while the transcript is
+        // still Loading and the pane shows "Loading…" instead of the messages
+        // (afterhours_gaps #21). The mock resolves both synchronously.
+        constexpr auto kMaxWait = std::chrono::seconds(10);
         auto deadline = std::chrono::steady_clock::now() + kMaxWait;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (appForWait->listState != ecs::LoadState::Loading &&
-                appForWait->listState != ecs::LoadState::Idle)
-                break;
+            bool listReady = appForWait->listState != ecs::LoadState::Loading &&
+                             appForWait->listState != ecs::LoadState::Idle;
+            // A transcript is "pending" only when a thread is actually open and
+            // its fetch hasn't resolved. No open thread => nothing to wait for.
+            bool transcriptPending =
+                !appForWait->selectedId.empty() &&
+                (appForWait->transcriptState == ecs::LoadState::Loading ||
+                 appForWait->transcriptState == ecs::LoadState::Idle);
+            if (listReady && !transcriptPending) break;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
