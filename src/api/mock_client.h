@@ -1,12 +1,30 @@
 #pragma once
 
 // Deterministic, offline sample data source. This is the default backend so
-// the app is fully functional with no configuration and no network. The data
-// below is invented purely to exercise the UI — it mirrors the design mock's
-// thread set so smart views, folders, and high-signal rows all have real
-// states to render. Nothing here names or encodes any real service.
+// the app is fully functional with no configuration and no network.
+//
+// The seed has two intentional cohorts:
+//
+//   1. A small set of RICH demo threads (t1..t14) with folders, blocked /
+//      review / done states, and sub-agents. These tell the ideal-UX story:
+//      what the app looks like when the backend reports the full high-signal
+//      model. Smart views, folders, and the digest all have real states to
+//      render from these.
+//
+//   2. A larger REALISTIC cohort (r1..r20) shaped like what a live backend
+//      actually returns: NO folder, NO explicit state (state=Unknown), a
+//      plain active/archived status, mostly-calm rows, freeform titles (some
+//      plain, some with "[P]" prefixes or "on you"/"DONE"/D-number markers),
+//      and updatedAt values spread across Today / This Week / weeks-and-
+//      months-ago. This is the cohort that proves the UI degrades gracefully
+//      on real-shaped data instead of only looking good on a tidy mock.
+//
+// Timestamps are now-based (time(nullptr) - N) so the sidebar time buckets
+// (Today / This Week / Earlier) always populate whenever the app is run.
+// Nothing here names or encodes any real service, product, or company.
 
 #include <algorithm>
+#include <ctime>
 
 #include "client.h"
 
@@ -72,10 +90,16 @@ class MockClient : public Client {
     std::vector<Session> created_;
 
     static int64_t hrs_ago(int64_t h) {
-        // Fixed reference time so the sample list is stable across runs.
-        constexpr int64_t kRef = 1785500000;  // arbitrary fixed epoch
-        return kRef - h * 3600;
+        // Now-based reference so the sidebar time buckets (Today / This Week /
+        // Earlier) always populate relative to when the app is actually run.
+        // Deterministic within a run; the RELATIVE ordering of the seed is
+        // fixed, which is all the sort/bucket logic (and the tests) rely on.
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        return now - h * 3600;
     }
+
+    // Convenience: days-ago in the same now-based frame.
+    static int64_t days_ago(int64_t d) { return hrs_ago(d * 24); }
 
     // Small helper to build a summary with the full high-signal model.
     static SessionSummary sum(std::string id, std::string title, int64_t h,
@@ -91,6 +115,27 @@ class MockClient : public Client {
         s.tag = tag;
         s.folder = std::move(folder);
         s.starred = starred;
+        s.preview = std::move(preview);
+        return s;
+    }
+
+    // Realistic-cohort summary: shaped like a live backend row. No folder, no
+    // tag, not starred; state defaults to Unknown (calm) unless a Running /
+    // Archived is passed to model isProcessing / archived. Takes an ABSOLUTE
+    // epoch (built from hrs_ago/days_ago) rather than an hours offset, so the
+    // caller can spread rows across the time buckets naturally.
+    static SessionSummary calm(std::string id, std::string title,
+                               int64_t updated_at, std::string status,
+                               ThreadState state, std::string preview) {
+        SessionSummary s;
+        s.id = std::move(id);
+        s.title = std::move(title);
+        s.updated_at = updated_at;
+        s.status = std::move(status);
+        s.state = state;             // Unknown / Running / Archived only
+        s.tag = ThreadTag::None;     // real rows carry no high-signal tag
+        s.folder = "";               // real rows are folderless
+        s.starred = false;           // see isPinned note in seed()
         s.preview = std::move(preview);
         return s;
     }
@@ -375,6 +420,444 @@ class MockClient : public Client {
                 {"m1", Role::Assistant,
                  "Final writeup shipped. Archived for reference.",
                  hrs_ago(3600), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
+        // ------------------------------------------------------------------
+        // REALISTIC COHORT (r1..r20)
+        //
+        // Shaped like a live backend dump: folder="" (no folder), no explicit
+        // state (Unknown), no tag (None), not starred — just a plain
+        // active/archived status and an updatedAt. A handful are "Running"
+        // (the isProcessing-equivalent: dimmed, quiet, never nudges). Titles
+        // are freeform the way real ones are — some plain, some with a "[P]"
+        // prefix, some carrying "on you" / "DONE" / a D-number marker — but
+        // the STRUCTURED fields stay neutral, exactly like real rows that
+        // carry no high-signal model. Timestamps fan out across Today / This
+        // Week / weeks-and-months-ago so every sidebar time bucket populates.
+        //
+        // NOTE on isPinned: real rows can be pinned, but the e2e suite asserts
+        // an exact starred count over the whole mock (the 3 rich threads), so
+        // this cohort intentionally leaves starred=false to avoid breaking it.
+        // The Running state stands in for isProcessing. (See report / caveats.)
+        // ------------------------------------------------------------------
+
+        // -- Today (hours ago) --
+        {
+            Session s;
+            s.summary = calm("r1", "[P] Tidy up the retry backoff in the sync worker",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "looked at the jittered backoff, one edge case left");
+            s.messages = {
+                {"m1", Role::User,
+                 "the sync worker retries too aggressively when the upstream "
+                 "is flapping. can you add jittered backoff?",
+                 hrs_ago(2), ""},
+                {"m2", Role::Assistant,
+                 "Sure. I'll switch the fixed 200ms retry to full-jitter "
+                 "exponential backoff capped at 30s and add a circuit breaker "
+                 "after 5 consecutive failures. Let me find the retry loop.",
+                 hrs_ago(2), ""},
+                {"m3", Role::Tool, "grep -rn \"retry\" worker/ \xe2\x86\x92 11 hits",
+                 hrs_ago(2), "shell"},
+                {"m4", Role::Tool,
+                 "edit worker/sync_loop.rs \xc2\xb7 +34 -8", hrs_ago(1), "editor"},
+                {"m5", Role::Assistant,
+                 "Backoff is in. One edge case: on a cold start the breaker "
+                 "opens immediately if the very first call fails. I can seed "
+                 "it half-open instead \xe2\x80\x94 want that, or leave it strict?",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r2", "investigate flaky checkout integration test",
+                             hrs_ago(3), "active", ThreadState::Unknown,
+                             "reproduced locally, looks like a fixture race");
+            s.messages = {
+                {"m1", Role::User,
+                 "checkout_flow_test fails ~1 in 20 on CI. can you figure out "
+                 "why?",
+                 hrs_ago(4), ""},
+                {"m2", Role::Assistant,
+                 "Pulled the last 40 CI runs \xe2\x80\x94 6 failures, all on the same "
+                 "assertion (cart total off by one line item). Smells like a "
+                 "fixture setup race. Running it in a tight loop locally.",
+                 hrs_ago(4), ""},
+                {"m3", Role::Tool,
+                 "for i in $(seq 1 50); do run checkout_flow_test; done \xe2\x86\x92 "
+                 "3/50 failed",
+                 hrs_ago(3), "shell"},
+                {"m4", Role::Assistant,
+                 "Reproduced. The seed fixture and the test both write to the "
+                 "cart before a barrier; the test occasionally reads mid-write. "
+                 "I'll add an explicit await on fixture-ready. Writing the fix.",
+                 hrs_ago(3), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r3", "on you: pick the icon set for the settings redesign",
+                             hrs_ago(4), "active", ThreadState::Unknown,
+                             "narrowed to 2 options, need a call");
+            s.messages = {
+                {"m1", Role::User,
+                 "we need a consistent icon set for the settings panel. "
+                 "outline or filled?",
+                 hrs_ago(5), ""},
+                {"m2", Role::Assistant,
+                 "I mocked both against the current panel. Outline reads "
+                 "cleaner at 16px and matches the toolbar; filled has more "
+                 "presence but fights the text weight. My lean is outline. "
+                 "It's your call before I wire the whole set \xe2\x80\x94 which do you "
+                 "want?",
+                 hrs_ago(4), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r4", "Draft release notes for 4.2", hrs_ago(6),
+                             "active", ThreadState::Unknown,
+                             "first pass done, grouped by area");
+            s.messages = {
+                {"m1", Role::User, "draft release notes for the 4.2 cut",
+                 hrs_ago(7), ""},
+                {"m2", Role::Assistant,
+                 "Pulled the 62 landed changes since 4.1 and grouped them: "
+                 "Performance (9), Bug fixes (31), New (7), Internal (15). "
+                 "First draft is written \xe2\x80\x94 want it terser, or is this the "
+                 "right level of detail?",
+                 hrs_ago(6), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r5", "why is the dashboard p95 latency up",
+                             hrs_ago(8), "active", ThreadState::Running,
+                             "pulling traces");
+            s.messages = {
+                {"m1", Role::User,
+                 "dashboard p95 jumped from 240ms to 900ms overnight. dig in.",
+                 hrs_ago(9), ""},
+                {"m2", Role::Assistant,
+                 "On it. Pulling the trace sample for the regressed window and "
+                 "diffing against yesterday. I'll surface the top offender when "
+                 "the sample lands \xe2\x80\x94 no action needed yet.",
+                 hrs_ago(8), ""},
+                {"m3", Role::Tool,
+                 "fetch traces window=6h sample=2000 \xe2\x86\x92 in progress",
+                 hrs_ago(8) + 120, "shell"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r6", "clean up dead feature flags", hrs_ago(11),
+                             "active", ThreadState::Running,
+                             "scanning for stale flags");
+            s.messages = {
+                {"m1", Role::User,
+                 "find feature flags that have been at 100% for 90+ days and "
+                 "list the ones safe to remove",
+                 hrs_ago(12), ""},
+                {"m2", Role::Assistant,
+                 "Scanning the flag registry against rollout history now. I'll "
+                 "come back with a list plus the call sites for each \xe2\x80\x94 "
+                 "running quietly until then.",
+                 hrs_ago(11), ""},
+            };
+            s.sub_agents = {
+                {"r6s1", "Registry scan", SubAgentState::Done,
+                 "412 flags enumerated"},
+                {"r6s2", "Call-site trace", SubAgentState::Running,
+                 "resolving usages for the 90-day set"},
+            };
+            v.push_back(std::move(s));
+        }
+
+        // -- This week (days ago) --
+        {
+            Session s;
+            s.summary = calm("r7", "[P] Migrate the auth middleware off the deprecated API",
+                             days_ago(1), "active", ThreadState::Unknown,
+                             "PR up, one reviewer nit left");
+            s.messages = {
+                {"m1", Role::User,
+                 "the old session API is deprecated end of quarter. move the "
+                 "auth middleware to the new one.",
+                 days_ago(1) - 3600, ""},
+                {"m2", Role::Assistant,
+                 "Swapped all 14 call sites to the new session client, kept "
+                 "the old shim behind a flag for one release so we can roll "
+                 "back. Tests pass. PR is up.",
+                 days_ago(1) - 1800, ""},
+                {"m3", Role::Tool,
+                 "run auth suite \xe2\x86\x92 138 passed, 0 failed", days_ago(1) - 1200,
+                 "shell"},
+                {"m4", Role::User, "looks good, one nit on the shim comment",
+                 days_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r8", "Add pagination to the events endpoint",
+                             days_ago(2), "active", ThreadState::Unknown,
+                             "DONE \xc2\xb7 cursor-based, shipped");
+            s.messages = {
+                {"m1", Role::User,
+                 "the /events endpoint returns everything and times out for "
+                 "big accounts. add pagination.",
+                 days_ago(2) - 7200, ""},
+                {"m2", Role::Assistant,
+                 "Added cursor-based pagination (opaque cursor, default page "
+                 "100, max 500) and kept the old unpaginated behavior behind a "
+                 "one-release deprecation header. Docs updated.",
+                 days_ago(2) - 3600, ""},
+                {"m3", Role::Assistant,
+                 "Shipped. Big-account fetch went from a 30s timeout to ~180ms "
+                 "per page. Marking this done.",
+                 days_ago(2), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r9", "look into the memory growth in the ingest service",
+                             days_ago(3), "active", ThreadState::Unknown,
+                             "heap dump analyzed, found the leak");
+            s.messages = {
+                {"m1", Role::User,
+                 "ingest service RSS climbs ~2GB/day and only OOM-restarts "
+                 "reset it. leak?",
+                 days_ago(3) - 5400, ""},
+                {"m2", Role::Assistant,
+                 "Grabbed a heap dump at hour 6 and hour 18. The delta is "
+                 "almost entirely a per-request parser cache that never "
+                 "evicts. It's keyed by full payload, so unique payloads pile "
+                 "up forever. Bounding it with an LRU cap.",
+                 days_ago(3) - 1800, ""},
+                {"m3", Role::Tool,
+                 "heap diff \xe2\x86\x92 ParserCache 1.7GB / 1.9GB total growth",
+                 days_ago(3), "shell"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r10", "review D551840 for me", days_ago(3),
+                             "active", ThreadState::Unknown,
+                             "read the diff, left 3 comments");
+            s.messages = {
+                {"m1", Role::User, "can you review D551840 before I stamp it",
+                 days_ago(3) - 2400, ""},
+                {"m2", Role::Assistant,
+                 "Read all 240 lines. Logic is sound. Three things worth a "
+                 "comment: the new retry has no jitter (thundering herd), one "
+                 "error path swallows the cause, and the test only covers the "
+                 "happy path. None are blockers \xe2\x80\x94 want me to draft the "
+                 "comments?",
+                 days_ago(3), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r11", "prototype the bulk-export button", days_ago(4),
+                             "active", ThreadState::Unknown,
+                             "clickable prototype, needs backend");
+            s.messages = {
+                {"m1", Role::User,
+                 "users keep asking to export their whole history as CSV. "
+                 "prototype the UI so we can test the flow.",
+                 days_ago(4) - 6000, ""},
+                {"m2", Role::Assistant,
+                 "Built a clickable prototype: an Export button that opens a "
+                 "range picker, shows a progress toast, and drops a signed "
+                 "download link when ready. The generation is stubbed for now. "
+                 "Ready for you to click through.",
+                 days_ago(4), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r12", "Update the onboarding checklist copy",
+                             days_ago(5), "active", ThreadState::Unknown,
+                             "rewrote 6 steps, tone check passed");
+            s.messages = {
+                {"m1", Role::User,
+                 "the onboarding checklist reads like a legal doc. make it "
+                 "friendlier without losing the steps.",
+                 days_ago(5) - 1800, ""},
+                {"m2", Role::Assistant,
+                 "Rewrote all six steps in a warmer, second-person voice and "
+                 "cut the average step from 34 words to 16. Meaning is "
+                 "unchanged. Before/after is in the thread.",
+                 days_ago(5), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r13", "[P] wire up the new empty-state illustration",
+                             days_ago(6), "active", ThreadState::Unknown,
+                             "asset in, positioned, dark-mode variant left");
+            s.messages = {
+                {"m1", Role::User,
+                 "design dropped the new empty-state art. wire it into the "
+                 "list view when there are zero items.",
+                 days_ago(6) - 3600, ""},
+                {"m2", Role::Assistant,
+                 "Imported the asset, added the empty state with the "
+                 "illustration centered above the copy and CTA. Light mode is "
+                 "done. Need the dark-mode variant of the art before I finish "
+                 "\xe2\x80\x94 is there one, or should I tint the existing one?",
+                 days_ago(6), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
+        // -- Earlier (weeks and months ago) --
+        {
+            Session s;
+            s.summary = calm("r14", "spike: is it worth caching the config layer",
+                             days_ago(12), "active", ThreadState::Unknown,
+                             "wrote up findings, marginal win");
+            s.messages = {
+                {"m1", Role::User,
+                 "config reads show up hot in profiles. worth adding a cache?",
+                 days_ago(12) - 3600, ""},
+                {"m2", Role::Assistant,
+                 "Benchmarked it. Config reads are 4% of request time but the "
+                 "values change often enough that a cache buys ~1.5% at the "
+                 "cost of invalidation complexity. My rec: not worth it yet; "
+                 "revisit if reads grow. Wrote up the numbers.",
+                 days_ago(12), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r15", "fix the timezone bug in the scheduler",
+                             days_ago(18), "active", ThreadState::Unknown,
+                             "DONE \xc2\xb7 was assuming server-local time");
+            s.messages = {
+                {"m1", Role::User,
+                 "recurring jobs fire an hour off for some users after DST. "
+                 "fix it.",
+                 days_ago(18) - 5400, ""},
+                {"m2", Role::Assistant,
+                 "The scheduler stored wall-clock times and re-derived the run "
+                 "instant in server-local time, so DST shifts drifted it. "
+                 "Switched to storing the user's IANA zone + local time and "
+                 "computing the UTC instant per-fire. Added DST-boundary tests.",
+                 days_ago(18), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r16", "draft the incident writeup for last week's outage",
+                             days_ago(21), "active", ThreadState::Unknown,
+                             "timeline + 3 action items drafted");
+            s.messages = {
+                {"m1", Role::User,
+                 "we need a blameless writeup for the 40-min outage. draft it "
+                 "from the timeline in the channel.",
+                 days_ago(21) - 3600, ""},
+                {"m2", Role::Assistant,
+                 "Drafted: root cause (a bad config push dropped the connection "
+                 "pool to 1), a minute-by-minute timeline, and three action "
+                 "items (staged config rollout, pool floor alarm, faster "
+                 "rollback). Kept it blameless. Ready for your review.",
+                 days_ago(21), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r17", "Refactor the notification templating",
+                             days_ago(34), "archived", ThreadState::Archived,
+                             "archived \xc2\xb7 landed last month");
+            s.messages = {
+                {"m1", Role::User,
+                 "the notification templates are copy-pasted across 5 channels. "
+                 "consolidate.",
+                 days_ago(34) - 7200, ""},
+                {"m2", Role::Assistant,
+                 "Pulled the shared structure into one template engine with "
+                 "per-channel overrides. Deleted ~600 lines of duplication. "
+                 "Landed and verified across all five channels. Archiving.",
+                 days_ago(34), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r18", "one-off: pull the top 50 slow queries",
+                             days_ago(47), "archived", ThreadState::Archived,
+                             "archived \xc2\xb7 report delivered");
+            s.messages = {
+                {"m1", Role::User,
+                 "give me the 50 slowest queries from the last week with call "
+                 "counts",
+                 days_ago(47) - 1800, ""},
+                {"m2", Role::Tool,
+                 "query slow_log order by total_time desc limit 50 \xe2\x86\x92 50 rows",
+                 days_ago(47) - 900, "sql"},
+                {"m3", Role::Assistant,
+                 "Report delivered. The top 3 alone account for 38% of DB "
+                 "time; all three are missing the same composite index. Noted "
+                 "in the thread. Nothing else needed \xe2\x80\x94 archiving.",
+                 days_ago(47), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r19", "old spike: evaluate the graph library swap",
+                             days_ago(72), "archived", ThreadState::Archived,
+                             "archived \xc2\xb7 decided against");
+            s.messages = {
+                {"m1", Role::Assistant,
+                 "Evaluated the alternative graph lib. It's faster on huge "
+                 "graphs but our graphs are small and the migration cost is "
+                 "high. Recommended staying put. Archiving for reference.",
+                 days_ago(72), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r20", "[P] investigate customer-reported data mismatch",
+                             days_ago(96), "archived", ThreadState::Archived,
+                             "archived \xc2\xb7 root-caused + fixed");
+            s.messages = {
+                {"m1", Role::User,
+                 "a customer says their totals don't match between the app and "
+                 "the export. can you reproduce?",
+                 days_ago(96) - 9000, ""},
+                {"m2", Role::Assistant,
+                 "Reproduced with their account shape. The export summed "
+                 "pre-refund amounts while the app summed post-refund. Aligned "
+                 "the export to post-refund and backfilled the affected "
+                 "exports. Confirmed with the customer's numbers.",
+                 days_ago(96) - 3600, ""},
+                {"m3", Role::Tool,
+                 "verify export totals vs app for acct sample \xe2\x86\x92 match",
+                 days_ago(96), "shell"},
+            };
+            s.sub_agents = {
+                {"r20s1", "Repro on sample account", SubAgentState::Done,
+                 "mismatch reproduced"},
+                {"r20s2", "Backfill affected exports", SubAgentState::Done,
+                 "1,204 exports corrected"},
             };
             v.push_back(std::move(s));
         }
