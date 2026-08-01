@@ -215,29 +215,57 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Build the metadata line under a card title. On the mock (rich preview)
-    // that's the preview text. On a real backend preview is empty, so instead
-    // of an identical bare "active" slab (defects #3/#16) we compose a useful
-    // line: a relative age from updated_at ("2h", "3d") plus a secondary hint
-    // derived from generic state (running / archived / active). This degrades
-    // gracefully: no timestamp -> just the phrase; nothing at all -> "".
+    // that's the preview text — kept verbatim so the mock's state-matched
+    // detail ("waiting on you · 22m", "done · 12m", "self-running · 61%")
+    // stays rich (never regress it).
+    //
+    // On a real backend preview is empty. The CRITICAL rule (v3 review):
+    // the sub-line must NEVER contradict or redundantly restate the derived
+    // chip sitting above it. The old code leaked the RAW api status word
+    // ("active") beneath a derived BLOCKED/DONE chip — so every WAITING card
+    // read "3h · active" under a red BLOCKED pill and every FINISHED card read
+    // "1d · active" under a DONE pill: two lines fighting each other, reads as
+    // broken software. Instead, when a card carries a derived chip/state we
+    // compose a state-MATCHED second token from the SAME derived verdict, and
+    // deliberately drop the raw status word. Only a genuinely calm card (no
+    // chip, Unknown state) may fall back to a neutral age line.
     static std::string card_meta(const api::SessionSummary& s) {
         if (!s.preview.empty()) return s.preview;  // mock: keep rich preview.
-        std::string age = fmtutil::relative_time(s.updated_at);
-        std::string hint;
-        switch (s.state) {
-            case api::ThreadState::Running: hint = "running"; break;
-            case api::ThreadState::Archived: hint = "archived"; break;
+        const std::string age = fmtutil::relative_time(s.updated_at);
+        std::string phrase;  // the state-matched verdict word.
+        switch (s.tag) {
+            case api::ThreadTag::Blocked:
+                phrase = "waiting on you";  // matches the red BLOCKED chip.
+                break;
+            case api::ThreadTag::Done:
+                phrase = "done";  // matches the DONE chip.
+                break;
+            case api::ThreadTag::Review:
+                phrase = "ready for review";  // matches the REVIEW chip.
+                break;
             default:
-                // Fall back to the raw status phrase when it's meaningful.
-                if (s.status == "active")
-                    hint = "active";
-                else if (!s.status.empty())
-                    hint = s.status;
+                // No tag chip. Derive from state so a RUNNING card (green
+                // RUNNING chip, added below) reads "running · <age>", and a
+                // calm/archived card gets a NEUTRAL age-first line — never the
+                // raw "active" status word.
+                switch (s.state) {
+                    case api::ThreadState::Running: phrase = "running"; break;
+                    case api::ThreadState::Archived: phrase = "archived"; break;
+                    default: phrase.clear(); break;  // calm: age only.
+                }
                 break;
         }
-        if (age.empty()) return hint;
-        if (hint.empty()) return age;
-        return age + "  \xc2\xb7  " + hint;  // "2h · running"
+        if (phrase.empty()) {
+            // Genuinely calm card with no chip: a neutral relative age reads as
+            // "last active <age>" without restating a raw session-status word.
+            if (age.empty()) return "";
+            return "last active " + age;
+        }
+        // Chip-bearing / stateful card: lead with the state-matched verdict,
+        // then the age — e.g. "waiting on you  ·  3h", "done  ·  1d",
+        // "running  ·  8h". Never the raw "active".
+        if (age.empty()) return phrase;
+        return phrase + "  \xc2\xb7  " + age;
     }
 
     static const char* tag_label(api::ThreadTag t) {        switch (t) {
@@ -246,8 +274,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::ThreadTag::Done: return "DONE";
             default: return "";
         }
-    }
-    static theme::Color tag_fg(api::ThreadTag t) {
+    }    static theme::Color tag_fg(api::ThreadTag t) {
         switch (t) {
             case api::ThreadTag::Blocked: return theme::tag_blocked_fg();
             case api::ThreadTag::Review: return theme::tag_ready_fg();
@@ -270,6 +297,35 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 return theme::over(theme::tag_done_bg(), surface);
             default: return surface;
         }
+    }
+
+    // Effective chip for a card. Digest cards get a chip whenever they carry a
+    // derived verdict — that's tag != None (BLOCKED/REVIEW/DONE) OR, for a
+    // self-running thread that carries no tag, a green RUNNING chip so running
+    // cards reach chip-parity with blocked/done ones (v3 defect #7) instead of
+    // looking unfinished in a chip-bearing layout. Returns "" label when the
+    // card is genuinely calm (no chip).
+    static bool has_chip(const api::SessionSummary& s) {
+        return s.tag != api::ThreadTag::None ||
+               s.state == api::ThreadState::Running;
+    }
+    static const char* chip_label(const api::SessionSummary& s) {
+        if (s.tag != api::ThreadTag::None) return tag_label(s.tag);
+        if (s.state == api::ThreadState::Running) return "RUNNING";
+        return "";
+    }
+    // RUNNING reuses the green ready tokens (tag_ready_fg/bg) — an existing
+    // green already in theme.h, so no new token and no theme.h edit.
+    static theme::Color chip_fg(const api::SessionSummary& s) {
+        if (s.tag != api::ThreadTag::None) return tag_fg(s.tag);
+        if (s.state == api::ThreadState::Running) return theme::tag_ready_fg();
+        return theme::text_faint();
+    }
+    static theme::Color chip_bg(const api::SessionSummary& s) {
+        if (s.tag != api::ThreadTag::None) return tag_bg(s.tag);
+        if (s.state == api::ThreadState::Running)
+            return theme::over(theme::tag_ready_bg(), theme::panel_bg_2());
+        return theme::panel_bg_2();
     }
 
     // Renders one digest card. `emphasizeMeta` gives the subtitle/metadata a
@@ -316,7 +372,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("dc_top"));
-        const bool hasTag = s.tag != api::ThreadTag::None;
+        const bool hasTag = has_chip(s);
         const float titleFrac = hasTag ? 0.78f : 1.0f;
         // Decouple truncation from a fixed char cap: budget from the card's
         // REAL available title width so a wide card fills its line before
@@ -342,16 +398,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("dc_name"));
-        if (s.tag != api::ThreadTag::None) {
+        if (has_chip(s)) {
             div(ctx, mk(top.ent(), 2),
                 ComponentConfig{}
-                    .with_label(tag_label(s.tag))
+                    .with_label(chip_label(s))
                     .with_size(ComponentSize{children(), pixels(16)})
                     .with_padding(Padding{.top = pixels(2), .right = pixels(7),
                                           .bottom = pixels(2),
                                           .left = pixels(7)})
-                    .with_custom_background(tag_bg(s.tag))
-                    .with_custom_text_color(tag_fg(s.tag))
+                    .with_custom_background(chip_bg(s))
+                    .with_custom_text_color(chip_fg(s))
                     .with_font_size(theme::type::CHIP)
                     .with_alignment(TextAlignment::Center)
                     .with_roundness(theme::layout::ROUNDNESS_BADGE)
@@ -418,14 +474,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int shown = 0;
         bool first = true;  // tracks the first rendered section (tighter top).
         if (!waiting.empty()) {
-            section_label(ctx, wrap, 1, "Waiting on you", first);
+            section_label(ctx, wrap, 1,
+                          "Waiting on you \xc2\xb7 " +
+                              std::to_string(waiting.size()),
+                          first);
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
             for (const auto* s : waiting)
                 digest_card(ctx, wrap, ++shown, *s, app, true, cardW);
         }
         if (!finished.empty()) {
-            section_label(ctx, wrap, 900, "Finished since you looked", first);
+            section_label(ctx, wrap, 900,
+                          "Finished since you looked \xc2\xb7 " +
+                              std::to_string(finished.size()),
+                          first);
             first = false;
             for (const auto* s : finished)
                 digest_card(ctx, wrap, ++shown, *s, app, false, cardW);
@@ -436,8 +498,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // void (defect #14) — the count now sits ON a populated section.
         if (!selfRunning.empty()) {
             section_label(ctx, wrap, 1800,
-                          "Self-running (" +
-                              std::to_string(selfRunning.size()) + ")",
+                          "Self-running \xc2\xb7 " +
+                              std::to_string(selfRunning.size()),
                           first);
             first = false;
             for (const auto* s : selfRunning)
