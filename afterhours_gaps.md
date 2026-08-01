@@ -311,3 +311,23 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   `text_input` when provided (fall back to the height-derived size only when
   unset), and let `with_custom_background` override the forced
   `Theme::Usage::Secondary` field fill.
+
+### #18 — no flex-grow: can't pin a trailing element to the right edge
+- **Gap:** afterhours' flex layout has no `flex-grow` / "fill remaining space" on a
+  child. A row like `[icon(18px)] [label] [count(24px)]` can't make the label expand to
+  push the count against the right edge. `percent(1.0f)` on the label sizes it to the
+  FULL parent width (not "remaining after siblings"), and a fixed `percent(0.72f)`
+  can't hit the exact right edge because the row mixes pixel + percent children and the
+  usable width varies with sidebar/scrollbar state. Mixed-unit rows therefore leave the
+  trailing count floating mid-right instead of right-aligned.
+- **Why wanted:** the mock right-aligns every count (`.lbl{flex:1}` in CSS) so the
+  smart-view counts and folder counts share ONE right edge. Without flex-grow the two
+  count columns land at slightly different x (~17px apart) — each internally consistent,
+  but not a shared edge.
+- **App-code workaround (partial):** keep each column internally consistent (same label
+  percent + same fixed count box within a section) and accept the small cross-section
+  offset. A true fix (label absorbs remaining width) isn't expressible today.
+- **Minimal upstream help (optional):** add `with_flex_grow(int)` (or a
+  `SizeExpr::remaining()` / `fill()` size mode) so one child can absorb leftover main-axis
+  space — the standard flexbox primitive. Would let trailing counts/badges right-align
+  cleanly and remove the mixed-unit percent guessing.
