@@ -1,99 +1,101 @@
-# Phase SEND — wire up sending (kickoff + reply/continue)
+# Phase SEND — functional composer (kickoff + reply), config-driven & mock-first
 
 ## Why
-Two functional gaps remain, both honestly surfaced in the UI today:
-1. **Kickoff**: the composer overlay's "Start" button does NOT call the existing
-   `Client::create_session(prompt)` — it just closes and keeps the draft.
-2. **Reply/continue**: there is NO `Client::send_message(id, prompt)` method, so the
-   transcript composer is disabled-styled ("read-only preview — replies aren't
-   wired yet"). This is the last big functional gap.
+Two send paths are currently stubbed (honest read-only comments, not fake):
+1. **Kickoff** — the "New task" composer overlay (`composer_system.h`) has a
+   Start button, but `Client::create_session(prompt)` is NEVER invoked; on Start
+   it just closes and keeps the draft.
+2. **Reply/continue** — the transcript composer (`main_pane_system.h`
+   render_composer) has a disabled "Send" + a "replies aren't wired" caption,
+   because the `Client` interface has NO method to continue an open thread.
 
-Close BOTH behind the same adapter seam. Mock-first, config-driven, never hardcoded.
+This phase makes BOTH functional: real in the mock (in-memory append + a
+believable assistant echo/ack), config-driven POST in the http adapter, wired
+through the async loader. It turns hanabi from browse-only into interactive.
 
-## Scope / files (own ONLY these)
-- `src/api/client.h`: add a virtual
-    `virtual Result<Message> send_message(const std::string& session_id,
-                                          const std::string& prompt)`
-  with a default impl returning failure ("backend doesn't support replies") so
-  adapters opt in. (Mirror the existing create_session default-stub pattern.)
-- `src/api/mock_client.h`:
-    * `create_session(prompt)`: ALREADY implemented (creates an in-memory
-      session). Verify it returns the new id and the session shows up in
-      list_sessions() (it appends to created_). If it doesn't already, make it.
-    * `send_message(id, prompt)`: append a User message (prompt) AND a synthetic
-      Assistant reply to the in-memory session's messages, return the Assistant
-      Message. Keep it deterministic + offline. Update the session's updated_at
-      and preview so the sidebar reflects the new activity.
-- `src/api/http_client.cpp` / `.h`: implement BOTH against the generic REST seam
-    using the `post_json` helper Phase AUTH added (or add one if missing, TLS-
-    guarded like Get). Endpoints + field names come from Config — NEVER hardcoded:
-      - kickoff: POST {chat_path} with NO session id  -> { id }  (new session)
-      - reply:   POST {chat_path} WITH session id      -> the assistant message(s)
-    Add config fields (HANABI_CHAT_PATH + any field-name maps needed, generic
-    defaults) to Config in client.h + config.cpp. If the real backend streams the
-    reply over SSE, a synchronous "post returns the created message(s)" shape is an
-    acceptable adapter simplification for this phase (note it); SSE streaming stays
-    the separate deferred item.
-- `src/ecs/components.h`: add two one-shot request flags mirroring requestNewTask:
-    `std::string requestSendPrompt;`  (reply into the OPEN session)
-    `std::string requestKickoffPrompt;` (start a NEW session)
-  plus small pending/among-flags if you need them for the async path.
-- `src/ecs/loader_system.h`: service both flags with the SAME std::async +
-    poll-future pattern already used for list/transcript:
-    * requestKickoffPrompt -> async create_session -> on success, refresh the list
-      AND requestOpenId = new id (open the new thread's tab).
-    * requestSendPrompt -> async send_message(openSession.id, prompt) -> on success,
-      APPEND the returned message(s) to app.openSession->messages, update the cache
-      entry, clear the draft. Keep the UI responsive (no blocking). Show a small
-      "sending…" state via transcriptState or a dedicated flag if needed.
-- `src/ecs/main_pane_system.h` (render_composer): ENABLE the Send button when the
-    draft is non-empty AND the backend supports replies; on click set
-    app.requestSendPrompt = draft and clear the local draft. When the backend does
-    NOT support replies (default mock DOES now; a minimal http that isn't
-    configured for chat does not), keep the honest disabled caption. Remove/replace
-    the "read-only preview" caption when sending IS wired.
-- `src/ecs/composer_system.h` (Start button): on Start+hasText, set
-    app.requestKickoffPrompt = app.composerDraft, clear the draft, close the overlay.
-- `tests/`: add a test that drives BOTH through the MOCK client directly:
-    * create_session -> new id appears in list_sessions.
-    * send_message(id, "hi") -> the session gains a User("hi") + an Assistant msg;
-      returned Message is the assistant reply. (Pure, no graphics, no network.)
-  Wire it into the makefile test target like test_auth.
+## Design (mirror the existing loader async pattern)
+- Add ONE new Client method: `Result<api::Message> send_message(const std::string& session_id, const std::string& prompt)`.
+  - MockClient: append a User message (from prompt) to the in-memory session's
+    messages, then synthesize a short Assistant ack/echo message, append it too,
+    update the summary preview + updated_at, and RETURN the assistant message
+    (so the caller can append it live). Deterministic, no network.
+  - HttpClient: POST to a CONFIGURABLE path (`cfg_.chat_path`, default e.g.
+    "/sessions/{id}/messages") with a JSON body { prompt } (body field name
+    configurable: `cfg_.field_prompt`, default "prompt"); parse the returned
+    message via the SAME field mapping already used for transcripts. NEVER
+    hardcode the endpoint. Reuse the `post_json` helper Phase AUTH added.
+- Kickoff already has `create_session(prompt)`; WIRE it (it's currently unused):
+  - MockClient::create_session already creates an in-memory session (verify);
+    ensure it returns the new id and the session shows up in list + opens.
+  - HttpClient::create_session: POST to `cfg_.chat_path` WITHOUT an id (or a
+    configurable kickoff path `cfg_.kickoff_path`); parse the new session id.
+- Loader (`loader_system.h`): add request flags + async futures for BOTH:
+  - `app.requestSendPrompt` (string) + `app.requestSendSessionId` (string) →
+    async send_message → on success append the returned message(s) to
+    `app.openSession->messages`, refresh the cache entry, clear the draft.
+  - `app.requestKickoffPrompt` (string) → async create_session → on success
+    request-open the new session as a tab + refresh the list.
+  - Follow the EXACT future/poll/LoadState idiom already in the file. Add a
+    small sending state so the UI can show "Sending…" and re-disable Send while
+    in flight (no double-send).
+
+## Files you own (touch ONLY these)
+- `src/api/client.h` — add `send_message` (pure virtual or default-fail like
+  create_session so other adapters still compile), + any config fields
+  (chat_path, kickoff_path, field_prompt) on Config with generic defaults.
+- `src/api/config.cpp` — load the new config fields (env HANABI_CHAT_PATH etc +
+  file keys), generic defaults.
+- `src/api/mock_client.h` — implement send_message + verify/finish create_session.
+- `src/api/http_client.h`/`.cpp` — implement send_message + create_session via
+  post_json, config-driven.
+- `src/ecs/components.h` — add the request/state flags (requestSendPrompt,
+  requestSendSessionId, requestKickoffPrompt, a sending LoadState/bool). Mirror
+  the existing one-shot flag conventions + comments.
+- `src/ecs/loader_system.h` — wire both async paths.
+- `src/ecs/main_pane_system.h` — ENABLE the transcript Send button: on click
+  with non-empty draft, set requestSend* + clear the local draft; show "Sending…"
+  while in flight; drop the "read-only" caption (replace with a normal hint).
+- `src/ecs/composer_system.h` — on Start with text, set requestKickoffPrompt +
+  close the overlay (real kickoff now).
+- `tests/` — add a test proving send_message + create_session on the MOCK
+  (append User + Assistant, preview/updated_at change, returned message correct;
+  kickoff creates a listable+openable session). Wire into the makefile test
+  target following the existing pattern.
+- `docs/config.example.json` — add the generic chat/kickoff/prompt keys.
+- `afterhours_gaps.md` — append #22 ONLY if afterhours blocks something.
 
 ## HARD constraints
-- NEVER edit vendor/. Log a gap (#22 next) to afterhours_gaps.md if blocked.
-- No real endpoint/key/URL/token/company name anywhere — generic defaults only
-  (empty or example.invalid). Grep the full diff before finishing.
-- Default (unconfigured http, or mock) stays coherent: mock now SUPPORTS send, so
-  the composer becomes functional on the mock — that's the desired outcome and the
-  demo story. Existing tests must still pass.
-- No `git add -A`; stage only the files above. Commit to branch `wt/phase-send`.
-  Do NOT push, do NOT merge, do NOT touch the main worktree.
-- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run make/make
-  test in BACKGROUND (`( make -j4 >/tmp/send_b.log 2>&1; echo DONE=$? >>/tmp/send_b.log ) &`)
-  and poll the log. Never foreground a build/test.
+- NEVER edit vendor/. Log a gap (#22 next) instead.
+- No real endpoint/URL/token/company name anywhere — code, comments, defaults,
+  fixtures. Generic placeholders only. Grep the full diff before finishing.
+- Mock is the zero-config default and stays fully functional offline. With no
+  http config, send/kickoff work against the mock. Existing behavior for browse
+  is unchanged.
+- No `git add -A`; stage only the listed files. Commit to branch `wt/phase-send`.
+  Do NOT push, do NOT merge, do NOT touch the main worktree
+  (/Users/gabeochoa/projects/hanabi).
+- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run make /
+  make test in BACKGROUND (`( make -j4 >/tmp/send_b.log 2>&1; echo DONE=$? >>/tmp/send_b.log ) &`)
+  and poll the log. NEVER foreground a build.
 
 ## Gates (all green on final commit)
-- `make -j4` and `make -j4 HANABI_TLS=1` -> 0 warnings, 0 errors.
-- `make test` -> all pass (existing 4 + your new send test), perf gate PASS. If
-  FirstFrame is 245-255ms, re-run once (best-of-6 gate, box jitter) and report both.
-- The send test must prove kickoff + reply on the MOCK (no network).
+- `make -j4` and `make -j4 HANABI_TLS=1` → 0 warnings, 0 errors.
+- `make test` → ALL pass (existing 4 + your new send test), perf gate PASS. The
+  gate is best-of-6 now; if it still FAILs, the box is under load — re-run it
+  isolated (`bash scripts/measure_launch.sh`) and report the isolated number.
+- The send test must prove the mock path end-to-end WITHOUT network.
 
 ## Evidence to report
 - Branch + worktree path (state you did NOT merge/push).
 - Files touched + commit hash(es).
-- Builds (both TLS), tests (name the new one), perf numbers.
-- Screenshots (mock, HANABI_BACKEND=mock): a transcript with the composer now
-  showing an ENABLED Send (not the read-only caption) — dark + light. Upload via
-  `bash ~/.navi/SKILLS/file-transfer/navi-transfer.sh upload <png>` and give
-  manifold:// handles. If you can drive an actual send headlessly (set
-  requestSendPrompt before the capture frames, like HANABI_AUTH_DEMO), capture the
-  appended assistant reply too — bonus.
-- Confirm existing tests still pass; confirm no company-name/endpoint leak; confirm
-  0 vendor edits.
-- Any deferred item (e.g. SSE streaming of the live reply) + why.
-
-## Notes
-- This makes the mock composer FULLY functional (type a reply -> see an assistant
-  message appear), which is the demo we want. Real backend rides the same seam.
-- Keep the synthetic mock assistant reply tasteful + generic (no company refs).
+- Build (both TLS) + test results (name the new test) + perf number.
+- A screenshot of the transcript after a mock reply (User bubble + Assistant ack
+  appended live) — upload via `bash ~/.navi/SKILLS/file-transfer/navi-transfer.sh upload <png>`
+  and give the manifold:// handle. To capture headlessly you can pre-seed a draft
+  + fire the send in the HANABI screenshot path, OR add a small demo affordance
+  (like HANABI_VIEW) — your call, but capture REAL rendered output, not a mock.
+- Confirm no-config browse behavior is unchanged + no company-name leaks + 0
+  vendor edits.
+- Restore any settings.json touched; kill stray hanabi.exe; worktree clean.
+- Anything deferred + why (e.g. streaming token-by-token is NOT in scope — a
+  single returned message is fine; SSE is a later phase).
