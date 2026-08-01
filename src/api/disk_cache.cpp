@@ -33,8 +33,51 @@ std::string ns_token(const std::string& key) {
 }
 }  // namespace
 
+// Resolve the FLAT cache base (no namespace applied), used for one-time
+// migration of a pre-namespacing cache into the namespaced dir.
+static fs::path flat_cache_base() {
+    if (const char* p = std::getenv("HANABI_CACHE_DIR"); p && *p) return p;
+    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+        return fs::path(xdg) / "hanabi" / "cache";
+    if (const char* home = std::getenv("HOME"); home && *home)
+        return fs::path(home) / ".config" / "hanabi" / "cache";
+    return {};
+}
+
 void set_namespace(const std::string& key) {
     g_namespace = key.empty() ? std::string() : ns_token(key);
+    if (g_namespace.empty()) return;
+
+    // ONE-TIME MIGRATION: before namespacing, the cache lived flat directly in
+    // …/cache/ (sessions.json + tx_*.json). Namespacing moves it to
+    // …/cache/<hash>/. Without migrating, the upgrade ORPHANS a working cache —
+    // the namespaced dir is empty, so a slow-/failed-network launch has nothing
+    // to fall back to and blanks (exactly the regression this fixes). So on the
+    // first namespaced run, if our dir has no session list yet but a flat one
+    // exists, MOVE the flat cache files into the namespaced dir. Best-effort;
+    // any failure just falls back to a cold fetch (never fatal).
+    std::error_code ec;
+    const fs::path flat = flat_cache_base();
+    if (flat.empty()) return;
+    const fs::path ns = flat / g_namespace;
+    if (fs::exists(ns / "sessions.json", ec)) return;  // already migrated
+    if (!fs::exists(flat / "sessions.json", ec)) return;  // nothing to migrate
+    fs::create_directories(ns, ec);
+    if (ec) return;
+    // Move the flat sessions.json + every flat tx_*.json into the namespaced
+    // dir. (Only the DIRECT children of flat/ — never recurse into other ns
+    // subdirs.) rename() is atomic within a filesystem; ignore per-file errors.
+    for (fs::directory_iterator it(flat, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::string name = it->path().filename().string();
+        const bool isCache = (name == "sessions.json") ||
+                             (name.rfind("tx_", 0) == 0 &&
+                              name.size() > 4 &&
+                              name.substr(name.size() - 5) == ".json");
+        if (!isCache) continue;
+        std::error_code mv;
+        fs::rename(it->path(), ns / name, mv);
+    }
 }
 
 // ---- path resolution (mirrors config.cpp / token_store.cpp) --------------
