@@ -2,9 +2,9 @@
 //
 // (1) Thread-switch latency: times switching among a few threads through the
 //     REAL code path. Two measurements:
-//       * UNCACHED baseline: tabflow switch + a MockClient get_session fetch
+//       * UNCACHED baseline: model tab switch + a MockClient get_session fetch
 //         (what the loader ran before the cache). Regression guard only.
-//       * CACHED switch (Phase X): tabflow switch + a TranscriptCache HIT
+//       * CACHED switch (Phase X): model tab switch + a TranscriptCache HIT
 //         (what the loader runs today for a recently-seen thread) — served
 //         synchronously, no fetch. This is the instant-switch path; we assert
 //         a STRICT sub-millisecond ceiling on it.
@@ -59,23 +59,23 @@ int main() {
     // Open 5 threads (the "recently-interacted" set the Phase-X cache targets).
     const std::vector<std::string> ids = {"t1", "t4", "t5", "t3", "t11"};
     for (const auto& id : ids)
-        ecs::tabflow::open_session_in_tab(strip, app, id);
+        ecs::model::open_session_in_tab(strip, app, id);
 
     // Warm once.
     for (const auto& id : ids) {
-        ecs::tabflow::open_session_in_tab(strip, app, id);
+        ecs::model::open_session_in_tab(strip, app, id);
         auto r = client.get_session(id);
         (void)r;
     }
 
     // Time N cycles of switching among the 5 threads through the current path:
-    // tabflow focus (sets requestOpenId) + the fetch LoaderSystem would run.
+    // model tab focus (sets requestOpenId) + the fetch LoaderSystem would run.
     constexpr int kCycles = 2000;
     auto t0 = std::chrono::high_resolution_clock::now();
     size_t sink = 0;
     for (int c = 0; c < kCycles; ++c) {
         for (const auto& id : ids) {
-            ecs::tabflow::open_session_in_tab(strip, app, id);  // focus existing
+            ecs::model::open_session_in_tab(strip, app, id);  // focus existing
             auto r = client.get_session(id);  // uncached fetch (today's path)
             sink += r.value.messages.size();
         }
@@ -98,7 +98,7 @@ int main() {
 
     // --- Phase X: CACHED switch path (transcript LRU cache HIT) ---------------
     // Prime the cache with the 5 recently-interacted threads, then time
-    // switching among them through the REAL cached path: tabflow focus + a
+    // switching among them through the REAL cached path: model tab focus + a
     // TranscriptCache HIT (served synchronously, no get_session fetch). This is
     // what the loader runs today for a recently-seen thread.
     ecs::AppComponent& capp = app;
@@ -111,7 +111,7 @@ int main() {
     size_t csink = 0;
     for (int c = 0; c < kCycles; ++c) {
         for (const auto& id : ids) {
-            ecs::tabflow::open_session_in_tab(strip, capp, id);  // focus existing
+            ecs::model::open_session_in_tab(strip, capp, id);  // focus existing
             auto hit = capp.transcriptCache.get(id);  // cache HIT (no fetch)
             if (hit) csink += hit->messages.size();
         }

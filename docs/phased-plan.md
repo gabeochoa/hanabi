@@ -252,9 +252,11 @@ Scope:
   src/ecs/tab_model.h, src/ecs/transcript_cache.h): audit for overlapping types and
   logic, extract shared types, and settle a single `ecs::model` namespace convention
   for the graphics-free state layer. (thread_model.h already uses `ecs::model`;
-  tab_model.h uses `ecs::tabflow` and transcript_cache.h uses `ecs` — reconcile these
-  onto one convention so the "model" layer is discoverable and consistent.) Keep these
-  headers graphics-free (state/glyph/smart-view/tab/cache logic only, no draw calls).
+  a single `ecs::model` namespace convention for the graphics-free state layer.
+  (DONE: thread_model.h, tab_model.h, and transcript_cache.h now all live under
+  `ecs::model` — the tab flow was `ecs::tabflow` and the cache was bare `ecs`;
+  both reconciled onto `ecs::model` so the "model" layer is one discoverable,
+  consistent namespace.) These headers stay graphics-free (state/glyph/smart-view/tab/cache logic only, no draw calls).
 - DEDUPE render helpers across the systems (sidebar_system.h, main_pane_system.h,
   tab_bar_system.h, and the transcript rendering path): pull the repeated row / label /
   section-header builders into shared helpers instead of copy-pasted blocks.

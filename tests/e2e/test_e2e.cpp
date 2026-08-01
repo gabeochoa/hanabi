@@ -3,7 +3,7 @@
 // deterministic MockClient and the real afterhours entity system.
 //
 // These assert the SHIPPED logic: the sidebar/main-pane/tab systems delegate
-// their pure decisions to ecs::model (thread_model.h) and ecs::tabflow
+// their pure decisions to ecs::model (thread_model.h) and ecs::model
 // (tab_model.h), and those exact functions are what we call here — no copies.
 //
 // Style mirrors tests/unit/test_api.cpp: a tiny assert-based runner, hermetic
@@ -197,24 +197,24 @@ static void test_tab_open_focus_no_duplicate() {
     auto& app = setup_app_with_sessions();
     auto& strip = the_strip();
 
-    ecs::tabflow::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t1");
     CHECK(strip.tabOrder.size() == 1);
     CHECK(app.selectedId == "t1");
     CHECK(app.view == ecs::SmartView::Chat);
     CHECK(app.requestOpenId == "t1");
     // Label comes from the summary title.
     {
-        auto* e = ecs::tabflow::active_tab_entity();
+        auto* e = ecs::model::active_tab_entity();
         CHECK(e != nullptr);
         CHECK(e->get<ecs::Tab>().label == "Multi-tier pricing rollout");
     }
 
-    ecs::tabflow::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t4");
     CHECK(strip.tabOrder.size() == 2);
     CHECK(app.selectedId == "t4");
 
     // Re-opening t1 must FOCUS the existing tab, not create a duplicate.
-    ecs::tabflow::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t1");
     CHECK(strip.tabOrder.size() == 2);  // still two tabs
     CHECK(app.selectedId == "t1");
     // Exactly one tab is active.
@@ -231,19 +231,19 @@ static void test_tab_close_fallback() {
     auto& app = setup_app_with_sessions();
     auto& strip = the_strip();
 
-    ecs::tabflow::open_session_in_tab(strip, app, "t1");
-    ecs::tabflow::open_session_in_tab(strip, app, "t4");
-    ecs::tabflow::open_session_in_tab(strip, app, "t5");
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t5");
     CHECK(strip.tabOrder.size() == 3);
     CHECK(app.selectedId == "t5");  // last opened is active
 
     // Close the active (last) tab -> fall back to the neighbor (min(idx,size-1)).
-    auto activeId = ecs::tabflow::active_tab_entity()->id;
+    auto activeId = ecs::model::active_tab_entity()->id;
     // find its index
     size_t idx = 0;
     for (size_t i = 0; i < strip.tabOrder.size(); ++i)
         if (strip.tabOrder[i] == activeId) idx = i;
-    ecs::tabflow::close_tab(strip, app, activeId, idx, /*wasActive=*/true);
+    ecs::model::close_tab(strip, app, activeId, idx, /*wasActive=*/true);
     CHECK(strip.tabOrder.size() == 2);
     CHECK(app.selectedId == "t4");  // fell back to previous tab
 
@@ -254,13 +254,13 @@ static void test_tab_close_fallback() {
         auto o = afterhours::EntityHelper::getEntityForID(firstId);
         firstWasActive = o.valid() && o->has<ecs::ActiveTab>();
     }
-    ecs::tabflow::close_tab(strip, app, firstId, 0, firstWasActive);
+    ecs::model::close_tab(strip, app, firstId, 0, firstWasActive);
     CHECK(strip.tabOrder.size() == 1);
     CHECK(app.selectedId == "t4");
 
     // Close the last remaining tab -> back to Home digest, no open transcript.
     auto lastId = strip.tabOrder[0];
-    ecs::tabflow::close_tab(strip, app, lastId, 0, /*wasActive=*/true);
+    ecs::model::close_tab(strip, app, lastId, 0, /*wasActive=*/true);
     CHECK(strip.tabOrder.empty());
     CHECK(app.selectedId.empty());
     CHECK(app.view == ecs::SmartView::Home);
@@ -382,12 +382,12 @@ static void test_transcript_cache() {
     {
         auto cached = app.transcriptCache.get("t1");
         CHECK(cached.has_value());
-        CHECK(cached->messages.size() <= ecs::kCacheMaxMessagesPerThread);
+        CHECK(cached->messages.size() <= ecs::model::kCacheMaxMessagesPerThread);
         // And the cap is over the LAST 20: verify the tail matches the source.
         auto full = client.inner.get_session("t1");
         CHECK(full.ok);
-        if (full.value.messages.size() > ecs::kCacheMaxMessagesPerThread) {
-            CHECK(cached->messages.size() == ecs::kCacheMaxMessagesPerThread);
+        if (full.value.messages.size() > ecs::model::kCacheMaxMessagesPerThread) {
+            CHECK(cached->messages.size() == ecs::model::kCacheMaxMessagesPerThread);
             CHECK(cached->messages.back().id == full.value.messages.back().id);
         }
     }
@@ -404,7 +404,7 @@ static void test_transcript_cache() {
         app.transcriptCache.put(big);
         auto got = app.transcriptCache.get("big");
         CHECK(got.has_value());
-        CHECK(got->messages.size() == ecs::kCacheMaxMessagesPerThread);
+        CHECK(got->messages.size() == ecs::model::kCacheMaxMessagesPerThread);
         CHECK(got->messages.back().id == "bm49");   // kept the newest
         CHECK(got->messages.front().id == "bm30");  // dropped the oldest 30
     }
@@ -419,7 +419,7 @@ static void test_transcript_cache() {
     const char* five[] = {"t1", "t2", "t3", "t4", "t5"};
     for (const auto* id : five) CHECK(!resolve_transcript(app2, client2, id));
     CHECK(client2.getSessionCalls == 5);
-    CHECK(app2.transcriptCache.size() == ecs::kCacheMaxThreads);
+    CHECK(app2.transcriptCache.size() == ecs::model::kCacheMaxThreads);
 
     // Touch t1 so it becomes most-recent; t2 is now the LRU.
     CHECK(resolve_transcript(app2, client2, "t1"));  // hit, no fetch
@@ -428,7 +428,7 @@ static void test_transcript_cache() {
     // Opening a 6th distinct thread evicts the LRU (t2), still <=5 threads.
     CHECK(!resolve_transcript(app2, client2, "t6"));
     CHECK(client2.getSessionCalls == 6);
-    CHECK(app2.transcriptCache.size() == ecs::kCacheMaxThreads);
+    CHECK(app2.transcriptCache.size() == ecs::model::kCacheMaxThreads);
     CHECK(!app2.transcriptCache.contains("t2"));  // evicted (was LRU)
     CHECK(app2.transcriptCache.contains("t1"));   // touched -> retained
     CHECK(app2.transcriptCache.contains("t6"));   // newest

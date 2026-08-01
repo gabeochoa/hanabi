@@ -28,7 +28,7 @@
 
 #include "../api/types.h"
 
-namespace ecs {
+namespace ecs::model {
 
 // Bound constants (the RAM budget's only unbounded-ish growth point).
 inline constexpr std::size_t kCacheMaxThreads = 5;
@@ -121,4 +121,4 @@ class TranscriptCache {
     std::list<std::string> order_;  // MRU front ... LRU back
 };
 
-}  // namespace ecs
+}  // namespace ecs::model

@@ -33,7 +33,7 @@ list sorted, mock get_session, high-signal model populated, http defaults calm.
 Exercises the **real shipped logic** against the mock + the real afterhours ECS
 core. The sidebar/main-pane/tab systems delegate their pure decisions to
 `src/ecs/thread_model.h` (`ecs::model`) and `src/ecs/tab_model.h`
-(`ecs::tabflow`); the tests call those exact functions (no copies).
+(`ecs::model`); the tests call those exact functions (no copies).
 
 - **Session list** loads from the mock, sorted newest-first, expected sample
   threads (`t1`/`t4`/`t13`) present.
@@ -57,7 +57,7 @@ core. The sidebar/main-pane/tab systems delegate their pure decisions to
 
 ### 3. Perf micro-benchmark — `tests/e2e/test_perf.cpp` (built `-O2`)
 In-process **thread-switch latency**: times switching among 5 recently-opened
-threads through today's path (tabflow focus + `MockClient::get_session`, which
+threads through today's path (model tab focus + `MockClient::get_session`, which
 is what `LoaderSystem` runs on every open — there is no cache yet).
 - Prints `per-switch (avg)` ms every run (trend-visible).
 - Asserts a generous regression guard: **< 5.0 ms/switch** (`kSwitchCeilingMs`).

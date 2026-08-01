@@ -180,20 +180,20 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Open `id` in a tab: focus if already open, else create a new tab.
-    // Delegates to the graphics-free, headlessly-tested tabflow logic.
+    // Delegates to the graphics-free, headlessly-tested model tab logic.
     static void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                     const std::string& id) {
-        tabflow::open_session_in_tab(strip, app, id);
+        model::open_session_in_tab(strip, app, id);
     }
 
     static void switch_to_tab(AppComponent& app, Entity& newTab) {
-        tabflow::switch_to_tab(app, newTab);
+        model::switch_to_tab(app, newTab);
     }
 
     static void close_tab(TabStripComponent& strip, AppComponent& app,
                           afterhours::EntityID tabId, size_t index,
                           bool wasActive) {
-        tabflow::close_tab(strip, app, tabId, index, wasActive);
+        model::close_tab(strip, app, tabId, index, wasActive);
     }
 };
 

@@ -20,7 +20,7 @@
 #include "../../vendor/afterhours/src/core/entity_query.h"
 #include "components.h"
 
-namespace ecs::tabflow {
+namespace ecs::model {
 
 // Graphics-free equivalent of ui_imports.h's find_singleton_entity<Tab,
 // ActiveTab>() — the render header keeps its own; this one has no UI deps.
@@ -92,4 +92,4 @@ inline void close_tab(TabStripComponent& strip, AppComponent& app,
     }
 }
 
-}  // namespace ecs::tabflow
+}  // namespace ecs::model

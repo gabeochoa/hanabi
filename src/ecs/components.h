@@ -63,7 +63,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // cache HIT the loader sets openSession synchronously (no fetch, no Loading
     // flash); on a MISS it takes the async get_session path and inserts the
     // result. Bounds RAM: the 20x5 cap is the only growth point.
-    TranscriptCache transcriptCache;
+    model::TranscriptCache transcriptCache;
 
     // Set by the list system to request a (re)load; consumed by loader.
     bool requestListRefresh = true;
