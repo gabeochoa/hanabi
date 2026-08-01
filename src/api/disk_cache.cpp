@@ -1,5 +1,7 @@
 #include "disk_cache.h"
 
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -11,15 +13,46 @@ namespace api::disk_cache {
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
+// Per-backend cache namespace (see set_namespace). Empty = flat layout.
+namespace {
+std::string g_namespace;
+
+// Short, filesystem-safe, stable token derived from an arbitrary key (e.g. a
+// base URL). A tiny FNV-1a hash rendered hex — enough to separate distinct
+// backends without leaking the URL into a path or colliding in practice.
+std::string ns_token(const std::string& key) {
+    std::uint64_t h = 1469598103934665603ULL;  // FNV-1a offset basis
+    for (unsigned char c : key) {
+        h ^= c;
+        h *= 1099511628211ULL;  // FNV prime
+    }
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx",
+                  static_cast<unsigned long long>(h));
+    return std::string(buf);
+}
+}  // namespace
+
+void set_namespace(const std::string& key) {
+    g_namespace = key.empty() ? std::string() : ns_token(key);
+}
+
 // ---- path resolution (mirrors config.cpp / token_store.cpp) --------------
 std::string cache_dir() {
+    fs::path base;
     // Explicit override (used by tests to isolate from a real user cache).
-    if (const char* p = std::getenv("HANABI_CACHE_DIR"); p && *p) return p;
-    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
-        return (fs::path(xdg) / "hanabi" / "cache").string();
-    if (const char* home = std::getenv("HOME"); home && *home)
-        return (fs::path(home) / ".config" / "hanabi" / "cache").string();
-    return "";
+    if (const char* p = std::getenv("HANABI_CACHE_DIR"); p && *p)
+        base = p;
+    else if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+        base = fs::path(xdg) / "hanabi" / "cache";
+    else if (const char* home = std::getenv("HOME"); home && *home)
+        base = fs::path(home) / ".config" / "hanabi" / "cache";
+    else
+        return "";
+    // Scope to the active backend when a namespace is set, so distinct backends
+    // never share (and pollute) each other's cache files.
+    if (!g_namespace.empty()) base /= g_namespace;
+    return base.string();
 }
 
 namespace {

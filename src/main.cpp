@@ -16,6 +16,7 @@
 #include "../vendor/afterhours/src/ecs.h"
 
 #include "api/client.h"
+#include "api/disk_cache.h"
 #include "api/http_client.h"
 #include "api/token_store.h"
 #include "ecs/components.h"
@@ -93,6 +94,14 @@ static void setup_app_state() {
 
     app.client = api::make_client(cfg);
     app.backend_label = app.client ? app.client->backend_label() : "none";
+    // Scope the on-disk cache to THIS backend (keyed by base_url) so two
+    // different real servers never read each other's stale sessions. Mock never
+    // caches (the loader gates writes on backend_label=="http"), so only the
+    // http backend's URL scopes the cache dir; an empty key keeps the flat
+    // layout. This is what prevents the "wrong server's data on first paint"
+    // class of bug when a user points hanabi at a different backend.
+    if (app.backend_label == "http")
+        api::disk_cache::set_namespace(cfg.base_url);
     app.requestListRefresh = true;
 
     // Phase AUTH: decide whether the in-app device-code login is needed. Only
