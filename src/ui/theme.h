@@ -113,8 +113,11 @@ inline const Tokens kDark = {
     /*tag_blocked_bg*/ {255, 90, 90, 36},
     /*tag_ready_fg*/ {126, 210, 150, 255},
     /*tag_ready_bg*/ {120, 210, 140, 36},
-    /*tag_done_fg*/ {120, 160, 255, 255},
-    /*tag_done_bg*/ {90, 128, 255, 41},
+    // DONE is a SETTLED/closed state, not an active/info one — so it reads as a
+    // muted neutral slate, deliberately NOT the blue accent (which the eye maps
+    // to "active/link"). Cool desaturated grey: present but visually receded.
+    /*tag_done_fg*/ {158, 164, 178, 255},
+    /*tag_done_bg*/ {150, 158, 176, 34},
 
     /*role_user*/ {90, 128, 255, 255},
     /*role_assistant*/ {126, 200, 140, 255},
@@ -189,8 +192,10 @@ inline const Tokens kLight = {
     /*tag_blocked_bg*/ {210, 44, 44, 120},
     /*tag_ready_fg*/ {4, 60, 26, 255},
     /*tag_ready_bg*/ {30, 128, 60, 140},
-    /*tag_done_fg*/ {8, 32, 132, 255},
-    /*tag_done_bg*/ {44, 88, 235, 118},
+    // DONE = settled/closed → muted neutral slate (NOT the blue accent). Deep
+    // enough on the white card that the small AA'd label still clears ~4.5:1.
+    /*tag_done_fg*/ {58, 66, 82, 255},
+    /*tag_done_bg*/ {96, 104, 124, 120},
 
     /*role_user*/ {46, 90, 236, 255},
     /*role_assistant*/ {40, 138, 72, 255},

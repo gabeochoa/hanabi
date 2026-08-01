@@ -304,9 +304,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // string handed to the row's title label. Conservative: strips exactly one
     // leading occurrence, case-sensitive, so it can't chew into real titles.
     static std::string strip_parked_prefix(const std::string& title) {
-        if (title.rfind("[P] ", 0) == 0) return title.substr(4);
-        if (title.rfind("[P]", 0) == 0) return title.substr(3);
-        return title;
+        return fmtutil::display_title(title);  // shared canonical impl
     }
 
     // ---- automated / scheduled row detection (defect #5: cron noise) -------

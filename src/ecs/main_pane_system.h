@@ -190,14 +190,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // never mutated, so state derivation is unaffected. Conservative: one
     // leading marker only.
     static std::string strip_parked_marker(const std::string& in) {
-        size_t i = 0;
-        while (i < in.size() && (in[i] == ' ' || in[i] == '\t')) ++i;
-        if (in.compare(i, 3, "[P]") == 0) {
-            i += 3;
-            while (i < in.size() && (in[i] == ' ' || in[i] == '\t')) ++i;
-            return in.substr(i);
-        }
-        return in;
+        return fmtutil::display_title(in);  // shared canonical impl
     }
 
     static std::string normalize_title(const std::string& in) {
@@ -359,13 +352,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // read recessed). Consistent 14/16 padding keeps text off the edges.
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(60)})
+                .with_size(ComponentSize{percent(1.0f), pixels(52)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(4), .right = pixels(0),
-                                    .bottom = pixels(8), .left = pixels(0)})
-                .with_padding(Padding{.top = pixels(11), .right = pixels(16),
-                                      .bottom = pixels(11), .left = pixels(16)})
+                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
+                                    .bottom = pixels(5), .left = pixels(0)})
+                .with_padding(Padding{.top = pixels(7), .right = pixels(16),
+                                      .bottom = pixels(7), .left = pixels(16)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_bg())

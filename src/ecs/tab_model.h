@@ -18,6 +18,7 @@
 
 #include "../../vendor/afterhours/src/core/entity_helper.h"
 #include "../../vendor/afterhours/src/core/entity_query.h"
+#include "../util/format.h"
 #include "components.h"
 
 namespace ecs::model {
@@ -60,7 +61,7 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     auto& tab = e.addComponent<Tab>();
     tab.sessionId = id;
     const auto* sum = app.find_summary(id);
-    tab.label = sum ? (sum->title.empty() ? id : sum->title) : id;
+    tab.label = sum ? (sum->title.empty() ? id : fmtutil::display_title(sum->title)) : id;
     e.addComponent<ActiveTab>();
     strip.tabOrder.push_back(e.id);
 
