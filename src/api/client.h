@@ -58,6 +58,17 @@ struct Config {
     std::string field_text = "text";
     std::string field_created_at = "created_at";
 
+    // Some backends put message content in a BLOCKS array (e.g. a transcript
+    // where each message has blocks:[{type:"text",content:"..."}]) rather than
+    // a flat text field. When field_blocks names a present array, the adapter
+    // concatenates the content of every block whose type == field_block_text_type,
+    // reading the text from field_block_content. All configurable; when the
+    // named blocks array is absent it falls back to the flat field_text.
+    std::string field_blocks = "blocks";
+    std::string field_block_type = "type";
+    std::string field_block_content = "content";
+    std::string field_block_text_type = "text";
+
     // Load from environment. Returns a Config with backend defaulted to "mock"
     // when nothing is configured.
     static Config from_env();

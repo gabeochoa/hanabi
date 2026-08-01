@@ -92,3 +92,32 @@ by config) so it is ready if a backend exposes it — but does not block on it.
   and SKIPPED BY DEFAULT.
 - No real endpoint / key / token / schema / internal URL / company name in the repo.
 - No vendor edits.
+
+## Live verification (real backend, done)
+The generic adapter was exercised end-to-end against a real, running backend (config
+supplied entirely at runtime via env — nothing committed). Results:
+- LIST: fetched the full session list (100+ sessions) — the `{ sessions:[...],
+  hasMore }` wrapper is handled; camelCase timestamps map via
+  `HANABI_FIELD_UPDATED_AT=updatedAt` / `HANABI_FIELD_CREATED_AT=createdAt`.
+- TRANSCRIPT: fetched a 100+ message transcript; roles (user/assistant/system/tool)
+  parse correctly.
+
+Two concrete things this live test surfaced and FIXED in the generic adapter:
+1. **HTTPS transport was off by default.** TLS is opt-in behind `HANABI_ENABLE_TLS`,
+   which the build didn't set — so an `https://` backend threw "scheme not supported"
+   at runtime. Added an opt-in `make HANABI_TLS=1` (links OpenSSL + the platform TLS
+   cert framework); the default zero-config/mock build stays dependency-free. Real
+   backends are HTTPS, so a real deployment builds with `HANABI_TLS=1`.
+2. **Block-array transcripts.** Some backends carry message content in a
+   `blocks:[{type,content}]` array instead of a flat text field, so transcript text
+   came back empty. The adapter now concatenates text-type blocks (configurable via
+   `HANABI_FIELD_BLOCKS` / `_BLOCK_TYPE` / `_BLOCK_CONTENT` / `_BLOCK_TEXT_TYPE`) and
+   notes the first non-text block type as a subtitle hint, falling back to the flat
+   `field_text` when no blocks array is present. Both behaviors are generic — no
+   backend-specific shape is baked in.
+
+Still open (not blocking a read-only load): SSE streaming, search/mutate/folders as
+adapter methods, and the device-code auth exchange (a static bearer token works for a
+read; the interactive code→poll→token flow is future work). The derive-state rules
+above are not yet applied in the http path (it currently leaves rows calm) — that is
+the next adapter increment.

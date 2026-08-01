@@ -33,6 +33,20 @@ CXXFLAGS := $(CXXSTD) $(CXXFLAGS_BASE) $(CXXFLAGS_SUPPRESS) \
 INCLUDES := -isystem vendor/ -isystem vendor/afterhours/vendor/
 LDFLAGS := -L. $(FRAMEWORKS)
 
+# Optional TLS/HTTPS support for the http backend. OFF by default so the
+# zero-config mock build has NO extra dependencies. Enable with `make HANABI_TLS=1`
+# (needs OpenSSL). Without it, the http adapter only speaks plain http://; a
+# real https:// backend requires this. Nothing about any endpoint is baked in —
+# this only adds the TLS transport so a runtime-configured https URL can connect.
+ifeq ($(HANABI_TLS),1)
+    OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3 2>/dev/null)
+    CXXFLAGS += -DHANABI_ENABLE_TLS -I$(OPENSSL_PREFIX)/include
+    LDFLAGS += -L$(OPENSSL_PREFIX)/lib -lssl -lcrypto
+    ifeq ($(UNAME_S),Darwin)
+        LDFLAGS += -framework Security
+    endif
+endif
+
 OBJ_DIR := output/objs
 OUTPUT_DIR := output
 

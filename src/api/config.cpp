@@ -38,6 +38,15 @@ Config Config::from_env() {
     c.field_text = env_or("HANABI_FIELD_TEXT", c.field_text);
     c.field_created_at = env_or("HANABI_FIELD_CREATED_AT", c.field_created_at);
 
+    // Block-array transcript shape (optional; defaults match a common
+    // blocks:[{type,content}] layout, ignored when the array is absent).
+    c.field_blocks = env_or("HANABI_FIELD_BLOCKS", c.field_blocks);
+    c.field_block_type = env_or("HANABI_FIELD_BLOCK_TYPE", c.field_block_type);
+    c.field_block_content =
+        env_or("HANABI_FIELD_BLOCK_CONTENT", c.field_block_content);
+    c.field_block_text_type =
+        env_or("HANABI_FIELD_BLOCK_TEXT_TYPE", c.field_block_text_type);
+
     return c;
 }
 

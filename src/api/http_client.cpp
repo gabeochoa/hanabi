@@ -159,8 +159,30 @@ Result<Session> HttpClient::get_session(const std::string& id) {
             Message m;
             m.id = as_string(e, cfg_.field_id);
             m.role = parse_role(as_string(e, cfg_.field_role));
-            m.text = as_string(e, cfg_.field_text);
             m.created_at = as_epoch(e, cfg_.field_created_at);
+            // Prefer a flat text field; if the message instead carries a blocks
+            // array, concatenate the content of its text-type blocks. Also note
+            // any non-text block (e.g. a tool call) as a subtitle hint.
+            m.text = as_string(e, cfg_.field_text);
+            if (m.text.empty() && e.contains(cfg_.field_blocks) &&
+                e.at(cfg_.field_blocks).is_array()) {
+                std::string joined;
+                for (const auto& b : e.at(cfg_.field_blocks)) {
+                    if (!b.is_object()) continue;
+                    const std::string btype = as_string(b, cfg_.field_block_type);
+                    if (btype == cfg_.field_block_text_type) {
+                        const std::string c =
+                            as_string(b, cfg_.field_block_content);
+                        if (!c.empty()) {
+                            if (!joined.empty()) joined += "\n\n";
+                            joined += c;
+                        }
+                    } else if (!btype.empty() && m.subtitle.empty()) {
+                        m.subtitle = btype;
+                    }
+                }
+                m.text = std::move(joined);
+            }
             session.messages.push_back(std::move(m));
         }
     } catch (const std::exception& ex) {
