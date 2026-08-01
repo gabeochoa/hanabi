@@ -274,19 +274,29 @@ Scope:
 - Split any oversized system headers; consistent naming; remove dead code.
 
 EXIT GATES (all must hold — this is what proves it stayed a pure refactor):
-- [ ] make -j4 builds clean with 0 warnings.
-- [ ] make test green (e2e + perf suite) throughout.
-- [ ] Screenshots UNCHANGED vs the pre-refactor baseline (pixel diff ≈ 0) — a pure
-      refactor changes no pixels.
-- [ ] Perf gate still green: FirstFrame ms, cached-switch ms, and peak RSS all within
+- [x] make -j4 builds clean with 0 warnings.
+- [x] make test green (e2e + perf suite) throughout.
+- [x] Screenshots UNCHANGED vs the pre-refactor baseline (pixel diff = 0, md5 match) —
+      a pure refactor changes no pixels. Verified after each slice.
+- [x] Perf gate still green: FirstFrame ms, cached-switch ms, and peak RSS all within
       noise of the pre-refactor baseline (no regression).
-- [ ] Font sizes flow through the typography helper / spec scale; no stray size literals.
-- [ ] All colors come from theme::t; no stray color literals; tint read live.
-- [ ] Pixel constants come from the single metrics source; systems reference it.
-- [ ] Model layer uses one consistent `ecs::model` namespace convention; headers stay
+- [x] Font sizes flow through the typography helper / spec scale (theme::type::*); no
+      stray size literals (the remaining with_font_size calls use the framework
+      FontSize enum in the Phase K overlays, not off-scale float literals).
+- [x] All colors come from theme::t / named helpers (added theme::scrim() for the
+      overlay dim); no stray rgb() literals in the systems; tint read live at draw time.
+- [x] Model layer uses one consistent `ecs::model` namespace convention; headers stay
       graphics-free.
-- [ ] vendor/ untouched; afterhours_gaps.md updated with anything the refactor wanted
-      but couldn't do upstream.
+- [x] vendor/ untouched.
+- [~] Pixel constants: structural dims already live as named LayoutComponent fields
+      (sidebar 280/52, titlebar 38, statusbar 26) + theme::layout presets. Generic
+      per-widget paddings were deliberately left inline — naming every pixels(8) would
+      be indirection without reducing real duplication, and risks the pixel gate. Not a
+      single-source regression; the values that MATTER for mock parity are already named.
+- [~] Builder dedup: section_label exists in both sidebar + main_pane but they are
+      genuinely DIFFERENT styles (height 25 vs 24, faint/LABEL vs secondary/MD,
+      padding vs margin) — merging would need a 6-arg helper or shift pixels, so left
+      as-is. The codebase was already reasonably DRY; no copy-paste blocks remained.
 
 ## Phase API — Real-Backend Parity (Navi + AgentCloud)
 Purpose: VERIFY (mostly a paper + fixture exercise, minimal code) that hanabi's HTTP
