@@ -311,10 +311,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (a != std::string::npos)
                     return tail.substr(a, b - a + 1);
             }
-            // No separator: the preview is itself the detail — keep it verbatim.
-            return s.preview;
+            // No separator: the preview is a BARE phrase with no discriminating
+            // detail. If it merely restates the section's state word (e.g.
+            // "self-running" under the SELF-RUNNING header, "running", "waiting
+            // on you"), echoing it is the exact redundancy grouped mode exists to
+            // kill (v5 #4) — so fall back to the age instead. Only a preview that
+            // carries REAL detail (not a state label) is kept verbatim.
+            if (!is_bare_state_word(s.preview)) return s.preview;
         }
-        return age;  // real backend: age is the discriminating detail.
+        return age;  // no discriminating detail: the age is what differs.
+    }
+
+    // True when a preview string is just a state/status label (which the grouped
+    // section header already conveys) rather than a discriminating detail.
+    static bool is_bare_state_word(const std::string& p) {
+        static const char* kStateWords[] = {
+            "self-running", "running", "waiting on you", "waiting",
+            "blocked", "done", "ready for review", "review", "active",
+            "archived", "parked"};
+        for (const char* w : kStateWords)
+            if (p == w) return true;
+        return false;
     }
 
     static const char* tag_label(api::ThreadTag t) {        switch (t) {
