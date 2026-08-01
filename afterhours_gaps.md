@@ -399,3 +399,31 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   NOT done here (atlas + gen script are owned by another agent). This is the
   same atlas the #19 note wants a "clock" for — a single "clock" sprite would
   satisfy both #19 (attention) and #20 (scheduled) if reused thoughtfully.
+
+### #21 — headless --screenshot wait gates on session-LIST load, not TRANSCRIPT load (hanabi harness gap)
+- **Gap:** `run_headless_screenshot` (src/main.cpp) pumps frames until the
+  session LIST leaves Loading, then renders a fixed 45-frame budget (~tens of
+  ms) and captures. The transcript message-fetch for the restored/auto-opened
+  tab is an ASYNC network request kicked during those frames; against the REAL
+  http backend it takes ~hundreds of ms — far longer than 45 fast frames — so
+  the capture fires while `transcriptState == Loading` and the pane shows
+  "Loading… / Open a thread", never the real messages. (The mock resolves the
+  transcript synchronously via the in-memory cache, so mock transcripts capture
+  fine — this ONLY bites the real backend.)
+- **Impact:** you CANNOT headlessly screenshot a REAL transcript today. Proven:
+  a real run loads 104 real sessions (listState=Loaded, sidebar fully
+  populated) but the transcript pane stays Loading. Windowed capture is also
+  blocked on this box (macOS TCC denies `screencapture`).
+- **Fix (owned elsewhere — src/main.cpp, NOT this agent's file):** extend the
+  pre-capture wait loop to ALSO wait for the active tab's transcript to leave
+  Loading — e.g. after the list resolves and the first tab auto-opens, keep
+  pumping frames (under the same wall-clock deadline, bump kMaxWait to ~8-10s)
+  until `app.transcriptState != Loading` (or the deadline). One-liner in the
+  existing wait loop's break condition. This is the single change that unblocks
+  a real-transcript screenshot.
+- **App-code workaround (this agent):** none possible from main_pane_system.h —
+  the wait budget lives in main.cpp. Transcript RENDER correctness is proven on
+  the mock (session r1 carries a real User+Assistant+Tool+Tool+Assistant mix),
+  and the render path is backend-agnostic (the http adapter flattens real
+  blocks[] into the same api::Message list the mock uses), so the real
+  transcript will render identically once the harness waits for it.

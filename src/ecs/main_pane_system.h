@@ -599,7 +599,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static theme::Color sub_glyph_color(SubGlyph g) {
         switch (g) {
             case SubGlyph::Working: return theme::accent();
-            case SubGlyph::Done: return theme::tag_done_fg();
+            // DONE reads GREEN (v3 #12): the "done" success token, not the blue
+            // tag_done_fg (which reads as "just another accent" next to the
+            // running ring). tag_ready_fg is the theme's green success color.
+            case SubGlyph::Done: return theme::tag_ready_fg();
             case SubGlyph::Blocked: return theme::tag_blocked_fg();
         }
         return theme::text_faint();
@@ -618,9 +621,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // .glyph.g-working animated pulse ring, minus the animation.
                 afterhours::draw_ring(cx, cy, 3.0f, 4.6f, 24, c);
                 break;
-            case SubGlyph::Done:
-                afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 4.0f, c);
+            case SubGlyph::Done: {
+                // Filled GREEN dot with a small check inside — a positive,
+                // finished affordance (v3 #12) that reads distinctly from the
+                // hollow accent running-ring. The check is drawn in the pane
+                // surface color so it "cuts" out of the dot.
+                afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 5.0f, c);
+                const theme::Color k = theme::panel_bg_2();
+                afterhours::draw_line_ex(
+                    afterhours::vec2{cx - 2.4f, cy + 0.2f},
+                    afterhours::vec2{cx - 0.6f, cy + 2.2f}, 1.4f, k);
+                afterhours::draw_line_ex(
+                    afterhours::vec2{cx - 0.6f, cy + 2.2f},
+                    afterhours::vec2{cx + 2.6f, cy - 2.2f}, 1.4f, k);
                 break;
+            }
             case SubGlyph::Blocked:
                 afterhours::draw_triangle(
                     afterhours::vec2{cx, cy - 4.5f},
@@ -824,14 +839,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        float listH = paneH - 46.0f;
+        // The transcript pane splits into a scrolling message column (grows to
+        // fill) and a persistent composer row pinned to the bottom (v3 #30 —
+        // kills the empty dark band). Header is 46; the composer is a fixed
+        // strip; the scroll takes whatever's left.
+        constexpr float kComposerH = 74.0f;
+        float listH = paneH - 46.0f - kComposerH;
         if (listH < 20.0f) listH = 20.0f;
-        // Empty-thread state: an open thread with no messages shows the empty
-        // state rather than a blank pane (mirrors the mock's empty screen).
-        if (app.openSession->messages.empty()) {
-            note(ctx, parent, "Nothing here yet");
-            return;
-        }
 
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -841,12 +855,147 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(6), .left = pixels(18)})
                 .with_debug_name("transcript_scroll"));
 
-        // Sub-agent panel sits above the messages when the thread has steps.
-        sub_agent_panel(ctx, scroll.ent(), app);
+        // Empty-thread state: an open thread with no messages shows a tasteful
+        // empty state inside the scroll region (mirrors the mock's empty
+        // screen) — but the composer still renders below, so the pane never
+        // shows a blank void.
+        if (app.openSession->messages.empty()) {
+            div(ctx, mk(scroll.ent(), 1),
+                preset::EmptyStateText("No messages yet â "
+                                       "start the conversation below.")
+                    .with_size(ComponentSize{percent(1.0f), pixels(40)})
+                    .with_padding(Padding{.top = pixels(28), .right = pixels(18),
+                                          .bottom = pixels(8),
+                                          .left = pixels(18)})
+                    .with_alignment(TextAlignment::Center)
+                    .with_debug_name("transcript_empty"));
+        } else {
+            // Sub-agent panel sits above the messages when the thread has steps.
+            sub_agent_panel(ctx, scroll.ent(), app);
 
-        int i = 0;
-        for (const auto& m : app.openSession->messages)
-            render_bubble(ctx, scroll.ent(), i++, m, paneW);
+            int i = 0;
+            for (const auto& m : app.openSession->messages)
+                render_bubble(ctx, scroll.ent(), i++, m, paneW);
+        }
+
+        render_composer(ctx, parent, paneW, kComposerH);
+    }
+
+    // Persistent composer pinned to the bottom of the transcript pane. A real,
+    // functional afterhours text_input + a Send affordance.
+    //
+    // WIRING (v3 #30 + REPORT): the api::Client interface (src/api/client.h)
+    // exposes list_sessions / get_session / create_session(prompt) /
+    // backend_label — there is NO method to CONTINUE an already-open thread
+    // (no send_message(session_id, prompt) / reply). So Send on an open
+    // transcript has no backend to call. Rather than fake it, the composer is
+    // rendered as a REAL, VISUALLY-COMPLETE input that you can type into
+    // (bound to a persistent draft), with a clear READ-ONLY affordance: the
+    // Send button is disabled-styled and a caption notes replies aren't wired
+    // yet. A real reply needs a Client::send_message(const std::string& id,
+    // const std::string& prompt) method + a loader path that appends the
+    // returned message(s) to app.openSession->messages (see REPORT).
+    void render_composer(UIContext<InputAction>& ctx, Entity& parent,
+                         float paneW, float composerH) {
+        // Function-local persistent draft (kept out of components.h, which is
+        // owned by another agent). One transcript pane -> one instance -> safe.
+        static std::string replyDraft;
+
+        auto bar = div(ctx, mk(parent, 3),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(composerH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(8), .right = pixels(18),
+                                      .bottom = pixels(8), .left = pixels(18)})
+                .with_custom_background(theme::panel_bg())
+                .with_roundness(0.0f)
+                .with_debug_name("composer_bar"));
+
+        // A hairline top border sold via a 1px divider row so the composer
+        // reads as a distinct footer strip separated from the message column.
+        div(ctx, mk(bar.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(1)})
+                .with_custom_background(theme::border())
+                .with_margin(Margin{.bottom = pixels(7)})
+                .with_roundness(0.0f)
+                .with_debug_name("composer_divider"));
+
+        auto row = div(ctx, mk(bar.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_row"));
+
+        // The input grows to fill; a fixed-width Send button sits at the right.
+        // NOTE (afterhours_gaps.md #17): text_input forces its own Secondary
+        // background and derives font size from field HEIGHT (~0.5*h) — it
+        // ignores with_font_size / with_custom_background. So the field is kept
+        // ~34px tall for a readable ~17px font, matching the composer overlay
+        // and sidebar search field workarounds.
+        float sendW = 78.0f;
+        float inputW = paneW - 36.0f - sendW - 8.0f;
+        if (inputW < 120.0f) inputW = 120.0f;
+
+        auto inputWrap = div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(inputW), pixels(34)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.right = pixels(8)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_input_wrap"));
+
+        afterhours::ui::imm::text_input(ctx, mk(inputWrap.ent(), 1), replyDraft,
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_text_color(theme::text_primary())
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.3f)
+                .with_debug_name("composer_reply_input"));
+
+        // Send affordance. No continue-session backend method exists, so this
+        // is disabled-styled (read-only). It still renders as a complete,
+        // polished button so the composer looks real, not a placeholder.
+        button(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label("Send")
+                .with_size(ComponentSize{pixels(sendW), pixels(32)})
+                .with_custom_background(theme::disabled_bg())
+                .with_custom_hover_bg(theme::disabled_bg())
+                .with_custom_text_color(theme::disabled_text())
+                .with_font_size(FontSize::Medium)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_roundness(0.35f)
+                .with_debug_name("composer_send"));
+
+        // Read-only status caption: the text_input has no placeholder support
+        // (gap #17), so this faint line both labels the field ("Reply...") and
+        // states the honest limitation (no continue-session backend yet).
+        div(ctx, mk(bar.ent(), 3),
+            ComponentConfig{}
+                .with_label(replyDraft.empty()
+                                ? "Reply\xe2\x80\xa6  \xc2\xb7  read-only preview "
+                                  "(replies aren't wired to the backend yet)"
+                                : "read-only preview \xe2\x80\x94 replies aren't "
+                                  "wired to the backend yet")
+                .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("composer_status"));
     }
 
     static const char* role_label(api::Role r) {
@@ -901,26 +1050,73 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return 24.0f + static_cast<float>(lines) * 18.0f;
     }
 
+    // Max bubble content width — caps the reading column so a conversational
+    // message doesn't run edge-to-edge across the wide pane (v3 #8). ~620px is
+    // roughly 70 characters at this font, the comfortable-reading target.
+    static constexpr float kBubbleCap = 620.0f;
+
+    // A conversational message (User / Assistant) as a CONTAINED bubble inside a
+    // full-width row. The row aligns the bubble by role (user right, assistant
+    // left) so the transcript reads as a two-sided conversation, not a stack of
+    // full-width tinted bands. System / Tool messages take the quieter
+    // metadata treatment (see render_meta_line / render_tool_block).
     void render_bubble(UIContext<InputAction>& ctx, Entity& parent, int index,
                        const api::Message& m, float paneWidth) {
-        float bubbleW = paneWidth - 60.0f;
-        if (bubbleW < 120.0f) bubbleW = 120.0f;
+        // System messages are conversation METADATA, not dialogue: render them
+        // as a quiet centered caption, never a bubble.
+        if (m.role == api::Role::System) {
+            render_meta_line(ctx, parent, index, m);
+            return;
+        }
+        // Tool messages are work-steps: a distinct, subtler contained block
+        // (left-aligned, quieter than a conversational bubble).
+        if (m.role == api::Role::Tool) {
+            render_tool_block(ctx, parent, index, m, paneWidth);
+            return;
+        }
+
+        const bool isUser = (m.role == api::Role::User);
+
+        // Usable content column, capped at kBubbleCap for readability.
+        float avail = paneWidth - 60.0f;
+        if (avail < 160.0f) avail = 160.0f;
+        float bubbleW = avail < kBubbleCap ? avail : kBubbleCap;
         float textW = bubbleW - 28.0f;
         float h = estimate_height(m.text, textW);
 
-        auto bubble = div(ctx, mk(parent, 200 + index * 10),
+        // Full-width row: justify FlexEnd (user, right) or FlexStart
+        // (assistant, left). This is what turns a stack of bands into a
+        // two-sided conversation.
+        auto row = div(ctx, mk(parent, 200 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_justify_content(isUser ? JustifyContent::FlexEnd
+                                             : JustifyContent::FlexStart)
+                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
+                                    .bottom = pixels(5), .left = pixels(0)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("bubble_row"));
+
+        // The bubble: a contained card with padding, a subtle role-tinted
+        // surface, and a hairline border so it reads as a floating chip in both
+        // themes (the border sells the lift in light mode).
+        auto bubble = div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(bubbleW), pixels(h)})
                 .with_custom_background(bubble_bg(m.role))
+                .with_border(theme::border(), pixels(1.0f))
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(4), .right = pixels(0),
-                                    .bottom = pixels(6), .left = pixels(0)})
-                .with_padding(Padding{.top = pixels(6), .right = pixels(14),
-                                      .bottom = pixels(8), .left = pixels(14)})
-                .with_roundness(0.35f)
+                .with_padding(Padding{.top = pixels(7), .right = pixels(14),
+                                      .bottom = pixels(9), .left = pixels(14)})
+                .with_roundness(0.4f)
                 .with_debug_name("bubble"));
 
+        // Sender line: role + optional subtitle + relative age. User rows put
+        // the label right-aligned so it tracks the bubble's trailing edge.
         std::string label = role_label(m.role);
         if (!m.subtitle.empty()) label += "  \xc2\xb7  " + m.subtitle;
         std::string age = fmtutil::relative_time(m.created_at);
@@ -928,29 +1124,110 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(bubble.ent(), 1),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                .with_size(ComponentSize{percent(1.0f), pixels(15)})
                 .with_transparent_bg()
                 .with_custom_text_color(role_color(m.role))
                 .with_font_size(FontSize::Small)
-                .with_alignment(TextAlignment::Left)
+                .with_alignment(isUser ? TextAlignment::Right
+                                       : TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("bubble_role"));
 
         div(ctx, mk(bubble.ent(), 2),
             ComponentConfig{}
                 .with_label(m.text)
-                .with_size(ComponentSize{percent(1.0f), pixels(h - 24.0f)})
+                .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
                 .with_transparent_bg()
-                // Tool bodies read subtler than conversational text (mock's
-                // muted "Tool · …" block); other roles keep primary text.
-                .with_custom_text_color(m.role == api::Role::Tool
-                                            ? theme::text_secondary()
-                                            : theme::text_primary())
+                .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
                 .with_text_overflow(TextOverflow::Wrap)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("bubble_text"));
+    }
+
+    // A System message: a quiet, centered, muted caption — conversation
+    // metadata (a session boundary / mode note), NOT a dialogue bubble.
+    void render_meta_line(UIContext<InputAction>& ctx, Entity& parent,
+                          int index, const api::Message& m) {
+        std::string txt = m.text;
+        std::string age = fmtutil::relative_time(m.created_at);
+        if (!age.empty() && !txt.empty()) txt += "   \xc2\xb7   " + age;
+        div(ctx, mk(parent, 200 + index * 10),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(txt, 120))
+                .with_size(ComponentSize{percent(1.0f), pixels(22)})
+                .with_margin(Margin{.top = pixels(8), .right = pixels(0),
+                                    .bottom = pixels(8), .left = pixels(0)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name("meta_line"));
+    }
+
+    // A Tool message: a distinct, subtler contained block (left-aligned, a
+    // faint accent-over-panel tint, muted body) so tool activity stays visually
+    // separate from the conversational bubbles but doesn't shout like one.
+    void render_tool_block(UIContext<InputAction>& ctx, Entity& parent,
+                           int index, const api::Message& m, float paneWidth) {
+        float avail = paneWidth - 60.0f;
+        if (avail < 160.0f) avail = 160.0f;
+        float blockW = avail < kBubbleCap ? avail : kBubbleCap;
+        float textW = blockW - 28.0f;
+        float h = estimate_height(m.text, textW);
+
+        auto row = div(ctx, mk(parent, 200 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_justify_content(JustifyContent::FlexStart)
+                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
+                                    .bottom = pixels(5), .left = pixels(0)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("tool_row"));
+
+        auto block = div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(blockW), pixels(h)})
+                .with_custom_background(
+                    theme::over(theme::accent_soft(), theme::panel_bg()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(6), .right = pixels(14),
+                                      .bottom = pixels(8), .left = pixels(14)})
+                .with_roundness(0.3f)
+                .with_debug_name("tool_block"));
+
+        std::string label = role_label(m.role);
+        if (!m.subtitle.empty()) label += "  \xc2\xb7  " + m.subtitle;
+        std::string age = fmtutil::relative_time(m.created_at);
+        if (!age.empty()) label += "   " + age;
+        div(ctx, mk(block.ent(), 1),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{percent(1.0f), pixels(15)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::role_tool())
+                .with_font_size(FontSize::Small)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("tool_role"));
+        div(ctx, mk(block.ent(), 2),
+            ComponentConfig{}
+                .with_label(m.text)
+                .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(FontSize::Medium)
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("tool_text"));
     }
 };
 
