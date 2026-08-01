@@ -70,9 +70,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_absolute_position()
                 .with_translate(0.0f, 0.0f)
                 .with_custom_background(
-                    theme::over(theme::Color{0, 0, 0, 140}, theme::window_bg()))
+                    theme::over(theme::scrim(), theme::window_bg()))
                 .with_custom_hover_bg(
-                    theme::over(theme::Color{0, 0, 0, 140}, theme::window_bg()))
+                    theme::over(theme::scrim(), theme::window_bg()))
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.0f)
                 .with_render_layer(10)

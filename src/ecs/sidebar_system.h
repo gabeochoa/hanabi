@@ -115,7 +115,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                           .left = pixels(14)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
-                    .with_font_size(12.0f)
+                    .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("sb_no_results"));
@@ -409,7 +409,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
                                                  : theme::text_faint())
-                .with_font_size(12.5f)
+                .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_text"));
@@ -424,7 +424,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_bg())
                     .with_custom_text_color(theme::text_faint())
-                    .with_font_size(14.0f)
+                    .with_font_size(theme::type::LG)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
@@ -448,7 +448,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(5), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
-                .with_font_size(10.5f)
+                .with_font_size(theme::type::LABEL)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_section_label"));
@@ -479,7 +479,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.72f), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
-                .with_font_size(10.5f)
+                .with_font_size(theme::type::LABEL)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_folders_label"));
@@ -615,7 +615,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.left = pixels(10)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
-                .with_font_size(13.0f)
+                .with_font_size(theme::type::BODY)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
@@ -628,7 +628,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_custom_text_color(active ? theme::text_primary()
                                                    : theme::text_faint())
-                    .with_font_size(11.0f)
+                    .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Right)
                     .with_roundness(0.0f)
                     .with_debug_name("sv_count"));
@@ -712,7 +712,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.8f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(headColor)
-                .with_font_size(12.0f)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("folder_name"));
@@ -722,7 +722,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(24), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
-                .with_font_size(11.0f)
+                .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Right)
                 .with_roundness(0.0f)
                 .with_debug_name("folder_count"));
@@ -806,7 +806,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.80f), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
-                .with_font_size(12.5f)
+                .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));

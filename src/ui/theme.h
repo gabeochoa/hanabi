@@ -244,6 +244,34 @@ inline Color tag_ready_bg() { return t.tag_ready_bg; }
 inline Color tag_done_fg() { return t.tag_done_fg; }
 inline Color tag_done_bg() { return t.tag_done_bg; }
 
+// Modal/overlay scrim — the dim wash drawn behind settings/composer sheets.
+// Pre-blend it over the backdrop with over() since the fill can't alpha-blend
+// (gap #13): e.g. with_custom_background(theme::over(theme::scrim(), bg)).
+inline Color scrim() { return Color{0, 0, 0, 140}; }
+
+}  // namespace theme
+
+// ---------------------------------------------------------------------------
+// Typography — the ALLOWED font-size scale (docs/spec-metrics.md "Type scale").
+// Every with_font_size(<px>) in the systems must use one of these named sizes,
+// so a size is defined once here instead of repeated as a raw float literal and
+// so we never "invent" an off-scale size. Values match the spec exactly.
+namespace theme {
+namespace type {
+constexpr float H1 = 20.0f;          // smart-view h1
+constexpr float SPOTLIGHT = 17.0f;   // spotlight/kickoff input
+constexpr float LG = 14.0f;          // transcript h2 / large labels
+constexpr float TITLE = 13.5f;       // digest card title
+constexpr float BODY = 13.0f;        // smart-view row label
+constexpr float ROW = 12.5f;         // thread-row title, tab label
+constexpr float MD = 12.0f;          // folder name, section body
+constexpr float SUBROW = 11.5f;      // sub-agent sub-row title
+constexpr float SM = 11.0f;          // counts, status bar, sub-labels
+constexpr float LABEL = 10.5f;       // section labels (VIEWS/FOLDERS)
+constexpr float XS = 10.0f;          // smallest body
+constexpr float CHIP = 9.5f;         // tag chip text
+constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
+}  // namespace type
 }  // namespace theme
 
 // Layout constants referenced by the design-system presets.

@@ -89,7 +89,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{percent(0.3f), pixels(22)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(11.0f)
+                    .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Right)
                     .with_roundness(0.0f)
                     .with_debug_name("main_sub"));
@@ -235,7 +235,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(0.74f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(13.5f)
+                .with_font_size(theme::type::TITLE)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("dc_name"));
@@ -249,7 +249,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                           .left = pixels(6)})
                     .with_custom_background(tag_bg(s.tag))
                     .with_custom_text_color(tag_fg(s.tag))
-                    .with_font_size(9.5f)
+                    .with_font_size(theme::type::CHIP)
                     .with_alignment(TextAlignment::Center)
                     .with_roundness(0.3f)
                     .with_debug_name("dc_tag"));
@@ -262,7 +262,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
-                .with_font_size(12.0f)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("dc_sub"));
@@ -315,7 +315,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     .bottom = pixels(4), .left = pixels(0)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
-                .with_font_size(12.0f)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("home_section"));
@@ -427,7 +427,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     .bottom = pixels(0), .left = pixels(6)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(12.5f)
+                .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("si_title"));
@@ -438,7 +438,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{percent(0.6f), pixels(16)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(12.0f)
+                    .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("si_status"));
@@ -519,7 +519,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(6), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
-                .with_font_size(11.0f)
+                .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("subpanel_head"));
