@@ -495,3 +495,30 @@ composer functional on BOTH paths, config-driven and mock-first.
 - Deferred: SSE token-by-token streaming (this phase uses a synchronous
   POST-returns-message shape; the `send_message → Message` seam is unchanged when
   SSE lands — only the transport underneath swaps).
+
+## Phase STREAM — Live token-by-token (SSE) reply — DONE
+**STATUS: DONE (merged `6192665`).** Turns Phase SEND's synchronous reply into a
+live, incremental one: the assistant bubble appears immediately and fills in
+token-by-token, mock-first and config-driven. Additive seam — `send_message`
+(synchronous) is retained unchanged.
+- **Seam**: `StreamSink` (on_delta/on_event/on_done/on_error) + generic
+  `StreamEvent` kinds (Text/Thinking/ToolCall/Done/TitleUpdate/Error);
+  `supports_stream()` + `send_message_streaming()`. Default impl falls back to
+  `send_message()` + `on_done()` so non-streaming adapters still work.
+- **Mock**: splits a synthetic generic reply into ordered chunks the loader
+  drains a few per frame (deterministic, no timers/network).
+- **Http**: `supports_stream()` gated on a CONFIGURABLE `stream_path`; a pure,
+  unit-tested `parse_sse_chunk()` (config-mapped `data:{json}` frames, split-frame
+  carry, multi-line data, comments, unknown-kind tolerance) + a TLS-guarded
+  httplib content-receiver transport. No hardcoded endpoint/event names.
+- **UI**: the in-progress assistant bubble renders the live buffer with a
+  "thinking…/streaming…" affordance; composer shows "sending…"/disabled while
+  streaming; Send routes through streaming when supported, else synchronous.
+- **Test**: `tests/unit/test_stream.cpp` (6th suite) proves chunks reassemble
+  across multiple ticks (strictly-increasing buffer) → final message exact,
+  deterministic, no network, asserts no company name; + SSE parser fixtures.
+- Gates: both builds 0-warn; `make test` 6/6; perf PASS. 0 vendor edits; no leaks.
+- Deferred: the http SSE transport is wired + the parser fully unit-tested, but
+  not exercised against a live endpoint (none exists / none should). Final-frame
+  id/created_at mapping from a `done` event is a small follow-up if a real
+  backend carries them only there — the generic `done` handling seam is in place.
