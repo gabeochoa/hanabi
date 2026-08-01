@@ -78,7 +78,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
-        if (!folded) render_search(ctx, panel.ent(), *app);
+        if (!folded) render_search(ctx, panel.ent(), *app, r.width);
         render_smart_views(ctx, panel.ent(), *app, folded);
 
         if (folded) return;  // rail stops after icon views
@@ -103,16 +103,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // survived so we can show a no-results empty state.
         const std::string q = lower(app->searchQuery);
         int shown = 0;
-        shown += render_folder(ctx, scroll.ent(), 10, "Stars", "stars", *app, q);
+        shown += render_folder(ctx, scroll.ent(), 10, "Stars", "stars", *app, q,
+                               r.width);
         shown += render_folder(ctx, scroll.ent(), 20, "Oncall", "oncall", *app,
-                               q);
+                               q, r.width);
         shown += render_folder(ctx, scroll.ent(), 30, "Experiments",
-                               "experiments", *app, q);
+                               "experiments", *app, q, r.width);
         shown += render_folder(ctx, scroll.ent(), 40, "Recent", "recent", *app,
-                               q);
+                               q, r.width);
         // Low-signal archived section, greyed.
         shown += render_folder(ctx, scroll.ent(), 50, "Archived", "__archived__",
-                               *app, q, /*archived=*/true);
+                               *app, q, r.width, /*archived=*/true);
 
         // No-results empty state (only meaningful with a non-empty query).
         if (!q.empty() && shown == 0) {
@@ -364,8 +365,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- search (unfolded only) ----
+    // `panelW` is the live sidebar width (LayoutComponent::sidebar.width). The
+    // search text field shares a NoWrap row with fixed-width siblings (a 18px
+    // magnifier slot, and an 18px clear-× slot when a query is present).
+    // afterhours has NO flex-grow (afterhours_gaps.md #18): a percent(1.0f)
+    // child means 100% of the PARENT width, so a percent text field next to
+    // fixed siblings overflows the row every frame. So we size the text field
+    // in PIXELS = the field's inner content width minus those reserved slots.
     void render_search(UIContext<InputAction>& ctx, Entity& parent,
-                       AppComponent& app) {
+                       AppComponent& app, float panelW) {
         // Wrap in a full-width padded row so the search field itself never
         // extends past the sidebar (margins on a percent(1.0) child overflow).
         auto wrap = div(ctx, mk(parent, 2),
@@ -409,13 +417,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Editable field bound to app.searchQuery. text_input() reads/writes
         // the std::string reference and drains typed chars while focused
         // (click to focus). It forces its own Secondary background (gap #17),
-        // so we let it FILL the pill's remaining width (percent 1.0) — that way
-        // its inner surface reads as the whole field instead of a nested box.
+        // so we let it FILL the pill's remaining width — but in PIXELS, not
+        // percent(1.0): afterhours has no flex-grow, so a percent child in a
+        // NoWrap row overflows past its fixed siblings. Compute the width as
+        // the field's inner content box minus the reserved icon (and clear-×,
+        // when a query is present) slots. Content box = panelW − wrap pad
+        // (10+10) − field pad (8+8) = panelW − 36. Reserve 20 per fixed slot
+        // (18px glyph + ~2px the flex layout leaves before the next child) so
+        // the field's right edge never crosses the pill. Clamp to a sane min
+        // so a narrow sidebar never yields a negative/zero width.
         bool hasQuery = !app.searchQuery.empty();
+        const float kSearchSlot = 20.0f;  // per fixed sibling (icon / clear-×)
+        float searchInner = panelW - 36.0f;             // field content box
+        float searchTextW = searchInner - kSearchSlot;  // minus magnifier slot
+        if (hasQuery) searchTextW -= kSearchSlot;        // minus clear-× slot
+        if (searchTextW < 40.0f) searchTextW = 40.0f;
         afterhours::text_input::text_input(
             ctx, mk(field.ent(), 2), app.searchQuery,
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_size(ComponentSize{pixels(searchTextW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
                                                  : theme::text_faint())
@@ -651,7 +671,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // `q` is the already-lowercased search query ("" = no filter).
     int render_folder(UIContext<InputAction>& ctx, Entity& parent, int base,
                       const std::string& name, const std::string& key,
-                      AppComponent& app, const std::string& q,
+                      AppComponent& app, const std::string& q, float panelW,
                       bool archived = false) {
         // Collect member threads, honoring the live search filter.
         std::vector<const api::SessionSummary*> members;
@@ -743,15 +763,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         int i = 0;
         for (const auto* s : members) {
-            render_chat_row(ctx, parent, base + 1 + (++i), *s, app, archived);
+            render_chat_row(ctx, parent, base + 1 + (++i), *s, app, archived,
+                            panelW);
         }
         return static_cast<int>(members.size());
     }
 
     // ---- high-signal chat row ----
+    // `panelW` is the live sidebar width (LayoutComponent::sidebar.width).
     void render_chat_row(UIContext<InputAction>& ctx, Entity& parent, int id,
                          const api::SessionSummary& s, AppComponent& app,
-                         bool archived) {
+                         bool archived, float panelW) {
         bool attn = is_attention(s.state);
         bool running = s.state == api::ThreadState::Running;
         bool parked = s.state == api::ThreadState::Parked;
@@ -810,10 +832,23 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // the row's true center — otherwise a child shorter than the content
         // box lets fontstash's ascent/descent asymmetry push the glyphs low,
         // and the (full-row) highlight bg looks off-center against the text.
+        //
+        // Width is in PIXELS, not percent(1.0): afterhours has no flex-grow
+        // (afterhours_gaps.md #18), so a percent(1.0f) title in this NoWrap
+        // row means 100% of the row and would overflow past the glyph + star
+        // siblings every frame. The row content box = panelW − row pad
+        // (left 22 + right 8) = panelW − 30. Reserve the 12px glyph slot and
+        // ALWAYS the 18px star slot (the star renders only on hover / when
+        // starred, but reserving its slot unconditionally keeps the title
+        // width — and thus the row layout — stable so rows don't reflow when
+        // hovered). Title width = panelW − 30 − 12 − 18 = panelW − 60,
+        // clamped to a sane min so a narrow sidebar never goes negative.
+        float rowTitleW = panelW - 60.0f;
+        if (rowTitleW < 40.0f) rowTitleW = 40.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(fmtutil::ellipsize(s.title, 34))
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(theme::type::ROW)
