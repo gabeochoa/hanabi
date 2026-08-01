@@ -79,23 +79,39 @@ Result<std::string> HttpClient::get(const std::string& path) {
             "http backend not configured (set HANABI_API_BASE_URL)");
 
     SplitUrl s = split_url(cfg_.base_url);
-    httplib::Client cli(s.origin.c_str());
-    cli.set_connection_timeout(5, 0);
-    cli.set_read_timeout(10, 0);
-    cli.set_follow_location(true);
 
-    httplib::Headers headers;
-    if (!cfg_.token.empty())
-        headers.emplace("Authorization", "Bearer " + cfg_.token);
-    headers.emplace("Accept", "application/json");
-
-    auto res = cli.Get((s.prefix + path).c_str(), headers);
-    if (!res)
-        return Result<std::string>::failure("request failed (no response)");
-    if (res->status < 200 || res->status >= 300)
+    // Guard the https-without-TLS case explicitly: without a TLS build,
+    // httplib's client throws std::invalid_argument on an https origin. Catch
+    // it (and any other transport error) and return a clean failure Result so
+    // the app degrades to an error / mock fallback instead of aborting.
+#ifndef HANABI_ENABLE_TLS
+    if (s.origin.rfind("https://", 0) == 0)
         return Result<std::string>::failure(
-            "http status " + std::to_string(res->status));
-    return Result<std::string>::success(res->body);
+            "https backend requires a TLS build (rebuild with HANABI_TLS=1)");
+#endif
+
+    try {
+        httplib::Client cli(s.origin.c_str());
+        cli.set_connection_timeout(5, 0);
+        cli.set_read_timeout(10, 0);
+        cli.set_follow_location(true);
+
+        httplib::Headers headers;
+        if (!cfg_.token.empty())
+            headers.emplace("Authorization", "Bearer " + cfg_.token);
+        headers.emplace("Accept", "application/json");
+
+        auto res = cli.Get((s.prefix + path).c_str(), headers);
+        if (!res)
+            return Result<std::string>::failure("request failed (no response)");
+        if (res->status < 200 || res->status >= 300)
+            return Result<std::string>::failure(
+                "http status " + std::to_string(res->status));
+        return Result<std::string>::success(res->body);
+    } catch (const std::exception& ex) {
+        return Result<std::string>::failure(std::string("request failed: ") +
+                                            ex.what());
+    }
 }
 
 Result<std::vector<SessionSummary>> HttpClient::list_sessions() {

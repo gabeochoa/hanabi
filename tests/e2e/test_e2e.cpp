@@ -275,6 +275,13 @@ static void test_backend_agnostic_defaults() {
     std::printf("test_backend_agnostic_defaults\n");
     unsetenv("HANABI_BACKEND");
     unsetenv("HANABI_BASE_URL");
+    unsetenv("HANABI_API_BASE_URL");
+    unsetenv("HANABI_TOKEN");
+    // Isolate from any real ~/.config/hanabi/config.json on this machine: point
+    // HANABI_CONFIG at a path that cannot exist so from_env() genuinely sees
+    // "no config file" and the zero-config mock default is what's under test
+    // (otherwise a developer's real http config.json would shadow the default).
+    setenv("HANABI_CONFIG", "/nonexistent/hanabi/config.json.test", 1);
     api::Config c = api::Config::from_env();
     CHECK(c.backend == "mock");
     CHECK(!c.http_ready());

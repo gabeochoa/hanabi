@@ -19,6 +19,12 @@ static void test_config_defaults() {
     // With nothing set, backend defaults to mock and http is not ready.
     unsetenv("HANABI_BACKEND");
     unsetenv("HANABI_BASE_URL");
+    unsetenv("HANABI_API_BASE_URL");
+    unsetenv("HANABI_TOKEN");
+    // Isolate from any real ~/.config/hanabi/config.json on this machine by
+    // pointing HANABI_CONFIG at a path that cannot exist — the zero-config
+    // default is what's under test, not a developer's local http config.
+    setenv("HANABI_CONFIG", "/nonexistent/hanabi/config.json.test", 1);
     api::Config c = api::Config::from_env();
     CHECK(c.backend == "mock");
     CHECK(!c.http_ready());
