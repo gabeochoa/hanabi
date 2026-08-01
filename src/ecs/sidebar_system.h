@@ -103,17 +103,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // survived so we can show a no-results empty state.
         const std::string q = lower(app->searchQuery);
         int shown = 0;
-        shown += render_folder(ctx, scroll.ent(), 10, "Stars", "stars", *app, q,
-                               r.width);
-        shown += render_folder(ctx, scroll.ent(), 20, "Oncall", "oncall", *app,
+        // Each folder is given a widely-spaced base id (1000 apart). The row
+        // ids inside a folder are base + 1 + rowIndex, so a folder can hold up
+        // to ~999 rows before it would collide with the next folder's base.
+        // A real backend routes ~everything through the Recent catch-all, so
+        // Recent alone can carry 100+ rows — the old 10/20/30/40/50 spacing
+        // (room for only ~9 rows each) overflowed into the next folder's id
+        // range and tripped afterhours' entity-id-conflict guard.
+        shown += render_folder(ctx, scroll.ent(), 1000, "Stars", "stars", *app,
                                q, r.width);
-        shown += render_folder(ctx, scroll.ent(), 30, "Experiments",
+        shown += render_folder(ctx, scroll.ent(), 2000, "Oncall", "oncall",
+                               *app, q, r.width);
+        shown += render_folder(ctx, scroll.ent(), 3000, "Experiments",
                                "experiments", *app, q, r.width);
-        shown += render_folder(ctx, scroll.ent(), 40, "Recent", "recent", *app,
-                               q, r.width);
+        // "Recent" is the catch-all: it holds the "recent" folder AND any
+        // session whose folder doesn't match a known folder (folder="" or an
+        // unrecognized value). This is what makes a real backend usable —
+        // real sessions come back unfoldered, so without a catch-all they'd
+        // match no folder and the sidebar would look empty even with the list
+        // loaded. Archived sessions are excluded (they live in the low-signal
+        // Archived section below).
+        shown += render_folder(ctx, scroll.ent(), 4000, "Recent", "recent",
+                               *app, q, r.width, /*archived=*/false,
+                               /*catchAll=*/true);
         // Low-signal archived section, greyed.
-        shown += render_folder(ctx, scroll.ent(), 50, "Archived", "__archived__",
-                               *app, q, r.width, /*archived=*/true);
+        shown += render_folder(ctx, scroll.ent(), 6000, "Archived",
+                               "__archived__", *app, q, r.width,
+                               /*archived=*/true);
 
         // No-results empty state (only meaningful with a non-empty query).
         if (!q.empty() && shown == 0) {
@@ -665,21 +681,41 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Is `key` one of the explicitly-named folders (not the Recent catch-all)?
+    // A session whose folder matches one of these belongs to that named
+    // folder; anything else falls through to the Recent catch-all.
+    static bool is_named_folder(const std::string& folder) {
+        return folder == "stars" || folder == "oncall" ||
+               folder == "experiments" || folder == "recent";
+    }
+
     // ---- folder group ----
     // Renders a collapsible folder. Returns the number of chat rows actually
     // rendered (used by the caller to drive the search no-results state).
     // `q` is the already-lowercased search query ("" = no filter).
+    // `catchAll`: when true (the Recent folder), also gathers any non-archived
+    // session whose folder is NOT a named folder (folder="" or unknown) — so a
+    // real backend's unfoldered sessions are browsable instead of hidden.
     int render_folder(UIContext<InputAction>& ctx, Entity& parent, int base,
                       const std::string& name, const std::string& key,
                       AppComponent& app, const std::string& q, float panelW,
-                      bool archived = false) {
+                      bool archived = false, bool catchAll = false) {
         // Collect member threads, honoring the live search filter.
         std::vector<const api::SessionSummary*> members;
         for (const auto& s : app.sessions) {
-            bool match = archived
-                             ? (s.state == api::ThreadState::Archived)
-                             : (s.folder == key &&
-                                s.state != api::ThreadState::Archived);
+            bool match;
+            if (archived) {
+                match = (s.state == api::ThreadState::Archived);
+            } else if (catchAll) {
+                // Recent = its own key OR any unfoldered/unknown-folder session
+                // that isn't archived. Named-folder sessions are excluded so a
+                // session shows in exactly one place.
+                match = (s.state != api::ThreadState::Archived) &&
+                        (s.folder == key || !is_named_folder(s.folder));
+            } else {
+                match = (s.folder == key &&
+                         s.state != api::ThreadState::Archived);
+            }
             if (match && title_matches(s.title, q)) members.push_back(&s);
         }
         // Hide a folder with no (matching) members. With an active query this

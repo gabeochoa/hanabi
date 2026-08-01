@@ -1,6 +1,7 @@
 #include <argh.h>
 
 #include <chrono>
+#include <thread>
 #include <memory>
 #include <unistd.h>
 
@@ -209,6 +210,46 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     fflush(stdout);
     fflush(stderr);
 
+    // Wait for the initial session-list fetch to resolve before capturing.
+    // The windowed app runs forever and keeps polling the future, so it always
+    // populates once the fetch lands; but this headless path renders a FIXED
+    // handful of frames then captures. Against a real network backend the
+    // list fetch takes a few hundred ms — far longer than kFrames at 60fps —
+    // so without this wait the capture happens while listState is still
+    // Loading and the sidebar/digest are empty. Pump frames (so the loader
+    // system keeps polling the future) until the list leaves the Loading
+    // state, capped so a hung/offline backend can't wedge the capture. The
+    // mock resolves on the first poll, so this adds ~0 frames for the mock.
+    auto* appForWait = [] () -> ecs::AppComponent* {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        return q.empty() ? nullptr : &q[0].get().get<ecs::AppComponent>();
+    }();
+    if (appForWait) {
+        // IMPORTANT: gate on WALL-CLOCK time, not a frame count. Headless
+        // frames don't sleep to target_fps — the loop runs as fast as the CPU
+        // allows, so a fixed frame budget (e.g. 300 "frames") elapses in a few
+        // milliseconds, far short of the real network fetch (~hundreds of ms)
+        // and the capture fires while listState is still Loading (empty list).
+        // Pump frames until the list leaves Loading/Idle OR the deadline hits,
+        // sleeping a beat each iteration so we actually wait real time and
+        // don't spin the CPU. The mock resolves on the first poll, so it exits
+        // this loop immediately (adds ~0 wait).
+        constexpr auto kMaxWait = std::chrono::seconds(5);
+        auto deadline = std::chrono::steady_clock::now() + kMaxWait;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (appForWait->listState != ecs::LoadState::Loading &&
+                appForWait->listState != ecs::LoadState::Idle)
+                break;
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        }
+    }
+
     // Render several frames so async data loads and layout settles.
     constexpr int kFrames = 45;
     for (int i = 0; i < kFrames; ++i) {
@@ -230,6 +271,16 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         }
     }
 
+    {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        if (!q.empty()) {
+            auto& app = q[0].get().get<ecs::AppComponent>();
+            log_info("Headless capture: {} sessions, listState={}",
+                     app.sessions.size(), (int)app.listState);
+        }
+    }
     bool ok = graphics::capture_frame(path);
     graphics::shutdown();
     if (!ok) {

@@ -303,6 +303,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (s.state == api::ThreadState::Running) ++running;
         section_label(ctx, wrap, 1800,
                       "SELF-RUNNING (" + std::to_string(running) + ")");
+
+        // Recent / all conversations. A calm backend (e.g. the generic http
+        // adapter, which leaves every thread's high-signal state at its default
+        // and files nothing into a folder) produces NO attention/finished/
+        // running rows — so the three sections above are all empty and Home
+        // would otherwise look blank even with a fully-loaded list. Show the
+        // most recent conversations here so Home is always useful and the
+        // loaded threads are reachable straight from the landing view. Capped
+        // so a huge list doesn't build hundreds of cards on the home pane
+        // (the sidebar's Recent folder holds the full set). Skip archived.
+        std::vector<const api::SessionSummary*> recent;
+        for (const auto& s : app.sessions)
+            if (s.state != api::ThreadState::Archived) recent.push_back(&s);
+        std::sort(recent.begin(), recent.end(),
+                  [](const api::SessionSummary* a, const api::SessionSummary* b) {
+                      return a->updated_at > b->updated_at;
+                  });
+        if (!recent.empty()) {
+            section_label(ctx, wrap, 2600, "RECENT");
+            constexpr size_t kMaxRecent = 20;
+            for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
+                digest_card(ctx, wrap, ++shown, *recent[k], app);
+        }
     }
 
     static void section_label(UIContext<InputAction>& ctx, Entity& parent,
