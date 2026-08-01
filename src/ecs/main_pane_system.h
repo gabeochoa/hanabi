@@ -47,12 +47,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case SmartView::Blocked:
                 render_digest(ctx, panel.ent(), *app, "Blocked on you",
                               r.width, r.height, ecs::model::in_blocked_view,
-                              "Nothing is waiting on you. \xf0\x9f\x8e\x89");
+                              "Nothing is waiting on you. \xf0\x9f\x8e\x89",
+                              /*singleState=*/true);
                 break;
             case SmartView::Review:
                 render_digest(ctx, panel.ent(), *app, "Ready for review",
                               r.width, r.height, ecs::model::in_review_view,
-                              "No threads are ready for review yet.");
+                              "No threads are ready for review yet.",
+                              /*singleState=*/true);
                 break;
             case SmartView::Starred:
                 render_digest(ctx, panel.ent(), *app, "Starred", r.width,
@@ -156,11 +158,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---------------- Digest views (Blocked / Review / Starred) ------------
+    // `singleState`: this view contains exactly ONE state (Blocked / Review), so
+    // the header already names it and a per-card chip + "waiting on you" sub-line
+    // on every row is the same fact three times (same redundancy Wave 6 killed
+    // for Home's grouped sections). When true, cards render in grouped mode:
+    // no chip, just the discriminating age, collapsed to a dense single row.
+    // Starred is genuinely MIXED (any state can be starred) so it stays false.
     template <typename Pred>
     void render_digest(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const std::string& title,
                        float paneW, float paneH, Pred pred,
-                       const std::string& emptyMsg = "Nothing here right now.") {
+                       const std::string& emptyMsg = "Nothing here right now.",
+                       bool singleState = false) {
         std::vector<const api::SessionSummary*> rows;
         for (const auto& s : app.sessions)
             if (pred(s)) rows.push_back(&s);
@@ -185,7 +194,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int i = 0;
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
         const float cardW = wrap_width(paneW);
-        for (const auto* s : rows) digest_card(ctx, wrap, ++i, *s, app, false, cardW);
+        for (const auto* s : rows)
+            digest_card(ctx, wrap, ++i, *s, app, false, cardW, singleState);
     }
 
     // Collapse internal runs of whitespace to single spaces and trim ends, so
