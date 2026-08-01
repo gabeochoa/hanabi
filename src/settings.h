@@ -37,6 +37,14 @@ struct Settings {
     const std::string& get_theme() const;
     void set_theme(const std::string& mode);
 
+    // Starred session ids (Phase I star toggle). Persisted so a user's stars
+    // survive relaunch — otherwise a star flipped in the sidebar is lost on the
+    // next launch (it lived only in the in-memory SessionSummary). The set is
+    // the source of truth; the loader applies it to freshly-fetched sessions.
+    const std::vector<std::string>& get_starred() const;
+    bool is_starred(const std::string& id) const;
+    void set_starred(const std::string& id, bool starred);  // auto-persists
+
     std::string get_settings_path() const;
 
     bool auto_save_enabled = true;
@@ -48,4 +56,5 @@ struct Settings {
     std::vector<std::string> open_tabs_;
     std::string active_tab_;
     std::string theme_ = "dark";
+    std::vector<std::string> starred_ids_;
 };

@@ -2,6 +2,7 @@
 
 #include <afterhours/src/plugins/files.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -42,6 +43,11 @@ bool Settings::load_save_file() {
             for (const auto& e : j["open_tabs"])
                 if (e.is_string()) open_tabs_.push_back(e.get<std::string>());
         }
+        starred_ids_.clear();
+        if (j.contains("starred") && j["starred"].is_array()) {
+            for (const auto& e : j["starred"])
+                if (e.is_string()) starred_ids_.push_back(e.get<std::string>());
+        }
     } catch (...) {
         return false;
     }
@@ -59,6 +65,7 @@ void Settings::write_save_file() {
     j["open_tabs"] = open_tabs_;
     j["active_tab"] = active_tab_;
     j["theme"] = theme_;
+    j["starred"] = starred_ids_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
 }
@@ -87,5 +94,27 @@ void Settings::set_theme(const std::string& mode) {
     theme_ = mode;
     // Persist immediately so a theme change survives relaunch without callers
     // having to remember to write_save_file() themselves.
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::vector<std::string>& Settings::get_starred() const {
+    return starred_ids_;
+}
+bool Settings::is_starred(const std::string& id) const {
+    for (const auto& s : starred_ids_)
+        if (s == id) return true;
+    return false;
+}
+void Settings::set_starred(const std::string& id, bool starred) {
+    auto it = std::find(starred_ids_.begin(), starred_ids_.end(), id);
+    const bool present = (it != starred_ids_.end());
+    if (starred && !present) {
+        starred_ids_.push_back(id);
+    } else if (!starred && present) {
+        starred_ids_.erase(it);
+    } else {
+        return;  // no change — skip the write
+    }
+    // Persist immediately (mirrors set_theme) so a star survives relaunch.
     if (auto_save_enabled) write_save_file();
 }

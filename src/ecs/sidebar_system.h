@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "../test_hooks.h"
+#include "../settings.h"
 #include "../util/format.h"
 #include "../ui/icons.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
@@ -51,6 +52,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             for (auto& s : app->sessions) {
                 if (s.id == app->requestToggleStar) {
                     s.starred = !s.starred;
+                    // Persist so the star survives relaunch (Settings is the
+                    // durable source of truth; the loader re-applies it to
+                    // freshly-fetched sessions on the next launch).
+                    Settings::get().set_starred(s.id, s.starred);
                     break;
                 }
             }
