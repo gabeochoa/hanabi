@@ -159,7 +159,7 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(180), pixels(34)})
                 .with_margin(Margin{.top = pixels(10)})
                 .with_custom_background(theme::button_secondary())
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
                 .with_alignment(TextAlignment::Center)

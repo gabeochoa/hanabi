@@ -138,7 +138,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label("\xc3\x97")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
                 .with_custom_background(theme::panel_bg())
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(FontSize::Medium)
                 .with_alignment(TextAlignment::Center)

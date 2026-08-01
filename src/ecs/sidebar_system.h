@@ -698,7 +698,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             .with_label(label)
             .with_size(ComponentSize{pixels(26), pixels(26)})
             .with_custom_background(theme::sidebar_bg())
-            .with_custom_hover_bg(theme::hover_bg())
+            .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
             .with_custom_text_color(theme::text_secondary())
             .with_font_size(FontSize::Medium)
             .with_alignment(TextAlignment::Center)
@@ -719,7 +719,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             .with_label(" ")
             .with_size(ComponentSize{pixels(28), pixels(28)})
             .with_custom_background(theme::sidebar_bg())
-            .with_custom_hover_bg(theme::hover_bg())
+            .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
             .with_cursor(afterhours::ui::CursorType::Pointer)
             .with_click_activation(ClickActivationMode::Press)
             .with_roundness(0.3f)
@@ -816,7 +816,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label("\xc3\x97")
                     .with_size(ComponentSize{pixels(18), pixels(20)})
                     .with_transparent_bg()
-                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::LG)
                     .with_alignment(TextAlignment::Center)
@@ -921,7 +921,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(20), pixels(18)})
                 .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.3f)
@@ -997,7 +997,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                     .bottom = pixels(1), .left = pixels(0)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(
+                    active ? theme::selected_bg() : theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("smart_item"));
@@ -1184,7 +1185,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(kCountRightPad),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("folder_head"));
@@ -1317,7 +1318,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                           .bottom = pixels(2),
                                           .left = pixels(22)})
                     .with_custom_background(theme::sidebar_bg())
-                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::ROW)
                     .with_alignment(TextAlignment::Left)
@@ -1424,7 +1425,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(2), .left = pixels(22)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(
+                    selected ? theme::selected_bg() : theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("chat_row"));
@@ -1545,7 +1547,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{pixels(18), pixels(20)})
                     .with_custom_background(selected ? theme::selected_bg()
                                                      : theme::sidebar_bg())
-                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_hover_bg(theme::hover_over(
+                        selected ? theme::selected_bg() : theme::sidebar_bg()))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.3f)

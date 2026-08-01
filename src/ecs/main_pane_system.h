@@ -418,7 +418,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(7), .left = pixels(16)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(theme::layout::ROUNDNESS_BOX)
                 .with_debug_name("digest_card"));
@@ -730,7 +730,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(14),
                                       .bottom = pixels(6), .left = pixels(14)})
                 .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.0f)
                 .with_debug_name("sub_item"));

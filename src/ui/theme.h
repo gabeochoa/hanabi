@@ -261,6 +261,16 @@ inline Color button_primary() { return t.button_primary; }
 inline Color button_secondary() { return t.button_secondary; }
 inline Color hover_bg() { return t.hover_bg; }
 inline Color selected_bg() { return t.selected_bg; }
+
+// Hover fill PRE-COMPOSITED over a given backdrop. The hover_bg token is a
+// low-alpha wash (e.g. white @ a=16), but the UI rect fill can't alpha-blend
+// (afterhours gap #13) — passing the raw token makes the sgl default pipeline
+// render it as a harsh near-opaque flash instead of a subtle highlight. So a
+// hovered surface must pass hover_over(<its own background>) to get the
+// intended subtle lift. Every hoverable surface should use this with the SAME
+// color it fills with normally (sidebar rows → sidebar_bg, digest cards →
+// panel_bg_2, etc.) so the hover reads as a gentle brighten of that surface.
+inline Color hover_over(Color backdrop) { return over(hover_bg(), backdrop); }
 inline Color row_separator() { return t.row_separator; }
 inline Color focus_ring() { return t.focus_ring; }
 inline Color disabled_bg() { return t.disabled_bg; }
