@@ -115,9 +115,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Left-aligned so it lines up with the header title's left inset (the
     // header is a separate fixed row, so left-align keeps the h1 and the card
     // column on the same left edge rather than drifting apart).
+    // Shared reading-column width: the wrap caps at kCap but tracks a narrower
+    // pane. Callers pass the FULL pane width; the wrap sits inside a scroll
+    // padded 24px each side, so the usable inner width is paneW - 48.
+    static constexpr float kWrapCap = 900.0f;
+    static float wrap_width(float paneW) {
+        float innerW = paneW - 48.0f;
+        return innerW < kWrapCap ? innerW : kWrapCap;
+    }
+
     static Entity& centered_wrap(UIContext<InputAction>& ctx, Entity& scroll,
                                  int id, float innerW) {
-        constexpr float kCap = 900.0f;
+        constexpr float kCap = kWrapCap;
         float wrapW = innerW < kCap ? innerW : kCap;
         auto row = div(ctx, mk(scroll, id),
             ComponentConfig{}
@@ -167,11 +176,71 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         int i = 0;
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
-        for (const auto* s : rows) digest_card(ctx, wrap, ++i, *s, app);
+        const float cardW = wrap_width(paneW);
+        for (const auto* s : rows) digest_card(ctx, wrap, ++i, *s, app, false, cardW);
     }
 
-    static const char* tag_label(api::ThreadTag t) {
-        switch (t) {
+    // Collapse internal runs of whitespace to single spaces and trim ends, so
+    // titles with stray double-spaces ("watchdog   mana…") read cleanly and
+    // don't waste width before the ellipsis. Cheap, allocation-light.
+    static std::string normalize_title(const std::string& in) {
+        std::string out;
+        out.reserve(in.size());
+        bool prev_space = false;
+        for (char c : in) {
+            const bool ws = (c == ' ' || c == '\t' || c == '\n' || c == '\r');
+            if (ws) {
+                if (!out.empty() && !prev_space) out.push_back(' ');
+                prev_space = true;
+            } else {
+                out.push_back(c);
+                prev_space = false;
+            }
+        }
+        if (!out.empty() && out.back() == ' ') out.pop_back();
+        return out;
+    }
+
+    // Approx char budget that fits in `widthPx` at the given font size, so a
+    // title uses the card's REAL available width before ellipsizing rather
+    // than a fixed 40-char cap that leaves wide cards ~60% empty (defect #4).
+    // ~0.52*fontSize per glyph is a good average for this proportional font;
+    // clamped to a sane floor so a narrow pane still shows a few chars.
+    static size_t char_budget(float widthPx, float fontPx) {
+        float per = fontPx * 0.52f;
+        if (per < 5.0f) per = 5.0f;
+        long n = static_cast<long>(widthPx / per);
+        if (n < 6) n = 6;
+        return static_cast<size_t>(n);
+    }
+
+    // Build the metadata line under a card title. On the mock (rich preview)
+    // that's the preview text. On a real backend preview is empty, so instead
+    // of an identical bare "active" slab (defects #3/#16) we compose a useful
+    // line: a relative age from updated_at ("2h", "3d") plus a secondary hint
+    // derived from generic state (running / archived / active). This degrades
+    // gracefully: no timestamp -> just the phrase; nothing at all -> "".
+    static std::string card_meta(const api::SessionSummary& s) {
+        if (!s.preview.empty()) return s.preview;  // mock: keep rich preview.
+        std::string age = fmtutil::relative_time(s.updated_at);
+        std::string hint;
+        switch (s.state) {
+            case api::ThreadState::Running: hint = "running"; break;
+            case api::ThreadState::Archived: hint = "archived"; break;
+            default:
+                // Fall back to the raw status phrase when it's meaningful.
+                if (s.status == "active")
+                    hint = "active";
+                else if (!s.status.empty())
+                    hint = s.status;
+                break;
+        }
+        if (age.empty()) return hint;
+        if (hint.empty()) return age;
+        return age + "  \xc2\xb7  " + hint;  // "2h · running"
+    }
+
+    static const char* tag_label(api::ThreadTag t) {        switch (t) {
             case api::ThreadTag::Blocked: return "BLOCKED";
             case api::ThreadTag::Review: return "REVIEW";
             case api::ThreadTag::Done: return "DONE";
@@ -208,7 +277,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // rows so the most-actionable signal reads stronger than passive ones.
     void digest_card(UIContext<InputAction>& ctx, Entity& parent, int id,
                      const api::SessionSummary& s, AppComponent& app,
-                     bool emphasizeMeta = false) {
+                     bool emphasizeMeta = false, float cardWidthPx = 0.0f) {
         // The card is a raised surface (panel_bg_2, one step ELEVATED above the
         // pane's panel_bg) plus a hairline border so it reads as floating above
         // the pane in BOTH modes — in light the border is what sells the lift
@@ -247,11 +316,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("dc_top"));
+        const bool hasTag = s.tag != api::ThreadTag::None;
+        const float titleFrac = hasTag ? 0.78f : 1.0f;
+        // Decouple truncation from a fixed char cap: budget from the card's
+        // REAL available title width so a wide card fills its line before
+        // ellipsizing (defect #4). Fall back to the old 40-char cap only when
+        // the caller didn't pass a width (keeps other call sites unchanged).
+        std::string title = normalize_title(s.title);
+        if (cardWidthPx > 0.0f) {
+            // Inner width = card width - 32px L/R padding, times the title's
+            // flex fraction, minus a little slack for the ellipsis glyph.
+            float titlePx = (cardWidthPx - 32.0f) * titleFrac - 6.0f;
+            title = fmtutil::ellipsize(title, char_budget(titlePx,
+                                                          theme::type::TITLE));
+        } else {
+            title = fmtutil::ellipsize(title, 40);
+        }
         div(ctx, mk(top.ent(), 1),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(s.title, 40))
-                .with_size(ComponentSize{percent(
-                    s.tag != api::ThreadTag::None ? 0.78f : 1.0f), pixels(18)})
+                .with_label(title)
+                .with_size(ComponentSize{percent(titleFrac), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::TITLE)
@@ -274,12 +358,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("dc_tag"));
         }
 
-        // Subtitle / preview. Actionable rows get slightly more contrast
-        // (text_primary vs the passive text_secondary) so the most-actionable
-        // metadata ("waiting on you \xc2\xb7 8m") stands out.
+        // Subtitle / preview. On the mock this is the rich preview snippet; on
+        // a real backend (no preview) card_meta() composes a useful line —
+        // relative age + a state/status hint — so real cards aren't identical
+        // bare "active" slabs (defects #3/#16). Actionable rows get slightly
+        // more contrast (text_primary vs the passive text_secondary).
         div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
-                .with_label(s.preview.empty() ? s.status : s.preview)
+                .with_label(card_meta(s))
                 .with_size(ComponentSize{percent(1.0f), pixels(16)})
                 .with_margin(Margin{.top = pixels(3), .right = pixels(0),
                                     .bottom = pixels(0), .left = pixels(0)})
@@ -308,6 +394,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("home_scroll"));
 
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
+        const float cardW = wrap_width(paneW);
 
         // Partition the sessions into the attention buckets ONCE so we know
         // whether each section is non-empty BEFORE rendering its header. An
@@ -315,8 +402,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // on a calm/real backend the attention buckets are all empty, so Home
         // must lead straight with an "all caught up" line + RECENT rather than
         // three dead headers stacked above the list.
-        std::vector<const api::SessionSummary*> waiting, finished;
-        int running = 0;
+        std::vector<const api::SessionSummary*> waiting, finished, selfRunning;
         for (const auto& s : app.sessions) {
             if (s.state == api::ThreadState::Attention) {
                 if (s.tag == api::ThreadTag::Blocked)
@@ -324,10 +410,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 else
                     finished.push_back(&s);
             }
-            if (s.state == api::ThreadState::Running) ++running;
+            if (s.state == api::ThreadState::Running) selfRunning.push_back(&s);
         }
         const bool anyAttention =
-            !waiting.empty() || !finished.empty() || running > 0;
+            !waiting.empty() || !finished.empty() || !selfRunning.empty();
 
         int shown = 0;
         bool first = true;  // tracks the first rendered section (tighter top).
@@ -335,34 +421,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             section_label(ctx, wrap, 1, "Waiting on you", first);
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
-            for (const auto* s : waiting) digest_card(ctx, wrap, ++shown, *s, app, true);
+            for (const auto* s : waiting)
+                digest_card(ctx, wrap, ++shown, *s, app, true, cardW);
         }
         if (!finished.empty()) {
             section_label(ctx, wrap, 900, "Finished since you looked", first);
             first = false;
-            for (const auto* s : finished) digest_card(ctx, wrap, ++shown, *s, app);
+            for (const auto* s : finished)
+                digest_card(ctx, wrap, ++shown, *s, app, false, cardW);
         }
-        // Self-running work is a COUNT-only signal (no actionable cards). A full
-        // section header for it would strand an orphaned label above a
-        // card-sized void, so surface the count as one compact faint line
-        // instead — the signal without the gap.
-        if (running > 0) {
-            div(ctx, mk(wrap, 1800),
-                ComponentConfig{}
-                    .with_label(std::to_string(running) +
-                                (running == 1 ? " agent self-running"
-                                              : " agents self-running"))
-                    .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                    .with_margin(Margin{.top = pixels(first ? 4 : 14),
-                                        .right = pixels(0), .bottom = pixels(2),
-                                        .left = pixels(2)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("home_running_line"));
+        // Self-running work: a real section with real cards (title + relative
+        // age), headed "SELF-RUNNING (N)" like the mock. Rendering the actual
+        // running threads (not a lone caption) kills the old orphaned-caption
+        // void (defect #14) — the count now sits ON a populated section.
+        if (!selfRunning.empty()) {
+            section_label(ctx, wrap, 1800,
+                          "Self-running (" +
+                              std::to_string(selfRunning.size()) + ")",
+                          first);
             first = false;
+            for (const auto* s : selfRunning)
+                digest_card(ctx, wrap, ++shown, *s, app, false, cardW);
         }
 
         // Recent / all conversations. A calm backend (e.g. the generic http
@@ -373,10 +452,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // intentionally calm, then the RECENT list keeps every loaded thread
         // reachable straight from the landing view. Capped so a huge list
         // doesn't build hundreds of cards on the home pane (the sidebar's
-        // Recent folder holds the full set). Skip archived.
+        // Recent folder holds the full set). Skip archived AND anything already
+        // surfaced in a section above (Attention/Running), so a [P]/done/running
+        // card isn't shown twice.
         std::vector<const api::SessionSummary*> recent;
-        for (const auto& s : app.sessions)
-            if (s.state != api::ThreadState::Archived) recent.push_back(&s);
+        for (const auto& s : app.sessions) {
+            if (s.state == api::ThreadState::Archived) continue;
+            if (s.state == api::ThreadState::Attention ||
+                s.state == api::ThreadState::Running)
+                continue;
+            recent.push_back(&s);
+        }
         std::sort(recent.begin(), recent.end(),
                   [](const api::SessionSummary* a, const api::SessionSummary* b) {
                       return a->updated_at > b->updated_at;
@@ -395,7 +481,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             section_label(ctx, wrap, 2600, "Recent", first);
             constexpr size_t kMaxRecent = 20;
             for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
-                digest_card(ctx, wrap, ++shown, *recent[k], app);
+                digest_card(ctx, wrap, ++shown, *recent[k], app, false, cardW);
         }
     }
 

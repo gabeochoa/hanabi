@@ -72,6 +72,100 @@ std::string as_string(const json& obj, const std::string& key) {
     return "";
 }
 
+// Read a boolean field that a backend might encode as a JSON bool OR as a
+// 0/1 number (both shapes appear in the wild for flags like isPinned).
+bool as_bool(const json& obj, const std::string& key) {
+    if (!obj.contains(key)) return false;
+    const auto& v = obj.at(key);
+    if (v.is_boolean()) return v.get<bool>();
+    if (v.is_number_integer()) return v.get<int64_t>() != 0;
+    return false;
+}
+
+// The generic UI + fmtutil::relative_time work in epoch SECONDS (the mock
+// seeds seconds). Real backends commonly report millisecond epochs, which
+// would read as "the far future" (relative_time clamps to "now" forever) and
+// break every "2h/3d" age. Normalize: anything that looks like ms (13+ digit
+// magnitude, i.e. well past a plausible seconds-epoch) is divided down to
+// seconds. This is a magnitude heuristic, not endpoint-specific.
+int64_t as_epoch_seconds(const json& obj, const std::string& key) {
+    int64_t e = as_epoch(obj, key);
+    // ~ Sat Nov 2286 in seconds; any value larger is almost certainly ms.
+    constexpr int64_t kSecondsCeiling = 10000000000LL;
+    if (e > kSecondsCeiling) e /= 1000;
+    return e;
+}
+
+// Lowercase a copy for case-insensitive marker matching.
+std::string to_lower(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+    return s;
+}
+
+bool contains_any(const std::string& hay,
+                  const std::vector<std::string>& needles) {
+    for (const auto& n : needles)
+        if (hay.find(n) != std::string::npos) return true;
+    return false;
+}
+
+// --- Client-side high-signal state derivation (HEURISTICS) ------------------
+// The real API reports no ThreadState/ThreadTag; it only carries generic
+// primitives (status, isProcessing, subSessionStatus, a free-text title). A
+// backend with none of the signals below yields all-calm rows (fine — Home
+// simply reads as "caught up" + a Recent list). We derive hanabi's attention
+// model from those primitives so real sessions get meaningful triage instead
+// of collapsing to Unknown. Everything here is TITLE-TEXT + GENERIC-FIELD
+// heuristics — no endpoint, product, or company string is hardcoded.
+//
+// Signals, in priority order:
+//   1. Running   — isProcessing==true OR subSessionStatus=="running": the
+//                  agent is actively working. Quiet, count-only signal.
+//   2. Attention/Blocked ("waiting on you") — the STRONGEST real signal is the
+//      app's own title convention: a leading "[P]" tag (parked, needs you), or
+//      any of the plain-language "the ball is in your court" phrases below.
+//      This is what lights up the WAITING-ON-YOU digest for real data.
+//   3. Attention/Done ("finished since you looked") — a title that reads as
+//      resolved (done/landed/shipped/complete/✓) AND has no waiting phrase.
+//      Waiting wins over done: a "done, but awaiting your decision" thread is
+//      still on you. We deliberately do NOT treat subSessionStatus=="complete"
+//      as Done — every finished cron tick reports "complete", so keying on it
+//      would flood the digest; only an explicit title marker counts.
+//   4. Archived  — status=="archived": retired, low-signal.
+//   5. otherwise — calm/Unknown: shows in Recent, never nudges.
+void derive_state(SessionSummary& s, const json& e) {
+    const bool processing = as_bool(e, "isProcessing");
+    const std::string sub = as_string(e, "subSessionStatus");
+    const std::string t = to_lower(s.title);
+
+    // Marker vocab kept small, plain, lowercase. These are conservative: only
+    // an unambiguous "on you" phrase flips a thread to needs-you.
+    static const std::vector<std::string> kWaiting = {
+        "on you",   "on gabe",  "waiting", "awaiting",
+        "blocked",  "gated on", "needs you", "back to you"};
+    static const std::vector<std::string> kDone = {
+        "done", " landed", "landed ", "shipped", "concluded",
+        "\xe2\x9c\x93" /* ✓ */};
+    const bool parked = s.title.rfind("[P]", 0) == 0 ||
+                        s.title.rfind("[p]", 0) == 0;
+
+    if (processing || sub == "running") {
+        s.state = ThreadState::Running;
+    } else if (parked || contains_any(t, kWaiting)) {
+        // Parked/needs-you: the actionable "waiting on you" bucket.
+        s.state = ThreadState::Attention;
+        s.tag = ThreadTag::Blocked;
+    } else if (contains_any(t, kDone)) {
+        // Reads as resolved with no outstanding ask on the user.
+        s.state = ThreadState::Attention;
+        s.tag = ThreadTag::Done;
+    } else if (s.status == "archived") {
+        s.state = ThreadState::Archived;
+    }
+    // else: leave calm (Unknown / None) — degrades gracefully.
+}
+
 // --- Diagnostic dump (dev aid, OFF by default) ------------------------------
 // When HANABI_DUMP is set in the environment, print the SHAPE of the real
 // backend's data to stderr so we can see what fields real objects carry that
@@ -254,27 +348,17 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {
             SessionSummary s;
             s.id = as_string(e, cfg_.field_id);
             s.title = as_string(e, cfg_.field_title);
-            s.updated_at = as_epoch(e, cfg_.field_updated_at);
+            s.updated_at = as_epoch_seconds(e, cfg_.field_updated_at);
             s.status = as_string(e, cfg_.field_status);
             s.preview = as_string(e, cfg_.field_preview);
-            // Derive a light client-side high-signal state from the generic
-            // fields the backend already reports, so a real (calm) backend's
-            // rows are filed sensibly instead of all landing Unknown:
-            //   status == "archived"  -> Archived (greyed, low-signal section)
-            //   isProcessing == true  -> Running  (self-running, quiet)
-            //   otherwise             -> Unknown  (calm; shows in Recent)
-            // This is intentionally conservative: it never fabricates an
-            // Attention/Ready state (those need real signal the generic
-            // adapter doesn't have), it only routes rows out of the catch-all
-            // when the backend gives an unambiguous hint. All field names stay
-            // generic/configurable — nothing about any endpoint is assumed.
-            if (s.status == "archived") {
-                s.state = ThreadState::Archived;
-            } else if (e.is_object() && e.contains("isProcessing") &&
-                       e.at("isProcessing").is_boolean() &&
-                       e.at("isProcessing").get<bool>()) {
-                s.state = ThreadState::Running;
-            }
+            s.starred = as_bool(e, "isPinned");
+            // Derive hanabi's high-signal attention model (state/tag) from the
+            // generic real primitives so real sessions get meaningful triage
+            // instead of all landing Unknown. See derive_state() for the full
+            // heuristic set — all title-text + generic-field, nothing about any
+            // specific endpoint is assumed, and a signal-less backend degrades
+            // to an all-calm list.
+            if (e.is_object()) derive_state(s, e);
             out.push_back(std::move(s));
         }
     } catch (const std::exception& ex) {
@@ -309,7 +393,7 @@ Result<Session> HttpClient::get_session(const std::string& id) {
             Message m;
             m.id = as_string(e, cfg_.field_id);
             m.role = parse_role(as_string(e, cfg_.field_role));
-            m.created_at = as_epoch(e, cfg_.field_created_at);
+            m.created_at = as_epoch_seconds(e, cfg_.field_created_at);
             // Prefer a flat text field; if the message instead carries a blocks
             // array, concatenate the content of its text-type blocks. Also note
             // any non-text block (e.g. a tool call) as a subtitle hint.
