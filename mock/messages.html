@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hanabi — messages view prototype</title>
+<style>
+/* ---- tokens (match hanabi.css dark) ---- */
+:root{
+  --bg:rgb(28,28,32); --panel:rgb(28,28,32); --panel2:rgb(34,34,40);
+  --border:rgb(52,52,60); --border-soft:rgba(255,255,255,.06);
+  --tp:rgb(222,222,228); --ts:rgb(138,138,150); --tf:rgb(96,96,108);
+  --accent:rgb(90,128,255); --accent-soft:rgba(90,128,255,.15);
+  --user:rgb(90,128,255); --asst:rgb(126,200,140); --tool:rgb(150,130,200);
+  --hover:rgba(255,255,255,.05); --code:rgb(18,18,22);
+  --bubble-user:rgba(90,128,255,.13); --bubble-asst:rgba(126,200,140,.09);
+  --ok:rgb(126,210,150); --err:rgb(255,120,120);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--tp);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;}
+.app{max-width:900px;margin:0 auto;padding:0 24px;height:100vh;display:flex;flex-direction:column}
+
+/* ---- header + mode toggle ---- */
+.hdr{display:flex;align-items:center;gap:12px;padding:18px 0 12px;border-bottom:1px solid var(--border-soft)}
+.hdr h1{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.hdr .sub{color:var(--ts);font-size:12px}
+.spacer{flex:1}
+.seg{display:flex;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:2px;font-size:12px}
+.seg button{background:none;border:0;color:var(--ts);padding:4px 11px;border-radius:6px;cursor:pointer;font:inherit}
+.seg button.on{background:var(--accent);color:#fff}
+
+/* ---- transcript scroll ---- */
+.scroll{flex:1;overflow-y:auto;padding:20px 0 28px;scroll-behavior:smooth}
+.scroll::-webkit-scrollbar{width:10px}
+.scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:6px;border:2px solid var(--bg)}
+.scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.16)}
+
+/* ======================================================
+   MODE A — DOC FEED (navi-website style, proposed)
+   ====================================================== */
+.feed .turn{padding:14px 0;border-bottom:1px solid var(--border-soft)}
+.feed .turn:last-child{border-bottom:0}
+.feed .who{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.feed .who .ic{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+.feed .who .ic.user{background:var(--accent-soft);color:var(--user)}
+.feed .who .ic.asst{background:rgba(126,200,140,.16);color:var(--asst)}
+.feed .who .name{font-weight:600;font-size:13px}
+.feed .who .ts{color:var(--tf);font-size:11px}
+.feed .body{color:var(--tp);font-size:14px}
+.feed .body p{margin:0 0 10px}
+.feed .body p:last-child{margin-bottom:0}
+.feed .body ul{margin:2px 0 10px 20px}
+.feed .body li{margin:2px 0}
+.feed .body code{background:var(--code);border:1px solid var(--border-soft);border-radius:4px;padding:1px 5px;font:12px/1.4 "SF Mono",ui-monospace,Menlo,monospace}
+
+/* ======================================================
+   MODE B — BUBBLES (current hanabi)
+   ====================================================== */
+.bubbles .row{display:flex;margin:10px 0}
+.bubbles .row.user{justify-content:flex-end}
+.bubbles .bub{max-width:620px;border:1px solid var(--border);border-radius:12px;padding:9px 14px}
+.bubbles .row.user .bub{background:var(--bubble-user)}
+.bubbles .row.asst .bub{background:var(--bubble-asst)}
+.bubbles .who{display:flex;gap:8px;font-size:11px;color:var(--tf);margin-bottom:4px}
+.bubbles .body p{margin:0 0 8px}.bubbles .body p:last-child{margin:0}
+
+/* ---- code block + fold/unfold (shared) ---- */
+.code{position:relative;background:var(--code);border:1px solid var(--border-soft);border-radius:8px;
+  margin:8px 0;overflow:hidden}
+.code pre{margin:0;padding:11px 13px;font:12px/1.5 "SF Mono",ui-monospace,Menlo,monospace;
+  color:#cdd0d6;white-space:pre;overflow-x:auto}
+.code .lang{position:absolute;top:0;right:0;font-size:10px;color:var(--tf);padding:4px 8px;text-transform:uppercase;letter-spacing:.04em}
+
+/* foldable long block: cap height, fade bottom, expand button */
+.foldable{position:relative;overflow:hidden;transition:max-height .28s cubic-bezier(.4,0,.2,1)}
+.foldable.folded{max-height:190px}
+.foldable.folded::after{content:"";position:absolute;inset:auto 0 0 0;height:64px;pointer-events:none;
+  background:linear-gradient(to bottom,transparent,var(--code))}
+.fold-btn{display:inline-flex;align-items:center;gap:5px;margin:6px 0 2px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--border);color:var(--ts);
+  font:12px/1 inherit;padding:5px 11px;border-radius:7px;transition:background .15s,color .15s}
+.fold-btn:hover{background:var(--hover);color:var(--tp)}
+.fold-btn .chev{transition:transform .2s;display:inline-block}
+.fold-btn.open .chev{transform:rotate(90deg)}
+
+/* ---- TOOL PILE (navi-style collapse) ---- */
+.tool{margin:10px 0}
+.tool-head{display:flex;align-items:center;gap:8px;background:rgba(150,130,200,.10);
+  border:1px solid rgba(150,130,200,.22);border-radius:9px;padding:7px 11px;cursor:pointer;
+  transition:background .15s}
+.tool-head:hover{background:rgba(150,130,200,.16)}
+.tool-head .chev{color:var(--tool);transition:transform .2s;flex:none}
+.tool-head.open .chev{transform:rotate(90deg)}
+.tool-head .wr{color:var(--tool);flex:none}
+.tool-head .lbl{flex:1;color:var(--tp);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:"SF Mono",ui-monospace,Menlo,monospace}
+.tool-head .badge{flex:none;display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.07);
+  border-radius:20px;padding:2px 8px;font-size:11px;color:var(--ts)}
+.tool-head .dur{flex:none;font-size:11px;color:var(--tf);font-variant-numeric:tabular-nums}
+.tool-head .st{flex:none;font-size:13px}
+.tool-head .st.ok{color:var(--ok)} .tool-head .st.err{color:var(--err)}
+.tool-body{overflow:hidden;max-height:0;transition:max-height .3s cubic-bezier(.4,0,.2,1)}
+.tool-body.open{max-height:900px}
+.tool-body .inner{padding:8px 2px 2px}
+.tool-out{background:var(--code);border:1px solid var(--border-soft);border-radius:7px;
+  padding:9px 12px;margin-top:6px;font:11.5px/1.5 "SF Mono",ui-monospace,Menlo,monospace;
+  color:#b8bcc4;max-height:220px;overflow:auto;white-space:pre-wrap}
+
+/* ---- LOADING states ---- */
+.shimmer{background:linear-gradient(100deg,var(--panel2) 30%,rgba(255,255,255,.07) 50%,var(--panel2) 70%);
+  background-size:200% 100%;animation:sh 1.4s ease-in-out infinite;border-radius:6px}
+@keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sk-turn{padding:14px 0;border-bottom:1px solid var(--border-soft)}
+.sk-row{height:12px;margin:7px 0;border-radius:5px}
+.thinking{display:inline-flex;align-items:center;gap:8px;color:var(--ts);font-size:13px;font-style:italic;padding:6px 0}
+.thinking .dots{display:inline-flex;gap:3px}
+.thinking .dots i{width:5px;height:5px;border-radius:50%;background:var(--asst);animation:blink 1.3s infinite}
+.thinking .dots i:nth-child(2){animation-delay:.2s}.thinking .dots i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
+.caret{display:inline-block;width:7px;height:15px;background:var(--asst);vertical-align:text-bottom;
+  margin-left:2px;animation:cb 1s steps(2) infinite}
+@keyframes cb{0%,50%{opacity:1}51%,100%{opacity:0}}
+.hint{color:var(--tf);font-size:11px;text-align:center;padding:8px}
+</style></head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div><h1>Refactor the auth middleware</h1><div class="sub">Assistant · 12 messages · 2h</div></div>
+    <div class="spacer"></div>
+    <div class="seg" id="modeSeg">
+      <button data-mode="feed" class="on">Doc feed</button>
+      <button data-mode="bubbles">Bubbles</button>
+    </div>
+    <div class="seg" id="loadSeg" style="margin-left:8px">
+      <button data-load="none" class="on">Loaded</button>
+      <button data-load="skeleton">Skeleton</button>
+      <button data-load="stream">Streaming</button>
+    </div>
+  </div>
+  <div class="scroll" id="scroll"></div>
+  <div class="hint">Toggle Doc-feed / Bubbles, and the loading state. Click tool piles and “Show full” to fold/unfold.</div>
+</div>
+<script>
+/* ---------- icons (inline svg) ---------- */
+const chev='<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>';
+const wrench='<svg class="wr" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2-2 2.5-2.5z"/></svg>';
+const layers='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>';
+
+/* ---------- sample transcript (long content to exercise folding) ---------- */
+const LONG_LOG = Array.from({length:40},(_,i)=>`[`+String(i).padStart(2,'0')+`] retry attempt ${i+1}: upstream 503, backing off ${Math.min(2**i*100,30000)}ms (jitter +${(i*37)%250}ms)`).join('\n');
+const LONG_TEXT = `Here's the full plan for migrating the auth middleware off the deprecated API. The core issue is that the legacy \`AuthGate\` couples token validation with session hydration, which means every request pays for a full session read even when it only needs the bearer check.\n\nI'll split it into two layers: a thin stateless \`verifyBearer()\` that only checks signature + expiry, and a separate \`hydrateSession()\` that the route opts into when it actually needs the user object. This lets read-only endpoints skip the session store entirely.\n\nThe migration is staged so nothing breaks: first ship both paths behind a flag, shadow-compare for a week, then flip the default and delete the old gate once the metrics agree.`;
+const MSGS=[
+  {role:'user',ts:'2h',text:`the auth middleware still calls the deprecated <code>validateToken()</code> on every request. can you migrate it to the new API and make sure read-only routes don't pay for a full session read?`},
+  {role:'asst',ts:'2h',text:LONG_TEXT},
+  {role:'tool',name:'grep -rn "validateToken" src/',count:3,dur:'0.4s',status:'ok',
+     out:`src/mw/auth.ts:42:  const u = await validateToken(req.headers.authorization)\nsrc/mw/auth.ts:88:  // legacy: validateToken also hydrates the session\nsrc/routes/feed.ts:17:  const u = await validateToken(...)  // read-only route, doesn't need session`},
+  {role:'tool',name:'edit src/mw/auth.ts',count:5,dur:'1.2s',status:'ok',
+     out:`@@ -40,7 +40,12 @@\n-  const u = await validateToken(req.headers.authorization)\n+  const claims = verifyBearer(req.headers.authorization)\n+  if (!claims) return res.status(401).end()\n+  // only hydrate when the route asks for it\n+  const u = req.needsSession ? await hydrateSession(claims.sub) : claims\n   ...\n+ (5 files changed, 34 insertions, 8 deletions)`},
+  {role:'tool',name:'run auth suite',count:1,dur:'8.1s',status:'ok',out:'138 passed, 0 failed (8.1s)'},
+  {role:'asst',ts:'1h',text:`Done. Split \`AuthGate\` into \`verifyBearer()\` (stateless) + opt-in \`hydrateSession()\`. Read-only routes now skip the session store — the feed endpoint dropped from 3 store reads to 0. Full suite green (138/0). Here's the retry log from the shadow-compare run showing the backoff behaving:`,code:LONG_LOG,lang:'log'},
+  {role:'asst',ts:'1h',text:`Next I'll flip the default behind the flag once you approve. Want me to open the diff?`}
+];
+
+let MODE='feed', LOAD='none';
+const scroll=document.getElementById('scroll');
+// URL params for headless screenshots: ?mode=feed|bubbles&load=none|skeleton|stream&expand=1
+const _q=new URLSearchParams(location.search);
+if(_q.get('mode'))MODE=_q.get('mode');
+if(_q.get('load'))LOAD=_q.get('load');
+const _expandAll=_q.get('expand')==='1';
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')} // (text already has intentional <code>)
+function bodyHtml(m){
+  let h='<div class="body">';
+  h+='<p>'+m.text+'</p>';
+  if(m.code){
+    const long=m.code.split('\n').length>8;
+    h+='<div class="code'+(long?' has-fold':'')+'">'+
+        '<span class="lang">'+(m.lang||'code')+'</span>'+
+        '<div class="foldable'+(long?' folded':'')+'"><pre>'+m.code+'</pre></div>'+
+       '</div>';
+    if(long) h+='<button class="fold-btn" data-fold>'+chev+' <span>Show full ('+m.code.split("\\n").length+' lines)</span></button>';
+  }
+  h+='</div>';
+  return h;
+}
+function toolHtml(m,idx){
+  return '<div class="tool">'+
+    '<div class="tool-head" data-tool="'+idx+'">'+chev+wrench+
+      '<span class="lbl">'+m.name+'</span>'+
+      '<span class="badge">'+layers+' '+m.count+'</span>'+
+      '<span class="dur">'+m.dur+'</span>'+
+      '<span class="st '+m.status+'">'+(m.status==='ok'?'✓':'✕')+'</span>'+
+    '</div>'+
+    '<div class="tool-body" data-toolbody="'+idx+'"><div class="inner">'+
+      '<div class="tool-out">'+m.out+'</div>'+
+    '</div></div>'+
+  '</div>';
+}
+function render(){
+  if(LOAD==='skeleton'){ scroll.innerHTML=skeleton(); return; }
+  const feed = MODE==='feed';
+  scroll.className='scroll '+(feed?'feed':'bubbles');
+  let h='';
+  MSGS.forEach((m,i)=>{
+    if(m.role==='tool'){ h+=toolHtml(m,i); return; }
+    const nm = m.role==='user'?'You':'Assistant';
+    const ic = m.role==='user'?'user':'asst';
+    if(feed){
+      h+='<div class="turn"><div class="who"><span class="ic '+ic+'">'+(m.role==='user'?'Y':'A')+'</span>'+
+         '<span class="name">'+nm+'</span><span class="ts">'+m.ts+'</span></div>'+bodyHtml(m)+'</div>';
+    }else{
+      h+='<div class="row '+ic+'"><div class="bub"><div class="who">'+nm+' · '+m.ts+'</div>'+bodyHtml(m)+'</div></div>';
+    }
+  });
+  if(LOAD==='stream'){
+    h+= feed
+      ? '<div class="turn"><div class="who"><span class="ic asst">A</span><span class="name">Assistant</span></div>'+
+        '<div class="body"><p>Opening the diff and prepping the flag flip<span class="caret"></span></p>'+
+        '<div class="thinking">running shadow-compare <span class="dots"><i></i><i></i><i></i></span></div></div></div>'
+      : '<div class="row asst"><div class="bub"><div class="who">Assistant</div><div class="body"><p>Opening the diff<span class="caret"></span></p></div></div></div>';
+  }
+  scroll.innerHTML=h;
+  // sync the toggles to the active state (for URL-driven screenshots)
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.mode===MODE));
+  document.querySelectorAll('#loadSeg button').forEach(b=>b.classList.toggle('on',b.dataset.load===LOAD));
+  if(_expandAll){
+    scroll.querySelectorAll('.tool-head').forEach(th=>{th.classList.add('open');
+      const i=th.dataset.tool;const b=scroll.querySelector('[data-toolbody="'+i+'"]');if(b)b.classList.add('open');});
+    scroll.querySelectorAll('[data-fold]').forEach(fb=>{fb.classList.add('open');
+      const f=fb.parentElement.querySelector('.foldable');if(f)f.classList.remove('folded');
+      fb.querySelector('span').textContent='Show less';});
+  }
+}
+function skeleton(){
+  let h='';
+  const widths=[['70%','92%','40%'],['55%','88%'],['80%','96%','62%','30%']];
+  widths.forEach(w=>{h+='<div class="sk-turn"><div class="sk-row shimmer" style="width:120px;height:14px"></div>'+
+    w.map(x=>'<div class="sk-row shimmer" style="width:'+x+'"></div>').join('')+'</div>';});
+  return h;
+}
+
+/* ---------- interactions ---------- */
+scroll.addEventListener('click',e=>{
+  const th=e.target.closest('.tool-head');
+  if(th){const i=th.dataset.tool;th.classList.toggle('open');
+    document.querySelector('[data-toolbody="'+i+'"]').classList.toggle('open');return;}
+  const fb=e.target.closest('[data-fold]');
+  if(fb){fb.classList.toggle('open');
+    const f=fb.parentElement.querySelector('.foldable');f.classList.toggle('folded');
+    fb.querySelector('span').textContent=f.classList.contains('folded')?'Show full':'Show less';return;}
+});
+document.getElementById('modeSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  MODE=b.dataset.mode;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));render();});
+document.getElementById('loadSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  LOAD=b.dataset.load;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));render();});
+render();
+</script>
+</body></html>
