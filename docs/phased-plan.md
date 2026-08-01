@@ -473,3 +473,25 @@ fully mock-testable, no network), `src/api/token_store.{h,cpp}`,
 mapping, `tests/unit/test_auth.cpp` (6 cases: success w/ pending×3, expired,
 failure, transport-fail, not-configured, client_id-in-body), `HANABI_AUTH_DEMO=1`
 headless screenshot affordance. Only deferred item: live 401→refresh retry.
+
+## Phase SEND — Functional composer (kickoff + reply) — DONE
+**STATUS: DONE (merged `9a5019e`).** hanabi was browse-only; this phase makes the
+composer functional on BOTH paths, config-driven and mock-first.
+- **Reply/continue**: new `Client::send_message(id, prompt)` + `supports_send()`.
+  Mock appends a User message + a synthetic generic Assistant reply, updates the
+  summary preview/updated_at, returns the assistant Message (appended live to
+  `openSession->messages` by the loader). Http adapter POSTs to a CONFIGURABLE
+  `chat_path` (`HANABI_CHAT_PATH`, empty default = opt-in) with `field_prompt`/
+  `field_session_id`; parses the reply via the same field mapping as transcripts.
+- **Kickoff**: wired the previously-unused `create_session` — the "New task"
+  composer overlay's Start now creates a session (mock: in-memory + listed/opened;
+  http: POST kickoff → new id) via `requestKickoffPrompt` + the async loader.
+- **UI**: transcript Send is ENABLED when the draft is non-empty AND
+  `supports_send()`; the "read-only preview" caption is gone; a "sending…" state
+  prevents double-send. `HANABI_REPLY_DEMO`/`HANABI_SEND_DEMO` headless affordances.
+- **Test**: `tests/unit/test_send.cpp` (5th suite) proves kickoff + reply on the
+  MOCK with no network, and asserts the reply carries no company name.
+- Gates: both builds 0-warn; `make test` 5/5; perf PASS. 0 vendor edits; no leaks.
+- Deferred: SSE token-by-token streaming (this phase uses a synchronous
+  POST-returns-message shape; the `send_message → Message` seam is unchanged when
+  SSE lands — only the transport underneath swaps).
