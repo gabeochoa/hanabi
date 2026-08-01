@@ -291,6 +291,48 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return std::string(buf);
     }
 
+    // ---- display-only title normalization (defect #10: "[P]" prefix leak) --
+    // Real + mock rows use the app's title convention where a leading "[P] "
+    // (parked / needs-you) drives the row's RED attention triangle via the
+    // state model (http_client.cpp derive_state keys the parked state off this
+    // exact prefix; the mock hands the same shape). Once that glyph is drawn,
+    // the literal "[P] " in the title text is redundant noise sitting right
+    // next to the shape that already means the same thing. So for DISPLAY only
+    // we strip a single leading "[P] " (or bare "[P]"). This never mutates the
+    // underlying SessionSummary — the state/tag/glyph derivation still sees the
+    // original title, so the attention triangle is unchanged; we only clean the
+    // string handed to the row's title label. Conservative: strips exactly one
+    // leading occurrence, case-sensitive, so it can't chew into real titles.
+    static std::string strip_parked_prefix(const std::string& title) {
+        if (title.rfind("[P] ", 0) == 0) return title.substr(4);
+        if (title.rfind("[P]", 0) == 0) return title.substr(3);
+        return title;
+    }
+
+    // ---- automated / scheduled row detection (defect #5: cron noise) -------
+    // A real backend mixes human conversations with scheduled/cron sessions
+    // ("Schedule: nightly backfill", "kicker-tick", "continuous-triage-tick").
+    // Those aren't real conversations but they inflate the buckets and read as
+    // peers of human threads. We DON'T hide them (the user may want them) — we
+    // just de-emphasize them (dimmer title + a small "gear-ish" automated glyph
+    // in the status slot) so the eye skips them when scanning for real work.
+    //
+    // Heuristic (kept deliberately small + conservative so it can't over-match
+    // a real conversation title): a session is "automated" if its title starts
+    // with "Schedule:" OR ends with "-tick". These are structural naming
+    // conventions of scheduled jobs, not content words, so a human thread is
+    // very unlikely to trip them. No company/endpoint/product strings — purely
+    // shape-based. If this ever over-matches, tighten (don't broaden) the list.
+    static bool is_automated(const std::string& title) {
+        if (title.rfind("Schedule:", 0) == 0) return true;  // "Schedule: ..."
+        // ends-with "-tick"
+        const std::string suf = "-tick";
+        if (title.size() >= suf.size() &&
+            title.compare(title.size() - suf.size(), suf.size(), suf) == 0)
+            return true;
+        return false;
+    }
+
     // ASCII-lowercase a copy (search is case-insensitive; titles are UTF-8 but
     // case-folding only the ASCII range is sufficient for these labels).
     static std::string lower(const std::string& s) {
@@ -368,7 +410,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // precedence is unchanged — the shared tested logic still owns the
     // tag/attention cases; the sidebar only ADDS the state-only Running case
     // that the pure model intentionally leaves neutral.
-    enum class SbGlyph { None, Triangle, Diamond, Dot, Ring };
+    enum class SbGlyph { None, Triangle, Diamond, Dot, Ring, Automated };
 
     // Precedence: the shared, headlessly-tested ecs::model::glyph_for owns the
     // tag/attention families (blocked -> triangle, review -> diamond, done ->
@@ -401,6 +443,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             case Glyph::Diamond: return theme::tag_ready_fg();     // green
             case Glyph::Dot: return theme::tag_done_fg();          // blue
             case Glyph::Ring: return theme::accent();              // running
+            case Glyph::Automated: return theme::text_faint();     // cron/quiet
             default: return theme::text_faint();
         }
     }
@@ -467,6 +510,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // dot — same size, different fill, so real Running rows get a
                 // distinct glyph instead of collapsing into the calm dot.
                 afterhours::draw_ring(cx, cy, 2.4f, 4.0f, 24, c);
+                break;
+            }
+            case Glyph::Automated: {
+                // Cron / scheduled row (defect #5): a tiny faint hollow square
+                // — deliberately quiet and geometrically distinct from the
+                // calm round dot, the blue Done dot, and the accent Ring, so
+                // an automated row reads as "machine, skip me" without hiding
+                // it. Drawn as four faint edges (~6px box) in the faint token.
+                const float h = 2.6f;  // half-side
+                const afterhours::vec2 tl{cx - h, cy - h};
+                const afterhours::vec2 tr{cx + h, cy - h};
+                const afterhours::vec2 bl{cx - h, cy + h};
+                const afterhours::vec2 br{cx + h, cy + h};
+                const float t = 1.1f;
+                afterhours::draw_line_ex(tl, tr, t, c);
+                afterhours::draw_line_ex(tr, br, t, c);
+                afterhours::draw_line_ex(br, bl, t, c);
+                afterhours::draw_line_ex(bl, tl, t, c);
                 break;
             }
             default:
@@ -1128,10 +1189,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             [](Entity&) {});
         if (q.empty() &&
             head.ent().get<afterhours::ui::HasClickListener>().down) {
-            if (app.collapsedFolders.count(key))
+            if (app.collapsedFolders.count(key)) {
                 app.collapsedFolders.erase(key);
-            else
+                // Re-expanding a bucket returns it to the CAPPED view: clear
+                // any prior "show all" opt-in so re-opening never dumps the
+                // full wall (defect #2 — progressive disclosure resets on
+                // collapse). The user must click "Show N more…" again to see
+                // the long list. This guarantees no bucket renders its full
+                // body (e.g. 84 rows) just from a header expand — only an
+                // explicit "Show more" does.
+                app.collapsedFolders.erase("__more_" + key + "__");
+            } else {
                 app.collapsedFolders.insert(key);
+            }
             // Any explicit per-group toggle drops out of "fold all" mode.
             app.foldAllFolders = false;
         }
@@ -1327,7 +1397,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool running = s.state == api::ThreadState::Running;
         bool parked = s.state == api::ThreadState::Parked;
         bool selected = app.selectedId == s.id;
-        Glyph glyph = glyph_for(s);
+        // Defect #5: cron / scheduled rows are visually de-emphasized (not
+        // hidden). Detect purely by title shape ("Schedule:" prefix / "-tick"
+        // suffix). When automated, the row draws a quiet "automated" glyph and
+        // a fainter title so real conversations stand out.
+        bool automated = is_automated(s.title);
+        Glyph glyph = automated ? Glyph::Automated : glyph_for(s);
 
         // Denser rows: 24px tall with tight vertical padding, so more threads
         // fit — matching the mock's compact sidebar feel. Rows are indented
@@ -1375,6 +1450,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         theme::Color titleColor = theme::text_secondary();
         if (attn) titleColor = theme::text_primary();
         else if (running || parked || archived) titleColor = theme::text_faint();
+        // Defect #5: automated/cron rows always read as quiet metadata — a
+        // faint title — so real conversations stand out even inside a bucket.
+        // (Applied last so it de-emphasizes regardless of the state above.)
+        if (automated) titleColor = theme::text_faint();
 
         // Title height matches the row's content box (row 24 − top/bottom
         // pad 2 = 20) so the label's own vertical-centering lands the text on
@@ -1408,7 +1487,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (titleChars > 40) titleChars = 40;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(s.title, titleChars))
+                .with_label(fmtutil::ellipsize(strip_parked_prefix(s.title),
+                                               titleChars))
                 .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)

@@ -377,3 +377,25 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   switch the Blocked smart view to it, so the nav uses a real atlased icon
   rather than an app-drawn shape. NOT done here (atlas + gen script are owned
   by another agent); reported for that owner to pick up.
+
+### #20 — icon atlas has no "automated / scheduled" (clock/gear) glyph (hanabi resource gap)
+- **Gap:** the generated Lucide atlas (`src/ui/icons_atlas.h`) still has no
+  glyph that reads as "automated / scheduled / cron" — no clock, gear-cog,
+  timer, or repeat/refresh sprite. The sidebar needs to de-emphasize
+  scheduled/cron sessions ("Schedule: …" / "*-tick" titles) so they don't read
+  as peers of real human conversations (defect #5).
+- **Why wanted:** a small atlased "clock"/"repeat" sprite in each cron row's
+  status slot would carry the "this is a machine job" meaning with a
+  recognizable icon.
+- **App-code workaround (used):** the sidebar detects an automated row by title
+  shape (`SidebarSystem::is_automated`: starts with "Schedule:" or ends with
+  "-tick") and draws a small FAINT HOLLOW SQUARE (`SbGlyph::Automated`) in the
+  row's existing status-glyph slot, plus dims the title to the faint token.
+  This is geometrically distinct from the calm round dot / Done dot / running
+  ring, and lives entirely in `src/ecs/sidebar_system.h` — no atlas change.
+- **Minimal fix (owned elsewhere — scripts/gen_icons.py):** add a Lucide
+  "clock" or "repeat"/"refresh-cw" glyph to the atlas so the sidebar (and any
+  future scheduled-job UI) can blit a real icon instead of an app-drawn box.
+  NOT done here (atlas + gen script are owned by another agent). This is the
+  same atlas the #19 note wants a "clock" for — a single "clock" sprite would
+  satisfy both #19 (attention) and #20 (scheduled) if reused thoughtfully.
