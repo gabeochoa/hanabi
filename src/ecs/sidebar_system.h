@@ -14,7 +14,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <ctime>
 #include <string>
+#include <vector>
 
 #include "../test_hooks.h"
 #include "../util/format.h"
@@ -80,7 +82,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         render_header(ctx, panel.ent(), *layout, folded);
         if (!folded) render_search(ctx, panel.ent(), *app, r.width);
-        render_smart_views(ctx, panel.ent(), *app, folded);
+        render_smart_views(ctx, panel.ent(), *app, folded, r.width);
 
         if (folded) return;  // rail stops after icon views
 
@@ -151,7 +153,76 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
+    // ---- shared count-column geometry (gap #18: afterhours has no flex-grow)
+    // The smart-view rows, folder headers, and time-group headers all show a
+    // right-aligned count. To land every count at the SAME right-edge x, we
+    // reserve one count-column width + one right inset consistently and size
+    // the preceding label column in PIXELS (label = panelW − left − reserved),
+    // so the count box always starts at the same x regardless of section. This
+    // is the best we can do without flex-grow, and it makes the three count
+    // families flush to a single edge.
+    static constexpr float kCountColW = 30.0f;   // count box width
+    static constexpr float kCountRightPad = 12.0f;  // inset from panel right
+    // A count's LEFT edge (== its column start x) is the same for every
+    // section: panelW − kCountRightPad − kCountColW. Given a section's own
+    // left inset, the label column width is that start-x minus the left inset
+    // (minus any fixed leading slot such as a chevron/icon).
+    static float label_col_w(float panelW, float leftInset, float leadSlot) {
+        float w = panelW - kCountRightPad - kCountColW - leftInset - leadSlot;
+        if (w < 30.0f) w = 30.0f;
+        return w;
+    }
+
     // ---- text helpers ----
+
+    // ---- time-based grouping for the un-foldered "Recent" catch-all ----
+    // Real backends return sessions with no folder and mostly-calm state, so a
+    // flat "Recent (102)" catch-all isn't scannable. We bucket the catch-all's
+    // sessions by their updated_at into chat-app-standard groups. The
+    // classification is a pure, now-injected function so it is deterministic
+    // (updated_at is unix epoch seconds; 0 = unknown). Kept local to this owned
+    // file so this change touches a single file.
+    enum class TimeBucket { Today, ThisWeek, Earlier };
+
+    // Classify `updated_at` relative to `now` (both unix epoch seconds):
+    //   Today    = same LOCAL calendar day as `now`
+    //   ThisWeek = within the last 7*24h (rolling), and not Today
+    //   Earlier  = older than 7 days, in the future (clock skew), or unknown(0)
+    static TimeBucket time_bucket(int64_t updated_at, int64_t now) {
+        if (updated_at <= 0) return TimeBucket::Earlier;   // unknown
+        if (updated_at > now) return TimeBucket::Earlier;  // future / skew
+        std::time_t nt = static_cast<std::time_t>(now);
+        std::time_t ut = static_cast<std::time_t>(updated_at);
+        std::tm ntm{};
+        std::tm utm{};
+        localtime_r(&nt, &ntm);
+        localtime_r(&ut, &utm);
+        if (ntm.tm_year == utm.tm_year && ntm.tm_yday == utm.tm_yday)
+            return TimeBucket::Today;
+        if (now - updated_at < 7 * 24 * 60 * 60) return TimeBucket::ThisWeek;
+        return TimeBucket::Earlier;
+    }
+
+    // Stable display label + collapse key per bucket. The key drives the
+    // collapsed-set membership and must not collide with named-folder keys
+    // (stars/oncall/experiments/recent/__archived__).
+    static const char* time_bucket_label(TimeBucket b) {
+        switch (b) {
+            case TimeBucket::Today: return "Today";
+            case TimeBucket::ThisWeek: return "This Week";
+            case TimeBucket::Earlier: return "Earlier";
+        }
+        return "Earlier";
+    }
+    static const char* time_bucket_key(TimeBucket b) {
+        switch (b) {
+            case TimeBucket::Today: return "__t_today__";
+            case TimeBucket::ThisWeek: return "__t_week__";
+            case TimeBucket::Earlier: return "__t_earlier__";
+        }
+        return "__t_earlier__";
+    }
+
     // ASCII-lowercase a copy (search is case-insensitive; titles are UTF-8 but
     // case-folding only the ASCII range is sufficient for these labels).
     static std::string lower(const std::string& s) {
@@ -270,7 +341,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ---- header ----
+    // ---- header / title bar ----
+    // Layout intent (unfolded): a single row split into two anchored groups —
+    //   [ ✦ hanabi ]  ................dead space collapses here............  [ + ⚙ ‹ ]
+    // The brand block is left-aligned with proper padding; the three action
+    // icons are grouped in a right-anchored cluster with consistent spacing
+    // and equal 28x28 hit-boxes. JustifyContent::SpaceBetween pushes the two
+    // groups to the row's edges so there is no floating icon band in the
+    // middle (the old layout sized the brand at 62% and let the icons drift).
+    //
+    // NOTE (traffic lights): hanabi runs in a standard NSWindow, so real macOS
+    // traffic-light dots live in the NATIVE title bar ABOVE this content view —
+    // we deliberately do NOT draw faux dots here (that would duplicate them).
+    // The brand keeps a comfortable left inset so it reads as an intentional
+    // wordmark rather than crowding the window's top-left control zone.
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
                        LayoutComponent& layout, bool folded) {
         auto header = div(ctx, mk(parent, 1),
@@ -280,18 +364,23 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                             : FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(9), .right = pixels(8),
+                .with_justify_content(folded ? JustifyContent::FlexStart
+                                             : JustifyContent::SpaceBetween)
+                .with_padding(Padding{.top = pixels(7), .right = pixels(8),
                                       .bottom = pixels(5), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_header"));
 
         if (!folded) {
-            // Brand mark (sprite) + name. The ✦ mark is now a Lucide "sparkle"
-            // sprite drawn via on_draw_fg; the "hanabi" wordmark stays text.
+            // --- brand block (left-anchored): ✦ mark + "hanabi" wordmark ---
+            // Fixed-width so SpaceBetween has real slack to distribute; the
+            // ✦ mark is a Lucide "sparkle" sprite (on_draw_fg), the wordmark
+            // is text. Sized to just hug its content so the right cluster
+            // anchors to the sidebar's right edge.
             auto brand = div(ctx, mk(header.ent(), 1),
                 ComponentConfig{}
-                    .with_size(ComponentSize{percent(0.62f), pixels(24)})
+                    .with_size(ComponentSize{pixels(96), pixels(26)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
@@ -301,18 +390,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(brand.ent(), 1),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_size(ComponentSize{pixels(18), pixels(22)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_on_draw_fg(hanabi::icons::draw_fg(
-                        "brand", "\xe2\x9c\xa6", theme::text_primary(), 15.0f,
+                        "brand", "\xe2\x9c\xa6", theme::accent(), 15.0f,
                         -1.0f))
                     .with_debug_name("sb_brand_mark"));
             div(ctx, mk(brand.ent(), 2),
                 ComponentConfig{}
                     .with_label("hanabi")
-                    .with_size(ComponentSize{pixels(120), pixels(24)})
-                    .with_padding(Padding{.left = pixels(4)})
+                    .with_size(ComponentSize{pixels(72), pixels(24)})
+                    .with_padding(Padding{.left = pixels(6)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
                     .with_font_size(FontSize::Medium)
@@ -320,8 +409,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("sb_brand_name"));
 
+            // --- action cluster (right-anchored): + / gear / collapse ---
+            // A NoWrap row that packs the three icons at the sidebar's right
+            // edge with an even gap. Each icon shares the SAME 28x28 hit-box
+            // (icon_btn_sprite) so they read as one consistent control group.
+            auto actions = div(ctx, mk(header.ent(), 2),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(92), pixels(28)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_gap(pixels(3))
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("sb_actions"));
+
             // New task → open the composer (Phase K composer system renders it).
-            auto newBtn = button(ctx, mk(header.ent(), 2),
+            auto newBtn = button(ctx, mk(actions.ent(), 1),
                 icon_btn_sprite("plus", "+").with_debug_name("sb_new"));
             if (newBtn) {
                 if (auto* app = find_singleton<AppComponent>())
@@ -329,19 +434,27 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
 
             // Settings → open the settings overlay (Phase K settings system).
-            auto setBtn = button(ctx, mk(header.ent(), 3),
+            auto setBtn = button(ctx, mk(actions.ent(), 2),
                 icon_btn_sprite("gear", "\xe2\x9a\x99")
                     .with_debug_name("sb_settings"));
             if (setBtn) {
                 if (auto* app = find_singleton<AppComponent>())
                     app->showSettings = true;
             }
+
+            // Collapse toggle joins the cluster (unfolded state).
+            auto collapseBtn = button(ctx, mk(actions.ent(), 3),
+                icon_btn_sprite("sidebar_close", "\xc2\xab")
+                    .with_debug_name("sb_collapse"));
+            if (collapseBtn) {
+                layout.sidebarCollapsed = !layout.sidebarCollapsed;
+            }
+            return;
         }
 
-        // Collapse / expand toggle (present in both states).
+        // Folded rail: a single expand toggle in the header column.
         auto collapseBtn = button(ctx, mk(header.ent(), 4),
-            icon_btn_sprite(folded ? "sidebar_open" : "sidebar_close",
-                            folded ? "\xc2\xbb" : "\xc2\xab")
+            icon_btn_sprite("sidebar_open", "\xc2\xbb")
                 .with_debug_name("sb_collapse"));
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
@@ -363,18 +476,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             .with_roundness(0.3f);
     }
 
-    // Sprite-icon button: same 26x26 chrome button as icon_btn, but instead of
-    // a text glyph it blits the Lucide atlas sprite `name` (tinted) via
-    // on_draw_fg, keeping the widget label empty. `fallback_glyph` is the
-    // legacy unicode text drawn only if the atlas fails to load. Routed through
-    // icons::draw_fg so a future icon-source swap is localized.
+    // Sprite-icon button: a consistent 28x28 chrome button (equal hit-box for
+    // every title-bar action) that blits the Lucide atlas sprite `name`
+    // (tinted) via on_draw_fg, keeping the widget label empty. `fallback_glyph`
+    // is the legacy unicode text drawn only if the atlas fails to load. Routed
+    // through icons::draw_fg so a future icon-source swap is localized.
     static ComponentConfig icon_btn_sprite(const std::string& name,
                                            const std::string& fallback_glyph) {
         return ComponentConfig{}
             .with_label(" ")
-            .with_size(ComponentSize{pixels(26), pixels(26)})
+            .with_size(ComponentSize{pixels(28), pixels(28)})
             .with_custom_background(theme::sidebar_bg())
             .with_custom_hover_bg(theme::hover_bg())
+            .with_cursor(afterhours::ui::CursorType::Pointer)
             .with_click_activation(ClickActivationMode::Press)
             .with_roundness(0.3f)
             .with_on_draw_fg(hanabi::icons::draw_fg(
@@ -549,9 +663,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_fold_all"));
         if (foldBtn) {
             app.foldAllFolders = !app.foldAllFolders;
-            // Apply to every folder key so all fold/unfold in lockstep.
-            static const char* kKeys[] = {"stars", "oncall", "experiments",
-                                          "recent", "__archived__"};
+            // Apply to every folder key so all fold/unfold in lockstep. The
+            // Recent catch-all renders as time-group headers (Today / This
+            // Week / Earlier) rather than a single "recent" header, so fold-all
+            // targets those bucket keys too.
+            static const char* kKeys[] = {
+                "stars",       "oncall",     "experiments",
+                "__t_today__", "__t_week__", "__t_earlier__",
+                "__archived__"};
             if (app.foldAllFolders) {
                 for (const char* k : kKeys) app.collapsedFolders.insert(k);
             } else {
@@ -562,7 +681,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- smart views ----
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
-                            AppComponent& app, bool folded) {
+                            AppComponent& app, bool folded, float panelW) {
         // "VIEWS" section label (unfolded only, per the mock).
         if (!folded) section_label(ctx, parent, 25, "VIEWS");
 
@@ -571,7 +690,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(148)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(0), .right = pixels(8),
+                .with_padding(Padding{.top = pixels(0), .right = pixels(4),
                                       .bottom = pixels(2), .left = pixels(8)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -584,20 +703,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
-                   SmartView::Home, -1, app, folded);
+                   SmartView::Home, -1, app, folded, panelW);
         smart_item(ctx, container.ent(), 2, "blocked", "\xe2\x9b\x94",
-                   "Blocked", SmartView::Blocked, blocked, app, folded);
+                   "Blocked", SmartView::Blocked, blocked, app, folded, panelW);
         smart_item(ctx, container.ent(), 3, "review", "\xe2\x9c\x93", "Review",
-                   SmartView::Review, review, app, folded);
+                   SmartView::Review, review, app, folded, panelW);
         smart_item(ctx, container.ent(), 4, "star", "\xe2\x98\x85", "Starred",
-                   SmartView::Starred, starred, app, folded);
+                   SmartView::Starred, starred, app, folded, panelW);
     }
 
     void smart_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
                     const std::string& icon_name,
                     const std::string& fallback_glyph,
                     const std::string& label, SmartView view, int count,
-                    AppComponent& app, bool folded) {
+                    AppComponent& app, bool folded, float panelW) {
         bool active = app.view == view;
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
@@ -655,10 +774,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         if (folded) return;
 
+        // Label column: explicit pixel width so the count box that follows is
+        // pushed flush to the row's right edge (afterhours has no flex-grow, so
+        // a percent label would leave the count packed mid-row, not aligned).
+        // Row content = panelW − container pad (l8 + r4) − row pad (l8 + r8)
+        //             = panelW − 28. label = content − icon(18) − count(kCol).
+        // With the count box right edge == panelW − kCountRightPad, the smart
+        // counts line up with the folder / time-group counts.
+        float svLabelW = panelW - 28.0f - 18.0f - kCountColW;
+        if (svLabelW < 30.0f) svLabelW = 30.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{percent(0.72f), pixels(22)})
+                .with_size(ComponentSize{pixels(svLabelW), pixels(22)})
                 .with_padding(Padding{.left = pixels(10)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
@@ -668,10 +796,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sv_label"));
 
         if (count > 0) {
+            // Count column: fixed width, right-aligned. Its right edge lands at
+            // panelW − kCountRightPad because the label above is sized to push
+            // it flush to the row edge (unified column; see the count geometry
+            // note). This makes all three count families flush to one edge.
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(std::to_string(count))
-                    .with_size(ComponentSize{pixels(24), pixels(22)})
+                    .with_size(ComponentSize{pixels(kCountColW), pixels(22)})
                     .with_transparent_bg()
                     .with_custom_text_color(active ? theme::text_primary()
                                                    : theme::text_faint())
@@ -723,23 +855,45 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // is what drops non-matching folders out of the tree.
         if (members.empty()) return 0;
 
+        // The Recent catch-all groups its (mostly un-foldered) sessions by
+        // time so a real backend's flat "Recent (102)" becomes scannable.
+        // Named folders (stars/oncall/experiments) skip this and render as a
+        // single flat group exactly as before.
+        if (catchAll) {
+            return render_time_groups(ctx, parent, base, members, app, q,
+                                      panelW, archived);
+        }
+
+        return render_group(ctx, parent, base, name, key, members, app, q,
+                            panelW, archived);
+    }
+
+    // ---- collapsible group header (shared by folders + time-groups) ----
+    // Renders the chevron + name + right-aligned count header for a group and
+    // wires its click-to-collapse. Returns the resolved `collapsed` state so
+    // the caller knows whether to emit body rows. `count` is shown in the
+    // unified count column so folder heads + time-group heads land flush with
+    // the smart-view counts.
+    bool render_group_header(UIContext<InputAction>& ctx, Entity& parent,
+                             int base, const std::string& name,
+                             const std::string& key, int count,
+                             theme::Color headColor, AppComponent& app,
+                             const std::string& q, float panelW) {
         bool collapsed = app.collapsedFolders.count(key) > 0;
         // A live search overrides collapse: matches must be visible, so a
-        // matching folder auto-expands while filtering (mirrors the mock, where
-        // search results are always shown regardless of prior fold state).
+        // matching group auto-expands while filtering (mirrors the mock).
         if (!q.empty()) collapsed = false;
 
-        theme::Color headColor =
-            archived ? theme::text_faint() : theme::text_secondary();
-
-        // Folder header (clickable: toggles this folder's collapse state).
+        // Header row. Right pad is kCountRightPad so the count's right edge
+        // lines up with the smart-view / other-group counts (unified column).
         auto head = div(ctx, mk(parent, base),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(26)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(4), .right = pixels(8),
+                .with_padding(Padding{.top = pixels(4),
+                                      .right = pixels(kCountRightPad),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_custom_background(theme::sidebar_bg())
                 .with_custom_hover_bg(theme::hover_bg())
@@ -747,22 +901,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.3f)
                 .with_debug_name("folder_head"));
 
-        // Clicking the header toggles collapse for this folder key. Disabled
-        // while a query is active (results stay pinned open).
+        // Clicking the header toggles collapse for this key. Disabled while a
+        // query is active (results stay pinned open).
         head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
-        if (q.empty() && head.ent().get<afterhours::ui::HasClickListener>().down) {
+        if (q.empty() &&
+            head.ent().get<afterhours::ui::HasClickListener>().down) {
             if (app.collapsedFolders.count(key))
                 app.collapsedFolders.erase(key);
             else
                 app.collapsedFolders.insert(key);
-            // Any explicit per-folder toggle drops out of "fold all" mode.
+            // Any explicit per-group toggle drops out of "fold all" mode.
             app.foldAllFolders = false;
         }
 
-        // Folder chevron: a shape triangle (down = expanded, right = collapsed)
-        // drawn via on_draw_fg — the atlas has no chevron-right, so rotating a
-        // drawn triangle is the crisp, dependency-free way to show both states.
+        // Chevron: down = expanded, right = collapsed (drawn triangle; the
+        // atlas has no chevron-right).
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -773,10 +927,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     draw_chevron(rect, collapsed, headColor);
                 })
                 .with_debug_name("folder_chevron"));
+        // Name column: explicit pixel width so the count column starts at the
+        // same x for every group. leftInset = head left pad (10); leadSlot =
+        // the 16px chevron.
         div(ctx, mk(head.ent(), 4),
             ComponentConfig{}
                 .with_label(name)
-                .with_size(ComponentSize{percent(0.8f), pixels(18)})
+                .with_size(ComponentSize{
+                    pixels(label_col_w(panelW, 10.0f, 16.0f)), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(headColor)
                 .with_font_size(theme::type::MD)
@@ -785,8 +943,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("folder_name"));
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
-                .with_label(std::to_string(members.size()))
-                .with_size(ComponentSize{pixels(24), pixels(18)})
+                .with_label(std::to_string(count))
+                .with_size(ComponentSize{pixels(kCountColW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
@@ -794,8 +952,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("folder_count"));
 
-        // Collapsed: header only, no body rows (but the folder + its matches
-        // still counted so the header is visible).
+        return collapsed;
+    }
+
+    // ---- render one collapsible group (header + its rows) ----
+    // `members` is the pre-collected, already-filtered row list for this group.
+    // Returns the group's member count (so the caller drives the no-results
+    // state); a collapsed group still counts (its header stays visible).
+    int render_group(UIContext<InputAction>& ctx, Entity& parent, int base,
+                     const std::string& name, const std::string& key,
+                     const std::vector<const api::SessionSummary*>& members,
+                     AppComponent& app, const std::string& q, float panelW,
+                     bool archived) {
+        if (members.empty()) return 0;
+        theme::Color headColor =
+            archived ? theme::text_faint() : theme::text_secondary();
+        bool collapsed = render_group_header(
+            ctx, parent, base, name, key, static_cast<int>(members.size()),
+            headColor, app, q, panelW);
+
+        // Collapsed: header only, no body rows.
         if (collapsed) return static_cast<int>(members.size());
 
         int i = 0;
@@ -805,6 +981,55 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         return static_cast<int>(members.size());
     }
+
+    // ---- time-based grouping for the Recent catch-all ----
+    // Splits `members` into Today / This Week / Earlier buckets by updated_at
+    // (relative to the system clock) and renders each NON-EMPTY bucket as its
+    // own collapsible group, reusing the folder-header + collapse machinery.
+    // Buckets render newest-first (Today, This Week, Earlier); within a bucket
+    // the order is whatever the members vector already carries (newest-first
+    // from the backend sort). Each bucket gets its own id block so entity ids
+    // never collide (base + 0..N per bucket; buckets are >=250 apart).
+    int render_time_groups(
+        UIContext<InputAction>& ctx, Entity& parent, int base,
+        const std::vector<const api::SessionSummary*>& members,
+        AppComponent& app, const std::string& q, float panelW, bool archived) {
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+
+        // Partition, preserving each member's incoming (newest-first) order.
+        std::vector<const api::SessionSummary*> today, week, earlier;
+        for (const auto* s : members) {
+            switch (time_bucket(s->updated_at, now)) {
+                case TimeBucket::Today: today.push_back(s); break;
+                case TimeBucket::ThisWeek: week.push_back(s); break;
+                case TimeBucket::Earlier: earlier.push_back(s); break;
+            }
+        }
+
+        int shown = 0;
+        // Each bucket is rendered as its own collapsible group. The id blocks
+        // are spaced 300 apart (well above any realistic bucket row count) so
+        // entity ids never collide across buckets or with the next folder's
+        // base (folders are 1000 apart).
+        struct B {
+            TimeBucket b;
+            const std::vector<const api::SessionSummary*>* rows;
+        };
+        const B order[] = {{TimeBucket::Today, &today},
+                           {TimeBucket::ThisWeek, &week},
+                           {TimeBucket::Earlier, &earlier}};
+        int slot = 0;
+        for (const auto& e : order) {
+            if (!e.rows->empty()) {
+                shown += render_group(
+                    ctx, parent, base + slot * 300, time_bucket_label(e.b),
+                    time_bucket_key(e.b), *e.rows, app, q, panelW, archived);
+            }
+            ++slot;
+        }
+        return shown;
+    }
+
 
     // ---- high-signal chat row ----
     // `panelW` is the live sidebar width (LayoutComponent::sidebar.width).

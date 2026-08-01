@@ -324,9 +324,16 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   smart-view counts and folder counts share ONE right edge. Without flex-grow the two
   count columns land at slightly different x (~17px apart) — each internally consistent,
   but not a shared edge.
-- **App-code workaround (partial):** keep each column internally consistent (same label
-  percent + same fixed count box within a section) and accept the small cross-section
-  offset. A true fix (label absorbs remaining width) isn't expressible today.
+- **App-code workaround (now: shared edge via pixel-computed labels):** since the
+  overflow fix already computes row widths in pixels, size the label/name column
+  EXPLICITLY (`labelW = rowContentW − leadSlot − countColW`) instead of `percent`, so
+  the trailing count box is pushed flush to the row's right edge. Applying the SAME
+  reserved count-column width (`kCountColW`) + right inset (`kCountRightPad`) across
+  smart-view rows, folder heads, AND the time-group heads lands every count box at the
+  same right edge (`panelW − kCountRightPad`). Residual is now only glyph-shape
+  antialiasing (~2-3px between different digits), not a layout offset — the previous
+  ~17px cross-section gap is gone. A true `flex-grow` would remove the pixel bookkeeping
+  entirely, but the shared edge is achievable today.
 - **Minimal upstream help (optional):** add `with_flex_grow(int)` (or a
   `SizeExpr::remaining()` / `fill()` size mode) so one child can absorb leftover main-axis
   space — the standard flexbox primitive. Would let trailing counts/badges right-align
