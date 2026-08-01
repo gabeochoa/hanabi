@@ -7,6 +7,7 @@
 
 #include <afterhours/src/logging.h>
 
+#include "menubar.h"
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
@@ -30,6 +31,11 @@
 struct MainRenderSystem : afterhours::System<> {
     void once(float) override {}
 };
+
+// AppKit seam (sokol_impl.mm): bring the app + its window to the front. Reused
+// by the menu-bar "Show hanabi" action. Declared here (no header) to match the
+// existing extern "C" style; the windowed link pulls in the .mm definition.
+extern "C" void metal_activate_app(void);
 
 namespace app_state {
 afterhours::SystemManager* systemManager = nullptr;
@@ -130,11 +136,59 @@ static void app_init() {
 }
 
 static void app_frame() {
+    // Phase G: the menu-bar extra installs on the FIRST windowed frame — by
+    // now sokol has created NSApp + the window (it may not exist yet at
+    // app_init). Idempotent + windowed-only: run_headless_screenshot never
+    // reaches here, so no status item leaks into a capture. Guarded so we only
+    // attempt install once (menubar_install is itself idempotent regardless).
+    static bool menubarInstalled = false;
+    if (!menubarInstalled) {
+        menubar_install();
+        menubarInstalled = true;
+    }
+
+    // Drain menu-bar action flags into ECS state (single-owner: only the frame
+    // loop mutates AppComponent). Show brings the window front; New task opens
+    // the composer (via requestNewTask, mirrored below into composerOpen).
+    {
+        bool wantShow = menubar_take_show();
+        bool wantNewTask = menubar_take_new_task();
+        if (wantShow) metal_activate_app();
+        if (wantNewTask) {
+            auto q = afterhours::EntityQuery({.force_merge = true})
+                         .whereHasComponent<ecs::AppComponent>()
+                         .gen();
+            if (!q.empty()) q[0].get().get<ecs::AppComponent>().requestNewTask = true;
+        }
+    }
+
     float dt = afterhours::graphics::get_frame_time();
     afterhours::graphics::begin_drawing();
     afterhours::graphics::clear_background(theme::window_bg());
     app_state::systemManager->run(dt);
     afterhours::graphics::end_drawing();
+
+    // Reflect the current blocked count onto the menu-bar title + status row.
+    // Same derivation as status_bar_system.h (count of ThreadTag::Blocked) so
+    // the two stay in agreement. menubar_set_blocked no-ops when unchanged.
+    // Also service requestNewTask here (open composer) so the menu action lands
+    // even on a frame where no system consumed it.
+    {
+        auto q = afterhours::EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        if (!q.empty()) {
+            auto& app = q[0].get().get<ecs::AppComponent>();
+            if (app.requestNewTask) {
+                app.composerOpen = true;
+                app.requestNewTask = false;
+            }
+            int blocked = 0;
+            for (const auto& s : app.sessions)
+                if (s.tag == api::ThreadTag::Blocked) ++blocked;
+            menubar_set_blocked(blocked);
+        }
+    }
 }
 
 static void app_cleanup() {

@@ -112,6 +112,11 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string themeChoice = "dark";
     bool composerOpen = false;
     std::string composerDraft;
+
+    // Phase G (menu-bar): set by the frame loop when the menu-bar "New task…"
+    // action fires; serviced there by opening the composer. A one-shot request
+    // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
+    bool requestNewTask = false;
 };
 
 // Layout rectangles recomputed each frame from the window size.
