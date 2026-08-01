@@ -141,14 +141,19 @@ inline const Tokens kDark = {
 //   text_primary   #21212B on #FFF  = 15.3:1   (title bar & body — was fine, kept)
 //   text_secondary #55555F on #FFF  =  7.3:1    (was #78788 4 ≈ 3.7:1, too faint)
 //   text_faint     #86868F on #FFF  =  3.4:1    (>=3:1 large/secondary target)
-// Borders/dividers are darkened so they're visible on light surfaces.
+// Borders/dividers are darkened so they're visible on light surfaces. The
+// digest cards fill with panel_bg_2 (247,247,250) — only ~8 levels below the
+// white pane — so the 1px border is what actually defines each card edge. At
+// the old {200,200,208} the border sat at ~1.66:1 vs the pane and read as
+// near-invisible (defect #8); {176,176,190} lifts it to ~2.1:1 vs pane and
+// ~2.0:1 vs the card fill so every card gets a crisp edge without looking heavy.
 inline const Tokens kLight = {
     /*window_bg*/ {238, 238, 242, 255},
     /*sidebar_bg*/ {230, 230, 235, 255},
     /*panel_bg*/ {255, 255, 255, 255},
     /*panel_bg_2*/ {247, 247, 250, 255},
-    /*border*/ {200, 200, 208, 255},
-    /*border_soft*/ {0, 0, 0, 24},
+    /*border*/ {176, 176, 190, 255},
+    /*border_soft*/ {0, 0, 0, 40},
 
     /*text_primary*/ {33, 33, 43, 255},
     /*text_secondary*/ {85, 85, 95, 255},
@@ -170,15 +175,22 @@ inline const Tokens kLight = {
 
     /*dot*/ {46, 90, 236, 255},
 
-    // Chips: fg is a strong hue for legible labels, bg is a low-alpha tint
-    // pre-blended by over() onto the CARD surface (panel_bg = white). Alphas
-    // chosen so the pill reads as a subtle wash, not a saturated block.
-    /*tag_blocked_fg*/ {188, 36, 36, 255},
-    /*tag_blocked_bg*/ {214, 52, 52, 40},
-    /*tag_ready_fg*/ {24, 128, 58, 255},
-    /*tag_ready_bg*/ {36, 152, 74, 46},
-    /*tag_done_fg*/ {40, 82, 214, 255},
-    /*tag_done_bg*/ {46, 90, 236, 38},
+    // Chips: fg is a strong hue for legible labels, bg is a mid-alpha tint
+    // pre-blended by over() onto the CARD surface (panel_bg_2, ~white). The
+    // earlier low alphas (36-46) rendered the pills as near-white washes on the
+    // light card (BLOCKED pale-pink, DONE pale-lavender) — the hue didn't read
+    // and the small chip text landed at ~3.9:1 (defect #6). Deepened: alpha
+    // ~115-135 so the pill carries a clear urgent-red / blue / green cast (still
+    // a tint, not a solid block — pill vs card ~2:1), and the fg is darkened so
+    // the small AA'd label clears 4.5:1 on its own pill. On the white card the
+    // resulting pure fg-on-pill CR is BLOCKED 6.2 / DONE 6.2 / READY 5.4 — deep
+    // enough that the tiny AA'd glyphs still clear 4.5:1 at their darkest.
+    /*tag_blocked_fg*/ {96, 0, 0, 255},
+    /*tag_blocked_bg*/ {210, 44, 44, 120},
+    /*tag_ready_fg*/ {4, 60, 26, 255},
+    /*tag_ready_bg*/ {30, 128, 60, 140},
+    /*tag_done_fg*/ {8, 32, 132, 255},
+    /*tag_done_bg*/ {44, 88, 235, 118},
 
     /*role_user*/ {46, 90, 236, 255},
     /*role_assistant*/ {40, 138, 72, 255},
