@@ -6,6 +6,7 @@
 // transcript as message bubbles.
 
 #include <cstdlib>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -980,16 +981,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // styled with an honest caption instead of faking it.
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH) {
-        // Function-local persistent draft (kept out of components.h, which is
-        // owned by another agent). One transcript pane -> one instance -> safe.
-        static std::string replyDraft;
+        // PER-THREAD persistent drafts. One composer instance renders whichever
+        // thread is active, so a single shared draft would leak thread A's
+        // half-typed reply into thread B on a tab switch. Key the draft by
+        // session id and bind a reference to THIS thread's slot, so each thread
+        // keeps its own in-progress reply (kept function-local to avoid growing
+        // AppComponent; the map is small — one short string per opened thread).
+        static std::map<std::string, std::string> replyDrafts;
+        const std::string draftKey =
+            app.openSession ? app.openSession->summary.id : std::string();
+        std::string& replyDraft = replyDrafts[draftKey];
 
         // Screenshot affordance: HANABI_REPLY_DEMO=<text> seeds the draft ONCE
         // so a headless capture can photograph the composer's ENABLED (primary)
         // Send. Mirrors HANABI_VIEW / HANABI_AUTH_DEMO: ignored when unset, no
-        // network. Seeded a single time so live typing still owns the field.
+        // network. Seeded a single time — and only once a thread is actually
+        // open (draftKey non-empty), so it lands in the visible thread's slot
+        // rather than the empty-key slot on an early pre-load frame. Live typing
+        // still owns the field afterward.
         static bool replyDemoSeeded = false;
-        if (!replyDemoSeeded) {
+        if (!replyDemoSeeded && !draftKey.empty()) {
             replyDemoSeeded = true;
             if (const char* d = std::getenv("HANABI_REPLY_DEMO"); d && *d)
                 replyDraft = d;
@@ -1026,8 +1037,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const bool canSend = app.client && app.client->supports_send();
         const bool canStream = app.client && app.client->supports_stream();
-        const std::string openId =
-            app.openSession ? app.openSession->summary.id : std::string();
+        const std::string& openId = draftKey;  // same value: the open thread id
         // "Sending" covers BOTH the synchronous reply in flight and a live
         // stream draining into this thread — either disables the composer.
         const bool sending =
