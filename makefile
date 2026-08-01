@@ -47,7 +47,7 @@ ifeq ($(HANABI_TLS),1)
     endif
 endif
 
-OBJ_DIR := output/objs
+OBJ_DIR := output/objs-$(if $(filter 1,$(HANABI_TLS)),tls,notls)
 OUTPUT_DIR := output
 
 MAIN_SRC := $(shell find src -name '*.cpp')
@@ -60,24 +60,28 @@ MAIN_DEPS := $(MAIN_OBJS:.o=.d)
 
 MAIN_EXE := $(OUTPUT_DIR)/hanabi$(EXT)
 
-# Guard against stale TLS/non-TLS object cross-contamination. Toggling
-# HANABI_TLS changes compile flags (and which OpenSSL symbols get referenced),
-# but make's timestamp check won't rebuild unchanged-source .o files — so a bare
-# `make` after `make HANABI_TLS=1` (or vice-versa) would LINK mismatched objects
-# and fail (undefined httplib::tls::* symbols). Resolve at PARSE TIME (runs
-# before any rule, so it's safe under `make -j`): record the last build's TLS
-# state and wipe the objects when it flips. Any target is then safe to switch
-# modes without a manual `make clean`.
+# TLS and non-TLS builds each compile into their OWN object dir
+# (output/objs-tls vs output/objs-notls, see OBJ_DIR above), so the two modes
+# never share or clobber each other's .o files. That means alternating a bare
+# `make` / `make test` (non-TLS) with `make run` (TLS) no longer triggers a full
+# clean rebuild each time — each mode keeps its own incremental cache and only
+# recompiles sources that actually changed. Switching modes just relinks the
+# shared exe from the already-compiled objects (fast), it does NOT recompile.
+# (Previously a single shared objs/ dir was wiped whenever HANABI_TLS flipped,
+# which is exactly what caused `make run` to rebuild from scratch every time.)
+#
+# The exe (output/hanabi) is shared between modes, so it must RELINK when the
+# mode flips (otherwise a `make` after `make run` would leave the TLS binary in
+# place). A tiny marker file records which mode last linked the exe; if it
+# differs from the current mode we bump the marker's mtime at parse time so the
+# exe's timestamp rule triggers a relink from the (cached) objects — a link,
+# not a recompile.
 TLS_WANT := $(if $(filter 1,$(HANABI_TLS)),tls,notls)
-TLS_STAMP := $(OBJ_DIR)/.tls_state
-TLS_PREV := $(shell cat $(TLS_STAMP) 2>/dev/null || echo none)
-ifneq ($(TLS_PREV),none)
-ifneq ($(TLS_PREV),$(TLS_WANT))
-$(info ==> HANABI_TLS mode changed ($(TLS_PREV) -> $(TLS_WANT)) — cleaning objects)
-$(shell rm -rf $(OBJ_DIR) $(MAIN_EXE))
+EXE_MODE_MARKER := $(OUTPUT_DIR)/.exe_mode
+EXE_MODE_PREV := $(shell cat $(EXE_MODE_MARKER) 2>/dev/null || echo none)
+ifneq ($(EXE_MODE_PREV),$(TLS_WANT))
+$(shell mkdir -p $(OUTPUT_DIR); echo $(TLS_WANT) > $(EXE_MODE_MARKER))
 endif
-endif
-TLS_IGNORE := $(shell mkdir -p $(OBJ_DIR); echo $(TLS_WANT) > $(TLS_STAMP))
 
 $(OUTPUT_DIR)/.stamp:
 	@mkdir -p $(OUTPUT_DIR)
@@ -89,7 +93,7 @@ $(OBJ_DIR)/main:
 .DEFAULT_GOAL := all
 all: $(MAIN_EXE) copy-resources
 
-$(MAIN_EXE): $(MAIN_OBJS) | $(OUTPUT_DIR)/.stamp
+$(MAIN_EXE): $(MAIN_OBJS) $(EXE_MODE_MARKER) | $(OUTPUT_DIR)/.stamp
 	@echo "Linking $(MAIN_EXE)..."
 	$(CXX) $(CXXFLAGS) $(MAIN_OBJS) $(LDFLAGS) -o $@
 	@echo "Built $(MAIN_EXE)"
@@ -116,7 +120,7 @@ deps:
 
 clean:
 	@echo "Cleaning..."
-	rm -rf $(OBJ_DIR)
+	rm -rf output/objs-tls output/objs-notls output/objs
 
 clean-all: clean
 	rm -f $(MAIN_EXE)
