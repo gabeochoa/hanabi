@@ -539,6 +539,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // A calm skeleton placeholder card shown while the FIRST session list is
+    // still loading and no cache exists yet. It mirrors a real card's footprint
+    // (same ~52px height + margins) with two dim bars (a wide "title" + a short
+    // "meta"), so a cold-launch pane reads as "loading content" instead of
+    // flashing a false "all caught up". No animation (afterhours has no shimmer
+    // primitive — gap #11); the muted static bars are enough to signal pending.
+    void skeleton_card(UIContext<InputAction>& ctx, Entity& parent, int idx) {
+        auto card = div(ctx, mk(parent, 700 + idx),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(52)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
+                                    .bottom = pixels(5), .left = pixels(0)})
+                .with_padding(Padding{.top = pixels(11), .right = pixels(16),
+                                      .bottom = pixels(11), .left = pixels(16)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(theme::layout::ROUNDNESS_BOX)
+                .with_debug_name("skeleton_card"));
+        // Title bar (~55% width).
+        div(ctx, mk(card.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(0.55f), pixels(11)})
+                .with_custom_background(theme::over(theme::hover_bg(),
+                                                    theme::panel_bg_2()))
+                .with_margin(Margin{.bottom = pixels(7)})
+                .with_roundness(0.4f)
+                .with_debug_name("skeleton_title"));
+        // Metadata bar (~28% width, dimmer).
+        div(ctx, mk(card.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(0.28f), pixels(9)})
+                .with_custom_background(theme::over(theme::hover_bg(),
+                                                    theme::panel_bg_2()))
+                .with_roundness(0.4f)
+                .with_debug_name("skeleton_meta"));
+    }
+
     // ---------------- Home digest ------------------------------------------
     void render_home(UIContext<InputAction>& ctx, Entity& parent,
                      AppComponent& app, float paneW, float paneH) {
@@ -556,6 +595,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
         const float cardW = wrap_width(paneW);
+
+        // COLD-CACHE LOADING STATE. On a true-cold launch (no on-disk cache yet)
+        // over a slow network, the list fetch can take several seconds. Without
+        // this the pane fell through to the "You're all caught up" empty state —
+        // a FALSE "nothing to do" flashed for the whole fetch (Gabe: slow to
+        // open / looks frozen). Instead, while the list is genuinely loading and
+        // we have nothing to show yet, render calm skeleton placeholder rows so
+        // the app reads as "loading" rather than empty. (A WARM launch paints the
+        // stale disk cache instantly, so sessions is non-empty and this is
+        // skipped — this only bites the first-ever launch.)
+        if (app.sessions.empty() && app.listState == LoadState::Loading) {
+            for (int k = 0; k < 6; ++k) skeleton_card(ctx, wrap, k);
+            return;
+        }
 
         // Partition the sessions into the attention buckets ONCE so we know
         // whether each section is non-empty BEFORE rendering its header. An

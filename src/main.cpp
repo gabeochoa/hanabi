@@ -441,6 +441,18 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 appForWait->selectedId.clear();
             }
         }
+
+        // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache
+        // loading state (empty list + Loading) so the skeleton placeholder rows
+        // can be photographed headlessly — the harness otherwise waits PAST
+        // Loading and would never capture it. No network; render-only.
+        if (const char* d = std::getenv("HANABI_SKELETON_DEMO"); d && *d &&
+            std::string(d) != "0") {
+            appForWait->sessions.clear();
+            appForWait->listState = ecs::LoadState::Loading;
+            appForWait->view = ecs::SmartView::Home;
+            appForWait->selectedId.clear();
+        }
     }
 
     // Render several frames so async data loads and layout settles.
