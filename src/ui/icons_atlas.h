@@ -12,7 +12,7 @@ inline constexpr int kSheetWidth  = 128;
 inline constexpr int kSheetHeight = 128;
 inline constexpr int kCell        = 32;
 
-inline constexpr std::array<AtlasEntry, 13> kAtlas = {{
+inline constexpr std::array<AtlasEntry, 15> kAtlas = {{
     {"brand", 0.f, 0.f, 32.f, 32.f},
     {"gear", 32.f, 0.f, 32.f, 32.f},
     {"plus", 64.f, 0.f, 32.f, 32.f},
@@ -26,6 +26,8 @@ inline constexpr std::array<AtlasEntry, 13> kAtlas = {{
     {"star", 64.f, 64.f, 32.f, 32.f},
     {"folder_grid", 96.f, 64.f, 32.f, 32.f},
     {"fold_all", 0.f, 96.f, 32.f, 32.f},
+    {"clock", 32.f, 96.f, 32.f, 32.f},
+    {"automated", 64.f, 96.f, 32.f, 32.f},
 }};
 
 } // namespace hanabi::icons

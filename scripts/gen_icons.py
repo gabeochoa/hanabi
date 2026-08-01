@@ -49,6 +49,8 @@ ICONS = [
     ("star",         "star"),             # ★ Starred smart view
     ("folder_grid",  "folder-tree"),      # all-folders header
     ("fold_all",     "chevrons-down-up"), # fold-all header
+    ("clock",        "clock"),            # ⏱ attention / waiting (gap #19)
+    ("automated",    "repeat"),           # ⟳ automated / scheduled / cron (gap #20)
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on

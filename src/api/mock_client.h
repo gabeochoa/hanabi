@@ -498,6 +498,43 @@ class MockClient : public Client {
             };
             v.push_back(std::move(s));
         }
+        // Two AUTOMATED (scheduled/cron) rows: titles shaped like a live
+        // backend's recurring jobs ("Schedule: ..." / "*-tick") so the sidebar
+        // renders them muted with the "automated" (repeat) atlas glyph in the
+        // status slot instead of a peer conversation dot.
+        {
+            Session s;
+            s.summary = calm("r2b", "Schedule: nightly dependency audit",
+                             hrs_ago(2), "active", ThreadState::Unknown,
+                             "ran 02:00 \xc2\xb7 no new advisories");
+            s.messages = {
+                {"m1", Role::System,
+                 "Scheduled job: audit dependencies for known advisories, "
+                 "nightly at 02:00.",
+                 hrs_ago(2), ""},
+                {"m2", Role::Assistant,
+                 "Scanned 214 dependencies against the advisory DB. No new "
+                 "advisories since the last run. Nothing to do.",
+                 hrs_ago(2), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = calm("r2c", "metrics-digest-tick",
+                             hrs_ago(5), "active", ThreadState::Unknown,
+                             "posted the 9am digest \xc2\xb7 3 deltas");
+            s.messages = {
+                {"m1", Role::System,
+                 "Recurring: compile the morning metrics digest and post it.",
+                 hrs_ago(5), ""},
+                {"m2", Role::Assistant,
+                 "Compiled the digest: DAU +1.8%, p95 latency flat, 3 metrics "
+                 "moved beyond threshold. Posted to the team channel.",
+                 hrs_ago(5), ""},
+            };
+            v.push_back(std::move(s));
+        }
         {
             Session s;
             s.summary = calm("r3", "on you: pick the icon set for the settings redesign",

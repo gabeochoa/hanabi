@@ -145,4 +145,26 @@ draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
     };
 }
 
+// Immediate-mode variant of draw_fg: blit `name` centered on a point (cx, cy)
+// at `px` square, tinted `color`. For callers that draw glyphs at a geometric
+// center (e.g. the sidebar's per-row status-glyph slot) rather than inside a
+// widget rect. Returns true if the sprite was blitted; false if the atlas/name
+// was unavailable (so the caller can fall back to a drawn shape). Uses the same
+// blend-enabled pipeline as draw_fg so transparent atlas pixels don't blit as
+// opaque black (see afterhours_gaps.md #13/#15).
+inline bool draw_at(std::string_view name, float cx, float cy, float px,
+                    theme::Color color) {
+    auto rect = src_rect(name);
+    TextureType* atlas = AtlasTexture::get().ensure();
+    if (atlas == nullptr || !rect.has_value()) return false;
+    const float d = px;
+    RectangleType dest{cx - d * 0.5f, cy - d * 0.5f, d, d};
+    sgl_push_pipeline();
+    sgl_load_pipeline(AtlasTexture::get().blend_pipeline());
+    afterhours::draw_texture_pro(*atlas, *rect, dest, Vector2Type{0.f, 0.f},
+                                 0.f, color);
+    sgl_pop_pipeline();
+    return true;
+}
+
 }  // namespace hanabi::icons

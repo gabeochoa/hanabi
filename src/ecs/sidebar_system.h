@@ -511,12 +511,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 break;
             }
             case Glyph::Automated: {
-                // Cron / scheduled row (defect #5): a tiny faint hollow square
-                // — deliberately quiet and geometrically distinct from the
-                // calm round dot, the blue Done dot, and the accent Ring, so
-                // an automated row reads as "machine, skip me" without hiding
-                // it. Drawn as four faint edges (~6px box) in the faint token.
-                const float h = 2.6f;  // half-side
+                // Cron / scheduled row: a "repeat" sprite from the Lucide atlas
+                // (gap #20 — the atlas now carries an "automated" glyph). It
+                // reads as "machine / recurring job" far more clearly than the
+                // old drawn hollow square, while staying quiet in the faint
+                // token. Falls back to the drawn ~6px hollow square if the atlas
+                // can't load, so a missing texture never leaves the slot blank.
+                if (hanabi::icons::draw_at("automated", cx, cy, 12.0f, c))
+                    break;
+                const float h = 2.6f;  // half-side (fallback)
                 const afterhours::vec2 tl{cx - h, cy - h};
                 const afterhours::vec2 tr{cx + h, cy - h};
                 const afterhours::vec2 bl{cx - h, cy + h};
