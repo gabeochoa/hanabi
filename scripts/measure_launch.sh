@@ -40,6 +40,12 @@ fi
 
 # Launch headless under /usr/bin/time -l (macOS) to capture peak RSS.
 # Background it with a watchdog kill so a stuck GPU init can never hang us.
+# Force the zero-config MOCK backend and isolate from any real ~/.config/hanabi/
+# config.json: the perf gate must measure the deterministic offline path, not a
+# real https backend whose network fetch would inflate FirstFrame and make the
+# gate pass/fail depending on the dev machine's config.
+export HANABI_BACKEND=mock
+export HANABI_CONFIG="/nonexistent/hanabi/perf-gate.json"
 ( /usr/bin/time -l "$EXE" --screenshot "$SHOT" >"$LOG" 2>"$TIMELOG" ) &
 APP_PID=$!
 ( sleep "$RUN_TIMEOUT"; kill -9 "$APP_PID" >/dev/null 2>&1; pkill -9 -f hanabi.exe >/dev/null 2>&1 ) &

@@ -60,6 +60,25 @@ MAIN_DEPS := $(MAIN_OBJS:.o=.d)
 
 MAIN_EXE := $(OUTPUT_DIR)/hanabi$(EXT)
 
+# Guard against stale TLS/non-TLS object cross-contamination. Toggling
+# HANABI_TLS changes compile flags (and which OpenSSL symbols get referenced),
+# but make's timestamp check won't rebuild unchanged-source .o files — so a bare
+# `make` after `make HANABI_TLS=1` (or vice-versa) would LINK mismatched objects
+# and fail (undefined httplib::tls::* symbols). Resolve at PARSE TIME (runs
+# before any rule, so it's safe under `make -j`): record the last build's TLS
+# state and wipe the objects when it flips. Any target is then safe to switch
+# modes without a manual `make clean`.
+TLS_WANT := $(if $(filter 1,$(HANABI_TLS)),tls,notls)
+TLS_STAMP := $(OBJ_DIR)/.tls_state
+TLS_PREV := $(shell cat $(TLS_STAMP) 2>/dev/null || echo none)
+ifneq ($(TLS_PREV),none)
+ifneq ($(TLS_PREV),$(TLS_WANT))
+$(info ==> HANABI_TLS mode changed ($(TLS_PREV) -> $(TLS_WANT)) — cleaning objects)
+$(shell rm -rf $(OBJ_DIR) $(MAIN_EXE))
+endif
+endif
+TLS_IGNORE := $(shell mkdir -p $(OBJ_DIR); echo $(TLS_WANT) > $(TLS_STAMP))
+
 $(OUTPUT_DIR)/.stamp:
 	@mkdir -p $(OUTPUT_DIR)
 	@touch $@
@@ -117,25 +136,13 @@ output: $(MAIN_EXE) copy-resources
 # make's timestamp check alone wouldn't pick up on the existing .o files.
 run:
 	@if [ -n "$$(brew --prefix openssl@3 2>/dev/null)" ]; then \
-		want=tls; \
-	else \
-		want=notls; \
-	fi; \
-	stamp="$(OUTPUT_DIR)/.tls_state"; \
-	prev="$$(cat $$stamp 2>/dev/null || echo none)"; \
-	if [ "$$want" != "$$prev" ]; then \
-		echo "==> build mode changed ($$prev -> $$want) — cleaning first"; \
-		$(MAKE) clean >/dev/null; \
-	fi; \
-	if [ "$$want" = "tls" ]; then \
 		echo "==> OpenSSL found — building with TLS (https backends enabled)"; \
 		$(MAKE) HANABI_TLS=1 output; \
 	else \
 		echo "==> OpenSSL not found — building WITHOUT TLS (http:// only)."; \
 		echo "    For an https backend: brew install openssl@3, then 'make run' again."; \
 		$(MAKE) output; \
-	fi; \
-	mkdir -p $(OUTPUT_DIR); echo "$$want" > "$$stamp"
+	fi
 	./$(MAIN_EXE)
 
 # macOS .app bundle
