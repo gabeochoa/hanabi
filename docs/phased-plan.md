@@ -1,5 +1,13 @@
 # hanabi — phased build plan + per-phase screenshot validation
 
+> PRIORITY (2026-08-01, Gabe): ALL UI/visual issues come FIRST — the 41-defect
+> hostile-review punch-list + the empty-real-backend render fix must land before
+> any new breadth. Phase G (native menu-bar/Spotlight) and Phase AUTH (device-code
+> login) are HELD until the UI is clean and real data renders well. Also: the mock
+> should be updated to resemble REAL backend data shapes (real sessions have no
+> folder + Unknown state + isProcessing/subSessionStatus/isPinned) — an env-gated
+> data dump captures the real shape to model the mock on.
+
 Principle: build UP piece by piece. Each phase ends with a SCREENSHOT VALIDATION
 GATE. A validation agent compares the phase's C++ screenshot against BOTH
 (a) the split reference mock for that phase (docs/mock-phases/phaseN.html) and
