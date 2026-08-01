@@ -1,5 +1,24 @@
 # hanabi — phased build plan + per-phase screenshot validation
 
+> NORTH STAR (2026-08-01, Gabe): hanabi's PRIMARY purpose is to PROVE the
+> afterhours UI library can carry a real, polished, team-usable desktop app.
+> POLISH IS THE DELIVERABLE — not feature count. Optimize every decision for
+> "a skeptical teammate looks at it and thinks 'this is genuinely nice, I'd use
+> it.'" Get as much polish as possible BEFORE adding any more features.
+> Consequences:
+> - Visual quality is priority #1: real elevation/depth (no flat grey), a tuned
+>   light mode, aligned grids, considered spacing, polished tabs — kill the
+>   "programmer-art" verdict (see the 41-defect hostile review).
+> - Real data must render BEAUTIFULLY, not just correctly (real sessions have no
+>   folder + mostly-calm state). An empty/broken real-backend view is a
+>   proof-killer.
+> - Interaction feel (hover/press/selection/transitions) is part of the proof —
+>   this is where afterhours shines or looks janky.
+> - Prefer solving hard UI IN afterhours (e.g. window chrome rendered by the lib)
+>   over escaping to native — escaping undercuts the proof.
+> - HELD until the UI is clean: Phase G (native menu-bar/Spotlight), Phase AUTH
+>   (device-code login), any new breadth.
+
 > PRIORITY (2026-08-01, Gabe): ALL UI/visual issues come FIRST — the 41-defect
 > hostile-review punch-list + the empty-real-backend render fix must land before
 > any new breadth. Phase G (native menu-bar/Spotlight) and Phase AUTH (device-code
