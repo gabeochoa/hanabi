@@ -275,6 +275,44 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    // Strip inline-markdown DELIMITERS from a display string so the body reads
+    // cleanly instead of showing literal backticks/asterisks (messages critique
+    // #3 — the fastest "not a real product" tell). We can't yet COLOR the runs
+    // (afterhours' styled-label spans don't word-wrap — gap #22), so the honest
+    // interim is to drop the markers: `code` -> code, **bold** -> bold,
+    // __bold__ -> bold. Display-only (api::Message untouched). Conservative:
+    // only removes matched paired delimiters, leaves lone `*`/`_`/`` ` `` alone
+    // (e.g. "a * b" or a path with underscores is untouched).
+    static std::string strip_inline_md(const std::string& in) {
+        std::string out;
+        out.reserve(in.size());
+        auto strip_paired = [](std::string s, const std::string& d) {
+            std::string r;
+            r.reserve(s.size());
+            size_t i = 0;
+            while (i < s.size()) {
+                if (s.compare(i, d.size(), d) == 0) {
+                    size_t close = s.find(d, i + d.size());
+                    // require a non-empty, single-line span between delimiters
+                    if (close != std::string::npos && close > i + d.size()) {
+                        std::string inner = s.substr(i + d.size(),
+                                                     close - (i + d.size()));
+                        if (inner.find('\n') == std::string::npos) {
+                            r += inner;
+                            i = close + d.size();
+                            continue;
+                        }
+                    }
+                }
+                r += s[i++];
+            }
+            return r;
+        };
+        out = strip_paired(in, "**");   // bold first (before single *)
+        out = strip_paired(out, "__");
+        out = strip_paired(out, "`");    // inline code
+        return out;
+    }
     // Approx char budget that fits in `widthPx` at the given font size, so a
     // title uses the card's REAL available width before ellipsizing rather
     // than a fixed 40-char cap that leaves wide cards ~60% empty (defect #4).
@@ -1416,7 +1454,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // so it reads as an active, filling reply. The underlying api::Message is
         // untouched — this is a display-only decoration. Secrets are redacted at
         // render time (never shoulder-surf a pasted key/JWT).
-        std::string body = redact_secrets(m.text);
+        std::string body = strip_inline_md(redact_secrets(m.text));
         if (isLive) {
             if (body.empty() ||
                 streamPhase == AppComponent::StreamPhase::Thinking) {
@@ -1606,7 +1644,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("tool_role"));
         div(ctx, mk(block.ent(), 2),
             ComponentConfig{}
-                .with_label(redact_secrets(m.text))
+                .with_label(strip_inline_md(redact_secrets(m.text)))
                 .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())

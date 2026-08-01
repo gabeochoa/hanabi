@@ -427,3 +427,28 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   and the render path is backend-agnostic (the http adapter flattens real
   blocks[] into the same api::Message list the mock uses), so the real
   transcript will render identically once the harness waits for it.
+
+### #22 — styled label spans (`with_styled_label`) render on ONE line, don't word-wrap
+- **Gap:** `component_config.h::with_styled_label(std::vector<TextSpan>)` +
+  `HasLabel::spans` support multi-COLOR runs (e.g. a green "+4" then a red "-2"),
+  but the render path (`rendering.h`, the `draw_text_in_rect(hasLabel.label...)`
+  call) draws the concatenated PLAIN `label` with word-wrap, and the per-span
+  COLORING is documented as "on one line". So there is no way to render
+  inline-styled runs (e.g. an inline `code` pill in a different color) that ALSO
+  word-wraps across a multi-line paragraph.
+- **Why wanted (hanabi):** the transcript wants ChatGPT/Claude-style inline
+  markdown — `` `code` `` rendered as a distinctly-colored/backgrounded run
+  inside a wrapping assistant paragraph, plus `**bold**`. Literal backticks in
+  every message are the fastest "this isn't a real product" tell (messages
+  critique #3). A wrapping body is mandatory (assistant answers are multi-line),
+  so the single-line span path can't be used for it.
+- **App-code workaround (used):** strip the markdown DELIMITERS from the body at
+  render time (`` `code` `` -> `code`, `**bold**` -> `bold`) so the noise is gone
+  and the text reads cleanly, even though we can't yet style the run. This is a
+  transform on the display string only (api::Message untouched). A short inline
+  code token could later be split into its own non-wrapping styled widget if it
+  fits, but a general wrapping-with-inline-styling body needs vendor support.
+- **Minimal fix (owned elsewhere — vendor/afterhours):** teach the wrapping text
+  renderer (`detail::wrap_text_to_width` + the draw loop) to carry per-run color
+  through the wrap, so a `spans` label wraps AND colors. Then hanabi can render
+  real inline-code pills. NOT done here (vendored; logged for that owner).
