@@ -13,6 +13,7 @@
 
 #include <string>
 
+#include "auth.h"
 #include "client.h"
 
 namespace api {
@@ -33,5 +34,10 @@ class HttpClient : public Client {
 
     Config cfg_;
 };
+
+// Build the real device-code transport hook for a Config. Reads the endpoint
+// origin from cfg (base_url); NEVER hardcodes any endpoint. TLS-guarded like
+// HttpClient::get. Tests inject a fake transport instead of this one.
+AuthTransport make_http_auth_transport(const Config& cfg);
 
 }  // namespace api

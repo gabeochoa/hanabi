@@ -76,6 +76,21 @@ void load_config_file(Config& c) {
     str("field_block_type", c.field_block_type);
     str("field_block_content", c.field_block_content);
     str("field_block_text_type", c.field_block_text_type);
+    // Device-code auth (Phase AUTH). All optional; empty endpoint paths keep
+    // auth OFF.
+    str("auth_device_path", c.auth_device_path);
+    str("auth_token_path", c.auth_token_path);
+    str("auth_client_id", c.auth_client_id);
+    str("auth_scope", c.auth_scope);
+    str("field_device_code", c.field_device_code);
+    str("field_user_code", c.field_user_code);
+    str("field_verification_uri", c.field_verification_uri);
+    str("field_interval", c.field_interval);
+    str("field_expires_in", c.field_expires_in);
+    str("field_access_token", c.field_access_token);
+    str("field_refresh_token", c.field_refresh_token);
+    str("field_auth_error", c.field_auth_error);
+    str("auth_pending_value", c.auth_pending_value);
 }
 }  // namespace
 
@@ -117,6 +132,28 @@ Config Config::from_env() {
         env_or("HANABI_FIELD_BLOCK_CONTENT", c.field_block_content);
     c.field_block_text_type =
         env_or("HANABI_FIELD_BLOCK_TEXT_TYPE", c.field_block_text_type);
+
+    // Device-code auth (Phase AUTH). Endpoint paths default EMPTY, so auth is
+    // opt-in: with neither set, auth_ready() is false and the app behaves
+    // exactly as before. No real endpoint/client_id is baked in anywhere.
+    c.auth_device_path = env_or("HANABI_AUTH_DEVICE_PATH", c.auth_device_path);
+    c.auth_token_path = env_or("HANABI_AUTH_TOKEN_PATH", c.auth_token_path);
+    c.auth_client_id = env_or("HANABI_AUTH_CLIENT_ID", c.auth_client_id);
+    c.auth_scope = env_or("HANABI_AUTH_SCOPE", c.auth_scope);
+    c.field_device_code =
+        env_or("HANABI_FIELD_DEVICE_CODE", c.field_device_code);
+    c.field_user_code = env_or("HANABI_FIELD_USER_CODE", c.field_user_code);
+    c.field_verification_uri =
+        env_or("HANABI_FIELD_VERIFICATION_URI", c.field_verification_uri);
+    c.field_interval = env_or("HANABI_FIELD_INTERVAL", c.field_interval);
+    c.field_expires_in = env_or("HANABI_FIELD_EXPIRES_IN", c.field_expires_in);
+    c.field_access_token =
+        env_or("HANABI_FIELD_ACCESS_TOKEN", c.field_access_token);
+    c.field_refresh_token =
+        env_or("HANABI_FIELD_REFRESH_TOKEN", c.field_refresh_token);
+    c.field_auth_error = env_or("HANABI_FIELD_AUTH_ERROR", c.field_auth_error);
+    c.auth_pending_value =
+        env_or("HANABI_AUTH_PENDING_VALUE", c.auth_pending_value);
 
     return c;
 }

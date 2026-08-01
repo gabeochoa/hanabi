@@ -19,5 +19,20 @@
   "field_blocks": "blocks",
   "field_block_type": "type",
   "field_block_content": "content",
-  "field_block_text_type": "text"
+  "field_block_text_type": "text",
+
+  "_auth_note": "OPTIONAL device-code login (Phase AUTH). Leave the two auth_*_path keys empty (or omit this whole block) to disable in-app login — then you supply the token above (or run the offline mock). When both paths are set AND backend is http AND no token is stored, hanabi runs an in-app RFC 8628-style device-code flow: it requests a code, shows you a short code + a URL to open, polls until you approve, then persists the bearer token to ~/.config/hanabi/token.json (mode 0600) so you stay signed in. All values below are GENERIC placeholders — fill in your backend's real paths/field names. Nothing about any real service is baked into hanabi.",
+  "auth_device_path": "/auth/device",
+  "auth_token_path": "/auth/token",
+  "auth_client_id": "YOUR_CLIENT_ID",
+  "auth_scope": "",
+  "field_device_code": "device_code",
+  "field_user_code": "user_code",
+  "field_verification_uri": "verification_uri",
+  "field_interval": "interval",
+  "field_expires_in": "expires_in",
+  "field_access_token": "access_token",
+  "field_refresh_token": "refresh_token",
+  "field_auth_error": "error",
+  "auth_pending_value": "authorization_pending"
 }

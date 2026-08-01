@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../../vendor/afterhours/src/core/base_component.h"
+#include "../api/auth.h"
 #include "../api/client.h"
 #include "transcript_cache.h"
 
@@ -117,6 +118,22 @@ struct AppComponent : public afterhours::BaseComponent {
     // action fires; serviced there by opening the composer. A one-shot request
     // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
     bool requestNewTask = false;
+
+    // Phase AUTH (device-code login). The flow lives here as an optional so
+    // the whole app is unchanged when auth is not configured (authFlow stays
+    // empty, showAuth false, no overlay appears). main.cpp constructs the flow
+    // with the real transport when cfg.auth_ready() && no persisted token,
+    // drives poll_step each frame, and on Success persists + rebuilds the
+    // client to the http backend. The overlay (auth_system.h) only renders
+    // while showAuth is true.
+    std::shared_ptr<api::DeviceCodeFlow> authFlow;
+    bool showAuth = false;
+    // The Config the flow was started with, remembered so main.cpp can rebuild
+    // the live client (with the freshly-acquired token) on Success.
+    api::Config authConfig;
+    // Set by the overlay's "Use offline (mock)" / Cancel escape; main.cpp
+    // consumes it to dismiss the overlay and keep the current (mock) client.
+    bool requestAuthCancel = false;
 };
 
 // Layout rectangles recomputed each frame from the window size.

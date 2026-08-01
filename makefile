@@ -195,6 +195,13 @@ $(TEST_DIR)/test_api: tests/unit/test_api.cpp src/api/config.cpp src/api/http_cl
 	@echo "Compiling test_api..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Device-code auth state machine (Phase AUTH). Pure logic against a FAKE
+# transport — no graphics, no network. auth.cpp + config.cpp are the only app
+# sources it needs.
+$(TEST_DIR)/test_auth: tests/unit/test_auth.cpp src/api/auth.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+	@echo "Compiling test_auth..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
 $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
@@ -206,7 +213,7 @@ $(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp | $(TEST_DIR)
 	@echo "Compiling test_perf..."
 	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

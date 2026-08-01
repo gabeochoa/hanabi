@@ -16,7 +16,10 @@
 #include "../vendor/afterhours/src/ecs.h"
 
 #include "api/client.h"
+#include "api/http_client.h"
+#include "api/token_store.h"
 #include "ecs/components.h"
+#include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
@@ -42,6 +45,15 @@ afterhours::SystemManager* systemManager = nullptr;
 std::chrono::high_resolution_clock::time_point startTime;
 }  // namespace app_state
 
+// Wall-clock epoch seconds — drives the device-code flow's poll schedule +
+// expiry. Kept trivial (no monotonic-vs-wall subtlety needed; the flow only
+// uses deltas within a session).
+static int64_t now_epoch_seconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
 // Build the app's entities + state (client, layout, restored session).
 static void setup_app_state() {
     using namespace afterhours;
@@ -65,9 +77,58 @@ static void setup_app_state() {
     auto& appEntity = EntityHelper::createEntity();
     auto& app = appEntity.addComponent<ecs::AppComponent>();
     api::Config cfg = api::Config::from_env();
+
+    // Phase AUTH: a previously-authed user is silently logged in. If a token is
+    // persisted at ~/.config/hanabi/token.json, adopt it (unless a static
+    // HANABI_TOKEN already set one via env — that takes precedence) and select
+    // the http backend so the flow never re-prompts. The token value is never
+    // logged.
+    if (cfg.token.empty()) {
+        api::StoredToken stored = api::load_token();
+        if (stored.valid()) {
+            cfg.token = stored.access_token;
+            if (cfg.backend != "http" && cfg.http_ready()) cfg.backend = "http";
+        }
+    }
+
     app.client = api::make_client(cfg);
     app.backend_label = app.client ? app.client->backend_label() : "none";
     app.requestListRefresh = true;
+
+    // Phase AUTH: decide whether the in-app device-code login is needed. Only
+    // when auth is CONFIGURED (auth_ready), the http backend is selected, and
+    // we have NO token yet. Otherwise the app behaves exactly as before: no
+    // overlay, mock (or static-token http) loads. The pure DeviceCodeFlow gets
+    // the REAL http transport (endpoints read from cfg, nothing hardcoded).
+    const bool wantAuthDemo = [] {
+        const char* v = std::getenv("HANABI_AUTH_DEMO");
+        return v && *v && std::string(v) != "0";
+    }();
+    if (wantAuthDemo) {
+        // Screenshot affordance: force the overlay into AwaitingUser with a
+        // FAKE code + URL (no real service, no network) so the panel can be
+        // captured headlessly. Mirrors HANABI_VIEW.
+        cfg.auth_device_path = cfg.auth_device_path.empty()
+                                   ? "/auth/device"
+                                   : cfg.auth_device_path;
+        cfg.auth_token_path =
+            cfg.auth_token_path.empty() ? "/auth/token" : cfg.auth_token_path;
+        app.authFlow = std::make_shared<api::DeviceCodeFlow>(
+            cfg, [](const std::string&, const std::string&) {
+                return api::AuthResponse{};  // never called in demo mode
+            });
+        app.authFlow->set_demo_awaiting("WXYZ-1234",
+                                        "https://example.invalid/activate");
+        app.showAuth = true;
+    } else if (cfg.auth_ready() && cfg.backend == "http" && cfg.token.empty()) {
+        app.authFlow = std::make_shared<api::DeviceCodeFlow>(
+            cfg, api::make_http_auth_transport(cfg));
+        app.authConfig = cfg;  // remembered so success can rebuild the client
+        app.authFlow->begin(now_epoch_seconds());
+        app.showAuth = true;
+        // Do not fire the initial list refresh until we have a token.
+        app.requestListRefresh = false;
+    }
 
     // Restore persisted tab set (opened once the list loads).
     app.restoreTabIds = Settings::get().get_open_tabs();
@@ -111,6 +172,10 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::StatusBarSystem>());
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
+    // Auth overlay draws on top of everything (login gates the app). No-op
+    // unless AppComponent::showAuth is true, so it costs nothing when auth is
+    // not configured.
+    sm.register_update_system(std::make_unique<ecs::AuthSystem>());
 
     // Post-layout (autolayout, interactions).
     ui_imm::registerUIPostLayoutSystems(sm);
@@ -183,6 +248,39 @@ static void app_frame() {
                 app.composerOpen = true;
                 app.requestNewTask = false;
             }
+
+            // Phase AUTH: drive the device-code flow. Poll on a schedule (the
+            // flow rate-limits itself to once per `interval`), and react to
+            // terminal states: on Success persist the token + rebuild the live
+            // client to the http backend so the app switches from the login
+            // overlay to real data; the offline escape keeps the mock client.
+            if (app.showAuth && app.authFlow) {
+                using S = api::DeviceCodeFlow::State;
+                app.authFlow->poll_step(now_epoch_seconds());
+                if (app.authFlow->current_state() == S::Success) {
+                    api::StoredToken tok;
+                    tok.access_token = app.authFlow->token();
+                    tok.refresh_token = app.authFlow->refresh_token();
+                    api::save_token(tok);  // never logged
+                    api::Config cfg = app.authConfig;
+                    cfg.token = tok.access_token;
+                    cfg.backend = "http";
+                    app.client = api::make_client(cfg);
+                    app.backend_label =
+                        app.client ? app.client->backend_label() : "none";
+                    app.showAuth = false;
+                    app.requestListRefresh = true;
+                }
+            }
+            if (app.requestAuthCancel) {
+                // "Use offline (mock)": dismiss the overlay, keep the current
+                // (mock) client, and load its sample data.
+                app.requestAuthCancel = false;
+                app.showAuth = false;
+                app.authFlow.reset();
+                app.requestListRefresh = true;
+            }
+
             int blocked = 0;
             for (const auto& s : app.sessions)
                 if (s.tag == api::ThreadTag::Blocked) ++blocked;

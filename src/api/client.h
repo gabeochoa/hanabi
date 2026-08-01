@@ -69,12 +69,49 @@ struct Config {
     std::string field_block_content = "content";
     std::string field_block_text_type = "text";
 
+    // --- Device-code auth (Phase AUTH) ------------------------------------
+    // A generic RFC 8628-style device-code flow. NOTHING here names any real
+    // service: the two endpoint paths default EMPTY (so auth is OFF unless
+    // configured) and every JSON field name has a generic default that a
+    // backend can override, exactly like the field_* mapping above.
+    //
+    //   HANABI_AUTH_DEVICE_PATH  POST -> {device_code,user_code,verification_uri,
+    //                            interval,expires_in}     (empty = auth disabled)
+    //   HANABI_AUTH_TOKEN_PATH   POST (poll) -> {access_token,...} or
+    //                            {error:"authorization_pending"} (empty = disabled)
+    //   HANABI_AUTH_CLIENT_ID    optional client_id sent in the request body
+    //   HANABI_AUTH_SCOPE        optional scope sent in the request body
+    std::string auth_device_path;  // empty by default: auth is opt-in
+    std::string auth_token_path;   // empty by default: auth is opt-in
+    std::string auth_client_id;
+    std::string auth_scope;
+
+    // Response field-name mapping for the device-code flow (all overridable).
+    std::string field_device_code = "device_code";
+    std::string field_user_code = "user_code";
+    std::string field_verification_uri = "verification_uri";
+    std::string field_interval = "interval";
+    std::string field_expires_in = "expires_in";
+    std::string field_access_token = "access_token";
+    std::string field_refresh_token = "refresh_token";
+    std::string field_auth_error = "error";
+    // The sentinel error value that means "keep polling".
+    std::string auth_pending_value = "authorization_pending";
+
     // Load from environment. Returns a Config with backend defaulted to "mock"
     // when nothing is configured.
     static Config from_env();
 
     // True when the http backend has the minimum it needs (a base URL).
     bool http_ready() const { return !base_url.empty(); }
+
+    // True when the device-code flow has the minimum it needs: a base URL plus
+    // both endpoint paths. When false, no auth UI ever appears and the app
+    // behaves exactly as before (mock default, or a static HANABI_TOKEN).
+    bool auth_ready() const {
+        return !base_url.empty() && !auth_device_path.empty() &&
+               !auth_token_path.empty();
+    }
 };
 
 // Abstract data source.

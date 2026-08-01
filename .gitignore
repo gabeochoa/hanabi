@@ -29,3 +29,7 @@ settings.json
 # local backend config (may contain a token) — never commit
 config.json
 **/config.json
+
+# Phase AUTH: persisted bearer token (device-code login) — never commit
+token.json
+**/token.json

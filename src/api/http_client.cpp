@@ -426,4 +426,56 @@ Result<Session> HttpClient::get_session(const std::string& id) {
     return Result<Session>::success(std::move(session));
 }
 
+// --- Device-code auth transport (Phase AUTH) --------------------------------
+// The real HTTP POST behind DeviceCodeFlow. It reads the ORIGIN from cfg
+// (base_url) and posts to cfg-supplied paths; nothing about any endpoint is
+// hardcoded. TLS-guarded exactly like get(): an https origin without a TLS
+// build fails cleanly (no abort), and the flow surfaces that as a Failed state.
+AuthTransport make_http_auth_transport(const Config& cfg) {
+    return [cfg](const std::string& path,
+                 const std::string& body) -> AuthResponse {
+        AuthResponse out;
+        if (cfg.base_url.empty()) {
+            out.error = "auth transport: no base URL configured";
+            return out;
+        }
+        SplitUrl s = split_url(cfg.base_url);
+
+#ifndef HANABI_ENABLE_TLS
+        if (s.origin.rfind("https://", 0) == 0) {
+            out.error =
+                "https auth requires a TLS build (rebuild with HANABI_TLS=1)";
+            return out;
+        }
+#endif
+        try {
+            httplib::Client cli(s.origin.c_str());
+            cli.set_connection_timeout(5, 0);
+            cli.set_read_timeout(15, 0);
+            cli.set_follow_location(true);
+
+            httplib::Headers headers;
+            headers.emplace("Accept", "application/json");
+
+            auto res = cli.Post((s.prefix + path).c_str(), headers, body,
+                                "application/json");
+            if (!res) {
+                out.error = "auth request failed (no response)";
+                return out;
+            }
+            out.status = res->status;
+            out.body = res->body;
+            // A device-code flow reports "pending" via a 400 + a JSON error
+            // body, so 4xx is NOT necessarily a transport failure — hand the
+            // body back and let DeviceCodeFlow interpret it. Only a genuinely
+            // empty/absent response is a transport error (handled above).
+            out.ok = true;
+            return out;
+        } catch (const std::exception& ex) {
+            out.error = std::string("auth request failed: ") + ex.what();
+            return out;
+        }
+    };
+}
+
 }  // namespace api
