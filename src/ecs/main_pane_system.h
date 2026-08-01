@@ -220,6 +220,51 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    // Display-only secret redaction for transcript text. Conversation content
+    // can contain real credentials a user pasted or a tool echoed (e.g. an
+    // "export NAVI_API_KEY=…" line, a JWT, a bearer token) — hanabi should not
+    // render those in the clear. This masks the obvious high-signal shapes and
+    // is applied ONLY at render time (the underlying api::Message is untouched,
+    // so a copy/export of the real data is unaffected — this is about not
+    // shoulder-surfing a secret on screen). Conservative: only long opaque
+    // tokens are masked, so normal prose is never mangled.
+    static std::string redact_secrets(const std::string& in) {
+        std::string out;
+        out.reserve(in.size());
+        const std::string kMask = "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2"
+                                  "[redacted]";  // ••• [redacted]
+        auto is_tok = [](char c) {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                   (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
+                   c == '+' || c == '/' || c == '=';
+        };
+        size_t i = 0, n = in.size();
+        while (i < n) {
+            // Scan the next run of token-ish chars.
+            if (is_tok(in[i])) {
+                size_t j = i;
+                while (j < n && is_tok(in[j])) ++j;
+                const size_t len = j - i;
+                std::string_view tok(in.data() + i, len);
+                // Mask a JWT (starts "eyJ" and long) or any very long opaque
+                // token (>= 24 chars with no space) — the shapes real API keys
+                // / bearer tokens / session ids take. Under the threshold we
+                // keep the text verbatim so ordinary words are never touched.
+                const bool jwt = len >= 12 && tok.substr(0, 3) == "eyJ";
+                if (jwt || len >= 32) {
+                    out += kMask;
+                } else {
+                    out.append(in, i, len);
+                }
+                i = j;
+            } else {
+                out.push_back(in[i]);
+                ++i;
+            }
+        }
+        return out;
+    }
+
     // Approx char budget that fits in `widthPx` at the given font size, so a
     // title uses the card's REAL available width before ellipsizing rather
     // than a fixed 40-char cap that leaves wide cards ~60% empty (defect #4).
@@ -980,6 +1025,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::string title = "Select a thread";
         if (app.openSession) {
             std::string t = normalize_title(app.openSession->summary.title);
+            // The per-session detail response often omits the title (only the
+            // LIST carries it), so a real transcript's own summary.title is
+            // frequently empty → the header showed a bare "(untitled)" even
+            // though the sidebar/tab knew the name. Fall back to the list
+            // summary's title, then the id, before giving up.
+            if (t.empty()) {
+                if (const auto* ls = app.find_summary(app.openSession->summary.id))
+                    t = normalize_title(ls->title);
+            }
+            if (t.empty()) t = app.openSession->summary.id;
             title = t.empty() ? "(untitled)" : t;
         } else if (app.transcriptState == LoadState::Loading) {
             title = "Loading\xe2\x80\xa6";
@@ -1342,7 +1397,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // block caret so it reads as an active, filling reply (not a finished
         // one). The underlying api::Message is untouched — this is a display-
         // only decoration of the in-progress text.
-        std::string body = m.text;
+        std::string body = redact_secrets(m.text);
         if (isLive) {
             if (body.empty() ||
                 streamPhase == AppComponent::StreamPhase::Thinking) {
@@ -1500,7 +1555,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("tool_role"));
         div(ctx, mk(block.ent(), 2),
             ComponentConfig{}
-                .with_label(m.text)
+                .with_label(redact_secrets(m.text))
                 .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
