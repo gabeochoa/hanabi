@@ -163,6 +163,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // families flush to a single edge.
     static constexpr float kCountColW = 30.0f;   // count box width
     static constexpr float kCountRightPad = 12.0f;  // inset from panel right
+    // Defect #2: cap the rows shown in an expanded group at kBucketCap; beyond
+    // that a "Show N more…" expander row is rendered instead of the full wall,
+    // so no single time-bucket / folder dumps a 90-row scroll-pit on first
+    // open. 12 fills a typical viewport-worth of rows while staying scannable.
+    // The expander row is given a fixed id offset near the TOP of a group's
+    // id slot so it never collides with a capped body row (base+1..base+12).
+    static constexpr int kBucketCap = 12;
+    static constexpr int kMoreRowIdOffset = 199;
     // Per-row trailing relative-time column width ("2h" / "Jul 28"). Wide
     // enough for a short absolute date so old rows aren't clipped; kept small
     // so the title still gets most of the row.
@@ -342,21 +350,57 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     //   Blocked / needs-you -> RED UP-TRIANGLE  (most urgent)
     //   Review (agent-verified) -> GREEN DIAMOND (square rotated 45 deg)
     //   Done -> BLUE DOT (filled circle)
-    //   working / parked / archived / calm -> small FAINT neutral dot (calm)
-    using Glyph = ecs::model::Glyph;
+    //   Running / in-progress -> HOLLOW RING (accent) — self-running, quiet
+    //   parked / archived / calm -> small FAINT neutral dot (calm)
+    //
+    // NOTE (defect #9 — glyph vocabulary parity on real data): the pure
+    // ecs::model::glyph_for maps only the tag/attention families (Blocked ->
+    // Triangle, Review -> Diamond, Done -> Dot) and returns None for
+    // everything else — including ThreadState::Running. On the MOCK, running
+    // rows also carry a tag so they still glyph; but on the REAL backend the
+    // digest-derivation (http_client.cpp derive_state) produces plain
+    // Running/Attention/Done states with NO tag, so a real Running session
+    // fell through to None and rendered as the same faint calm dot as an
+    // Unknown row. That collapsed real data to ~2 visible glyphs (triangle +
+    // grey square) while the mock showed 4. We fix the mapping HERE (in the
+    // owned sidebar file) by widening the sidebar's own glyph vocabulary with a
+    // Running ring, resolved AFTER the shared model so blocked/review/done
+    // precedence is unchanged — the shared tested logic still owns the
+    // tag/attention cases; the sidebar only ADDS the state-only Running case
+    // that the pure model intentionally leaves neutral.
+    enum class SbGlyph { None, Triangle, Diamond, Dot, Ring };
 
-    // Precedence follows the mock's JS ordering: blocked, then review, then
-    // done, then a bare Attention state (waiting-on-you) which also earns the
-    // urgent triangle. (Pure logic lives in ecs::model::glyph_for.)
-    static Glyph glyph_for(const api::SessionSummary& s) {
-        return ecs::model::glyph_for(s);
+    // Precedence: the shared, headlessly-tested ecs::model::glyph_for owns the
+    // tag/attention families (blocked -> triangle, review -> diamond, done ->
+    // dot). If that yields a real glyph, use it. Only when the model says
+    // "None" do we consult the sidebar-local state fallback so a self-running
+    // thread (state=Running, no tag — the shape a real backend returns) gets
+    // its own distinct RING instead of collapsing into the calm dot. Ready
+    // (agent-verified, no tag) also earns the review diamond here so the real
+    // backend's review-state rows read the same as the mock's tagged ones.
+    static SbGlyph glyph_for(const api::SessionSummary& s) {
+        switch (ecs::model::glyph_for(s)) {
+            case ecs::model::Glyph::Triangle: return SbGlyph::Triangle;
+            case ecs::model::Glyph::Diamond: return SbGlyph::Diamond;
+            case ecs::model::Glyph::Dot: return SbGlyph::Dot;
+            case ecs::model::Glyph::None: break;  // fall through to state map
+        }
+        // State-only fallback (no tag): give real-data states a distinct glyph
+        // so the sidebar vocabulary is as rich on real data as on the mock.
+        switch (s.state) {
+            case api::ThreadState::Running: return SbGlyph::Ring;
+            case api::ThreadState::Ready: return SbGlyph::Diamond;
+            default: return SbGlyph::None;
+        }
     }
+    using Glyph = SbGlyph;
 
     static theme::Color glyph_color(Glyph g) {
         switch (g) {
             case Glyph::Triangle: return theme::tag_blocked_fg();  // red
             case Glyph::Diamond: return theme::tag_ready_fg();     // green
             case Glyph::Dot: return theme::tag_done_fg();          // blue
+            case Glyph::Ring: return theme::accent();              // running
             default: return theme::text_faint();
         }
     }
@@ -373,7 +417,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     //   Triangle (red)   blocked / waiting-on-you
     //   Diamond  (green) ready for review
     //   Dot 4px  (blue)  done
-    //   Dot 2.4px(faint) calm  (working / parked / archived / no signal)
+    //   Ring 4px (accent) running / in-progress (hollow, so it never reads as
+    //                     the filled blue Done dot)
+    //   Dot 2.4px(faint) calm  (parked / archived / no signal)
     static void draw_glyph(RectangleType rect, Glyph g) {
         const float cx = rect.x + rect.width * 0.5f;
         const float cy = rect.y + rect.height * 0.5f;
@@ -415,9 +461,49 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 4.0f, c);
                 break;
             }
+            case Glyph::Ring: {
+                // Hollow ~8px ring (accent): a self-running / in-progress
+                // thread. Hollow so it never reads as the filled blue Done
+                // dot — same size, different fill, so real Running rows get a
+                // distinct glyph instead of collapsing into the calm dot.
+                afterhours::draw_ring(cx, cy, 2.4f, 4.0f, 24, c);
+                break;
+            }
             default:
                 break;
         }
+    }
+
+    // ---- Blocked smart-view nav icon (defect #5) ----
+    // A warning-triangle glyph (outlined up-triangle + centered "bang"),
+    // centered in the icon slot at `px` size. Used for the Blocked smart view
+    // instead of the Lucide "blocked" no-entry sprite so the nav reads as
+    // "attention / waiting on you" rather than "forbidden". Drawn (not
+    // atlased) because the atlas has no waiting/attention glyph; it reuses the
+    // per-row Blocked triangle's shape so the view + its rows match.
+    static void draw_attention_icon(RectangleType rect, theme::Color c,
+                                    float px) {
+        const float cx = rect.x + rect.width * 0.5f;
+        const float cy = rect.y + rect.height * 0.5f;
+        const float hw = px * 0.5f;          // half-width of the triangle base
+        const float hh = px * 0.44f;         // half-height (apex above center)
+        const afterhours::vec2 apex{cx, cy - hh};
+        const afterhours::vec2 bl{cx - hw, cy + hh};
+        const afterhours::vec2 br{cx + hw, cy + hh};
+        // Outlined triangle (3 stroked edges) so it reads as a warning sign,
+        // not a solid alert. ~1.4px stroke matches the Lucide line weight.
+        const float t = 1.4f;
+        afterhours::draw_line_ex(apex, bl, t, c);
+        afterhours::draw_line_ex(bl, br, t, c);
+        afterhours::draw_line_ex(br, apex, t, c);
+        // Exclamation "bang": a short vertical stroke + a dot below it,
+        // centered in the triangle body.
+        const float bangTop = cy - hh * 0.15f;
+        const float bangBot = cy + hh * 0.42f;
+        afterhours::draw_line_ex(afterhours::vec2{cx, bangTop},
+                                 afterhours::vec2{cx, bangBot}, t, c);
+        afterhours::draw_circle_v(afterhours::vec2{cx, cy + hh * 0.72f},
+                                  t * 0.7f, c);
     }
 
     // ---- header / title bar ----
@@ -866,6 +952,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         theme::Color dotColor = (view == SmartView::Blocked)
                                     ? theme::tag_blocked_fg()
                                     : theme::accent();
+        // Defect #5: the Blocked smart-view nav icon was the Lucide "blocked"
+        // atlas sprite — a no-entry / prohibition circle-slash that reads as
+        // "forbidden / banned", not "waiting on you / needs attention". The
+        // atlas (src/ui/icons_atlas.h) has NO better-fitting glyph: it carries
+        // only brand/gear/plus/search/sidebar/chevron/home/blocked/review(check)
+        // /star/folder_grid/fold_all — nothing that reads as
+        // waiting/attention (no clock, hourglass, inbox, bell, or hand). So we
+        // draw the Blocked view's icon as a WARNING TRIANGLE (an outlined
+        // up-triangle with a bang), which (a) reads as "attention", and (b)
+        // reuses the SAME up-triangle shape the per-row Blocked/attention glyph
+        // already uses, so the smart view and its rows share one visual
+        // vocabulary. Ideally the atlas would gain a Lucide "clock" (or
+        // "bell"/"hourglass"/"inbox") sprite for this — see report / gen_icons
+        // note; that's owned elsewhere, so we draw the triangle in-app rather
+        // than regenerate the atlas.
+        const bool useAttentionIcon = (view == SmartView::Blocked);
+        const float iconPx = folded ? 18.0f : 16.0f;
+        auto attnColor = txt;
         auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph, txt,
                                                16.0f, -1.0f);
         div(ctx, mk(row.ent(), 1),
@@ -874,9 +978,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(folded ? 26 : 18), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_on_draw_fg([iconDraw, railDot, dotColor](
-                                     RectangleType rect) {
-                    iconDraw(rect);
+                .with_on_draw_fg([iconDraw, useAttentionIcon, attnColor, iconPx,
+                                  railDot, dotColor](RectangleType rect) {
+                    if (useAttentionIcon)
+                        draw_attention_icon(rect, attnColor, iconPx);
+                    else
+                        iconDraw(rect);
                     if (railDot) {
                         const float cx = rect.x + rect.width * 0.5f + 8.0f;
                         const float cy = rect.y + rect.height * 0.5f - 7.0f;
@@ -1088,12 +1195,66 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Collapsed: header only, no body rows.
         if (collapsed) return static_cast<int>(members.size());
 
+        // Defect #2: a single heavy bucket (e.g. real data landing ~92
+        // sessions in "Yesterday") is still a scroll-pit even though it has a
+        // header — the finer time-bucketing MOVED the pile, it didn't SPLIT
+        // it. So within an expanded group we CAP the visible rows at
+        // kBucketCap and, when there are more, render a "Show N more…" expander
+        // row instead of the full wall. Clicking it flips a per-group "show
+        // all" flag so the user opts into the long list explicitly. This is
+        // the standard chat-app fix and it GUARANTEES no single section
+        // renders a 90-row wall on first open, regardless of how the backend
+        // clusters timestamps.
+        //
+        // The expanded state is stored in the existing collapsedFolders set
+        // (no new AppComponent field — that component is owned elsewhere) under
+        // a distinct "__more_<key>__" sentinel so it never collides with a
+        // real folder/bucket key or the collapse keys. Presence = expanded.
+        // A live search (q non-empty) shows ALL matches uncapped — the filter
+        // has already narrowed the list and hiding matches behind "show more"
+        // would defeat the search.
+        const int total = static_cast<int>(members.size());
+        const std::string moreKey = "__more_" + key + "__";
+        const bool expandedMore =
+            !q.empty() || app.collapsedFolders.count(moreKey) > 0;
+        const int limit =
+            (expandedMore || total <= kBucketCap) ? total : kBucketCap;
+
         int i = 0;
         for (const auto* s : members) {
+            if (i >= limit) break;
             render_chat_row(ctx, parent, base + 1 + (++i), *s, app, archived,
                             panelW);
         }
-        return static_cast<int>(members.size());
+
+        // "Show N more…" expander (only when capped). Clicking adds the more-
+        // key so the next frame renders every row. Placed at the TOP of the
+        // slot's id range (base + kMoreRowIdOffset) so it never collides with a
+        // body row id (base + 1 .. base + total).
+        if (!expandedMore && total > kBucketCap) {
+            const int hidden = total - kBucketCap;
+            auto more = div(ctx, mk(parent, base + kMoreRowIdOffset),
+                ComponentConfig{}
+                    .with_label("Show " + std::to_string(hidden) + " more\xe2\x80\xa6")
+                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_padding(Padding{.top = pixels(2), .right = pixels(8),
+                                          .bottom = pixels(2),
+                                          .left = pixels(22)})
+                    .with_custom_background(theme::sidebar_bg())
+                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::ROW)
+                    .with_alignment(TextAlignment::Left)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_roundness(0.3f)
+                    .with_debug_name("sb_show_more"));
+            more.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            if (more.ent().get<afterhours::ui::HasClickListener>().down) {
+                app.collapsedFolders.insert(moreKey);
+            }
+        }
+        return total;
     }
 
     // ---- time-based grouping for the Recent catch-all ----

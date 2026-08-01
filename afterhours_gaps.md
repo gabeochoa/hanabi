@@ -355,3 +355,25 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   `SizeExpr::remaining()` / `fill()` size mode) so one child can absorb leftover main-axis
   space — the standard flexbox primitive. Would let trailing counts/badges right-align
   cleanly and remove the mixed-unit percent guessing.
+
+### #19 — icon atlas has no "waiting / attention" glyph (hanabi resource gap)
+- **Gap:** the generated Lucide atlas (`src/ui/icons_atlas.h`, built by
+  `scripts/gen_icons.py`) carries 13 sprites — brand / gear / plus / search /
+  sidebar_close / sidebar_open / chevron_down / home / **blocked** / review /
+  star / folder_grid / fold_all. The **blocked** sprite is a Lucide no-entry /
+  prohibition circle-slash that reads as "forbidden / banned", which is wrong
+  for the Blocked smart view (its meaning is "waiting on you / needs
+  attention", not "you are not allowed"). No atlased sprite reads as
+  waiting/attention (no clock, hourglass, inbox, bell, or hand).
+- **Why wanted:** the Blocked smart-view nav icon should signal "attention",
+  matching the per-row red-triangle attention glyph.
+- **App-code workaround (used):** the Blocked smart view now draws its icon as
+  a WARNING TRIANGLE (outlined up-triangle + bang) via a small owned draw
+  helper (`SidebarSystem::draw_attention_icon`), reusing the per-row attention
+  triangle's shape so the view and its rows share one vocabulary. This lives
+  entirely in `src/ecs/sidebar_system.h` — no atlas regeneration.
+- **Minimal fix (owned elsewhere — scripts/gen_icons.py):** add a Lucide
+  "clock" (best fit) or "bell" / "hourglass" / "inbox" glyph to the atlas and
+  switch the Blocked smart view to it, so the nav uses a real atlased icon
+  rather than an app-drawn shape. NOT done here (atlas + gen script are owned
+  by another agent); reported for that owner to pick up.
