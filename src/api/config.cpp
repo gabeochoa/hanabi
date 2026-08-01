@@ -63,6 +63,7 @@ void load_config_file(Config& c) {
     str("token", c.token);
     str("sessions_path", c.sessions_path);
     str("messages_path", c.messages_path);
+    str("chat_path", c.chat_path);
     str("field_id", c.field_id);
     str("field_title", c.field_title);
     str("field_updated_at", c.field_updated_at);
@@ -76,6 +77,8 @@ void load_config_file(Config& c) {
     str("field_block_type", c.field_block_type);
     str("field_block_content", c.field_block_content);
     str("field_block_text_type", c.field_block_text_type);
+    str("field_prompt", c.field_prompt);
+    str("field_session_id", c.field_session_id);
     // Device-code auth (Phase AUTH). All optional; empty endpoint paths keep
     // auth OFF.
     str("auth_device_path", c.auth_device_path);
@@ -111,6 +114,9 @@ Config Config::from_env() {
     c.token = env_or("HANABI_TOKEN", c.token);
     c.sessions_path = env_or("HANABI_SESSIONS_PATH", c.sessions_path);
     c.messages_path = env_or("HANABI_MESSAGES_PATH", c.messages_path);
+    // Chat/send path (Phase SEND). Empty by default => http send is opt-in and
+    // an unconfigured http backend honestly reports it can't reply.
+    c.chat_path = env_or("HANABI_CHAT_PATH", c.chat_path);
 
     // Field-name overrides let the generic adapter match different response
     // shapes without recompiling.
@@ -123,6 +129,11 @@ Config Config::from_env() {
     c.field_role = env_or("HANABI_FIELD_ROLE", c.field_role);
     c.field_text = env_or("HANABI_FIELD_TEXT", c.field_text);
     c.field_created_at = env_or("HANABI_FIELD_CREATED_AT", c.field_created_at);
+
+    // Chat/send request field names (Phase SEND). Generic defaults.
+    c.field_prompt = env_or("HANABI_FIELD_PROMPT", c.field_prompt);
+    c.field_session_id =
+        env_or("HANABI_FIELD_SESSION_ID", c.field_session_id);
 
     // Block-array transcript shape (optional; defaults match a common
     // blocks:[{type,content}] layout, ignored when the array is absent).

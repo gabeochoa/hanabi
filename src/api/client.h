@@ -40,10 +40,18 @@ struct Config {
     //   HANABI_SESSIONS_PATH path for the session list   (default "/sessions")
     //   HANABI_MESSAGES_PATH path template for a transcript, with "{id}"
     //                        (default "/sessions/{id}/messages")
+    //   HANABI_CHAT_PATH     path the http adapter POSTs to for BOTH kickoff
+    //                        (start a new session) and reply (continue an open
+    //                        one). Empty by default, so an unconfigured http
+    //                        backend honestly reports it can't send. When set,
+    //                        a POST with no session id kicks off (response
+    //                        carries a new {id}); a POST with a session id is a
+    //                        reply (response carries the assistant message(s)).
     std::string base_url;
     std::string token;
     std::string sessions_path = "/sessions";
     std::string messages_path = "/sessions/{id}/messages";
+    std::string chat_path;  // empty = http send disabled (opt-in)
 
     // JSON field-name mapping. The adapter reads these keys out of whatever
     // objects the backend returns, so the client can be pointed at different
@@ -68,6 +76,18 @@ struct Config {
     std::string field_block_type = "type";
     std::string field_block_content = "content";
     std::string field_block_text_type = "text";
+
+    // Chat/send field mapping (used by the http adapter's send_message). All
+    // generic + overridable, exactly like the field_* mapping above.
+    //   - The request body sends the prompt under field_prompt and, for a
+    //     reply, the target session id under field_session_id.
+    //   - The kickoff response is read for a new session id under field_id.
+    //   - The reply response yields the assistant message(s): either a single
+    //     message object, or an array of them under field_messages. Each is
+    //     read with the same field_role / field_text / field_created_at /
+    //     field_id / block mapping the transcript reader uses.
+    std::string field_prompt = "prompt";
+    std::string field_session_id = "session_id";
 
     // --- Device-code auth (Phase AUTH) ------------------------------------
     // A generic RFC 8628-style device-code flow. NOTHING here names any real
@@ -105,6 +125,11 @@ struct Config {
     // True when the http backend has the minimum it needs (a base URL).
     bool http_ready() const { return !base_url.empty(); }
 
+    // True when the http backend is configured to send (kickoff + reply): a
+    // base URL plus a chat path. When false, an http adapter honestly reports
+    // it can't send and the composer stays in its disabled state.
+    bool send_ready() const { return !base_url.empty() && !chat_path.empty(); }
+
     // True when the device-code flow has the minimum it needs: a base URL plus
     // both endpoint paths. When false, no auth UI ever appears and the app
     // behaves exactly as before (mock default, or a static HANABI_TOKEN).
@@ -134,6 +159,26 @@ class Client {
         return Result<std::string>::failure(
             "this backend does not support creating sessions");
     }
+
+    // Continue an OPEN session: send a user prompt into `session_id` and return
+    // the assistant reply. Default impl reports the backend doesn't support
+    // replies, so adapters opt in incrementally (mirrors create_session). The
+    // mock appends a User message + a synthetic Assistant reply and returns the
+    // assistant Message; the http adapter POSTs to the configured chat path.
+    virtual Result<Message> send_message(const std::string& session_id,
+                                         const std::string& prompt) {
+        (void)session_id;
+        (void)prompt;
+        return Result<Message>::failure(
+            "this backend does not support replies");
+    }
+
+    // Whether this client can send (kickoff + reply). The composer uses this to
+    // decide between an enabled Send and the honest disabled caption. The mock
+    // supports send; the http adapter supports it only when a chat path is
+    // configured. Default false so a backend that hasn't wired send stays
+    // honestly disabled.
+    virtual bool supports_send() const { return false; }
 
     // Human-readable label for the active backend (for the status bar).
     virtual std::string backend_label() const = 0;

@@ -38,8 +38,14 @@ class MockClient : public Client {
         auto sessions = seed();
         std::vector<SessionSummary> out;
         out.reserve(sessions.size() + created_.size());
-        for (auto& s : sessions) out.push_back(s.summary);
-        // Sessions created this run (via the composer) live only in memory.
+        // created_ holds both composer-created sessions AND live overrides of
+        // seed rows that have been replied to this run (see find_mutable). A
+        // seed row that has an override is skipped here so it isn't listed
+        // twice — the override (with the fresher updated_at/preview) wins.
+        for (auto& s : sessions) {
+            if (is_overridden(s.summary.id)) continue;
+            out.push_back(s.summary);
+        }
         for (auto& s : created_) out.push_back(s.summary);
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),
@@ -84,7 +90,92 @@ class MockClient : public Client {
         return Result<std::string>::success(id);
     }
 
+    // The mock supports replies (this is the demo story): the composer becomes
+    // fully functional against it.
+    bool supports_send() const override { return true; }
+
+    // Continue a session: append the User prompt AND a synthetic, deterministic
+    // Assistant reply to that session's transcript, refresh its updated_at +
+    // preview so the sidebar reflects the new activity, and return the
+    // assistant Message. Fully offline — the reply is generated locally, never
+    // fetched. Works on both composer-created sessions (in `created_`) and the
+    // static seed cohort (materialized into `created_` on first reply so the
+    // appended turn persists for this run).
+    Result<Message> send_message(const std::string& session_id,
+                                 const std::string& prompt) override {
+        Session* target = find_mutable(session_id);
+        if (!target)
+            return Result<Message>::failure("no such session: " + session_id);
+
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int turn = static_cast<int>(target->messages.size());
+
+        // 1) the user's message.
+        Message user;
+        user.id = session_id + "-u" + std::to_string(turn + 1);
+        user.role = Role::User;
+        user.text = prompt;
+        user.created_at = now;
+        target->messages.push_back(user);
+
+        // 2) a synthetic assistant reply. Deterministic, tasteful, and totally
+        //    generic — it echoes the ask back so the demo reads naturally,
+        //    without naming any product, company, or service.
+        Message reply;
+        reply.id = session_id + "-a" + std::to_string(turn + 2);
+        reply.role = Role::Assistant;
+        reply.text = synth_reply(prompt);
+        reply.created_at = now + 1;
+        target->messages.push_back(reply);
+
+        // 3) reflect the new activity in the summary (sidebar preview + sort).
+        target->summary.updated_at = now + 1;
+        target->summary.preview = one_line(reply.text);
+
+        return Result<Message>::success(reply);
+    }
+
   private:
+    // A short, generic acknowledgement. No company/product/service names.
+    static std::string synth_reply(const std::string& prompt) {
+        if (prompt.empty()) return "Got it \xe2\x80\x94 what would you like me to do?";
+        std::string p = one_line(prompt);
+        if (p.size() > 80) p = p.substr(0, 77) + "...";
+        return "Got it \xe2\x80\x94 working on: " + p +
+               ". I'll follow up here as I make progress.";
+    }
+
+    // Collapse to a single line for preview/echo use (no embedded newlines).
+    static std::string one_line(std::string s) {
+        for (char& c : s)
+            if (c == '\n' || c == '\r') c = ' ';
+        return s;
+    }
+
+    // True when a created_ entry shadows a seed row of the same id (a replied-
+    // to seed session). Used by list_sessions to avoid listing it twice.
+    bool is_overridden(const std::string& id) const {
+        for (const auto& s : created_)
+            if (s.summary.id == id) return true;
+        return false;
+    }
+
+    // Find a session by id that we can mutate. Composer-created sessions live
+    // in created_ already. A seed session is copied into created_ on first
+    // touch so the appended turn persists for the rest of this run (the seed
+    // itself is rebuilt fresh on every seed() call and can't hold state).
+    Session* find_mutable(const std::string& id) {
+        for (auto& s : created_)
+            if (s.summary.id == id) return &s;
+        for (auto& s : seed()) {
+            if (s.summary.id == id) {
+                created_.push_back(s);
+                return &created_.back();
+            }
+        }
+        return nullptr;
+    }
+
     // Sessions created via the composer during this run (mock is otherwise
     // stateless). Merged into list_sessions/get_session above.
     std::vector<Session> created_;

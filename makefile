@@ -202,6 +202,13 @@ $(TEST_DIR)/test_auth: tests/unit/test_auth.cpp src/api/auth.cpp src/api/config.
 	@echo "Compiling test_auth..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Sending (Phase SEND): kickoff (create_session) + reply (send_message) driven
+# directly against the MockClient. Pure logic — no graphics, no network. Only
+# config.cpp is needed alongside the header-only mock client.
+$(TEST_DIR)/test_send: tests/unit/test_send.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+	@echo "Compiling test_send..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
 $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
@@ -213,7 +220,7 @@ $(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp | $(TEST_DIR)
 	@echo "Compiling test_perf..."
 	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

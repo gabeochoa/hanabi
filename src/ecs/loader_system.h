@@ -88,6 +88,78 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 }
             }
         }
+
+        // --- Kickoff (composer "Start" -> create a NEW session) ---
+        if (!app.requestKickoffPrompt.empty() && !app.kickoffPending) {
+            std::string prompt = app.requestKickoffPrompt;
+            app.requestKickoffPrompt.clear();
+            app.kickoffPending = true;
+            api::Client* c = app.client.get();
+            app.kickoffFuture = std::async(std::launch::async, [c, prompt] {
+                return c->create_session(prompt);
+            });
+        }
+        if (app.kickoffPending && app.kickoffFuture.valid()) {
+            if (app.kickoffFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+                auto r = app.kickoffFuture.get();
+                app.kickoffPending = false;
+                if (r.ok) {
+                    // Refresh the list so the new thread appears, and open it.
+                    app.requestListRefresh = true;
+                    app.requestOpenId = r.value;
+                } else {
+                    // Surface the failure on the list rail (non-fatal).
+                    app.listError = r.error;
+                }
+            }
+        }
+
+        // --- Reply (transcript composer "Send" -> continue the open thread) ---
+        if (!app.requestSendPrompt.empty() && !app.sendPending &&
+            !app.selectedId.empty()) {
+            std::string prompt = app.requestSendPrompt;
+            std::string id = app.selectedId;
+            app.requestSendPrompt.clear();
+            app.sendPending = true;
+            app.sendSessionId = id;
+            app.sendingPrompt = prompt;
+            api::Client* c = app.client.get();
+            app.sendFuture = std::async(std::launch::async, [c, id, prompt] {
+                return c->send_message(id, prompt);
+            });
+        }
+        if (app.sendPending && app.sendFuture.valid()) {
+            if (app.sendFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+                auto r = app.sendFuture.get();
+                app.sendPending = false;
+                // Remember the prompt for the user bubble, then clear the hint.
+                std::string userText = app.sendingPrompt;
+                app.sendingPrompt.clear();
+                if (r.ok) {
+                    // Append BOTH the user's prompt and the returned assistant
+                    // reply to the open transcript, then refresh the cache so a
+                    // later re-open shows the full exchange. The user message is
+                    // reconstructed here (the client returns only the assistant
+                    // reply) so the transcript reads as a full turn.
+                    if (app.openSession &&
+                        app.openSession->summary.id == app.sendSessionId) {
+                        api::Message um;
+                        um.role = api::Role::User;
+                        um.id = app.sendSessionId + "-u" +
+                                std::to_string(app.openSession->messages.size());
+                        um.text = userText;
+                        um.created_at = r.value.created_at;
+                        app.openSession->messages.push_back(std::move(um));
+                        app.openSession->messages.push_back(r.value);
+                        app.transcriptCache.put(*app.openSession);
+                    }
+                } else {
+                    app.transcriptError = r.error;
+                }
+            }
+        }
     }
 };
 

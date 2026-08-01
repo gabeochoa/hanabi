@@ -119,6 +119,24 @@ struct AppComponent : public afterhours::BaseComponent {
     // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
     bool requestNewTask = false;
 
+    // Phase SEND: two one-shot send request flags (mirror requestNewTask),
+    // serviced by LoaderSystem via the same std::async + poll pattern as
+    // list/transcript. Set by the composer (kickoff) / transcript composer
+    // (reply); cleared on consume.
+    std::string requestKickoffPrompt;  // start a NEW session from this prompt
+    std::string requestSendPrompt;     // reply into the OPEN session
+    // The prompt currently being sent, for a "sending…" hint while in flight.
+    std::string sendingPrompt;
+
+    // Kickoff async state (create_session).
+    std::future<api::Result<std::string>> kickoffFuture;
+    bool kickoffPending = false;
+
+    // Reply async state (send_message into selectedId).
+    std::future<api::Result<api::Message>> sendFuture;
+    bool sendPending = false;
+    std::string sendSessionId;  // which session the in-flight reply targets
+
     // Phase AUTH (device-code login). The flow lives here as an optional so
     // the whole app is unchanged when auth is not configured (authFlow stays
     // empty, showAuth false, no overlay appears). main.cpp constructs the flow

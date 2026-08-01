@@ -5,6 +5,7 @@
 // are digest lists over the thread set; Chat renders the active tab's
 // transcript as message bubbles.
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -931,28 +932,58 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 render_bubble(ctx, scroll.ent(), i++, m, paneW);
         }
 
-        render_composer(ctx, parent, paneW, kComposerH);
+        render_composer(ctx, parent, app, paneW, kComposerH);
     }
 
     // Persistent composer pinned to the bottom of the transcript pane. A real,
     // functional afterhours text_input + a Send affordance.
     //
-    // WIRING (v3 #30 + REPORT): the api::Client interface (src/api/client.h)
-    // exposes list_sessions / get_session / create_session(prompt) /
-    // backend_label — there is NO method to CONTINUE an already-open thread
-    // (no send_message(session_id, prompt) / reply). So Send on an open
-    // transcript has no backend to call. Rather than fake it, the composer is
-    // rendered as a REAL, VISUALLY-COMPLETE input that you can type into
-    // (bound to a persistent draft), with a clear READ-ONLY affordance: the
-    // Send button is disabled-styled and a caption notes replies aren't wired
-    // yet. A real reply needs a Client::send_message(const std::string& id,
-    // const std::string& prompt) method + a loader path that appends the
-    // returned message(s) to app.openSession->messages (see REPORT).
+    // WIRING (Phase SEND): the api::Client interface now exposes
+    // send_message(session_id, prompt) + supports_send(). When the backend
+    // supports replies (the mock DOES; a chat-path-configured http backend
+    // does), the Send button is ENABLED whenever the draft is non-empty: on
+    // click it sets app.requestSendPrompt (serviced by LoaderSystem, which runs
+    // send_message async and appends the user prompt + assistant reply to
+    // app.openSession->messages) and clears the local draft. When the backend
+    // can't reply (an unconfigured http backend), the button stays disabled-
+    // styled with an honest caption instead of faking it.
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
-                         float paneW, float composerH) {
+                         AppComponent& app, float paneW, float composerH) {
         // Function-local persistent draft (kept out of components.h, which is
         // owned by another agent). One transcript pane -> one instance -> safe.
         static std::string replyDraft;
+
+        // Screenshot affordance: HANABI_REPLY_DEMO=<text> seeds the draft ONCE
+        // so a headless capture can photograph the composer's ENABLED (primary)
+        // Send. Mirrors HANABI_VIEW / HANABI_AUTH_DEMO: ignored when unset, no
+        // network. Seeded a single time so live typing still owns the field.
+        static bool replyDemoSeeded = false;
+        if (!replyDemoSeeded) {
+            replyDemoSeeded = true;
+            if (const char* d = std::getenv("HANABI_REPLY_DEMO"); d && *d)
+                replyDraft = d;
+        }
+
+        // Screenshot affordance: HANABI_SEND_DEMO=<text> fires an actual reply
+        // ONCE (sets the one-shot requestSendPrompt) so a headless capture over
+        // the render frames shows the appended User + synthetic Assistant turn.
+        // Loader runs before this system each frame, so the exchange lands a
+        // frame or two later — well within the capture's 45-frame budget.
+        // Ignored when unset; no network (the mock generates the reply).
+        static bool sendDemoFired = false;
+        if (!sendDemoFired && app.openSession) {
+            if (const char* d = std::getenv("HANABI_SEND_DEMO"); d && *d) {
+                sendDemoFired = true;
+                app.requestSendPrompt = d;
+            }
+        }
+
+        const bool canSend = app.client && app.client->supports_send();
+        const std::string openId =
+            app.openSession ? app.openSession->summary.id : std::string();
+        const bool sending = app.sendPending && app.sendSessionId == openId;
+        const bool hasText = !replyDraft.empty();
+        const bool sendEnabled = canSend && hasText && !sending;
 
         auto bar = div(ctx, mk(parent, 3),
             ComponentConfig{}
@@ -1014,41 +1045,59 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.3f)
                 .with_debug_name("composer_reply_input"));
 
-        // Send affordance. No continue-session backend method exists, so this
-        // is disabled-styled (read-only). It still renders as a complete,
-        // polished button so the composer looks real, not a placeholder.
-        button(ctx, mk(row.ent(), 2),
+        // Send affordance. Enabled (primary-styled, clickable) when the backend
+        // supports replies and the draft has text; otherwise disabled-styled.
+        auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label("Send")
+                .with_label(sending ? "\xe2\x80\xa6" : "Send")
                 .with_size(ComponentSize{pixels(sendW), pixels(32)})
-                .with_custom_background(theme::disabled_bg())
-                .with_custom_hover_bg(theme::disabled_bg())
-                .with_custom_text_color(theme::disabled_text())
+                .with_custom_background(sendEnabled ? theme::button_primary()
+                                                    : theme::disabled_bg())
+                .with_custom_hover_bg(sendEnabled ? theme::button_primary()
+                                                  : theme::disabled_bg())
+                .with_custom_text_color(sendEnabled ? theme::window_bg()
+                                                    : theme::disabled_text())
                 .with_font_size(FontSize::Medium)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
+                .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.35f)
                 .with_debug_name("composer_send"));
+        if (send && sendEnabled) {
+            // Hand the reply to the loader via the one-shot flag; it runs
+            // send_message async and appends the exchange to the transcript.
+            app.requestSendPrompt = replyDraft;
+            replyDraft.clear();
+        }
 
-        // Read-only status caption: the text_input has no placeholder support
-        // (gap #17), so this faint line both labels the field ("Reply...") and
-        // states the honest limitation (no continue-session backend yet).
-        div(ctx, mk(bar.ent(), 3),
-            ComponentConfig{}
-                .with_label(replyDraft.empty()
-                                ? "Reply\xe2\x80\xa6  \xc2\xb7  read-only preview "
-                                  "(replies aren't wired to the backend yet)"
-                                : "read-only preview \xe2\x80\x94 replies aren't "
-                                  "wired to the backend yet")
-                .with_size(ComponentSize{percent(1.0f), pixels(14)})
-                .with_margin(Margin{.top = pixels(4)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("composer_status"));
+        // Status caption (text_input has no placeholder support, gap #17). When
+        // sending IS wired we drop the read-only note and either stay quiet
+        // (draft empty -> a faint "Reply…" label) or show a "sending…" state.
+        // The honest disabled caption only appears when the backend genuinely
+        // can't reply.
+        const char* caption = nullptr;
+        if (!canSend) {
+            caption =
+                "read-only \xe2\x80\x94 this backend doesn't support replies";
+        } else if (sending) {
+            caption = "sending\xe2\x80\xa6";
+        } else if (!hasText) {
+            caption = "Reply\xe2\x80\xa6";
+        }
+        if (caption) {
+            div(ctx, mk(bar.ent(), 3),
+                ComponentConfig{}
+                    .with_label(caption)
+                    .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                    .with_margin(Margin{.top = pixels(4)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("composer_status"));
+        }
     }
 
     static const char* role_label(api::Role r) {

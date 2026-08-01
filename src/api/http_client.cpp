@@ -72,6 +72,37 @@ std::string as_string(const json& obj, const std::string& key) {
     return "";
 }
 
+// Parse one message object using the configured field mapping (shared by the
+// transcript reader and the send_message reply reader). Prefers a flat text
+// field; falls back to concatenating text-type blocks and notes any non-text
+// block type as a subtitle hint.
+Message parse_message(const json& e, const Config& cfg) {
+    Message m;
+    m.id = as_string(e, cfg.field_id);
+    m.role = parse_role(as_string(e, cfg.field_role));
+    // created_at handled by caller-side normalization below when present.
+    m.text = as_string(e, cfg.field_text);
+    if (m.text.empty() && e.is_object() && e.contains(cfg.field_blocks) &&
+        e.at(cfg.field_blocks).is_array()) {
+        std::string joined;
+        for (const auto& b : e.at(cfg.field_blocks)) {
+            if (!b.is_object()) continue;
+            const std::string btype = as_string(b, cfg.field_block_type);
+            if (btype == cfg.field_block_text_type) {
+                const std::string c = as_string(b, cfg.field_block_content);
+                if (!c.empty()) {
+                    if (!joined.empty()) joined += "\n\n";
+                    joined += c;
+                }
+            } else if (!btype.empty() && m.subtitle.empty()) {
+                m.subtitle = btype;
+            }
+        }
+        m.text = std::move(joined);
+    }
+    return m;
+}
+
 // Read a boolean field that a backend might encode as a JSON bool OR as a
 // 0/1 number (both shapes appear in the wild for flags like isPinned).
 bool as_bool(const json& obj, const std::string& key) {
@@ -320,8 +351,49 @@ Result<std::string> HttpClient::get(const std::string& path) {
     }
 }
 
-Result<std::vector<SessionSummary>> HttpClient::list_sessions() {
-    auto raw = get(cfg_.sessions_path);
+// Authenticated JSON POST. Mirrors get()'s TLS guard + timeout + error
+// handling; only the verb + body + content-type differ. Nothing about any
+// endpoint is baked in — the caller supplies the path (from cfg.chat_path).
+Result<std::string> HttpClient::post_json(const std::string& path,
+                                          const std::string& body) {
+    if (!cfg_.http_ready())
+        return Result<std::string>::failure(
+            "http backend not configured (set HANABI_API_BASE_URL)");
+
+    SplitUrl s = split_url(cfg_.base_url);
+
+#ifndef HANABI_ENABLE_TLS
+    if (s.origin.rfind("https://", 0) == 0)
+        return Result<std::string>::failure(
+            "https backend requires a TLS build (rebuild with HANABI_TLS=1)");
+#endif
+
+    try {
+        httplib::Client cli(s.origin.c_str());
+        cli.set_connection_timeout(5, 0);
+        cli.set_read_timeout(30, 0);  // a reply may take longer than a GET
+        cli.set_follow_location(true);
+
+        httplib::Headers headers;
+        if (!cfg_.token.empty())
+            headers.emplace("Authorization", "Bearer " + cfg_.token);
+        headers.emplace("Accept", "application/json");
+
+        auto res = cli.Post((s.prefix + path).c_str(), headers, body,
+                            "application/json");
+        if (!res)
+            return Result<std::string>::failure("request failed (no response)");
+        if (res->status < 200 || res->status >= 300)
+            return Result<std::string>::failure(
+                "http status " + std::to_string(res->status));
+        return Result<std::string>::success(res->body);
+    } catch (const std::exception& ex) {
+        return Result<std::string>::failure(std::string("request failed: ") +
+                                            ex.what());
+    }
+}
+
+Result<std::vector<SessionSummary>> HttpClient::list_sessions() {    auto raw = get(cfg_.sessions_path);
     if (!raw.ok)
         return Result<std::vector<SessionSummary>>::failure(raw.error);
 
@@ -390,33 +462,8 @@ Result<Session> HttpClient::get_session(const std::string& id) {
         if (dump_enabled()) dump_transcript(*arr, cfg_, 5);
 
         for (const auto& e : *arr) {
-            Message m;
-            m.id = as_string(e, cfg_.field_id);
-            m.role = parse_role(as_string(e, cfg_.field_role));
+            Message m = parse_message(e, cfg_);
             m.created_at = as_epoch_seconds(e, cfg_.field_created_at);
-            // Prefer a flat text field; if the message instead carries a blocks
-            // array, concatenate the content of its text-type blocks. Also note
-            // any non-text block (e.g. a tool call) as a subtitle hint.
-            m.text = as_string(e, cfg_.field_text);
-            if (m.text.empty() && e.contains(cfg_.field_blocks) &&
-                e.at(cfg_.field_blocks).is_array()) {
-                std::string joined;
-                for (const auto& b : e.at(cfg_.field_blocks)) {
-                    if (!b.is_object()) continue;
-                    const std::string btype = as_string(b, cfg_.field_block_type);
-                    if (btype == cfg_.field_block_text_type) {
-                        const std::string c =
-                            as_string(b, cfg_.field_block_content);
-                        if (!c.empty()) {
-                            if (!joined.empty()) joined += "\n\n";
-                            joined += c;
-                        }
-                    } else if (!btype.empty() && m.subtitle.empty()) {
-                        m.subtitle = btype;
-                    }
-                }
-                m.text = std::move(joined);
-            }
             session.messages.push_back(std::move(m));
         }
     } catch (const std::exception& ex) {
@@ -426,8 +473,108 @@ Result<Session> HttpClient::get_session(const std::string& id) {
     return Result<Session>::success(std::move(session));
 }
 
-// --- Device-code auth transport (Phase AUTH) --------------------------------
-// The real HTTP POST behind DeviceCodeFlow. It reads the ORIGIN from cfg
+// --- Send: kickoff + reply (Phase SEND) -------------------------------------
+// Both POST to the single configurable chat path. A body WITHOUT a session id
+// is a kickoff (response carries a new session id); a body WITH one is a reply
+// (response carries the assistant message(s)). Field names come from Config —
+// nothing about any endpoint is baked in.
+//
+// SIMPLIFICATION (noted per spec): if the real backend streams the reply over
+// SSE, this synchronous "POST returns the created message(s)" shape is the
+// adapter simplification for this phase. SSE streaming of the live reply stays
+// a separate deferred item; the seam (send_message returning a Message) is
+// unchanged when it lands — only the transport underneath swaps.
+Result<std::string> HttpClient::create_session(const std::string& prompt) {
+    if (!cfg_.send_ready())
+        return Result<std::string>::failure(
+            "http backend not configured for sending (set HANABI_CHAT_PATH)");
+
+    // Body: { <field_prompt>: "<prompt>" }  (no session id => kickoff).
+    json body;
+    body[cfg_.field_prompt] = prompt;
+    auto raw = post_json(cfg_.chat_path, body.dump());
+    if (!raw.ok) return Result<std::string>::failure(raw.error);
+
+    try {
+        json j = json::parse(raw.value);
+        // The new id may be at the top level or nested under a "session" object.
+        if (j.is_object() && j.contains(cfg_.field_id))
+            return Result<std::string>::success(as_string(j, cfg_.field_id));
+        if (j.is_object() && j.contains("session") &&
+            j.at("session").is_object() &&
+            j.at("session").contains(cfg_.field_id))
+            return Result<std::string>::success(
+                as_string(j.at("session"), cfg_.field_id));
+        return Result<std::string>::failure(
+            "kickoff response missing session id field");
+    } catch (const std::exception& ex) {
+        return Result<std::string>::failure(std::string("json parse error: ") +
+                                            ex.what());
+    }
+}
+
+Result<Message> HttpClient::send_message(const std::string& session_id,
+                                         const std::string& prompt) {
+    if (!cfg_.send_ready())
+        return Result<Message>::failure(
+            "http backend not configured for sending (set HANABI_CHAT_PATH)");
+
+    // Body: { <field_session_id>: "<id>", <field_prompt>: "<prompt>" }.
+    json body;
+    body[cfg_.field_session_id] = session_id;
+    body[cfg_.field_prompt] = prompt;
+    auto raw = post_json(cfg_.chat_path, body.dump());
+    if (!raw.ok) return Result<Message>::failure(raw.error);
+
+    try {
+        json j = json::parse(raw.value);
+        // The reply may be: a single message object; an array of messages; or
+        // an object wrapping an array under field_messages. In every case we
+        // return the LAST message that reads as the assistant's reply (the new
+        // turn), matching send_message's "return the assistant Message"
+        // contract. The loader is free to append it to the open transcript.
+        const json* arr = nullptr;
+        if (j.is_array()) {
+            arr = &j;
+        } else if (j.is_object() && j.contains(cfg_.field_messages) &&
+                   j.at(cfg_.field_messages).is_array()) {
+            arr = &j.at(cfg_.field_messages);
+        }
+        if (arr) {
+            if (arr->empty())
+                return Result<Message>::failure("reply response was empty");
+            // Prefer the last assistant message; fall back to the last message.
+            const json* pick = nullptr;
+            for (const auto& e : *arr) {
+                if (!e.is_object()) continue;
+                if (as_string(e, cfg_.field_role) == "assistant") pick = &e;
+            }
+            if (!pick) pick = &arr->back();
+            Message m = parse_message(*pick, cfg_);
+            m.created_at = as_epoch_seconds(*pick, cfg_.field_created_at);
+            return Result<Message>::success(std::move(m));
+        }
+        if (j.is_object()) {
+            // Single message object (possibly nested under "message").
+            const json& obj =
+                (j.contains("message") && j.at("message").is_object())
+                    ? j.at("message")
+                    : j;
+            Message m = parse_message(obj, cfg_);
+            m.created_at = as_epoch_seconds(obj, cfg_.field_created_at);
+            if (m.text.empty() && m.id.empty())
+                return Result<Message>::failure(
+                    "reply response missing message fields");
+            return Result<Message>::success(std::move(m));
+        }
+        return Result<Message>::failure("unexpected reply response shape");
+    } catch (const std::exception& ex) {
+        return Result<Message>::failure(std::string("json parse error: ") +
+                                        ex.what());
+    }
+}
+
+// --- Device-code auth transport (Phase AUTH) --------------------------------// The real HTTP POST behind DeviceCodeFlow. It reads the ORIGIN from cfg
 // (base_url) and posts to cfg-supplied paths; nothing about any endpoint is
 // hardcoded. TLS-guarded exactly like get(): an https origin without a TLS
 // build fails cleanly (no abort), and the flow surfaces that as a Failed state.

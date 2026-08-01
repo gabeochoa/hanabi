@@ -6,12 +6,12 @@
 //
 // Cmd+N toggles it; Esc / the ✕ / clicking the backdrop closes it.
 //
-// KICKOFF STATUS: the api::Client interface (src/api/client.h) exposes only
-// list_sessions / get_session / backend_label — there is NO method to start a
-// new thread. So on Start we cannot actually kick off a session; we render the
-// composer fully, keep the typed draft in app.composerDraft, and close. See the
-// REPORT for the exact Client method needed. (client.h/mock_client.h are shared
-// — not edited here.)
+// KICKOFF (Phase SEND): on Start with text, the composer sets the one-shot
+// app.requestKickoffPrompt flag, clears the draft, and closes. LoaderSystem
+// services it (create_session async), then refreshes the list and opens the
+// new thread. The mock creates an in-memory session; the http adapter POSTs to
+// the configured chat path. (client.h/mock_client.h are shared — not edited
+// here.)
 //
 // Owns this file only. The + button that would toggle composerOpen lives in
 // sidebar_system.h (owned by another agent); until that one-line hook lands,
@@ -224,10 +224,12 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.35f)
                 .with_debug_name("composer_start"));
         if (start && hasText) {
-            // Best available action: the Client has no kickoff method (see the
-            // file header + REPORT). We keep the typed draft in
-            // app.composerDraft and close; a real create() call goes here once
-            // the Client interface gains one.
+            // Kick off a new session: hand the draft to the loader via the
+            // one-shot requestKickoffPrompt flag (LoaderSystem runs
+            // create_session async, then refreshes the list + opens the new
+            // thread). Clear the draft and close the overlay.
+            app.requestKickoffPrompt = app.composerDraft;
+            app.composerDraft.clear();
             app.composerOpen = false;
         }
     }
