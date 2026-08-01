@@ -407,9 +407,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the pane in BOTH modes — in light the border is what sells the lift
         // (panel_bg_2 is a hair darker than the white pane, so fill alone would
         // read recessed). Consistent 14/16 padding keeps text off the edges.
+        // Compute the sub-line ONCE up front so the layout can adapt to it.
+        // On a real backend a card has no rich preview, so the sub-line is just
+        // a bare relative age ("1h") — putting that alone on its own row wastes
+        // ~half the card and makes a preview-less list look empty (Gabe: "the
+        // spacing is messed up"). So: a SPARSE sub-line (short, no " · " detail —
+        // essentially just an age) rides INLINE on the title row, right-aligned,
+        // and the card collapses to a single tight row. A RICH sub-line (mock
+        // preview, or a state+detail line) keeps the roomier two-line card.
+        const std::string subLine = grouped ? grouped_meta(s) : card_meta(s);
+        const bool sparseSub =
+            subLine.empty() ||
+            (subLine.size() <= 6 && subLine.find("\xc2\xb7") == std::string::npos);
+        const float cardH = sparseSub ? 34.0f : 52.0f;
+
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(52)})
+                .with_size(ComponentSize{percent(1.0f), pixels(cardH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.top = pixels(3), .right = pixels(0),
@@ -444,7 +458,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // so we suppress the per-card chip to kill the "N identical chips" noise
         // (v5 #4). The title then gets the full card width.
         const bool hasTag = has_chip(s) && !grouped;
-        const float titleFrac = hasTag ? 0.78f : 1.0f;
+        // A sparse card rides its age inline on the title row (right-aligned),
+        // so the title leaves room for it; otherwise the title (or title+chip)
+        // owns the row and the age/preview sits on the second line.
+        const float titleFrac = hasTag ? 0.78f : (sparseSub && !subLine.empty()
+                                                      ? 0.82f
+                                                      : 1.0f);
         // Decouple truncation from a fixed char cap: budget from the card's
         // REAL available title width so a wide card fills its line before
         // ellipsizing (defect #4). Fall back to the old 40-char cap only when
@@ -483,26 +502,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Center)
                     .with_roundness(theme::layout::ROUNDNESS_BADGE)
                     .with_debug_name("dc_tag"));
+        } else if (sparseSub && !subLine.empty()) {
+            // Sparse card: the age rides here, right-aligned on the title row,
+            // instead of alone on a wasted second line. Muted so the title leads.
+            div(ctx, mk(top.ent(), 2),
+                ComponentConfig{}
+                    .with_label(subLine)
+                    .with_size(ComponentSize{percent(0.16f), pixels(16)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Right)
+                    .with_roundness(0.0f)
+                    .with_debug_name("dc_age_inline"));
         }
 
-        // Subtitle / preview. On the mock this is the rich preview snippet; on
-        // a real backend (no preview) card_meta() composes a useful line —
-        // relative age + a state/status hint — so real cards aren't identical
-        // bare "active" slabs (defects #3/#16). Actionable rows get slightly
-        // more contrast (text_primary vs the passive text_secondary).
-        div(ctx, mk(card.ent(), 2),
-            ComponentConfig{}
-                .with_label(grouped ? grouped_meta(s) : card_meta(s))
-                .with_size(ComponentSize{percent(1.0f), pixels(16)})
-                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
-                                    .bottom = pixels(0), .left = pixels(0)})
-                .with_transparent_bg()
-                .with_custom_text_color(emphasizeMeta ? theme::text_primary()
-                                                      : theme::text_secondary())
-                .with_font_size(theme::type::MD)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("dc_sub"));
+        // Second line: only for a RICH sub-line (mock preview, or a state+detail
+        // line). A sparse card already showed its age inline above, so it has no
+        // second row — keeping preview-less real-backend cards tight (~34px)
+        // instead of a title over a mostly-empty slab.
+        if (!sparseSub) {
+            div(ctx, mk(card.ent(), 2),
+                ComponentConfig{}
+                    .with_label(subLine)
+                    .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                    .with_margin(Margin{.top = pixels(3), .right = pixels(0),
+                                        .bottom = pixels(0), .left = pixels(0)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(emphasizeMeta
+                                                ? theme::text_primary()
+                                                : theme::text_secondary())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("dc_sub"));
+        }
     }
 
     // ---------------- Home digest ------------------------------------------
