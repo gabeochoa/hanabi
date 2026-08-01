@@ -9,11 +9,20 @@
 #include <future>
 
 #include "../settings.h"
+#include "../api/disk_cache.h"
 #include "ui_imports.h"
 
 namespace ecs {
 
 struct LoaderSystem : afterhours::System<AppComponent> {
+    // The on-disk cache is ONLY for a real (network) backend. The mock is
+    // already instant + deterministic, and its sample data must never be
+    // polluted by — or leak into — a real backend's cache (or vice-versa). So
+    // every disk-cache read/write is gated on the http backend being active.
+    static bool disk_cache_enabled(const AppComponent& app) {
+        return app.backend_label == "http";
+    }
+
     void for_each_with(Entity&, AppComponent& app, float) override {
         if (!app.client) return;
 
@@ -21,7 +30,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (app.requestListRefresh && !app.listPending) {
             app.requestListRefresh = false;
             app.listPending = true;
-            app.listState = LoadState::Loading;
+            // STALE-WHILE-REVALIDATE: if we don't have a list yet, paint the
+            // last-known list from disk IMMEDIATELY so a slow-network launch
+            // shows the sidebar + Home instantly instead of a "Loading…" wall.
+            // The async fetch below still runs and swaps in fresh data when it
+            // arrives. Only prime once (when the in-memory list is empty).
+            if (app.sessions.empty()) {
+                if (auto cached = disk_cache_enabled(app)
+                                      ? api::disk_cache::load_sessions()
+                                      : std::nullopt;
+                    cached && !cached->empty()) {
+                    app.sessions = std::move(*cached);
+                    for (auto& s : app.sessions)
+                        if (Settings::get().is_starred(s.id)) s.starred = true;
+                    app.listState = LoadState::Loaded;  // show stale now
+                    if (app.selectedId.empty() && !app.sessions.empty())
+                        app.requestOpenId = app.sessions.front().id;
+                } else {
+                    app.listState = LoadState::Loading;
+                }
+            }
             api::Client* c = app.client.get();
             app.listFuture = std::async(std::launch::async,
                                         [c] { return c->list_sessions(); });
@@ -42,6 +70,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         if (Settings::get().is_starred(s.id)) s.starred = true;
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
+                    // Persist the fresh list for the next launch's instant paint.
+                    if (disk_cache_enabled(app))
+                        api::disk_cache::save_sessions(app.sessions);
                     // Auto-open the first session if nothing selected yet.
                     if (app.selectedId.empty() && !app.sessions.empty())
                         app.requestOpenId = app.sessions.front().id;
@@ -58,8 +89,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         app.requestOpenId = app.sessions.front().id;
                     }
                 } else {
-                    app.listState = LoadState::Error;
+                    // The network fetch failed (e.g. slow-network timeout). If
+                    // we already painted a stale list from disk, KEEP it — a
+                    // transient failure shouldn't blank the sidebar. Only show
+                    // the error state when we have nothing to show.
                     app.listError = r.error;
+                    if (app.sessions.empty())
+                        app.listState = LoadState::Error;
+                    else
+                        app.listState = LoadState::Loaded;  // keep stale data
                 }
             }
         }
@@ -81,10 +119,29 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // SEAM: a live backend would kick a background revalidate here
                 // and swap in fresh data if it changed. Not built for the mock.
             } else {
-                // MISS: existing async fetch path.
+                // MISS in the in-memory LRU. Before falling back to a
+                // (possibly slow) network fetch, try the ON-DISK cache: if this
+                // thread was opened in a prior session, paint it INSTANTLY from
+                // disk so a slow-network open shows the transcript immediately.
+                // We then STILL kick the async fetch below to revalidate and
+                // swap in fresh data when it arrives (stale-while-revalidate).
+                bool paintedStale = false;
+                if (auto disk = disk_cache_enabled(app)
+                                    ? api::disk_cache::load_transcript(id)
+                                    : std::nullopt) {
+                    app.transcriptCache.put(*disk);
+                    app.openSession = std::move(*disk);
+                    app.transcriptState = LoadState::Loaded;  // show stale now
+                    app.transcriptError.clear();
+                    paintedStale = true;
+                }
+                // Kick the network fetch to revalidate (or to do the first-ever
+                // load when there's no disk copy). When we've already painted
+                // stale, this refresh happens in the background without a
+                // Loading flash.
                 app.transcriptPending = true;
                 app.transcriptPendingId = id;
-                app.transcriptState = LoadState::Loading;
+                if (!paintedStale) app.transcriptState = LoadState::Loading;
                 api::Client* c = app.client.get();
                 app.transcriptFuture = std::async(
                     std::launch::async, [c, id] { return c->get_session(id); });
@@ -97,15 +154,31 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.transcriptPending = false;
                 if (r.ok) {
                     // Insert into the cache (capped to the last 20 msgs) and
-                    // mark most-recently-used, then render.
+                    // mark most-recently-used, then render. Also persist to disk
+                    // for the next session's instant (stale) paint.
                     app.transcriptCache.put(r.value);
-                    app.openSession = std::move(r.value);
-                    app.transcriptState = LoadState::Loaded;
-                    app.transcriptError.clear();
+                    if (disk_cache_enabled(app))
+                        api::disk_cache::save_transcript(r.value);
+                    // Only swap into the view if this is still the open thread
+                    // (the user may have switched tabs during a slow fetch).
+                    if (app.selectedId == r.value.summary.id) {
+                        app.openSession = std::move(r.value);
+                        app.transcriptState = LoadState::Loaded;
+                        app.transcriptError.clear();
+                    }
                 } else {
-                    app.openSession.reset();
-                    app.transcriptState = LoadState::Error;
+                    // Network fetch failed. If we already painted a stale copy
+                    // from disk/LRU, KEEP it rather than blanking the pane on a
+                    // transient slow-network error; only surface the error when
+                    // there's nothing to show.
                     app.transcriptError = r.error;
+                    if (app.openSession &&
+                        app.openSession->summary.id == app.transcriptPendingId) {
+                        app.transcriptState = LoadState::Loaded;  // keep stale
+                    } else {
+                        app.openSession.reset();
+                        app.transcriptState = LoadState::Error;
+                    }
                 }
             }
         }
