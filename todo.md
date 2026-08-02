@@ -223,3 +223,19 @@ NOTE: audit screenshots predate the scrollbar merge (e997b33) + tool-row fix (0f
       wipe button -> disk_cache::total_bytes()/wipe_all().
    4. (still owed from earlier) open transcript at BOTTOM + jump-to-bottom button + requestLoadOlder on scroll-top.
    5. nested per-node tool SUB-ROWS on pile expand; unified smart-view row; sidebar glyph reduction; tri-color labels.
+
+## MILESTONE (386259f, 2026-08-02): ALL 9 dispatched subagents merged + pushed. Main HEAD 386259f.
+Merged this session: startup async-auth (5s->150ms), light theme, tool-row real info, composer meter,
+Chrome tabs (+menu+hscroll), mock server, data layer (async switch 60x + /tmp cache + queue + /whoami),
+settings cache row + overlay test hook, sidebar (scroll-text FlexWrap::NoWrap fix + e2e, star, layout-warn 0).
+Re-verified post-merge: many-tabs strip clean (headline defect fixed), light theme real, composer meter real.
+
+## AUDIT ITEMS RESOLVED: #1 many-tabs, #2 light theme, #3 tool row (real fields), #14 cost meter,
+   star right-align/no-bg, scroll-text-disappear (+e2e), layout-warn spam (0), settings cache wipe+size.
+## STILL OPEN (render-wiring + remaining top-10, main worktree now free):
+  - per-thread switch spinner (transcriptLoadingId); composer enqueue_send routing + queued badge
+  - open-at-bottom + jump-to-bottom button + load-older-on-scroll-top; wire settings screen (requestSettings)
+  - nested per-node tool SUB-ROWS on pile expand; unified smart-view row; sidebar glyph reduction;
+    neutral tri-color section labels; archived real sprite (still U+25A4 box); empty-transcript void
+  - T7 idle 8.6ms/frame dirty-flag skip-rebuild (biggest perf lever)
+  - fold screens.sh supplements in (all ~14 states one-shot) + visual regression
