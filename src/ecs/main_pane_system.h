@@ -2093,6 +2093,35 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
         return line.compare(i, 3, "```") == 0;
     }
+    // Language token after the opening fence (```ts -> "ts"), upper-cased for
+    // the block's lang bar; empty if none.
+    static std::string fence_lang(const std::string& line) {
+        size_t i = 0;
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+        i += 3;  // past ```
+        std::string lang;
+        while (i < line.size() && line[i] != ' ' && line[i] != '`') {
+            char c = line[i++];
+            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+            lang += c;
+        }
+        return lang;
+    }
+    // Fenced-code-block geometry (a single atomic segment in the body scan):
+    // a lang-bar header + one row per inner code line, wrapped in a rounded
+    // sunken container with a hairline border + vertical margin, matching the
+    // mock's `.block`. Heights are shared by render + measure so the
+    // virtualization mirror stays exact.
+    static constexpr float kCodeBarH = 20.0f;    // lang-bar header height
+    static constexpr float kCodeVMargin = 8.0f;  // margin above + below block
+    static constexpr float kCodePadV = 6.0f;     // top+bottom padding inside body
+    // Total height of a code block with `nLines` inner lines.
+    static float code_block_h(int nLines) {
+        if (nLines < 1) nLines = 1;
+        return kCodeVMargin + kCodeBarH +
+               (static_cast<float>(nLines) * kLinePitch + 2.0f * kCodePadV) +
+               kCodeVMargin;
+    }
 
     // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
     // method's per-segment layout exactly (blank line = half pitch, else
@@ -2101,29 +2130,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int perLine = wrap_perline(textW);
         float h = 0.0f;
         size_t start = 0;
-        bool inCode = false;
         while (start <= body.size()) {
             size_t nl = body.find('\n', start);
             size_t end = (nl == std::string::npos) ? body.size() : nl;
             std::string line = body.substr(start, end - start);
             if (is_code_fence(line)) {
-                // Fence markers are not rendered; a block adds one kBodyPad of
-                // breathing room on open + close so it sits off the prose.
-                h += kBodyPad;
-                inCode = !inCode;
-            } else if (inCode) {
-                // Code lines are pre-formatted: exactly one pitch, no wrap
-                // (matches the mock's white-space:pre block).
-                h += kLinePitch;
-            } else {
-                int len = static_cast<int>(line.size());
-                if (len <= 0) {
-                    h += kLinePitch * 0.5f;
-                } else {
-                    int segLines = (len + perLine - 1) / perLine;
-                    if (segLines < 1) segLines = 1;
-                    h += static_cast<float>(segLines) * kLinePitch;
+                // A fenced block is ONE atomic segment: scan to its closing
+                // fence, count inner lines, add the whole block's height. Both
+                // render + measure do this identical scan so heights agree.
+                int codeLines = 0;
+                size_t p = (nl == std::string::npos) ? body.size() : nl + 1;
+                while (p <= body.size()) {
+                    size_t n2 = body.find('\n', p);
+                    size_t e2 = (n2 == std::string::npos) ? body.size() : n2;
+                    std::string cl = body.substr(p, e2 - p);
+                    if (is_code_fence(cl)) {  // closing fence
+                        p = (n2 == std::string::npos) ? body.size() : n2 + 1;
+                        break;
+                    }
+                    ++codeLines;
+                    if (n2 == std::string::npos) { p = body.size() + 1; break; }
+                    p = n2 + 1;
                 }
+                h += code_block_h(codeLines);
+                start = p;
+                continue;
+            }
+            int len = static_cast<int>(line.size());
+            if (len <= 0) {
+                h += kLinePitch * 0.5f;
+            } else {
+                int segLines = (len + perLine - 1) / perLine;
+                if (segLines < 1) segLines = 1;
+                h += static_cast<float>(segLines) * kLinePitch;
             }
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -2242,6 +2281,80 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // the viewport builds ~0 text entities, not 260. winBot<=winTop disables
     // culling (build everything). The spacer keeps total height exact so the
     // scrollbar and outer virtualization spacer math stay correct.
+
+    // A fenced code block as ONE rounded sunken container (matches the mock's
+    // `.block`): a lang-bar header (uppercase language, left) + one mono row per
+    // code line, hairline border + vertical margin. Height == code_block_h().
+    void render_code_block(UIContext<InputAction>& ctx, Entity& parent, int id,
+                           const std::string& lang,
+                           const std::vector<std::string>& lines) {
+        const int n = lines.empty() ? 1 : static_cast<int>(lines.size());
+        auto block = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(code_block_h(n) -
+                                                2.0f * kCodeVMargin)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(kCodeVMargin),
+                                    .bottom = pixels(kCodeVMargin)})
+                .with_custom_background(theme::window_bg())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(0.22f)
+                .with_debug_name("code_block"));
+        // Lang bar: uppercase language label on a slightly-raised strip with a
+        // hairline bottom divider.
+        auto bar = div(ctx, mk(block.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kCodeBarH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(10), .left = pixels(12)})
+                .with_custom_background(theme::panel_bg())
+                .with_border_bottom(theme::border(), pixels(1))
+                .with_roundness(0.0f)
+                .with_debug_name("code_block_bar"));
+        div(ctx, mk(bar.ent(), 1),
+            ComponentConfig{}
+                .with_label(lang.empty() ? "CODE" : lang)
+                .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_letter_spacing(0.8f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("code_block_lang"));
+        // Code body: mono rows, no wrap (pre-formatted).
+        auto body = div(ctx, mk(block.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(kCodePadV),
+                                      .right = pixels(10),
+                                      .bottom = pixels(kCodePadV),
+                                      .left = pixels(12)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("code_block_body"));
+        int li = 0;
+        for (const auto& cl : lines) {
+            div(ctx, mk(body.ent(), 1 + li),
+                ComponentConfig{}
+                    .with_label(cl.empty() ? " " : cl)
+                    .with_size(ComponentSize{percent(1.0f), pixels(kLinePitch)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font("mono", theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("code_block_line"));
+            ++li;
+        }
+    }
+
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
                           const std::string& shown, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
@@ -2250,7 +2363,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int perLine = wrap_perline(textW);
         size_t start = 0;
         int seg = 0;
-        bool inCode = false;          // inside a ``` fence
         float y = bodyStartY;         // running content-y of this segment's top
         float pending = 0.0f;         // accumulated off-window height to flush
         auto flush = [&](int tag) {
@@ -2267,16 +2379,50 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             size_t nl = shown.find('\n', start);
             size_t end = (nl == std::string::npos) ? shown.size() : nl;
             std::string line = shown.substr(start, end - start);
+
+            // ---- Fenced code block: ONE atomic segment (container) ----------
+            if (is_code_fence(line)) {
+                const std::string lang = fence_lang(line);
+                std::vector<std::string> codeLines;
+                size_t p = (nl == std::string::npos) ? shown.size() : nl + 1;
+                while (p <= shown.size()) {
+                    size_t n2 = shown.find('\n', p);
+                    size_t e2 = (n2 == std::string::npos) ? shown.size() : n2;
+                    std::string cl = shown.substr(p, e2 - p);
+                    if (is_code_fence(cl)) {  // closing fence
+                        p = (n2 == std::string::npos) ? shown.size() : n2 + 1;
+                        break;
+                    }
+                    // Tabs -> 2 spaces for stable columns (pre-formatted).
+                    for (size_t t = cl.find('\t'); t != std::string::npos;
+                         t = cl.find('\t', t))
+                        cl.replace(t, 1, "  ");
+                    codeLines.push_back(std::move(cl));
+                    if (n2 == std::string::npos) { p = shown.size() + 1; break; }
+                    p = n2 + 1;
+                }
+                const float blockH =
+                    code_block_h(static_cast<int>(codeLines.size()));
+                const float segTop = y;
+                const float segBot = y + blockH;
+                y = segBot;
+                const bool visible =
+                    !cull || (segBot >= winTop && segTop <= winBot);
+                if (!visible) {
+                    pending += blockH;
+                } else {
+                    flush(9000 + seg);
+                    render_code_block(ctx, parent, 100 + seg, lang, codeLines);
+                }
+                ++seg;
+                start = p;
+                continue;
+            }
+
             float segH;
             bool blank = line.empty();
-            const bool fence = is_code_fence(line);
-            const bool codeLine = inCode && !fence;
             int segLines = 1;
-            if (fence) {
-                segH = kBodyPad;          // matches rich_body_h
-            } else if (codeLine) {
-                segH = kLinePitch;        // pre-formatted: one pitch, no wrap
-            } else if (blank) {
+            if (blank) {
                 segH = kLinePitch * 0.5f;
             } else {
                 segLines = (static_cast<int>(line.size()) + perLine - 1) /
@@ -2289,36 +2435,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             y = segBot;
             const bool visible =
                 !cull || (segBot >= winTop && segTop <= winBot);
-            if (fence) {
-                // Fence markers render nothing (just the small pad); toggle.
-                if (visible) flush(9000 + seg);
-                else pending += segH;
-                inCode = !inCode;
-            } else if (!visible) {
+            if (!visible) {
                 pending += segH;      // collapse off-window segment into spacer
-            } else if (codeLine) {
-                flush(9000 + seg);
-                // A sunken monospace code row: tinted background + mono font +
-                // NO wrap (pre-formatted), so it reads as a code block like the
-                // mock. Tab expands to two spaces for stable columns.
-                std::string codeTxt = line;
-                for (size_t p = codeTxt.find('\t'); p != std::string::npos;
-                     p = codeTxt.find('\t', p))
-                    codeTxt.replace(p, 1, "  ");
-                div(ctx, mk(parent, 100 + seg),
-                    ComponentConfig{}
-                        .with_label(codeTxt.empty() ? " " : codeTxt)
-                        .with_size(ComponentSize{percent(1.0f), pixels(segH)})
-                        // A recessed (sunken) plane one step BELOW the pane +
-                        // mono text = a code block, like the mock's --sunken.
-                        .with_custom_background(theme::window_bg())
-                        .with_padding(Padding{.right = pixels(8),
-                                              .left = pixels(10)})
-                        .with_custom_text_color(theme::text_secondary())
-                        .with_font("mono", theme::type::BODY)
-                        .with_alignment(TextAlignment::Left)
-                        .with_roundness(0.0f)
-                        .with_debug_name("asst_code_line"));
             } else if (blank) {
                 flush(9000 + seg);
                 div(ctx, mk(parent, 100 + seg),
