@@ -537,6 +537,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         out = strip_paired(in, "**");   // bold first (before single *)
         out = strip_paired(out, "__");
         out = strip_paired(out, "`");    // inline code
+        // Per-line markdown normalization (display-only, char-level — no wrap
+        // or height change): turn "- "/"* "/"+ " list markers into a real
+        // bullet "\u2022  ", and a lone "---"/"***"/"___" rule line into a run
+        // of box-drawing dashes so lists + rules read like a chat app instead
+        // of raw markdown. Runs INSIDE a fenced code block are left untouched
+        // (code is verbatim) — the caller only feeds prose lines here.
+        out = normalize_md_lines(out);
+        return out;
+    }
+    // Line-by-line: bullet markers -> "•", ordered "1." kept, hr -> dashes.
+    static std::string normalize_md_lines(const std::string& in) {
+        std::string out;
+        out.reserve(in.size());
+        size_t i = 0;
+        while (i <= in.size()) {
+            size_t nl = in.find('\n', i);
+            size_t end = (nl == std::string::npos) ? in.size() : nl;
+            std::string line = in.substr(i, end - i);
+            // leading spaces (preserve indent for nested lists)
+            size_t s = 0;
+            while (s < line.size() && line[s] == ' ') ++s;
+            const std::string indent = line.substr(0, s);
+            const std::string rest = line.substr(s);
+            // bullet: "- x" / "* x" / "+ x"  (marker + at least one space)
+            if (rest.size() >= 2 && (rest[0] == '-' || rest[0] == '*' ||
+                                     rest[0] == '+') &&
+                rest[1] == ' ') {
+                line = indent + "\xe2\x80\xa2  " + rest.substr(2);
+            } else if ((rest == "---" || rest == "***" || rest == "___" ||
+                        rest == "----" || rest == "-----")) {
+                // horizontal rule -> a light dashed line
+                line = "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80"
+                       "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80";
+            }
+            out += line;
+            if (nl == std::string::npos) break;
+            out += '\n';
+            i = nl + 1;
+        }
         return out;
     }
     // Approx char budget that fits in `widthPx` at the given font size, so a
