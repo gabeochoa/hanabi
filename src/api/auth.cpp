@@ -1,5 +1,10 @@
 #include "auth.h"
 
+#include <array>
+#include <cstdint>
+#include <cstdio>
+#include <random>
+
 #include "../../vendor/nlohmann/json.hpp"
 
 namespace api {
@@ -7,8 +12,7 @@ namespace api {
 using json = nlohmann::json;
 
 namespace {
-// Read a string field that a backend might send as a string or (defensively)
-// a number. Returns "" when absent.
+// Read a string field; returns "" when absent. Defensive against a numeric.
 std::string as_string(const json& obj, const std::string& key) {
     if (!obj.is_object() || !obj.contains(key)) return "";
     const auto& v = obj.at(key);
@@ -16,40 +20,41 @@ std::string as_string(const json& obj, const std::string& key) {
     if (v.is_number_integer()) return std::to_string(v.get<int64_t>());
     return "";
 }
-
-// Read an integer field (seconds); backends sometimes send it as a string.
-int64_t as_int(const json& obj, const std::string& key, int64_t fallback) {
-    if (!obj.is_object() || !obj.contains(key)) return fallback;
-    const auto& v = obj.at(key);
-    if (v.is_number_integer()) return v.get<int64_t>();
-    if (v.is_number_float()) return static_cast<int64_t>(v.get<double>());
-    if (v.is_string()) {
-        try {
-            return std::stoll(v.get<std::string>());
-        } catch (...) {
-            return fallback;
-        }
-    }
-    return fallback;
-}
 }  // namespace
+
+// RFC-4122 v4 UUID via std::random_device (no external dependency). 32 hex
+// digits with the version (4) and variant (10xx) bits set, formatted
+// 8-4-4-4-12.
+std::string DeviceCodeFlow::make_uuid_v4() {
+    std::random_device rd;
+    std::mt19937_64 gen((static_cast<uint64_t>(rd()) << 32) ^ rd());
+    std::uniform_int_distribution<uint32_t> dist(0, 255);
+    std::array<uint8_t, 16> b{};
+    for (auto& x : b) x = static_cast<uint8_t>(dist(gen));
+    b[6] = static_cast<uint8_t>((b[6] & 0x0F) | 0x40);  // version 4
+    b[8] = static_cast<uint8_t>((b[8] & 0x3F) | 0x80);  // variant 10xx
+    char out[37];
+    std::snprintf(
+        out, sizeof(out),
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10],
+        b[11], b[12], b[13], b[14], b[15]);
+    return std::string(out);
+}
 
 std::string DeviceCodeFlow::device_request_body() const {
     json b = json::object();
-    if (!cfg_.auth_client_id.empty()) b["client_id"] = cfg_.auth_client_id;
-    if (!cfg_.auth_scope.empty()) b["scope"] = cfg_.auth_scope;
+    // The client mints its own device code (already stored in device_code_);
+    // the body carries it plus the client type. No client_id/secret exists.
+    b[cfg_.field_device_code] = device_code_;
+    b[cfg_.field_client_type] = cfg_.auth_client_type;
     return b.dump();
 }
 
-std::string DeviceCodeFlow::token_request_body() const {
-    json b = json::object();
-    // Generic RFC 8628 grant type + the device code we were issued. The field
-    // NAME the backend expects for the device code is configurable; the value
-    // is what step 1 returned.
-    b["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code";
-    b[cfg_.field_device_code] = device_code_;
-    if (!cfg_.auth_client_id.empty()) b["client_id"] = cfg_.auth_client_id;
-    return b.dump();
+std::string DeviceCodeFlow::poll_query() const {
+    // GET {auth_token_path}?<field_poll_query>=<deviceCode>. The deviceCode is
+    // a UUID so needs no percent-encoding; keep it simple + explicit.
+    return cfg_.field_poll_query + "=" + device_code_;
 }
 
 DeviceCodeFlow::State DeviceCodeFlow::begin(int64_t now) {
@@ -58,11 +63,22 @@ DeviceCodeFlow::State DeviceCodeFlow::begin(int64_t now) {
         error_ = "auth not configured";
         return state_;
     }
+    // Mint the device code the CLIENT owns for this flow.
+    device_code_ = make_uuid_v4();
+
     state_ = State::RequestingCode;
-    AuthResponse res = transport_(cfg_.auth_device_path, device_request_body());
+    AuthResponse res =
+        transport_("POST", cfg_.auth_device_path, "", device_request_body());
     if (!res.ok) {
         state_ = State::Failed;
         error_ = res.error.empty() ? "device-code request failed" : res.error;
+        return state_;
+    }
+    // A non-2xx on the code request is a hard failure (400 = bad deviceCode).
+    if (res.status != 0 && (res.status < 200 || res.status >= 300)) {
+        state_ = State::Failed;
+        error_ = "device-code request failed (http " +
+                 std::to_string(res.status) + ")";
         return state_;
     }
     json j;
@@ -74,18 +90,16 @@ DeviceCodeFlow::State DeviceCodeFlow::begin(int64_t now) {
         return state_;
     }
 
-    device_code_ = as_string(j, cfg_.field_device_code);
     user_code_ = as_string(j, cfg_.field_user_code);
-    verification_uri_ = as_string(j, cfg_.field_verification_uri);
-    interval_ = as_int(j, cfg_.field_interval, 5);
-    if (interval_ < 1) interval_ = 1;
-    const int64_t expires_in = as_int(j, cfg_.field_expires_in, 0);
-    deadline_ = (expires_in > 0) ? now + expires_in : 0;
+    verification_uri_ = as_string(j, cfg_.field_auth_url);
+
+    interval_ = cfg_.auth_poll_interval > 0 ? cfg_.auth_poll_interval : 2;
+    deadline_ = (cfg_.auth_expires_in > 0) ? now + cfg_.auth_expires_in : 0;
     next_poll_at_ = now + interval_;
 
-    if (device_code_.empty() || user_code_.empty()) {
+    if (user_code_.empty()) {
         state_ = State::Failed;
-        error_ = "device-code response missing required fields";
+        error_ = "device-code response missing user code";
         return state_;
     }
     state_ = State::AwaitingUser;
@@ -108,12 +122,18 @@ DeviceCodeFlow::State DeviceCodeFlow::poll_step(int64_t now) {
     next_poll_at_ = now + interval_;
 
     state_ = State::Polling;
-    AuthResponse res = transport_(cfg_.auth_token_path, token_request_body());
+    AuthResponse res = transport_("GET", cfg_.auth_token_path, poll_query(), "");
     if (!res.ok) {
         // Transport-level failure: treat as a hard failure so the user can
         // retry / fall back rather than spinning forever.
         state_ = State::Failed;
         error_ = res.error.empty() ? "token poll failed" : res.error;
+        return state_;
+    }
+    // A non-2xx poll is a hard failure.
+    if (res.status != 0 && (res.status < 200 || res.status >= 300)) {
+        state_ = State::Failed;
+        error_ = "poll failed (http " + std::to_string(res.status) + ")";
         return state_;
     }
 
@@ -122,30 +142,32 @@ DeviceCodeFlow::State DeviceCodeFlow::poll_step(int64_t now) {
         j = json::parse(res.body);
     } catch (...) {
         state_ = State::Failed;
-        error_ = "malformed token response";
+        error_ = "malformed poll response";
         return state_;
     }
 
-    // Success: a token is present.
-    const std::string tok = as_string(j, cfg_.field_access_token);
-    if (!tok.empty()) {
+    const std::string status = as_string(j, cfg_.field_auth_status);
+    if (status == cfg_.auth_status_authorized) {
+        const std::string tok = as_string(j, cfg_.field_token);
+        if (tok.empty()) {
+            state_ = State::Failed;
+            error_ = "authorized response missing token";
+            return state_;
+        }
         token_ = tok;
-        refresh_token_ = as_string(j, cfg_.field_refresh_token);
         state_ = State::Success;
         error_.clear();
         return state_;
     }
-
-    // Pending sentinel: keep waiting.
-    const std::string err = as_string(j, cfg_.field_auth_error);
-    if (err == cfg_.auth_pending_value) {
+    if (status == cfg_.auth_status_pending) {
         state_ = State::AwaitingUser;  // still waiting on the user
         return state_;
     }
 
-    // Any other error is a hard failure (e.g. access_denied, invalid_grant).
+    // Any other status is a hard failure (denied / expired server-side / etc).
     state_ = State::Failed;
-    error_ = err.empty() ? "authorization failed" : err;
+    error_ = status.empty() ? "authorization failed"
+                            : ("authorization " + status);
     return state_;
 }
 

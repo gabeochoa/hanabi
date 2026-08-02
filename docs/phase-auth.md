@@ -99,3 +99,46 @@ defaults, exactly like the existing field_* mapping.
 - Keep the state machine PURE and small; the UI just renders its state. The value
   is: real users authenticate in-app, and it's fully proven without a real server.
 - Restore any settings.json / token.json you touch. Kill stray hanabi.exe procs.
+
+---
+
+## Phase AUTH REAL — wired to the live navi-CLI device-code endpoints
+
+The initial phase above built + fake-tested a GENERIC RFC-8628 flow. The REAL
+navi-CLI flow differs in shape, so `DeviceCodeFlow` + `Config` were adapted to
+the real endpoints (still fully config-driven; nothing about any HOST is baked
+in — only the generic navi-CLI PATHS are the defaults):
+
+1. **The client mints its OWN device code** (a UUIDv4, via
+   `DeviceCodeFlow::make_uuid_v4()`, `std::random_device`-based, no external
+   dep). The server does NOT return a device code.
+2. **POST `{auth_device_path}`** (default `/api/cli/auth/code`) body
+   `{deviceCode:<UUIDv4>, clientType:"cli"}` → `{userCode, authUrl}`. The
+   `authUrl` already encodes the userCode; the overlay shows both.
+3. **GET `{auth_token_path}?code=<deviceCode>`** (default `/api/cli/auth/poll`),
+   polled every `auth_poll_interval` (2s) → `{status:"pending"}` or
+   `{status:"authorized", token:"<bearer>"}`. Poll uses a GET query param, not
+   a POST body; the response carries `status`/`token`, not an RFC
+   `access_token`/`error:authorization_pending` shape.
+4. The code response carries no `interval`/`expires_in`, so both are
+   client-side config (`auth_poll_interval=2`, `auth_expires_in=600`).
+
+### Auth base = ORIGIN, not base_url + prefix
+The auth paths are SIBLINGS of the API prefix: with `base_url =
+https://host/api/v1`, the auth endpoints are `https://host/api/cli/auth/*` (NOT
+`.../api/v1/api/cli/auth/*`). So `make_http_auth_transport` uses the ORIGIN of
+`base_url` (dropping its path prefix), overridable via `auth_base_url`.
+
+### Config field names (real defaults, all overridable)
+`field_device_code=deviceCode`, `field_client_type=clientType`,
+`field_poll_query=code`, `field_user_code=userCode`, `field_auth_url=authUrl`,
+`field_auth_status=status`, `field_token=token`, `auth_status_pending=pending`,
+`auth_status_authorized=authorized`. Env: `HANABI_AUTH_*` / `HANABI_FIELD_*`.
+
+Refresh (`/api/cli/auth/refresh`) is OUT OF SCOPE — the token is a 30-day
+sliding TTL; re-run the flow if it lapses.
+
+### Real-backend proof aid
+`HANABI_AUTH_LOG=1` (with a real http+auth config, no token) logs the userCode
+the LIVE server issued + does one poll (pending expected), WITHOUT completing
+the browser step. Never logs the token.

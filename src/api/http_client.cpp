@@ -732,19 +732,30 @@ void HttpClient::send_message_streaming(const std::string& session_id,
     sink.emit_done(final);
 }
 
-// --- Device-code auth transport (Phase AUTH) --------------------------------// The real HTTP POST behind DeviceCodeFlow. It reads the ORIGIN from cfg
-// (base_url) and posts to cfg-supplied paths; nothing about any endpoint is
+// --- Device-code auth transport (Phase AUTH) --------------------------------
+// The real HTTP calls behind DeviceCodeFlow. The auth endpoints are SIBLINGS
+// of the API (e.g. /api/cli/auth/* is NOT under base_url's /api/v1 prefix), so
+// this uses the ORIGIN (scheme+host) — cfg.auth_base_url when set, else
+// base_url's origin (its path prefix is dropped). Nothing about any HOST is
 // hardcoded. TLS-guarded exactly like get(): an https origin without a TLS
-// build fails cleanly (no abort), and the flow surfaces that as a Failed state.
+// build fails cleanly (no abort), surfaced by the flow as a Failed state.
+// `method` is "GET" (poll; `query` appended as "?...") or "POST" (code; JSON
+// `body`).
 AuthTransport make_http_auth_transport(const Config& cfg) {
-    return [cfg](const std::string& path,
+    return [cfg](const std::string& method, const std::string& path,
+                 const std::string& query,
                  const std::string& body) -> AuthResponse {
         AuthResponse out;
-        if (cfg.base_url.empty()) {
+        // Auth base: explicit auth_base_url, else the ORIGIN of base_url (drop
+        // any path prefix — the auth paths are siblings of the API prefix).
+        const std::string base =
+            !cfg.auth_base_url.empty() ? cfg.auth_base_url : cfg.base_url;
+        if (base.empty()) {
             out.error = "auth transport: no base URL configured";
             return out;
         }
-        SplitUrl s = split_url(cfg.base_url);
+        SplitUrl s = split_url(base);
+        // Deliberately ignore s.prefix: auth endpoints are origin-relative.
 
 #ifndef HANABI_ENABLE_TLS
         if (s.origin.rfind("https://", 0) == 0) {
@@ -762,17 +773,21 @@ AuthTransport make_http_auth_transport(const Config& cfg) {
             httplib::Headers headers;
             headers.emplace("Accept", "application/json");
 
-            auto res = cli.Post((s.prefix + path).c_str(), headers, body,
-                                "application/json");
+            std::string full = path;
+            if (method == "GET" && !query.empty()) full += "?" + query;
+
+            httplib::Result res =
+                (method == "GET")
+                    ? cli.Get(full.c_str(), headers)
+                    : cli.Post(path.c_str(), headers, body, "application/json");
             if (!res) {
                 out.error = "auth request failed (no response)";
                 return out;
             }
             out.status = res->status;
             out.body = res->body;
-            // A device-code flow reports "pending" via a 400 + a JSON error
-            // body, so 4xx is NOT necessarily a transport failure — hand the
-            // body back and let DeviceCodeFlow interpret it. Only a genuinely
+            // Hand the status + body back and let DeviceCodeFlow interpret it
+            // (it treats a non-2xx as a hard failure). Only a genuinely
             // empty/absent response is a transport error (handled above).
             out.ok = true;
             return out;

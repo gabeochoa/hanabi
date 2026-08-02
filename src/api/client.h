@@ -122,33 +122,52 @@ struct Config {
     std::string event_type_title_update = "title_update";
 
     // --- Device-code auth (Phase AUTH) ------------------------------------
-    // A generic RFC 8628-style device-code flow. NOTHING here names any real
-    // service: the two endpoint paths default EMPTY (so auth is OFF unless
-    // configured) and every JSON field name has a generic default that a
-    // backend can override, exactly like the field_* mapping above.
+    // The REAL navi-CLI device-code flow. NOTHING here names any real HOST:
+    // the base URL is user-supplied (base_url / auth_base_url); only the two
+    // generic navi-CLI PATHS are baked as defaults, and every JSON field name
+    // is overridable, exactly like the field_* mapping above.
     //
-    //   HANABI_AUTH_DEVICE_PATH  POST -> {device_code,user_code,verification_uri,
-    //                            interval,expires_in}     (empty = auth disabled)
-    //   HANABI_AUTH_TOKEN_PATH   POST (poll) -> {access_token,...} or
-    //                            {error:"authorization_pending"} (empty = disabled)
-    //   HANABI_AUTH_CLIENT_ID    optional client_id sent in the request body
-    //   HANABI_AUTH_SCOPE        optional scope sent in the request body
-    std::string auth_device_path;  // empty by default: auth is opt-in
-    std::string auth_token_path;   // empty by default: auth is opt-in
-    std::string auth_client_id;
-    std::string auth_scope;
+    // The flow (client mints its OWN device code — no client_id/secret):
+    //   1. POST {auth_device_path}  body {deviceCode:<UUIDv4>,clientType:"cli"}
+    //      -> {userCode:"<short>", authUrl:"<url to open>"}. (empty path = off)
+    //   2. User opens authUrl in a browser and approves.
+    //   3. GET  {auth_token_path}?<field_poll_query>=<deviceCode>  every 2s
+    //      -> {status:"pending"} | {status:"authorized",token:"<bearer>"}.
+    //
+    //   HANABI_AUTH_DEVICE_PATH  code-request path  (default /api/cli/auth/code)
+    //   HANABI_AUTH_TOKEN_PATH   poll path          (default /api/cli/auth/poll)
+    //   HANABI_AUTH_BASE_URL     override the auth ORIGIN. The auth paths are
+    //                            SIBLINGS of the API (e.g. /api/cli/auth/* is
+    //                            NOT under base_url's /api/v1 prefix), so by
+    //                            default the auth transport uses base_url's
+    //                            scheme+host ORIGIN (dropping any path prefix).
+    //                            Set this to point auth at a different origin.
+    std::string auth_device_path = "/api/cli/auth/code";  // navi-CLI default
+    std::string auth_token_path = "/api/cli/auth/poll";   // navi-CLI default
+    std::string auth_base_url;     // empty => derive origin from base_url
+    std::string auth_client_type = "cli";  // sent as clientType in the body
+
+    // Poll interval in seconds (the real backend wants 2s). Overridable but
+    // NOT read from the code response (which carries no interval).
+    int64_t auth_poll_interval = 2;
+    // How long (seconds) to keep polling before giving up -> Expired. The code
+    // response carries no expiry, so this is a client-side ceiling. 0 = never.
+    int64_t auth_expires_in = 600;
+
+    // Request field-name mapping (device-code POST body).
+    std::string field_device_code = "deviceCode";
+    std::string field_client_type = "clientType";
+    // Poll query-param name carrying the deviceCode (GET ?code=<deviceCode>).
+    std::string field_poll_query = "code";
 
     // Response field-name mapping for the device-code flow (all overridable).
-    std::string field_device_code = "device_code";
-    std::string field_user_code = "user_code";
-    std::string field_verification_uri = "verification_uri";
-    std::string field_interval = "interval";
-    std::string field_expires_in = "expires_in";
-    std::string field_access_token = "access_token";
-    std::string field_refresh_token = "refresh_token";
-    std::string field_auth_error = "error";
-    // The sentinel error value that means "keep polling".
-    std::string auth_pending_value = "authorization_pending";
+    std::string field_user_code = "userCode";
+    std::string field_auth_url = "authUrl";
+    std::string field_auth_status = "status";
+    std::string field_token = "token";
+    // The status VALUES the poll response reports (all overridable).
+    std::string auth_status_pending = "pending";
+    std::string auth_status_authorized = "authorized";
 
     // Load from environment. Returns a Config with backend defaulted to "mock"
     // when nothing is configured.

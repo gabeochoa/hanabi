@@ -1,14 +1,14 @@
 // Unit tests for the PURE device-code auth state machine (Phase AUTH).
 //
 // Drives api::DeviceCodeFlow end-to-end against a FAKE in-process transport —
-// NO real network, NO real service, NO real endpoint. Proves the full state
-// machine: request -> authorization_pending x N -> success -> token; plus the
-// expired path and the failure path. The fake transport is a tiny scripted
-// server implemented right here, exactly the "mock auth server in the test
-// layer" the spec calls for.
+// NO real network, NO real service, NO real HOST. Proves the REAL navi-CLI
+// shapes: the client mints its OWN deviceCode (UUIDv4), POSTs {deviceCode,
+// clientType} -> {userCode,authUrl}, then GET-polls ?code=<deviceCode> ->
+// {status:"pending"} x N -> {status:"authorized",token}. Plus the expired
+// path (client-side ceiling) and hard-failure paths. The fake transport is a
+// tiny scripted server implemented right here.
 #include <cstdio>
 #include <string>
-#include <vector>
 
 #include "../../src/api/auth.h"
 
@@ -24,58 +24,80 @@ static int g_failures = 0;
 using State = api::DeviceCodeFlow::State;
 
 // A generic config wired for the flow. All values are GENERIC placeholders —
-// nothing names any real service.
+// nothing names any real HOST.
 static api::Config auth_cfg() {
     api::Config c;
     c.backend = "http";
-    c.base_url = "http://example.invalid/api";
-    c.auth_device_path = "/auth/device";
-    c.auth_token_path = "/auth/token";
-    // field_* + auth_pending_value use their defaults (device_code, user_code,
-    // verification_uri, interval, expires_in, access_token, error,
-    // "authorization_pending").
+    c.base_url = "http://example.invalid/api/v1";
+    // Paths default to the navi-CLI generic paths; field names default to the
+    // real shape (deviceCode, clientType, userCode, authUrl, status, token,
+    // pending/authorized). Use a snappy poll interval + short ceiling.
+    c.auth_poll_interval = 2;
+    c.auth_expires_in = 30;
     return c;
 }
 
-// Fake device-code response body.
-static std::string device_body(int interval, int expires_in) {
-    return std::string("{\"device_code\":\"DEV-abc\",\"user_code\":\"WXYZ-1234\",")
-         + "\"verification_uri\":\"http://example.invalid/activate\","
-         + "\"interval\":" + std::to_string(interval) + ","
-         + "\"expires_in\":" + std::to_string(expires_in) + "}";
+// True iff `s` looks like a RFC-4122 v4 UUID (8-4-4-4-12 hex, version nibble 4,
+// variant nibble in {8,9,a,b}).
+static bool is_uuid_v4(const std::string& s) {
+    if (s.size() != 36) return false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        char ch = s[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (ch != '-') return false;
+        } else {
+            bool hex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
+                       (ch >= 'A' && ch <= 'F');
+            if (!hex) return false;
+        }
+    }
+    return s[14] == '4' &&
+           (s[19] == '8' || s[19] == '9' || s[19] == 'a' || s[19] == 'b' ||
+            s[19] == 'A' || s[19] == 'B');
 }
 
-// --- Happy path: request -> pending x3 -> success -> token ------------------
+// --- Happy path: request -> pending x3 -> authorized -> token ---------------
 static void test_full_flow_success() {
     std::printf("test_full_flow_success\n");
     api::Config c = auth_cfg();
 
-    // Scripted fake server: first device POST returns the code; then the token
-    // POST returns authorization_pending 3 times, then the real token.
-    int token_calls = 0;
-    int device_calls = 0;
-    api::AuthTransport fake = [&](const std::string& path,
+    int poll_calls = 0;
+    int code_calls = 0;
+    std::string minted;  // the UUID the flow put in the body / query
+    api::AuthTransport fake = [&](const std::string& method,
+                                  const std::string& path,
+                                  const std::string& query,
                                   const std::string& body) {
         api::AuthResponse r;
         r.ok = true;
-        if (path == c.auth_device_path) {
-            ++device_calls;
-            // The request body carries no client_id/scope here (unset in cfg).
-            CHECK(body.find("client_id") == std::string::npos);
-            r.body = device_body(/*interval=*/5, /*expires_in=*/300);
+        r.status = 200;
+        if (method == "POST" && path == c.auth_device_path) {
+            ++code_calls;
+            // The body carries a UUIDv4 deviceCode + clientType:"cli".
+            CHECK(body.find("\"clientType\":\"cli\"") != std::string::npos);
+            CHECK(body.find("deviceCode") != std::string::npos);
+            // Extract the deviceCode value for the poll-echo check.
+            auto p = body.find("\"deviceCode\":\"");
+            if (p != std::string::npos) {
+                p += 14;
+                auto e = body.find('"', p);
+                minted = body.substr(p, e - p);
+            }
+            CHECK(is_uuid_v4(minted));
+            r.body = "{\"userCode\":\"ZKRFZQ\",\"authUrl\":\"http://example."
+                     "invalid/cli/auth?code=ZKRFZQ\"}";
             return r;
         }
-        // token path
-        ++token_calls;
-        // The token request must echo the device_code we were issued + a grant.
-        CHECK(body.find("DEV-abc") != std::string::npos);
-        CHECK(body.find("grant_type") != std::string::npos);
-        if (token_calls <= 3) {
-            r.status = 400;
-            r.body = "{\"error\":\"authorization_pending\"}";
+        // Poll path: GET with ?code=<deviceCode>.
+        CHECK(method == "GET");
+        CHECK(path == c.auth_token_path);
+        CHECK(query == "code=" + minted);
+        ++poll_calls;
+        if (poll_calls <= 3) {
+            r.body = "{\"status\":\"pending\"}";
         } else {
-            r.body = "{\"access_token\":\"tok-secret-xyz\","
-                     "\"refresh_token\":\"refresh-abc\"}";
+            r.body = "{\"status\":\"authorized\",\"token\":\"tok-secret-xyz\","
+                     "\"userId\":\"u1\"}";
         }
         return r;
     };
@@ -83,99 +105,118 @@ static void test_full_flow_success() {
     api::DeviceCodeFlow flow(c, fake);
     int64_t now = 1000;
     CHECK(flow.begin(now) == State::AwaitingUser);
-    CHECK(device_calls == 1);
-    CHECK(flow.user_code() == "WXYZ-1234");
-    CHECK(flow.verification_uri() == "http://example.invalid/activate");
-    CHECK(flow.current_state() == State::AwaitingUser);
+    CHECK(code_calls == 1);
+    CHECK(is_uuid_v4(flow.device_code()));
+    CHECK(flow.user_code() == "ZKRFZQ");
+    CHECK(flow.verification_uri() ==
+          "http://example.invalid/cli/auth?code=ZKRFZQ");
 
     // Polling before the interval elapses is a no-op (no network call).
     CHECK(flow.poll_step(now) == State::AwaitingUser);
-    CHECK(token_calls == 0);
-    CHECK(flow.poll_step(now + 2) == State::AwaitingUser);
-    CHECK(token_calls == 0);
+    CHECK(poll_calls == 0);
+    CHECK(flow.poll_step(now + 1) == State::AwaitingUser);
+    CHECK(poll_calls == 0);
 
-    // Advance past each interval: 3 pending polls keep us AwaitingUser.
-    now += 5;
+    // Advance past each 2s interval: 3 pending polls keep us AwaitingUser.
+    now += 2;
     CHECK(flow.poll_step(now) == State::AwaitingUser);  // poll #1 pending
-    now += 5;
+    now += 2;
     CHECK(flow.poll_step(now) == State::AwaitingUser);  // poll #2 pending
-    now += 5;
+    now += 2;
     CHECK(flow.poll_step(now) == State::AwaitingUser);  // poll #3 pending
-    CHECK(token_calls == 3);
+    CHECK(poll_calls == 3);
 
     // 4th poll returns the token.
-    now += 5;
+    now += 2;
     CHECK(flow.poll_step(now) == State::Success);
-    CHECK(token_calls == 4);
+    CHECK(poll_calls == 4);
     CHECK(flow.token() == "tok-secret-xyz");
-    CHECK(flow.refresh_token() == "refresh-abc");
 
     // Further polls after success are no-ops.
     CHECK(flow.poll_step(now + 100) == State::Success);
-    CHECK(token_calls == 4);
+    CHECK(poll_calls == 4);
 }
 
-// --- Expired path: user never approves; deadline passes ---------------------
+// --- Expired path: user never approves; client-side ceiling passes ----------
 static void test_expired_path() {
     std::printf("test_expired_path\n");
-    api::Config c = auth_cfg();
-    int token_calls = 0;
-    api::AuthTransport fake = [&](const std::string& path,
+    api::Config c = auth_cfg();  // expires_in = 30
+    int poll_calls = 0;
+    api::AuthTransport fake = [&](const std::string& method,
+                                  const std::string& path, const std::string&,
                                   const std::string&) {
         api::AuthResponse r;
         r.ok = true;
-        if (path == c.auth_device_path) {
-            r.body = device_body(/*interval=*/5, /*expires_in=*/30);
+        r.status = 200;
+        if (method == "POST" && path == c.auth_device_path) {
+            r.body = "{\"userCode\":\"AAAA11\",\"authUrl\":\"http://x/y\"}";
             return r;
         }
-        ++token_calls;
-        r.status = 400;
-        r.body = "{\"error\":\"authorization_pending\"}";
+        ++poll_calls;
+        r.body = "{\"status\":\"pending\"}";
         return r;
     };
 
     api::DeviceCodeFlow flow(c, fake);
     int64_t now = 1000;
     CHECK(flow.begin(now) == State::AwaitingUser);
-    // A couple of pending polls…
-    CHECK(flow.poll_step(now + 5) == State::AwaitingUser);
-    CHECK(flow.poll_step(now + 10) == State::AwaitingUser);
-    CHECK(token_calls == 2);
-    // …then time passes the 30s deadline -> Expired, and no further poll fires.
+    CHECK(flow.poll_step(now + 2) == State::AwaitingUser);
+    CHECK(flow.poll_step(now + 4) == State::AwaitingUser);
+    CHECK(poll_calls == 2);
+    // …then time passes the 30s ceiling -> Expired, no further poll fires.
     CHECK(flow.poll_step(now + 31) == State::Expired);
-    CHECK(token_calls == 2);
+    CHECK(poll_calls == 2);
     CHECK(flow.current_state() == State::Expired);
 }
 
-// --- Failure path: backend denies authorization -----------------------------
+// --- Failure path: server reports an unexpected status ----------------------
 static void test_failure_path() {
     std::printf("test_failure_path\n");
     api::Config c = auth_cfg();
-    api::AuthTransport fake = [&](const std::string& path,
+    api::AuthTransport fake = [&](const std::string& method,
+                                  const std::string& path, const std::string&,
                                   const std::string&) {
         api::AuthResponse r;
         r.ok = true;
-        if (path == c.auth_device_path) {
-            r.body = device_body(5, 300);
+        r.status = 200;
+        if (method == "POST" && path == c.auth_device_path) {
+            r.body = "{\"userCode\":\"BBBB22\",\"authUrl\":\"http://x/y\"}";
             return r;
         }
-        r.status = 400;
-        r.body = "{\"error\":\"access_denied\"}";
+        r.body = "{\"status\":\"denied\"}";
         return r;
     };
 
     api::DeviceCodeFlow flow(c, fake);
     int64_t now = 1000;
     CHECK(flow.begin(now) == State::AwaitingUser);
-    CHECK(flow.poll_step(now + 5) == State::Failed);
-    CHECK(flow.error() == "access_denied");
+    CHECK(flow.poll_step(now + 2) == State::Failed);
+    CHECK(flow.error() == "authorization denied");
 }
 
-// --- begin() failure: transport error on the device request -----------------
+// --- code request returns a non-2xx (bad deviceCode) -> Failed --------------
+static void test_code_http_error() {
+    std::printf("test_code_http_error\n");
+    api::Config c = auth_cfg();
+    api::AuthTransport fake = [&](const std::string&, const std::string&,
+                                  const std::string&, const std::string&) {
+        api::AuthResponse r;
+        r.ok = true;
+        r.status = 400;
+        r.body = "{\"error\":\"bad request\"}";
+        return r;
+    };
+    api::DeviceCodeFlow flow(c, fake);
+    CHECK(flow.begin(1000) == State::Failed);
+    CHECK(!flow.error().empty());
+}
+
+// --- begin() transport failure ----------------------------------------------
 static void test_begin_transport_failure() {
     std::printf("test_begin_transport_failure\n");
     api::Config c = auth_cfg();
-    api::AuthTransport fake = [&](const std::string&, const std::string&) {
+    api::AuthTransport fake = [&](const std::string&, const std::string&,
+                                  const std::string&, const std::string&) {
         api::AuthResponse r;
         r.ok = false;
         r.error = "no response";
@@ -186,43 +227,49 @@ static void test_begin_transport_failure() {
     CHECK(!flow.error().empty());
 }
 
-// --- Not-configured guard: auth_ready() false -> begin fails cleanly --------
+// --- Not-configured guard: no base URL -> auth_ready() false ----------------
 static void test_not_configured() {
     std::printf("test_not_configured\n");
-    api::Config c;  // defaults: no auth paths -> auth_ready() false
+    api::Config c;  // no base_url -> auth_ready() false (mock default)
     CHECK(!c.auth_ready());
-    api::AuthTransport fake = [&](const std::string&, const std::string&) {
+    api::AuthTransport fake = [&](const std::string&, const std::string&,
+                                  const std::string&, const std::string&) {
         return api::AuthResponse{};
     };
     api::DeviceCodeFlow flow(c, fake);
     CHECK(flow.begin(1000) == State::Failed);
 }
 
-// --- client_id/scope threading through the request body ---------------------
-static void test_client_id_in_body() {
-    std::printf("test_client_id_in_body\n");
+// --- UUIDv4 generator sanity: distinct + well-formed ------------------------
+static void test_uuid_generation() {
+    std::printf("test_uuid_generation\n");
+    std::string a = api::DeviceCodeFlow::make_uuid_v4();
+    std::string b = api::DeviceCodeFlow::make_uuid_v4();
+    CHECK(is_uuid_v4(a));
+    CHECK(is_uuid_v4(b));
+    CHECK(a != b);
+}
+
+// --- authorized-but-missing-token is a failure ------------------------------
+static void test_authorized_missing_token() {
+    std::printf("test_authorized_missing_token\n");
     api::Config c = auth_cfg();
-    c.auth_client_id = "generic-client";
-    c.auth_scope = "read";
-    bool saw_client = false;
-    api::AuthTransport fake = [&](const std::string& path,
-                                  const std::string& body) {
+    api::AuthTransport fake = [&](const std::string& method,
+                                  const std::string& path, const std::string&,
+                                  const std::string&) {
         api::AuthResponse r;
         r.ok = true;
-        if (path == c.auth_device_path) {
-            if (body.find("generic-client") != std::string::npos &&
-                body.find("read") != std::string::npos)
-                saw_client = true;
-            r.body = device_body(5, 300);
-        } else {
-            r.body = "{\"access_token\":\"t\"}";
+        r.status = 200;
+        if (method == "POST" && path == c.auth_device_path) {
+            r.body = "{\"userCode\":\"CCCC33\",\"authUrl\":\"http://x/y\"}";
+            return r;
         }
+        r.body = "{\"status\":\"authorized\"}";  // no token
         return r;
     };
     api::DeviceCodeFlow flow(c, fake);
     CHECK(flow.begin(1000) == State::AwaitingUser);
-    CHECK(saw_client);
-    CHECK(flow.poll_step(1005) == State::Success);
+    CHECK(flow.poll_step(1002) == State::Failed);
 }
 
 int main() {
@@ -230,9 +277,11 @@ int main() {
     test_full_flow_success();
     test_expired_path();
     test_failure_path();
+    test_code_http_error();
     test_begin_transport_failure();
     test_not_configured();
-    test_client_id_in_body();
+    test_uuid_generation();
+    test_authorized_missing_token();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

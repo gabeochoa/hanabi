@@ -1,6 +1,8 @@
 #include <argh.h>
 
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <thread>
 #include <memory>
 #include <unistd.h>
@@ -117,23 +119,47 @@ static void setup_app_state() {
         // Screenshot affordance: force the overlay into AwaitingUser with a
         // FAKE code + URL (no real service, no network) so the panel can be
         // captured headlessly. Mirrors HANABI_VIEW.
-        cfg.auth_device_path = cfg.auth_device_path.empty()
-                                   ? "/auth/device"
-                                   : cfg.auth_device_path;
-        cfg.auth_token_path =
-            cfg.auth_token_path.empty() ? "/auth/token" : cfg.auth_token_path;
         app.authFlow = std::make_shared<api::DeviceCodeFlow>(
-            cfg, [](const std::string&, const std::string&) {
+            cfg, [](const std::string&, const std::string&,
+                    const std::string&, const std::string&) {
                 return api::AuthResponse{};  // never called in demo mode
             });
-        app.authFlow->set_demo_awaiting("WXYZ-1234",
-                                        "https://example.invalid/activate");
+        app.authFlow->set_demo_awaiting("ZKRFZQ",
+                                        "https://example.invalid/cli/auth?code=ZKRFZQ");
         app.showAuth = true;
     } else if (cfg.auth_ready() && cfg.backend == "http" && cfg.token.empty()) {
         app.authFlow = std::make_shared<api::DeviceCodeFlow>(
             cfg, api::make_http_auth_transport(cfg));
         app.authConfig = cfg;  // remembered so success can rebuild the client
         app.authFlow->begin(now_epoch_seconds());
+        // Real-run proof aid (opt-in): log the userCode the LIVE server issued
+        // WITHOUT completing the browser step. Never logs the token. Enabled
+        // with HANABI_AUTH_LOG=1 so a normal run stays silent.
+        if (const char* lg = std::getenv("HANABI_AUTH_LOG"); lg && *lg &&
+            std::string(lg) != "0") {
+            using S = api::DeviceCodeFlow::State;
+            const auto st = app.authFlow->current_state();
+            if (st == S::AwaitingUser) {
+                std::fprintf(stderr,
+                             "[HANABI_AUTH] awaiting user: userCode=%s "
+                             "authUrl=%s\n",
+                             app.authFlow->user_code().c_str(),
+                             app.authFlow->verification_uri().c_str());
+                // One poll to prove the poll round-trips (pending expected).
+                app.authFlow->poll_step(now_epoch_seconds() +
+                                        cfg.auth_poll_interval);
+                std::fprintf(stderr, "[HANABI_AUTH] after one poll: state=%s\n",
+                             app.authFlow->current_state() == S::AwaitingUser
+                                 ? "AwaitingUser(pending)"
+                                 : "terminal");
+            } else {
+                std::fprintf(stderr,
+                             "[HANABI_AUTH] begin() did not reach AwaitingUser "
+                             "(error=%s)\n",
+                             app.authFlow->error().c_str());
+            }
+            std::fflush(stderr);
+        }
         app.showAuth = true;
         // Do not fire the initial list refresh until we have a token.
         app.requestListRefresh = false;

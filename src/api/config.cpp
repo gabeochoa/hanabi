@@ -94,17 +94,23 @@ void load_config_file(Config& c) {
     // auth OFF.
     str("auth_device_path", c.auth_device_path);
     str("auth_token_path", c.auth_token_path);
-    str("auth_client_id", c.auth_client_id);
-    str("auth_scope", c.auth_scope);
+    str("auth_base_url", c.auth_base_url);
+    str("auth_client_type", c.auth_client_type);
     str("field_device_code", c.field_device_code);
+    str("field_client_type", c.field_client_type);
+    str("field_poll_query", c.field_poll_query);
     str("field_user_code", c.field_user_code);
-    str("field_verification_uri", c.field_verification_uri);
-    str("field_interval", c.field_interval);
-    str("field_expires_in", c.field_expires_in);
-    str("field_access_token", c.field_access_token);
-    str("field_refresh_token", c.field_refresh_token);
-    str("field_auth_error", c.field_auth_error);
-    str("auth_pending_value", c.auth_pending_value);
+    str("field_auth_url", c.field_auth_url);
+    str("field_auth_status", c.field_auth_status);
+    str("field_token", c.field_token);
+    str("auth_status_pending", c.auth_status_pending);
+    str("auth_status_authorized", c.auth_status_authorized);
+    auto num = [&](const char* key, int64_t& dst) {
+        if (j.contains(key) && j.at(key).is_number_integer())
+            dst = j.at(key).get<int64_t>();
+    };
+    num("auth_poll_interval", c.auth_poll_interval);
+    num("auth_expires_in", c.auth_expires_in);
 }
 }  // namespace
 
@@ -172,27 +178,38 @@ Config Config::from_env() {
     c.field_block_text_type =
         env_or("HANABI_FIELD_BLOCK_TEXT_TYPE", c.field_block_text_type);
 
-    // Device-code auth (Phase AUTH). Endpoint paths default EMPTY, so auth is
-    // opt-in: with neither set, auth_ready() is false and the app behaves
-    // exactly as before. No real endpoint/client_id is baked in anywhere.
-    c.auth_device_path = env_or("HANABI_AUTH_DEVICE_PATH", c.auth_device_path);
+    // Device-code auth (Phase AUTH). The REAL navi-CLI flow. Endpoint paths
+    // default to the generic navi-CLI paths (siblings of the API, hence the
+    // separate auth ORIGIN); with an unconfigured backend (no base_url) or a
+    // static/stored token, auth_ready()/the main.cpp gate keep auth OFF. No
+    // real HOST or client_id/secret is baked in anywhere.
+    c.auth_device_path =
+        env_or("HANABI_AUTH_DEVICE_PATH", c.auth_device_path);
     c.auth_token_path = env_or("HANABI_AUTH_TOKEN_PATH", c.auth_token_path);
-    c.auth_client_id = env_or("HANABI_AUTH_CLIENT_ID", c.auth_client_id);
-    c.auth_scope = env_or("HANABI_AUTH_SCOPE", c.auth_scope);
+    c.auth_base_url = env_or("HANABI_AUTH_BASE_URL", c.auth_base_url);
+    c.auth_client_type =
+        env_or("HANABI_AUTH_CLIENT_TYPE", c.auth_client_type);
     c.field_device_code =
         env_or("HANABI_FIELD_DEVICE_CODE", c.field_device_code);
+    c.field_client_type =
+        env_or("HANABI_FIELD_CLIENT_TYPE", c.field_client_type);
+    c.field_poll_query =
+        env_or("HANABI_FIELD_POLL_QUERY", c.field_poll_query);
     c.field_user_code = env_or("HANABI_FIELD_USER_CODE", c.field_user_code);
-    c.field_verification_uri =
-        env_or("HANABI_FIELD_VERIFICATION_URI", c.field_verification_uri);
-    c.field_interval = env_or("HANABI_FIELD_INTERVAL", c.field_interval);
-    c.field_expires_in = env_or("HANABI_FIELD_EXPIRES_IN", c.field_expires_in);
-    c.field_access_token =
-        env_or("HANABI_FIELD_ACCESS_TOKEN", c.field_access_token);
-    c.field_refresh_token =
-        env_or("HANABI_FIELD_REFRESH_TOKEN", c.field_refresh_token);
-    c.field_auth_error = env_or("HANABI_FIELD_AUTH_ERROR", c.field_auth_error);
-    c.auth_pending_value =
-        env_or("HANABI_AUTH_PENDING_VALUE", c.auth_pending_value);
+    c.field_auth_url = env_or("HANABI_FIELD_AUTH_URL", c.field_auth_url);
+    c.field_auth_status =
+        env_or("HANABI_FIELD_AUTH_STATUS", c.field_auth_status);
+    c.field_token = env_or("HANABI_FIELD_TOKEN", c.field_token);
+    c.auth_status_pending =
+        env_or("HANABI_AUTH_STATUS_PENDING", c.auth_status_pending);
+    c.auth_status_authorized =
+        env_or("HANABI_AUTH_STATUS_AUTHORIZED", c.auth_status_authorized);
+    if (const char* v = std::getenv("HANABI_AUTH_POLL_INTERVAL"); v && *v) {
+        try { c.auth_poll_interval = std::stoll(v); } catch (...) {}
+    }
+    if (const char* v = std::getenv("HANABI_AUTH_EXPIRES_IN"); v && *v) {
+        try { c.auth_expires_in = std::stoll(v); } catch (...) {}
+    }
 
     return c;
 }
