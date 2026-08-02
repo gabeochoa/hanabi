@@ -18,6 +18,8 @@
 #include "tab_model.h"
 #include "ui_imports.h"
 
+#include "../ui/icons.h"
+
 // Clipboard seam (afterhours plugin, sokol-backed under AFTER_HOURS_USE_METAL
 // which the app build defines). Used by the tab context menu's "Copy Navi
 // URL". graphics.h (already transitively included via ui_imports->rl->ah) pulls
@@ -488,7 +490,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     RectangleType{closeX, closeY, closeW, closeW});
             button(ctx, mk(uiRoot, 950 + static_cast<int>(i)),
                 ComponentConfig{}
-                    .with_label("\xc3\x97")
+                    .with_label(" ")
                     .with_size(ComponentSize{pixels(closeW), pixels(closeW)})
                     .with_absolute_position()
                     .with_translate(closeX, closeY)
@@ -505,6 +507,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.2f)
                     .with_render_layer(baseLayer + 1)
+                    // Lucide "close" sprite (atlas); \xc3\x97 unicode fallback.
+                    // Tint tracks hover the same as the text color did.
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "close", "\xc3\x97",
+                        closeHovered ? tab_colors::tab_text_act()
+                                     : tab_colors::tab_text(),
+                        11.0f))
                     .with_debug_name("tab_close"));
             if (closeHovered && ctx.mouse.just_pressed) {
                 // A press on × is a close, not a drag — drop any candidate.

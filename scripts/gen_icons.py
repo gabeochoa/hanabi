@@ -51,6 +51,8 @@ ICONS = [
     ("fold_all",     "chevrons-down-up"), # fold-all header
     ("clock",        "clock"),            # ⏱ attention / waiting (gap #19)
     ("automated",    "repeat"),           # ⟳ automated / scheduled / cron (gap #20)
+    ("close",        "x"),                # ✕ close buttons (tab/composer/settings/search-clear)
+    ("archive",      "archive"),          # ▤ Archived smart view (was the last TODO(icon-atlas))
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on

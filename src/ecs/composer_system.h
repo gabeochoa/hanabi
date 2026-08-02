@@ -21,6 +21,8 @@
 
 #include "ui_imports.h"
 
+#include "../ui/icons.h"
+
 namespace ecs {
 
 struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
@@ -120,7 +122,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
 
         auto closeBtn = button(ctx, mk(header.ent(), 2),
             ComponentConfig{}
-                .with_label("\xc3\x97")
+                .with_label(" ")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
@@ -131,6 +133,9 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.3f)
+                // Lucide "close" sprite (atlas); unicode \xc3\x97 is the fallback.
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "close", "\xc3\x97", theme::text_secondary(), 14.0f))
                 .with_debug_name("composer_close"));
         if (closeBtn) app.composerOpen = false;
     }

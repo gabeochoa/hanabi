@@ -138,10 +138,9 @@ draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
         //
         // TODO(icon-atlas): a fallback firing here means `name` has NO sprite in
         // the Lucide atlas (src/ui/icons_atlas.h) and we're drawing a stand-in
-        // unicode glyph. Every fallback is a sprite we still owe. Missing
-        // sprites known today (add to the spritesheet + icons_atlas.h, then drop
-        // the fallback glyph at the call site):
-        //   - "archive"  (Archived smart view)  — currently the box glyph U+25A4
+        // unicode glyph. Every fallback is a sprite we still owe. As of the
+        // Phase H sweep, all chrome icons — including "close" and "archive" —
+        // have real Lucide sprites; there are no known-missing sprites today.
         // CONVENTION: whenever you call draw_fg() with a name that isn't in the
         // atlas, add a `// TODO(icon-atlas): <name> sprite missing` at the call
         // site so we can come back and cut the real Lucide sprite.

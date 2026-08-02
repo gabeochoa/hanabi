@@ -894,7 +894,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (hasQuery) {
             auto clr = button(ctx, mk(field.ent(), 3),
                 ComponentConfig{}
-                    .with_label("\xc3\x97")
+                    .with_label(" ")
                     .with_size(ComponentSize{pixels(18), pixels(20)})
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
@@ -906,6 +906,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.3f)
+                    // Lucide "close" sprite (atlas); \xc3\x97 unicode fallback.
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "close", "\xc3\x97", theme::text_faint(), 12.0f))
                     .with_debug_name("sb_search_clear"));
             if (clr) app.searchQuery.clear();
         }
@@ -1082,7 +1085,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    SmartView::Review, review, app, folded, panelW);
         smart_item(ctx, container.ent(), 4, "star", "\xe2\x98\x85", "Starred",
                    SmartView::Starred, starred, app, folded, panelW);
-        // TODO(icon-atlas): "archive" sprite missing — using U+25A4 box fallback; cut the real Lucide archive sprite into icons_atlas.h and drop this fallback glyph.
+        // "archive" now has a real Lucide sprite in the atlas; \xe2\x96\xa4 stays as fallback.
         smart_item(ctx, container.ent(), 5, "archive", "\xe2\x96\xa4",
                    "Archived", SmartView::Archived, archived, app, folded,
                    panelW);
