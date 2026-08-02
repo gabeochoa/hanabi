@@ -446,15 +446,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static Entity& centered_wrap(UIContext<InputAction>& ctx, Entity& scroll,
                                  int id, float innerW,
-                                 float cap = kWrapCap, bool center = false) {
+                                 float cap = kWrapCap, bool center = false,
+                                 float availW = 0.0f) {
         float wrapW = innerW < cap ? innerW : cap;
+        (void)center;
+        (void)availW;
         auto row = div(ctx, mk(scroll, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(center ? JustifyContent::Center
-                                             : JustifyContent::FlexStart)
+                .with_justify_content(JustifyContent::FlexStart)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sv_center"));
@@ -1505,17 +1507,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float listH = paneH - kHeaderH - kComposerH;
         if (listH < 20.0f) listH = 20.0f;
 
+        // Modern-chat centering: the transcript reads best in a ~720px column
+        // centered in the pane. afterhours won't center a fixed child inside a
+        // content-collapsing scroll, so we center via the scroll's OWN L/R
+        // padding: gutter = (paneW - 720)/2, clamped to a sane minimum. On a
+        // narrow pane the gutter floors and the column just uses the width.
+        constexpr float kReadCol = 720.0f;
+        float gutter = (paneW - kReadCol) * 0.5f;
+        if (gutter < kContentInset) gutter = kContentInset;
+
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
                 .with_custom_background(theme::panel_bg())
-                // Left inset matches the header (kContentInset) so message left
-                // edges line up under the title. Right is a hair less to leave
-                // room for the overlay scrollbar (gap #26).
+                // Symmetric gutters center the reading column; a small extra
+                // 6px is trimmed on the right for the overlay scrollbar strip.
                 .with_padding(Padding{.top = pixels(8),
-                                      .right = pixels(kContentInset - 6.0f),
+                                      .right = pixels(gutter - 6.0f),
                                       .bottom = pixels(10),
-                                      .left = pixels(kContentInset)})
+                                      .left = pixels(gutter)})
                 .with_debug_name("transcript_scroll"));
         // TEMPORARY scroll indicator (afterhours gap #26): afterhours has no
         // built-in scrollbar, so paint a thin overlay bar from the panel's live
@@ -1550,11 +1560,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // instead of letting messages hug the left edge of a wide window with
         // dead space on the right. ~720px keeps assistant prose at a readable
         // ~90-char measure; on a narrow pane it falls back to the full width.
-        constexpr float kMsgCol = 720.0f;
-        float innerW = paneW - 36.0f;
-        float colW = innerW < kMsgCol ? innerW : kMsgCol;
-        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, kMsgCol,
-                                    /*center=*/true);
+        // The scroll's symmetric gutters (above) already center the reading
+        // area to ~720px, so the message column just fills the padded content
+        // width. centered_wrap here only stacks the messages (no re-centering).
+        float colW = paneW - 2.0f * gutter;
+        if (colW < 120.0f) colW = 120.0f;
+        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, colW);
 
         render_cache().reset_for_thread(app.openSession->summary.id);
 
@@ -2784,39 +2795,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // suppress the repeated name. The timestamp rides on the author row, so
         // when suppressed the fragment is just its body (tight continuation).
         if (showAuthor) {
-        std::string who = "hanabi";
-        if (!m.subtitle.empty()) who += "  \xc2\xb7  " + m.subtitle;
+        // Chat redesign #2: DROP the per-turn green "hanabi" author label — it
+        // was the strongest "log viewer" tell (both design critics flagged it).
+        // Modern chat (ChatGPT/Claude/Gemini) makes the assistant plain
+        // left-aligned document text; the right-aligned user bubble is the only
+        // role marker needed. We keep only a faint, right-aligned timestamp on
+        // the first message of a turn so exchanges still have a time anchor
+        // (and, if present, the run subtitle) — no colored name.
         std::string ts = isLive ? std::string("streaming\xe2\x80\xa6")
                                 : fmtutil::relative_time(m.created_at);
+        if (!m.subtitle.empty())
+            ts = m.subtitle + (ts.empty() ? "" : ("  \xc2\xb7  " + ts));
         auto arow = div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kAuthorH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_justify_content(JustifyContent::FlexEnd)
                 .with_margin(Margin{.bottom = pixels(kAuthorGap)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("asst_arow"));
-        div(ctx, mk(arow.ent(), 1),
-            ComponentConfig{}
-                .with_label(who)
-                .with_size(ComponentSize{percent(0.7f), pixels(kAuthorH)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::role_assistant())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("asst_who"));
         if (!ts.empty()) {
             div(ctx, mk(arow.ent(), 2),
                 ComponentConfig{}
                     .with_label(ts)
-                    .with_size(ComponentSize{percent(0.3f), pixels(kAuthorH)})
+                    .with_size(ComponentSize{children(), pixels(kAuthorH)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
+                    .with_font_size(theme::type::MICRO)
                     .with_alignment(TextAlignment::Right)
                     .with_roundness(0.0f)
                     .with_debug_name("asst_ts"));

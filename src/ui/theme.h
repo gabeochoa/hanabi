@@ -140,7 +140,7 @@ inline const Tokens kDark = {
     // User bubble = a MUTED NEUTRAL grey (not a saturated blue tint) so it reads
     // as "your message" without competing with the ONE accent (transcript-only
     // token — the Navi-web-chat look: quiet grey right-aligned bubble).
-    /*bubble_user_bg*/ {52, 53, 60, 255},
+    /*bubble_user_bg*/ {46, 46, 48, 255},
     /*bubble_assistant_bg*/ {34, 46, 40, 255},
     /*bubble_other_bg*/ {44, 44, 52, 255},
 
