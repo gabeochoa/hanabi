@@ -58,11 +58,14 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [x] M6 text input on real backend (99dbc4c) + steering (3b0df1b)
 - [x] afterhours gap #28 logged (nested bubble child + on_draw_fg on bg div don't render)
 - [~] M7 settings: Data section added; MORE possible (Connection/backend, About/version, Notifications toggle)
-- [ ] Local-first #1 (read-primary stale-while-revalidate) — cache exists; make default + header cached/live badge
-- [ ] Local-first #3 (local full-text search over cached transcripts)
+- [x] Local-first #1: 'refreshing…' read-state in transcript header (ddbaa26)
+- [x] Local-first #3: sidebar search matches cached conversation CONTENT (389b4ac)
 - [ ] I1 hover perf / T7 idle-frame — needs afterhours help (incoming) or per-frame reduction
 - [ ] I2 split view
 - [ ] refactor quick-wins (REFACTOR_REVIEW.md): delete dead code, consolidate helpers
 - [B] V3 tab top-round + inline code pills — afterhours patches ready, awaiting maintainer
 - [ ] V8 remaining: sweep the rest of the UI for centered-should-be-edge (beyond settings)
 - [?] API asks -> send to the thread that OWNS api PRs (NOT public PR comment) — need the thread id from Gabe
+
+## MILESTONE: all 5 local-first ideas DONE (#1 read-state, #2 outbox, #3 local search, #4 export, #5 optimistic send) + WhatsApp-style local-vs-synced indicator.
+## refactor quick-wins done: dead code (2329ca5), app_singleton cache (cdd116a).
