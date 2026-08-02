@@ -152,9 +152,7 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
             const char* v = std::getenv("HANABI_LIVE_DEMO");
             return v && *v && std::string(v) != "0";
         }();
-        const bool liveConnected =
-            liveDemo || (!app->subscribedId.empty() && app->eventSub &&
-                         app->subscribedId == app->selectedId);
+        const bool liveConnected = liveDemo || app->openThreadLive;
         if (liveConnected) {
             const long long nowMs =
                 std::chrono::duration_cast<std::chrono::milliseconds>(

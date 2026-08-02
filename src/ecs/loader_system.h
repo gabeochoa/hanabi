@@ -196,8 +196,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // Mock is static -> cache is authoritative (no revalidation).
                 // SEAM: a live backend would kick a background revalidate here
                 // and swap in fresh data if it changed. Not built for the mock.
-                // Bind the live (SSE) subscription to this session.
-                ensure_subscription(app, id);
+                // Live subscriptions are managed by sync_subscriptions()
+                // each frame (one per open tab), so no per-open binding here.
             } else {
                 // MISS in the in-memory LRU. FEATURE #1 (never beachball): the
                 // disk-cache read USED to happen synchronously RIGHT HERE, on
@@ -232,8 +232,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.transcriptFuture = std::async(
                     std::launch::async,
                     [c, id] { return c->get_session(id, kMessagesWindow); });
-                // Bind the live (SSE) subscription to this session.
-                ensure_subscription(app, id);
+                // Live subscriptions are managed by sync_subscriptions()
+                // each frame (one per open tab), so no per-open binding here.
             }
         }
         // Poll the worker-thread disk-cache read (stale paint). Lands ahead of
@@ -379,6 +379,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
         drive_stream(app);
         drive_load_older(app);
+        sync_subscriptions(app);
         drive_live_events(app);
         drive_send_queue(app);
         drive_settings(app);
@@ -506,25 +507,55 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // refetch is a std::async future polled here (same pattern as
     // transcriptFuture). The subscription itself is opened/torn-down by
     // ensure_subscription() on thread open/switch.
+    // Poll EVERY open thread's live subscription. For each subscription whose
+    // SSE worker flagged activity (debounced), kick a BACKGROUND refetch of that
+    // thread's newest-N and write the fresh transcript straight to the disk
+    // cache — even for threads that aren't currently focused — so switching to
+    // any open tab shows already-fresh content instantly. If the dirty thread
+    // IS the focused one, ALSO swap the result into openSession (the visible
+    // transcript updates live). Never blocks the UI thread (futures polled
+    // here). Subscriptions themselves are opened/reaped by sync_subscriptions().
     void drive_live_events(AppComponent& app) {
-        // 1) A worker-thread event asked us to refetch. Debounce + kick.
-        if (app.eventRefetch.load() && !app.livePending && !app.loadingOlder &&
-            app.client && !app.selectedId.empty()) {
-            const auto now = std::chrono::steady_clock::now();
-            if (now - app.lastEventRefetch >= kEventDebounce) {
-                app.eventRefetch.store(false);
-                app.lastEventRefetch = now;
-                // Refresh the sidebar so new activity reorders it.
-                app.requestListRefresh = true;
-                std::string id = app.selectedId;
+        if (!app.client) return;
+        const auto now = std::chrono::steady_clock::now();
+        for (auto& [id, ls] : app.liveSubs) {
+            // 1) Kick a background refetch when this thread's worker flagged
+            //    activity, it's not already fetching, and past the debounce.
+            if (ls.dirty->load() && !ls.pending &&
+                now - ls.lastRefetch >= kEventDebounce) {
+                ls.dirty->store(false);
+                ls.lastRefetch = now;
+                if (id == app.selectedId) app.requestListRefresh = true;
                 api::Client* c = app.client.get();
-                app.liveFuture = std::async(
-                    std::launch::async,
-                    [c, id] { return c->get_session(id, kMessagesWindow); });
-                app.livePending = true;
-                app.livePendingId = id;
+                std::string sid = id;
+                ls.future = std::async(std::launch::async, [c, sid] {
+                    return c->get_session(sid, kMessagesWindow);
+                });
+                ls.pending = true;
+            }
+            // 2) Service a completed background refetch: write to disk cache
+            //    always; swap into the view only if this is the open thread.
+            if (ls.pending && ls.future.valid() &&
+                ls.future.wait_for(std::chrono::seconds(0)) ==
+                    std::future_status::ready) {
+                auto r = ls.future.get();
+                ls.pending = false;
+                if (r.ok) {
+                    // Persist fresh transcript for ANY open tab (instant switch).
+                    save_and_trim(app, r.value);
+                    app.transcriptCache.put(r.value);
+                    if (app.selectedId == r.value.summary.id &&
+                        !app.loadingOlder && !app.livePending) {
+                        app.openSession = r.value;
+                        app.transcriptState = LoadState::Loaded;
+                        app.transcriptError.clear();
+                        app.hasMoreOlder = app.openSession->has_more_older;
+                    }
+                }
             }
         }
+        // The focused-thread immediate refetch (load-older / one-shot) still
+        // swaps via the shared liveFuture path.
         service_transcript_swap(app, /*fromLoadOlder=*/false);
     }
 
@@ -568,41 +599,87 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // already bound to this id. The subscription's worker callback ONLY flips
     // the atomic eventRefetch flag — it never touches the ECS, so it's safe to
     // fire from another thread; the loader services it on the UI-poll thread.
-    void ensure_subscription(AppComponent& app, const std::string& id) {
-        if (!app.client || !app.client->supports_events()) return;
-        if (app.subscribedId == id && app.eventSub) return;
-        // FEATURE #1 (never beachball): tearing down the previous subscription
-        // must NOT block the UI thread. eventSub->stop() JOINS the SSE worker,
-        // whose blocking read can sit for up to the read timeout — so calling
-        // it here on the switch path is a UI-thread stall on every thread
-        // switch. Instead, hand the old handle to a DETACHED reaper thread that
-        // stops+joins+destroys it in the background; the UI thread returns
-        // immediately. (The handle is owned solely by the reaper via move, so
-        // there's no lifetime race with the ECS.)
-        if (app.eventSub) {
-            std::thread([sub = std::move(app.eventSub)]() mutable {
-                sub->stop();   // joins the worker off the UI thread
-                sub.reset();   // destroy the handle here, not on the UI thread
-            }).detach();
-            app.eventSub.reset();  // already moved-from; make it explicit
+    // Keep the live-subscription POOL in sync with the OPEN TABS: open a
+    // subscription for any open tab that lacks one, and reap (off the UI
+    // thread) any subscription whose tab has closed. So every open thread keeps
+    // live-reading in the background — its fresh transcript is written to disk
+    // by drive_live_events — and switching tabs shows already-fresh content.
+    // Bounded by the number of open tabs (the user controls that). No-op when
+    // the backend doesn't support events (mock / unconfigured http).
+    void sync_subscriptions(AppComponent& app) {
+        if (!app.client || !app.client->supports_events()) {
+            // Backend can't stream: drop any stale pool (e.g. after a backend
+            // swap) so we don't leak workers.
+            reap_all(app);
+            app.openThreadLive = false;
+            return;
         }
-        app.subscribedId = id;
-        std::atomic<bool>* flag = &app.eventRefetch;
-        std::atomic<long long>* stamp = &app.lastEventMs;
-        api::EventSink sink;
-        sink.on_activity = [flag, stamp](const std::string&) {
-            // Cheap + thread-safe: mark "something changed" AND record when, so
-            // the status bar can briefly flash a "live" indicator. The loader
-            // polls the flag on the UI thread, debounces, and refetches.
-            flag->store(true);
-            stamp->store(std::chrono::duration_cast<std::chrono::milliseconds>(
-                             std::chrono::steady_clock::now().time_since_epoch())
-                             .count());
-        };
-        // on_error left unset: a failed stream just stops (capped reconnects
-        // happen inside the subscription); the transcript still refreshes on
-        // open/switch, so a dead stream degrades gracefully.
-        app.eventSub = app.client->subscribe_events(id, std::move(sink));
+        // Collect the set of currently-open tab session ids.
+        std::set<std::string> openIds;
+        if (auto* strip = find_singleton<TabStripComponent>()) {
+            for (auto tabId : strip->tabOrder) {
+                auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+                if (opt.valid() && opt->has<Tab>()) {
+                    const std::string& sid = opt->get<Tab>().sessionId;
+                    if (!sid.empty()) openIds.insert(sid);
+                }
+            }
+        }
+        // Always keep the focused thread subscribed even if (transiently) it
+        // has no tab entity yet.
+        if (!app.selectedId.empty()) openIds.insert(app.selectedId);
+
+        // Reap subscriptions whose tab closed (detach so stop()/join is off the
+        // UI thread — the blocking SSE read can sit up to the read timeout).
+        for (auto it = app.liveSubs.begin(); it != app.liveSubs.end();) {
+            if (openIds.count(it->first) == 0) {
+                if (it->second.sub) {
+                    std::thread([sub = std::move(it->second.sub)]() mutable {
+                        sub->stop();
+                        sub.reset();
+                    }).detach();
+                }
+                it = app.liveSubs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        // Open subscriptions for open tabs that don't have one yet.
+        for (const auto& id : openIds) {
+            if (app.liveSubs.count(id)) continue;
+            AppComponent::LiveSub ls;
+            std::shared_ptr<std::atomic<bool>> dirty = ls.dirty;
+            std::atomic<long long>* stamp = &app.lastEventMs;
+            api::EventSink sink;
+            // Worker-thread callback: flip THIS thread's dirty flag + stamp the
+            // global last-event time. Never touches the ECS (thread-safe).
+            sink.on_activity = [dirty, stamp](const std::string&) {
+                dirty->store(true);
+                stamp->store(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count());
+            };
+            ls.sub = app.client->subscribe_events(id, std::move(sink));
+            app.liveSubs.emplace(id, std::move(ls));
+        }
+        // The open thread is "live" iff it has an active subscription.
+        app.openThreadLive =
+            !app.selectedId.empty() && app.liveSubs.count(app.selectedId) &&
+            app.liveSubs.at(app.selectedId).sub != nullptr;
+    }
+
+    // Reap the whole pool off the UI thread (backend swap / shutdown).
+    void reap_all(AppComponent& app) {
+        for (auto& [id, ls] : app.liveSubs) {
+            if (ls.sub) {
+                std::thread([sub = std::move(ls.sub)]() mutable {
+                    sub->stop();
+                    sub.reset();
+                }).detach();
+            }
+        }
+        app.liveSubs.clear();
     }
 
     // ---- Streaming reply (Phase STREAM) ----------------------------------

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <future>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -96,26 +97,36 @@ struct AppComponent : public afterhours::BaseComponent {
     size_t anchorPrevMsgCount = 0;   // message count before the older load
     float anchorPrevContentH = 0.0f;  // content_size.y before the older load
 
-    // --- Live events (SSE) ------------------------------------------------
-    // A subscription to the OPEN session's live activity stream. When the
-    // backend supports_events(), the loader opens a subscription on thread-open
-    // and tears it down on switch/close (never leaks a worker/socket). The
-    // subscription's worker-thread callback ONLY flips eventRefetch (an atomic
-    // "something changed, refetch newest-N") — it never touches the ECS. The
-    // loader polls eventRefetch on the UI thread, debounces (kEventDebounce),
-    // and re-fetches the open session's newest-N + refreshes the session list
-    // so the sidebar reflects new activity. subscribedId tracks which session
-    // the live handle is bound to so the loader knows when to re-subscribe.
-    std::unique_ptr<api::EventSubscription> eventSub;
-    std::string subscribedId;               // session eventSub is bound to
-    std::atomic<bool> eventRefetch{false};  // set by worker, polled by loader
-    // Steady-clock ms of the last live event the SSE worker saw (0 = none yet).
-    // Set thread-safely by the sink; read by the status bar to flash a "live"
-    // indicator briefly after activity. Atomic so the worker can write it.
+    // --- Live events (SSE) — MULTI-thread background subscriptions --------
+    // When the backend supports_events(), the loader keeps a POOL of live
+    // subscriptions — one per OPEN TAB (not just the focused thread) — so every
+    // open thread keeps live-reading in the background and its fresh transcript
+    // is written straight to the disk cache. Switching to a tab then shows the
+    // already-fresh content instantly instead of waiting to fetch once you land
+    // on it. Each pool entry owns its subscription handle + its own atomic
+    // dirty flag (flipped by that thread's SSE worker) + last-event stamp; the
+    // loader polls the flags on the UI thread, debounces, and refetches the
+    // dirty thread(s) on worker futures. Subscriptions are opened when a tab
+    // appears and reaped (off the UI thread) when its tab closes.
+    struct LiveSub {
+        std::unique_ptr<api::EventSubscription> sub;
+        std::shared_ptr<std::atomic<bool>> dirty =
+            std::make_shared<std::atomic<bool>>(false);
+        std::chrono::steady_clock::time_point lastRefetch{};
+        bool pending = false;  // a background refetch for this id is in flight
+        std::future<api::Result<api::Session>> future;
+    };
+    std::map<std::string, LiveSub> liveSubs;  // session id -> live subscription
+    // Steady-clock ms of the last live event across ANY subscription (0=none),
+    // set thread-safely by every sink; the status bar flashes a "live" dot from
+    // it. Atomic so workers can write it.
     std::atomic<long long> lastEventMs{0};
-    // Timestamp of the last live refetch, for debouncing a burst of events.
-    std::chrono::steady_clock::time_point lastEventRefetch{};
-    // A live refetch (newest-N) in flight, polled like transcriptFuture.
+    // Whether the OPEN thread currently has a live subscription (drives the
+    // "live" status indicator's connected state). Recomputed each frame.
+    bool openThreadLive = false;
+    // Legacy single-sub fields kept for the load-older / live refetch of the
+    // FOCUSED thread (the immediate-swap path). liveFuture/livePending drive a
+    // fetch whose result swaps into openSession.
     std::future<api::Result<api::Session>> liveFuture;
     bool livePending = false;
     std::string livePendingId;
