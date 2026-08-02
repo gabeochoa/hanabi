@@ -9,11 +9,11 @@ Status legend: [ ] todo · [~] in progress · [x] done (commit) · [gap] logged 
 - [x] **4. Messages disappear as you scroll** (intermittent). Likely same virtualization culling bug as #3 (off-window window math drops visible items). File: main_pane_system.h.
 
 ## SSE / caching / data layer
-- [ ] **5. Live SSE disconnected while program open** — reconnected only when returning to thread. Should keep live-reading the last few opened threads (while their tab is open), write straight to the cache file, so switching to a tab shows fresh instantly. Don't wait until you're sitting on the thread to fetch. File: loader_system.h (multi-subscription + background write).
-- [ ] **6. Prefetch: keep last N opened threads live** (tab open) writing to disk cache directly (ties to #5).
-- [ ] **7. Load-older: don't jump to oldest.** When loading older messages, PRESERVE scroll position — insert older msgs ABOVE, keep viewport where it is (anchor on first-visible message). File: main_pane_system.h + loader.
-- [ ] **8. Load-older loading indicator** — right now it snaps/freezes with no feedback. Show a top spinner while fetching older. File: main_pane_system.h.
-- [ ] **9. Prefetch older on approach to top** with a debounce; if it looks like you're scrolling all the way back, fetch more aggressively. File: loader_system.h.
+- [x] **5. Live SSE disconnected while program open** — reconnected only when returning to thread. Should keep live-reading the last few opened threads (while their tab is open), write straight to the cache file, so switching to a tab shows fresh instantly. Don't wait until you're sitting on the thread to fetch. File: loader_system.h (multi-subscription + background write).
+- [x] **6. Prefetch: keep last N opened threads live** (tab open) writing to disk cache directly (ties to #5).
+- [x] **7. Load-older: don't jump to oldest.** When loading older messages, PRESERVE scroll position — insert older msgs ABOVE, keep viewport where it is (anchor on first-visible message). File: main_pane_system.h + loader.
+- [x] **8. Load-older loading indicator** — right now it snaps/freezes with no feedback. Show a top spinner while fetching older. File: main_pane_system.h.
+- [x] **9. Prefetch older on approach to top** with a debounce; if it looks like you're scrolling all the way back, fetch more aggressively. File: loader_system.h.
 - [x] **10. Cache cap setting** — dropdown: 100MB / 1GB / 10GB / unlimited. When near cap, evict oldest: trim old messages from the least-recently-opened thread (tail the cache file, keep last ~10 messages of the longest-ago-opened thread). Prioritize evicting ARCHIVED threads first. Files: settings_system.h (UI) + api/disk_cache.h (eviction/trim) + settings.h.
 
 ## Visual / layout polish
