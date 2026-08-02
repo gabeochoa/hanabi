@@ -211,3 +211,15 @@ TOP 10 (ranked) + owner routing:
 10. [P1/P2] Empty transcript void + dim centered "Task:" stray line -> anchor content / promote header (main_pane).
 Other notable: #14 cost meter "$$$$" placeholder -> real "$0.12"; #18 chunky scrollbar (PREDATES scrollbar merge — verify thin now); #22 tab × collides with truncated title (tabs agent); #2 light theme is THE headline.
 NOTE: audit screenshots predate the scrollbar merge (e997b33) + tool-row fix (0f31e2e) — re-capture after current agents merge before trusting #3/#18.
+
+## MERGED (00a21a9): data layer — async switch (UI cost 0.47ms->0.008ms; disk read + SSE stop() off UI
+   thread), /tmp transcript cache (disk_cache::total_bytes()/wipe_all()), message queue
+   (enqueue_send/sending_for/pending_send_count), settings via /whoami (get_settings). test 8/8, test-real
+   88 sessions + live settings. Also merged: tabs Chrome-overflow (0ac0779), composer meter (67cf30a).
+## RENDER-WIRING OWED (from data layer) — main_pane/composer/settings (do after sidebar merges):
+   1. per-thread switch SPINNER: read app.transcriptLoadingId / transcriptState==Loading.
+   2. composer: route sends via app.enqueue_send(id,prompt); show sending_for(id) spinner + pending_send_count badge.
+   3. settings screen: set app.requestSettings=true; render app.settings/settingsState; disk-usage row +
+      wipe button -> disk_cache::total_bytes()/wipe_all().
+   4. (still owed from earlier) open transcript at BOTTOM + jump-to-bottom button + requestLoadOlder on scroll-top.
+   5. nested per-node tool SUB-ROWS on pile expand; unified smart-view row; sidebar glyph reduction; tri-color labels.
