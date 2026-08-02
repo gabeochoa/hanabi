@@ -1114,8 +1114,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                     .bottom = pixels(1), .left = pixels(0)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(
-                    active ? theme::selected_bg() : theme::sidebar_bg()))
+                // A SELECTED item does not react to hover (no double state):
+                // its hover bg == its selected fill, so hovering it is a no-op.
+                // Only an UNselected item gets the subtle hover wash.
+                .with_custom_hover_bg(active ? theme::selected_bg()
+                                             : theme::hover_over(
+                                                   theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("smart_item"));
@@ -1613,8 +1617,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(2), .left = pixels(22)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(
-                    selected ? theme::selected_bg() : theme::sidebar_bg()))
+                // Selected row = no hover reaction (hover bg == selected fill);
+                // only an unselected row gets the subtle hover wash.
+                .with_custom_hover_bg(selected ? theme::selected_bg()
+                                               : theme::hover_over(
+                                                     theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("chat_row"));
