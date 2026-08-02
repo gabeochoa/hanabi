@@ -64,6 +64,43 @@ std::uint64_t total_bytes();
 // touch other namespaces or non-cache files.
 std::size_t wipe_all();
 
+// --- Crash-safe draft / queue persistence (local-first) -----------------
+// WHY: while the user is drafting a prompt (or has queued unsent prompts) a
+// crash/restart would otherwise lose that in-progress work. These persist the
+// composer draft text and any queued-but-unsent prompts to a single small JSON
+// file under the ACTIVE namespaced cache dir (drafts.json), so a relaunch can
+// restore exactly what was being typed. Everything is LOCAL-first: it lives on
+// disk beside the transcript cache and NEVER touches the network.
+//
+// Keying: pass a session id, or the stable key "new" for the not-yet-created
+// "New task" composer draft (which has no session id yet). Each key's draft +
+// queue are stored independently so per-session drafts don't collide.
+//
+// Cost: drafts are small; these are tiny synchronous JSON read/writes (the
+// whole drafts.json is rewritten atomically on each change — a few hundred
+// bytes typical). The composer calls save_draft on each text change; that is
+// acceptable at this size (no debounce needed) and mirrors the atomic temp+
+// rename write the rest of this cache uses, so a crash mid-write never corrupts
+// the file. Best-effort: a write failure is silently ignored; a missing/corrupt
+// file loads as an empty string / empty vector.
+
+// The stable key for the "New task" composer draft (no session id yet).
+inline const char* new_draft_key() { return "new"; }
+
+// Persist / restore the composer draft TEXT for `key`. Saving an empty string
+// is equivalent to clear_draft(key) (an empty draft is nothing to preserve).
+void save_draft(const std::string& key, const std::string& text);
+std::string load_draft(const std::string& key);
+
+// Persist / restore the queued-but-unsent prompts for `key` (FIFO order).
+// Saving an empty vector clears the persisted queue for that key.
+void save_queue(const std::string& key, const std::vector<std::string>& prompts);
+std::vector<std::string> load_queue(const std::string& key);
+
+// Drop the persisted draft AND queue for `key` — call once a draft is
+// sent/cleared so its saved copy doesn't linger. No-op if nothing was stored.
+void clear_draft(const std::string& key);
+
 // --- Cache cap / eviction (feature #C) ----------------------------------
 // touch_transcript(id): bump the on-disk transcript file's modified-time to
 // "now" WITHOUT rewriting it. This is how a thread's LAST-OPENED time is

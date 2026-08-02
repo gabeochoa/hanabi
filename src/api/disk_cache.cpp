@@ -339,6 +339,109 @@ std::size_t wipe_all() {
     return removed;
 }
 
+// ---- crash-safe draft / queue persistence --------------------------------
+// A single drafts.json in the active namespace holds every key's in-progress
+// draft + unsent queue:
+//   { "version": 1, "drafts": { "<key>": { "text": "...",
+//                                            "queue": ["p1", "p2"] }, ... } }
+// It is DELIBERATELY not an is_cache_file() (above): a settings "clear cache"
+// reclaims transcript disk but must NOT throw away work the user is mid-typing,
+// so drafts.json survives wipe_all()/trim_to_cap(). It's cleared per-key via
+// clear_draft() when a draft is actually sent.
+namespace {
+std::string drafts_file() {
+    const std::string dir = cache_dir();
+    return dir.empty() ? "" : (fs::path(dir) / "drafts.json").string();
+}
+
+json load_drafts_doc() {
+    const std::string path = drafts_file();
+    if (path.empty()) return json::object();
+    std::ifstream in(path);
+    if (!in.good()) return json::object();
+    try {
+        json doc;
+        in >> doc;
+        if (doc.is_object() && doc.contains("drafts") &&
+            doc["drafts"].is_object())
+            return doc;
+    } catch (...) {
+    }
+    return json::object();
+}
+
+// Read-modify-write the per-key entry, then rewrite drafts.json atomically.
+// mutate() receives the key's entry object (created if absent) to edit; after
+// it runs, an entry with neither text nor a non-empty queue is dropped so the
+// file stays tidy (empty drafts leave no residue).
+template <typename Fn>
+void update_draft_entry(const std::string& key, Fn&& mutate) {
+    if (!ensure_dir(cache_dir())) return;
+    json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object())
+        doc["drafts"] = json::object();
+    json& entry = doc["drafts"][key];
+    if (!entry.is_object()) entry = json::object();
+    mutate(entry);
+    // Prune an empty entry (no text and no queued prompts).
+    const bool hasText =
+        entry.contains("text") && entry["text"].is_string() &&
+        !entry["text"].get<std::string>().empty();
+    const bool hasQueue = entry.contains("queue") &&
+                          entry["queue"].is_array() &&
+                          !entry["queue"].empty();
+    if (!hasText && !hasQueue) doc["drafts"].erase(key);
+    doc["version"] = 1;
+    write_file(drafts_file(), doc.dump());
+}
+}  // namespace
+
+void save_draft(const std::string& key, const std::string& text) {
+    update_draft_entry(key, [&](json& e) { e["text"] = text; });
+}
+
+std::string load_draft(const std::string& key) {
+    json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object())
+        return "";
+    const auto& drafts = doc["drafts"];
+    if (!drafts.contains(key) || !drafts[key].is_object()) return "";
+    return drafts[key].value("text", "");
+}
+
+void save_queue(const std::string& key,
+                const std::vector<std::string>& prompts) {
+    update_draft_entry(key, [&](json& e) {
+        json arr = json::array();
+        for (const auto& p : prompts) arr.push_back(p);
+        e["queue"] = std::move(arr);
+    });
+}
+
+std::vector<std::string> load_queue(const std::string& key) {
+    std::vector<std::string> out;
+    json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object()) return out;
+    const auto& drafts = doc["drafts"];
+    if (!drafts.contains(key) || !drafts[key].is_object()) return out;
+    const auto& e = drafts[key];
+    if (e.contains("queue") && e["queue"].is_array())
+        for (const auto& p : e["queue"])
+            if (p.is_string()) out.push_back(p.get<std::string>());
+    return out;
+}
+
+void clear_draft(const std::string& key) {
+    const std::string path = drafts_file();
+    if (path.empty()) return;
+    json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object()) return;
+    if (!doc["drafts"].contains(key)) return;
+    doc["drafts"].erase(key);
+    doc["version"] = 1;
+    write_file(path, doc.dump());
+}
+
 // ---- cache cap / eviction (feature #C) -----------------------------------
 void touch_transcript(const std::string& id) {
     const std::string path = transcript_file(id);

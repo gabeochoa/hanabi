@@ -21,6 +21,7 @@
 
 #include "ui_imports.h"
 
+#include "../api/disk_cache.h"
 #include "../ui/icons.h"
 
 namespace ecs {
@@ -36,6 +37,24 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         if (cmdDown && afterhours::graphics::is_key_pressed(78)) {
             app->composerOpen = !app->composerOpen;
         }
+
+        // CRASH-SAFE DRAFT RESTORE (local-first): on the frame the composer
+        // OPENS, restore whatever the user was mid-typing before a crash/quit.
+        // The "New task" composer has no session yet, so its draft persists
+        // under the stable "new" key (disk_cache::new_draft_key()). The backend
+        // namespace is already set (main.cpp set_namespace before the loop), so
+        // this reads from the correct per-backend local cache dir — never the
+        // network. We only overwrite the live draft when disk has something AND
+        // the field is currently empty, so a restore never clobbers text the
+        // user just started typing this session.
+        if (app->composerOpen && !wasOpen_) {
+            std::string saved =
+                api::disk_cache::load_draft(api::disk_cache::new_draft_key());
+            if (!saved.empty() && app->composerDraft.empty())
+                app->composerDraft = saved;
+            lastPersisted_ = app->composerDraft;
+        }
+        wasOpen_ = app->composerOpen;
 
         if (!app->composerOpen) return;
 
@@ -94,6 +113,20 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         render_header(ctx, panel.ent(), *app);
         render_input(ctx, panel.ent(), *app);
         render_actions(ctx, panel.ent(), *app);
+
+        // CRASH-SAFE DRAFT PERSIST (local-first): after the input widget has
+        // applied this frame's keystrokes into app->composerDraft, write the
+        // draft to the local cache dir whenever it changed. Drafts are tiny, so
+        // a synchronous atomic JSON rewrite per change is fine (see disk_cache
+        // save_draft) and no debounce is needed. render_actions() may have
+        // consumed the draft on Start (clearing it + closing) — that path calls
+        // clear_draft() itself, and here composerDraft is already empty so we
+        // don't rewrite a stale value. Only persist while still open.
+        if (app->composerOpen && app->composerDraft != lastPersisted_) {
+            api::disk_cache::save_draft(api::disk_cache::new_draft_key(),
+                                        app->composerDraft);
+            lastPersisted_ = app->composerDraft;
+        }
     }
 
   private:
@@ -235,9 +268,20 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
             // thread). Clear the draft and close the overlay.
             app.requestKickoffPrompt = app.composerDraft;
             app.composerDraft.clear();
+            // The draft is now in flight as a real session — drop its crash-safe
+            // local copy so a relaunch doesn't restore an already-sent prompt.
+            api::disk_cache::clear_draft(api::disk_cache::new_draft_key());
+            lastPersisted_.clear();
             app.composerOpen = false;
         }
     }
+
+    // Tracks the composer's open state across frames so we can detect the
+    // false->true edge and restore the persisted draft exactly once on open.
+    bool wasOpen_ = false;
+    // The draft value last written to disk, so we only persist on change
+    // (avoids rewriting drafts.json on every idle frame).
+    std::string lastPersisted_;
 };
 
 }  // namespace ecs
