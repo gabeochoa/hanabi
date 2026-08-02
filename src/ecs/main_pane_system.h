@@ -119,6 +119,52 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Floating "jump to bottom" button: a small circular down-chevron pinned
+    // to the bottom-right of the transcript pane (just above the composer),
+    // shown only when the user has scrolled up. Clicking snaps the transcript
+    // scroll to the newest message (sets the scroll entity's offset to its
+    // content end). paneBottomY = the y of the transcript scroll's bottom edge.
+    static void jump_to_bottom_button(UIContext<InputAction>& ctx,
+                                      Entity& parent, Entity& scrollEnt,
+                                      float paneW, float paneBottomY) {
+        const float d = 30.0f;
+        const float bx = paneW - d - 20.0f;   // right inset
+        const float by = paneBottomY - d - 14.0f;  // sit above the composer
+        auto btn = button(ctx, mk(parent, 7300),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(d), pixels(d)})
+                .with_absolute_position()
+                .with_translate(bx, by)
+                .with_custom_background(theme::over(theme::panel_bg_2(),
+                                                    theme::panel_bg()))
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.5f)
+                .with_render_layer(8)
+                .with_on_draw_fg([](RectangleType r) {
+                    // Down chevron.
+                    const float cx = r.x + r.width * 0.5f;
+                    const float cy = r.y + r.height * 0.5f;
+                    afterhours::draw_line_ex(
+                        afterhours::vec2{cx - 5.0f, cy - 2.5f},
+                        afterhours::vec2{cx, cy + 3.0f}, 1.8f,
+                        theme::text_secondary());
+                    afterhours::draw_line_ex(
+                        afterhours::vec2{cx, cy + 3.0f},
+                        afterhours::vec2{cx + 5.0f, cy - 2.5f}, 1.8f,
+                        theme::text_secondary());
+                })
+                .with_debug_name("jump_to_bottom"));
+        if (btn && scrollEnt.has<afterhours::ui::HasScrollView>()) {
+            auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
+            sv.scroll_offset.y = 1e9f;
+            sv.clamp_scroll();
+        }
+    }
+
     // Centered "loading this thread" spinner: a small accent ring + caption.
     // Shown when the transcript is fetching a DIFFERENT thread than what's
     // currently displayed (a fresh switch), so the UI stays interactive with a
@@ -1284,7 +1330,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             scrollY = sv.scroll_offset.y;
             if (sv.viewport_size.y > 1.0f) viewH = sv.viewport_size.y;
         }
-        if (streamingHere) scrollY = totalH;  // stick to bottom
+        // ---- Open-at-bottom + stay-pinned model -----------------------
+        // A conversation opens showing the NEWEST messages (bottom), like every
+        // chat app. Then: if the user is AT the bottom, keep them pinned as new
+        // messages arrive (streaming or SSE); if they've scrolled UP, leave
+        // their position alone (don't yank them down). Tracked per-session with
+        // a function-local static so we jump-to-bottom exactly once per open
+        // (no AppComponent growth). `wasAtBottom` is computed from LAST frame's
+        // metrics (content_size/viewport/offset) captured below.
+        static std::string s_bottomedId;
+        const std::string curId = app.openSession->summary.id;
+        bool atBottom = true;  // default true so a fresh open pins to bottom
+        float contentH = totalH;
+        if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            if (sv.content_size.y > 1.0f) contentH = sv.content_size.y;
+            // Within ~24px of the end counts as "at bottom".
+            atBottom = (sv.scroll_offset.y + viewH >= contentH - 24.0f);
+        }
+        const bool firstOpenOfThread = (s_bottomedId != curId);
+        // Pin to bottom on first open of a thread, while streaming here, OR when
+        // the user was already at the bottom (stay-pinned on new content).
+        if (firstOpenOfThread || streamingHere || atBottom) {
+            scrollY = totalH;
+            s_bottomedId = curId;
+        }
         // Build half a viewport of margin above + below the visible window so a
         // fast flick never reveals a blank gap, but we don't over-build.
         const float kMargin = viewH * 0.5f;        const float visTop = scrollY - kMargin;
@@ -1341,11 +1411,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_bottom_pad"));
 
-        if (streamingHere &&
-            scroll.ent().has<afterhours::ui::HasScrollView>()) {
+        // Pin to the bottom when we decided to (first open / streaming / the
+        // user was already at the end). Otherwise leave the user's scroll be.
+        const bool pinBottom = firstOpenOfThread || streamingHere || atBottom;
+        if (pinBottom && scroll.ent().has<afterhours::ui::HasScrollView>()) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            sv.scroll_offset.y = 1e9f;
+            sv.scroll_offset.y = 1e9f;  // clamped to content end next line
             sv.clamp_scroll();
+        }
+
+        // Floating "jump to bottom" affordance: a small down-chevron pinned to
+        // the bottom-right of the transcript pane, shown only when the user is
+        // scrolled UP (not at the bottom) and there's meaningfully more below.
+        // Clicking snaps to the newest message. (Rendered on the parent pane,
+        // absolutely positioned, above the scroll content.)
+        if (!pinBottom && !atBottom && contentH > viewH + 40.0f) {
+            jump_to_bottom_button(ctx, parent, scroll.ent(), paneW,
+                                  46.0f + listH);
         }
 
         if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);
