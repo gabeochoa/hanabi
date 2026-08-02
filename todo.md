@@ -119,3 +119,25 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 - Dev on mock; `make test` (unit+e2e+perf) + `make test-real` (read-only real smoke) before EVERY push.
 - Screenshots only on aspen/boulder. Merge -> rebuild main -> screenshot -> pin ONLY at real milestones.
 - One repo-mutator per file; subagent "(no output)" != done (verify via git/check_agent).
+
+
+## STANDING AUTONOMOUS DIRECTIVES (Gabe, 2026-08-02) — follow while working the list
+- Work through the WHOLE todo list autonomously.
+- Every 3 commits: SCREENSHOT AUDIT — capture the app + find >=10 UI/UX things needing work; log them here.
+- Every 5 commits: PERFORMANCE AUDIT — check for anything slow; log findings + act.
+- Build a LOCAL MOCK SERVER tool (serves mock REST + SSE) so testing is easier AND so send-message can be
+  exercised end-to-end (real send flow against a local server, no real backend needed).
+- Memory: OK to spill local thread info to /tmp file cache (don't keep everything in RAM) to reduce footprint.
+- ALL API requests go to the API thread (session 47bc4cf8) — never anywhere else.
+- Permission granted to merge + push autonomously.
+
+## MERGED since (cd6e440): live-sse (newest-N + SSE + tool-blocks), scrollbar (#26 + fold-all + rail),
+   tab drag-reorder (model::reorder_tab + e2e). All gated + pushed.
+
+## NEW asks (batch 5, 2026-08-02)
+- [ ] MESSAGE HOVER ACTIONS: buttons underneath a message on hover (copy / retry / etc. — like Navi web chat).
+- [ ] PROFILE STARTUP + FIX IT (direct): startup varies 159ms..1464ms in the wild (cold vs warm, real backend
+      list fetch blocks?). Instrument app_init phases, find the cost, cut it. (Note: windowed Startup log
+      showed 1164-1464ms on real-backend cold launch — likely the synchronous list/auth on the UI thread.)
+- [ ] LOCAL MOCK SERVER (tooling): REST + SSE, drives send-message e2e + easier iteration.
+- [ ] /tmp file cache for thread info (memory-footprint reduction; complements newest-N loading).
