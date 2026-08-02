@@ -544,6 +544,13 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   renderer (`detail::wrap_text_to_width` + the draw loop) to carry per-run color
   through the wrap, so a `spans` label wraps AND colors. Then hanabi can render
   real inline-code pills. NOT done here (vendored; logged for that owner).
+- **PROVEN FIX (2026-08-02):** rewrote the buffered span draw path to word-wrap
+  runs across label_rect (each word keeps its span color; wraps on the same
+  boundaries as the plain wrapper so caller height matches). Applies + builds +
+  tests 8/8. Captured as vendor_patches/22-styled-spans-word-wrap.patch (+ tag
+  hanabi-fix-gap22) with the turnkey hanabi wiring in vendor_patches/README.md.
+  Pointer not bumped (needs maintainer push); hanabi keeps stripped inline code
+  until then.
 
 ---
 

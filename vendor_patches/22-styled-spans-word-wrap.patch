@@ -1,0 +1,119 @@
+From 3b68351557487c323458f325d6f98f4ddfb8310f Mon Sep 17 00:00:00 2001
+From: "Navi (for gabeochoa)" <gabeochoa@users.noreply.github.com>
+Date: Sun, 2 Aug 2026 11:37:57 -0400
+Subject: [PATCH] feat(ui): styled label spans now word-wrap across lines
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The multi-color TextSpan label path drew all runs on ONE line (label_rect.y),
+so a styled label couldn't be used for a wrapping paragraph — blocking inline
+markdown (a colored/backgrounded code run inside wrapping body text). Replaced
+the single-line span loop with a word-wrapping layout: words flow left->right
+across label_rect.width, wrap to the next line (y += lineHeight from the 'Ag'
+metric) when they'd overflow, each word keeping its span's color; per-line
+alignment (left/center/right) preserved. Words wrap on the same boundaries +
+widths as the plain wrapper, so a caller's height model (line count) matches.
+
+Proven against hanabi (gap #22): enables inline code pills in the transcript.
+---
+ src/plugins/ui/rendering.h | 77 +++++++++++++++++++++++++++++---------
+ 1 file changed, 60 insertions(+), 17 deletions(-)
+
+diff --git a/src/plugins/ui/rendering.h b/src/plugins/ui/rendering.h
+index 8677922..5aa562f 100644
+--- a/src/plugins/ui/rendering.h
++++ b/src/plugins/ui/rendering.h
+@@ -2225,29 +2225,72 @@ struct RenderBatched : System<UIContext<InputAction>, FontManager> {
+         }
+ 
+         // Styled (multi-color) label: draw each run in sequence with its own
+-        // color, positioned by the label's alignment.
++        // color. Now WORD-WRAPS across multiple lines within label_rect
++        // (previously single-line only — hanabi gap #22): words flow left→right,
++        // wrapping to the next line when they'd overflow the box width; each
++        // word keeps its span's color. A run with no spaces is treated as one
++        // word (may overflow if longer than the box, same as the plain path).
+         if (!wrapped && !hasLabel.spans.empty()) {
+           Font font = font_manager.get_active_font();
+           const std::string resolved =
+               font_manager.resolve_weighted(cmp.font_name, cmp.font_weight);
+-          float font_size = result.rect.height;
+-          float spacing = 1.f + hasLabel.letter_spacing;
+-          float total = 0.f;
+-          for (const auto &sp : hasLabel.spans)
+-            total += measure_text(font, sp.text.c_str(), font_size, spacing).x;
+-          float x = label_rect.x;
+-          if (hasLabel.alignment == TextAlignment::Center)
+-            x += std::max(0.f, (label_rect.width - total) / 2.0f);
+-          else if (hasLabel.alignment == TextAlignment::Right)
+-            x += std::max(0.f, label_rect.width - total);
++          const float font_size = result.rect.height;
++          const float spacing = 1.f + hasLabel.letter_spacing;
++          const float maxW = label_rect.width;
++          const float lineH = measure_text(font, "Ag", font_size, spacing).y;
++          const float spaceW =
++              measure_text(font, " ", font_size, spacing).x;
++          // A pending word on the current line, with its color + measured width.
++          struct Piece { std::string text; Color color; float w; };
++          std::vector<Piece> linePieces;
++          float lineW = 0.f;
++          float penY = label_rect.y;
++          auto flush_line = [&]() {
++            if (linePieces.empty()) { penY += lineH; return; }
++            // Alignment offset for this line.
++            float x = label_rect.x;
++            if (hasLabel.alignment == TextAlignment::Center)
++              x += std::max(0.f, (maxW - lineW) / 2.0f);
++            else if (hasLabel.alignment == TextAlignment::Right)
++              x += std::max(0.f, maxW - lineW);
++            for (const auto &pc : linePieces) {
++              RectangleType sr{x, penY, pc.w, lineH};
++              buffer.add_text(sr, pc.text, resolved, font_size, pc.color,
++                              TextAlignment::Left, layer, entity.id, stroke,
++                              shadow, rotation, centerX, centerY,
++                              hasLabel.letter_spacing);
++              x += pc.w;
++            }
++            linePieces.clear();
++            lineW = 0.f;
++            penY += lineH;
++          };
+           for (const auto &sp : hasLabel.spans) {
+-            float w = measure_text(font, sp.text.c_str(), font_size, spacing).x;
+-            RectangleType sr{x, label_rect.y, w, label_rect.height};
+-            buffer.add_text(sr, sp.text, resolved, font_size, sp.color,
+-                            TextAlignment::Left, layer, entity.id, stroke, shadow,
+-                            rotation, centerX, centerY, hasLabel.letter_spacing);
+-            x += w;
++            size_t s0 = 0;
++            while (s0 <= sp.text.size()) {
++              size_t sp_i = sp.text.find(' ', s0);
++              std::string word = sp.text.substr(
++                  s0, sp_i == std::string::npos ? std::string::npos
++                                                : sp_i - s0);
++              const bool lastInSpan = (sp_i == std::string::npos);
++              if (!word.empty()) {
++                float wW = measure_text(font, word.c_str(), font_size,
++                                        spacing).x;
++                // Wrap if this word won't fit and the line already has content.
++                if (!linePieces.empty() && lineW + spaceW + wW > maxW)
++                  flush_line();
++                // Add a leading space between pieces on the same line.
++                std::string emit =
++                    linePieces.empty() ? word : (std::string(" ") + word);
++                float emitW = linePieces.empty() ? wW : (spaceW + wW);
++                linePieces.push_back({emit, sp.color, emitW});
++                lineW += emitW;
++              }
++              if (lastInSpan) break;
++              s0 = sp_i + 1;
++            }
+           }
++          flush_line();
+           wrapped = true;
+         }
+ 
+-- 
+2.50.1
+
