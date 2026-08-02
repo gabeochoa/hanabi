@@ -103,6 +103,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar_scroll"));
         // Match the OS "natural scrolling" setting (see util/scroll_prefs.h).
         hanabi::apply_scroll_prefs(scroll.ent());
+        // TEMPORARY scroll indicator (afterhours gap #26): thin overlay bar
+        // computed from the panel's live HasScrollView metrics.
+        hanabi::attach_scroll_indicator(scroll.ent());
 
         // "FOLDERS" section label + fold-all control (mirrors the mock's
         // second section header, which carries a fold-all affordance).
@@ -175,6 +178,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // families flush to a single edge.
     static constexpr float kCountColW = 30.0f;   // count box width
     static constexpr float kCountRightPad = 12.0f;  // inset from panel right
+    // Folded (rail) icon column: one left inset + one slot width shared by the
+    // header collapse toggle AND every smart-view icon, so glyphs (which
+    // draw_fg centers in their slot) line up on ONE flush-left vertical line.
+    // Inset ~ the unfolded content's left padding; slot = the toggle btn box.
+    static constexpr float kRailIconInset = 14.0f;
+    static constexpr float kRailIconSlot = 28.0f;
     // Defect #2: cap the rows shown in an expanded group at kBucketCap; beyond
     // that a "Show N more…" expander row is rendered instead of the full wall,
     // so no single time-bucket / folder dumps a 90-row scroll-pit on first
@@ -602,11 +611,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(folded ? FlexDirection::Column
                                             : FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
+                // Folded rail: LEFT-align the collapse toggle (cross-axis =
+                // horizontal for a Column) so it sits at the same left inset as
+                // the smart-view icons below, forming one flush-left column.
+                // Unfolded: Center keeps the row's brand/actions vertically
+                // centered.
+                .with_align_items(folded ? AlignItems::FlexStart
+                                         : AlignItems::Center)
                 .with_justify_content(folded ? JustifyContent::FlexStart
                                              : JustifyContent::SpaceBetween)
                 .with_padding(Padding{.top = pixels(7), .right = pixels(8),
-                                      .bottom = pixels(5), .left = pixels(14)})
+                                      .bottom = pixels(5),
+                                      .left = pixels(kRailIconInset)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_header"));
@@ -902,7 +918,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(6), .right = pixels(8),
+                // SpaceBetween pins the label left and the fold-all button hard
+                // to the RIGHT edge (afterhours has no flex-grow — gap #18 — so
+                // a percent-width label left the button parked mid-row instead
+                // of flush-right). Right inset = kCountRightPad so the fold-all
+                // icon lands on the SAME right edge as the thread-row counts
+                // (and clears the temp scroll bar, which sits ~8px in).
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_padding(Padding{.top = pixels(6),
+                                      .right = pixels(kCountRightPad),
                                       .bottom = pixels(4), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -911,7 +935,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
                 .with_label("FOLDERS")
-                .with_size(ComponentSize{percent(0.72f), pixels(16)})
+                // Intrinsic-ish fixed width sized to the label text (not a
+                // percent) so SpaceBetween can push the fold-all button to the
+                // far right edge instead of anchoring it at ~72% across.
+                .with_size(ComponentSize{pixels(64), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::LABEL)
@@ -937,16 +964,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_fold_all"));
         if (foldBtn) {
             app.foldAllFolders = !app.foldAllFolders;
-            // Apply to every folder key so all fold/unfold in lockstep. The
-            // Recent catch-all renders as time-group headers (Today /
-            // Yesterday / Previous 7/30 Days / Older) rather than a single
-            // "recent" header, so fold-all targets those bucket keys too.
-            static const char* kKeys[] = {
-                "stars",           "oncall",       "experiments",
-                "__t_today__",     "__t_yesterday__", "__t_week__",
-                "__t_month__",     "__t_older__",  "__archived__"};
+            // Fold/unfold every REAL folder in lockstep. Folders are DYNAMIC
+            // (derived from distinct_folders — the actual folder values on the
+            // sessions), so build the key set from those, using the SAME key
+            // render_folder collapses on (the raw folder value). The Recent
+            // catch-all is a HEADERLESS flat list with no header to collapse,
+            // so it's skipped. (The old hardcoded stars/oncall/experiments +
+            // __t_*__ time-bucket + __archived__ keys are obsolete — folders
+            // are dynamic, Recent is headerless, and Archived is a smart VIEW.)
             if (app.foldAllFolders) {
-                for (const char* k : kKeys) app.collapsedFolders.insert(k);
+                for (const auto& k : distinct_folders(app))
+                    app.collapsedFolders.insert(k);
             } else {
                 app.collapsedFolders.clear();
             }
@@ -964,8 +992,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(178)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
+                // Folded rail: left inset == the header toggle's, so the icon
+                // column is flush-left in one vertical line. Unfolded: the
+                // original 8px inset the label/count geometry is tuned around.
                 .with_padding(Padding{.top = pixels(0), .right = pixels(4),
-                                      .bottom = pixels(2), .left = pixels(8)})
+                                      .bottom = pixels(2),
+                                      .left = pixels(folded ? kRailIconInset
+                                                            : 8.0f)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("smart_views"));
@@ -985,6 +1018,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    SmartView::Review, review, app, folded, panelW);
         smart_item(ctx, container.ent(), 4, "star", "\xe2\x98\x85", "Starred",
                    SmartView::Starred, starred, app, folded, panelW);
+        // TODO(icon-atlas): "archive" sprite missing — using U+25A4 box fallback; cut the real Lucide archive sprite into icons_atlas.h and drop this fallback glyph.
         smart_item(ctx, container.ent(), 5, "archive", "\xe2\x96\xa4",
                    "Archived", SmartView::Archived, archived, app, folded,
                    panelW);
@@ -1002,8 +1036,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
+                // Folded rail: no row left-pad — the container's kRailIconInset
+                // already sets the icon column's left edge, and the icon slot
+                // (kRailIconSlot, == the header toggle box) makes the centered
+                // glyph land on the same vertical line as the toggle above.
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
-                                      .bottom = pixels(4), .left = pixels(8)})
+                                      .bottom = pixels(4),
+                                      .left = pixels(folded ? 0.0f : 8.0f)})
                 .with_margin(Margin{.top = pixels(1), .right = pixels(0),
                                     .bottom = pixels(1), .left = pixels(0)})
                 .with_custom_background(active ? theme::selected_bg()
@@ -1054,7 +1093,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(folded ? 26 : 18), pixels(22)})
+                .with_size(ComponentSize{
+                    pixels(folded ? kRailIconSlot : 18.0f), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_on_draw_fg([iconDraw, useAttentionIcon, attnColor, iconPx,
