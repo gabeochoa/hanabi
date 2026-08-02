@@ -76,3 +76,37 @@ subagents had logged #28/#29 as UNNUMBERED prose; #30/#31 were missing entirely
 — all fixed.)
 
 STATUS: all 15 feedback items + tool-output \n fix DONE and verified. 0 open.
+
+---
+
+## PADDING & ALIGNMENT SWEEP (2026-08-02) — full pass
+
+Captured every surface at 1280×840 and inspected left-edge / right-edge / count-
+column / icon alignment via cropped screenshots. Findings + fixes:
+
+FIXED:
+- Digest views (Home/Blocked/Review/Starred/Archived): title (20px) vs scroll
+  body (24px) vs section labels (26px) = THREE left edges. Unified to
+  kContentInset(24) — title, labels, cards now share one left edge. (575669a)
+- Sidebar count column: VIEWS counts at panelW-8 vs FOLDERS/thread counts at
+  panelW-12 (4px). Set smart-view row right pad to kCountRightPad(12); all count
+  families now share one right edge. (575669a)
+
+VERIFIED CLEAN (no change needed):
+- Transcript: header/author/body share the 24px inset; tool-row border box at
+  content edge with dur/check right-aligned; composer input+chip aligned; code
+  block full-width with a 10px internal indent (mock-consistent block set-off).
+- Sidebar: VIEWS icons+labels aligned; folder glyph+label+time+star columns
+  consistent; star rightmost (per #14); fold-all chevron near edge.
+- Settings modal: all section headers + segmented controls share left edge;
+  even vertical rhythm; no dead space; × top-right.
+
+NOTED (cosmetic, not fixed — low value / would be a design change):
+- Code block renders as full-width tinted rows without a single rounded
+  container/border (the mock has a `.block` card w/ a lang bar). Reads fine as a
+  set-off block; wrapping it in one rounded container is a design refinement.
+- Starred rows shift the time column ~18px left to reserve the star slot, so
+  time x differs slightly between starred/unstarred rows (star-reservation
+  tradeoff; avoids reflow-on-hover which is worse).
+
+Gate: build 0/0, TLS 0/0, test 8/8, perf PASS, test-real 89 sessions. All green.
