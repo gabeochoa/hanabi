@@ -16,6 +16,7 @@
 #include <cctype>
 #include <ctime>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../test_hooks.h"
@@ -1610,6 +1611,36 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool automated = is_automated(s.title);
         Glyph glyph = automated ? Glyph::Automated : glyph_for(s);
 
+        // ---- STABLE row hover (fixes the "star hover flashes the whole row")
+        // The trailing star is a real (clickable) child button inside the row.
+        // afterhours' hot state is a SINGLE entity (systems.h HandleClicks
+        // sets hot on the deepest element under the mouse), so the moment the
+        // cursor crosses from the row body onto the star, `hot_id` flips from
+        // the row to the star: is_hot(row) goes FALSE. The framework paints a
+        // widget's hover-wash only while it is is_hot (rendering.h), so the
+        // row's background would drop its hover wash for exactly the frames the
+        // star is hot — i.e. the WHOLE row flickers between washed/unwashed as
+        // the pointer moves over the star. (It is NOT a reflow: the star slot
+        // is always reserved — see the width math + row_star_slot below.)
+        //
+        // Fix: don't rely on the framework's per-frame is_hot wash for the row
+        // at all. We BAKE the hover wash into the row's BASE background whenever
+        // the pointer is anywhere in the row — the row body OR its own star
+        // child. The star's entity id is stable across frames (mk() hashes
+        // parent+index+location), so we cache it per-session on first render
+        // and OR its hot state into the row's hover signal. With the wash in
+        // the base color (and hover_bg == the same wash), the row paints the
+        // identical fill no matter which of {row, star} currently owns hot_id,
+        // so there is no flash. A selected row always wins (its own fill), and
+        // an unselected+unhovered row stays plain — the row bg is now fully
+        // independent of star hover.
+        static std::unordered_map<std::string, afterhours::EntityID> starIds;
+        afterhours::EntityID cachedStar = -1;
+        if (auto it = starIds.find(s.id); it != starIds.end())
+            cachedStar = it->second;
+        bool starHot = cachedStar >= 0 && (ctx.is_hot(cachedStar) ||
+                                           ctx.was_hot(cachedStar));
+
         // Denser rows: 24px tall with tight vertical padding, so more threads
         // fit — matching the mock's compact sidebar feel. Rows are indented
         // (left pad) to sit under their folder header, mirroring the mock's
@@ -1632,6 +1663,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("chat_row"));
+
+        // Bake the hover wash into the row's BASE fill whenever the pointer is
+        // in the row body OR on its star child, so the row bg never flickers as
+        // hot moves between the two (see note above). Selected always wins.
+        {
+            bool rowBodyHot =
+                ctx.is_hot(row.ent().id) || ctx.was_hot(row.ent().id);
+            if (!selected && (rowBodyHot || starHot)) {
+                if (row.ent().has<afterhours::HasColor>())
+                    row.ent()
+                        .get<afterhours::HasColor>()
+                        .set(theme::hover_over(theme::sidebar_bg()));
+            }
+        }
 
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
@@ -1678,9 +1723,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // (left 22 + right 8) = panelW − 30. Columns, in order:
         //   glyph slot   12px  (leading status indicator — always drawn)
         //   title        (flex-ish, sized in px — takes the remaining width)
-        //   star slot    18px  (renders on hover / when starred, but ALWAYS
-        //                       reserved so the row doesn't reflow on hover)
         //   time slot    kRowTimeColW (trailing relative-time)
+        //   star slot    18px  (RIGHTMOST — right-aligned per Gabe; renders on
+        //                       hover / when starred, but ALWAYS reserved so
+        //                       the row doesn't reflow on hover)
         //
         // WIDTH MATH / no-overflow (defect: layout-warn spam + solve_violations
         // churn). The columns are fixed-px in a NoWrap row, so if
@@ -1745,15 +1791,47 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // star to toggle; an unhovered-unstarred row shows nothing.
         bool rowHovered = ctx.was_hot(row.ent().id) ||
                           ctx.is_hot(row.ent().id) ||
+                          // The star child owns hot_id while the pointer is on
+                          // it (see the stable-hover note at the top of the
+                          // row); treat that as the row still being hovered so
+                          // the star affordance doesn't blink out from under
+                          // the cursor.
+                          starHot ||
                           // Test-only: force one row's hover (e.g. to capture
                           // the star-on-hover affordance headlessly). No-op
                           // unless HANABI_TEST_HOVER=row:<sessionId>.
                           hanabi::test_hooks::force_hover("row:" + s.id);
+
+        // Trailing relative-time column FIRST (so it sits to the LEFT of the
+        // star): a small, faint, right-aligned age ("2h","3d","Jul 28"). Empty
+        // label (unknown/future updated_at) renders blank but still reserves
+        // its width, keeping the layout stable. Dropped at very narrow widths
+        // (showTime) to avoid overflowing the row — see the row width math.
+        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
+        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
+        if (showTime)
+        div(ctx, mk(row.ent(), 4),
+            ComponentConfig{}
+                .with_label(ageLabel)
+                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("row_time"));
+
+        // Star affordance: the RIGHTMOST column (created last so flex lays it
+        // out flush to the row's right edge — per Gabe: "the star should be
+        // right-aligned"). Shown when the row is HOVERED, or always when the
+        // thread is already starred (so starred state stays visible at rest).
+        // A starred row shows a filled accent star; a hovered-unstarred row
+        // shows a faint hollow star to toggle; an unhovered-unstarred row shows
+        // a blank reserved slot (so the layout never reflows on hover).
+        //
         // The star column is DROPPED entirely (not just blank) when the row is
         // too narrow to hold it without overflow (showStar) — see the row
-        // width math above. Otherwise it's ALWAYS emitted (as a live star or a
-        // blank reserved slot) so the trailing timestamp never reflows on
-        // hover.
+        // width math above.
         if (showStar && (s.starred || rowHovered)) {
             theme::Color starColor =
                 s.starred ? theme::tag_ready_fg() : theme::text_faint();
@@ -1767,10 +1845,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     // button. A custom bg (even matching the row) drew a
                     // subtly-different rounded rect that read as a stray box;
                     // transparent lets the row's own fill show through so only
-                    // the glyph is visible. The star slot is a fixed column
-                    // pinned immediately LEFT of the rightmost `row_time`
-                    // column, so it's right-aligned in the row by layout; the
-                    // glyph is centered in its 18px slot (draw_fg centers).
+                    // the glyph is visible. skip_hover_override keeps even that
+                    // transparent fill from being tinted on hover, so hovering
+                    // the star never paints a box of its own — the only visible
+                    // hover effect is the (stable) row wash baked in above.
+                    // Rightmost column → the glyph is centered in its 18px slot
+                    // (draw_fg centers) hard against the row's right edge.
                     .with_transparent_bg()
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
@@ -1779,12 +1859,23 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         "star", s.starred ? "\xe2\x98\x85" : "\xe2\x98\x86",
                         starColor, 12.0f, -1.0f))
                     .with_debug_name("row_star"));
+            // Keep the star's own fill from ever washing on hover (belt +
+            // suspenders with transparent_bg): the row carries the hover wash.
+            if (star.ent().has<afterhours::HasColor>())
+                star.ent().get<afterhours::HasColor>().skip_hover_override =
+                    true;
+            // Cache the star's (stable) entity id so the NEXT frame's row can
+            // treat star-hover as row-hover (stable-hover note above).
+            starIds[s.id] = star.ent().id;
             if (star) {
                 app.requestToggleStar = sid;
             }
         } else if (showStar) {
-            // Reserve the star slot even when no star is shown, so the trailing
-            // timestamp column stays put (no reflow on hover).
+            // Reserve the star slot even when no star is shown, so the row's
+            // trailing columns stay put (no reflow on hover). This blank slot
+            // is a plain div (no HasClickListener), so it never steals hot from
+            // the row — only the live star button (above) does, which the
+            // stable-hover baking already accounts for.
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(" ")
@@ -1793,22 +1884,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("row_star_slot"));
         }
-
-        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
-        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
-        // Time column dropped at very narrow widths (showTime) to avoid
-        // overflowing the row — see the row width math above.
-        if (showTime)
-        div(ctx, mk(row.ent(), 4),
-            ComponentConfig{}
-                .with_label(ageLabel)
-                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("row_time"));
 
     }
 };
