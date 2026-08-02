@@ -123,7 +123,10 @@ inline const Tokens kDark = {
     /*role_assistant*/ {126, 200, 140, 255},
     /*role_system*/ {180, 150, 90, 255},
     /*role_tool*/ {150, 130, 200, 255},
-    /*bubble_user_bg*/ {44, 58, 92, 255},
+    // User bubble = a MUTED NEUTRAL grey (not a saturated blue tint) so it reads
+    // as "your message" without competing with the ONE accent (transcript-only
+    // token — the Navi-web-chat look: quiet grey right-aligned bubble).
+    /*bubble_user_bg*/ {52, 53, 60, 255},
     /*bubble_assistant_bg*/ {34, 46, 40, 255},
     /*bubble_other_bg*/ {44, 44, 52, 255},
 
@@ -201,7 +204,9 @@ inline const Tokens kLight = {
     /*role_assistant*/ {40, 138, 72, 255},
     /*role_system*/ {150, 112, 30, 255},
     /*role_tool*/ {114, 84, 184, 255},
-    /*bubble_user_bg*/ {224, 232, 255, 255},
+    // User bubble = a MUTED NEUTRAL grey on light (transcript-only) — quiet,
+    // not a saturated blue tint. Sits a touch below the white pane.
+    /*bubble_user_bg*/ {232, 233, 238, 255},
     /*bubble_assistant_bg*/ {224, 242, 230, 255},
     /*bubble_other_bg*/ {238, 238, 244, 255},
 

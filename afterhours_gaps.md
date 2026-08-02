@@ -455,6 +455,63 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 
 ---
 
+### #23 — no off-screen child culling / list virtualization for scroll views
+- **Gap:** a `ScrollPanel` lays out and renders EVERY child every frame, even
+  children scrolled far outside the viewport. There is no "only build/lay-out
+  the visible slice" primitive and no way to tell the layout engine a child is
+  off-screen and can be skipped. On a long immediate-mode list the per-frame
+  cost is O(all children) through the 7-pass recursive layout (autolayout.h,
+  with `solve_violations` iterating up to 10× per container).
+- **Why wanted (hanabi):** the chat transcript is immediate-mode — it rebuilt
+  every message (name + wrapped body + tool rows + folds) every frame. On a
+  120-message thread that was **~146ms/frame (~7fps)** — the direct cause of the
+  "choppy scroll / low framerate" the user reported. Only ~a viewport-worth of
+  messages is ever visible.
+- **App-code workaround (used, big win):** the transcript now pre-computes each
+  item's height (memoized per message id+width — see #A / transcript_render_cache.h),
+  reads last frame's `HasScrollView::scroll_offset.y` + `viewport_size.y` (they
+  persist across frames since imm entities are keyed by `mk(parent,id)`), and
+  only emits entities for items intersecting `[scroll − ½vp, scroll + vp + ½vp]`.
+  Items outside are collapsed into ONE spacer `div` of their summed height, so
+  total content height (and thus the scrollbar + scroll math) is preserved
+  exactly while their text/measure/child-layout is never built. Result:
+  **146ms → ~15.7ms/frame** on the same 120-message thread (a long transcript now
+  costs the same as a short one; the residual ~15ms is the app-wide layout floor
+  — sidebar + full-tree passes — not the transcript).
+- **Minimal fix (owned elsewhere — vendor/afterhours):** a first-class
+  virtualization hook on `HasScrollView` — e.g. a callback `(visible_range) →
+  build children`, or a `with_virtualized(item_count, item_height_fn,
+  build_item_fn)` helper that internally does the spacer trick + only calls the
+  builder for visible indices. Would remove the need for every app to hand-roll
+  height accounting + spacer divs. Related: a cheaper "skip layout for a subtree
+  flagged off-screen" flag would help even non-list cases.
+
+### #24 — wrapped text ignores hard line breaks (`\n` is treated as a word char)
+- **Gap:** `detail::wrap_text_to_width` (rendering.h) does greedy word-wrap by
+  splitting on SPACES only; a `\n` in the label is treated as an ordinary
+  character inside a "word". So a multi-line body (numbered/bulleted list,
+  paragraphs) collapses into ONE run-on wrapped paragraph — AND any height the
+  caller computed assuming `\n` = line break is wrong, leaving a large empty gap
+  (the box is sized for N logical lines but the renderer draws far fewer).
+- **Why wanted (hanabi):** assistant answers are lists + paragraphs delimited by
+  `\n` / `\n\n`. Rendered as one box they became an unreadable run-on blob AND
+  produced a ~100px void between the author name and the visible text (a top UI
+  critique). This is distinct from #22 (that's about inline per-run COLOR; this
+  is about honoring hard breaks at all).
+- **App-code workaround (used):** the assistant body is split on `\n` and each
+  segment rendered as its OWN wrapped text box (blank line → a half-pitch gap
+  for paragraph spacing); the height model sums the same per-segment wrapped
+  heights so it matches the render exactly. Bounded by #23's virtualization so
+  the extra per-line boxes only exist for visible turns. Side benefit: real list
+  breaks + hanging structure with no vendor change.
+- **Minimal fix (owned elsewhere — vendor/afterhours):** teach
+  `wrap_text_to_width` to force a line break on `\n` (and the draw loop + the
+  measure API #A to advance a line), so a single wrapping label honors hard
+  breaks. Pairs naturally with #22 (per-run color) and #A (a real measure/wrap
+  API that reports line count).
+
+---
+
 # WISHLIST — what would make afterhours a joy to build on
 
 Distinct from the numbered gaps above (which are concrete missing primitives / bugs

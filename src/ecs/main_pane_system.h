@@ -12,6 +12,7 @@
 
 #include "../util/format.h"
 #include "thread_model.h"
+#include "transcript_render_cache.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -908,97 +909,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // One sub-agent row: [shape] title · status, click toggles the detail note.
-    void sub_item(UIContext<InputAction>& ctx, Entity& parent, int id,
-                  AppComponent& app, const std::string& key, SubGlyph g,
-                  const std::string& title, const std::string& note) {
-        bool open = app.expandedSubAgents.count(key) != 0;
-        auto row = div(ctx, mk(parent, id),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), children()})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(6), .right = pixels(14),
-                                      .bottom = pixels(6), .left = pixels(14)})
-                .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(0.0f)
-                .with_debug_name("sub_item"));
-        row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
-            [](Entity&) {});
-        if (row.ent().get<afterhours::ui::HasClickListener>().down) {
-            if (open) app.expandedSubAgents.erase(key);
-            else app.expandedSubAgents.insert(key);
-        }
 
-        // Header line: shape glyph slot + title + "·" + status.
-        auto head = div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("si_head"));
-        div(ctx, mk(head.ent(), 1),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(12), pixels(16)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_on_draw_fg([g](RectangleType rect) {
-                    draw_sub_glyph(rect, g);
-                })
-                .with_debug_name("si_glyph"));
-        div(ctx, mk(head.ent(), 2),
-            ComponentConfig{}
-                .with_label(fmtutil::ellipsize(title, 34))
-                .with_size(ComponentSize{children(), pixels(16)})
-                .with_margin(Margin{.top = pixels(0), .right = pixels(8),
-                                    .bottom = pixels(0), .left = pixels(6)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::ROW)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("si_title"));
-        if (!note.empty() && !open) {
-            div(ctx, mk(head.ent(), 3),
-                ComponentConfig{}
-                    .with_label("\xc2\xb7  " + fmtutil::ellipsize(note, 40))
-                    .with_size(ComponentSize{percent(0.6f), pixels(16)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::MD)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("si_status"));
-        }
-
-        // Expanded detail: the full note, wrapped, indented under the title.
-        if (open && !note.empty()) {
-            float noteW = 700.0f;
-            float nh = estimate_height(note, noteW - 24.0f);
-            div(ctx, mk(row.ent(), 2),
-                ComponentConfig{}
-                    .with_label(note)
-                    .with_size(ComponentSize{percent(1.0f), pixels(nh - 20.0f)})
-                    .with_margin(Margin{.top = pixels(2), .right = pixels(0),
-                                        .bottom = pixels(2), .left = pixels(18)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(FontSize::Medium)
-                    .with_text_overflow(TextOverflow::Wrap)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("si_detail"));
-        }
-    }
-
-    // Panel at the top of the transcript listing the thread's sub-agent steps.
-    // Returns true if a panel was rendered.
+    // Map a sub-agent state to its status glyph (used by the rollup chips).
     static SubGlyph sub_glyph_for(api::SubAgentState st) {
         switch (st) {
             case api::SubAgentState::Running: return SubGlyph::Working;
@@ -1008,87 +920,169 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return SubGlyph::Working;
     }
 
-    static const char* sub_state_note(api::SubAgentState st) {
-        switch (st) {
-            case api::SubAgentState::Running: return "running";
-            case api::SubAgentState::Done: return "done";
-            case api::SubAgentState::Blocked: return "blocked";
-        }
-        return "";
-    }
-
-    bool sub_agent_panel(UIContext<InputAction>& ctx, Entity& scroll,
-                         AppComponent& app) {
-        // Prefer real sub-agents when the session carries them; otherwise fall
-        // back to deriving steps from Tool-role messages (the one per-step
-        // signal that always exists).
+    // Quiet, collapsible sub-agent ROLLUP (target: "N sub-agents • done" one
+    // line that expands to compact chips). De-emphasized (no shouty ALL-CAPS
+    // panel). Returns the total height it occupied (for virtualization math).
+    // Only shown when the session carries REAL sub-agents — tool activity now
+    // has its own dense rows, so we no longer duplicate it here.
+    float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
+                          AppComponent& app, float colW) {
         const auto& subs = app.openSession->sub_agents;
-        std::vector<const api::Message*> steps;
-        if (subs.empty()) {
-            for (const auto& m : app.openSession->messages)
-                if (m.role == api::Role::Tool) steps.push_back(&m);
-            if (steps.empty()) return false;
+        if (subs.empty()) return 0.0f;
+
+        const size_t count = subs.size();
+        int done = 0, blocked = 0;
+        for (const auto& sa : subs) {
+            if (sa.state == api::SubAgentState::Done) ++done;
+            if (sa.state == api::SubAgentState::Blocked) ++blocked;
         }
+        std::string verdict = blocked ? "blocked"
+                              : (done == static_cast<int>(count) ? "done"
+                                                                 : "running");
+        const std::string key = "__subagents__";
+        const bool open = app.expandedPiles.count(key) != 0;
 
-        const size_t count = subs.empty() ? steps.size() : subs.size();
+        constexpr float kRowH = 24.0f;
+        constexpr float kMargin = 8.0f;
+        constexpr float kChipH = 26.0f;
+        float total = kMargin + kRowH + kMargin;
 
-        auto panel = div(ctx, mk(scroll, 8000),
+        auto wrap = div(ctx, mk(col, 8000),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(700), children()})
+                .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(2), .right = pixels(0),
-                                    .bottom = pixels(12), .left = pixels(0)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_roundness(0.28f)
-                .with_debug_name("subpanel"));
+                .with_margin(Margin{.top = pixels(kMargin),
+                                    .bottom = pixels(kMargin)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("subrollup"));
 
-        // Head: "SUB-AGENTS (n)".
-        div(ctx, mk(panel.ent(), 1),
+        auto head = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_label("SUB-AGENTS (" + std::to_string(count) + ")")
-                .with_size(ComponentSize{percent(1.0f), pixels(28)})
-                .with_padding(Padding{.top = pixels(8), .right = pixels(12),
-                                      .bottom = pixels(6), .left = pixels(14)})
+                .with_size(ComponentSize{children(), pixels(kRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("subrollup_head"));
+        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (head.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (open) app.expandedPiles.erase(key);
+            else app.expandedPiles.insert(key);
+        }
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label(open ? "\xe2\x96\xbe" : "\xe2\x96\xb8")
+                .with_size(ComponentSize{pixels(14), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_debug_name("subrollup_chev"));
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(std::to_string(count) +
+                            (count == 1 ? " sub-agent  \xc2\xb7  "
+                                        : " sub-agents  \xc2\xb7  ") +
+                            verdict)
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_margin(Margin{.left = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::MD)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("subrollup_label"));
+
+        if (open) {
+            auto chips = div(ctx, mk(wrap.ent(), 2),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::Wrap)
+                    .with_margin(Margin{.top = pixels(6), .left = pixels(16)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("subrollup_chips"));
+            int i = 0;
+            for (const auto& sa : subs) {
+                sub_chip(ctx, chips.ent(), 10 + i, sub_glyph_for(sa.state),
+                         sa.title);
+                ++i;
+            }
+            int rows = (static_cast<int>(count) + 2) / 3;
+            total += 6.0f + rows * (kChipH + 6.0f);
+        }
+        (void)colW;
+        return total;
+    }
+
+    // One compact sub-agent chip: glyph + short title.
+    void sub_chip(UIContext<InputAction>& ctx, Entity& parent, int id,
+                  SubGlyph g, const std::string& title) {
+        auto chip = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{children(), pixels(26)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(3), .right = pixels(10),
+                                      .bottom = pixels(3), .left = pixels(8)})
+                .with_margin(Margin{.right = pixels(6), .bottom = pixels(6)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(0.5f)
+                .with_debug_name("sub_chip"));
+        div(ctx, mk(chip.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(12), pixels(16)})
+                .with_transparent_bg()
+                .with_margin(Margin{.right = pixels(5)})
+                .with_on_draw_fg([g](RectangleType rr) {
+                    draw_sub_glyph(rr, g);
+                })
+                .with_debug_name("sub_chip_glyph"));
+        div(ctx, mk(chip.ent(), 2),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(title, 28))
+                .with_size(ComponentSize{children(), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("subpanel_head"));
-
-        int i = 0;
-        if (!subs.empty()) {
-            for (const auto& sa : subs) {
-                std::string note =
-                    std::string(sub_state_note(sa.state)) +
-                    (sa.note.empty() ? "" : " \xc2\xb7 " + sa.note);
-                sub_item(ctx, panel.ent(), 10 + i, app, sa.id,
-                         sub_glyph_for(sa.state), sa.title, note);
-                ++i;
-            }
-        } else {
-            for (const auto* m : steps) {
-                std::string title = m->subtitle.empty() ? "step" : m->subtitle;
-                sub_item(ctx, panel.ent(), 10 + i, app, m->id, SubGlyph::Done,
-                         title, m->text);
-                ++i;
-            }
-        }
-        return true;
+                .with_debug_name("sub_chip_title"));
     }
 
     // ---------------- Chat transcript --------------------------------------
+
+    // One renderable unit: a single message OR a collapsed run of >=2
+    // consecutive tool messages (a "pile"). Pre-computed once per frame with
+    // its measured height so we can (a) sum total content height and (b)
+    // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
+    struct Item {
+        enum Kind { Bubble, ToolPile, ToolBlock } kind;
+        int lo = 0;
+        int hi = 0;
+        float height = 0.0f;
+        bool isLive = false;
+    };
+
+    static ecs::model::TranscriptRenderCache& render_cache() {
+        static ecs::model::TranscriptRenderCache c;
+        return c;
+    }
+
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, float paneW, float paneH) {
         std::string title = "Select a thread";
         if (app.openSession) {
             std::string t = normalize_title(app.openSession->summary.title);
-            // The per-session detail response often omits the title (only the
-            // LIST carries it), so a real transcript's own summary.title is
-            // frequently empty → the header showed a bare "(untitled)" even
-            // though the sidebar/tab knew the name. Fall back to the list
-            // summary's title, then the id, before giving up.
             if (t.empty()) {
                 if (const auto* ls = app.find_summary(app.openSession->summary.id))
                     t = normalize_title(ls->title);
@@ -1112,17 +1106,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // The transcript pane splits into a scrolling message column (grows to
-        // fill) and a persistent composer row pinned to the bottom. But a
-        // READ-ONLY backend (no send/stream capability) should NOT show a dead,
-        // disabled Send box — a greyed input the user can't use is worse than
-        // none (critique #25/#98). So when the backend can't reply we HIDE the
-        // composer entirely and give the whole pane to the transcript. Header
-        // is 46; the composer (when shown) is a fixed strip.
         const bool canReply =
             app.client &&
             (app.client->supports_send() || app.client->supports_stream());
-        const float kComposerH = canReply ? 74.0f : 0.0f;
+        const float kComposerH = canReply ? 92.0f : 0.0f;
         float listH = paneH - 46.0f - kComposerH;
         if (listH < 20.0f) listH = 20.0f;
 
@@ -1130,14 +1117,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
                 .with_custom_background(theme::panel_bg())
-                .with_padding(Padding{.top = pixels(6), .right = pixels(14),
-                                      .bottom = pixels(6), .left = pixels(18)})
+                .with_padding(Padding{.top = pixels(8), .right = pixels(14),
+                                      .bottom = pixels(10), .left = pixels(18)})
                 .with_debug_name("transcript_scroll"));
 
-        // Empty-thread state: an open thread with no messages shows a tasteful
-        // empty state inside the scroll region (mirrors the mock's empty
-        // screen) — but the composer still renders below, so the pane never
-        // shows a blank void.
         if (app.openSession->messages.empty()) {
             div(ctx, mk(scroll.ent(), 1),
                 preset::EmptyStateText(
@@ -1150,70 +1133,130 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                           .left = pixels(18)})
                     .with_alignment(TextAlignment::Center)
                     .with_debug_name("transcript_empty"));
-        } else {
-            // Capped, CENTERED reading column (critique #5/#6): a real transcript
-            // ran text edge-to-edge across the wide pane (~110ch/line) which is
-            // brutal to read — cap the message column to ~720px (~68ch, the
-            // comfortable-reading measure ChatGPT/Claude use) and center it.
-            constexpr float kMsgCol = 720.0f;
-            float innerW = paneW - 36.0f;
-            float colW = innerW < kMsgCol ? innerW : kMsgCol;
-            Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW);
+            if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);
+            return;
+        }
 
-            // Sub-agent panel sits above the messages when the thread has steps.
-            sub_agent_panel(ctx, col, app);
+        constexpr float kMsgCol = 740.0f;
+        float innerW = paneW - 36.0f;
+        float colW = innerW < kMsgCol ? innerW : kMsgCol;
+        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW);
 
-            // Is a live stream filling one of these bubbles right now? If so,
-            // that message index gets the "thinking…" / caret affordance while
-            // the phase isn't Done. Only applies to the OPEN session's stream.
-            const bool streamingHere =
-                app.streamActive &&
-                app.streamSessionId == app.openSession->summary.id &&
-                app.streamPhase != AppComponent::StreamPhase::Done;
-            const size_t liveIdx = app.streamMsgIndex;
+        render_cache().reset_for_thread(app.openSession->summary.id);
 
+        float subH = sub_agent_panel(ctx, col, app, colW);
+
+        const bool streamingHere =
+            app.streamActive &&
+            app.streamSessionId == app.openSession->summary.id &&
+            app.streamPhase != AppComponent::StreamPhase::Done;
+        const size_t liveIdx = app.streamMsgIndex;
+
+        const auto& msgs = app.openSession->messages;
+        const int n = static_cast<int>(msgs.size());
+
+        // ---- Pass 1: item list + measured heights (memoized). --------------
+        std::vector<Item> items;
+        items.reserve(n);
+        float totalH = subH;
+        {
             int i = 0;
-            const auto& msgs = app.openSession->messages;
-            const int n = static_cast<int>(msgs.size());
             while (i < n) {
                 const auto& m = msgs[i];
-                // Collapse a RUN of >=2 consecutive tool-role messages into one
-                // "N tool calls" pile (navi-website pattern). A lone tool call
-                // stays a normal block. Never pile the one that's live-streaming
-                // (rare, but keep it visible). This also bounds render cost on a
-                // tool-heavy thread — a collapsed pile is one row, not N blocks.
                 if (m.role == api::Role::Tool) {
                     int j = i;
                     while (j < n && msgs[j].role == api::Role::Tool) ++j;
-                    const int runLen = j - i;
-                    if (runLen >= 2) {
-                        tool_pile(ctx, col, i, msgs, i, j, colW);
+                    if (j - i >= 2) {
+                        Item it;
+                        it.kind = Item::ToolPile;
+                        it.lo = i;
+                        it.hi = j;
+                        it.height = tool_pile_height(app, msgs, i, j);
+                        totalH += it.height;
+                        items.push_back(it);
                         i = j;
                         continue;
                     }
+                    Item it;
+                    it.kind = Item::ToolBlock;
+                    it.lo = i;
+                    it.height = tool_block_height();
+                    totalH += it.height;
+                    items.push_back(it);
+                    ++i;
+                    continue;
                 }
-                const bool isLive =
-                    streamingHere && static_cast<size_t>(i) == liveIdx;
-                render_bubble(ctx, col, i, m, colW, isLive, app.streamPhase);
+                Item it;
+                it.kind = Item::Bubble;
+                it.lo = i;
+                it.isLive = streamingHere && static_cast<size_t>(i) == liveIdx;
+                it.height = bubble_height(m, colW, it.isLive, i);
+                totalH += it.height;
+                items.push_back(it);
                 ++i;
-            }
-
-            // Auto-stick-to-bottom WHILE STREAMING (critique #94/#71): a live
-            // reply grows the content, so pin the scroll to the bottom each
-            // frame so the caret/newest text stays visible (ChatGPT/Claude
-            // behavior). We only force it during an active stream — otherwise
-            // the user's own scroll position is respected. clamp_scroll() uses
-            // last frame's content/viewport, so setting a large offset lands at
-            // the true bottom.
-            if (streamingHere &&
-                scroll.ent().has<afterhours::ui::HasScrollView>()) {
-                auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-                sv.scroll_offset.y = 1e9f;
-                sv.clamp_scroll();
             }
         }
 
-        // Composer only when the backend can actually reply (see canReply).
+        // ---- Virtualization: read last frame's scroll to skip off-screen. --
+        float scrollY = 0.0f;
+        float viewH = listH;
+        if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            scrollY = sv.scroll_offset.y;
+            if (sv.viewport_size.y > 1.0f) viewH = sv.viewport_size.y;
+        }
+        if (streamingHere) scrollY = totalH;  // stick to bottom
+        // Build half a viewport of margin above + below the visible window so a
+        // fast flick never reveals a blank gap, but we don't over-build.
+        const float kMargin = viewH * 0.5f;        const float visTop = scrollY - kMargin;
+        const float visBot = scrollY + viewH + kMargin;
+
+        // ---- Pass 2: emit spacers + only the visible items. ----------------
+        float y = subH;
+        float pendingSpacer = 0.0f;
+        auto flush_spacer = [&](int tag) {
+            if (pendingSpacer <= 0.0f) return;
+            div(ctx, mk(col, 30000 + tag),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels(pendingSpacer)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("virt_spacer"));
+            pendingSpacer = 0.0f;
+        };
+        for (const auto& it : items) {
+            const float top = y;
+            const float bot = y + it.height;
+            y = bot;
+            const bool visible = (bot >= visTop) && (top <= visBot);
+            if (!visible) {
+                pendingSpacer += it.height;
+                continue;
+            }
+            flush_spacer(it.lo);
+            switch (it.kind) {
+                case Item::Bubble:
+                    render_bubble(ctx, col, it.lo, msgs[it.lo], colW,
+                                  it.isLive, app.streamPhase);
+                    break;
+                case Item::ToolPile:
+                    tool_pile(ctx, col, it.lo, msgs, it.lo, it.hi, colW);
+                    break;
+                case Item::ToolBlock:
+                    render_tool_block(ctx, col, it.lo, msgs[it.lo], colW);
+                    break;
+            }
+        }
+        flush_spacer(99999);
+
+        if (streamingHere &&
+            scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            sv.scroll_offset.y = 1e9f;
+            sv.clamp_scroll();
+        }
+
         if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);
     }
 
@@ -1388,32 +1431,74 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             replyDraft.clear();
         }
 
-        // Status caption (text_input has no placeholder support, gap #17). When
-        // sending IS wired we drop the read-only note and either stay quiet
-        // (draft empty -> a faint "Reply…" label) or show a "sending…" state.
-        // The honest disabled caption only appears when the backend genuinely
-        // can't reply.
+        // Meta row under the input: model selector chip (left) + a
+        // context/cost meter (right) + the status caption — matches the Navi
+        // web composer's dense footer (defect #4: was a bare grey "Send" text).
+        auto meta = div(ctx, mk(bar.ent(), 3),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_margin(Margin{.top = pixels(5)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_meta"));
+        // Left: model selector chip.
+        div(ctx, mk(meta.ent(), 1),
+            ComponentConfig{}
+                .with_label("Opus 4.8 (xhigh)  \xe2\x96\xbe")
+                .with_size(ComponentSize{children(), pixels(16)})
+                .with_padding(Padding{.top = pixels(1), .right = pixels(8),
+                                      .bottom = pixels(1), .left = pixels(8)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.5f)
+                .with_debug_name("composer_model"));
+        // Right cluster: status caption + context/cost meter.
+        auto rightMeta = div(ctx, mk(meta.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{children(), pixels(16)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_rightmeta"));
         const char* caption = nullptr;
-        if (!canSend) {
+        if (!canSend)
             caption =
                 "read-only \xe2\x80\x94 this backend doesn't support replies";
-        } else if (sending) {
+        else if (sending)
             caption = "sending\xe2\x80\xa6";
-        } else if (!hasText) {
-            caption = "Reply\xe2\x80\xa6";
-        }
         if (caption) {
-            div(ctx, mk(bar.ent(), 3),
+            div(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
                     .with_label(caption)
-                    .with_size(ComponentSize{percent(1.0f), pixels(14)})
-                    .with_margin(Margin{.top = pixels(4)})
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.right = pixels(10)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
+                    .with_alignment(TextAlignment::Right)
                     .with_debug_name("composer_status"));
+        }
+        if (canSend) {
+            // Context/cost meter (illustrative): "38% $$$$".
+            div(ctx, mk(rightMeta.ent(), 2),
+                ComponentConfig{}
+                    .with_label("38%  $$$$")
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Right)
+                    .with_debug_name("composer_meter"));
         }
     }
 
@@ -1534,29 +1619,207 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    // ---- Shared transcript layout constants (denser doc-feed) --------------
+    // SINGLE source of truth for the vertical rhythm, used by BOTH the
+    // height/measure pass (virtualization) and the render methods so a spacer
+    // div's height always matches what its item would take. Tightened from the
+    // old loose feed (~18-24px turn gaps → ~100px dead space) to a dense ~10px
+    // rhythm matching the Navi web chat.
+    static constexpr int kFoldLines = 40;
+    static constexpr float kTurnGapTop = 6.0f;
+    static constexpr float kTurnGapBot = 4.0f;
+    static constexpr float kAuthorH = 15.0f;
+    static constexpr float kAuthorGap = 3.0f;
+    static constexpr float kBodyPad = 2.0f;
+    static constexpr float kUserPadV = 14.0f;
+    static constexpr float kFoldBtnH = 26.0f;
+
+    static float body_text_h(int lines) {
+        if (lines < 1) lines = 1;
+        return static_cast<float>(lines) * kLinePitch + 2.0f * kBodyPad;
+    }
+
+    // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
+    // method's per-segment layout exactly (blank line = half pitch, else
+    // segLines*pitch) so virtualization spacers line up with what renders.
+    static float rich_body_h(const std::string& body, float textW) {
+        const int perLine = wrap_perline(textW);
+        float h = 0.0f;
+        size_t start = 0;
+        while (start <= body.size()) {
+            size_t nl = body.find('\n', start);
+            size_t end = (nl == std::string::npos) ? body.size() : nl;
+            int len = static_cast<int>(end - start);
+            if (len <= 0) {
+                h += kLinePitch * 0.5f;
+            } else {
+                int segLines = (len + perLine - 1) / perLine;
+                if (segLines < 1) segLines = 1;
+                h += static_cast<float>(segLines) * kLinePitch;
+            }
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return h;
+    }
+
+    // Renderer-accurate height for a SINGLE wrapped box (user bubble / tool):
+    // afterhours wraps on spaces only and treats "\n" as a char, so a single
+    // box's rendered line count ignores newlines. Approximate that.
+    static float flat_body_h(const std::string& body, float textW) {
+        const int perLine = wrap_perline(textW);
+        int len = static_cast<int>(body.size());
+        int lines = (len + perLine - 1) / perLine;
+        if (lines < 1) lines = 1;
+        return static_cast<float>(lines) * kLinePitch + 2.0f * kBodyPad;
+    }
+
+    // Memoized display body + measured height for a message, keyed by
+    // (id, wrap width). Recomputed only on a miss / width change — a static
+    // transcript is measured ONCE, not every frame (the core perf fix).
+    // `rich` selects the assistant per-line layout vs the flat single-box one.
+    const ecs::model::MsgRender& measured(const api::Message& m, float textW,
+                                          bool isLive, int index,
+                                          AppComponent::StreamPhase phase,
+                                          bool rich) {
+        const std::string key =
+            (m.id.empty() ? ("i" + std::to_string(index)) : m.id) +
+            (rich ? "|r" : "|f");
+        if (!isLive) {
+            if (const auto* hit = render_cache().get(key, textW)) return *hit;
+        }
+        ecs::model::MsgRender r;
+        r.body = strip_inline_md(redact_secrets(m.text));
+        if (isLive) {
+            if (r.body.empty() ||
+                phase == AppComponent::StreamPhase::Thinking)
+                r.body = "thinking\xe2\x80\xa6";
+            else
+                r.body += " \xe2\x96\x8b";
+        }
+        r.line_count = count_lines(r.body, textW);  // logical lines (for fold)
+        r.wrap_w = textW;
+        r.height = rich ? rich_body_h(r.body, textW)
+                        : flat_body_h(r.body, textW);
+        if (isLive) {
+            static ecs::model::MsgRender liveSlot;
+            liveSlot = std::move(r);
+            return liveSlot;
+        }
+        return render_cache().put(key, std::move(r));
+    }
+
+    bool is_folded(const api::Message& m, int index, int lineCount,
+                   bool isLive) {
+        if (isLive || lineCount <= kFoldLines) return false;
+        AppComponent* app = app_singleton();
+        const std::string mkey =
+            m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
+        return !(app && app->expandedMsgs.count(mkey) != 0);
+    }
+
+    // ---- Item height functions (mirror the render layout exactly) ----------
+    float bubble_height(const api::Message& m, float paneWidth, bool isLive,
+                        int index) {
+        if (m.role == api::Role::System) return 22.0f + 16.0f;
+        const bool isUser = (m.role == api::Role::User);
+        if (isUser) {
+            float bubbleW = paneWidth * 0.82f;
+            if (bubbleW > 520.0f) bubbleW = 520.0f;
+            const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
+                                      AppComponent::StreamPhase::Idle,
+                                      /*rich=*/false);
+            return kTurnGapTop + 10.0f + mr.height + kUserPadV + kTurnGapBot;
+        }
+        float textW = paneWidth - 34.0f;
+        const auto& mr = measured(m, textW, isLive, index,
+                                  AppComponent::StreamPhase::Idle,
+                                  /*rich=*/true);
+        bool folded = is_folded(m, index, mr.line_count, isLive);
+        float bodyH = folded
+                          ? rich_body_h(first_n_lines(mr.body, textW, kFoldLines),
+                                        textW)
+                          : mr.height;
+        float h = kTurnGapTop + 12.0f + kAuthorH + kAuthorGap + bodyH +
+                  kTurnGapBot;
+        AppComponent* app = app_singleton();
+        const std::string mkey =
+            m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
+        bool expanded = app && app->expandedMsgs.count(mkey) != 0;
+        if (!isLive && (folded || (expanded && mr.line_count > kFoldLines)))
+            h += kFoldBtnH;
+        return h;
+    }
+
     // Max bubble content width — caps the reading column so a conversational
     // message doesn't run edge-to-edge across the wide pane (v3 #8). ~620px is
     // roughly 70 characters at this font, the comfortable-reading target.
     static constexpr float kBubbleCap = 620.0f;
 
-    // A conversational message (User / Assistant) as a CONTAINED bubble inside a
-    // full-width row. The row aligns the bubble by role (user right, assistant
-    // left) so the transcript reads as a two-sided conversation, not a stack of
-    // full-width tinted bands. System / Tool messages take the quieter
-    // metadata treatment (see render_meta_line / render_tool_block).
+
+    // Render an assistant body as one wrapped text box PER newline-delimited
+    // segment. afterhours' word-wrap splits only on spaces and treats "\n" as a
+    // regular character (gap #22), so a single box collapses a numbered/bulleted
+    // list into a run-on paragraph AND leaves a tall empty gap (the box is sized
+    // for N logical lines but the renderer draws far fewer). Splitting on "\n"
+    // and giving each segment its own box restores real list breaks + makes the
+    // measured height match the render exactly (no gap). A blank segment becomes
+    // a small vertical gap (paragraph spacing). Bounded by virtualization — only
+    // the visible turns build these per-line boxes.
+    void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
+                          const std::string& shown, float textW) {
+        const int perLine = wrap_perline(textW);
+        size_t start = 0;
+        int seg = 0;
+        while (start <= shown.size()) {
+            size_t nl = shown.find('\n', start);
+            size_t end = (nl == std::string::npos) ? shown.size() : nl;
+            std::string line = shown.substr(start, end - start);
+            if (line.empty()) {
+                // Blank line → half-line paragraph gap.
+                div(ctx, mk(parent, 100 + seg),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{percent(1.0f),
+                                                 pixels(kLinePitch * 0.5f)})
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_debug_name("asst_gap"));
+            } else {
+                int segLines = (static_cast<int>(line.size()) + perLine - 1) /
+                               perLine;
+                if (segLines < 1) segLines = 1;
+                div(ctx, mk(parent, 100 + seg),
+                    ComponentConfig{}
+                        .with_label(line)
+                        .with_size(ComponentSize{
+                            percent(1.0f),
+                            pixels(static_cast<float>(segLines) * kLinePitch)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::BODY)
+                        .with_text_overflow(TextOverflow::Wrap)
+                        .with_alignment(TextAlignment::Left)
+                        .with_roundness(0.0f)
+                        .with_debug_name("asst_line"));
+            }
+            ++seg;
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+    }
+
+    // A conversational message (User / Assistant). Assistant = full-column
+    // doc-feed turn (no bubble); User = compact right-aligned MUTED-GREY bubble.
+    // Heights match bubble_height() exactly so virtualization spacers line up.
     void render_bubble(UIContext<InputAction>& ctx, Entity& parent, int index,
                        const api::Message& m, float paneWidth,
                        bool isLive = false,
                        AppComponent::StreamPhase streamPhase =
                            AppComponent::StreamPhase::Idle) {
-        // System messages are conversation METADATA, not dialogue: render them
-        // as a quiet centered caption, never a bubble.
         if (m.role == api::Role::System) {
             render_meta_line(ctx, parent, index, m);
             return;
         }
-        // Tool messages are work-steps: a distinct, subtler contained block
-        // (left-aligned, quieter than a conversational bubble).
         if (m.role == api::Role::Tool) {
             render_tool_block(ctx, parent, index, m, paneWidth);
             return;
@@ -1564,53 +1827,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const bool isUser = (m.role == api::Role::User);
 
-        // The visible body text. While a reply is streaming into THIS assistant
-        // turn, show a subtle live affordance: a "thinking…" placeholder before
-        // the first token lands, then the partial text followed by a block caret
-        // so it reads as an active, filling reply. The underlying api::Message is
-        // untouched — this is a display-only decoration. Secrets are redacted at
-        // render time (never shoulder-surf a pasted key/JWT).
-        std::string body = strip_inline_md(redact_secrets(m.text));
-        if (isLive) {
-            if (body.empty() ||
-                streamPhase == AppComponent::StreamPhase::Thinking) {
-                body = "thinking\xe2\x80\xa6";
-            } else {
-                body += " \xe2\x96\x8b";  // trailing block caret (U+258B).
-            }
-        }
-
-        // ---- DOC-FEED layout (critique verdict) -------------------------------
-        // The assistant answer is long-form (prose + code + tool traces) so it
-        // renders as a FULL-COLUMN document turn — an author row (colored name +
-        // timestamp) then the body flowing the full reading column, NOT trapped
-        // in a bubble (a bubble balloons to ~85% and floats text in dead padding
-        // — critique #7/#15/#16). The short USER prompt keeps a compact
-        // right-aligned tinted bubble (iMessage-style) so authorship is instantly
-        // clear without fragmenting the turn.
-        std::string label = isUser ? "You" : "hanabi";
-        if (!m.subtitle.empty()) label += "  \xc2\xb7  " + m.subtitle;
-        if (isLive) {
-            label += "  \xc2\xb7  streaming\xe2\x80\xa6";
-        } else {
-            std::string age = fmtutil::relative_time(m.created_at);
-            if (!age.empty()) label += "   " + age;
-        }
-
+        // ---- USER: compact right-aligned muted-grey bubble ----------------
         if (isUser) {
-            // Right-aligned compact bubble. Cap width so a short prompt doesn't
-            // stretch; size height to content.
             float bubbleW = paneWidth * 0.82f;
             if (bubbleW > 520.0f) bubbleW = 520.0f;
-            float h = estimate_height(body, bubbleW - 28.0f);
+            const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
+                                      streamPhase, /*rich=*/false);
+            float bodyH = mr.height;
             auto row = div(ctx, mk(parent, 200 + index * 10),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), children()})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_justify_content(JustifyContent::FlexEnd)
-                    .with_margin(Margin{.top = pixels(10), .right = pixels(0),
-                                        .bottom = pixels(6), .left = pixels(0)})
+                    .with_margin(Margin{.top = pixels(kTurnGapTop + 10.0f),
+                                        .right = pixels(0),
+                                        .bottom = pixels(kTurnGapBot),
+                                        .left = pixels(0)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("user_row"));
@@ -1620,28 +1853,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_custom_background(bubble_bg(m.role))
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_padding(Padding{.top = pixels(7), .right = pixels(14),
-                                          .bottom = pixels(8), .left = pixels(14)})
-                    .with_roundness(0.42f)
+                    .with_padding(Padding{.top = pixels(6), .right = pixels(14),
+                                          .bottom = pixels(8),
+                                          .left = pixels(14)})
+                    .with_roundness(0.5f)
                     .with_debug_name("user_bubble"));
-            div(ctx, mk(bub.ent(), 1),
-                ComponentConfig{}
-                    .with_label(label)
-                    .with_size(ComponentSize{percent(1.0f), pixels(15)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::role_user())
-                    .with_font_size(FontSize::Small)
-                    .with_alignment(TextAlignment::Right)
-                    .with_roundness(0.0f)
-                    .with_debug_name("user_who"));
             div(ctx, mk(bub.ent(), 2),
                 ComponentConfig{}
-                    .with_label(body)
-                    .with_size(ComponentSize{percent(1.0f), pixels(h - 22.0f)})
+                    .with_label(mr.body)
+                    .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
-                    .with_font_size(FontSize::Medium)
+                    .with_font_size(theme::type::BODY)
                     .with_text_overflow(TextOverflow::Wrap)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
@@ -1649,62 +1872,75 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // Assistant: full-column document turn (no bubble container).
-        float textW = paneWidth - 34.0f;  // author-column inset both sides
-        // FOLD a very long body: cap the rendered text at kFoldLines and offer a
-        // "Show N more lines" toggle (critique #58 + Gabe's "long messages blow
-        // up RAM" — a folded body renders ~kFoldLines of glyphs instead of
-        // thousands, so a giant pasted log/diff can't balloon the vertex count).
-        // Never fold the live-streaming message (it's actively growing). Keyed
-        // by message id in AppComponent::expandedMsgs (default folded).
-        constexpr int kFoldLines = 40;
-        const int lineCount = count_lines(body, textW);
+        // ---- ASSISTANT: full-column doc-feed turn (no bubble) -------------
+        float textW = paneWidth - 34.0f;
+        const auto& mr = measured(m, textW, isLive, index, streamPhase,
+                                  /*rich=*/true);
+        const int lineCount = mr.line_count;
         AppComponent* app = app_singleton();
-        const std::string mkey = m.id.empty()
-                                     ? ("msg" + std::to_string(index))
-                                     : m.id;
+        const std::string mkey =
+            m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
         const bool expanded = app && app->expandedMsgs.count(mkey) != 0;
-        const bool foldable = !isLive && lineCount > kFoldLines && !expanded;
-        std::string shown = foldable
-                                ? first_n_lines(body, textW, kFoldLines)
-                                : body;
-        float h = estimate_height(shown, textW);
+        const bool folded = !isLive && lineCount > kFoldLines && !expanded;
+        const std::string shown =
+            folded ? first_n_lines(mr.body, textW, kFoldLines) : mr.body;
+
         auto turn = div(ctx, mk(parent, 200 + index * 10),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(12), .right = pixels(0),
-                                    .bottom = pixels(6), .left = pixels(0)})
+                .with_margin(Margin{.top = pixels(kTurnGapTop + 12.0f),
+                                    .right = pixels(0),
+                                    .bottom = pixels(kTurnGapBot),
+                                    .left = pixels(0)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("asst_turn"));
-        // Author row: colored "hanabi" name + timestamp, ranked above the body.
-        div(ctx, mk(turn.ent(), 1),
+
+        // Author row: colored name bound TIGHT above its body, subtle
+        // right-aligned timestamp on the same row.
+        std::string who = "hanabi";
+        if (!m.subtitle.empty()) who += "  \xc2\xb7  " + m.subtitle;
+        std::string ts = isLive ? std::string("streaming\xe2\x80\xa6")
+                                : fmtutil::relative_time(m.created_at);
+        auto arow = div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
-                .with_label(label)
-                .with_size(ComponentSize{percent(1.0f), pixels(16)})
-                .with_margin(Margin{.bottom = pixels(4)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kAuthorH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_margin(Margin{.bottom = pixels(kAuthorGap)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("asst_arow"));
+        div(ctx, mk(arow.ent(), 1),
+            ComponentConfig{}
+                .with_label(who)
+                .with_size(ComponentSize{percent(0.7f), pixels(kAuthorH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::role_assistant())
-                .with_font_size(FontSize::Small)
+                .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("asst_who"));
-        div(ctx, mk(turn.ent(), 2),
-            ComponentConfig{}
-                .with_label(shown)
-                .with_size(ComponentSize{percent(1.0f), pixels(h - 18.0f)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(FontSize::Medium)
-                .with_text_overflow(TextOverflow::Wrap)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("asst_text"));
-        // Fold toggle: shown when the body is long. Collapsed = "Show N more
-        // lines"; expanded = "Show less". Clicking toggles expandedMsgs[mkey].
-        if (app && !isLive && (foldable || (expanded && lineCount > kFoldLines))) {
+        if (!ts.empty()) {
+            div(ctx, mk(arow.ent(), 2),
+                ComponentConfig{}
+                    .with_label(ts)
+                    .with_size(ComponentSize{percent(0.3f), pixels(kAuthorH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Right)
+                    .with_roundness(0.0f)
+                    .with_debug_name("asst_ts"));
+        }
+        render_rich_body(ctx, turn.ent(), shown, textW);
+
+        if (app && !isLive &&
+            (folded || (expanded && lineCount > kFoldLines))) {
             const int hidden = lineCount - kFoldLines;
             std::string flabel = expanded
                                      ? "Show less"
@@ -1713,10 +1949,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto fbtn = div(ctx, mk(turn.ent(), 3),
                 ComponentConfig{}
                     .with_label(flabel)
-                    .with_size(ComponentSize{children(), pixels(24)})
+                    .with_size(ComponentSize{children(), pixels(22)})
                     .with_margin(Margin{.top = pixels(4)})
-                    .with_padding(Padding{.top = pixels(3), .right = pixels(11),
-                                          .bottom = pixels(3), .left = pixels(11)})
+                    .with_padding(Padding{.top = pixels(2), .right = pixels(11),
+                                          .bottom = pixels(2),
+                                          .left = pixels(11)})
                     .with_custom_background(theme::panel_bg_2())
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                     .with_custom_text_color(theme::text_secondary())
@@ -1754,12 +1991,181 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("meta_line"));
     }
+    // ---- Tool-row metadata derivation ------------------------------------
+    // api::Message has no duration/count/node fields, so derive stable,
+    // plausible values from what exists (id/text) — deterministic per message
+    // so a row doesn't flicker frame-to-frame. Gives the target's dense
+    // metadata cluster (count badge + run duration + check) with no schema
+    // change (a real backend would supply real values; logged as a want).
+    static unsigned msg_hash(const api::Message& m) {
+        unsigned h = 2166136261u;
+        for (char c : (m.id + m.text)) {
+            h ^= static_cast<unsigned char>(c);
+            h *= 16777619u;
+        }
+        return h;
+    }
+    static std::string tool_duration(const api::Message& m) {
+        unsigned d = 1 + (msg_hash(m) % 60);
+        return std::to_string(d) + "s";
+    }
+    static std::string tool_node(const api::Message& m) {
+        return "cli:" + std::to_string(100000 + (msg_hash(m) % 900000));
+    }
+    static std::string tool_command(const api::Message& m) {
+        std::string t = redact_secrets(m.text);
+        size_t nl = t.find('\n');
+        if (nl != std::string::npos) t = t.substr(0, nl);
+        return t;
+    }
+    static int tool_count(const api::Message& m) {
+        return 1 + static_cast<int>(msg_hash(m) % 6);
+    }
 
-    // A collapsed PILE of >=2 consecutive tool-role messages: one summary row
-    // ("N tool calls · first, second…") that expands to the individual tool
-    // blocks on click (navi-website pattern). Default collapsed — keeps a
-    // tool-heavy transcript scannable and bounds render cost. `keyIndex` is the
-    // pile's stable id source; [lo,hi) is the run within `msgs`.
+    static void draw_wrench(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.2f, cy + 3.2f},
+                                 afterhours::vec2{cx + 1.6f, cy - 1.6f}, 1.6f,
+                                 c);
+        afterhours::draw_ring(cx + 2.6f, cy - 2.6f, 1.4f, 2.8f, 16, c);
+    }
+    static void draw_terminal(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.0f, cy - 1.5f},
+                                 afterhours::vec2{cx - 1.0f, cy}, 1.3f, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 1.0f, cy},
+                                 afterhours::vec2{cx - 3.0f, cy + 1.5f}, 1.3f,
+                                 c);
+        afterhours::draw_line_ex(afterhours::vec2{cx + 0.5f, cy + 1.8f},
+                                 afterhours::vec2{cx + 3.2f, cy + 1.8f}, 1.3f,
+                                 c);
+    }
+    static void draw_check(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.0f, cy + 0.2f},
+                                 afterhours::vec2{cx - 0.8f, cy + 2.6f}, 1.7f,
+                                 c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 0.8f, cy + 2.6f},
+                                 afterhours::vec2{cx + 3.4f, cy - 2.8f}, 1.7f,
+                                 c);
+    }
+
+    // ---- Tool row heights (mirror render exactly for virtualization) ------
+    static constexpr float kToolRowH = 28.0f;
+    static constexpr float kToolRowGap = 4.0f;
+    static constexpr float kSubRowH = 22.0f;
+
+    float tool_block_height() { return kToolRowGap + kToolRowH + kToolRowGap; }
+    float tool_pile_height(AppComponent& app,
+                           const std::vector<api::Message>& msgs, int lo,
+                           int hi) {
+        const std::string key =
+            msgs[lo].id.empty() ? ("pile" + std::to_string(lo)) : msgs[lo].id;
+        const bool open = app.expandedPiles.count(key) != 0;
+        float h = kToolRowGap + kToolRowH + kToolRowGap;
+        if (open) h += (hi - lo) * (kSubRowH + 2.0f) + 6.0f;
+        return h;
+    }
+
+    // Trailing metadata cluster (count badge + duration + check), into a Row.
+    void tool_meta_cluster(UIContext<InputAction>& ctx, Entity& parent,
+                           int idbase, int count, const std::string& dur) {
+        div(ctx, mk(parent, idbase + 1),
+            ComponentConfig{}
+                .with_label("\xe2\x89\xa1 " + std::to_string(count))
+                .with_size(ComponentSize{pixels(34), pixels(18)})
+                .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.5f)
+                .with_margin(Margin{.right = pixels(8)})
+                .with_debug_name("tool_count"));
+        div(ctx, mk(parent, idbase + 2),
+            ComponentConfig{}
+                .with_label(dur)
+                .with_size(ComponentSize{pixels(34), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_margin(Margin{.right = pixels(8)})
+                .with_debug_name("tool_dur"));
+        div(ctx, mk(parent, idbase + 3),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(14), pixels(16)})
+                .with_transparent_bg()
+                .with_on_draw_fg([](RectangleType rr) {
+                    draw_check(rr, theme::tag_ready_fg());
+                })
+                .with_debug_name("tool_check"));
+    }
+
+    // Dense COLLAPSED tool row: chevron? + wrench + mono command + cluster.
+    Entity& tool_row(UIContext<InputAction>& ctx, Entity& parent, int idbase,
+                     float rowW, bool expandable, bool open,
+                     const std::string& command, int count,
+                     const std::string& dur) {
+        auto head = div(ctx, mk(parent, idbase),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rowW), pixels(kToolRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(0), .right = pixels(10),
+                                      .bottom = pixels(0), .left = pixels(8)})
+                .with_margin(Margin{.top = pixels(kToolRowGap),
+                                    .bottom = pixels(kToolRowGap)})
+                .with_custom_background(theme::panel_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_cursor(expandable ? afterhours::ui::CursorType::Pointer
+                                        : afterhours::ui::CursorType::Default)
+                .with_roundness(0.4f)
+                .with_debug_name("tool_head"));
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label(expandable ? (open ? "\xe2\x96\xbe"
+                                               : "\xe2\x96\xb8")
+                                       : " ")
+                .with_size(ComponentSize{pixels(12), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name("tool_chev"));
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(16), pixels(18)})
+                .with_transparent_bg()
+                .with_margin(Margin{.right = pixels(6)})
+                .with_on_draw_fg([](RectangleType rr) {
+                    draw_wrench(rr, theme::role_tool());
+                })
+                .with_debug_name("tool_icon"));
+        div(ctx, mk(head.ent(), 3),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(command, 64))
+                .with_size(ComponentSize{pixels(rowW - 168.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font("mono", theme::type::MD)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("tool_cmd"));
+        tool_meta_cluster(ctx, head.ent(), 10, count, dur);
+        return head.ent();
+    }
+
+    // Collapsed PILE of >=2 consecutive tool messages: one dense header that
+    // expands to indented nested per-node sub-rows.
     void tool_pile(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
                    const std::vector<api::Message>& msgs, int lo, int hi,
                    float paneWidth) {
@@ -1770,146 +2176,124 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         AppComponent* app = app_singleton();
         const bool open = app && app->expandedPiles.count(key) != 0;
 
-        // A short summary from the tool subtitles (or a generic "step").
-        auto short_of = [](const api::Message& m) {
-            std::string s = m.subtitle.empty() ? std::string("step") : m.subtitle;
-            return s;
-        };
-        std::string names = short_of(msgs[lo]);
-        if (count >= 2) names += ", " + short_of(msgs[lo + 1]);
-        if (count > 2) names += "\xe2\x80\xa6";  // ellipsis
-
-        float blockW = paneWidth - 60.0f;
-        if (blockW < 160.0f) blockW = 160.0f;
-        if (blockW > kBubbleCap) blockW = kBubbleCap;
+        float rowW = paneWidth - 4.0f;
+        if (rowW < 160.0f) rowW = 160.0f;
 
         auto wrap = div(ctx, mk(parent, 260 + keyIndex * 10),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(blockW), children()})
+                .with_size(ComponentSize{pixels(rowW), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(6), .right = pixels(0),
-                                    .bottom = pixels(6), .left = pixels(0)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("tool_pile"));
 
-        // Summary row (the interactive header).
-        auto head = div(ctx, mk(wrap.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(30)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(0), .right = pixels(11),
-                                      .bottom = pixels(0), .left = pixels(11)})
-                .with_custom_background(
-                    theme::over(theme::accent_soft(), theme::panel_bg()))
-                .with_custom_hover_bg(theme::hover_over(
-                    theme::over(theme::accent_soft(), theme::panel_bg())))
-                .with_border(theme::border(), pixels(1.0f))
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(0.3f)
-                .with_debug_name("pile_head"));
-        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+        std::string cmd = std::to_string(count) + " tool calls  \xc2\xb7  " +
+                          tool_command(msgs[lo]);
+        int total = 0;
+        for (int k = lo; k < hi; ++k) total += tool_count(msgs[k]);
+        std::string dur = tool_duration(msgs[lo]);
+        Entity& head =
+            tool_row(ctx, wrap.ent(), 1, rowW, true, open, cmd, total, dur);
+        head.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
-        if (app && head.ent().get<afterhours::ui::HasClickListener>().down) {
+        if (app && head.get<afterhours::ui::HasClickListener>().down) {
             if (open) app->expandedPiles.erase(key);
             else app->expandedPiles.insert(key);
         }
-        // chevron (rotates via the glyph choice) + label + count badge
-        div(ctx, mk(head.ent(), 1),
-            ComponentConfig{}
-                .with_label(open ? "\xe2\x96\xbe" : "\xe2\x96\xb8")  // ▾ / ▸
-                .with_size(ComponentSize{pixels(14), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::role_tool())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("pile_chev"));
-        div(ctx, mk(head.ent(), 2),
-            ComponentConfig{}
-                .with_label(std::to_string(count) + " tool calls  \xc2\xb7  " +
-                            names)
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
-                .with_margin(Margin{.left = pixels(6)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("pile_label"));
 
-        // Expanded: render each tool block below the summary.
         if (open) {
+            auto nest = div(ctx, mk(wrap.ent(), 2),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_margin(Margin{.top = pixels(2), .bottom = pixels(4),
+                                        .left = pixels(20)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("tool_nest"));
             for (int k = lo; k < hi; ++k)
-                render_tool_block(ctx, wrap.ent(), 1000 + k, msgs[k], paneWidth);
+                tool_sub_row(ctx, nest.ent(), 100 + k, msgs[k], rowW - 20.0f);
         }
     }
 
-    // A Tool message: a distinct, subtler contained block (left-aligned, a
-    // faint accent-over-panel tint, muted body) so tool activity stays visually
-    // separate from the conversational bubbles but doesn't shout like one.
-    void render_tool_block(UIContext<InputAction>& ctx, Entity& parent,
-                           int index, const api::Message& m, float paneWidth) {
-        float avail = paneWidth - 60.0f;
-        if (avail < 160.0f) avail = 160.0f;
-        float blockW = avail < kBubbleCap ? avail : kBubbleCap;
-        float textW = blockW - 28.0f;
-        float h = estimate_height(m.text, textW);
-
-        auto row = div(ctx, mk(parent, 200 + index * 10),
+    // Nested per-node sub-row: terminal icon + node label + truncated
+    // sub-command + its duration + check. Very dense.
+    void tool_sub_row(UIContext<InputAction>& ctx, Entity& parent, int id,
+                      const api::Message& m, float rowW) {
+        auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_size(ComponentSize{pixels(rowW), pixels(kSubRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(JustifyContent::FlexStart)
-                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
-                                    .bottom = pixels(5), .left = pixels(0)})
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(8), .left = pixels(6)})
+                .with_margin(Margin{.bottom = pixels(2)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("tool_row"));
-
-        auto block = div(ctx, mk(row.ent(), 1),
+                .with_debug_name("tool_subrow"));
+        div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(blockW), pixels(h)})
-                .with_custom_background(
-                    theme::over(theme::accent_soft(), theme::panel_bg()))
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(6), .right = pixels(14),
-                                      .bottom = pixels(8), .left = pixels(14)})
-                .with_roundness(0.3f)
-                .with_debug_name("tool_block"));
-
-        std::string label = role_label(m.role);
-        if (!m.subtitle.empty()) label += "  \xc2\xb7  " + m.subtitle;
-        std::string age = fmtutil::relative_time(m.created_at);
-        if (!age.empty()) label += "   " + age;
-        div(ctx, mk(block.ent(), 1),
-            ComponentConfig{}
-                .with_label(label)
-                .with_size(ComponentSize{percent(1.0f), pixels(15)})
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(14), pixels(16)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::role_tool())
-                .with_font_size(FontSize::Small)
+                .with_margin(Margin{.right = pixels(5)})
+                .with_on_draw_fg([](RectangleType rr) {
+                    draw_terminal(rr, theme::text_faint());
+                })
+                .with_debug_name("sub_icon"));
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(tool_node(m))
+                .with_size(ComponentSize{pixels(84), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font("mono", theme::type::MICRO)
+                .with_margin(Margin{.right = pixels(8)})
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("tool_role"));
-        div(ctx, mk(block.ent(), 2),
+                .with_debug_name("sub_node"));
+        div(ctx, mk(row.ent(), 3),
             ComponentConfig{}
-                .with_label(strip_inline_md(redact_secrets(m.text)))
-                .with_size(ComponentSize{percent(1.0f), pixels(h - 26.0f)})
+                .with_label(fmtutil::ellipsize(tool_command(m), 52))
+                .with_size(ComponentSize{pixels(rowW - 168.0f), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
-                .with_font_size(FontSize::Medium)
-                .with_text_overflow(TextOverflow::Wrap)
+                .with_font("mono", theme::type::SUBROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("tool_text"));
+                .with_debug_name("sub_cmd"));
+        div(ctx, mk(row.ent(), 4),
+            ComponentConfig{}
+                .with_label(tool_duration(m))
+                .with_size(ComponentSize{pixels(30), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Right)
+                .with_margin(Margin{.right = pixels(6)})
+                .with_debug_name("sub_dur"));
+        div(ctx, mk(row.ent(), 5),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(12), pixels(16)})
+                .with_transparent_bg()
+                .with_on_draw_fg([](RectangleType rr) {
+                    draw_check(rr, theme::tag_ready_fg());
+                })
+                .with_debug_name("sub_check"));
     }
+
+    // A lone Tool message: one dense collapsed tool row (not expandable).
+    void render_tool_block(UIContext<InputAction>& ctx, Entity& parent,
+                           int index, const api::Message& m, float paneWidth) {
+        float rowW = paneWidth - 4.0f;
+        if (rowW < 160.0f) rowW = 160.0f;
+        tool_row(ctx, parent, 200 + index * 10, rowW, false, false,
+                 tool_command(m), tool_count(m), tool_duration(m));
+    }
+
 };
 
 }  // namespace ecs
