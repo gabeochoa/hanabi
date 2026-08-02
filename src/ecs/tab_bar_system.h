@@ -36,19 +36,21 @@ namespace tab_colors {
 // triple that keeps its ordering in BOTH dark and light:
 //
 //              dark L   light L
-//   strip_bg   sidebar_bg   19      231   deepest recessed chrome plane (L0-)
+//   strip_bg   panel_bg     34      255   the content plane (no dark void)
 //   inactive   window_bg    24      238   recessed WELL, distinct from strip
 //   active     panel_bg     34      255   RAISED surface == the content pane
 //
 // The ACTIVE tab fills with panel_bg — the exact color of the transcript/main
 // pane directly below it (main_pane_system) — so it reads as one continuous
 // raised surface "lifted out of" the strip (we also bridge the strip's bottom
-// hairline under it, below). INACTIVE tabs no longer share the strip color:
-// they sit one elevation step up from the strip as their own recessed wells, so
-// each reads as a discrete tab even before you notice which is active. On hover
-// an inactive tab gets a faint additive wash over its own fill (theme::over,
-// gap #13 — a subtle tint, never a solid block).
-inline afterhours::Color strip_bg() { return theme::sidebar_bg(); }
+// hairline under it, below). The STRIP now ALSO uses panel_bg so the empty area
+// to the RIGHT of the last tab reads as the same continuous chrome plane as the
+// content below — not a darker "unfinished" black well (the old sidebar_bg
+// strip left a hard dark void beside a single tab). INACTIVE tabs sit one step
+// DOWN (window_bg) as their own recessed wells, so each still reads as a
+// discrete tab. On hover an inactive tab gets a faint additive wash over its
+// own fill (theme::over, gap #13 — a subtle tint, never a solid block).
+inline afterhours::Color strip_bg() { return theme::panel_bg(); }
 inline afterhours::Color tab_active() { return theme::panel_bg(); }
 inline afterhours::Color tab_inactive() { return theme::window_bg(); }
 inline afterhours::Color tab_hover() {

@@ -119,6 +119,54 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Transcript header — mirrors the mock's .hdr: the thread title (larger,
+    // primary) stacked above a muted metadata subtitle ("N messages · age").
+    // Uses ONE content inset (kContentInset) shared with the body + composer so
+    // the title's left edge lines up with the messages beneath it. A stacked
+    // column (title over sub) rather than the smart-view's side-by-side header,
+    // so the subtitle reads as metadata about THIS thread, not a right-aligned
+    // count.
+    static void transcript_header(UIContext<InputAction>& ctx, Entity& parent,
+                                  const std::string& title,
+                                  const std::string& sub) {
+        auto col = div(ctx, mk(parent, 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(52)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_justify_content(JustifyContent::Center)
+                .with_padding(Padding{.top = pixels(14),
+                                      .right = pixels(kContentInset),
+                                      .bottom = pixels(8),
+                                      .left = pixels(kContentInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("transcript_header"));
+        div(ctx, mk(col.ent(), 1),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(title, 64))
+                .with_size(ComponentSize{percent(1.0f), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SPOTLIGHT)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("transcript_title"));
+        if (!sub.empty()) {
+            div(ctx, mk(col.ent(), 2),
+                ComponentConfig{}
+                    .with_label(sub)
+                    .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                    .with_margin(Margin{.top = pixels(2)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_sub"));
+        }
+    }
+
     // Floating "jump to bottom" button: a small circular down-chevron pinned
     // to the bottom-right of the transcript pane (just above the composer),
     // shown only when the user has scrolled up. Clicking snaps the transcript
@@ -235,6 +283,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // pane. Callers pass the FULL pane width; the wrap sits inside a scroll
     // padded 24px each side, so the usable inner width is paneW - 48.
     static constexpr float kWrapCap = 900.0f;
+    // ONE content inset shared by the transcript header, message body, and
+    // composer so their left edges line up (Apple-native: a single consistent
+    // margin, not three slightly-different paddings). 24px matches the mock's
+    // .hdr padding (16px 24px).
+    static constexpr float kContentInset = 24.0f;
     static float wrap_width(float paneW) {
         float innerW = paneW - 48.0f;
         return innerW < kWrapCap ? innerW : kWrapCap;
@@ -1196,7 +1249,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         } else if (app.transcriptState == LoadState::Error) {
             title = "Error";
         }
-        header(ctx, parent, title, "");
+        // Transcript header (mirrors the mock's .hdr): the thread title on one
+        // line + a muted metadata subtitle ("N messages · age") beneath — NOT a
+        // bare count, and NOT a second big H1 that just repeats the tab. This is
+        // the single "what am I looking at" anchor for the pane.
+        if (app.openSession) {
+            std::string sub;
+            const size_t nMsgs = app.openSession->messages.size();
+            if (nMsgs > 0)
+                sub = std::to_string(nMsgs) +
+                      (nMsgs == 1 ? " message" : " messages");
+            const std::string age =
+                fmtutil::relative_time(app.openSession->summary.updated_at);
+            if (!age.empty())
+                sub = sub.empty() ? age : (sub + "  \xc2\xb7  " + age);
+            transcript_header(ctx, parent, title, sub);
+        } else {
+            header(ctx, parent, title, "");
+        }
 
         if (app.transcriptState == LoadState::Error) {
             note(ctx, parent,
@@ -1224,15 +1294,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.client &&
             (app.client->supports_send() || app.client->supports_stream());
         const float kComposerH = canReply ? 92.0f : 0.0f;
-        float listH = paneH - 46.0f - kComposerH;
+        // Header is the stacked transcript_header (title + metadata sub); its
+        // total height (52 content + 14 top + 8 bottom pad) is ~74px. Subtract
+        // that so the scroll list starts cleanly beneath the header.
+        constexpr float kHeaderH = 74.0f;
+        float listH = paneH - kHeaderH - kComposerH;
         if (listH < 20.0f) listH = 20.0f;
 
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
                 .with_custom_background(theme::panel_bg())
-                .with_padding(Padding{.top = pixels(8), .right = pixels(14),
-                                      .bottom = pixels(10), .left = pixels(18)})
+                // Left inset matches the header (kContentInset) so message left
+                // edges line up under the title. Right is a hair less to leave
+                // room for the overlay scrollbar (gap #26).
+                .with_padding(Padding{.top = pixels(8),
+                                      .right = pixels(kContentInset - 6.0f),
+                                      .bottom = pixels(10),
+                                      .left = pixels(kContentInset)})
                 .with_debug_name("transcript_scroll"));
         // TEMPORARY scroll indicator (afterhours gap #26): afterhours has no
         // built-in scrollbar, so paint a thin overlay bar from the panel's live
@@ -1522,8 +1601,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(composerH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(8), .right = pixels(18),
-                                      .bottom = pixels(8), .left = pixels(18)})
+                // Match the shared content inset so the input's left edge lines
+                // up with the header title + message column above it.
+                .with_padding(Padding{.top = pixels(8),
+                                      .right = pixels(kContentInset),
+                                      .bottom = pixels(8),
+                                      .left = pixels(kContentInset)})
                 .with_custom_background(theme::panel_bg())
                 .with_roundness(0.0f)
                 .with_debug_name("composer_bar"));
@@ -1555,7 +1638,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // ~34px tall for a readable ~17px font, matching the composer overlay
         // and sidebar search field workarounds.
         float sendW = 78.0f;
-        float inputW = paneW - 36.0f - sendW - 8.0f;
+        float inputW = paneW - (kContentInset * 2.0f) - sendW - 8.0f;
         if (inputW < 120.0f) inputW = 120.0f;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
