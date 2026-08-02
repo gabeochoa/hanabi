@@ -186,3 +186,11 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
    (HANABI_VIEW smart views, HANABI_BIG_TRANSCRIPT, HANABI_EXPAND, many-tabs settings). TODO: fold the
    supplements INTO screens.sh so `bash scripts/screens.sh` captures ALL ~14 screens in one shot + wire a
    visual-regression check. (Deferred: screens.sh render files partly owned by running agents.)
+
+## MERGED: local mock server (ffef580) — tools/mock_server/server.py (Python stdlib REST+SSE),
+   `make mock-server`. Verified: hanabi renders local-server data + full send round-trip + SSE live event.
+## KEY: composer SEND is fully wired but DISABLED unless HANABI_CHAT_PATH set. supports_send() needs
+   base_url + chat_path. Stream via HANABI_STREAM_PATH (else sync /chat). Events default /sessions/{id}/events.
+   -> Wire in-app send + test against mock server AFTER data-async (message-queue) merges.
+## IN FLIGHT: sidebar-fixes(baf89d58), tabs-overflow(b83d422a), data-async(6afbad89), startup-profile(2d834f91), visual-audit(68c5bd34)
+## NOTE: pkill -9 -f hanabi.exe kills OTHER worktrees' captures — scope kills / coordinate when agents run concurrently.
