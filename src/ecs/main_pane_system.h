@@ -2094,8 +2094,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return h;
     }
     static std::string tool_duration(const api::Message& m) {
-        unsigned d = 1 + (msg_hash(m) % 60);
-        return std::to_string(d) + "s";
+        // Prefer the REAL duration parsed from the backend (completedAt-startedAt).
+        if (m.tool_duration_ms > 0) {
+            long long s = m.tool_duration_ms / 1000;
+            if (s < 1) return std::to_string(m.tool_duration_ms) + "ms";
+            if (s < 60) return std::to_string(s) + "s";
+            long long mn = s / 60;
+            long long rs = s % 60;
+            return rs ? (std::to_string(mn) + "m" + std::to_string(rs) + "s")
+                      : (std::to_string(mn) + "m");
+        }
+        return "";  // unknown duration -> show nothing (no fake number)
     }
     static std::string tool_node(const api::Message& m) {
         return "cli:" + std::to_string(100000 + (msg_hash(m) % 900000));
@@ -2104,10 +2113,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::string t = redact_secrets(m.text);
         size_t nl = t.find('\n');
         if (nl != std::string::npos) t = t.substr(0, nl);
+        // Never render a blank tool row: fall back to the tool name (subtitle),
+        // then a generic label, so real tool calls always show WHAT ran.
+        if (t.empty()) t = !m.subtitle.empty() ? m.subtitle : std::string("tool call");
         return t;
     }
     static int tool_count(const api::Message& m) {
         return 1 + static_cast<int>(msg_hash(m) % 6);
+    }
+    // Real tool status -> check color. "completed"/"" (assume ok) => ready green;
+    // "failed"/"error" => blocked red. Drives the row's trailing check mark.
+    static bool tool_failed(const api::Message& m) {
+        return m.tool_status == "failed" || m.tool_status == "error";
     }
 
     static void draw_wrench(RectangleType r, theme::Color c) {
@@ -2160,45 +2177,67 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // Trailing metadata cluster (count badge + duration + check), into a Row.
     void tool_meta_cluster(UIContext<InputAction>& ctx, Entity& parent,
-                           int idbase, int count, const std::string& dur) {
-        div(ctx, mk(parent, idbase + 1),
-            ComponentConfig{}
-                .with_label("\xe2\x89\xa1 " + std::to_string(count))
-                .with_size(ComponentSize{pixels(34), pixels(18)})
-                .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::MICRO)
-                .with_alignment(TextAlignment::Center)
-                .with_roundness(0.5f)
-                .with_margin(Margin{.right = pixels(8)})
-                .with_debug_name("tool_count"));
-        div(ctx, mk(parent, idbase + 2),
-            ComponentConfig{}
-                .with_label(dur)
-                .with_size(ComponentSize{pixels(34), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_margin(Margin{.right = pixels(8)})
-                .with_debug_name("tool_dur"));
+                           int idbase, int count, const std::string& dur,
+                           bool showCount = true, bool failed = false) {
+        // Count badge only when it means something (a PILE of N calls); a single
+        // tool call has no meaningful count, so we drop the "N" badge there.
+        if (showCount) {
+            div(ctx, mk(parent, idbase + 1),
+                ComponentConfig{}
+                    .with_label("\xe2\x89\xa1 " + std::to_string(count))
+                    .with_size(ComponentSize{pixels(34), pixels(18)})
+                    .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Center)
+                    .with_roundness(0.5f)
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_debug_name("tool_count"));
+        }
+        // Duration only when known (real ms parsed); blank -> no fake number.
+        if (!dur.empty()) {
+            div(ctx, mk(parent, idbase + 2),
+                ComponentConfig{}
+                    .with_label(dur)
+                    .with_size(ComponentSize{pixels(44), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Right)
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_debug_name("tool_dur"));
+        }
+        // Check reflects real status: green completed / red failed.
+        theme::Color checkC = failed ? theme::tag_blocked_fg()
+                                     : theme::tag_ready_fg();
         div(ctx, mk(parent, idbase + 3),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(16)})
                 .with_transparent_bg()
-                .with_on_draw_fg([](RectangleType rr) {
-                    draw_check(rr, theme::tag_ready_fg());
+                .with_on_draw_fg([checkC, failed](RectangleType rr) {
+                    if (failed) draw_tool_fail(rr, checkC);
+                    else draw_check(rr, checkC);
                 })
                 .with_debug_name("tool_check"));
+    }
+    // Small "×"-ish fail mark for a failed tool call (distinct from the check).
+    static void draw_tool_fail(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.0f, cy - 3.0f},
+                                 afterhours::vec2{cx + 3.0f, cy + 3.0f}, 1.7f, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx + 3.0f, cy - 3.0f},
+                                 afterhours::vec2{cx - 3.0f, cy + 3.0f}, 1.7f, c);
     }
 
     // Dense COLLAPSED tool row: chevron? + wrench + mono command + cluster.
     Entity& tool_row(UIContext<InputAction>& ctx, Entity& parent, int idbase,
                      float rowW, bool expandable, bool open,
                      const std::string& command, int count,
-                     const std::string& dur) {
+                     const std::string& dur, bool showCount = true,
+                     bool failed = false) {
         auto head = div(ctx, mk(parent, idbase),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(rowW), pixels(kToolRowH)})
@@ -2248,7 +2287,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("tool_cmd"));
-        tool_meta_cluster(ctx, head.ent(), 10, count, dur);
+        tool_meta_cluster(ctx, head.ent(), 10, count, dur, showCount, failed);
         return head.ent();
     }
 
@@ -2379,7 +2418,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float rowW = paneWidth - 4.0f;
         if (rowW < 160.0f) rowW = 160.0f;
         tool_row(ctx, parent, 200 + index * 10, rowW, false, false,
-                 tool_command(m), tool_count(m), tool_duration(m));
+                 tool_command(m), 1, tool_duration(m),
+                 /*showCount=*/false, /*failed=*/tool_failed(m));
     }
 
 };
