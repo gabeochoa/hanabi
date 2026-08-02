@@ -131,11 +131,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                   const std::string& sub) {
         auto col = div(ctx, mk(parent, 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(52)})
+                // Height fits its children exactly: top 12 + title 22 + gap 2 +
+                // sub 18 + bottom 8 = 62 (was 52 with 22px pad -> a 30px content
+                // box that the 42px of title+gap+sub overflowed every frame ->
+                // layout-warn spam + solve_violations churn).
+                .with_size(ComponentSize{percent(1.0f), pixels(62)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_justify_content(JustifyContent::Center)
-                .with_padding(Padding{.top = pixels(14),
+                .with_padding(Padding{.top = pixels(12),
                                       .right = pixels(kContentInset),
                                       .bottom = pixels(8),
                                       .left = pixels(kContentInset)})
@@ -1297,7 +1301,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Header is the stacked transcript_header (title + metadata sub); its
         // total height (52 content + 14 top + 8 bottom pad) is ~74px. Subtract
         // that so the scroll list starts cleanly beneath the header.
-        constexpr float kHeaderH = 74.0f;
+        constexpr float kHeaderH = 62.0f;
         float listH = paneH - kHeaderH - kComposerH;
         if (listH < 20.0f) listH = 20.0f;
 
@@ -2671,7 +2675,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (open) {
             auto nest = div(ctx, mk(wrap.ent(), 2),
                 ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), children()})
+                    // Width = rowW minus its own 20px left indent, so the nest
+                    // (indented sub-rows) stays INSIDE the pile instead of
+                    // overflowing by the margin (percent(1.0)+left:20 was
+                    // parent_width+20 -> layout-warn spam every frame).
+                    .with_size(ComponentSize{pixels(rowW - 20.0f), children()})
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_margin(Margin{.top = pixels(2), .bottom = pixels(4),
