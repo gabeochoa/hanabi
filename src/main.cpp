@@ -643,6 +643,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             else if (vs == "review") sv = ecs::SmartView::Review;
             else if (vs == "starred") sv = ecs::SmartView::Starred;
             else if (vs == "home") sv = ecs::SmartView::Home;
+            else if (vs == "archived") sv = ecs::SmartView::Archived;
             else set = false;
             if (set) {
                 appForWait->view = sv;

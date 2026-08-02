@@ -335,6 +335,85 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("main_note"));
     }
 
+    // A representative glyph (drawn shape) for a smart view's empty state.
+    enum class EmptyGlyph { Check, Inbox, Star, Archive, None };
+    static EmptyGlyph view_glyph(SmartView v) {
+        switch (v) {
+            case SmartView::Blocked: return EmptyGlyph::Check;   // nothing waiting
+            case SmartView::Review:  return EmptyGlyph::Check;
+            case SmartView::Starred: return EmptyGlyph::Star;
+            case SmartView::Archived:return EmptyGlyph::Archive;
+            default:                 return EmptyGlyph::Inbox;
+        }
+    }
+    // A polished, VERTICALLY-CENTERED empty state (a soft glyph + a message),
+    // instead of a top-left note — the Apple-native "intentional empty" look.
+    // Centered in the pane's usable height (paneH minus the header).
+    static void empty_state(UIContext<InputAction>& ctx, Entity& parent,
+                            EmptyGlyph glyph, const std::string& msg,
+                            float paneH) {
+        float colH = paneH - 46.0f;
+        if (colH < 80.0f) colH = 80.0f;
+        auto col = div(ctx, mk(parent, 80),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(colH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("empty_state"));
+        // Soft circular glyph badge.
+        div(ctx, mk(col.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(46), pixels(46)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_roundness(0.5f)
+                .with_margin(Margin{.bottom = pixels(14)})
+                .with_on_draw_fg([glyph](RectangleType r) {
+                    const float cx = r.x + r.width * 0.5f;
+                    const float cy = r.y + r.height * 0.5f;
+                    const theme::Color c = theme::text_faint();
+                    switch (glyph) {
+                        case EmptyGlyph::Check:
+                            afterhours::draw_line_ex({cx - 8, cy},
+                                {cx - 2, cy + 6}, 2.2f, c);
+                            afterhours::draw_line_ex({cx - 2, cy + 6},
+                                {cx + 9, cy - 6}, 2.2f, c);
+                            break;
+                        case EmptyGlyph::Star:
+                            hanabi::icons::draw_at("star", cx, cy, 18.0f,
+                                                   theme::text_faint());
+                            break;
+                        case EmptyGlyph::Archive:
+                            afterhours::draw_rectangle_outline(
+                                {cx - 10, cy - 7, 20, 14}, c);
+                            afterhours::draw_line_ex({cx - 10, cy - 2},
+                                {cx + 10, cy - 2}, 1.6f, c);
+                            break;
+                        case EmptyGlyph::Inbox:
+                        default:
+                            afterhours::draw_rectangle_outline(
+                                {cx - 10, cy - 8, 20, 16}, c);
+                            break;
+                    }
+                })
+                .with_debug_name("empty_glyph"));
+        div(ctx, mk(col.ent(), 2),
+            ComponentConfig{}
+                .with_label(msg)
+                .with_size(ComponentSize{pixels(360), pixels(40)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::empty_state_text())
+                .with_font_size(theme::type::BODY)
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name("empty_msg"));
+    }
+
     // Content wrapper capped so the reading column stays comfortable but fills
     // more of the wide (~820px) main pane than the old 720 cap did (which left
     // a ~76px dead margin on the right). 900px keeps line lengths sane while
@@ -401,7 +480,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         header(ctx, parent, title, std::to_string(rows.size()), theme::type::H1);
 
         if (rows.empty()) {
-            note(ctx, parent, emptyMsg);
+            empty_state(ctx, parent, view_glyph(app.view), emptyMsg, paneH);
             return;
         }
 
