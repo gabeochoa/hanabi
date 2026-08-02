@@ -770,3 +770,48 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   idle desktop app (idle → ~0ms of our work); (b) helps the mixed case. Neither
   is expressible in app code because the clear+rebuild lives in the vendored
   `BeginUIContextManager`/autolayout pass.
+
+## No OS window-focus / frontmost-app query or focus-gated global hotkey support
+afterhours has no notion of OS-level application activation state (is this app
+frontmost?) and no focus-gated global-hotkey primitive. The framework's input
+layer only sees key events routed to the window while it's key; it cannot
+express "register a system-wide chord ONLY while my app is frontmost, and
+release it when I lose focus." This matters because a Carbon `RegisterEventHotKey`
+registration is process-wide and CONSUMES the chord even when the app is in the
+background — so a global hotkey silently steals that key combination from every
+other app (bug: Cmd+Shift+N stole Chrome's "New Incognito Window").
+
+Worked around entirely in app code (`src/native_extras.mm`): hand-rolled an
+`NSApplication` active-state observer (`HotkeyFocusObserver`) on
+`NSApplicationDidBecomeActiveNotification` / `NSApplicationWillResignActiveNotification`
+that REGISTERS the Carbon hotkey when hanabi becomes frontmost and UNREGISTERS
+it when hanabi resigns active. When unregistered, the chord flows through to the
+frontmost app normally. If afterhours grew a cross-platform "app-focus changed"
+signal (or a focus-gated hotkey binding), this NSApp-notification plumbing could
+move behind the framework seam instead of living in the .mm.
+
+## Single hot-entity: a hoverable child steals the parent row's hover fill
+afterhours tracks hover as ONE global `hot_id` (context.h): `HandleClicks`
+(systems.h) sets hot on the deepest element under the mouse, so a child button
+that overlaps its parent's rect takes `hot_id` away from the parent while the
+cursor is over the child. The renderer (rendering.h) paints a widget's hover
+wash only while it is `is_hot`, and there is (a) no way to ask "is the mouse
+anywhere in this subtree?" cheaply at emit time (the tree hit-test helper is
+internal + scroll-offset-aware, not exposed), and (b) no hit-test-exclusion
+flag (`with_skip_tabbing` only affects focus/tab order, not hot). So a row with
+a trailing hover-affordance (the sidebar thread row's star toggle) FLICKERS its
+whole-row hover fill on/off as the pointer crosses from the row body onto the
+star — the row loses `is_hot` for exactly the frames the star owns it.
+
+Worked around entirely in app code (`src/ecs/sidebar_system.h`): the row no
+longer relies on the framework's per-frame `is_hot` wash. It BAKES the hover
+wash into the row's BASE `HasColor` whenever the pointer is in the row body OR
+on its star child, and sets `hover_bg` to the same value, so the row paints the
+identical fill regardless of which of {row, star} currently owns `hot_id` — no
+flash. Detecting star-hover needs the child's id before the child is emitted, so
+the row caches the star's (stable across frames) entity id per session in a
+static map and ORs `is_hot(star)||was_hot(star)` into the row hover signal. The
+star also gets `skip_hover_override=true` so its own (transparent) fill never
+tints. If afterhours grew either a `mouse_in_subtree(id)` query or a
+"child-hover propagates to parent hot" option (or a hit-test-ignore flag), this
+per-row id cache + base-color baking could collapse to a single call.
