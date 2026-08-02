@@ -1428,7 +1428,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             (app.sendPending && app.sendSessionId == openId) ||
             (app.streamActive && app.streamSessionId == openId);
         const bool hasText = !replyDraft.empty();
-        const bool sendEnabled = canSend && hasText && !sending;
+        const size_t queued = app.pending_send_count(openId);
+        // The loader QUEUES a send that arrives while one is in flight (FIFO,
+        // drained when the current turn finishes), so Send stays enabled during
+        // a send — you can line up the next message. Only truly-unavailable
+        // (no backend / empty field) disables it.
+        const bool sendEnabled = canSend && hasText;
 
         auto bar = div(ctx, mk(parent, 3),
             ComponentConfig{}
@@ -1561,13 +1566,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("composer_rightmeta"));
-        const char* caption = nullptr;
+        std::string caption;
         if (!canSend)
             caption =
                 "read-only \xe2\x80\x94 this backend doesn't support replies";
+        else if (sending && queued > 0)
+            caption = "sending\xe2\x80\xa6  \xc2\xb7  " +
+                      std::to_string(queued) + " queued";
         else if (sending)
             caption = "sending\xe2\x80\xa6";
-        if (caption) {
+        else if (queued > 0)
+            caption = std::to_string(queued) + " queued";
+        if (!caption.empty()) {
             div(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
                     .with_label(caption)
