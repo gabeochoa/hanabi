@@ -6,6 +6,20 @@
 
 namespace fmtutil {
 
+// ASCII case conversion (shared — was hand-rolled in ~4 places, REFACTOR_REVIEW
+// 1c). Deliberately ASCII-only: the UI labels these format are ASCII section
+// headers / search queries, and an ASCII flip is locale-independent + cheap.
+inline std::string to_upper(std::string s) {
+    for (char& c : s)
+        if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 32);
+    return s;
+}
+inline std::string to_lower(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+    return s;
+}
+
 // Compact relative age from a unix epoch (seconds): "now", "5m", "3h", "2d"...
 inline std::string relative_time(int64_t epoch) {
     if (epoch <= 0) return "";

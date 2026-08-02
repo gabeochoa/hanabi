@@ -1156,9 +1156,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static std::string upper(std::string s) {
-        for (char& c : s)
-            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 32);
-        return s;
+        return fmtutil::to_upper(std::move(s));
     }
 
     // Section header: a distinct LABEL — uppercase, letter-spaced, faint —

@@ -404,11 +404,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // ASCII-lowercase a copy (search is case-insensitive; titles are UTF-8 but
     // case-folding only the ASCII range is sufficient for these labels).
     static std::string lower(const std::string& s) {
-        std::string out = s;
-        std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        return out;
+        return fmtutil::to_lower(s);
     }
     // Does `haystack` (already lowercased) contain the lowercased `needle`?
     static bool title_matches(const std::string& title, const std::string& q) {
