@@ -134,13 +134,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                    *app, q, r.width);
             fbase += 1000;
         }
-        // Catch-all: every non-archived session NOT in a named folder (i.e.
-        // unfoldered — which is ~all of them on the real backend today). Shown
-        // as a FLAT recent list (no day-buckets), per Gabe. Given a high id
-        // base so it sits clear of the dynamic folders above.
-        shown += render_folder(ctx, scroll.ent(), 900000, "Recent", "recent",
+        // Unfoldered sessions (folder=="" — ~all of them on the real backend
+        // today) render as a HEADERLESS flat list right below the real folders.
+        // No invented "Recent" folder — per Gabe, only real API folders get a
+        // header. (If the backend later files every session under a workspace,
+        // this list is simply empty and only real folders show.)
+        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                *app, q, r.width, /*archived=*/false,
-                               /*catchAll=*/true);
+                               /*catchAll=*/true, /*headerless=*/true);
         // Low-signal archived section, greyed.
         shown += render_folder(ctx, scroll.ent(), 6000, "Archived",
                                "__archived__", *app, q, r.width,
@@ -1171,7 +1172,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     int render_folder(UIContext<InputAction>& ctx, Entity& parent, int base,
                       const std::string& name, const std::string& key,
                       AppComponent& app, const std::string& q, float panelW,
-                      bool archived = false, bool catchAll = false) {
+                      bool archived = false, bool catchAll = false,
+                      bool headerless = false) {
         // Collect member threads, honoring the live search filter.
         std::vector<const api::SessionSummary*> members;
         for (const auto& s : app.sessions) {
@@ -1206,7 +1208,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                       });
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
-                            panelW, archived);
+                            panelW, archived, headerless);
     }
 
     // ---- collapsible group header (shared by folders + time-groups) ----
@@ -1313,16 +1315,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                      const std::string& name, const std::string& key,
                      const std::vector<const api::SessionSummary*>& members,
                      AppComponent& app, const std::string& q, float panelW,
-                     bool archived) {
+                     bool archived, bool headerless = false) {
         if (members.empty()) return 0;
-        theme::Color headColor =
-            archived ? theme::text_faint() : theme::text_secondary();
-        bool collapsed = render_group_header(
-            ctx, parent, base, name, key, static_cast<int>(members.size()),
-            headColor, app, q, panelW);
-
-        // Collapsed: header only, no body rows.
-        if (collapsed) return static_cast<int>(members.size());
+        // Headerless: unfoldered sessions render as a plain flat list with NO
+        // folder header (per Gabe: "only keep the real folders" — no invented
+        // "Recent" folder). Still capped with a "show more" so it can't dump a
+        // 200-row wall.
+        if (!headerless) {
+            theme::Color headColor =
+                archived ? theme::text_faint() : theme::text_secondary();
+            bool collapsed = render_group_header(
+                ctx, parent, base, name, key,
+                static_cast<int>(members.size()), headColor, app, q, panelW);
+            // Collapsed: header only, no body rows.
+            if (collapsed) return static_cast<int>(members.size());
+        }
 
         // Defect #2: a single heavy bucket (e.g. real data landing ~92
         // sessions in "Yesterday") is still a scroll-pit even though it has a
