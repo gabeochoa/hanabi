@@ -1508,25 +1508,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("row_title"));
 
         // Per-row relative timestamp: a small, faint, right-aligned age
-        // ("2h","3d","Jul 28") so a row is more than a bare title. Subtle by
-        // design (SM size, faint token) so it reads as metadata, not a second
-        // title. Fixed-width slot sized in pixels (gap #18) sitting just left
-        // of the star slot, so it never collides with the star or the leading
-        // glyph. Empty label (unknown/future updated_at) => the slot renders
-        // blank but still reserves its width, keeping row layout stable.
-        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
-        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
-        div(ctx, mk(row.ent(), 4),
-            ComponentConfig{}
-                .with_label(ageLabel)
-                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("row_time"));
-
+        // ("2h","3d","Jul 28"). Now the RIGHTMOST column (star sits to its
+        // left â star/time swapped per Gabe). Fixed-width slot sized in
+        // pixels (gap #18). Empty label (unknown/future updated_at) => the slot
+        // renders blank but still reserves its width, keeping row layout stable.
         // Star affordance: shown when the row is HOVERED, or always when the
         // thread is already starred (so starred state stays visible at rest).
         // Uses was_hot (previous frame's hot id) since the current frame's hot
@@ -1561,7 +1546,31 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (star) {
                 app.requestToggleStar = sid;
             }
+        } else {
+            // Reserve the star slot even when no star is shown, so the trailing
+            // timestamp column stays put (no reflow on hover).
+            div(ctx, mk(row.ent(), 3),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("row_star_slot"));
         }
+
+        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
+        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
+        div(ctx, mk(row.ent(), 4),
+            ComponentConfig{}
+                .with_label(ageLabel)
+                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("row_time"));
+
     }
 };
 
