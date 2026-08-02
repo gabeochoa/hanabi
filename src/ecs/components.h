@@ -30,6 +30,7 @@ enum class SmartView {
     Blocked,
     Review,
     Starred,
+    Archived,
     Chat,
 };
 

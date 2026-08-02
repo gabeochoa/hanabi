@@ -48,5 +48,8 @@ inline bool in_review_view(const api::SessionSummary& s) {
 inline bool in_starred_view(const api::SessionSummary& s) {
     return s.starred;
 }
+inline bool in_archived_view(const api::SessionSummary& s) {
+    return s.state == api::ThreadState::Archived;
+}
 
 }  // namespace ecs::model

@@ -63,6 +63,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               "No starred conversations. Star a thread to pin "
                               "it here.");
                 break;
+            case SmartView::Archived:
+                render_digest(ctx, panel.ent(), *app, "Archived", r.width,
+                              r.height, ecs::model::in_archived_view,
+                              "No archived conversations. Sending a message to "
+                              "an archived thread unarchives it.");
+                break;
         }
     }
 

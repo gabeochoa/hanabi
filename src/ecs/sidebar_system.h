@@ -93,7 +93,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Scrollable region: folders + recent + archived.
         // header(40) + search(40) + VIEWS label(25) + views(148).
-        float used = 40.0f + 40.0f + 25.0f + 148.0f;
+        float used = 40.0f + 40.0f + 25.0f + 178.0f;
         float scrollH = r.height - used;
         if (scrollH < 40.0f) scrollH = 40.0f;
         auto scroll = div(ctx, mk(panel.ent(), 5),
@@ -142,10 +142,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                *app, q, r.width, /*archived=*/false,
                                /*catchAll=*/true, /*headerless=*/true);
-        // Low-signal archived section, greyed.
-        shown += render_folder(ctx, scroll.ent(), 6000, "Archived",
-                               "__archived__", *app, q, r.width,
-                               /*archived=*/true);
+        // (Archived is now a smart VIEW in the Views section above, not a
+        // sidebar folder â per Gabe. Sending a message to an archived thread
+        // unarchives it, same as the backend behavior.)
 
         // No-results empty state (only meaningful with a non-empty query).
         if (!q.empty() && shown == 0) {
@@ -962,7 +961,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         auto container = div(ctx, mk(parent, 3),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(148)})
+                .with_size(ComponentSize{percent(1.0f), pixels(178)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_padding(Padding{.top = pixels(0), .right = pixels(4),
@@ -971,10 +970,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("smart_views"));
 
-        int review = 0, starred = 0, blocked = blocked_count(app);
+        int review = 0, starred = 0, archived = 0, blocked = blocked_count(app);
         for (const auto& s : app.sessions) {
             if (s.state == api::ThreadState::Ready) ++review;
             if (s.starred) ++starred;
+            if (s.state == api::ThreadState::Archived) ++archived;
         }
 
         smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
@@ -985,6 +985,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    SmartView::Review, review, app, folded, panelW);
         smart_item(ctx, container.ent(), 4, "star", "\xe2\x98\x85", "Starred",
                    SmartView::Starred, starred, app, folded, panelW);
+        smart_item(ctx, container.ent(), 5, "archive", "\xe2\x96\xa4",
+                   "Archived", SmartView::Archived, archived, app, folded,
+                   panelW);
     }
 
     void smart_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
