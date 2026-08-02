@@ -316,6 +316,122 @@ static void test_tab_switch_between_open_tabs() {
 }
 
 // ---------------------------------------------------------------------------
+// 4d) Tab REORDER (drag-to-rearrange): the drop-index geometry and the
+//     erase+insert reorder are PURE (model::compute_drop_index /
+//     model::reorder_tab), so we exercise the "drag tab i, drop at j" contract
+//     deterministically without a live mouse. The render/input header only
+//     computes a draggedCenterX and hands it to these same functions, so the
+//     tested logic is the shipped logic.
+// ---------------------------------------------------------------------------
+static void test_tab_reorder_drop_index() {
+    std::printf("test_tab_reorder_drop_index\n");
+    // 4 slots, first slot left edge at x=100, each slot 100px wide (stride).
+    const float stripX = 100.0f;
+    const float stride = 100.0f;
+    const size_t n = 4;  // slot centers: 150, 250, 350, 450
+
+    // A center sitting squarely over each slot maps to that slot's index.
+    CHECK(ecs::model::compute_drop_index(150.0f, stripX, stride, n) == 0);
+    CHECK(ecs::model::compute_drop_index(250.0f, stripX, stride, n) == 1);
+    CHECK(ecs::model::compute_drop_index(350.0f, stripX, stride, n) == 2);
+    CHECK(ecs::model::compute_drop_index(450.0f, stripX, stride, n) == 3);
+
+    // Past the ends clamps to first / last.
+    CHECK(ecs::model::compute_drop_index(-999.0f, stripX, stride, n) == 0);
+    CHECK(ecs::model::compute_drop_index(9999.0f, stripX, stride, n) == 3);
+
+    // Dragging left over slot 0's band -> 0; over slot 1's band -> 1.
+    CHECK(ecs::model::compute_drop_index(120.0f, stripX, stride, n) == 0);
+    CHECK(ecs::model::compute_drop_index(230.0f, stripX, stride, n) == 1);
+
+    // Single tab (or zero stride) -> no meaningful drop; index 0.
+    CHECK(ecs::model::compute_drop_index(500.0f, stripX, stride, 1) == 0);
+    CHECK(ecs::model::compute_drop_index(500.0f, stripX, 0.0f, n) == 0);
+}
+
+// Assert the shipped erase+insert reorder against explicit before/after orders,
+// AND that reordering never disturbs which tab is active (order-only).
+static void test_tab_reorder_moves_and_preserves_active() {
+    std::printf("test_tab_reorder_moves_and_preserves_active\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+
+    ecs::model::open_session_in_tab(strip, app, "t1");  // idx 0
+    ecs::model::open_session_in_tab(strip, app, "t4");  // idx 1
+    ecs::model::open_session_in_tab(strip, app, "t5");  // idx 2 (active)
+    CHECK(strip.tabOrder.size() == 3);
+
+    // Record the active tab entity + its session before any reorder.
+    auto* activeBefore = ecs::model::active_tab_entity();
+    CHECK(activeBefore != nullptr);
+    auto activeId = activeBefore->id;
+    std::string activeSid = activeBefore->get<ecs::Tab>().sessionId;  // "t5"
+    std::string selectedBefore = app.selectedId;
+
+    auto sid_at = [&](size_t i) {
+        auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        return o->get<ecs::Tab>().sessionId;
+    };
+
+    // Drag the first tab (t1, idx 0) and drop it at the end (idx 2).
+    ecs::model::reorder_tab(strip, 0, 2);
+    CHECK(strip.tabOrder.size() == 3);  // no add/remove
+    CHECK(sid_at(0) == "t4");
+    CHECK(sid_at(1) == "t5");
+    CHECK(sid_at(2) == "t1");
+
+    // Drag the last tab (t1, idx 2) back to the front (idx 0).
+    ecs::model::reorder_tab(strip, 2, 0);
+    CHECK(sid_at(0) == "t1");
+    CHECK(sid_at(1) == "t4");
+    CHECK(sid_at(2) == "t5");
+
+    // Middle move: idx 1 -> idx 0.
+    ecs::model::reorder_tab(strip, 1, 0);
+    CHECK(sid_at(0) == "t4");
+    CHECK(sid_at(1) == "t1");
+    CHECK(sid_at(2) == "t5");
+
+    // The ACTIVE tab and app selection are untouched by reordering.
+    auto* activeAfter = ecs::model::active_tab_entity();
+    CHECK(activeAfter != nullptr);
+    CHECK(activeAfter->id == activeId);
+    CHECK(activeAfter->get<ecs::Tab>().sessionId == activeSid);  // still "t5"
+    CHECK(app.selectedId == selectedBefore);
+    // Exactly one active tab still.
+    int active = 0;
+    for (auto id : strip.tabOrder) {
+        auto o = afterhours::EntityHelper::getEntityForID(id);
+        if (o.valid() && o->has<ecs::ActiveTab>()) ++active;
+    }
+    CHECK(active == 1);
+}
+
+// Edge cases: no-op reorders must not corrupt the order (single tab, equal
+// from/to, out-of-range indices).
+static void test_tab_reorder_edge_cases() {
+    std::printf("test_tab_reorder_edge_cases\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+
+    // Single tab -> dragging is a no-op.
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::reorder_tab(strip, 0, 0);
+    CHECK(strip.tabOrder.size() == 1);
+
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t5");
+    auto snapshot = strip.tabOrder;  // [t1, t4, t5]
+
+    ecs::model::reorder_tab(strip, 1, 1);          // equal -> no-op
+    CHECK(strip.tabOrder == snapshot);
+    ecs::model::reorder_tab(strip, 99, 0);         // from OOR -> no-op
+    CHECK(strip.tabOrder == snapshot);
+    ecs::model::reorder_tab(strip, 0, 99);         // to OOR -> no-op
+    CHECK(strip.tabOrder == snapshot);
+}
+
+// ---------------------------------------------------------------------------
 // 5) http adapter defaults: with no env config, make_client() returns the
 //    mock; a default summary (what the generic http adapter yields) is calm.
 // ---------------------------------------------------------------------------
@@ -502,6 +618,9 @@ int main() {
     test_tab_open_focus_no_duplicate();
     test_tab_close_fallback();
     test_tab_switch_between_open_tabs();
+    test_tab_reorder_drop_index();
+    test_tab_reorder_moves_and_preserves_active();
+    test_tab_reorder_edge_cases();
     test_backend_agnostic_defaults();
     test_transcript_cache();
 
