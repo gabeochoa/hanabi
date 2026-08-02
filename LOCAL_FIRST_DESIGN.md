@@ -38,3 +38,19 @@ E. main_pane_system.h: draw the sync glyph in the user-bubble metadata + header 
 F. settings_system.h: Export row + sync-legend + Local-search toggle.
 G. NEW util/local_search.* : the FTS index.
 Each file = one mutator; serialize commits (learned: parallel git-index collisions).
+
+## V8 ALIGNMENT AUDIT (from Gabe's screenshots — "hug the edge, don't center")
+SETTINGS (fb2.png):
+- Theme segmented (Light/Dark/System): buttons have big gaps + centered labels; the
+  group should be tight/left-aligned (or full-width with equal segments flush).
+- Cache row: "Clear cache" floats mid-right; should hug the RIGHT panel edge. Value
+  "1.9 MB on disk" hugs left (good).
+- Cache limit segmented (100MB/1GB/10GB/Unlimited): same spread-out issue as Theme.
+- General: modal has dead horizontal space; controls should align to panel insets,
+  not float centered.
+POLISH/PERF BACKLOG (keep grinding):
+- M7 settings: add Connection/backend row, About/version, Notifications toggle, sync legend.
+- V8: edge-align all settings controls (segmented tight, buttons right-hug).
+- I1 hover latency + T7 idle-frame (perf): reduce per-frame rebuild; afterhours help incoming.
+- F2 live latency; transcript scroll perf on big threads.
+- refactor review quick wins (REFACTOR_REVIEW.md): delete ~300 lines dead code, consolidate helpers.
