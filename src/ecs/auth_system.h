@@ -96,7 +96,20 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_body(UIContext<InputAction>& ctx, Entity& parent,
                      AppComponent& app) {
+        // Launch-perf: while the deferred begin() runs on a worker thread the
+        // flow's fields are being written off-thread, so DON'T read them here.
+        // Show a stable pre-code screen (reads only the app flag). Once begin()
+        // resolves LoaderSystem clears authBeginPending and the normal
+        // state-driven body below renders the real code/URL.
+        if (app.authBeginPending) {
+            label_row(ctx, parent, 2, "Requesting a code\xe2\x80\xa6",
+                      theme::text_primary(), FontSize::Large, 40);
+            label_row(ctx, parent, 3, "Contacting the sign-in server\xe2\x80\xa6",
+                      theme::text_secondary(), FontSize::Medium, 24);
+            return;
+        }
         State st = flow_state(app);
+
         const std::string code =
             app.authFlow ? app.authFlow->user_code() : std::string();
         const std::string uri =

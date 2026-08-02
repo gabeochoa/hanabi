@@ -133,12 +133,20 @@ static void setup_app_state() {
         app.authFlow = std::make_shared<api::DeviceCodeFlow>(
             cfg, api::make_http_auth_transport(cfg));
         app.authConfig = cfg;  // remembered so success can rebuild the client
-        app.authFlow->begin(now_epoch_seconds());
-        // Real-run proof aid (opt-in): log the userCode the LIVE server issued
-        // WITHOUT completing the browser step. Never logs the token. Enabled
-        // with HANABI_AUTH_LOG=1 so a normal run stays silent.
+        // Launch-perf: DO NOT call begin() here — it does a BLOCKING device-code
+        // POST that would sit on the windowed launch critical path (the single
+        // biggest OURS cost: ~hundreds of ms to ~1s against a real auth server,
+        // up to the full connect timeout ~5s if it's unreachable). Defer it:
+        // the window paints immediately with the overlay in a "requesting
+        // code…" state, and LoaderSystem kicks begin() on a worker thread (see
+        // AppComponent::authNeedsBegin / authBeginFuture). The old synchronous
+        // begin() is preserved ONLY behind HANABI_AUTH_LOG (an opt-in real-run
+        // proof aid that must observe the round-trip inline).
         if (const char* lg = std::getenv("HANABI_AUTH_LOG"); lg && *lg &&
             std::string(lg) != "0") {
+            app.authFlow->begin(now_epoch_seconds());
+            // Real-run proof aid: log the userCode the LIVE server issued
+            // WITHOUT completing the browser step. Never logs the token.
             using S = api::DeviceCodeFlow::State;
             const auto st = app.authFlow->current_state();
             if (st == S::AwaitingUser) {
@@ -161,11 +169,15 @@ static void setup_app_state() {
                              app.authFlow->error().c_str());
             }
             std::fflush(stderr);
+        } else {
+            // Normal path: defer the blocking begin() off the launch path.
+            app.authNeedsBegin = true;
         }
         app.showAuth = true;
         // Do not fire the initial list refresh until we have a token.
         app.requestListRefresh = false;
     }
+
 
     // Restore persisted tab set (opened once the list loads).
     app.restoreTabIds = Settings::get().get_open_tabs();
@@ -236,14 +248,34 @@ static void app_init() {
     auto gfxMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                      gfxReady - app_state::startTime).count();
 
-    Preload::get().init("hanabi").make_singleton();
+    // HANABI_STARTUP_PROF=1: emit a sub-millisecond breakdown of our OWN
+    // App-init phases so we can attribute the launch cost. Off by default (the
+    // steady-state startup log below is enough for the perf gate). Uses micros
+    // because every one of these phases is <1ms — a ms-granularity log would
+    // round them all to 0 and hide where App-init's few ms actually go.
+    const bool prof = [] {
+        const char* v = std::getenv("HANABI_STARTUP_PROF");
+        return v && *v && std::string(v) != "0";
+    }();
+    auto us_since = [](auto a, auto b) {
+        return std::chrono::duration_cast<std::chrono::microseconds>(b - a)
+            .count();
+    };
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    Preload::get().init("hanabi");
+    auto t1 = std::chrono::high_resolution_clock::now();
+    Preload::get().make_singleton();
+    auto t2 = std::chrono::high_resolution_clock::now();
     setup_app_state();
+    auto t3 = std::chrono::high_resolution_clock::now();
 
     static afterhours::SystemManager sm;
     app_state::systemManager = &sm;
     build_systems(sm);
+    auto t4 = std::chrono::high_resolution_clock::now();
 
-    auto readyTime = std::chrono::high_resolution_clock::now();
+    auto readyTime = t4;
     auto appMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                      readyTime - gfxReady).count();
     auto startupMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -254,6 +286,13 @@ static void app_init() {
     log_info("  Gfx init: {} ms (window + GPU/Metal context — vendored/OS)",
              gfxMs);
     log_info("  App init: {} ms (preload + state + systems — ours)", appMs);
+    if (prof) {
+        log_info("  [prof] Preload::init   : {} us (files::init)", us_since(t0, t1));
+        log_info("  [prof] make_singleton  : {} us (font load + UI plugin)", us_since(t1, t2));
+        log_info("  [prof] setup_app_state : {} us (settings + client + cache)", us_since(t2, t3));
+        log_info("  [prof] build_systems   : {} us", us_since(t3, t4));
+    }
+    fflush(stdout);
 }
 
 static void app_frame() {
@@ -289,6 +328,40 @@ static void app_frame() {
     app_state::systemManager->run(dt);
     afterhours::graphics::end_drawing();
 
+    // Windowed FirstFrame instrumentation — the perf gate's headless
+    // FirstFrame does NOT reflect the real windowed cold launch (no Cocoa
+    // window, no on-screen swap, different Metal pipeline warm-up). This logs
+    // the REAL windowed process-start -> first on-screen frame once, gated so
+    // it only fires the first time. HANABI_QUIT_AFTER_FIRST_FRAME=1 makes the
+    // windowed run self-terminate right after emitting the number, so a
+    // windowed launch can be profiled in a loop without the app running
+    // forever (it otherwise never exits). Both are diagnostic-only: a normal
+    // user launch (neither env set) logs nothing here and runs as before.
+    static bool firstFrameLogged = false;
+    if (!firstFrameLogged) {
+        firstFrameLogged = true;
+        auto firstFrame = std::chrono::high_resolution_clock::now();
+        auto firstFrameMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                firstFrame - app_state::startTime).count();
+        const bool profFrame = [] {
+            const char* v = std::getenv("HANABI_STARTUP_PROF");
+            return v && *v && std::string(v) != "0";
+        }();
+        const bool quitAfter = [] {
+            const char* v = std::getenv("HANABI_QUIT_AFTER_FIRST_FRAME");
+            return v && *v && std::string(v) != "0";
+        }();
+        if (profFrame || quitAfter) {
+            log_info("WindowedFirstFrame: {} ms (process start -> first "
+                     "on-screen frame — REAL windowed cold launch)",
+                     firstFrameMs);
+            fflush(stdout);
+            fflush(stderr);
+        }
+        if (quitAfter)
+            afterhours::graphics::request_quit();
+    }
+
     // Reflect the current blocked count onto the menu-bar title + status row.
     // Same derivation as status_bar_system.h (count of ThreadTag::Blocked) so
     // the two stay in agreement. menubar_set_blocked no-ops when unchanged.
@@ -310,7 +383,11 @@ static void app_frame() {
             // terminal states: on Success persist the token + rebuild the live
             // client to the http backend so the app switches from the login
             // overlay to real data; the offline escape keeps the mock client.
-            if (app.showAuth && app.authFlow) {
+            // Don't touch the flow while the deferred begin() is still in
+            // flight on the worker thread (DeviceCodeFlow is not thread-safe).
+            // LoaderSystem clears authBeginPending once begin() resolves; until
+            // then the overlay simply shows its pre-code state.
+            if (app.showAuth && app.authFlow && !app.authBeginPending) {
                 using S = api::DeviceCodeFlow::State;
                 app.authFlow->poll_step(now_epoch_seconds());
                 if (app.authFlow->current_state() == S::Success) {

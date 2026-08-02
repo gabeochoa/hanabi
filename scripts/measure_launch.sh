@@ -99,6 +99,31 @@ else
     echo "  Peak RSS:   ? (could not parse /usr/bin/time -l)"
 fi
 echo "  App exit:   ${APP_RC}"
+
+# --- Report-only: REAL windowed launch (opt-in) ------------------------------
+# The gate above measures the HEADLESS one-shot path (deterministic, CI-safe).
+# That is NOT the real windowed cold launch a user sees — no Cocoa window, no
+# on-screen swap, different Metal pipeline warm-up. When run interactively on a
+# Mac with a GUI session you can ALSO get the real windowed number by setting
+# HANABI_MEASURE_WINDOWED=1: it launches the actual windowed app, which
+# self-terminates right after its first on-screen frame (HANABI_QUIT_AFTER_
+# FIRST_FRAME) and logs WindowedFirstFrame. This is REPORT-ONLY — it never gates
+# (a windowed launch needs a WindowServer session, so it can't run in headless
+# CI, and its Gfx-init cost is dominated by the OS/Metal window+GPU create which
+# is not ours; see afterhours_gaps.md #8). It does NOT weaken the headless gate.
+if [ "${HANABI_MEASURE_WINDOWED:-0}" != "0" ]; then
+    WLOG="$(mktemp -t hanabi_win_XXXX).log"
+    ( HANABI_QUIT_AFTER_FIRST_FRAME=1 HANABI_STARTUP_PROF=1 \
+        timeout "$RUN_TIMEOUT" "$EXE" >"$WLOG" 2>&1 ) || true
+    pkill -9 -f hanabi.exe >/dev/null 2>&1 || true
+    WFF=$(grep -Eo 'WindowedFirstFrame: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
+    WGFX=$(grep -Eo 'Gfx init: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
+    WAPP=$(grep -Eo 'App init: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
+    echo "  --- windowed (report-only, not gated) ---"
+    echo "  WindowedFirstFrame: ${WFF:-?} ms  (Gfx=${WGFX:-?}ms OS/Metal, App=${WAPP:-?}ms ours)"
+    rm -f "$WLOG"
+fi
+
 echo "  Gate: ${LAUNCH_METRIC} < ${STARTUP_CEILING_MS} ms, RSS < ${RSS_CEILING_MB} MB"
 
 FAIL=0

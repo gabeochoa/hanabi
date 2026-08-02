@@ -37,6 +37,33 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     void for_each_with(Entity&, AppComponent& app, float) override {
         if (!app.client) return;
 
+        // --- Auth: deferred device-code begin() (launch-perf) ---
+        // begin() does a BLOCKING network POST; main.cpp deferred it off the
+        // launch path by setting authNeedsBegin. Kick it on a worker exactly
+        // like the list fetch so the window paints immediately. The flow is not
+        // thread-safe, so while the begin() future is in flight nothing else
+        // touches app.authFlow (app_frame's poll_step is guarded on
+        // authBeginPending). When it resolves the flow is in AwaitingUser/Failed
+        // and the normal frame-driven poll takes over.
+        if (app.authNeedsBegin && !app.authBeginPending && app.authFlow) {
+            app.authNeedsBegin = false;
+            app.authBeginPending = true;
+            auto flow = app.authFlow;
+            const int64_t now =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            app.authBeginFuture = std::async(std::launch::async,
+                                             [flow, now] { flow->begin(now); });
+        }
+        if (app.authBeginPending && app.authBeginFuture.valid()) {
+            if (app.authBeginFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+                app.authBeginFuture.get();
+                app.authBeginPending = false;  // flow is now safe to poll again
+            }
+        }
+
         // --- Session list ---
         if (app.requestListRefresh && !app.listPending) {
             app.requestListRefresh = false;
