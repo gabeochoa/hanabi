@@ -1271,7 +1271,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Only shown when the session carries REAL sub-agents — tool activity now
     // has its own dense rows, so we no longer duplicate it here.
     float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
-                          AppComponent& app, float colW) {
+                          AppComponent& app) {
         const auto& subs = app.openSession->sub_agents;
         if (subs.empty()) return 0.0f;
 
@@ -1363,7 +1363,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             int rows = (static_cast<int>(count) + 2) / 3;
             total += 6.0f + rows * (kChipH + 6.0f);
         }
-        (void)colW;
         return total;
     }
 
@@ -1554,7 +1553,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         render_cache().reset_for_thread(app.openSession->summary.id);
 
-        float subH = sub_agent_panel(ctx, col, app, colW);
+        float subH = sub_agent_panel(ctx, col, app);
 
         const bool streamingHere =
             app.streamActive &&
@@ -3363,10 +3362,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 }
             }
-            bool truncated = false;
             if (cut != std::string::npos) {
                 out = out.substr(0, cut);
-                truncated = true;
             }
             auto panel = div(ctx, mk(parent, 200 + index * 10 + 5),
                 ComponentConfig{}
@@ -3420,7 +3417,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ls = nl2 + 1;
                 }
             }
-            (void)truncated;
         }
     }
 
