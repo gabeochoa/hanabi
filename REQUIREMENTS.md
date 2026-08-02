@@ -145,6 +145,7 @@ against the real backend behind env/config.
 
 ### macOS integration
 - [x] Phase G — native menu-bar extra (`NSStatusItem`): blocked-on-you count `✦ N` + dropdown (Show hanabi / New task… / Quit) (c9b5c32).
+- [x] Phase G — native notification on rising blocked-count (edge-triggered, baseline-primed, 30s rate-limited) via `NSUserNotification` (fa56957). **Click-to-open DONE**: the notification carries the newly-blocked thread's id in `userInfo`; an `NSUserNotificationCenterDelegate` (`shouldPresent`=YES so it shows even when frontmost) routes a click through the SAME open-thread slot the `hanabi://` deep-link uses → `requestOpenTab` + activate. Diagnostic `HANABI_NOTIFY_TEST=<id>` (windowed-only, fires once) exercises the banner+click path. Delegate install + userInfo verified crash-free in a windowed run; the click drain chain is the same one proven end-to-end by the deep-link.
 
 ### Tests
 - [x] Headless e2e for state model + smart views + tabs + backend defaults (9183b61).

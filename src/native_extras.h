@@ -62,7 +62,13 @@ bool native_hotkey_take_triggered(void);
 // must NOT call this from the headless --screenshot path (it would request
 // notification delivery / could prompt). Rate-limiting/debounce is the
 // caller's responsibility (see main.cpp's blocked-count seam).
-void native_notify(const char* title, const char* body);
+//
+// `thread_id` (may be null/empty) is attached to the notification so that
+// CLICKING it opens that thread: the notification-center delegate routes the
+// id through the same pending-open-thread slot the hanabi:// deep-link uses,
+// drained by native_take_open_thread(). Pass the id of the thread the banner
+// is about (e.g. the newly-blocked thread).
+void native_notify(const char* title, const char* body, const char* thread_id);
 
 // ---- 3. Spotlight (best-effort; NO-OP in the non-bundled build) ------------
 

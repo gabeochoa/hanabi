@@ -316,6 +316,14 @@ static void app_frame() {
         // Windowed-only + install-once, same as the hotkey.
         native_openurl_install();
         menubarInstalled = true;
+        // Diagnostic (windowed-only, fires once): HANABI_NOTIFY_TEST=<thread-id>
+        // posts a single native notification carrying that id, so the
+        // notification banner + click->open-thread path can be exercised
+        // manually. Ignored when unset; never runs on the headless path.
+        if (const char* nt = std::getenv("HANABI_NOTIFY_TEST"); nt && *nt) {
+            native_notify("hanabi: thread needs you",
+                          "Click to open this thread", nt);
+        }
     }
 
     // Drain menu-bar action flags into ECS state (single-owner: only the frame
@@ -501,7 +509,14 @@ static void app_frame() {
                         (newlyBlocked && !newlyBlocked->title.empty())
                             ? newlyBlocked->title.c_str()
                             : "";
-                    native_notify(title, body);
+                    // Carry the newly-blocked thread's id so CLICKING the
+                    // notification opens that thread (native_extras routes it
+                    // through the same open-thread slot the deep-link uses).
+                    const char* tid =
+                        (newlyBlocked && !newlyBlocked->id.empty())
+                            ? newlyBlocked->id.c_str()
+                            : "";
+                    native_notify(title, body, tid);
                     lastNotifyAt = nowSec;
                 }
                 lastBlockedNotified = blocked;

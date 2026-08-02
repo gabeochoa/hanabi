@@ -212,19 +212,62 @@ bool native_hotkey_take_triggered(void) {
 // The deprecation warnings are silenced narrowly around this call so the .mm
 // still compiles clean under -Wall -Wextra (the whole file is built with those).
 
-void native_notify(const char* title, const char* body) {
+// Forward decl: the shared "a thread wants opening" setter (defined with the
+// deep-link slot at the bottom). Both the notification-click delegate and the
+// hanabi:// URL handler feed the SAME pending slot that the frame loop drains.
+static void set_pending_open_thread(const std::string& id);
+
+// Delegate for NSUserNotificationCenter: a delivered banner is shown even when
+// hanabi is frontmost, and CLICKING it activates hanabi + opens the thread
+// carried in the notification's userInfo["thread_id"].
+@interface HanabiNotifDelegate : NSObject <NSUserNotificationCenterDelegate>
+@end
+@implementation HanabiNotifDelegate
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+- (BOOL)userNotificationCenter:(NSUserNotificationCenter*)center
+     shouldPresentNotification:(NSUserNotification*)notification {
+    (void)center; (void)notification;
+    return YES;   // present even if hanabi is the active app
+}
+- (void)userNotificationCenter:(NSUserNotificationCenter*)center
+       didActivateNotification:(NSUserNotification*)notification {
+    (void)center;
+    id tid = notification.userInfo[@"thread_id"];
+    if ([tid isKindOfClass:[NSString class]] && [tid length] > 0) {
+        set_pending_open_thread(std::string([tid UTF8String]));
+        NSLog(@"native_extras: notification click -> open thread id=%@", tid);
+        [NSApp activateIgnoringOtherApps:YES];
+    }
+}
+#pragma clang diagnostic pop
+@end
+
+static HanabiNotifDelegate* g_notif_delegate = nil;
+
+void native_notify(const char* title, const char* body, const char* thread_id) {
     if (title == nullptr || title[0] == '\0') return;
     @autoreleasepool {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        NSUserNotificationCenter* center =
+            [NSUserNotificationCenter defaultUserNotificationCenter];
+        // Install the delegate once so notification clicks open the thread.
+        if (g_notif_delegate == nil) {
+            g_notif_delegate = [[HanabiNotifDelegate alloc] init];
+            center.delegate = g_notif_delegate;
+        }
         NSUserNotification* note = [[[NSUserNotification alloc] init]
             autorelease];
         note.title = [NSString stringWithUTF8String:title];
         if (body != nullptr && body[0] != '\0')
             note.informativeText = [NSString stringWithUTF8String:body];
         note.soundName = NSUserNotificationDefaultSoundName;
-        [[NSUserNotificationCenter defaultUserNotificationCenter]
-            deliverNotification:note];
+        // Carry the thread id so a click can deep-link to it (see delegate).
+        if (thread_id != nullptr && thread_id[0] != '\0')
+            note.userInfo = @{ @"thread_id"
+                               : [NSString stringWithUTF8String:thread_id] };
+        [center deliverNotification:note];
 #pragma clang diagnostic pop
     }
 }
@@ -320,6 +363,15 @@ void native_spotlight_index(const char* id, const char* title) {
 static std::mutex g_open_thread_mu;
 static std::string g_pending_open_thread;   // guarded by g_open_thread_mu
 
+// Shared setter: both the hanabi:// URL handler and the notification-click
+// delegate feed this one slot; the frame loop drains it. Last write wins (a
+// user can only look at one thread at a time; the most recent intent is right).
+static void set_pending_open_thread(const std::string& id) {
+    if (id.empty()) return;
+    std::lock_guard<std::mutex> lk(g_open_thread_mu);
+    g_pending_open_thread = id;
+}
+
 // Parse the thread id from hanabi://thread/<id> (also tolerates
 // hanabi:thread/<id> and a trailing slash/query). Returns "" if not a match.
 static std::string parse_thread_url(NSString* url) {
@@ -355,10 +407,7 @@ static std::string parse_thread_url(NSString* url) {
         [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
     std::string id = parse_thread_url(urlStr);
     if (id.empty()) return;
-    {
-        std::lock_guard<std::mutex> lk(g_open_thread_mu);
-        g_pending_open_thread = id;
-    }
+    set_pending_open_thread(id);
     NSLog(@"native_extras: hanabi://thread open -> id=%s", id.c_str());
     // Bring hanabi forward so the opened thread is visible.
     [NSApp activateIgnoringOtherApps:YES];
