@@ -1253,6 +1253,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         flush_spacer(99999);
 
+        // Bottom breathing room: a real trailing spacer so the LAST line can be
+        // scrolled fully clear of the viewport bottom (and the composer that
+        // overlays it). Without this the final message sat flush against / under
+        // the edge and couldn't be brought fully into view.
+        div(ctx, mk(col, 30000 + 88888),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(28.0f)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("transcript_bottom_pad"));
+
         if (streamingHere &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
@@ -1545,8 +1556,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // wrapped text rendered bottom-aligned inside a tall empty box (a big gap
     // above every assistant turn). Keeping all three helpers on one model so
     // box height, line count, and truncation stay consistent.
-    static constexpr float kGlyphW = 6.2f;   // avg px per glyph @ Medium
-    static constexpr float kLinePitch = 15.0f;  // px per wrapped line
+    // Calibrated CONSERVATIVELY (over-estimate) because afterhours word-wraps
+    // on spaces (rendering.h wrap_text_to_width): the tail of each line is
+    // wasted, so real chars/line is LOWER than width/advance. Under-counting
+    // lines made fixed-height text boxes CLIP and the scroll range fall
+    // short (couldn't scroll to the bottom). 7.6px/glyph + 16px pitch
+    // over-estimates slightly (tiny extra gap) but NEVER clips. The proper
+    // fix is to measure via afterhours measure_text (gap #26/wishlist A).
+    static constexpr float kGlyphW = 7.6f;   // avg px per glyph @ BODY 13px
+    static constexpr float kLinePitch = 16.0f;  // px per wrapped line
     static int wrap_perline(float widthPx) {
         int p = static_cast<int>((widthPx - 10.0f) / kGlyphW);
         return p < 8 ? 8 : p;

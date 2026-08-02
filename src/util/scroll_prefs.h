@@ -13,15 +13,16 @@
 //     scroll_offset.y += direction * wheel.y * speed;
 // where scroll_offset.y grows DOWNWARD (child.y -= offset). On macOS, sokol
 // passes AppKit's `scrollingDeltaY` through raw, and AppKit ALREADY encodes the
-// natural-scroll setting in that delta's sign:
-//   * Natural ON  -> a "scroll toward the end" gesture yields the sign that,
-//     with direction = -1.0f (invert_scroll = FALSE), increases scroll_offset.y
-//     (moves content up / reveals below) -> feels correct.
-//   * Natural OFF -> AppKit flips that sign, so we need direction = +1.0f
-//     (invert_scroll = TRUE) to keep the same on-screen result.
-// Hence: invert_scroll = !natural_scroll.  The afterhours default
-// (invert_scroll = false) only matches natural-ON; on a natural-OFF Mac the
-// hard-coded default scrolls BACKWARDS, which is the bug we fix here.
+// natural-scroll setting in that delta's sign. So the app should MATCH the OS,
+// not counter it:
+//   * Natural OFF -> the afterhours default (invert_scroll = FALSE,
+//     direction = -1.0f) is the sign that feels correct. (Verified live on a
+//     natural-OFF Mac, 2026-08-02.)
+//   * Natural ON  -> invert (invert_scroll = TRUE, direction = +1.0f).
+// Hence: invert_scroll = natural_scroll.
+// (An earlier version derived invert = !natural from first-principles reasoning
+// about the delta sign; live testing showed that was backwards, so we trust the
+// observed behavior: invert = natural.)
 //
 // Manual escape hatch: HANABI_INVERT_SCROLL=0|1 forces the flag regardless of
 // the OS setting. Default (unset) follows the OS.
@@ -36,7 +37,7 @@ namespace hanabi {
 
 // Decide whether scroll views should invert their offset sign so the app
 // matches the OS. Honors HANABI_INVERT_SCROLL as an override; otherwise
-// derives from the macOS natural-scroll pref (invert = !natural).
+// derives from the macOS natural-scroll pref (invert = natural; see below).
 inline bool should_invert_scroll() {
     if (const char* env = std::getenv("HANABI_INVERT_SCROLL")) {
         std::string_view v{env};
@@ -47,7 +48,13 @@ inline bool should_invert_scroll() {
         // Unrecognized value: fall through to the OS-derived default.
     }
 #if defined(__APPLE__)
-    return !macos_natural_scroll();  // invert when natural scrolling is OFF
+    // Empirically verified live on a natural-OFF Mac (2026-08-02): the
+    // afterhours default (invert_scroll = false, direction = -1) is the sign
+    // that feels correct, and inverting on natural-OFF scrolled BACKWARDS.
+    // AppKit already encodes the natural/OFF choice in the sign of
+    // scrollingDeltaY that sokol passes through, so MATCH the OS rather than
+    // counter it: invert only when natural scrolling is ON.
+    return macos_natural_scroll();   // invert when natural scrolling is ON
 #else
     // Non-mac: no OS seam wired; default to afterhours' natural-ON behavior.
     return false;

@@ -617,3 +617,41 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
 - **A "hot"/hover state I can READ in app code** for arbitrary widgets, to drive
   hover-only affordances (stars, message actions) without threading HasClickListener
   everywhere.
+
+---
+
+### #25 — sokol `draw_rectangle_rounded` emits a DEGENERATE triangle for mixed round/sharp corners (visible glitch)
+- **Gap/bug:** `vendor/afterhours/src/backends/sokol/drawing_helpers.h`
+  `draw_rectangle_rounded(...)`'s `emit_corner_arc` lambda has a broken
+  sharp-corner branch:
+  ```cpp
+  if (radius <= 0.0f) {           // sharp corner
+    sgl_begin_triangles();
+    sgl_v2f(cx, cy);
+    sgl_v2f(cornerX, cornerY);    // only TWO vertices — a triangle needs THREE
+    sgl_end();                    // degenerate/garbage primitive
+    return;
+  }
+  ```
+  Any **mixed** corner config (e.g. `RoundedCorners().all_sharp().top_round()`
+  — rounded top, sharp bottom) drives the two bottom corners through this path,
+  emitting malformed triangles. On Metal this renders as a **diagonal "triangle"
+  cut** across the shape (looks like the fill is sliced).
+- **Where it bit hanabi:** the chat TAB buttons used `.all_sharp().top_round()`
+  (rounded tops, square bottoms — the classic tab shape). Inactive tabs showed a
+  diagonal triangle notch on a bottom corner. (Reported by Gabe with a screenshot,
+  2026-08-02.)
+- **Why the all-rounded / all-sharp cases are fine:** `all_round()` → every
+  radius > 0, the buggy branch never runs. `all_sharp()` (or roundness 0) →
+  the function early-returns to a plain `draw_rectangle`. Only the MIXED case
+  hits the degenerate triangle.
+- **App-side workaround (used):** stop using mixed corners on the affected
+  widgets — round ALL FOUR corners (`all_round()`) with a small roundness so no
+  radius is 0. The bottom corners sit against the content bridge, so a slight
+  round there is imperceptible; the tab still reads as rounded-topped.
+- **Minimal upstream fix (vendor, off-limits here):** in the sharp-corner branch
+  of `emit_corner_arc`, don't emit a 2-vertex triangle — either skip the arc
+  entirely (the straight edges already cover a square corner via the center
+  triangle-fan) or emit a proper degenerate-free corner (3 coincident/þidentical
+  verts, or just `return;` without any `sgl_*`). A one-liner: replace the whole
+  `radius <= 0` block with `return;`.

@@ -169,8 +169,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                           .right = pixels(24)})
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.35f)
+                    // Round ALL corners: afterhours' sokol renderer emits a
+                    // degenerate triangle for MIXED round/sharp corners (gap
+                    // #25), which showed as a diagonal notch on the tab. All-
+                    // round avoids the buggy path; the bottom corners sit on the
+                    // strip/content bridge so their slight round is invisible.
                     .with_rounded_corners(
-                        afterhours::ui::imm::RoundedCorners().all_sharp().top_round().get())
+                        afterhours::ui::imm::RoundedCorners().all_round().get())
                     .with_render_layer(6)
                     .with_debug_name("tab_" + tab.sessionId));
             // Label as a centered child whose height EQUALS the strip content
@@ -215,10 +220,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_translate(tabX, r.y)
                         .with_custom_background(tab_colors::accent())
                         .with_rounded_corners(
-                            afterhours::ui::imm::RoundedCorners()
-                                .all_sharp()
-                                .top_round()
-                                .get())
+                            afterhours::ui::imm::RoundedCorners().all_round().get())
                         .with_roundness(0.35f)
                         .with_render_layer(7)
                         .with_debug_name("tab_accent_top"));
