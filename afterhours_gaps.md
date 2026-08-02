@@ -452,3 +452,111 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   renderer (`detail::wrap_text_to_width` + the draw loop) to carry per-run color
   through the wrap, so a `spans` label wraps AND colors. Then hanabi can render
   real inline-code pills. NOT done here (vendored; logged for that owner).
+
+---
+
+# WISHLIST — what would make afterhours a joy to build on
+
+Distinct from the numbered gaps above (which are concrete missing primitives / bugs
+with app-side workarounds). This section is the aspirational maintainer-facing
+feedback Gabe asked for: patterns I had to HAND-ROLL in hanabi that feel like they
+belong IN the library, and capabilities I kept wishing existed. Each is grounded in
+real hanabi code — if a future app hits the same wall, that's the signal to promote it.
+
+## A. Text metrics are the #1 papercut — promote a real measure/wrap API
+- **What I hit:** afterhours wraps + draws text internally (`draw_text_in_rect`,
+  `wrap_text_to_width`), but app code has NO access to "how tall will this string be
+  at width W and font F?" So I hand-rolled `estimate_height()` with a fudged
+  `kGlyphW=6.2px/glyph, kLinePitch=15px` model — which was WRONG (8px/18px first),
+  producing boxes ~2x too tall so wrapped text rendered bottom-aligned in empty boxes
+  (a ~140px gap above every message; found only by instrumenting with debug bgs).
+- **What I wish existed:** `ui::measure_text(text, font, size, max_width) -> {w, h, lines}`
+  using the SAME fontstash metrics the renderer uses. Immediate-mode UIs live or die
+  on this — every scroll list, chat bubble, card, and tooltip needs to size a text box
+  to its content. Right now every app re-derives a bad approximation.
+- **Bonus:** a `children()`-that-includes-wrapped-text sizing mode, so a Column can
+  size to its wrapped text without the app precomputing pixel heights at all.
+
+## B. Per-frame work has no memo/dirty layer — promote caching hooks
+- **What I hit:** immediate mode rebuilds EVERY widget EVERY frame. For a 100+ message
+  transcript that's thousands of entities + thousands of text measurements per frame →
+  ~15-20ms/frame → ~50-65fps → visibly choppy scroll. I'm now hand-rolling per-message
+  height/text-transform caches keyed by message id.
+- **What I wish existed:** (1) a retained/memoized sub-tree ("this subtree's inputs
+  didn't change, reuse last frame's layout"), or (2) built-in text-measure caching
+  keyed by (string,font,size,width), or (3) list VIRTUALIZATION — a scroll container
+  that only builds/lays-out children intersecting the viewport. Any one of these turns
+  a long-list immediate-mode UI from 60fps to 120fps. Virtualization is the big one;
+  every chat/log/feed app needs it and every one will re-invent it.
+
+## C. Alpha compositing is a recurring trap — promote real blended fills
+- **What I hit:** `with_custom_background` with a low-alpha color renders OPAQUE (the
+  sgl default pipeline has blending off — gaps #13/#15). I built `theme::over(fg,bg)`
+  to pre-composite every tint (chips, hover washes, tool-row tints, skeleton bars) by
+  hand. EVERY translucent surface in the app goes through this workaround.
+- **What I wish existed:** a rect/texture fill path with real alpha blending (a
+  blend-enabled pipeline as the default, or a `with_blended_background`). Translucency
+  is table stakes for modern UI (hover states, scrims, tinted chips, glass) — having to
+  manually pre-composite over the KNOWN backdrop is fragile (breaks the moment the
+  backdrop isn't known, e.g. over an image or a gradient).
+
+## D. Styled text that wraps — promote it (blocks real markdown)
+- **What I hit:** `with_styled_label` (multi-color TextSpans) exists but renders
+  single-line only; it doesn't word-wrap (gap #22). So I can't render an inline `code`
+  pill inside a wrapping paragraph — I strip the markdown delimiters instead. This is
+  THE thing keeping hanabi's chat from looking like a real chat app (a UI critic ranked
+  "no inline code styling / no real lists" in the top 5 defects).
+- **What I wish existed:** wrapping + per-run styling together (color, weight, bg pill,
+  maybe a font swap to mono for code). Ideally a tiny inline-markup renderer
+  (`code`, **bold**, *italic*, lists) as a first-class label mode — every text-heavy
+  app wants it and it's painful to fake.
+
+## E. Animation/transition primitives — promote a tween + disclosure kit
+- **What I hit:** no property tween (#2), no per-item stagger (#8), no exit animation
+  (#9), no one-shot state-change trigger (#10), no shimmer/gradient-mask (#11), no
+  spring-to-slot drag (#12). I hand-rolled a smoothstep sidebar-width ease and a static
+  (un-animated) skeleton because there's no shimmer. Collapsible rows (tool piles,
+  sub-agents, folds) pop instantly with no ease.
+- **What I wish existed:** a small animation core — `animate(value, target, duration,
+  easing)` that survives immediate-mode re-creation (keyed by widget id), plus canned
+  "disclosure" (height 0↔auto ease) and "shimmer" helpers. Disclosure + shimmer alone
+  would cover 90% of what a polished app needs and every app re-invents them.
+
+## F. OS integration seams — promote a platform shim
+- **What I hit:** no OS appearance query (#1/#16 — I read AppleInterfaceStyle via my own
+  .mm), no natural-scroll-direction query (had to read com.apple.swipescrolldirection
+  in Obj-C++), menu-bar/NSStatusItem is all app-side .mm (#5), no way to open a URL /
+  activate the app / know DPI without hand-written extern "C" AppKit glue.
+- **What I wish existed:** a thin `afterhours::platform` layer: `appearance()`,
+  `natural_scroll()`, `open_url()`, `activate_app()`, `content_scale()/dpi`, and a
+  menu-bar/tray abstraction. These are the same 6 functions every desktop app writes;
+  they belong in the backend, not copy-pasted per app.
+
+## G. Headless/testing affordances — promote them (I built a pile)
+- **What I hit:** to screenshot + test hanabi I hand-built: a `--screenshot` headless
+  render path, a wait-for-async-load loop (gap #21), input injection for tests
+  (mouse/wheel/keys), and a pile of `HANABI_*_DEMO` env hooks to force UI states
+  (skeleton, streaming, auth, a specific view) for headless capture.
+- **What I wish existed:** first-class headless render-to-PNG, a deterministic
+  "render N frames then capture" test harness, and a documented input-injection API
+  for UI tests. afterhours HAS `testing::input_injector` but it's under-documented and I
+  found it by grepping. A blessed "UI snapshot test" recipe would save every app this.
+- **Bonus (gap #6):** headless capture can't supersample (hi-DPI) — a 2x offscreen
+  target just lays out larger, doesn't sharpen. A real hi-DPI headless mode would make
+  screenshot-based review crisp.
+
+## H. Small quality-of-life wins
+- **flex-grow / space-between that actually pins a trailing element** (#18) — I reserve
+  a fixed count-column width to right-align counts because there's no grow. A real
+  flex-grow (or `margin-left:auto`) would kill a whole class of geometry hacks.
+- **A monospace font tier** in the theme's FontSizing (only proportional tiers exist) —
+  code/commands/logs all want mono and I have to pass the font by name each time.
+- **Icon/atlas helpers**: I built the Lucide spritesheet + `draw_at`/`draw_fg` blit +
+  a gen script. A tiny "sprite atlas" helper (load a packed PNG + name→rect map + a
+  tinted blit) would be reusable by any app; mine is 90% generic.
+- **Scroll-to / scrollIntoView**: I poke `HasScrollView::scroll_offset = 1e9` +
+  clamp_scroll() to stick-to-bottom while streaming. A `scroll_to(entity)` /
+  `scroll_to_bottom()` API would be cleaner and less magic-number-y.
+- **A "hot"/hover state I can READ in app code** for arbitrary widgets, to drive
+  hover-only affordances (stars, message actions) without threading HasClickListener
+  everywhere.
