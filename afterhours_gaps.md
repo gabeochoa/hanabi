@@ -655,3 +655,45 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   triangle-fan) or emit a proper degenerate-free corner (3 coincident/þidentical
   verts, or just `return;` without any `sgl_*`). A one-liner: replace the whole
   `radius <= 0` block with `return;`.
+
+### #26 — `HasScrollView` has no built-in scrollbar / scroll-indicator render
+- **Gap:** afterhours' `HasScrollView` (`vendor/afterhours/src/plugins/ui/components.h`)
+  fully TRACKS scroll state — `scroll_offset` (Vector2, `.y` grows downward),
+  `content_size` (total scrollable content, `.y`), and `viewport_size` (the
+  visible window, `.y`) — and clamps/updates them every frame. But it NEVER
+  renders a visible bar. There is no `draw_rectangle`/primitive anywhere in the
+  scroll-view render path for a track or thumb, and no config flag to opt into
+  one. So a scroll panel gives the user **no indication of scroll position, of
+  how much content there is, or even that more content exists below the fold** —
+  the content just silently clips at the viewport edge.
+- **Why wanted:** hanabi's transcript, sidebar folder/thread list, home, and
+  digest are all `preset::ScrollPanel()`s. With no bar, a long thread looks like
+  it simply ends at the last visible line; the user can't tell there's more to
+  scroll to, and has no handle on where they are in the content. Standard
+  desktop affordance (macOS overlay scrollbar) is table-stakes for a scrolling
+  region.
+- **App-code workaround (used — `src/ui/scrollbar.h`, TEMPORARY):** paint a thin,
+  muted, macOS-overlay-style indicator ourselves. `attach_scroll_indicator(ent)`
+  hangs a `HasOnDraw.fg` custom-draw on the scroll entity; the fg fires with the
+  panel's on-screen viewport rect (the scroll entity's own `rect()` is the
+  fixed viewport, not offset), and reads the LIVE `HasScrollView` metrics off the
+  entity by id at draw time (freshest, post-layout — same access pattern the
+  transcript virtualization already uses). From those three numbers it computes a
+  track (= viewport height) and a rounded thumb:
+  `thumbH = max(minThumb, trackH * viewport/content)`,
+  `thumbY = trackY + (offset/(content-viewport)) * (trackH-thumbH)`,
+  pinned to the inside of the viewport's right edge. Callers reserve a few px of
+  right padding so text never runs under the bar. It **auto-hides** when
+  `content_size.y <= viewport_size.y` (nothing to scroll). Translucency goes
+  through `theme::over()` because the fill pipeline can't alpha-blend (gaps
+  #13/#15) — a raw low-alpha color would render as a harsh opaque block. v1 is an
+  **INDICATOR ONLY**: it accurately reflects position + content ratio and updates
+  every frame as the wheel scrolls, but the thumb is not draggable.
+- **Minimal upstream fix (vendor, off-limits here):** give `HasScrollView` an
+  optional built-in scrollbar render — a config flag (e.g. `with_scrollbar()`)
+  that, when the content overflows, draws a track + thumb from the metrics it
+  already computes, in the scroll view's own render pass. Ideally the thumb is
+  **draggable** (hit-test the thumb rect, map drag delta back into
+  `scroll_offset`) and auto-hides/fades like a native overlay scrollbar. Because
+  the component already owns all three metrics, this is a pure render + one
+  input-handler addition — no new state.

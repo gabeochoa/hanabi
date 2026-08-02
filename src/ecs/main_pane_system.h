@@ -205,6 +205,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(24),
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("digest_scroll"));
+        hanabi::attach_scroll_indicator(scroll.ent());  // gap #26 temp bar
         hanabi::apply_scroll_prefs(scroll.ent());
 
         int i = 0;
@@ -704,6 +705,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(24),
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("home_scroll"));
+        hanabi::attach_scroll_indicator(scroll.ent());  // gap #26 temp bar
         hanabi::apply_scroll_prefs(scroll.ent());
 
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
@@ -1128,6 +1130,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(8), .right = pixels(14),
                                       .bottom = pixels(10), .left = pixels(18)})
                 .with_debug_name("transcript_scroll"));
+        // TEMPORARY scroll indicator (afterhours gap #26): afterhours has no
+        // built-in scrollbar, so paint a thin overlay bar from the panel's live
+        // HasScrollView metrics. The 14px right padding above already keeps the
+        // reading column clear of the bar's right strip.
+        hanabi::attach_scroll_indicator(scroll.ent());
         hanabi::apply_scroll_prefs(scroll.ent());
 
         if (app.openSession->messages.empty()) {
