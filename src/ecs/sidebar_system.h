@@ -120,20 +120,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Recent alone can carry 100+ rows — the old 10/20/30/40/50 spacing
         // (room for only ~9 rows each) overflowed into the next folder's id
         // range and tripped afterhours' entity-id-conflict guard.
-        shown += render_folder(ctx, scroll.ent(), 1000, "Stars", "stars", *app,
-                               q, r.width);
-        shown += render_folder(ctx, scroll.ent(), 2000, "Oncall", "oncall",
-                               *app, q, r.width);
-        shown += render_folder(ctx, scroll.ent(), 3000, "Experiments",
-                               "experiments", *app, q, r.width);
-        // "Recent" is the catch-all: it holds the "recent" folder AND any
-        // session whose folder doesn't match a known folder (folder="" or an
-        // unrecognized value). This is what makes a real backend usable —
-        // real sessions come back unfoldered, so without a catch-all they'd
-        // match no folder and the sidebar would look empty even with the list
-        // loaded. Archived sessions are excluded (they live in the low-signal
-        // Archived section below).
-        shown += render_folder(ctx, scroll.ent(), 4000, "Recent", "recent",
+        // REAL folders from the API: group by the distinct, non-empty folder
+        // values the backend actually returned (s.folder = the session's
+        // workspace). No hardcoded/fake folders — a folder appears only if a
+        // real session is filed under it. Sorted for stable ordering; each gets
+        // a widely-spaced id base (1000 apart) so its rows never collide with
+        // the next folder's id range.
+        std::vector<std::string> folders = distinct_folders(*app);
+        int fbase = 1000;
+        for (const auto& fname : folders) {
+            shown += render_folder(ctx, scroll.ent(), fbase,
+                                   display_folder_name(fname), fname,
+                                   *app, q, r.width);
+            fbase += 1000;
+        }
+        // Catch-all: every non-archived session NOT in a named folder (i.e.
+        // unfoldered — which is ~all of them on the real backend today). Shown
+        // as a FLAT recent list (no day-buckets), per Gabe. Given a high id
+        // base so it sits clear of the dynamic folders above.
+        shown += render_folder(ctx, scroll.ent(), 900000, "Recent", "recent",
                                *app, q, r.width, /*archived=*/false,
                                /*catchAll=*/true);
         // Low-signal archived section, greyed.
@@ -1108,9 +1113,52 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // Is `key` one of the explicitly-named folders (not the Recent catch-all)?
     // A session whose folder matches one of these belongs to that named
     // folder; anything else falls through to the Recent catch-all.
+    // A folder is "named" (rendered as its own section, excluded from the
+    // Recent catch-all) iff it's a real, non-empty folder value from the API.
+    // Unfoldered sessions (folder=="") fall through to the catch-all.
     static bool is_named_folder(const std::string& folder) {
-        return folder == "stars" || folder == "oncall" ||
-               folder == "experiments" || folder == "recent";
+        return !folder.empty() && folder != "recent";
+    }
+
+    // Title-case a folder key for display ("stars"->"Stars",
+    // "whole foods"->"Whole Foods"). The raw key is still used for matching;
+    // this only affects the header label. A folder that already has caps
+    // (a real workspace name) is shown as-is except for a lowercase leading
+    // char, so "Whole foods" stays "Whole foods".
+    static std::string display_folder_name(const std::string& key) {
+        if (key.empty()) return key;
+        // If it already contains an uppercase letter, treat it as a real name
+        // and only capitalize the first char.
+        bool hasUpper = false;
+        for (char c : key) if (c >= 'A' && c <= 'Z') { hasUpper = true; break; }
+        std::string out = key;
+        if (hasUpper) {
+            if (out[0] >= 'a' && out[0] <= 'z') out[0] = out[0] - 32;
+            return out;
+        }
+        // All-lowercase key: Title Case each word.
+        bool start = true;
+        for (char& c : out) {
+            if (c == ' ' || c == '-' || c == '_') { start = true; continue; }
+            if (start && c >= 'a' && c <= 'z') c = c - 32;
+            start = false;
+        }
+        return out;
+    }
+
+    // Distinct non-empty folder names present across the loaded sessions
+    // (excluding archived-only), sorted for stable display order. These are
+    // the REAL folders the backend returned — no hardcoded set.
+    static std::vector<std::string> distinct_folders(const AppComponent& app) {
+        std::vector<std::string> out;
+        for (const auto& s : app.sessions) {
+            if (s.state == api::ThreadState::Archived) continue;
+            if (!is_named_folder(s.folder)) continue;
+            if (std::find(out.begin(), out.end(), s.folder) == out.end())
+                out.push_back(s.folder);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
     }
 
     // ---- folder group ----
@@ -1146,15 +1194,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // is what drops non-matching folders out of the tree.
         if (members.empty()) return 0;
 
-        // The Recent catch-all groups its (mostly un-foldered) sessions by
-        // time so a real backend's flat "Recent (102)" becomes scannable.
-        // Named folders (stars/oncall/experiments) skip this and render as a
-        // single flat group exactly as before.
+        // Per Gabe: do NOT day-bucket. Both named folders and the Recent
+        // catch-all render as a single FLAT list, newest-first. (The old
+        // Today/Yesterday/Prev-week time grouping is gone; render_time_groups
+        // is retained but unused so it can be re-enabled behind a toggle.)
         if (catchAll) {
-            return render_time_groups(ctx, parent, base, members, app, q,
-                                      panelW, archived);
+            std::sort(members.begin(), members.end(),
+                      [](const api::SessionSummary* a,
+                         const api::SessionSummary* b) {
+                          return a->updated_at > b->updated_at;
+                      });
         }
-
         return render_group(ctx, parent, base, name, key, members, app, q,
                             panelW, archived);
     }

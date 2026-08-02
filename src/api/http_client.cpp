@@ -424,6 +424,13 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {    auto raw = 
             s.status = as_string(e, cfg_.field_status);
             s.preview = as_string(e, cfg_.field_preview);
             s.starred = as_bool(e, "isPinned");
+            // Real folder membership: the backend groups sessions by workspace.
+            // Parse the workspace NAME into s.folder so the sidebar can group by
+            // the real folder tree (empty => unfoldered, lands in the catch-all).
+            // (As of 2026-08-02 the /api/v1 list returns workspace=null for all
+            // rows; a backend PR to populate it is in flight. This wiring means
+            // real folders appear automatically once the field is populated.)
+            s.folder = as_string(e, "workspace");
             // Derive hanabi's high-signal attention model (state/tag) from the
             // generic real primitives so real sessions get meaningful triage
             // instead of all landing Unknown. See derive_state() for the full
