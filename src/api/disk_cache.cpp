@@ -287,4 +287,54 @@ std::optional<Session> load_transcript(const std::string& id) {
     }
 }
 
+// ---- introspection / maintenance -----------------------------------------
+namespace {
+// True for a file this cache owns (sessions.json or a tx_*.json transcript).
+// Used to bound total_bytes()/wipe_all() to OUR files, never anything else a
+// user might have dropped in the dir.
+bool is_cache_file(const std::string& name) {
+    if (name == "sessions.json") return true;
+    return name.rfind("tx_", 0) == 0 && name.size() > 5 &&
+           name.substr(name.size() - 5) == ".json";
+}
+}  // namespace
+
+std::uint64_t total_bytes() {
+    const std::string dir = cache_dir();
+    if (dir.empty()) return 0;
+    std::error_code ec;
+    if (!fs::exists(dir, ec)) return 0;
+    std::uint64_t total = 0;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        if (!is_cache_file(it->path().filename().string())) continue;
+        std::error_code sz;
+        auto n = fs::file_size(it->path(), sz);
+        if (!sz) total += static_cast<std::uint64_t>(n);
+    }
+    return total;
+}
+
+std::size_t wipe_all() {
+    const std::string dir = cache_dir();
+    if (dir.empty()) return 0;
+    std::error_code ec;
+    if (!fs::exists(dir, ec)) return 0;
+    // Collect first, then delete — deleting during iteration is undefined.
+    std::vector<fs::path> victims;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        if (is_cache_file(it->path().filename().string()))
+            victims.push_back(it->path());
+    }
+    std::size_t removed = 0;
+    for (const auto& p : victims) {
+        std::error_code rm;
+        if (fs::remove(p, rm) && !rm) ++removed;
+    }
+    return removed;
+}
+
 }  // namespace api::disk_cache

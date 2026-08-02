@@ -189,6 +189,27 @@ struct Config {
     std::string event_type_done = "done";
     std::string event_type_title_update = "title_update";
 
+    // --- User settings / config (feature #4) ------------------------------
+    // Read user/account settings from the backend so the app can verify it is
+    // set up correctly. FULLY generic + config-driven exactly like every other
+    // path: empty default => http settings-read disabled (get_settings() reports
+    // it's unsupported). On navibot.dev the reachable endpoint is GET /whoami,
+    // which returns {userId, bankId, counts:{sessions, assets, schedules,
+    // authoredSkills}}; the adapter maps those onto UserSettings via the
+    // field_settings_* mapping below. A backend with a different shape just
+    // overrides the field names — nothing about any endpoint is compiled in.
+    //   HANABI_SETTINGS_PATH  default "/whoami" (probed live to be the real
+    //                         settings/identity endpoint on navibot.dev)
+    std::string settings_path = "/whoami";
+    std::string field_settings_user_id = "userId";
+    std::string field_settings_bank_id = "bankId";
+    // The nested object carrying the counts, and its member field names.
+    std::string field_settings_counts = "counts";
+    std::string field_settings_sessions = "sessions";
+    std::string field_settings_assets = "assets";
+    std::string field_settings_schedules = "schedules";
+    std::string field_settings_skills = "authoredSkills";
+
     // --- Device-code auth (Phase AUTH) ------------------------------------
     // The REAL navi-CLI device-code flow. NOTHING here names any real HOST:
     // the base URL is user-supplied (base_url / auth_base_url); only the two
@@ -265,6 +286,15 @@ struct Config {
     // offline demo never touches the network.
     bool events_ready() const {
         return !base_url.empty() && !events_path.empty();
+    }
+
+    // True when the http backend is configured to READ user settings: a base
+    // URL plus a settings path. When false an http adapter reports
+    // supports_settings() == false and get_settings() returns a clean failure
+    // (the app just doesn't show backend settings). The mock returns a canned
+    // UserSettings unconditionally (zero-config offline default).
+    bool settings_ready() const {
+        return !base_url.empty() && !settings_path.empty();
     }
 
     // True when the device-code flow has the minimum it needs: a base URL plus
@@ -429,6 +459,22 @@ class Client {
     // deterministic + network-free). Default false so a backend that hasn't
     // wired live events simply never subscribes.
     virtual bool supports_events() const { return false; }
+
+    // Whether this client can READ user settings/config from the backend
+    // (feature #4). The http adapter does only when a settings path is
+    // configured; the mock returns true (it serves a canned object offline).
+    // Default false so a backend that hasn't wired settings stays honest.
+    virtual bool supports_settings() const { return false; }
+
+    // Fetch user/account settings so the app can verify it is set up correctly.
+    // The http adapter GETs the configured settings_path (e.g. /whoami) and
+    // maps the response onto UserSettings; the mock returns a deterministic
+    // canned object. Default impl reports the backend doesn't support it, so
+    // adapters opt in incrementally (mirrors create_session/send_message).
+    virtual Result<UserSettings> get_settings() {
+        return Result<UserSettings>::failure(
+            "this backend does not support reading settings");
+    }
 
     // Open a live subscription to `session_id`'s events. The sink's callbacks
     // fire on a WORKER THREAD as activity arrives (the caller must keep them

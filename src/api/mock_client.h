@@ -116,6 +116,26 @@ class MockClient : public Client {
     // fully functional against it.
     bool supports_send() const override { return true; }
 
+    // The mock reads settings offline (feature #4): a deterministic canned
+    // UserSettings so the app can exercise "verify setup" with zero config and
+    // no network. Mirrors the real /whoami shape the http adapter maps.
+    bool supports_settings() const override { return true; }
+    Result<UserSettings> get_settings() override {
+        UserSettings s;
+        s.ok = true;
+        s.user_id = "mock-user@example.invalid";
+        s.bank_id = "mock-bank";
+        s.session_count = static_cast<int64_t>(seed().size());
+        s.asset_count = 0;
+        s.schedule_count = 0;
+        s.skill_count = 0;
+        s.raw_json =
+            R"({"userId":"mock-user@example.invalid","bankId":"mock-bank",)"
+            R"("counts":{"sessions":0,"assets":0,"schedules":0,)"
+            R"("authoredSkills":0}})";
+        return Result<UserSettings>::success(std::move(s));
+    }
+
     // The mock also STREAMS (Phase STREAM): the whole point of the offline demo
     // is a live token-by-token reply with no network. See send_message_streaming
     // and prepare_stream below.

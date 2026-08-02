@@ -18,6 +18,7 @@
 // is NOT git-tracked. It holds the same session content the app already shows;
 // it never stores tokens or credentials.
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -49,5 +50,18 @@ std::optional<std::vector<SessionSummary>> load_sessions();
 // --- Transcripts (one file per session id) ------------------------------
 void save_transcript(const Session& session);
 std::optional<Session> load_transcript(const std::string& id);
+
+// --- Introspection / maintenance (for the settings screen) --------------
+// total_bytes(): sum of the byte sizes of every cache file under cache_dir()
+// (sessions.json + every tx_*.json in the ACTIVE namespace). Cheap stat walk,
+// no parsing. 0 when the dir doesn't exist. The settings UI shows this so the
+// user can see how much disk the on-disk transcript cache is using (feature #2).
+std::uint64_t total_bytes();
+
+// wipe_all(): delete every cache file in the ACTIVE namespace (sessions.json +
+// tx_*.json), so the settings "clear cache" button can reclaim disk + force a
+// cold refetch. Best-effort; returns the number of files removed. Does NOT
+// touch other namespaces or non-cache files.
+std::size_t wipe_all();
 
 }  // namespace api::disk_cache

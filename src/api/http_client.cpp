@@ -76,6 +76,24 @@ std::string as_string(const json& obj, const std::string& key) {
     return "";
 }
 
+// Read a signed-integer field, tolerating a JSON int, float, or numeric
+// string. Returns `dflt` (default -1 = "unknown") when absent/unparseable.
+int64_t as_int(const json& obj, const std::string& key, int64_t dflt = -1) {
+    if (!obj.is_object() || !obj.contains(key)) return dflt;
+    const auto& v = obj.at(key);
+    if (v.is_number_integer()) return v.get<int64_t>();
+    if (v.is_number_unsigned()) return static_cast<int64_t>(v.get<uint64_t>());
+    if (v.is_number_float()) return static_cast<int64_t>(v.get<double>());
+    if (v.is_string()) {
+        try {
+            return static_cast<int64_t>(std::stoll(v.get<std::string>()));
+        } catch (...) {
+            return dflt;
+        }
+    }
+    return dflt;
+}
+
 // Parse one message object using the configured field mapping (shared by the
 // transcript reader and the send_message reply reader). Prefers a flat text
 // field; falls back to concatenating text-type blocks and notes any non-text
@@ -623,6 +641,43 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {    auto raw = 
 
 Result<Session> HttpClient::get_session(const std::string& id) {
     return get_session(id, 0);  // 0 = no limit (full transcript).
+}
+
+// Read user settings/config (feature #4). GET the configured settings_path and
+// map the response onto UserSettings. On navibot.dev this is GET /whoami ->
+// {userId, bankId, counts:{sessions, assets, schedules, authoredSkills}}. Fully
+// config-driven: a different backend just overrides the field_settings_* names.
+Result<UserSettings> HttpClient::get_settings() {
+    if (!cfg_.settings_ready())
+        return Result<UserSettings>::failure(
+            "settings read not configured (set settings_path)");
+    auto raw = get(cfg_.settings_path);
+    if (!raw.ok) return Result<UserSettings>::failure(raw.error);
+    try {
+        json j = json::parse(raw.value);
+        if (!j.is_object())
+            return Result<UserSettings>::failure(
+                "unexpected response shape for settings");
+        UserSettings s;
+        s.ok = true;
+        s.raw_json = raw.value;
+        s.user_id = as_string(j, cfg_.field_settings_user_id);
+        s.bank_id = as_string(j, cfg_.field_settings_bank_id);
+        // Counts live under a nested object (…/whoami: "counts":{…}); fall back
+        // to the top level so a flatter backend shape still populates them.
+        const json& counts = (j.contains(cfg_.field_settings_counts) &&
+                              j.at(cfg_.field_settings_counts).is_object())
+                                 ? j.at(cfg_.field_settings_counts)
+                                 : j;
+        s.session_count = as_int(counts, cfg_.field_settings_sessions);
+        s.asset_count = as_int(counts, cfg_.field_settings_assets);
+        s.schedule_count = as_int(counts, cfg_.field_settings_schedules);
+        s.skill_count = as_int(counts, cfg_.field_settings_skills);
+        return Result<UserSettings>::success(std::move(s));
+    } catch (const std::exception& ex) {
+        return Result<UserSettings>::failure(std::string("json parse error: ") +
+                                             ex.what());
+    }
 }
 
 // Append "?limit=N" (or "&limit=N" if the path already has a query) to a path.

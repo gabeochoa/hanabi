@@ -133,6 +133,27 @@ struct Session {
     bool has_more_older = false;
 };
 
+// User/account settings read back from the backend, so the app can verify it
+// is set up correctly (feature #4 — "read the settings from the api"). These
+// fields are backend-agnostic and OPTIONAL: an adapter fills whatever the
+// configured endpoint reports and leaves the rest at defaults. `ok`
+// distinguishes "fetched real settings" from a default-constructed value. On
+// navibot.dev the real endpoint is GET /whoami — {userId, bankId, counts:
+// {sessions, assets, schedules, authoredSkills}} — which maps onto these
+// fields; a backend with a different shape just populates a different subset.
+struct UserSettings {
+    bool ok = false;              // true once a real fetch populated this
+    std::string user_id;          // account identity (e.g. userId)
+    std::string bank_id;          // memory/bank identity (e.g. bankId)
+    int64_t session_count = -1;   // counts.sessions   (-1 = unknown)
+    int64_t asset_count = -1;     // counts.assets
+    int64_t schedule_count = -1;  // counts.schedules
+    int64_t skill_count = -1;     // counts.authoredSkills
+    // Raw JSON of the settings response, verbatim, for the settings screen to
+    // show / debug the exact backend payload without re-fetching.
+    std::string raw_json;
+};
+
 // Result of a fetch. `ok == false` carries a human-readable error in `error`.
 template <typename T>
 struct Result {

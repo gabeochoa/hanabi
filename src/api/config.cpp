@@ -90,6 +90,16 @@ void load_config_file(Config& c) {
     str("event_type_tool_call", c.event_type_tool_call);
     str("event_type_done", c.event_type_done);
     str("event_type_title_update", c.event_type_title_update);
+    // User settings / config read (feature #4). Optional; settings_path
+    // defaults to "/whoami" (the reachable real endpoint on navibot.dev).
+    str("settings_path", c.settings_path);
+    str("field_settings_user_id", c.field_settings_user_id);
+    str("field_settings_bank_id", c.field_settings_bank_id);
+    str("field_settings_counts", c.field_settings_counts);
+    str("field_settings_sessions", c.field_settings_sessions);
+    str("field_settings_assets", c.field_settings_assets);
+    str("field_settings_schedules", c.field_settings_schedules);
+    str("field_settings_skills", c.field_settings_skills);
     // Device-code auth (Phase AUTH). All optional; empty endpoint paths keep
     // auth OFF.
     str("auth_device_path", c.auth_device_path);
@@ -168,6 +178,24 @@ Config Config::from_env() {
     c.event_type_done = env_or("HANABI_EVENT_TYPE_DONE", c.event_type_done);
     c.event_type_title_update =
         env_or("HANABI_EVENT_TYPE_TITLE_UPDATE", c.event_type_title_update);
+
+    // User settings / config read (feature #4). settings_path defaults to
+    // "/whoami"; the field_settings_* names map its response onto UserSettings.
+    c.settings_path = env_or("HANABI_SETTINGS_PATH", c.settings_path);
+    c.field_settings_user_id =
+        env_or("HANABI_FIELD_SETTINGS_USER_ID", c.field_settings_user_id);
+    c.field_settings_bank_id =
+        env_or("HANABI_FIELD_SETTINGS_BANK_ID", c.field_settings_bank_id);
+    c.field_settings_counts =
+        env_or("HANABI_FIELD_SETTINGS_COUNTS", c.field_settings_counts);
+    c.field_settings_sessions =
+        env_or("HANABI_FIELD_SETTINGS_SESSIONS", c.field_settings_sessions);
+    c.field_settings_assets =
+        env_or("HANABI_FIELD_SETTINGS_ASSETS", c.field_settings_assets);
+    c.field_settings_schedules =
+        env_or("HANABI_FIELD_SETTINGS_SCHEDULES", c.field_settings_schedules);
+    c.field_settings_skills =
+        env_or("HANABI_FIELD_SETTINGS_SKILLS", c.field_settings_skills);
 
     // Block-array transcript shape (optional; defaults match a common
     // blocks:[{type,content}] layout, ignored when the array is absent).
