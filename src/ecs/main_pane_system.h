@@ -77,10 +77,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
   private:
     // The one AppComponent (transcript render needs it for expand/fold state).
     static AppComponent* app_singleton() {
+        // The AppComponent is a process-lifetime singleton entity, so its
+        // address is stable — cache it after the first resolve instead of
+        // running an EntityQuery on every call. This function is hit MANY times
+        // per frame (measured(), is_folded(), tool rows, per message), and the
+        // query showed up as avoidable per-frame cost (REFACTOR_REVIEW #3).
+        static AppComponent* cached = nullptr;
+        if (cached != nullptr) return cached;
         auto q = afterhours::EntityQuery({.force_merge = true})
                      .whereHasComponent<AppComponent>()
                      .gen();
-        return q.empty() ? nullptr : &q[0].get().get<AppComponent>();
+        cached = q.empty() ? nullptr : &q[0].get().get<AppComponent>();
+        return cached;
     }
 
     static void header(UIContext<InputAction>& ctx, Entity& parent,
