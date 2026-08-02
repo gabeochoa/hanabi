@@ -11,6 +11,8 @@
 
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>   // RegisterEventHotKey, kVK_ANSI_N, event handler
+#import <CoreSpotlight/CoreSpotlight.h>          // CSSearchableIndex/Item (bundled Spotlight)
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>  // UTTypeText
 #include <atomic>
 #include <cstring>
 
@@ -226,36 +228,65 @@ void native_notify(const char* title, const char* body) {
 }
 
 // ===========================================================================
-// 3. Spotlight / CoreSpotlight — HONEST FEASIBILITY: seam-only NO-OP here
+// 3. Spotlight / CoreSpotlight — REAL when bundled, safe NO-OP otherwise
 // ===========================================================================
 //
-// FEASIBILITY VERDICT: NOT viable in the current build. CoreSpotlight's
-// CSSearchableIndex indexes items on behalf of an app identified by its bundle
-// identifier; the index is keyed to that bundle and surfaced by Spotlight only
-// for apps registered with LaunchServices (i.e. a real Foo.app bundle). hanabi
-// ships as a bare output/hanabi.exe with NO bundle identifier and is not
-// LaunchServices-registered, so CSSearchableIndex has no owning app to attach
-// results to — indexed items would either be rejected or never appear in
-// system search, and tapping a result could not deep-link back (no bundle to
-// re-launch). Implementing real indexing now would be faking a capability the
-// build cannot deliver.
+// CoreSpotlight's CSSearchableIndex indexes items on behalf of an app
+// identified by its bundle identifier; the index is keyed to that bundle and
+// surfaced by Spotlight only for apps registered with LaunchServices (a real
+// Foo.app bundle). We now SHIP a .app bundle (make bundle -> Hanabi.app with
+// CFBundleIdentifier com.hanabi.app, LaunchServices-registered), so real
+// indexing is viable — BUT ONLY when running from inside that bundle.
 //
-// So this is a documented NO-OP seam: the C entry point exists (so main.cpp
-// can call it once threads are known and the wiring is proven), but it does
-// nothing beyond a one-time log. To actually ship Spotlight, hanabi must first
-// be packaged as a .app bundle with an Info.plist bundle identifier and be
-// LaunchServices-registered; then this function would build a CSSearchableItem
-// (uniqueIdentifier = thread id, title = thread title) and add it to
-// [CSSearchableIndex defaultSearchableIndex]. Tracked as a gap.
+// GATING: we detect a real bundle at runtime via
+// NSBundle.mainBundle.bundleIdentifier. A bare dev binary (output/hanabi.exe)
+// has a nil bundle identifier — for it we keep the historical safe no-op
+// (indexing from a non-bundled binary is rejected / never surfaces and can't
+// deep-link back). This keeps the dev workflow untouched while the bundled
+// app gets real Spotlight entries. Thread deep-link (tapping a result) still
+// needs an NSUserActivity/URL-scheme handler in the bundle — tracked as a
+// follow-up; indexing itself is the first, independently-useful half.
 
 void native_spotlight_index(const char* id, const char* title) {
-    (void)id;
-    (void)title;
-    // NO-OP: needs a .app bundle + bundle identifier (see the note above).
-    // Log exactly once so the gap is visible in a windowed run without spamming.
-    static std::atomic<bool> logged{false};
-    if (!logged.exchange(true)) {
-        NSLog(@"native_extras: Spotlight indexing is a no-op in the "
-              @"non-bundled build (needs a .app bundle + bundle id)");
+    if (id == nullptr || title == nullptr) return;
+    @autoreleasepool {
+        // Only index when we're a real, identified bundle. A nil identifier
+        // means the bare dev binary — stay a safe no-op there.
+        if ([[NSBundle mainBundle] bundleIdentifier] == nil) {
+            static std::atomic<bool> logged{false};
+            if (!logged.exchange(true)) {
+                NSLog(@"native_extras: Spotlight indexing is a no-op in the "
+                      @"non-bundled dev binary (run from Hanabi.app to index)");
+            }
+            return;
+        }
+        NSString* nsId = [NSString stringWithUTF8String:id];
+        NSString* nsTitle = [NSString stringWithUTF8String:title];
+        if (nsId.length == 0) return;
+
+        CSSearchableItemAttributeSet* attrs =
+            [[CSSearchableItemAttributeSet alloc]
+                initWithContentType:UTTypeText];
+        attrs.title = nsTitle;
+        attrs.contentDescription = @"hanabi thread";
+
+        CSSearchableItem* item =
+            [[CSSearchableItem alloc] initWithUniqueIdentifier:nsId
+                                              domainIdentifier:@"threads"
+                                                  attributeSet:attrs];
+        [[CSSearchableIndex defaultSearchableIndex]
+            indexSearchableItems:@[ item ]
+               completionHandler:^(NSError* _Nullable error) {
+                   if (error != nil) {
+                       NSLog(@"native_extras: Spotlight index failed: %@",
+                             error.localizedDescription);
+                   } else {
+                       static std::atomic<bool> okLogged{false};
+                       if (!okLogged.exchange(true)) {
+                           NSLog(@"native_extras: Spotlight index OK "
+                                 @"(first item donated to CSSearchableIndex)");
+                       }
+                   }
+               }];
     }
 }

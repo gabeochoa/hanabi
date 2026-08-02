@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <thread>
 #include <memory>
 #include <vector>
@@ -431,6 +432,28 @@ static void app_frame() {
                     if (newlyBlocked == nullptr) newlyBlocked = &s;
                 }
             menubar_set_blocked(blocked);
+
+            // Phase G extra: donate threads to Spotlight (CoreSpotlight). Only
+            // does real work when running from the .app bundle (native_extras
+            // gates on a non-nil bundle identifier); the bare dev binary stays
+            // a no-op. Re-index only when the session set actually changes — a
+            // cheap signature (count + concatenated id hash) gates it so we
+            // don't re-donate every frame. Screenshot runs never reach here.
+            {
+                static size_t lastIndexSig = 0;
+                size_t sig = app.sessions.size() * 1000003u;
+                for (const auto& s : app.sessions)
+                    sig = sig * 1000003u +
+                          std::hash<std::string>{}(s.id) +
+                          std::hash<std::string>{}(s.title);
+                if (sig != lastIndexSig) {
+                    lastIndexSig = sig;
+                    for (const auto& s : app.sessions)
+                        if (!s.id.empty())
+                            native_spotlight_index(s.id.c_str(),
+                                                   s.title.c_str());
+                }
+            }
 
             // Phase G extra: post a native notification when the blocked-on-you
             // count NEWLY INCREASES (a thread just started needing the user).
