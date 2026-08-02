@@ -244,9 +244,17 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_theme_row"));
 
-        theme_choice(ctx, row.ent(), 1, "Light", "light", app);
-        theme_choice(ctx, row.ent(), 2, "Dark", "dark", app);
-        theme_choice(ctx, row.ent(), 3, "System", "system", app);
+        // Full-width segmented control (V8: hug both edges, don't float centered).
+        // afterhours has no flex-grow (gap #18) so size each segment from the
+        // real content width: panel 360 − left/right pad 20 each = 320, minus
+        // the inter-segment gaps, split N ways. No trailing margin so the group
+        // spans exactly left-inset → right-inset.
+        constexpr float kSegGap = 6.0f;
+        const float content = 360.0f - 20.0f - 20.0f;
+        const float segW = (content - kSegGap * 2.0f) / 3.0f;
+        theme_choice(ctx, row.ent(), 1, "Light", "light", app, segW, true);
+        theme_choice(ctx, row.ent(), 2, "Dark", "dark", app, segW, true);
+        theme_choice(ctx, row.ent(), 3, "System", "system", app, segW, false);
     }
 
     // Human-readable byte size: B / KB / MB.
@@ -345,16 +353,21 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_cache_limit_row"));
 
         const std::uint64_t current = Settings::get().get_cache_cap_bytes();
+        // Full-width 4-segment control (V8: hug both edges). Size from the real
+        // content width (320) minus 3 inter-segment gaps; no trailing margin so
+        // the group spans exactly left-inset → right-inset.
+        constexpr float kSegGap = 4.0f;
+        const float segW = (320.0f - kSegGap * 3.0f) / 4.0f;
         int idx = 1;
         for (int i = 0; i < 4; ++i) {
             const auto& opt = kCapOptions[i];
             const bool selected = (opt.bytes == current);
+            const bool last = (i == 3);
             auto btn = button(ctx, mk(row.ent(), idx++),
                 ComponentConfig{}
                     .with_label(opt.label)
-                    // Four segments across a 320px content width (~76 each).
-                    .with_size(ComponentSize{pixels(76), pixels(30)})
-                    .with_margin(Margin{.right = pixels(4)})
+                    .with_size(ComponentSize{pixels(segW), pixels(30)})
+                    .with_margin(Margin{.right = pixels(last ? 0.0f : kSegGap)})
                     .with_custom_background(selected ? theme::button_primary()
                                                      : theme::button_secondary())
                     .with_custom_hover_bg(selected ? theme::button_primary()
@@ -429,13 +442,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // One segmented theme button. Selected = accent fill; others = secondary.
     void theme_choice(UIContext<InputAction>& ctx, Entity& parent, int id,
                       const std::string& label, const std::string& value,
-                      AppComponent& app) {
+                      AppComponent& app, float segW = 102.0f,
+                      bool trailingGap = true) {
         bool selected = (app.themeChoice == value);
         auto btn = button(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{pixels(102), pixels(32)})
-                .with_margin(Margin{.right = pixels(6)})
+                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
                 .with_custom_background(selected ? theme::button_primary()
                                                  : theme::button_secondary())
                 .with_custom_hover_bg(selected ? theme::button_primary()
