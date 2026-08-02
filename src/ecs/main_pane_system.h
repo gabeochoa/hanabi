@@ -2380,7 +2380,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
                                       AppComponent::StreamPhase::Idle,
                                       /*rich=*/false);
-            return kTurnGapTop + 10.0f + mr.height + kUserPadV + kTurnGapBot;
+            // +12px for the sync badge row under the bubble (local-first only;
+            // server-loaded messages have sync==None and add nothing). Mirrors
+            // the render's conditional badge row exactly.
+            const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
+            return kTurnGapTop + 10.0f + mr.height + kUserPadV + syncH +
+                   kTurnGapBot;
         }
         float textW = paneWidth - 34.0f;
         const auto& mr = measured(m, textW, isLive, index,
@@ -2713,6 +2718,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text"));
+            // Local-first sync badge (WhatsApp-style): a small check UNDER the
+            // bubble, right-aligned, only for locally-authored messages
+            // (m.sync != None). Gray single check = LocalOnly (device only),
+            // gray clock = Persisting, accent double check = Synced, amber
+            // check+dot = Failed. Server-loaded messages (sync==None) show none.
+            if (m.sync != api::SyncState::None) {
+                const api::SyncState st = m.sync;
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(" ")
+                        .with_size(ComponentSize{pixels(bubbleW), pixels(12)})
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_on_draw_fg([st](RectangleType r) {
+                            draw_sync_check(st,
+                                            r.x + r.width - 10.0f,
+                                            r.y + 6.0f);
+                        })
+                        .with_debug_name("user_sync"));
+            }
             return;
         }
 
@@ -2925,6 +2950,52 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         afterhours::draw_line_ex(afterhours::vec2{cx - 0.8f, cy + 2.6f},
                                  afterhours::vec2{cx + 3.4f, cy - 2.8f}, 1.7f,
                                  c);
+    }
+
+    // A single checkmark centered on a point (cx,cy), tinted `c`.
+    static void draw_check_at(float cx, float cy, theme::Color c) {
+        afterhours::draw_line_ex({cx - 3.0f, cy + 0.2f}, {cx - 0.8f, cy + 2.6f},
+                                 1.5f, c);
+        afterhours::draw_line_ex({cx - 0.8f, cy + 2.6f}, {cx + 3.4f, cy - 2.8f},
+                                 1.5f, c);
+    }
+
+    // Local-first sync badge (WhatsApp-style), drawn RIGHT-anchored at (rx,cy)
+    // — rx is the RIGHT edge of the glyph. Gray single check = LocalOnly, gray
+    // clock-ish dot = Persisting, accent DOUBLE check = Synced, amber check +
+    // dot = Failed.
+    static void draw_sync_check(api::SyncState st, float rx, float cy) {
+        switch (st) {
+            case api::SyncState::LocalOnly:
+                // single gray check
+                draw_check_at(rx - 4.0f, cy, theme::text_faint());
+                break;
+            case api::SyncState::Persisting: {
+                // small gray filled dot (in-flight to the server)
+                afterhours::draw_circle_v({rx - 4.0f, cy}, 2.6f,
+                                          theme::text_faint());
+                break;
+            }
+            case api::SyncState::Synced: {
+                // double accent check (two overlapping checks)
+                const theme::Color a = theme::status_active();
+                draw_check_at(rx - 4.0f, cy, a);
+                draw_check_at(rx - 8.5f, cy, a);
+                break;
+            }
+            case api::SyncState::Failed: {
+                // amber check + a small dot (held, will retry)
+                const theme::Color amber = theme::tag_ready_fg();
+                (void)amber;
+                const theme::Color warn = theme::status_blocked();
+                draw_check_at(rx - 4.0f, cy, warn);
+                afterhours::draw_circle_v({rx - 11.0f, cy}, 1.4f, warn);
+                break;
+            }
+            case api::SyncState::None:
+            default:
+                break;
+        }
     }
 
     // ---- Tool row heights (mirror render exactly for virtualization) ------
