@@ -31,6 +31,7 @@
 
 #include "../rl.h"
 #include "theme.h"
+#include "../util/scroll_prefs.h"
 
 namespace hanabi {
 
@@ -141,6 +142,7 @@ scroll_indicator(afterhours::EntityID scrollId) {
                 msv.scroll_offset.y -= page;
             else
                 msv.scroll_offset.y += page;
+            hanabi::sync_scroll_target(msv);  // smooth-scroll patch
             msv.clamp_scroll();
         }
 
@@ -151,6 +153,7 @@ scroll_indicator(afterhours::EntityID scrollId) {
                     std::clamp((desiredThumbTop - trackY) / travel, 0.0f, 1.0f);
                 auto& msv = ent.template get<HasScrollView>();
                 msv.scroll_offset.y = dfrac * maxScroll;
+                hanabi::sync_scroll_target(msv);  // smooth-scroll patch
                 msv.clamp_scroll();
                 // Reflect the drag in THIS frame's paint (no 1-frame lag on the
                 // thumb visual) by recomputing frac/thumbY from the new offset.

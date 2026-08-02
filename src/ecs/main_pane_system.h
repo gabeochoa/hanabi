@@ -281,6 +281,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (btn && scrollEnt.has<afterhours::ui::HasScrollView>()) {
             auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
             sv.scroll_offset.y = 1e9f;
+            hanabi::set_scroll_target_y(sv, 1e9f);  // sync (smooth-scroll patch)
             sv.clamp_scroll();
         }
     }

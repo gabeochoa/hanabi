@@ -61,3 +61,11 @@ patch from this folder.
      (+ a subtle code bg via a per-run pill if desired) instead of `.with_label`.
      Height already matches (spans wrap == plain wrap). Same for bold/italic if
      TextSpan grows a weight/style field later.
+
+- **30-smooth-eased-scrolling.patch** — scroll was a raw wheel-delta add to the
+  rendered `scroll_offset` (no smoothing), so scrolling felt stepped/janky vs
+  native macOS momentum scroll. Adds `scroll_target` + `scroll_smoothing`;
+  `scroll_offset` eases toward the target each frame (default smoothing=1 =
+  legacy instant; 0.28 = smooth glide). Backwards compatible. PROVEN: hanabi
+  transcript/sidebar glide smoothly; ease math unit-verified; hanabi builds
+  clean against BOTH pinned edfe234 (SFINAE-guarded no-op) and patched. (gap #30)

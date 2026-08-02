@@ -2,6 +2,8 @@
 
 #include <cstdlib>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include "../../vendor/afterhours/src/plugins/ui/components.h"
 
@@ -35,6 +37,34 @@ extern "C" bool macos_natural_scroll(void);
 
 namespace hanabi {
 
+// Compile-time detection: does this afterhours build have the smooth-scroll
+// fields (scroll_target / scroll_smoothing, from vendor_patches/30-smooth-eased-
+// scrolling.patch)? Pinned edfe234 does NOT, so all smooth-scroll code below is
+// SFINAE-gated to a hard no-op there — hanabi still compiles against the pinned
+// submodule. Once Gabe lands the patch + bumps the pointer, these activate with
+// zero call-site changes. (Same "compile against pinned" invariant as the other
+// vendor patches, but this one needs new FIELDS, hence the detection.)
+template <typename SV, typename = void>
+struct has_smooth_scroll : std::false_type {};
+template <typename SV>
+struct has_smooth_scroll<SV, std::void_t<decltype(std::declval<SV>().scroll_target)>>
+    : std::true_type {};
+
+// Set scroll_smoothing on a scroll view IF the field exists (else no-op).
+template <typename SV>
+inline void set_scroll_smoothing(SV& sv, float f) {
+    if constexpr (has_smooth_scroll<SV>::value) sv.scroll_smoothing = f;
+}
+// Keep scroll_target in sync with a programmatic scroll_offset write (else no-op).
+template <typename SV>
+inline void sync_scroll_target(SV& sv) {
+    if constexpr (has_smooth_scroll<SV>::value) sv.scroll_target = sv.scroll_offset;
+}
+template <typename SV>
+inline void set_scroll_target_y(SV& sv, float y) {
+    if constexpr (has_smooth_scroll<SV>::value) sv.scroll_target.y = y;
+}
+
 // Decide whether scroll views should invert their offset sign so the app
 // matches the OS. Honors HANABI_INVERT_SCROLL as an override; otherwise
 // derives from the macOS natural-scroll pref (invert = natural; see below).
@@ -67,8 +97,20 @@ inline bool should_invert_scroll() {
 // creates it for Overflow::Auto/Scroll), so it exists by the time this runs.
 inline void apply_scroll_prefs(afterhours::Entity& e) {
     if (e.has<afterhours::ui::HasScrollView>()) {
-        e.get<afterhours::ui::HasScrollView>().invert_scroll =
-            should_invert_scroll();
+        auto& sv = e.get<afterhours::ui::HasScrollView>();
+        sv.invert_scroll = should_invert_scroll();
+        // Smooth (native-feeling) scrolling: the wheel writes scroll_target and
+        // scroll_offset eases toward it each frame. Raw afterhours added the
+        // wheel delta straight to the rendered offset, so scrolling was stepped
+        // and janky vs macOS momentum scroll. 0.28/frame @ ~display-rate gives a
+        // quick, smooth glide that still settles fast. HANABI_SCROLL_SMOOTH
+        // overrides (1 = legacy instant; 0.1..0.9 = smoothing factor).
+        float smooth = 0.28f;
+        if (const char* env = std::getenv("HANABI_SCROLL_SMOOTH")) {
+            float v = static_cast<float>(std::atof(env));
+            if (v > 0.0f && v <= 1.0f) smooth = v;
+        }
+        set_scroll_smoothing(sv, smooth);  // no-op vs pinned afterhours
     }
 }
 

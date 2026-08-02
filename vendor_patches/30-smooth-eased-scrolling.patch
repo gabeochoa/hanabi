@@ -1,0 +1,132 @@
+From bb1ede1e78fdfb2b32d961bd065bb056a2e99255 Mon Sep 17 00:00:00 2001
+From: hanabi <hanabi@local>
+Date: Sun, 2 Aug 2026 19:47:19 -0400
+Subject: [PATCH] =?UTF-8?q?ui(scroll):=20smooth=20(eased)=20scrolling=20?=
+ =?UTF-8?q?=E2=80=94=20wheel=20writes=20scroll=5Ftarget,=20offset=20glides?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Raw scroll added the wheel delta straight to the rendered scroll_offset, so
+scrolling was stepped/janky vs native macOS momentum scroll. Add a scroll_target
+(what the wheel drives) + a scroll_smoothing factor; scroll_offset eases toward
+the target once per frame in HandleScrollInput (before the mouse-inside early
+return, so an in-flight glide keeps animating when the cursor leaves). Defaults:
+scroll_smoothing = 1.0 => instant (byte-identical legacy behavior); a smaller
+factor (e.g. 0.28) gives a smooth glide that settles exactly on target (0.5px
+snap, no perpetual redraw). clamp_scroll clamps both offset and target.
+
+Backwards compatible: existing code that sets scroll_offset directly still works
+(with smoothing>=1 default); callers wanting instant programmatic jumps set
+scroll_target = scroll_offset. Proven in hanabi: transcript/sidebar scroll now
+glides smoothly; ease math unit-verified (first step 28%, settles ~21 frames).
+---
+ src/plugins/ui/components.h | 32 ++++++++++++++++++++++++++++++--
+ src/plugins/ui/systems.h    | 11 +++++++++--
+ 2 files changed, 39 insertions(+), 4 deletions(-)
+
+diff --git a/src/plugins/ui/components.h b/src/plugins/ui/components.h
+index 153395b..e400434 100644
+--- a/src/plugins/ui/components.h
++++ b/src/plugins/ui/components.h
+@@ -483,10 +483,17 @@ enum class Overflow { Visible, Hidden, Scroll, Auto };
+ 
+ // Scroll view state - enables scrolling content within a clipped viewport
+ struct HasScrollView : BaseComponent {
+-  Vector2Type scroll_offset = {0, 0}; // Current scroll position
++  Vector2Type scroll_offset = {0, 0}; // Current (rendered) scroll position
++  Vector2Type scroll_target = {0, 0}; // Desired scroll position (wheel writes
++                                      // here; scroll_offset eases toward it for
++                                      // smooth, momentum-like scrolling)
+   Vector2Type content_size = {0, 0};  // Total size of all children (computed)
+   Vector2Type viewport_size = {0, 0}; // Visible area size
+   float scroll_speed = 20.0f;         // Pixels per scroll wheel notch
++  // Per-frame easing factor for scroll_offset -> scroll_target. 1.0 = instant
++  // (legacy behavior, no smoothing); ~0.25 gives a smooth native-feeling glide.
++  // 0 disables smoothing entirely (offset tracks target only via ease()).
++  float scroll_smoothing = 1.0f;
+   bool vertical_enabled = true;       // Allow vertical scrolling
+   bool horizontal_enabled = false;    // Allow horizontal scrolling
+   bool invert_scroll = false;         // Invert scroll direction (non-natural)
+@@ -498,13 +505,34 @@ struct HasScrollView : BaseComponent {
+   HasScrollView(bool vert, bool horiz)
+       : vertical_enabled(vert), horizontal_enabled(horiz) {}
+ 
+-  // Clamp scroll offset to valid bounds (0 to max scrollable distance)
++  // Clamp scroll offset AND target to valid bounds (0 to max scrollable).
+   void clamp_scroll() {
+     float max_scroll_y = std::max(0.0f, content_size.y - viewport_size.y);
+     scroll_offset.y = std::clamp(scroll_offset.y, 0.0f, max_scroll_y);
++    scroll_target.y = std::clamp(scroll_target.y, 0.0f, max_scroll_y);
+     // Horizontal scrolling (not enabled in MVP but structure is here)
+     float max_scroll_x = std::max(0.0f, content_size.x - viewport_size.x);
+     scroll_offset.x = std::clamp(scroll_offset.x, 0.0f, max_scroll_x);
++    scroll_target.x = std::clamp(scroll_target.x, 0.0f, max_scroll_x);
++  }
++
++  // Ease the rendered offset toward the target. Called once per frame. When
++  // scroll_smoothing >= 1 (default) this snaps (identical to legacy behavior);
++  // a smaller factor produces a smooth glide. Snaps the last sub-pixel so it
++  // settles exactly on target (no perpetual tiny redraws).
++  void ease_scroll() {
++    if (scroll_smoothing >= 1.0f) {
++      scroll_offset = scroll_target;
++      return;
++    }
++    const float f = scroll_smoothing <= 0.0f ? 1.0f : scroll_smoothing;
++    auto step = [f](float cur, float tgt) {
++      float d = tgt - cur;
++      if (d > -0.5f && d < 0.5f) return tgt;  // settle
++      return cur + d * f;
++    };
++    scroll_offset.y = step(scroll_offset.y, scroll_target.y);
++    scroll_offset.x = step(scroll_offset.x, scroll_target.x);
+   }
+ 
+   // Check if content exceeds viewport (scrolling needed)
+diff --git a/src/plugins/ui/systems.h b/src/plugins/ui/systems.h
+index 1e96b66..ec63eed 100644
+--- a/src/plugins/ui/systems.h
++++ b/src/plugins/ui/systems.h
+@@ -1816,6 +1816,11 @@ struct HandleScrollInput : SystemWithUIContext<HasScrollView> {
+     // Update viewport size from computed layout
+     scroll_state.viewport_size = {cmp.computed[Axis::X], cmp.computed[Axis::Y]};
+ 
++    // Ease the rendered offset toward the target EVERY frame (before any early
++    // return), so an in-progress smooth-scroll glide keeps animating even when
++    // the cursor leaves the view. No-op (snaps) when scroll_smoothing >= 1.
++    scroll_state.ease_scroll();
++
+     // In auto mode, skip scroll input when content fits in viewport
+     if (scroll_state.auto_overflow) {
+       bool needs_v =
+@@ -1824,6 +1829,7 @@ struct HandleScrollInput : SystemWithUIContext<HasScrollView> {
+           scroll_state.horizontal_enabled && scroll_state.needs_scroll_x();
+       if (!needs_v && !needs_h) {
+         scroll_state.scroll_offset = {0, 0};
++        scroll_state.scroll_target = {0, 0};
+         return;
+       }
+     }
+@@ -1842,15 +1848,16 @@ struct HandleScrollInput : SystemWithUIContext<HasScrollView> {
+     // Direction multiplier: natural scrolling (default) vs inverted
+     float direction = scroll_state.invert_scroll ? 1.0f : -1.0f;
+ 
++    // Wheel writes to scroll_target; scroll_offset eases toward it (above).
+     // Vertical scrolling
+     if (scroll_state.vertical_enabled && wheel_v.y != 0.0f) {
+-      scroll_state.scroll_offset.y +=
++      scroll_state.scroll_target.y +=
+           direction * wheel_v.y * scroll_state.scroll_speed;
+     }
+ 
+     // Horizontal scrolling
+     if (scroll_state.horizontal_enabled && wheel_v.x != 0.0f) {
+-      scroll_state.scroll_offset.x +=
++      scroll_state.scroll_target.x +=
+           direction * wheel_v.x * scroll_state.scroll_speed;
+     }
+ 
+-- 
+2.50.1
+
