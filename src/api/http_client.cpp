@@ -550,21 +550,31 @@ std::vector<Message> split_message_blocks(const json& e, const Config& cfg) {
                     m.tool_duration_ms = completed - started;
             }
             out.push_back(std::move(m));
+        } else if (bt == cfg.field_block_tool_result_type) {
+            // consumed via find_result — nothing to emit here.
+        } else {
+            // Any OTHER block type (error, thinking, etc.): surface its text
+            // content if it carries any, so a message whose only block is an
+            // `error` renders the error text instead of a blank empty bubble
+            // (M1 — an error-only assistant message was showing as an empty
+            // grey box). Common text-bearing keys: content, then text.
+            std::string c = sfield(b, cfg.field_block_content);
+            if (c.empty()) c = sfield(b, "text");
+            if (!c.empty()) {
+                if (!text_run.empty()) text_run += "\n\n";
+                text_run += c;
+            }
         }
-        // tool_result blocks are consumed via find_result; steering / unknown
-        // blocks are ignored (forward-compatible), matching the spec.
+        // tool_result blocks are consumed via find_result; unknown blocks with
+        // no text are ignored (forward-compatible), matching the spec.
     }
     flush_text();  // trailing text run.
 
-    // A message that had blocks but produced nothing (e.g. only steering)
-    // still yields one empty message so the transcript keeps its turn.
-    if (out.empty()) {
-        Message m;
-        m.id = msg_id;
-        m.role = role;
-        m.created_at = msg_created;
-        out.push_back(std::move(m));
-    }
+    // A message whose blocks produced NOTHING renderable (e.g. an empty/steering
+    // block with no text and no tool call) is DROPPED — emitting an empty turn
+    // rendered as a blank grey bubble (M1). Only keep a fallback empty message
+    // for a message that had NO blocks at all (handled by the has_blocks guard
+    // earlier) — here, if blocks existed but yielded nothing, produce nothing.
     return out;
 }
 

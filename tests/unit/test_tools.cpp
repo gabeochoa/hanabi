@@ -116,6 +116,27 @@ static void test_split_flat_message() {
     CHECK(out[0].text == "hi there");
 }
 
+// An assistant message whose ONLY block is a non-text/non-tool block (e.g.
+// `error`) must NOT render as an empty grey bubble (M1). If the block carries
+// text (content/text), surface it; if it carries nothing renderable, drop the
+// message entirely rather than emit a blank turn.
+static void test_split_error_block() {
+    std::printf("test_split_error_block\n");
+    api::Config cfg;
+    // (a) error block WITH content -> surfaced as one text message.
+    json withText = {{"id", "e1"}, {"role", "assistant"},
+                     {"blocks", json::array({
+                         {{"type", "error"}, {"content", "MODULE_NOT_FOUND"}}})}};
+    auto a = api::split_message_blocks(withText, cfg);
+    CHECK(a.size() == 1);
+    CHECK(a[0].text == "MODULE_NOT_FOUND");
+    // (b) block with NO text and no tool call -> DROPPED (no empty bubble).
+    json empty = {{"id", "e2"}, {"role", "assistant"},
+                  {"blocks", json::array({ {{"type", "steering"}} })}};
+    auto b = api::split_message_blocks(empty, cfg);
+    CHECK(b.empty());
+}
+
 // --- 2. MockClient memory-light newest-N -----------------------------------
 static void test_mock_windowed_newest_n() {
     std::printf("test_mock_windowed_newest_n\n");
@@ -215,6 +236,7 @@ int main() {
     std::printf("=== test_tools ===\n");
     test_split_interleaved_blocks();
     test_split_flat_message();
+    test_split_error_block();
     test_mock_windowed_newest_n();
     test_mock_events_noop();
     test_parse_events_frame();
