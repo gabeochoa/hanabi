@@ -2944,18 +2944,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Count badge only when it means something (a PILE of N calls); a single
         // tool call has no meaningful count, so we drop the "N" badge there.
         if (showCount) {
-            div(ctx, mk(parent, idbase + 1),
+            // Badge = a rounded Row holding the `layers` sprite + the count.
+            // (Icon and text live in SEPARATE child divs — combining a visible
+            // label with on_draw_fg on one widget doesn't render the text.)
+            auto badge = div(ctx, mk(parent, idbase + 1),
                 ComponentConfig{}
-                    .with_label("\xe2\x89\xa1 " + std::to_string(count))
-                    .with_size(ComponentSize{pixels(34), pixels(18)})
-                    .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
+                    .with_size(ComponentSize{pixels(42), pixels(18)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_padding(Padding{.right = pixels(6), .left = pixels(7)})
                     .with_custom_background(theme::panel_bg_2())
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::MICRO)
-                    .with_alignment(TextAlignment::Center)
                     .with_roundness(0.5f)
                     .with_margin(Margin{.right = pixels(8)})
                     .with_debug_name("tool_count"));
+            // Lucide `layers` sprite (a stacked pile) — replaces the raw `≡`
+            // unicode glyph (last raw chrome glyph; Phase H).
+            div(ctx, mk(badge.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(12), pixels(18)})
+                    .with_transparent_bg()
+                    .with_margin(Margin{.right = pixels(3)})
+                    .with_on_draw_fg([](RectangleType r) {
+                        hanabi::icons::draw_at(
+                            "layers", r.x + r.width * 0.5f,
+                            r.y + r.height * 0.5f, 11.0f,
+                            theme::text_secondary());
+                    })
+                    .with_debug_name("tool_count_icon"));
+            div(ctx, mk(badge.ent(), 2),
+                ComponentConfig{}
+                    .with_label(std::to_string(count))
+                    .with_size(ComponentSize{pixels(14), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("tool_count_n"));
         }
         // Duration only when known (real ms parsed); blank -> no fake number.
         if (!dur.empty()) {
@@ -3048,7 +3075,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float kLeadW = 12.0f + 16.0f + 6.0f;
         float metaW = 14.0f;                         // check always
         if (!dur.empty()) metaW += 44.0f + 8.0f;     // duration + its margin
-        if (showCount) metaW += 34.0f + 8.0f;        // count badge + its margin
+        if (showCount) metaW += 42.0f + 8.0f;        // count badge + its margin
         float cmdW = rowW - kLeadW - metaW - 8.0f;   // 8 = row right padding
         if (cmdW < 60.0f) cmdW = 60.0f;
         div(ctx, mk(head.ent(), 3),

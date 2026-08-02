@@ -53,6 +53,7 @@ ICONS = [
     ("automated",    "repeat"),           # ⟳ automated / scheduled / cron (gap #20)
     ("close",        "x"),                # ✕ close buttons (tab/composer/settings/search-clear)
     ("archive",      "archive"),          # ▤ Archived smart view (was the last TODO(icon-atlas))
+    ("layers",       "layers"),           # ≡ tool-call pile count badge (last raw unicode chrome)
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on
