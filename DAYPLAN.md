@@ -12,11 +12,11 @@ No vendor edits (log gaps). No company names. Mock default. One mutator per file
 5  [~] Frame guard — FirstFrame<250ms gate already catches gross regressions; idle-frame render needs GPU ctx (not unit-testable). Kept existing gate.
 
 ## TIER 2 — CHAT FIDELITY (main_pane, mine)
-6  [ ] Inline code pills (short-line styled runs)
-7  [ ] Copy button on code block
-8  [ ] Fold long code blocks
-9  [ ] Markdown lists (bullet/numbered hanging indent)
-10 [ ] bold/italic runs
+6  [~] Inline pills — VENDOR unlock proven (gap#22 patch) + turnkey wiring documented; blocked on afterhours pointer bump
+7  [x] Copy button on code block (6ad8f6a)
+8  [ ] Fold long code blocks (TODO)
+9  [x] Markdown bullets + horizontal rules (afe16b9)
+10 [~] bold/italic — needs gap#22 (same unlock as #6)
 11 [ ] Links rendered/clickable
 12 [ ] Inline code in tool-row command
 13 [ ] Blockquotes
@@ -29,12 +29,12 @@ No vendor edits (log gaps). No company names. Mock default. One mutator per file
         send-failed retry
 
 ## TIER 4 — INTERACTION
-26 [ ] Draggable scrollbar (scrollbar.h — SUBAGENT)
+26 [x] Draggable scrollbar + track-paging (ace5131)
 27 [ ] Tab reorder (tab_bar — SUBAGENT)
 28-33 [ ] keyboard nav, Cmd+W/[/], Cmd+F, Esc consistency, row context menu, tab mid-click
 
 ## TIER 5 — LIGHT THEME
-34 [ ] Light-theme full sweep (theme.h — SUBAGENT)
+34 [x] Light-theme contrast sweep (88378b8)
 35 [ ] Follow-system appearance shim
 36 [ ] No-flash theme swap
 
@@ -48,3 +48,9 @@ No vendor edits (log gaps). No company names. Mock default. One mutator per file
 ## TIER 8 — HYGIENE
 49 [ ] Split main_pane_system.h
 50 [ ] README/REQUIREMENTS reconcile
+
+
+## VENDOR-PATCH WORKFLOW (new — Gabe OK'd editing the afterhours submodule)
+- Prototype fix in vendor/afterhours, PROVE in hanabi, capture as vendor_patches/NN-*.patch + submodule tag, revert to PINNED so main builds. Maintainer applies + bumps pointer.
+- DONE: #25 (rounded-corner degenerate triangle), #22 (styled spans word-wrap).
+- BUG FOUND (light-theme agent): settings_footnote overflows settings_panel (ph too short by ~13px) — fix in settings_system.h.
