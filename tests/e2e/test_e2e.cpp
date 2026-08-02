@@ -14,6 +14,11 @@
 #include <string>
 
 // afterhours ECS core only (headless-safe: no graphics backend linked).
+// FMT_HEADER_ONLY so the autolayout include below (which uses fmt::format for
+// its debug/overflow messages) links without the fmt library — the test build
+// doesn't link libfmt (only the main app does). Must be defined before any
+// afterhours header pulls in fmt.
+#define FMT_HEADER_ONLY
 #define AFTER_HOURS_ENTITY_HELPER
 #define AFTER_HOURS_ENTITY_QUERY
 #define AFTER_HOURS_SYSTEM
@@ -24,6 +29,15 @@
 #include "../../src/ecs/tab_model.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../src/ecs/transcript_cache.h"
+
+// afterhours UI layout engine (headless: no graphics backend linked — the
+// `none` backend's draw_* are no-ops, and autolayout is pure geometry). Used
+// by the sidebar-scroll regression test below to assert the folder/thread list
+// stacks in ONE column at any scroll position. Included via <angle-brackets> so
+// it resolves through the build's `-isystem vendor/` search and its (vendored)
+// warnings are treated as system-header warnings — keeping the test build's
+// warning output clean (the app never edits vendor/).
+#include <afterhours/src/plugins/autolayout.h>
 
 static int g_failures = 0;
 static int g_skipped = 0;
@@ -610,6 +624,140 @@ static void test_transcript_cache() {
     CHECK(app2.transcriptCache.contains("t2"));
 }
 
+// ---------------------------------------------------------------------------
+// Sidebar scroll list — text/rows must render at ALL scroll offsets (bug fix).
+//
+// BUG: the sidebar thread list stopped drawing row text/rows past a certain
+// scroll offset (rows stayed clickable but invisible). ROOT CAUSE: the sidebar
+// scroll panel is a FlexDirection::Column, and preset::ScrollPanel left
+// flex_wrap at its afterhours DEFAULT of FlexWrap::Wrap. The sidebar puts MANY
+// direct children in that panel (folder heads + 90+ chat rows); once their
+// stacked height exceeds the viewport, a WRAPPING column wraps the overflow
+// into a SECOND column at x += column-width — i.e. off the right edge of the
+// sidebar, where the scroll viewport's scissor clips it away. So only the first
+// viewport-height of rows ever drew; everything past content-Y ≈ viewport
+// height laid out (and stayed hit-testable) in a clipped-out column, looking
+// "empty" once scrolled. FIX: force FlexWrap::NoWrap on the sidebar scroll
+// panel so every child stacks in ONE column and the scroll offset simply slides
+// the whole list.
+//
+// This test reproduces the layout at the engine level (no graphics needed —
+// autolayout is pure geometry): it builds a Column scroll panel with far more
+// tall rows than fit the viewport, runs afterhours' real autolayout, and
+// asserts EVERY row stacks in a single column (same computed X, monotonically
+// increasing Y). Under the old Wrap default this fails — later rows get a
+// different (wrapped) X and a Y that resets — which is exactly the invisible-
+// row bug. It then checks that at a non-zero scroll offset, the rows whose
+// scroll-adjusted Y lands inside the viewport have valid on-screen positions
+// (i.e. they'd be drawn), proving text renders when scrolled.
+// ---------------------------------------------------------------------------
+static void test_sidebar_scroll_list_single_column() {
+    std::printf("test_sidebar_scroll_list_single_column\n");
+    using namespace afterhours;
+    using namespace afterhours::ui;
+
+    reset_world();
+
+    // Build the scroll panel + N rows as bare UIComponents (what preset +
+    // render_chat_row produce structurally: a Column panel holding many
+    // fixed-height row children).
+    const float kPanelW = 280.f;
+    const float kViewportH = 400.f;
+    const float kRowH = 24.f;
+    const int kRows = 60;  // 60*24 = 1440px >> 400px viewport (forces overflow)
+
+    auto& panelE = EntityHelper::createEntity();
+    auto& panel = panelE.addComponent<UIComponent>(panelE.id);
+    panel.desired[Axis::X] = pixels(kPanelW);
+    panel.desired[Axis::Y] = pixels(kViewportH);
+    panel.flex_direction = FlexDirection::Column;
+    // THE FIX UNDER TEST: NoWrap keeps every row in one column. (Flip this to
+    // FlexWrap::Wrap and the single-column assertions below fail — that's the
+    // regression this guards.)
+    panel.flex_wrap = FlexWrap::NoWrap;
+    // Mark it a scroll view like the real preset::ScrollPanel — autolayout then
+    // treats content overflow as expected (suppresses the overflow warn) so the
+    // test's own layout doesn't spew warnings, matching the shipped widget.
+    panelE.addComponent<HasScrollView>();
+
+    std::vector<EntityID> rowIds;
+    std::vector<Entity*> rowEnts;
+    for (int i = 0; i < kRows; ++i) {
+        auto& rowE = EntityHelper::createEntity();
+        auto& row = rowE.addComponent<UIComponent>(rowE.id);
+        row.desired[Axis::X] = pixels(kPanelW);
+        row.desired[Axis::Y] = pixels(kRowH);
+        row.flex_direction = FlexDirection::Row;
+        row.flex_wrap = FlexWrap::NoWrap;
+        row.parent = panelE.id;
+        panel.children.push_back(rowE.id);
+        rowIds.push_back(rowE.id);
+        rowEnts.push_back(&rowE);
+    }
+
+    // Mapping vector indexed by entity id (what AutoLayout expects). Size it to
+    // cover every id we created and point each slot at its entity.
+    EntityID maxId = panelE.id;
+    for (auto id : rowIds) maxId = std::max(maxId, id);
+    std::vector<Entity*> mapping(static_cast<size_t>(maxId) + 1, nullptr);
+    mapping[static_cast<size_t>(panelE.id)] = &panelE;
+    for (size_t i = 0; i < rowIds.size(); ++i)
+        mapping[static_cast<size_t>(rowIds[i])] = rowEnts[i];
+
+    window_manager::Resolution rez;
+    rez.width = 1100;
+    rez.height = 760;
+    AutoLayout::autolayout(panel, rez, mapping);
+
+    // (1) SINGLE COLUMN: every row shares the panel's X and never wraps into a
+    //     second column. This is the property the NoWrap fix guarantees and the
+    //     old Wrap default broke (wrapped rows got x += column-width and were
+    //     scissored out — the invisible-rows-when-scrolled bug).
+    const float rowX0 = mapping[static_cast<size_t>(rowIds[0])]
+                            ->get<UIComponent>()
+                            .computed_rel[Axis::X];
+    float prevY = -1.f;
+    bool allSameX = true;
+    bool yMonotonic = true;
+    for (auto id : rowIds) {
+        const auto& rc = mapping[static_cast<size_t>(id)]->get<UIComponent>();
+        if (std::abs(rc.computed_rel[Axis::X] - rowX0) > 0.5f) allSameX = false;
+        if (rc.computed_rel[Axis::Y] <= prevY) yMonotonic = false;
+        prevY = rc.computed_rel[Axis::Y];
+    }
+    CHECK(allSameX);     // no wrapped-off-to-the-right column
+    CHECK(yMonotonic);   // rows stack straight down, newest math preserved
+
+    // The last row's Y must extend WELL past the viewport (content overflows),
+    // proving the rows past the fold are laid out in-column (not piled at the
+    // viewport bottom). Old Wrap behavior capped this near the viewport height.
+    const float lastY = mapping[static_cast<size_t>(rowIds[kRows - 1])]
+                            ->get<UIComponent>()
+                            .computed_rel[Axis::Y];
+    CHECK(lastY > kViewportH);           // content really overflows
+    CHECK(lastY > kViewportH * 2.0f);    // and the tail rows sit far down, in-column
+
+    // (2) RENDERS WHEN SCROLLED: at a non-zero scroll offset, a row whose
+    //     content-Y falls within [offset, offset+viewport] has a scroll-
+    //     adjusted on-screen Y inside the viewport, so its label WOULD be
+    //     drawn. (Render subtracts the scroll offset: screenY = Y - offset.)
+    //     Pick an offset deep into the list — the exact spot the old bug went
+    //     blank — and assert at least a viewport-worth of rows are on-screen.
+    const float scrollOffset = 600.f;  // ~row 25; past the old cutoff
+    int onScreenRows = 0;
+    for (auto id : rowIds) {
+        const auto& rc = mapping[static_cast<size_t>(id)]->get<UIComponent>();
+        float screenY = rc.computed_rel[Axis::Y] - scrollOffset;
+        // A row is on-screen if any part of its [screenY, screenY+rowH] band
+        // intersects the viewport [0, viewportH].
+        if (screenY + kRowH > 0.f && screenY < kViewportH) ++onScreenRows;
+    }
+    // A 400px viewport / 24px rows fits ~16 rows; assert a healthy slice draws
+    // at this deep offset (would be ZERO past-cutoff rows under the old bug,
+    // since they'd all be wrapped off-screen to the right).
+    CHECK(onScreenRows >= 12);
+}
+
 int main() {
     std::printf("=== test_e2e ===\n");
     test_list_loads_sorted_and_has_samples();
@@ -623,6 +771,7 @@ int main() {
     test_tab_reorder_edge_cases();
     test_backend_agnostic_defaults();
     test_transcript_cache();
+    test_sidebar_scroll_list_single_column();
 
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {
