@@ -171,6 +171,58 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Top-of-transcript "loading older messages" pill: a small accent ring +
+    // caption in a rounded chip, horizontally centered near the top of the
+    // pane. Overlay (absolute on the parent) so it floats over the content
+    // without shifting it. topY = y of the pill's top edge within the pane.
+    static void loading_older_pill(UIContext<InputAction>& ctx, Entity& parent,
+                                   float paneW, float topY) {
+        const float w = 190.0f, h = 30.0f;
+        const float x = (paneW - w) * 0.5f;
+        auto pill = div(ctx, mk(parent, 7400),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(w), pixels(h)})
+                .with_absolute_position()
+                .with_translate(x, topY)
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_padding(Padding{.right = pixels(12), .left = pixels(12)})
+                .with_custom_background(theme::over(theme::panel_bg_2(),
+                                                    theme::panel_bg()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(0.5f)
+                .with_render_layer(9)
+                .with_debug_name("loading_older_pill"));
+        div(ctx, mk(pill.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(14), pixels(14)})
+                .with_transparent_bg()
+                .with_margin(Margin{.right = pixels(8)})
+                .with_on_draw_fg([](RectangleType r) {
+                    const float cx = r.x + r.width * 0.5f;
+                    const float cy = r.y + r.height * 0.5f;
+                    afterhours::draw_ring(cx, cy, 4.5f, 6.5f, 24,
+                                          theme::accent());
+                })
+                .with_render_layer(9)
+                .with_debug_name("loading_older_ring"));
+        div(ctx, mk(pill.ent(), 2),
+            ComponentConfig{}
+                .with_label("Loading older messages\xe2\x80\xa6")
+                .with_size(ComponentSize{children(), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_render_layer(9)
+                .with_debug_name("loading_older_txt"));
+    }
+
+    // Top-of-transcript "loading older" pill placement mirror lives above; the
+    // jump-to-bottom button:
     // Floating "jump to bottom" button: a small circular down-chevron pinned
     // to the bottom-right of the transcript pane (just above the composer),
     // shown only when the user has scrolled up. Clicking snaps the transcript
@@ -1413,6 +1465,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             scrollY = sv.scroll_offset.y;
             if (sv.viewport_size.y > 1.0f) viewH = sv.viewport_size.y;
         }
+
+        // ---- Load-older: scroll-anchor + trigger + prefetch ---------------
+        // (a) ANCHOR: when older messages were just prepended (loader armed
+        //     anchorPending), the content grew above the viewport. Measure the
+        //     height of the newly-prepended items and bump scroll_offset by it,
+        //     so the user's view stays on the same message instead of snapping
+        //     to the newly-loaded oldest. Cleared after one application.
+        const std::string openId = app.openSession->summary.id;
+        if (app.anchorPending == openId &&
+            msgs.size() > app.anchorPrevMsgCount &&
+            scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const size_t added = msgs.size() - app.anchorPrevMsgCount;
+            float prependedH = 0.0f;
+            for (const auto& it : items) {
+                if (static_cast<size_t>(it.lo) < added)
+                    prependedH += it.height;
+                else
+                    break;  // items are in message order; done past the prepend
+            }
+            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            sv.scroll_offset.y += prependedH;  // hold the viewport steady
+            sv.clamp_scroll();
+            scrollY = sv.scroll_offset.y;
+            app.anchorPending.clear();
+        }
+        // (b) TRIGGER + PREFETCH: when the user is near the TOP and there are
+        //     older messages, request a load. A generous threshold (2 viewports)
+        //     PREFETCHES before the user hits the very top, so older content is
+        //     usually already there by the time they reach it — and reaching
+        //     the top faster (fast scroll-up) just triggers sooner. Guarded by
+        //     loadingOlder (loader clears it) so it fires once per page.
+        if (app.hasMoreOlder && !app.loadingOlder && !app.requestLoadOlder &&
+            app.anchorPending.empty() && scrollY <= viewH * 2.0f) {
+            app.requestLoadOlder = true;
+        }
         // ---- Open-at-bottom + stay-pinned model -----------------------
         // A conversation opens showing the NEWEST messages (bottom), like every
         // chat app. Then: if the user is AT the bottom, keep them pinned as new
@@ -1553,6 +1640,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!pinBottom && !atBottom && contentH > viewH + 40.0f) {
             jump_to_bottom_button(ctx, parent, scroll.ent(), paneW,
                                   46.0f + listH);
+        }
+
+        // Top "loading older" pill: a small centered spinner + caption pinned
+        // to the TOP of the transcript pane while a load-older fetch is in
+        // flight, so the load has visible feedback instead of a silent
+        // freeze/snap. Overlay (absolute on the parent pane) so it doesn't
+        // shift the scroll content / fight the anchor math. kHeaderH offsets it
+        // below the title header.
+        if (app.loadingOlder) {
+            loading_older_pill(ctx, parent, paneW, 62.0f + 6.0f);
         }
 
         if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);

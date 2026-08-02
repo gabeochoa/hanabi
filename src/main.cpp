@@ -682,6 +682,13 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             appForWait->transcriptState = ecs::LoadState::Loading;
             appForWait->transcriptLoadingId = "__loading_demo__";
         }
+        // Screenshot affordance: HANABI_OLDER_DEMO=1 forces the top
+        // "loading older messages…" pill (loadingOlder=true) over the open
+        // transcript, so a headless capture can photograph it. Render-only.
+        if (const char* d = std::getenv("HANABI_OLDER_DEMO"); d && *d &&
+            std::string(d) != "0") {
+            appForWait->loadingOlder = true;
+        }
     }
 
     // Render several frames so async data loads and layout settles.

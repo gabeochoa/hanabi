@@ -479,6 +479,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             !app.selectedId.empty()) {
             app.requestLoadOlder = false;
             app.loadingOlder = true;
+            // Record the message count BEFORE the fetch. When the older page
+            // lands and prepends messages, the render side measures the height
+            // of the newly-prepended messages and bumps scroll_offset by that
+            // amount so the viewport stays on the same message (no snap to the
+            // oldest). Only the count is needed here — the render computes the
+            // exact prepended height from its own per-message measurement.
+            app.anchorPrevMsgCount =
+                app.openSession ? app.openSession->messages.size() : 0;
             std::string id = app.selectedId;
             api::Client* c = app.client.get();
             // limit=0 => the FULL transcript (no ?limit query).
@@ -539,6 +547,13 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // Only swap if this is still the open thread (the user may have
         // switched during the fetch).
         if (app.selectedId != r.value.summary.id) return;
+        // Load-older: if the re-fetch actually added older messages above the
+        // current window, arm the render-side scroll anchor so the viewport is
+        // held on the same message instead of snapping to the newly-loaded
+        // oldest. Only arm when the count actually grew.
+        if (fromLoadOlder && r.value.messages.size() > app.anchorPrevMsgCount) {
+            app.anchorPending = r.value.summary.id;
+        }
         app.transcriptCache.put(r.value);
         save_and_trim(app, r.value);
         app.openSession = std::move(r.value);

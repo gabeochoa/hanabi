@@ -84,6 +84,17 @@ struct AppComponent : public afterhours::BaseComponent {
     // True while a full-transcript ("load older") fetch is in flight, so the
     // render side can show a spinner and the loader doesn't double-fire.
     bool loadingOlder = false;
+    // Scroll-anchor preservation for load-older: when older messages are
+    // prepended, the content grows ABOVE the viewport, so the scroll offset
+    // must be bumped by the added-above height to keep the user's view on the
+    // same message (instead of snapping to the newly-loaded oldest). The loader
+    // records the message COUNT + total content height at request time; the
+    // render side, on the frame the new (larger) content is laid out, adds the
+    // height delta to scroll_offset.y once, then clears the pending anchor.
+    // anchorPending is the session id awaiting the offset bump (empty = none).
+    std::string anchorPending;
+    size_t anchorPrevMsgCount = 0;   // message count before the older load
+    float anchorPrevContentH = 0.0f;  // content_size.y before the older load
 
     // --- Live events (SSE) ------------------------------------------------
     // A subscription to the OPEN session's live activity stream. When the
