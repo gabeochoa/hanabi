@@ -207,3 +207,21 @@ extern "C" void metal_hide_window(void) {
 extern "C" bool metal_is_headless(void) {
     return _headless_mode;
 }
+
+// Read the macOS "natural scrolling" system preference. This is the global
+// default `com.apple.swipescrolldirection` in NSGlobalDomain: true (1) means
+// natural scrolling is ON (content follows the fingers), false/absent means
+// it's OFF (classic/inverted). This is the value flipped by
+// System Settings -> Trackpad/Mouse -> "Natural scrolling".
+//
+// We read it at startup to decide whether the UI's scroll wheel handling
+// should invert its offset sign so the app tracks the OS setting instead of
+// hard-coding one direction. Reading the persisted default (rather than
+// NSEvent.isDirectionInvertedFromDevice, which needs a live event) is correct
+// at launch and needs no event pump.
+extern "C" bool macos_natural_scroll(void) {
+    @autoreleasepool {
+        return [[NSUserDefaults standardUserDefaults]
+                   boolForKey:@"com.apple.swipescrolldirection"];
+    }
+}

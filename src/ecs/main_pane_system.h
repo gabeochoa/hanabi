@@ -198,6 +198,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(24),
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("digest_scroll"));
+        hanabi::apply_scroll_prefs(scroll.ent());
 
         int i = 0;
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
@@ -696,6 +697,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(24),
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("home_scroll"));
+        hanabi::apply_scroll_prefs(scroll.ent());
 
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
         const float cardW = wrap_width(paneW);
@@ -1133,6 +1135,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .right = pixels(14),
                                       .bottom = pixels(6), .left = pixels(18)})
                 .with_debug_name("transcript_scroll"));
+        hanabi::apply_scroll_prefs(scroll.ent());
 
         // Empty-thread state: an open thread with no messages shows a tasteful
         // empty state inside the scroll region (mirrors the mock's empty
