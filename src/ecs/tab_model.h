@@ -14,6 +14,7 @@
 //            tabs remain, drop back to the Home digest.
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 #include "../../vendor/afterhours/src/core/entity_helper.h"
@@ -68,6 +69,50 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     app.selectedId = id;
     app.requestOpenId = id;  // loader fetches the transcript
     app.view = SmartView::Chat;
+}
+
+// ---------------------------------------------------------------------------
+// Drag-to-reorder (pure logic, unit-tested headlessly).
+//
+// The tab strip lays tabs out left-to-right in uniform-width slots. While a
+// tab is dragged, its "center" follows the cursor; the target drop index is
+// the slot whose center the dragged center has passed. We compute that purely
+// from geometry so the reorder decision is testable without a live mouse:
+//   * stripX / slotStride: the x of the first slot and the per-tab advance
+//     (uniform tab width + inter-tab gap).
+//   * draggedCenterX: the current center-x of the dragged tab.
+//   * count: number of tabs.
+// Returns a clamped insertion index in [0, count-1].
+// ---------------------------------------------------------------------------
+inline size_t compute_drop_index(float draggedCenterX, float stripX,
+                                 float slotStride, size_t count) {
+    if (count <= 1 || slotStride <= 0.0f) return 0;
+    // Which slot does the dragged center sit over? slot i's center is at
+    // stripX + slotStride*i + slotStride/2, i.e. index = round to nearest slot
+    // by (center - stripX) / stride.
+    float rel = (draggedCenterX - stripX) / slotStride;
+    long idx = static_cast<long>(std::floor(rel));
+    if (idx < 0) idx = 0;
+    if (idx > static_cast<long>(count) - 1) idx = static_cast<long>(count) - 1;
+    return static_cast<size_t>(idx);
+}
+
+// Move the tab currently at `from` to sit at `to` (stable erase+insert). No-op
+// if indices are equal, out of range, or fewer than 2 tabs. Order-only: it
+// never touches the ActiveTab marker or any app selection, so the active tab
+// and its content stay exactly as they were — only the visual order changes.
+inline void reorder_tab(TabStripComponent& strip, size_t from, size_t to) {
+    const size_t n = strip.tabOrder.size();
+    if (n < 2 || from >= n || to >= n || from == to) return;
+    auto id = strip.tabOrder[from];
+    strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(from));
+    // After erasing, indices > from shift left by one; `to` was computed
+    // against the pre-erase layout's slot centers, so it already refers to the
+    // desired final position. Clamp to the post-erase size and insert.
+    size_t insertAt = to;
+    if (insertAt > strip.tabOrder.size()) insertAt = strip.tabOrder.size();
+    strip.tabOrder.insert(strip.tabOrder.begin() + static_cast<long>(insertAt),
+                          id);
 }
 
 inline void close_tab(TabStripComponent& strip, AppComponent& app,

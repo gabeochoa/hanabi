@@ -9,7 +9,9 @@
 // Mirrors floatinghotel/src/ecs/tab_bar_system.h.
 
 #include <algorithm>
+#include <cmath>
 #include <string>
+#include <vector>
 
 #include "../test_hooks.h"
 #include "../util/format.h"
@@ -123,6 +125,131 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             uniformW = std::clamp(perTab, minW, maxWCap);
         }
 
+        // The per-tab horizontal advance (a full slot: tab width + the gap).
+        // Slot i's non-drag left edge is r.x + slotStride*i; its center is
+        // r.x + slotStride*i + uniformW/2. Used both to lay tabs out and (in
+        // the pure model) to compute the drop index while dragging.
+        const float slotStride = uniformW + gap;
+
+        // ---- Drag-to-reorder input (manual hit-testing, mirrors the strip's
+        // own is_mouse_inside checks). We only ever *record* intent here; the
+        // actual tabOrder mutation happens in model::reorder_tab on release. A
+        // press becomes a real drag only after the cursor moves past
+        // DRAG_THRESHOLD_PX, so a plain click still falls through to focus.
+        auto index_of = [&](afterhours::EntityID id) -> size_t {
+            for (size_t i = 0; i < strip.tabOrder.size(); ++i)
+                if (strip.tabOrder[i] == id) return i;
+            return strip.tabOrder.size();
+        };
+        // The close-button hit area for tab drawn at left edge x (matches the
+        // × geometry below) — a press there must NOT start a drag.
+        auto over_close = [&](float x, float tabW) {
+            float closeW = 16.0f;
+            float closeX = x + tabW - closeW - 5.0f;
+            float closeY = r.y + (tabH - closeW) * 0.5f;
+            return afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos, RectangleType{closeX, closeY, closeW, closeW});
+        };
+
+        if (ctx.mouse.just_pressed && nTabs > 0) {
+            // Which slot (non-drag layout) did we press over?
+            float px = r.x;
+            for (size_t i = 0; i < nTabs; ++i) {
+                float w = uniformW;
+                float room = stripRight - px;
+                if (room < minW) break;
+                if (px + w > stripRight) w = room;
+                bool inside = afterhours::ui::is_mouse_inside(
+                    ctx.mouse.pos, RectangleType{px, r.y, w, tabH});
+                if (inside && !over_close(px, w)) {
+                    strip.dragCandidate = strip.tabOrder[i];
+                    strip.dragFromIndex = i;
+                    strip.dragStartX = ctx.mouse.pos.x;
+                    strip.dragCurX = ctx.mouse.pos.x;
+                    strip.dragging = false;
+                    break;
+                }
+                px += w + gap;
+            }
+        } else if (ctx.mouse.left_down && strip.has_drag_candidate()) {
+            strip.dragCurX = ctx.mouse.pos.x;
+            if (std::fabs(strip.dragCurX - strip.dragStartX) >
+                TabStripComponent::DRAG_THRESHOLD_PX)
+                strip.dragging = true;
+        } else if (ctx.mouse.just_released && strip.has_drag_candidate()) {
+            size_t from = index_of(strip.dragCandidate);
+            if (strip.dragging && from < nTabs && nTabs > 1) {
+                // Center-x of the dragged tab follows the cursor, clamped so it
+                // never leaves the strip (matches the render-side clamp).
+                float origCenter =
+                    r.x + slotStride * static_cast<float>(from) + uniformW * 0.5f;
+                float draggedLeftR =
+                    (origCenter + (strip.dragCurX - strip.dragStartX)) -
+                    uniformW * 0.5f;
+                draggedLeftR = std::clamp(draggedLeftR, r.x,
+                                          stripRight - uniformW);
+                size_t to = model::compute_drop_index(
+                    draggedLeftR + uniformW * 0.5f, r.x, slotStride, nTabs);
+                model::reorder_tab(strip, from, to);
+                // A drag never focuses/switches — consume the press so the
+                // per-tab click branch below can't also fire.
+                ctx.mouse.just_pressed = false;
+            } else if (!strip.dragging && from < nTabs) {
+                // Pure click (moved < threshold): preserve click-to-focus.
+                auto o = EntityHelper::getEntityForID(strip.dragCandidate);
+                if (o.valid() && o->has<Tab>() && !o->has<ActiveTab>())
+                    switch_to_tab(app, o.asE());
+            }
+            strip.clear_drag();
+        }
+
+        // Recompute after a possible reorder (tabOrder / index may have moved).
+        const bool dragging = strip.dragging && strip.has_drag_candidate();
+        const size_t dragFrom =
+            dragging ? index_of(strip.dragCandidate) : strip.tabOrder.size();
+        // While dragging, the dragged tab's live center-x (clamped to strip).
+        float draggedLeft = 0.0f;
+        size_t dropIndex = dragFrom;
+        if (dragging && dragFrom < strip.tabOrder.size()) {
+            float origCenter = r.x + slotStride * static_cast<float>(dragFrom) +
+                               uniformW * 0.5f;
+            float draggedCenter =
+                origCenter + (strip.dragCurX - strip.dragStartX);
+            // Clamp so the dragged tab never leaves the strip.
+            float minLeft = r.x;
+            float maxLeft = stripRight - uniformW;
+            draggedLeft = draggedCenter - uniformW * 0.5f;
+            draggedLeft = std::clamp(draggedLeft, minLeft, maxLeft);
+            dropIndex = model::compute_drop_index(draggedLeft + uniformW * 0.5f,
+                                                  r.x, slotStride,
+                                                  strip.tabOrder.size());
+        }
+
+        // Precompute each tab's render left-edge X. Non-dragging: the natural
+        // left-to-right slots. Dragging: the OTHER tabs reflow to open a gap at
+        // dropIndex (so you can see where the dragged tab will land), and the
+        // dragged tab itself is positioned at draggedLeft (drawn last, raised).
+        std::vector<float> renderX(strip.tabOrder.size(), 0.0f);
+        {
+            float x = r.x;
+            for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
+                if (dragging && i == dragFrom) {
+                    renderX[i] = draggedLeft;  // follows cursor (raised layer)
+                    continue;
+                }
+                if (dragging) {
+                    // Slot index among the NON-dragged tabs: skip the dragged
+                    // slot, and leave dropIndex's slot empty for the drop.
+                    size_t slot = i < dragFrom ? i : i - 1;  // compacted index
+                    if (slot >= dropIndex) slot += 1;         // open the gap
+                    renderX[i] = r.x + slotStride * static_cast<float>(slot);
+                } else {
+                    renderX[i] = x;
+                }
+                x += uniformW + gap;
+            }
+        }
+
         for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
             auto tabId = strip.tabOrder[i];
             auto tabOpt = EntityHelper::getEntityForID(tabId);
@@ -130,20 +257,31 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             auto& tabEntity = tabOpt.asE();
             auto& tab = tabEntity.get<Tab>();
             bool isActive = tabEntity.has<ActiveTab>();
+            bool isDragged = dragging && i == dragFrom;
 
             float tabW = uniformW;
+            tabX = renderX[i];
 
             // Overflow guard: if this tab would extend past the strip's right
             // edge, clamp its width to whatever room is left; if there's no
-            // usable room (< minW), stop — draw NOTHING past the edge so no tab
-            // or × ever bleeds off the window frame.
+            // usable room (< minW), skip it — draw NOTHING past the edge so no
+            // tab or × ever bleeds off the window frame. (The dragged tab is
+            // already clamped inside the strip above, so it's never skipped.)
             float room = stripRight - tabX;
-            if (room < minW) break;
-            if (tabX + tabW > stripRight) tabW = room;
+            if (!isDragged) {
+                if (room < minW) continue;
+                if (tabX + tabW > stripRight) tabW = room;
+            }
 
-            bool hovered = afterhours::ui::is_mouse_inside(
-                               ctx.mouse.pos,
-                               RectangleType{tabX, r.y, tabW, tabH}) ||
+            // The dragged tab lifts above the others (higher render layer +
+            // its distinct fill), so it visually floats while being moved.
+            int baseLayer = isDragged ? 9 : 6;
+
+            bool hovered = (!dragging &&
+                            afterhours::ui::is_mouse_inside(
+                                ctx.mouse.pos,
+                                RectangleType{tabX, r.y, tabW, tabH})) ||
+                           isDragged ||
                            // Test-only: force one tab's hover branch (to
                            // capture the hovered-tab styling headlessly).
                            // No-op unless HANABI_TEST_HOVER=tab:<sessionId>.
@@ -177,7 +315,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     // strip/content bridge so their slight round is invisible.
                     .with_rounded_corners(
                         afterhours::ui::imm::RoundedCorners().all_round().get())
-                    .with_render_layer(6)
+                    .with_render_layer(baseLayer)
                     .with_debug_name("tab_" + tab.sessionId));
             // Label as a centered child whose height EQUALS the strip content
             // box (tabH), so the label's own vertical-centering lands the text
@@ -192,7 +330,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_font_size(theme::type::ROW)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_render_layer(6)
+                    .with_render_layer(baseLayer)
                     .with_debug_name("tab_label"));
 
             // Active-tab cues (secondary to the fill delta):
@@ -204,15 +342,19 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             if (isActive) {
                 // Bridge: cover the strip's bottom border under this tab with
                 // the panel fill so tab + content read as one raised surface.
-                div(ctx, mk(uiRoot, 925 + static_cast<int>(i)),
-                    ComponentConfig{}
-                        .with_size(ComponentSize{pixels(tabW), pixels(2)})
-                        .with_absolute_position()
-                        .with_translate(tabX, r.y + tabH - 1.0f)
-                        .with_custom_background(tab_colors::tab_active())
-                        .with_roundness(0.0f)
-                        .with_render_layer(7)
-                        .with_debug_name("tab_bridge"));
+                // (Skip the bridge while THIS tab is being dragged — it's
+                // lifted off the strip, so merging it with the content below
+                // would look wrong.)
+                if (!isDragged)
+                    div(ctx, mk(uiRoot, 925 + static_cast<int>(i)),
+                        ComponentConfig{}
+                            .with_size(ComponentSize{pixels(tabW), pixels(2)})
+                            .with_absolute_position()
+                            .with_translate(tabX, r.y + tabH - 1.0f)
+                            .with_custom_background(tab_colors::tab_active())
+                            .with_roundness(0.0f)
+                            .with_render_layer(baseLayer + 1)
+                            .with_debug_name("tab_bridge"));
                 // Top accent bar.
                 div(ctx, mk(uiRoot, 930 + static_cast<int>(i)),
                     ComponentConfig{}
@@ -223,21 +365,23 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_rounded_corners(
                             afterhours::ui::imm::RoundedCorners().all_round().get())
                         .with_roundness(0.35f)
-                        .with_render_layer(7)
+                        .with_render_layer(baseLayer + 1)
                         .with_debug_name("tab_accent_top"));
             }
 
-            bool clicked = hovered && ctx.mouse.just_pressed;
-            if (clicked && !isActive) {
-                switch_to_tab(app, tabEntity);
-            }
+            // Click-to-focus is now resolved on RELEASE (see the drag-input
+            // block above) so a press that turns into a drag doesn't also
+            // switch tabs. Nothing to do on press here.
 
             // Close button.
             float closeW = 16.0f;
             float closeX = tabX + tabW - closeW - 5.0f;
             float closeY = r.y + (tabH - closeW) * 0.5f;
-            bool closeHovered = afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, RectangleType{closeX, closeY, closeW, closeW});
+            bool closeHovered =
+                !dragging &&
+                afterhours::ui::is_mouse_inside(
+                    ctx.mouse.pos,
+                    RectangleType{closeX, closeY, closeW, closeW});
             button(ctx, mk(uiRoot, 950 + static_cast<int>(i)),
                 ComponentConfig{}
                     .with_label("\xc3\x97")
@@ -256,18 +400,15 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_align_items(AlignItems::Center)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.2f)
-                    .with_render_layer(7)
+                    .with_render_layer(baseLayer + 1)
                     .with_debug_name("tab_close"));
             if (closeHovered && ctx.mouse.just_pressed) {
+                // A press on × is a close, not a drag — drop any candidate.
+                strip.clear_drag();
                 close_tab(strip, app, tabId, i, isActive);
                 ctx.mouse.just_pressed = false;
                 return;
             }
-
-            // Advance past this tab plus the inter-tab gap (the gap lets the
-            // strip show through, so tabs read as discrete objects — no
-            // hairline divider needed with the rounded tops + distinct fills).
-            tabX += tabW + gap;
         }
     }
 

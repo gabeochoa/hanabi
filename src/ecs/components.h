@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <set>
@@ -281,6 +282,32 @@ struct ActiveTab : public afterhours::BaseComponent {};
 // Singleton: ordered list of open tab entities.
 struct TabStripComponent : public afterhours::BaseComponent {
     std::vector<afterhours::EntityID> tabOrder;
+
+    // ---- Drag-to-reorder state (set/read only by TabBarSystem) ------------
+    // A press over a tab records it as a *candidate* drag (dragCandidate) with
+    // the press-time cursor X and the tab's index; only once the cursor moves
+    // past DRAG_THRESHOLD_PX do we promote it to an actual drag (dragging=true)
+    // — so a plain click (no movement) still falls through to switch_to_tab.
+    static constexpr float DRAG_THRESHOLD_PX = 4.0f;
+    // invalid == "no candidate / not dragging". We use max() as the sentinel;
+    // real EntityIDs start small so this never collides.
+    afterhours::EntityID dragCandidate =
+        std::numeric_limits<afterhours::EntityID>::max();
+    bool dragging = false;      // promoted past the threshold this gesture
+    float dragStartX = 0.0f;    // cursor X at press (for threshold + delta)
+    float dragCurX = 0.0f;      // current cursor X while held
+    size_t dragFromIndex = 0;   // tabOrder index of the tab being dragged
+
+    bool has_drag_candidate() const {
+        return dragCandidate !=
+               std::numeric_limits<afterhours::EntityID>::max();
+    }
+    void clear_drag() {
+        dragCandidate = std::numeric_limits<afterhours::EntityID>::max();
+        dragging = false;
+        dragStartX = dragCurX = 0.0f;
+        dragFromIndex = 0;
+    }
 };
 
 }  // namespace ecs
