@@ -732,3 +732,36 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   `scroll_offset`) and auto-hides/fades like a native overlay scrollbar. Because
   the component already owns all three metrics, this is a pure render + one
   input-handler addition — no new state.
+
+### #27 — immediate-mode UI clears + rebuilds the whole tree every frame; no retained-layout / dirty-skip primitive (the T7 idle-frame floor)
+- **Gap:** the UI is fully immediate-mode. Every frame `BeginUIContextManager`
+  runs `ClearVisibity` + `ClearUIComponentChildren` over all `UIComponent`s,
+  then our systems (sidebar/main-pane/tab-bar) re-emit the ENTIRE component tree
+  via `mk()`/`div()`/`button()`, then `AutoLayout::autolayout` re-solves the
+  whole tree, then the render pass draws it. There is no way to tell afterhours
+  "nothing changed this frame — keep last frame's laid-out tree and just
+  redraw" (or better, re-present the last framebuffer). `mk()` retains ENTITIES
+  by UUID (good — no per-frame alloc churn), but their children/visibility are
+  cleared and layout is re-solved unconditionally, so an app-side "skip our
+  update tick when idle" leaves the tree empty and renders nothing. The
+  clear+rebuild is baked into the vendored UI systems, off-limits to edit.
+- **Measured (2026-08-02, live on aspen, `HANABI_FRAME_SPLIT=1`, 120 frames):**
+  - idle Home:       **8.71ms/frame** = update(tick) **3.35ms** + render(layout+draw) **5.36ms**
+  - big transcript:  **11.59ms/frame** = update **3.54ms** + render(layout+draw) **8.04ms**
+  The update half (our systems re-emitting) is a flat ~3.4ms of pure idle waste;
+  the render half is the bigger cost and scales with visible content (already
+  cut by the virtualization gap #23 + the transcript_render_cache memoization).
+- **Why it matters:** this ~8.6ms idle floor is the app's steady-state per-frame
+  cost even when the user is doing nothing — it's the headline "T7" perf item.
+  Everything app-side that's cheap to fix (string/measure memoization, off-screen
+  culling) is already done; the remaining win requires the framework.
+- **Minimal upstream fix (vendor, off-limits here):** a retained/dirty-frame
+  mode. Two shapes, either works: (a) a global `ui_dirty` flag the app sets on
+  any state change (input, stream tick, load, resize); when clear, the UI
+  systems skip the clear+re-emit+autolayout and the backend re-presents the last
+  frame — turning idle frames into a swap only. (b) per-subtree layout caching:
+  autolayout memoizes a subtree's solved rects keyed by its config hash + size,
+  and only re-solves subtrees whose inputs changed. (a) is the bigger win for an
+  idle desktop app (idle → ~0ms of our work); (b) helps the mixed case. Neither
+  is expressible in app code because the clear+rebuild lives in the vendored
+  `BeginUIContextManager`/autolayout pass.

@@ -723,13 +723,37 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     if (const char* ft = std::getenv("HANABI_FRAME_TIMING"); ft && *ft) {
         int iters = std::atoi(ft);
         if (iters < 10) iters = 60;
-        std::vector<double> ms;
+        // HANABI_FRAME_SPLIT=1 attributes each frame's cost to the update
+        // (tick: our systems re-emit the UI tree) vs render (autolayout + draw)
+        // halves, so the T7 idle-frame work has a target. Diagnostic-only.
+        const bool split = [] {
+            const char* v = std::getenv("HANABI_FRAME_SPLIT");
+            return v && *v && std::string(v) != "0";
+        }();
+        std::vector<double> ms, msU, msR;
         ms.reserve(iters);
+        msU.reserve(iters);
+        msR.reserve(iters);
         for (int i = 0; i < iters; ++i) {
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             auto a = std::chrono::high_resolution_clock::now();
-            sm.run(1.0f / 60.0f);
+            if (split) {
+                auto& ents = afterhours::EntityHelper::get_entities_for_mod();
+                auto u0 = std::chrono::high_resolution_clock::now();
+                sm.fixed_tick_all(ents, 1.0f / 60.0f);
+                sm.tick_all(ents, 1.0f / 60.0f);
+                afterhours::EntityHelper::cleanup();
+                auto u1 = std::chrono::high_resolution_clock::now();
+                sm.render_all(1.0f / 60.0f);
+                auto u2 = std::chrono::high_resolution_clock::now();
+                msU.push_back(
+                    std::chrono::duration<double, std::milli>(u1 - u0).count());
+                msR.push_back(
+                    std::chrono::duration<double, std::milli>(u2 - u1).count());
+            } else {
+                sm.run(1.0f / 60.0f);
+            }
             auto b = std::chrono::high_resolution_clock::now();
             graphics::end_frame();
             ms.push_back(
@@ -744,6 +768,14 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             "FrameTiming: frames={} min={:.2f}ms median={:.2f}ms "
             "mean={:.2f}ms max={:.2f}ms",
             ms.size(), ms.front(), median, mean, ms.back());
+        if (split && !msU.empty()) {
+            std::sort(msU.begin(), msU.end());
+            std::sort(msR.begin(), msR.end());
+            log_info(
+                "FrameSplit: update(tick) median={:.2f}ms  "
+                "render(layout+draw) median={:.2f}ms",
+                msU[msU.size() / 2], msR[msR.size() / 2]);
+        }
         fflush(stdout);
     }
 
