@@ -62,6 +62,15 @@ struct Tokens {
     Color tag_ready_fg, tag_ready_bg;
     Color tag_done_fg, tag_done_bg;
 
+    // On-BACKGROUND status hues (section headers, sidebar status glyphs) — a
+    // saturated red / green that reads as its HUE on the pane/sidebar bg. These
+    // are DISTINCT from tag_*_fg, which is the on-PILL chip-text color: on light
+    // the chip text is a very dark maroon (for contrast on a pale-pink pill),
+    // which reads as near-black when drawn on the light background instead. So a
+    // header/glyph needs its own mid-saturation hue that carries "red/green =
+    // urgent/ready" on both themes.
+    Color status_blocked, status_review;
+
     // Message role accents (transcript)
     Color role_user, role_assistant, role_system, role_tool;
     Color bubble_user_bg, bubble_assistant_bg, bubble_other_bg;
@@ -118,6 +127,11 @@ inline const Tokens kDark = {
     // to "active/link"). Cool desaturated grey: present but visually receded.
     /*tag_done_fg*/ {158, 164, 178, 255},
     /*tag_done_bg*/ {150, 158, 176, 34},
+
+    // On-background status hues (dark): the chip fg already reads well on dark,
+    // so these match it — a bright red / green on the dark pane + sidebar.
+    /*status_blocked*/ {255, 120, 120, 255},
+    /*status_review*/ {126, 210, 150, 255},
 
     /*role_user*/ {90, 128, 255, 255},
     /*role_assistant*/ {126, 200, 140, 255},
@@ -212,6 +226,14 @@ inline const Tokens kLight = {
     /*tag_done_fg*/ {58, 66, 82, 255},
     /*tag_done_bg*/ {96, 104, 124, 120},
 
+    // On-background status hues (light): tag_*_fg above is tuned as chip text on
+    // a pale pill (a near-black maroon / deep green), which reads as ~black when
+    // drawn straight on the light pane. These are a saturated mid-dark red /
+    // green that keep their HUE on the ~white pane/sidebar bg while still
+    // clearing 4.5:1 (red ~5.0, green ~4.7 on #F-ish).
+    /*status_blocked*/ {193, 30, 30, 255},
+    /*status_review*/ {22, 118, 56, 255},
+
     /*role_user*/ {46, 90, 236, 255},
     /*role_assistant*/ {34, 124, 62, 255},
     /*role_system*/ {150, 112, 30, 255},
@@ -304,6 +326,8 @@ inline Color bubble_other_bg() { return t.bubble_other_bg; }
 inline Color status_active() { return t.status_active; }
 inline Color status_idle() { return t.status_idle; }
 inline Color status_archived() { return t.status_archived; }
+inline Color status_blocked() { return t.status_blocked; }
+inline Color status_review() { return t.status_review; }
 
 // Tag chip colors.
 inline Color tag_blocked_fg() { return t.tag_blocked_fg; }

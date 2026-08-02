@@ -1077,7 +1077,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             section_label(ctx, wrap, 1,
                           "Waiting on you \xc2\xb7 " +
                               std::to_string(waiting.size()),
-                          first, theme::tag_blocked_fg());
+                          first, theme::status_blocked());
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
             for (const auto* s : waiting)
@@ -1100,7 +1100,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             section_label(ctx, wrap, 1800,
                           "Self-running \xc2\xb7 " +
                               std::to_string(selfRunning.size()),
-                          first, theme::tag_ready_fg());
+                          first, theme::status_review());
             first = false;
             for (const auto* s : selfRunning)
                 digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
