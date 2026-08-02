@@ -35,3 +35,44 @@ Status legend: [ ] todo · [~] in progress · [x] done (commit) · [gap] logged 
 ## Already done this session (context)
 - open-at-bottom on first open (ac2964c), selected!=hover (f46b17e), fold-all button + row titles (5437040),
   fenced code blocks (1c001cd), tab void + header + inset (f690db4).
+
+---
+
+## VALIDATION AUDIT (2026-08-02) — every ask verified at code level
+
+Method: for each item, confirmed the concrete code artifact exists in the named
+file (not just the checkbox), then ran the full gate (build 0/0, TLS 0/0, make
+test 8/8, perf PASS, make test-real 89 sessions + live /whoami). All green.
+
+Feedback-blast items (files verified):
+- #1 focus-gated hotkey — native_extras.mm: HotkeyFocusObserver + DidBecomeActive/WillResignActive register/unregister ✓
+- #2 settings click-outside — settings_system.h: `!is_mouse_inside(panelRect)` gate before showSettings=false ✓
+- #3/#4 fast-scroll blank — main_pane_system.h: velocity (s_lastScrollY) + extendUp/extendDown margin ✓
+- #5/#6 multi-sub SSE pool — components.h struct LiveSub + liveSubs map; loader sync_subscriptions (per open tab) + background refetch→disk ✓
+- #7 load-older anchor — anchorPending/anchorPrevMsgCount (components/loader) + prependedH scroll bump (main_pane) ✓
+- #8 load-older indicator — loading_older_pill + "Loading older messages…" ✓
+- #9 prefetch trigger — main_pane_system.h:requestLoadOlder=true when scrollY <= 2*viewH ✓
+- #10 cache cap — settings.h/.cpp cache_cap_bytes + disk_cache trim_to_cap/touch_transcript + settings_system render_cache_limit_row + loader save_and_trim/touch ✓
+- #11 single-tool right-align — metaW-computed cmdW ✓
+- #12 clickable tool block — tool_block_expandable + tool_out_height + expandedPiles toggle + per-line tool_out_line ✓
+- #13 star flash — sidebar: baked wash + star-id cache + skip_hover_override ✓
+- #14 star right-align — row order: row_time(1822) before row_star(1861) ⇒ star rightmost ✓
+- #15 settings polish — section_label + content-derived ph ✓
+- tool-output \n — per-line tool_out_line rows (gap #24 workaround) ✓
+
+Earlier-session items (regression-checked, still present):
+- open-at-bottom scrollBottomPending (components/tab_model/main_pane) ✓
+- selected≠hover sidebar (selected?selected_bg) ✓
+- fold-all 28px + hover bg ✓
+- fenced code is_code_fence ✓
+- tab-void strip_bg=panel_bg ✓
+- redundant-title→transcript_header ✓
+
+Gaps documentation: afterhours_gaps.md now has a grouped INDEX + 27 numbered
+gaps (#1–#31; animation sub-series relabeled AN-8..AN-12 to remove the dup #8)
++ WISHLIST A–H. New this session: #28 focus-gate, #29 single-hot-entity, #30
+scroll-anchor-on-prepend, #31 stale-offset virtualization. (Found during audit:
+subagents had logged #28/#29 as UNNUMBERED prose; #30/#31 were missing entirely
+— all fixed.)
+
+STATUS: all 15 feedback items + tool-output \n fix DONE and verified. 0 open.

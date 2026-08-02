@@ -855,7 +855,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // (same ~52px height + margins) with two dim bars (a wide "title" + a short
     // "meta"), so a cold-launch pane reads as "loading content" instead of
     // flashing a false "all caught up". No animation (afterhours has no shimmer
-    // primitive — gap #11); the muted static bars are enough to signal pending.
+    // primitive — gap AN-11); the muted static bars are enough to signal pending.
     void skeleton_card(UIContext<InputAction>& ctx, Entity& parent, int idx) {
         auto card = div(ctx, mk(parent, 700 + idx),
             ComponentConfig{}

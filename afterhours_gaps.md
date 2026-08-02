@@ -11,6 +11,58 @@ Nothing here BLOCKED Phase 2 — every item has a working app-code workaround.
 
 ---
 
+## INDEX (what a mature UI toolkit would give us for free)
+
+Grouped for review. "AN-#" = the Animation sub-series (post-MVP delight); its
+numbers are independent of the main series (both happen to reuse 8–12).
+
+**Text & layout**
+- #18 no flex-grow (can't pin a trailing element right)
+- #22 styled/colored label spans don't word-wrap (blocks inline `code` pills)
+- #23 no off-screen culling / list virtualization for scroll views
+- #24 wrapped text ignores hard `\n` line breaks
+- #30 no scroll-anchor / preserve-position-on-prepend (load-older snapped to top)
+- #31 virtualization window built from a STALE offset (no velocity/next-offset ⇒ fast-fling blanks)
+
+**Scroll / hit-testing / input**
+- #3 absolutely-positioned button click vs manual hit-test
+- #26 `HasScrollView` has no built-in (draggable) scrollbar
+- #29 single global `hot_id`: a hoverable child steals the parent row's hover fill
+
+**Rendering / compositing**
+- #13 `draw_texture_pro` has no alpha blending
+- #14 `load_texture` sampler has no mipmaps (minified icons alias)
+- #15 low-alpha `with_custom_background` renders OPAQUE
+- #25 `draw_rectangle_rounded` degenerate triangle on mixed round/sharp corners
+
+**Per-frame cost**
+- #27 immediate-mode clears + rebuilds the whole tree every frame (no retained/dirty layer — the idle-frame floor)
+
+**Widgets**
+- #17 imm `text_input` ignores `with_font_size` / `with_custom_background`
+
+**OS integration**
+- #1 / #16 no OS appearance (light/dark) query
+- #5 macOS menu-bar extra (NSStatusItem) — app-side .mm
+- #28 no OS window-focus / frontmost query ⇒ can't focus-gate a global hotkey (Cmd+Shift+N stole Chrome's incognito)
+
+**Animation sub-series (AN, post-MVP)**
+- AN-8 per-item stagger/delay · AN-9 exit animation · AN-10 one-shot state-change trigger · AN-11 shimmer/gradient-mask · AN-12 drag gesture + spring-to-slot
+
+**Testing / headless**
+- #6 headless capture can't supersample (hi-DPI) · #21 `--screenshot` waits on list not transcript load
+
+**Icon-atlas resource gaps (ours, not framework)**
+- #19 waiting/attention glyph · #20 automated/scheduled glyph
+
+**Watch-only**
+- #7 RAM knobs · #8 windowed launch cost is OS/graphics-init dominated (log-only)
+
+The promote-these-upstream synthesis (grouped by theme, with proposed API
+shapes) is in sections A–H near the end.
+
+---
+
 ## 1. No OS appearance ("follow system" light/dark) query
 - **Gap:** afterhours exposes no way to read the host OS's current appearance
   (macOS `NSApp.effectiveAppearance` / `AppleInterfaceStyle`) or to subscribe
@@ -165,7 +217,7 @@ below are the residual gaps for the "delightful V2" direction. All are
 NON-BLOCKING and have an app-code workaround (the manual per-frame lerp/spring
 pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 
-### #8 — No per-item stagger / delay on declarative animations
+### AN-8 — No per-item stagger / delay on declarative animations
 - **Gap:** `AnimationDef` (`animation_config.h:47-60`) has no `delay` /
   `stagger_index`. Every `OnAppear` starts the frame the widget first renders,
   so a list of rows fades in all at once — no cascade.
@@ -178,7 +230,7 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 - **Minimal upstream help (optional):** a `delay` (and/or `stagger_index * step`)
   field on `AnimationDef`, applied before the track goes active.
 
-### #9 — No exit / "leaving" animation (OnExit) in immediate mode
+### AN-9 — No exit / "leaving" animation (OnExit) in immediate mode
 - **Gap:** triggers are `OnAppear/OnClick/OnHover/OnFocus/Loop`
   (`animation_config.h:14-20`) — there is no `OnExit`. In immediate mode, when a
   row/tab's data is gone the widget simply isn't emitted next frame; nothing
@@ -193,7 +245,7 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   "keep this widget alive M ms after its last emit and run its exit anim" hook.
   This is the single biggest structural gap; hard in pure immediate-mode.
 
-### #10 — No one-shot "value/state changed" trigger on a widget
+### AN-10 — No one-shot "value/state changed" trigger on a widget
 - **Gap:** the declarative triggers are interaction/appearance edges; there's no
   "this widget's underlying value changed" trigger to fire a one-shot flash.
 - **Why wanted:** a row flashing/pulsing once when its status flips to
@@ -205,7 +257,7 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 - **Minimal upstream help (optional):** an `OnValueChanged`-style trigger, or a
   documented pattern for app-driven one-shot widget anims.
 
-### #11 — No shimmer-sweep / gradient-mask primitive
+### AN-11 — No shimmer-sweep / gradient-mask primitive
 - **Gap:** a pulsing-opacity skeleton is trivial (`loop().opacity(...)`), but a
   moving *shimmer sweep* (highlight band translating across a placeholder) needs
   a gradient mask / animated `background-position`-style effect, which the
@@ -217,7 +269,7 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 - **Minimal upstream help (optional):** a linear-gradient fill / mask primitive
   in the sokol drawing helpers.
 
-### #12 — No drag gesture + spring-to-slot path
+### AN-12 — No drag gesture + spring-to-slot path
 - **Gap:** interaction triggers are boolean edges (`OnClick/OnHover/OnFocus`);
   there's no pointer-delta drag model, and no "animate toward a moving/dropped
   target" affordance in either system.
@@ -774,7 +826,7 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   is expressible in app code because the clear+rebuild lives in the vendored
   `BeginUIContextManager`/autolayout pass.
 
-## No OS window-focus / frontmost-app query or focus-gated global hotkey support
+### #28 — No OS window-focus / frontmost-app query or focus-gated global hotkey support
 afterhours has no notion of OS-level application activation state (is this app
 frontmost?) and no focus-gated global-hotkey primitive. The framework's input
 layer only sees key events routed to the window while it's key; it cannot
@@ -793,7 +845,7 @@ frontmost app normally. If afterhours grew a cross-platform "app-focus changed"
 signal (or a focus-gated hotkey binding), this NSApp-notification plumbing could
 move behind the framework seam instead of living in the .mm.
 
-## Single hot-entity: a hoverable child steals the parent row's hover fill
+### #29 — Single hot-entity: a hoverable child steals the parent row's hover fill
 afterhours tracks hover as ONE global `hot_id` (context.h): `HandleClicks`
 (systems.h) sets hot on the deepest element under the mouse, so a child button
 that overlaps its parent's rect takes `hot_id` away from the parent while the
@@ -818,3 +870,45 @@ star also gets `skip_hover_override=true` so its own (transparent) fill never
 tints. If afterhours grew either a `mouse_in_subtree(id)` query or a
 "child-hover propagates to parent hot" option (or a hit-test-ignore flag), this
 per-row id cache + base-color baking could collapse to a single call.
+
+### #30 — No scroll-anchor / preserve-position-on-prepend for scroll views
+- **Gap:** `HasScrollView` tracks `scroll_offset` in absolute px from the top.
+  When content is inserted ABOVE the current viewport (loading older messages
+  at the top of a transcript), the total content grows but the offset is
+  unchanged, so the SAME px-from-top now shows OLDER content — the view snaps
+  upward to the newly-loaded oldest message. There's no "anchor to a child /
+  hold the viewport on the currently-visible item across a content-size change"
+  primitive (what web browsers call scroll anchoring).
+- **Why wanted (hanabi):** "load older" prepends a page of older messages; the
+  user expects their current position to stay put (new content appears above),
+  not to be yanked to the top.
+- **App-code workaround (used):** the loader records the message COUNT before a
+  load-older fetch; on the frame the larger content lays out, the transcript
+  render (main_pane_system.h) measures the total height of the newly-prepended
+  items and bumps `scroll_offset.y` by exactly that delta, once, then clears the
+  pending anchor — holding the viewport on the same message. Works because the
+  app already measures every item's height for virtualization (#23).
+- **Minimal upstream fix:** an opt-in "anchor" mode on `HasScrollView` — remember
+  the top-most visible child before layout and re-derive `scroll_offset` after,
+  so a content-size change above the fold keeps the visible item stable.
+
+### #31 — Virtualization window must be built from a STALE scroll offset (no next-offset / velocity hint)
+- **Gap:** an app doing its own list virtualization (#23) reads
+  `HasScrollView.scroll_offset` which is LAST frame's value (the current frame's
+  layout hasn't run yet), and builds the visible window from it. On a fast
+  fling the offset moves many px between frames, so a window built with a small
+  margin around the stale offset doesn't cover where the content actually is
+  this frame → the list goes BLANK until the scroll settles and the window
+  catches up. There's no framework signal for "the offset the scroll view will
+  settle at" or the current scroll velocity.
+- **Why wanted (hanabi):** fast-scrolling a long transcript blanked out the
+  messages (components stopped rendering, popped back on stop) — a jarring
+  "not a real app" tell.
+- **App-code workaround (used):** the transcript tracks its own per-frame scroll
+  delta (velocity) per session and extends the virtualization margin
+  generously in the travel direction (base ~1 viewport + up to ~4 viewports of
+  velocity-scaled lookahead), so the built window covers where a fast fling is
+  heading. Idle cost is unchanged (velocity 0 => no extension).
+- **Minimal upstream fix:** expose the scroll view's velocity (or a predicted
+  next offset), or — better — provide the virtualization itself (see #23) so
+  apps don't re-derive a velocity-aware window by hand.
