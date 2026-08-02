@@ -815,6 +815,16 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   cost even when the user is doing nothing — it's the headline "T7" perf item.
   Everything app-side that's cheap to fix (string/measure memoization, off-screen
   culling) is already done; the remaining win requires the framework.
+- **CONFIRMED app-side ceiling (2026-08-02):** the sokol frame driver is
+  vsync-locked — `sapp_desc.swap_interval` is never set (defaults to 1) in the
+  vendored `metal_run` (backend.h ~719), so the app renders at the display
+  refresh (~111-120Hz) and there is NO app-side FPS cap (the Metal
+  `set_target_fps` is a documented no-op). And because
+  `BeginUIContextManager` CLEARS the tree before our systems run, an app-side
+  'skip our update tick when idle' renders an EMPTY tree — not viable. So both
+  halves (the ~3.8ms update re-emit and the ~6.2ms vsync'd autolayout+draw) are
+  gated behind vendored code. This is genuinely NOT fixable in app code without
+  editing vendor; leaving it logged rather than hacking a half-measure.
 - **Minimal upstream fix (vendor, off-limits here):** a retained/dirty-frame
   mode. Two shapes, either works: (a) a global `ui_dirty` flag the app sets on
   any state change (input, stream tick, load, resize); when clear, the UI

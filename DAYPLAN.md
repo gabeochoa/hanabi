@@ -5,11 +5,11 @@ No vendor edits (log gaps). No company names. Mock default. One mutator per file
 (subagents get isolated files; main_pane_system.h + loader_system.h are MINE).
 
 ## TIER 1 — PERF
-1  [ ] T7 idle-frame skip (attempt app-side; log gap if vendor-blocked)
+1  [x] T7 — confirmed vendor-blocked (vsync swap_interval + tree-clear); gap #27 strengthened. NOT hacked.
 2  [ ] Sidebar fold/close relayout jank
 3  [ ] Cache smart-view/home partition (per-frame recompute)
 4  [ ] Memoize sidebar row width math
-5  [ ] Frame-timing regression guard in make test
+5  [~] Frame guard — FirstFrame<250ms gate already catches gross regressions; idle-frame render needs GPU ctx (not unit-testable). Kept existing gate.
 
 ## TIER 2 — CHAT FIDELITY (main_pane, mine)
 6  [ ] Inline code pills (short-line styled runs)
