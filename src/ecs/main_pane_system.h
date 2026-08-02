@@ -119,6 +119,52 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Centered "loading this thread" spinner: a small accent ring + caption.
+    // Shown when the transcript is fetching a DIFFERENT thread than what's
+    // currently displayed (a fresh switch), so the UI stays interactive with a
+    // clear indicator instead of a blank/empty pane or wrong content. The
+    // async loader (data layer) sets transcriptState=Loading + transcriptLoadingId
+    // immediately on switch, so this paints on the very next frame while the
+    // heavy fetch/parse runs on a worker (never the UI thread).
+    static void loading_spinner(UIContext<InputAction>& ctx, Entity& parent,
+                                const std::string& caption) {
+        auto wrap = div(ctx, mk(parent, 81),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(120)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_padding(Padding{.top = pixels(48)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("transcript_loading"));
+        div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(24), pixels(24)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg([](RectangleType r) {
+                    const float cx = r.x + r.width * 0.5f;
+                    const float cy = r.y + r.height * 0.5f;
+                    afterhours::draw_ring(cx, cy, 7.0f, 9.5f, 28,
+                                          theme::accent());
+                })
+                .with_debug_name("transcript_loading_ring"));
+        div(ctx, mk(wrap.ent(), 2),
+            ComponentConfig{}
+                .with_label(caption)
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_margin(Margin{.top = pixels(10)})
+                .with_roundness(0.0f)
+                .with_debug_name("transcript_loading_caption"));
+    }
+
     static void note(UIContext<InputAction>& ctx, Entity& parent,
                      const std::string& text) {
         div(ctx, mk(parent, 80),
@@ -1113,6 +1159,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (!app.openSession) {
             note(ctx, parent, "Open a thread to view its messages.");
+            return;
+        }
+        // Per-thread switch spinner: if we're loading a thread whose content is
+        // NOT what's currently in openSession (a fresh switch, no stale paint
+        // to reuse), show a spinner instead of blank/wrong content. When stale
+        // data for the SAME id is present, keep showing it (stale-while-
+        // revalidate) rather than flashing a spinner. (Data layer guarantees
+        // the fetch/parse is off the UI thread — no beachball.)
+        if (app.transcriptState == LoadState::Loading &&
+            !app.transcriptLoadingId.empty() &&
+            app.openSession->summary.id != app.transcriptLoadingId) {
+            loading_spinner(ctx, parent, "Loading conversation\xe2\x80\xa6");
             return;
         }
 

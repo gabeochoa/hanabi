@@ -670,6 +670,17 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             appForWait->view = ecs::SmartView::Home;
             appForWait->selectedId.clear();
         }
+
+        // Screenshot affordance: HANABI_LOADING_DEMO=1 forces the per-thread
+        // transcript switch spinner (transcriptState=Loading + a mismatched
+        // transcriptLoadingId, so the pane shows the "Loading conversation…"
+        // ring instead of stale/blank content). Render-only; no network.
+        if (const char* d = std::getenv("HANABI_LOADING_DEMO"); d && *d &&
+            std::string(d) != "0") {
+            appForWait->view = ecs::SmartView::Chat;
+            appForWait->transcriptState = ecs::LoadState::Loading;
+            appForWait->transcriptLoadingId = "__loading_demo__";
+        }
     }
 
     // Render several frames so async data loads and layout settles.
