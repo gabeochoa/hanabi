@@ -1408,6 +1408,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int hi = 0;
         float height = 0.0f;
         bool isLive = false;
+        // Assistant author label grouping (V2): the "hanabi" author row shows
+        // only on the FIRST assistant message of a turn (i.e. when the previous
+        // message was the user, or this is the first message). One real
+        // assistant turn splits into several Assistant text messages interleaved
+        // with Tool messages, so without grouping the name repeats on every
+        // fragment. Continuation fragments (prev = Assistant/Tool) suppress it.
+        bool showAuthor = true;
     };
 
     static ecs::model::TranscriptRenderCache& render_cache() {
@@ -1576,7 +1583,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 it.kind = Item::Bubble;
                 it.lo = i;
                 it.isLive = streamingHere && static_cast<size_t>(i) == liveIdx;
-                it.height = bubble_height(m, colW, it.isLive, i);
+                // Show the assistant author label only when this assistant
+                // message STARTS an assistant run — i.e. the previous message
+                // is NOT assistant-side (Assistant or Tool are both the same
+                // turn). A User or System message before it (or being first)
+                // begins a new run, so the "hanabi" name shows once at the top
+                // and continuation fragments (prev = Assistant/Tool) suppress
+                // the repeat. (User messages never show it.)
+                it.showAuthor =
+                    (i == 0) || (msgs[i - 1].role != api::Role::Assistant &&
+                                 msgs[i - 1].role != api::Role::Tool);
+                it.height = bubble_height(m, colW, it.isLive, i, it.showAuthor);
                 totalH += it.height;
                 items.push_back(it);
                 ++i;
@@ -1718,7 +1735,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case Item::Bubble:
                     render_bubble(ctx, col, it.lo, msgs[it.lo], colW,
                                   it.isLive, app.streamPhase, visTop, visBot,
-                                  top);
+                                  top, it.showAuthor);
                     break;
                 case Item::ToolPile:
                     tool_pile(ctx, col, it.lo, msgs, it.lo, it.hi, colW);
@@ -2347,7 +2364,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- Item height functions (mirror the render layout exactly) ----------
     float bubble_height(const api::Message& m, float paneWidth, bool isLive,
-                        int index) {
+                        int index, bool showAuthor = true) {
         if (m.role == api::Role::System) return 22.0f + 16.0f;
         const bool isUser = (m.role == api::Role::User);
         if (isUser) {
@@ -2367,7 +2384,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           ? rich_body_h(first_n_lines(mr.body, textW, kFoldLines),
                                         textW)
                           : mr.height;
-        float h = kTurnGapTop + 12.0f + kAuthorH + kAuthorGap + bodyH +
+        float h = kTurnGapTop + 12.0f +
+                  (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + bodyH +
                   kTurnGapBot;
         AppComponent* app = app_singleton();
         const std::string mkey =
@@ -2631,7 +2649,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        AppComponent::StreamPhase streamPhase =
                            AppComponent::StreamPhase::Idle,
                        float winTop = 0.0f, float winBot = -1.0f,
-                       float itemTopY = 0.0f) {
+                       float itemTopY = 0.0f, bool showAuthor = true) {
         if (m.role == api::Role::System) {
             render_meta_line(ctx, parent, index, m);
             return;
@@ -2718,7 +2736,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("asst_turn"));
 
         // Author row: colored name bound TIGHT above its body, subtle
-        // right-aligned timestamp on the same row.
+        // right-aligned timestamp on the same row. Shown only on the FIRST
+        // assistant message of a turn (V2 grouping) — continuation fragments
+        // suppress the repeated name. The timestamp rides on the author row, so
+        // when suppressed the fragment is just its body (tight continuation).
+        if (showAuthor) {
         std::string who = "hanabi";
         if (!m.subtitle.empty()) who += "  \xc2\xb7  " + m.subtitle;
         std::string ts = isLive ? std::string("streaming\xe2\x80\xa6")
@@ -2756,10 +2778,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("asst_ts"));
         }
-        // Body starts below the turn's top margin + author row: cull the
-        // body's off-screen line-segments (intra-message virtualization).
+        }  // showAuthor
+        // Body starts below the turn's top margin + author row (when shown):
+        // cull the body's off-screen line-segments (intra-message
+        // virtualization). Must mirror bubble_height's author-row term exactly.
         const float bodyStartY =
-            itemTopY + (kTurnGapTop + 12.0f) + kAuthorH + kAuthorGap;
+            itemTopY + (kTurnGapTop + 12.0f) +
+            (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f);
         render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
                          bodyStartY);
 
