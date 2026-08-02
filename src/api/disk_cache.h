@@ -51,6 +51,15 @@ std::optional<std::vector<SessionSummary>> load_sessions();
 void save_transcript(const Session& session);
 std::optional<Session> load_transcript(const std::string& id);
 
+// --- Owned durable export (local-first idea #4) -------------------------
+// Write every cached transcript as human-readable Markdown into a USER-OWNED
+// directory (~/hanabi/threads/<safe-title>.md), so the user's conversations
+// survive even if the backend is sunset ("the Long Now"). Returns the number
+// of transcripts written; the destination dir is created if needed. Reads only
+// the local cache (never the network). export_dir() returns the path used.
+std::string export_dir();
+int export_all_markdown();
+
 // --- Introspection / maintenance (for the settings screen) --------------
 // total_bytes(): sum of the byte sizes of every cache file under cache_dir()
 // (sessions.json + every tx_*.json in the ACTIVE namespace). Cheap stat walk,

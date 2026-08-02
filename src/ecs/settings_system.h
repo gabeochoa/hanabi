@@ -80,6 +80,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                          (kSectionH + kThemeRowH) +      // Theme
                          (kSectionH + kCacheRowH) +      // Cache (usage+clear)
                          (kSectionH + kLimitRowH) +      // Cache limit
+                         (kSectionH + kCacheRowH) +      // Data (export)
                          (kSectionH + kAccountRowH) +    // Account
                          (kFootnoteGap + kFootnoteH);    // footnote
         const float px = (sw - pw) * 0.5f;
@@ -140,6 +141,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         render_theme_row(ctx, panel.ent(), *app);
         render_cache_row(ctx, panel.ent(), *app);
         render_cache_limit_row(ctx, panel.ent(), *app);
+        render_export_row(ctx, panel.ent(), *app);
         render_account_row(ctx, panel.ent(), *app);
         render_footnote(ctx, panel.ent(), *app);
     }
@@ -317,6 +319,60 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_cache_clear"));
         if (clear) {
             api::disk_cache::wipe_all();
+        }
+    }
+
+    // Data / export row (local-first idea #4): a "Data" section with the export
+    // destination on the left and an "Export all" button hugging the right edge
+    // (V8). Writes every cached transcript to ~/hanabi/threads/*.md — user-owned,
+    // survives a backend sunset. A transient "· exported N" note confirms.
+    void render_export_row(UIContext<InputAction>& ctx, Entity& parent,
+                           AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 60, "Data", "settings_data_label");
+        auto row = div(ctx, mk(parent, 61),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kCacheRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_export_row"));
+
+        static int s_exported = -1;  // -1 = not yet; >=0 = last export count
+        std::string left = "Export threads to ~/hanabi/threads";
+        if (s_exported >= 0)
+            left = "Exported " + std::to_string(s_exported) + " threads";
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(left)
+                .with_size(ComponentSize{children(), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_export_usage"));
+
+        auto exp = button(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label("Export all")
+                .with_size(ComponentSize{pixels(104), pixels(28)})
+                .with_custom_background(theme::button_secondary())
+                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("settings_export_btn"));
+        if (exp) {
+            s_exported = api::disk_cache::export_all_markdown();
         }
     }
 

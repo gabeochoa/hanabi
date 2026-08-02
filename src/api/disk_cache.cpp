@@ -289,7 +289,92 @@ std::optional<Session> load_transcript(const std::string& id) {
     }
 }
 
-// ---- introspection / maintenance -----------------------------------------
+// ---- owned durable export (local-first idea #4) --------------------------
+std::string export_dir() {
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) return "";
+    return (fs::path(home) / "hanabi" / "threads").string();
+}
+
+namespace {
+const char* role_word(Role r) {
+    switch (r) {
+        case Role::User: return "You";
+        case Role::Assistant: return "hanabi";
+        case Role::System: return "System";
+        case Role::Tool: return "Tool";
+    }
+    return "hanabi";
+}
+// A filesystem-safe slug from a title (letters/digits/dash/underscore only).
+std::string slugify(const std::string& s, const std::string& fallback) {
+    std::string out;
+    for (char c : s) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9'))
+            out += c;
+        else if (c == ' ' || c == '-' || c == '_')
+            out += '-';
+        // else drop
+    }
+    while (out.size() > 1 && out.back() == '-') out.pop_back();
+    if (out.empty()) out = fallback;
+    if (out.size() > 80) out = out.substr(0, 80);
+    return out;
+}
+}  // namespace
+
+int export_all_markdown() {
+    const std::string src = cache_dir();
+    const std::string dst = export_dir();
+    if (src.empty() || dst.empty()) return 0;
+    std::error_code ec;
+    fs::create_directories(dst, ec);
+    if (ec) return 0;
+    int written = 0;
+    for (fs::directory_iterator it(src, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (name.rfind("tx_", 0) != 0 || name.size() <= 5 ||
+            name.substr(name.size() - 5) != ".json")
+            continue;
+        // Load the transcript JSON directly (id is embedded in the summary).
+        std::ifstream in(it->path());
+        if (!in.good()) continue;
+        Session s;
+        try {
+            json doc;
+            in >> doc;
+            if (!doc.contains("summary")) continue;
+            s.summary = summary_from_json(doc["summary"]);
+            if (doc.contains("messages") && doc["messages"].is_array())
+                for (const auto& e : doc["messages"])
+                    s.messages.push_back(message_from_json(e));
+        } catch (...) {
+            continue;
+        }
+        // Render Markdown.
+        std::string md = "# " + (s.summary.title.empty() ? s.summary.id
+                                                          : s.summary.title) +
+                         "\n\n";
+        for (const auto& m : s.messages) {
+            md += "**" + std::string(role_word(m.role)) + "**\n\n";
+            md += m.text;
+            md += "\n\n";
+            if (!m.tool_result.empty())
+                md += "```\n" + m.tool_result + "\n```\n\n";
+        }
+        const std::string fname =
+            slugify(s.summary.title, s.summary.id) + ".md";
+        std::ofstream out(fs::path(dst) / fname, std::ios::trunc);
+        if (out.good()) {
+            out << md;
+            ++written;
+        }
+    }
+    return written;
+}
+
 namespace {
 // True for a file this cache owns (sessions.json or a tx_*.json transcript).
 // Used to bound total_bytes()/wipe_all() to OUR files, never anything else a
