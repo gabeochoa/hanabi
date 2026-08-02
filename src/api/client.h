@@ -53,6 +53,47 @@ struct Config {
     std::string messages_path = "/sessions/{id}/messages";
     std::string chat_path;  // empty = http send disabled (opt-in)
 
+    // --- Memory-light transcript window -----------------------------------
+    // Opening a thread fetches only the NEWEST N messages (not the whole
+    // transcript) to keep the memory footprint small — you land at the bottom
+    // where the newest messages are, and older ones load on demand. N is
+    // configurable (HANABI_MESSAGES_WINDOW); the request appends "?limit=N" to
+    // messages_path (correctly, whether or not the path already has a query).
+    // The backend returns the newest N still ASCENDING (oldest-first within the
+    // window) plus a "hasMore" flag when older messages exist, which the
+    // adapter parses into Session::has_more_older. 0 => fetch the FULL
+    // transcript (no limit) — this is how "load older" is serviced today,
+    // since the backend has no working backward cursor yet.
+    int messages_window = 40;
+    // JSON field on the messages RESPONSE OBJECT that flags older messages
+    // exist beyond the window (a wrapped response, not a bare array).
+    std::string field_has_more = "hasMore";
+
+    // --- Live events (SSE) ------------------------------------------------
+    // A session's live activity stream. GET {events_path} returns
+    // text/event-stream and pushes "data: {json}" frames as the session
+    // changes. FULLY generic + opt-in exactly like stream_path: empty default
+    // => http live-events disabled (the app just doesn't subscribe); the mock
+    // is a deterministic no-op. The path templates {id} like messages_path.
+    //   HANABI_EVENTS_PATH   default "/sessions/{id}/events"
+    // Frame shape (verified live): the FIRST frame is a top-level
+    // {type:"connected",...} (ignored — just confirms the stream opened); every
+    // subsequent activity frame nests the meaningful kind under an "event"
+    // object: {sessionId,event:{type:"<kind>",...},ts}. So the adapter reads
+    // field_event_top_type at the top level (only "connected" matters there)
+    // and otherwise field_events_obj.field_event_type for the real kind. Pure
+    // telemetry kinds (field_events_ignore_type, e.g. "context_usage") are
+    // ignored; anything else that implies the transcript changed triggers a
+    // debounced re-fetch of the open session's newest-N. All overridable.
+    std::string events_path = "/sessions/{id}/events";
+    std::string field_events_obj = "event";       // the nested activity object
+    std::string field_event_top_type = "type";    // top-level type ("connected")
+    std::string event_type_connected = "connected";
+    // Telemetry event kinds that fire constantly and must NOT trigger a
+    // refetch (comma-free single value; the loader compares against it).
+    std::string event_type_ignore = "context_usage";
+
+
     // JSON field-name mapping. The adapter reads these keys out of whatever
     // objects the backend returns, so the client can be pointed at different
     // shapes without code changes. Defaults are deliberately generic.
@@ -76,6 +117,33 @@ struct Config {
     std::string field_block_type = "type";
     std::string field_block_content = "content";
     std::string field_block_text_type = "text";
+
+    // Tool-call / tool-result BLOCK mapping. Real assistant messages carry an
+    // interleaved SEQUENCE of blocks (text, tool_call, tool_result, ...); the
+    // adapter SPLITS these into ordered api::Messages so the transcript's rich
+    // tool-row renderer (which triggers on Role::Tool messages) fires on real
+    // data. Verified block shapes (live):
+    //   tool_call:   {type:"tool_call",   toolCall:{id,name,inputs,startedAt}}
+    //   tool_result: {type:"tool_result", toolResult:{output,status,
+    //                                                  toolCallId,completedAt}}
+    // All field names overridable so the adapter matches a backend without
+    // code changes; nothing endpoint-specific is baked in.
+    std::string field_block_tool_call_type = "tool_call";
+    std::string field_block_tool_result_type = "tool_result";
+    std::string field_tool_call_obj = "toolCall";      // wrapper on a tool_call
+    std::string field_tool_result_obj = "toolResult";  // wrapper on a tool_result
+    std::string field_tool_name = "name";
+    std::string field_tool_inputs = "inputs";
+    std::string field_tool_started_at = "startedAt";
+    std::string field_tool_id = "id";                  // toolCall.id
+    std::string field_tool_output = "output";
+    std::string field_tool_status = "status";
+    std::string field_tool_result_call_id = "toolCallId";
+    std::string field_tool_completed_at = "completedAt";
+    // Keys the inputs blob commonly carries, surfaced onto the tool row's
+    // command line (best-effort; a totally opaque blob is shown truncated).
+    std::string field_tool_input_command = "command";
+    std::string field_tool_input_node = "node";
 
     // Chat/send field mapping (used by the http adapter's send_message). All
     // generic + overridable, exactly like the field_* mapping above.
@@ -189,6 +257,16 @@ struct Config {
         return !base_url.empty() && !stream_path.empty();
     }
 
+    // True when the http backend is configured to SUBSCRIBE to a session's
+    // live events over SSE: a base URL plus an events path. When false an http
+    // adapter reports supports_events() == false and the app simply never
+    // opens a live subscription (transcripts still refresh on open/switch, just
+    // not push-live). The mock reports false (its subscribe is a no-op) so the
+    // offline demo never touches the network.
+    bool events_ready() const {
+        return !base_url.empty() && !events_path.empty();
+    }
+
     // True when the device-code flow has the minimum it needs: a base URL plus
     // both endpoint paths. When false, no auth UI ever appears and the app
     // behaves exactly as before (mock default, or a static HANABI_TOKEN).
@@ -248,6 +326,43 @@ struct StreamSink {
     }
 };
 
+// --- Live session events (SSE) --------------------------------------------
+//
+// A subscription to a session's live activity stream. The caller installs a
+// tiny callback that fires (on a WORKER THREAD — never the UI thread) each
+// time the backend reports the session changed; the callback must be cheap and
+// thread-safe (the loader just flips an atomic "refetch me" flag it polls on
+// the UI thread — it never touches the ECS from the callback). The returned
+// EventSubscription is an RAII handle: destroying it (or calling stop()) tears
+// the worker + socket down. This mirrors the async-fetch pattern — nothing
+// blocks the UI thread.
+struct EventSink {
+    // Called for a meaningful activity event (a new/updated message, a turn, a
+    // tool call/result, session_start, or any unrecognized non-telemetry
+    // kind). The payload is the raw event-kind string (for logging/debug); the
+    // caller does NOT diff it — it just marks "something changed, refetch".
+    std::function<void(const std::string& event_kind)> on_activity;
+    // Called if the stream fails/closes so the caller can decide to reconnect.
+    std::function<void(const std::string& error)> on_error;
+
+    void emit_activity(const std::string& k) const {
+        if (on_activity) on_activity(k);
+    }
+    void emit_error(const std::string& e) const {
+        if (on_error) on_error(e);
+    }
+};
+
+// RAII handle to a live subscription. Abstract so the mock returns a trivial
+// no-op handle and the http adapter returns one that owns the worker thread +
+// a stop flag. Destroying it stops the subscription (joins the worker).
+class EventSubscription {
+  public:
+    virtual ~EventSubscription() = default;
+    // Signal the worker to stop and (for the http impl) join it. Idempotent.
+    virtual void stop() = 0;
+};
+
 // Abstract data source.
 class Client {
   public:
@@ -258,6 +373,19 @@ class Client {
 
     // Fetch a full transcript for one session id.
     virtual Result<Session> get_session(const std::string& id) = 0;
+
+    // MEMORY-LIGHT fetch: only the NEWEST `limit` messages of a session (still
+    // ordered oldest-first WITHIN the window). `limit <= 0` means "no limit" =
+    // the full transcript, identical to get_session(id). The returned Session
+    // sets has_more_older = true when older messages exist beyond the window,
+    // so the UI can offer "load older". Default impl ignores the limit and
+    // delegates to the full get_session(id), so a backend that hasn't wired
+    // windowing still works (it just always loads everything). The http
+    // adapter appends "?limit=N"; the mock returns the last N of its messages.
+    virtual Result<Session> get_session(const std::string& id, int limit) {
+        (void)limit;
+        return get_session(id);
+    }
 
     // Kick off a NEW session from a prompt (composer "New task"). Returns the
     // new session id on success. The mock creates an in-memory session; the
@@ -294,6 +422,32 @@ class Client {
     // http adapter does only when a stream path is configured. Default false so
     // a backend that hasn't wired streaming stays on the synchronous path.
     virtual bool supports_stream() const { return false; }
+
+    // Whether this client can SUBSCRIBE to a session's live events over SSE.
+    // The http adapter does only when an events path is configured; the mock
+    // reports false (its subscribe is a no-op that keeps the offline demo
+    // deterministic + network-free). Default false so a backend that hasn't
+    // wired live events simply never subscribes.
+    virtual bool supports_events() const { return false; }
+
+    // Open a live subscription to `session_id`'s events. The sink's callbacks
+    // fire on a WORKER THREAD as activity arrives (the caller must keep them
+    // cheap + thread-safe — the loader just flips a poll flag). Returns an RAII
+    // handle whose destruction (or stop()) tears the subscription down; NEVER
+    // returns null. Default impl: a no-op subscription (nothing ever fires) so
+    // a backend without live events is safe to call. The http adapter runs the
+    // real text/event-stream read on a std::thread and coalesces frames into
+    // on_activity; the mock returns the same no-op handle.
+    virtual std::unique_ptr<EventSubscription> subscribe_events(
+        const std::string& session_id, EventSink sink) {
+        (void)session_id;
+        (void)sink;
+        // A trivial no-op handle: nothing to stop, nothing ever fires.
+        struct NoopSub : EventSubscription {
+            void stop() override {}
+        };
+        return std::make_unique<NoopSub>();
+    }
 
     // Continue an OPEN session, delivering the assistant reply INCREMENTALLY
     // through `sink`. Mirrors send_message but reports chunks as they arrive

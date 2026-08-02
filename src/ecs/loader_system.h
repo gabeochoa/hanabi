@@ -15,6 +15,17 @@
 namespace ecs {
 
 struct LoaderSystem : afterhours::System<AppComponent> {
+    // MEMORY-LIGHT window: opening a thread fetches only the newest N messages
+    // (you land at the bottom; older ones load on demand). ~40 keeps the
+    // transcript's RAM/vertex cost bounded while still showing plenty of recent
+    // context. Passed to get_session(id, N); the mock + http adapter both honor
+    // it (http appends "?limit=N", mock returns the last N).
+    static constexpr int kMessagesWindow = 40;
+
+    // Debounce for LIVE (SSE) refetches: coalesce a burst of events into at
+    // most one newest-N refetch per interval so we don't hammer the backend.
+    static constexpr std::chrono::milliseconds kEventDebounce{1000};
+
     // The on-disk cache is ONLY for a real (network) backend. The mock is
     // already instant + deterministic, and its sample data must never be
     // polluted by — or leak into — a real backend's cache (or vice-versa). So
@@ -115,9 +126,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.openSession = std::move(*hit);
                 app.transcriptState = LoadState::Loaded;
                 app.transcriptError.clear();
+                app.hasMoreOlder = app.openSession->has_more_older;
                 // Mock is static -> cache is authoritative (no revalidation).
                 // SEAM: a live backend would kick a background revalidate here
                 // and swap in fresh data if it changed. Not built for the mock.
+                // Bind the live (SSE) subscription to this session.
+                ensure_subscription(app, id);
             } else {
                 // MISS in the in-memory LRU. Before falling back to a
                 // (possibly slow) network fetch, try the ON-DISK cache: if this
@@ -133,18 +147,24 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.openSession = std::move(*disk);
                     app.transcriptState = LoadState::Loaded;  // show stale now
                     app.transcriptError.clear();
+                    app.hasMoreOlder = app.openSession->has_more_older;
                     paintedStale = true;
                 }
                 // Kick the network fetch to revalidate (or to do the first-ever
                 // load when there's no disk copy). When we've already painted
                 // stale, this refresh happens in the background without a
-                // Loading flash.
+                // Loading flash. MEMORY-LIGHT: fetch only the newest N (not the
+                // full transcript) so a huge thread doesn't balloon RAM — you
+                // open at the bottom, older messages load on demand.
                 app.transcriptPending = true;
                 app.transcriptPendingId = id;
                 if (!paintedStale) app.transcriptState = LoadState::Loading;
                 api::Client* c = app.client.get();
                 app.transcriptFuture = std::async(
-                    std::launch::async, [c, id] { return c->get_session(id); });
+                    std::launch::async,
+                    [c, id] { return c->get_session(id, kMessagesWindow); });
+                // Bind the live (SSE) subscription to this session.
+                ensure_subscription(app, id);
             }
         }
         if (app.transcriptPending && app.transcriptFuture.valid()) {
@@ -165,6 +185,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         app.openSession = std::move(r.value);
                         app.transcriptState = LoadState::Loaded;
                         app.transcriptError.clear();
+                        app.hasMoreOlder = app.openSession->has_more_older;
                     }
                 } else {
                     // Network fetch failed. If we already painted a stale copy
@@ -256,9 +277,123 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
 
         drive_stream(app);
+        drive_load_older(app);
+        drive_live_events(app);
     }
 
   private:
+    // ---- Load OLDER (full transcript on demand) --------------------------
+    //
+    // The render side sets app.requestLoadOlder when the user scrolls to the
+    // top of a windowed transcript (app.hasMoreOlder == true). Since the
+    // backend has NO working backward cursor yet (offset/before are ignored),
+    // "load older" is serviced by re-fetching the FULL transcript once (no
+    // limit) and replacing openSession->messages, preserving the open session.
+    // This is the documented interim until the backend cursor lands — at which
+    // point this becomes an incremental page-back instead of a full re-fetch.
+    void drive_load_older(AppComponent& app) {
+        if (app.requestLoadOlder && !app.loadingOlder && app.client &&
+            !app.selectedId.empty()) {
+            app.requestLoadOlder = false;
+            app.loadingOlder = true;
+            std::string id = app.selectedId;
+            api::Client* c = app.client.get();
+            // limit=0 => the FULL transcript (no ?limit query).
+            app.liveFuture = std::async(std::launch::async,
+                                        [c, id] { return c->get_session(id, 0); });
+            app.livePending = true;
+            app.livePendingId = id;
+        }
+        service_transcript_swap(app, /*fromLoadOlder=*/true);
+    }
+
+    // ---- Live events (SSE) -----------------------------------------------
+    //
+    // Poll the atomic refetch flag the subscription worker flips, debounce it,
+    // and re-fetch the OPEN session's newest-N + refresh the session list so
+    // the transcript AND sidebar update live. Never blocks the UI thread: the
+    // refetch is a std::async future polled here (same pattern as
+    // transcriptFuture). The subscription itself is opened/torn-down by
+    // ensure_subscription() on thread open/switch.
+    void drive_live_events(AppComponent& app) {
+        // 1) A worker-thread event asked us to refetch. Debounce + kick.
+        if (app.eventRefetch.load() && !app.livePending && !app.loadingOlder &&
+            app.client && !app.selectedId.empty()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - app.lastEventRefetch >= kEventDebounce) {
+                app.eventRefetch.store(false);
+                app.lastEventRefetch = now;
+                // Refresh the sidebar so new activity reorders it.
+                app.requestListRefresh = true;
+                std::string id = app.selectedId;
+                api::Client* c = app.client.get();
+                app.liveFuture = std::async(
+                    std::launch::async,
+                    [c, id] { return c->get_session(id, kMessagesWindow); });
+                app.livePending = true;
+                app.livePendingId = id;
+            }
+        }
+        service_transcript_swap(app, /*fromLoadOlder=*/false);
+    }
+
+    // Shared: poll the liveFuture used by BOTH drive_load_older and
+    // drive_live_events (mutually exclusive — one at a time) and swap the
+    // result into the open transcript if it's still the selected thread.
+    void service_transcript_swap(AppComponent& app, bool fromLoadOlder) {
+        if (!app.livePending || !app.liveFuture.valid()) return;
+        if (app.liveFuture.wait_for(std::chrono::seconds(0)) !=
+            std::future_status::ready)
+            return;
+        auto r = app.liveFuture.get();
+        app.livePending = false;
+        if (fromLoadOlder) app.loadingOlder = false;
+        if (!r.ok) {
+            // Non-fatal: keep whatever is on screen; surface the error.
+            app.transcriptError = r.error;
+            return;
+        }
+        // Only swap if this is still the open thread (the user may have
+        // switched during the fetch).
+        if (app.selectedId != r.value.summary.id) return;
+        app.transcriptCache.put(r.value);
+        if (disk_cache_enabled(app))
+            api::disk_cache::save_transcript(r.value);
+        app.openSession = std::move(r.value);
+        app.transcriptState = LoadState::Loaded;
+        app.transcriptError.clear();
+        app.hasMoreOlder = app.openSession->has_more_older;
+    }
+
+    // Open a live (SSE) subscription bound to `id`, tearing down any previous
+    // one first (so switching threads never leaks a worker/socket). No-op when
+    // the backend doesn't support events (mock / unconfigured http) or when
+    // already bound to this id. The subscription's worker callback ONLY flips
+    // the atomic eventRefetch flag — it never touches the ECS, so it's safe to
+    // fire from another thread; the loader services it on the UI-poll thread.
+    void ensure_subscription(AppComponent& app, const std::string& id) {
+        if (!app.client || !app.client->supports_events()) return;
+        if (app.subscribedId == id && app.eventSub) return;
+        // Tear down the previous subscription (joins its worker) before
+        // rebinding — never leak.
+        if (app.eventSub) {
+            app.eventSub->stop();
+            app.eventSub.reset();
+        }
+        app.subscribedId = id;
+        std::atomic<bool>* flag = &app.eventRefetch;
+        api::EventSink sink;
+        sink.on_activity = [flag](const std::string&) {
+            // Cheap + thread-safe: just mark "something changed". The loader
+            // polls this on the UI thread, debounces, and refetches.
+            flag->store(true);
+        };
+        // on_error left unset: a failed stream just stops (capped reconnects
+        // happen inside the subscription); the transcript still refreshes on
+        // open/switch, so a dead stream degrades gracefully.
+        app.eventSub = app.client->subscribe_events(id, std::move(sink));
+    }
+
     // ---- Streaming reply (Phase STREAM) ----------------------------------
     //
     // The visible payoff: an assistant reply that fills in token-by-token. The

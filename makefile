@@ -238,6 +238,14 @@ $(TEST_DIR)/test_stream: tests/unit/test_stream.cpp src/api/config.cpp src/api/h
 	@echo "Compiling test_stream..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Tool-call block splitting + memory-light newest-N + live SSE event parsing
+# (LIVE phase). Pure logic — NO graphics, NO network, NO timers. Exercises the
+# adapter's split_message_blocks + parse_events_frame (from http_client.cpp)
+# and the MockClient windowed get_session(id, N) contract.
+$(TEST_DIR)/test_tools: tests/unit/test_tools.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+	@echo "Compiling test_tools..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
 $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
@@ -259,7 +267,7 @@ $(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_c
 	@echo "Compiling test_real..."
 	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

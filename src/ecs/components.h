@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <future>
 #include <memory>
 #include <optional>
@@ -60,6 +62,43 @@ struct AppComponent : public afterhours::BaseComponent {
     std::future<api::Result<api::Session>> transcriptFuture;
     bool transcriptPending = false;
     std::string transcriptPendingId;
+
+    // --- Memory-light transcript window (newest-N) ------------------------
+    // Opening a thread fetches only the NEWEST N messages (see LoaderSystem's
+    // kMessagesWindow) so you land at the bottom and the memory footprint stays
+    // small; older messages load on demand. hasMoreOlder mirrors the loaded
+    // Session's has_more_older so the RENDER side can show a "load older"
+    // affordance at the top of the transcript. requestLoadOlder is a one-shot
+    // flag the render side sets when the user scrolls to the top: the loader
+    // services it by re-fetching the FULL transcript (no limit) and replacing
+    // openSession->messages, preserving the open session. INTERIM: since the
+    // backend has no working backward cursor yet, "load older" = fetch the full
+    // transcript once (documented in loader_system.h).
+    bool hasMoreOlder = false;
+    bool requestLoadOlder = false;
+    // True while a full-transcript ("load older") fetch is in flight, so the
+    // render side can show a spinner and the loader doesn't double-fire.
+    bool loadingOlder = false;
+
+    // --- Live events (SSE) ------------------------------------------------
+    // A subscription to the OPEN session's live activity stream. When the
+    // backend supports_events(), the loader opens a subscription on thread-open
+    // and tears it down on switch/close (never leaks a worker/socket). The
+    // subscription's worker-thread callback ONLY flips eventRefetch (an atomic
+    // "something changed, refetch newest-N") — it never touches the ECS. The
+    // loader polls eventRefetch on the UI thread, debounces (kEventDebounce),
+    // and re-fetches the open session's newest-N + refreshes the session list
+    // so the sidebar reflects new activity. subscribedId tracks which session
+    // the live handle is bound to so the loader knows when to re-subscribe.
+    std::unique_ptr<api::EventSubscription> eventSub;
+    std::string subscribedId;               // session eventSub is bound to
+    std::atomic<bool> eventRefetch{false};  // set by worker, polled by loader
+    // Timestamp of the last live refetch, for debouncing a burst of events.
+    std::chrono::steady_clock::time_point lastEventRefetch{};
+    // A live refetch (newest-N) in flight, polled like transcriptFuture.
+    std::future<api::Result<api::Session>> liveFuture;
+    bool livePending = false;
+    std::string livePendingId;
 
     // Phase X: LRU transcript cache (last 20 msgs x last 5 threads). On a
     // cache HIT the loader sets openSession synchronously (no fetch, no Loading

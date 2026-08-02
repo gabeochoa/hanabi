@@ -57,8 +57,25 @@ struct Message {
     std::string text;
     // Unix epoch seconds. 0 means "unknown".
     int64_t created_at = 0;
-    // Optional short tag for tool/system messages (e.g. a tool name).
+    // Optional short tag for tool/system messages (e.g. a tool name). For a
+    // Role::Tool message this carries the TOOL NAME (e.g. "bash", "ipython") —
+    // the transcript's tool-row renderer keys its label + wrench icon off it.
     std::string subtitle;
+
+    // --- Real tool-call metadata (Role::Tool messages) --------------------
+    // The generic http adapter emits these for Role::Tool messages split out
+    // of an assistant message's interleaved blocks (see http_client.cpp's
+    // block-splitting parser). They carry REAL values from the backend so the
+    // tool-row renderer can show the true output / status / duration instead
+    // of hashing plausible-looking fakes from the id. Append-only fields: a
+    // renderer that doesn't read them is unaffected; the mock leaves them
+    // empty/zero (its Tool messages already read fine from subtitle+text).
+    //   tool_result       — the tool's captured output (for the nested sub-row)
+    //   tool_status        — "completed" / "failed" / "" (drives the check mark)
+    //   tool_duration_ms   — completedAt - startedAt in ms; 0 = unknown
+    std::string tool_result;
+    std::string tool_status;
+    int64_t tool_duration_ms = 0;
 };
 
 // Lightweight summary of a session for the list view.
@@ -106,6 +123,14 @@ struct Session {
     // Optional child workers. Empty for most sessions; the transcript panel
     // falls back to deriving steps from Tool-role messages when this is empty.
     std::vector<SubAgent> sub_agents;
+
+    // MEMORY-LIGHT WINDOW: true when this transcript is only the NEWEST N
+    // messages and OLDER messages exist that were not loaded (parsed from the
+    // backend's "hasMore" flag on a ?limit=N fetch). The UI reads this to show
+    // a "load older" affordance at the top; when the full transcript is loaded
+    // (no limit) it is false. Defaults false so a full/mock transcript reads as
+    // complete.
+    bool has_more_older = false;
 };
 
 // Result of a fetch. `ok == false` carries a human-readable error in `error`.
