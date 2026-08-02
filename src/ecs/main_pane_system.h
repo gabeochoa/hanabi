@@ -1246,7 +1246,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             switch (it.kind) {
                 case Item::Bubble:
                     render_bubble(ctx, col, it.lo, msgs[it.lo], colW,
-                                  it.isLive, app.streamPhase);
+                                  it.isLive, app.streamPhase, visTop, visBot,
+                                  top);
                     break;
                 case Item::ToolPile:
                     tool_pile(ctx, col, it.lo, msgs, it.lo, it.hi, colW);
@@ -1792,34 +1793,71 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // measured height match the render exactly (no gap). A blank segment becomes
     // a small vertical gap (paragraph spacing). Bounded by virtualization — only
     // the visible turns build these per-line boxes.
+    // Renders the assistant body one div per newline-segment. When a visible
+    // window is supplied (winTop..winBot, in the SAME y-space as bodyStartY —
+    // i.e. content-column coordinates), segments fully outside the window are
+    // NOT built; instead their height is accumulated into a single spacer div.
+    // This is INTRA-message virtualization: a 260-line message off the top of
+    // the viewport builds ~0 text entities, not 260. winBot<=winTop disables
+    // culling (build everything). The spacer keeps total height exact so the
+    // scrollbar and outer virtualization spacer math stay correct.
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
-                          const std::string& shown, float textW) {
+                          const std::string& shown, float textW,
+                          float winTop = 0.0f, float winBot = -1.0f,
+                          float bodyStartY = 0.0f) {
+        const bool cull = winBot > winTop;
         const int perLine = wrap_perline(textW);
         size_t start = 0;
         int seg = 0;
+        float y = bodyStartY;         // running content-y of this segment's top
+        float pending = 0.0f;         // accumulated off-window height to flush
+        auto flush = [&](int tag) {
+            if (pending <= 0.0f) return;
+            div(ctx, mk(parent, 100 + tag),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(pending)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("asst_body_spacer"));
+            pending = 0.0f;
+        };
         while (start <= shown.size()) {
             size_t nl = shown.find('\n', start);
             size_t end = (nl == std::string::npos) ? shown.size() : nl;
             std::string line = shown.substr(start, end - start);
-            if (line.empty()) {
-                // Blank line → half-line paragraph gap.
+            float segH;
+            bool blank = line.empty();
+            int segLines = 1;
+            if (blank) {
+                segH = kLinePitch * 0.5f;
+            } else {
+                segLines = (static_cast<int>(line.size()) + perLine - 1) /
+                           perLine;
+                if (segLines < 1) segLines = 1;
+                segH = static_cast<float>(segLines) * kLinePitch;
+            }
+            const float segTop = y;
+            const float segBot = y + segH;
+            y = segBot;
+            const bool visible =
+                !cull || (segBot >= winTop && segTop <= winBot);
+            if (!visible) {
+                pending += segH;      // collapse off-window segment into spacer
+            } else if (blank) {
+                flush(9000 + seg);
                 div(ctx, mk(parent, 100 + seg),
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
-                                                 pixels(kLinePitch * 0.5f)})
+                                                 pixels(segH)})
                         .with_transparent_bg()
                         .with_roundness(0.0f)
                         .with_debug_name("asst_gap"));
             } else {
-                int segLines = (static_cast<int>(line.size()) + perLine - 1) /
-                               perLine;
-                if (segLines < 1) segLines = 1;
+                flush(9000 + seg);
                 div(ctx, mk(parent, 100 + seg),
                     ComponentConfig{}
                         .with_label(line)
-                        .with_size(ComponentSize{
-                            percent(1.0f),
-                            pixels(static_cast<float>(segLines) * kLinePitch)})
+                        .with_size(ComponentSize{percent(1.0f), pixels(segH)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_primary())
                         .with_font_size(theme::type::BODY)
@@ -1832,6 +1870,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (nl == std::string::npos) break;
             start = nl + 1;
         }
+        flush(8888);
     }
 
     // A conversational message (User / Assistant). Assistant = full-column
@@ -1841,7 +1880,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        const api::Message& m, float paneWidth,
                        bool isLive = false,
                        AppComponent::StreamPhase streamPhase =
-                           AppComponent::StreamPhase::Idle) {
+                           AppComponent::StreamPhase::Idle,
+                       float winTop = 0.0f, float winBot = -1.0f,
+                       float itemTopY = 0.0f) {
         if (m.role == api::Role::System) {
             render_meta_line(ctx, parent, index, m);
             return;
@@ -1879,10 +1920,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_custom_background(bubble_bg(m.role))
-                    .with_padding(Padding{.top = pixels(6), .right = pixels(14),
-                                          .bottom = pixels(8),
+                    .with_padding(Padding{.top = pixels(8), .right = pixels(14),
+                                          .bottom = pixels(9),
                                           .left = pixels(14)})
-                    .with_roundness(0.5f)
+                    // Small roundness: afterhours radius = (min(w,h)*0.5)*rnd,
+                    // so 0.5 turned tall bubbles into a stadium blob. 0.12 keeps
+                    // a clean ~8px corner across bubble sizes.
+                    .with_roundness(0.12f)
                     .with_debug_name("user_bubble"));
             div(ctx, mk(bub.ent(), 2),
                 ComponentConfig{}
@@ -1963,7 +2007,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("asst_ts"));
         }
-        render_rich_body(ctx, turn.ent(), shown, textW);
+        // Body starts below the turn's top margin + author row: cull the
+        // body's off-screen line-segments (intra-message virtualization).
+        const float bodyStartY =
+            itemTopY + (kTurnGapTop + 12.0f) + kAuthorH + kAuthorGap;
+        render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
+                         bodyStartY);
 
         if (app && !isLive &&
             (folded || (expanded && lineCount > kFoldLines))) {
