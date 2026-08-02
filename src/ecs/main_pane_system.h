@@ -2136,24 +2136,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return p < 8 ? 8 : p;
     }
 
-    static float estimate_height(const std::string& text, float widthPx) {
-        int perLine = wrap_perline(widthPx);
-        int lines = 0;
-        size_t start = 0;
-        while (start <= text.size()) {
-            size_t nl = text.find('\n', start);
-            size_t end = (nl == std::string::npos) ? text.size() : nl;
-            int len = static_cast<int>(end - start);
-            lines += (len <= 0) ? 1 : (len + perLine - 1) / perLine;
-            if (nl == std::string::npos) break;
-            start = nl + 1;
-        }
-        if (lines < 1) lines = 1;
-        return 20.0f + static_cast<float>(lines) * kLinePitch;
-    }
-
-    // Estimated WRAPPED line count of `text` at `widthPx` (same model as
-    // estimate_height). Used to decide whether a body is long enough to fold.
+    // Estimated WRAPPED line count of `text` at `widthPx`. Used to decide
+    // whether a body is long enough to fold.
     static int count_lines(const std::string& text, float widthPx) {
         int perLine = wrap_perline(widthPx);
         int lines = 0;
@@ -2915,11 +2899,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // then a generic label, so real tool calls always show WHAT ran.
         if (t.empty()) t = !m.subtitle.empty() ? m.subtitle : std::string("tool call");
         return t;
-    }
-    static int tool_count(const api::Message&) {
-        // One Tool message == one tool call. Piles sum by message count, so this
-        // is always 1; kept only for callers that ask per-message.
-        return 1;
     }
     // Real tool status -> check color. "completed"/"" (assume ok) => ready green;
     // "failed"/"error" => blocked red. Drives the row's trailing check mark.
