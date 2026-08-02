@@ -74,6 +74,20 @@ void native_notify(const char* title, const char* body);
 // See the feasibility note in native_extras.mm.
 void native_spotlight_index(const char* id, const char* title);
 
+// ---- 4. Spotlight deep-link (open a thread from a tapped result) -----------
+
+// Install the URL / Apple-event handler so a `hanabi://thread/<id>` open —
+// e.g. from tapping a CoreSpotlight result whose contentURL uses that scheme —
+// is captured. Idempotent; main-thread + NSApp required; windowed path only.
+void native_openurl_install(void);
+
+// One-shot: if a `hanabi://thread/<id>` open arrived since the last call,
+// writes the thread id into `out` (UTF-8, NUL-terminated, up to cap-1 bytes)
+// and returns true, then clears. Returns false (leaving out untouched) when
+// nothing is pending. Polled by the C++ frame loop, which then sets
+// AppComponent::requestOpenTab to open + navigate to the thread.
+bool native_take_open_thread(char* out, int cap);
+
 #ifdef __cplusplus
 }
 #endif

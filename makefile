@@ -206,6 +206,17 @@ bundle: $(MAIN_EXE) copy-resources
 		'    <true/>' \
 		'    <key>NSHumanReadableCopyright</key>' \
 		'    <string>hanabi — native Navi desktop client</string>' \
+		'    <key>CFBundleURLTypes</key>' \
+		'    <array>' \
+		'        <dict>' \
+		'            <key>CFBundleURLName</key>' \
+		'            <string>com.hanabi.app.thread</string>' \
+		'            <key>CFBundleURLSchemes</key>' \
+		'            <array>' \
+		'                <string>hanabi</string>' \
+		'            </array>' \
+		'        </dict>' \
+		'    </array>' \
 		'</dict>' \
 		'</plist>' > $(APP_BUNDLE)/Contents/Info.plist
 	@echo "Built $(APP_BUNDLE)"

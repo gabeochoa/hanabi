@@ -15,6 +15,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>  // UTTypeText
 #include <atomic>
 #include <cstring>
+#include <mutex>
+#include <string>
 
 #include "native_extras.h"
 
@@ -269,6 +271,14 @@ void native_spotlight_index(const char* id, const char* title) {
                 initWithContentType:UTTypeText];
         attrs.title = nsTitle;
         attrs.contentDescription = @"hanabi thread";
+        // Deep-link back: tapping the result opens hanabi://thread/<id>, which
+        // our Apple-event handler (native_openurl_install) captures and turns
+        // into an open-thread request. The scheme is declared in the bundle's
+        // Info.plist (CFBundleURLTypes).
+        attrs.contentURL = [NSURL URLWithString:
+            [NSString stringWithFormat:@"hanabi://thread/%@",
+                [nsId stringByAddingPercentEncodingWithAllowedCharacters:
+                    [NSCharacterSet URLPathAllowedCharacterSet]]]];
 
         CSSearchableItem* item =
             [[CSSearchableItem alloc] initWithUniqueIdentifier:nsId
@@ -289,4 +299,95 @@ void native_spotlight_index(const char* id, const char* title) {
                    }
                }];
     }
+}
+
+// ===========================================================================
+// 4. Spotlight deep-link — open a thread from a hanabi://thread/<id> URL
+// ===========================================================================
+//
+// Tapping a CoreSpotlight result (or any hanabi://thread/<id> open) is
+// delivered to a non-App-Store app via the classic Apple-event route:
+// kInternetEventClass / kAEGetURL. We register a handler on the shared
+// NSAppleEventManager, parse the thread id out of the URL, and stash it behind
+// a mutex-guarded pending slot. The C++ frame loop drains it via
+// native_take_open_thread() and sets AppComponent::requestOpenTab.
+//
+// This is the read/handle half; the app must also DECLARE the scheme in its
+// Info.plist (CFBundleURLTypes -> hanabi) so LaunchServices routes the URL
+// here — done in the `bundle` target. Works from the bundle; harmless (just
+// never fires) for the bare dev binary since nothing registers the scheme.
+
+static std::mutex g_open_thread_mu;
+static std::string g_pending_open_thread;   // guarded by g_open_thread_mu
+
+// Parse the thread id from hanabi://thread/<id> (also tolerates
+// hanabi:thread/<id> and a trailing slash/query). Returns "" if not a match.
+static std::string parse_thread_url(NSString* url) {
+    if (url == nil) return std::string();
+    std::string s([url UTF8String] ? [url UTF8String] : "");
+    // Accept both "hanabi://thread/" and "hanabi:thread/" prefixes.
+    static const char* kPfx1 = "hanabi://thread/";
+    static const char* kPfx2 = "hanabi:thread/";
+    std::string id;
+    if (s.rfind(kPfx1, 0) == 0)
+        id = s.substr(std::strlen(kPfx1));
+    else if (s.rfind(kPfx2, 0) == 0)
+        id = s.substr(std::strlen(kPfx2));
+    else
+        return std::string();
+    // Trim a trailing '/' and anything after a '?' or '#'.
+    auto cut = id.find_first_of("?#");
+    if (cut != std::string::npos) id = id.substr(0, cut);
+    while (!id.empty() && id.back() == '/') id.pop_back();
+    return id;
+}
+
+@interface HanabiURLHandler : NSObject
+- (void)handleGetURLEvent:(NSAppleEventDescriptor*)event
+           withReplyEvent:(NSAppleEventDescriptor*)reply;
+@end
+
+@implementation HanabiURLHandler
+- (void)handleGetURLEvent:(NSAppleEventDescriptor*)event
+           withReplyEvent:(NSAppleEventDescriptor*)reply {
+    (void)reply;
+    NSString* urlStr =
+        [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
+    std::string id = parse_thread_url(urlStr);
+    if (id.empty()) return;
+    {
+        std::lock_guard<std::mutex> lk(g_open_thread_mu);
+        g_pending_open_thread = id;
+    }
+    NSLog(@"native_extras: hanabi://thread open -> id=%s", id.c_str());
+    // Bring hanabi forward so the opened thread is visible.
+    [NSApp activateIgnoringOtherApps:YES];
+}
+@end
+
+static HanabiURLHandler* g_url_handler = nil;
+
+void native_openurl_install(void) {
+    if (g_url_handler != nil) return;   // already installed
+    if (NSApp == nil) return;           // needs the app object
+    g_url_handler = [[HanabiURLHandler alloc] init];
+    [[NSAppleEventManager sharedAppleEventManager]
+        setEventHandler:g_url_handler
+            andSelector:@selector(handleGetURLEvent:withReplyEvent:)
+          forEventClass:kInternetEventClass
+             andEventID:kAEGetURL];
+    NSLog(@"native_extras: hanabi:// URL handler installed");
+}
+
+bool native_take_open_thread(char* out, int cap) {
+    if (out == nullptr || cap <= 0) return false;
+    std::string id;
+    {
+        std::lock_guard<std::mutex> lk(g_open_thread_mu);
+        if (g_pending_open_thread.empty()) return false;
+        id.swap(g_pending_open_thread);
+    }
+    std::strncpy(out, id.c_str(), static_cast<size_t>(cap - 1));
+    out[cap - 1] = '\0';
+    return true;
 }

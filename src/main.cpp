@@ -311,6 +311,10 @@ static void app_frame() {
         // windowed-only, install-once path. Idempotent; headless never reaches
         // here so no global listener lingers after a --screenshot capture.
         native_hotkey_install();
+        // Phase G extra: install the hanabi:// URL / Apple-event handler so a
+        // tapped Spotlight result (hanabi://thread/<id>) opens that thread.
+        // Windowed-only + install-once, same as the hotkey.
+        native_openurl_install();
         menubarInstalled = true;
     }
 
@@ -329,6 +333,19 @@ static void app_frame() {
                          .whereHasComponent<ecs::AppComponent>()
                          .gen();
             if (!q.empty()) q[0].get().get<ecs::AppComponent>().requestNewTask = true;
+        }
+        // Phase G extra: a hanabi://thread/<id> open (tapped Spotlight result)
+        // opens + navigates to that thread — same seam a sidebar row click
+        // uses (requestOpenTab), so the tab loader fetches + focuses it.
+        char openId[256];
+        if (native_take_open_thread(openId, sizeof(openId))) {
+            auto q = afterhours::EntityQuery({.force_merge = true})
+                         .whereHasComponent<ecs::AppComponent>()
+                         .gen();
+            if (!q.empty()) {
+                q[0].get().get<ecs::AppComponent>().requestOpenTab = openId;
+                metal_activate_app();
+            }
         }
     }
 
