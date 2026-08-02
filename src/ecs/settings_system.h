@@ -17,8 +17,10 @@
 // sidebar_system.h (owned by another agent); until that one-line hook lands,
 // Cmd+, opens/closes this overlay.
 
+#include <cstdio>
 #include <string>
 
+#include "../api/disk_cache.h"
 #include "../settings.h"
 #include "ui_imports.h"
 
@@ -84,7 +86,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         // Centered panel.
         const float pw = 360.0f;
-        const float ph = 196.0f;
+        const float ph = 250.0f;  // +54 for the cache row
         const float px = (sw - pw) * 0.5f;
         const float py = (sh - ph) * 0.5f;
 
@@ -105,6 +107,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         render_header(ctx, panel.ent(), *app);
         render_theme_row(ctx, panel.ent(), *app);
+        render_cache_row(ctx, panel.ent(), *app);
         render_footnote(ctx, panel.ent(), *app);
     }
 
@@ -177,6 +180,79 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         theme_choice(ctx, row.ent(), 1, "Light", "light", app);
         theme_choice(ctx, row.ent(), 2, "Dark", "dark", app);
         theme_choice(ctx, row.ent(), 3, "System", "system", app);
+    }
+
+    // Human-readable byte size: B / KB / MB.
+    static std::string human_bytes(std::uint64_t b) {
+        char buf[32];
+        if (b < 1024ull) std::snprintf(buf, sizeof(buf), "%llu B",
+                                       (unsigned long long)b);
+        else if (b < 1024ull * 1024)
+            std::snprintf(buf, sizeof(buf), "%.1f KB", b / 1024.0);
+        else
+            std::snprintf(buf, sizeof(buf), "%.1f MB", b / (1024.0 * 1024.0));
+        return buf;
+    }
+
+    // Cache row: on-disk transcript cache usage + a "Clear cache" button
+    // (wired to the data layer's disk_cache::total_bytes()/wipe_all()).
+    void render_cache_row(UIContext<InputAction>& ctx, Entity& parent,
+                          AppComponent& app) {
+        (void)app;
+        div(ctx, mk(parent, 20),
+            ComponentConfig{}
+                .with_label("Cache")
+                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_padding(Padding{.top = pixels(10)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(FontSize::Medium)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_cache_label"));
+
+        auto row = div(ctx, mk(parent, 21),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_cache_row"));
+
+        // Current on-disk usage (cheap stat walk of the active namespace).
+        const std::string usage = human_bytes(api::disk_cache::total_bytes());
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(usage + " on disk")
+                .with_size(ComponentSize{children(), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_cache_usage"));
+
+        auto clear = button(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label("Clear cache")
+                .with_size(ComponentSize{pixels(104), pixels(28)})
+                .with_custom_background(theme::button_secondary())
+                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("settings_cache_clear"));
+        if (clear) {
+            api::disk_cache::wipe_all();
+        }
     }
 
     // One segmented theme button. Selected = accent fill; others = secondary.

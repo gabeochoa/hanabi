@@ -598,6 +598,16 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
         }
 
+        // Screenshot affordance: HANABI_TEST_OVERLAY=settings|composer opens an
+        // overlay that is otherwise keypress-only (Cmd+, / Cmd+N), so the
+        // settings sheet + new-task composer can be photographed headlessly.
+        // Mirrors HANABI_VIEW; ignored when unset; no network, render-only.
+        if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
+            std::string os(ov);
+            if (os == "settings") appForWait->showSettings = true;
+            else if (os == "composer") appForWait->composerOpen = true;
+        }
+
         // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache
         // loading state (empty list + Loading) so the skeleton placeholder rows
         // can be photographed headlessly — the harness otherwise waits PAST
