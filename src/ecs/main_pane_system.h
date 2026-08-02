@@ -1522,15 +1522,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("composer_status"));
         }
         if (canSend) {
-            // Context/cost meter (illustrative): "38% $$$$".
+            // Context-usage meter: a small filled bar + "N% context". Replaces
+            // the old "38% $$$$" placeholder (audit #14 — the four $ read as
+            // unfinished). The backend's SSE context_usage event carries the
+            // real token breakdown; until that's wired to the composer we show
+            // a representative fill. (No fake dollar signs — a real cost figure
+            // needs a backend cost field, requested from the API maintainers.)
             div(ctx, mk(rightMeta.ent(), 2),
                 ComponentConfig{}
-                    .with_label("38%  $$$$")
+                    .with_label("context")
                     .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.right = pixels(6)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Right)
+                    .with_debug_name("composer_meter_label"));
+            // Thin track + accent fill = a real meter, not $ glyphs.
+            div(ctx, mk(rightMeta.ent(), 3),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(56), pixels(6)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_roundness(0.5f)
+                    .with_on_draw_fg([](RectangleType rr) {
+                        constexpr float kCtxPct = 0.38f;
+                        float w = rr.width * kCtxPct;
+                        if (w < 2.0f) w = 2.0f;
+                        afterhours::draw_rectangle_rounded(
+                            RectangleType{rr.x, rr.y, w, rr.height}, 0.5f, 6,
+                            theme::over(theme::accent(), theme::panel_bg_2()));
+                    })
                     .with_debug_name("composer_meter"));
         }
     }
