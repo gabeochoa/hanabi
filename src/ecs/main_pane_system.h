@@ -15,6 +15,8 @@
 #include "transcript_render_cache.h"
 #include "ui_imports.h"
 
+#include "../../vendor/afterhours/src/plugins/clipboard.h"
+
 namespace ecs {
 
 struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
@@ -2318,7 +2320,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_label(lang.empty() ? "CODE" : lang)
-                .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                .with_size(ComponentSize{pixels(120), pixels(14)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::MICRO)
@@ -2326,6 +2328,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("code_block_lang"));
+        // Copy button (right of the lang label): copies the whole block to the
+        // clipboard (mock's `.copy`). A spacer pushes it flush-right (no
+        // flex-grow — gap #18 — so size the lang label fixed + a flexer).
+        {
+            // Compute the flex spacer width so Copy pins right: bar content
+            // width ~ (block inner) - 12 - 10 pads - 120 lang - copyW.
+            const float copyW = 42.0f;
+            div(ctx, mk(bar.ent(), 2),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("code_bar_spacer"));
+            auto copy = button(ctx, mk(bar.ent(), 3),
+                ComponentConfig{}
+                    .with_label("Copy")
+                    .with_size(ComponentSize{pixels(copyW), pixels(15)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.35f)
+                    .with_debug_name("code_block_copy"));
+            if (copy) {
+                std::string joined;
+                for (size_t k = 0; k < lines.size(); ++k) {
+                    joined += lines[k];
+                    if (k + 1 < lines.size()) joined += "\n";
+                }
+                afterhours::clipboard::set_text(joined);
+            }
+        }
         // Code body: mono rows, no wrap (pre-formatted).
         auto body = div(ctx, mk(block.ent(), 2),
             ComponentConfig{}
