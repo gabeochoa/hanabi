@@ -502,7 +502,7 @@ class MockClient : public Client {
                  "the receipt. Wrote 18 new tests.",
                  hrs_ago(1), ""},
                 {"m3", Role::Tool,
-                 "buck test \xe2\x86\x92 214 passed, 0 failed \xc2\xb7 lint "
+                 "make test \xe2\x86\x92 214 passed, 0 failed \xc2\xb7 lint "
                  "clean \xc2\xb7 type check clean",
                  hrs_ago(0) - 2100, "shell"},
                 {"m4", Role::Assistant,
