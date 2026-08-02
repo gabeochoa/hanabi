@@ -98,6 +98,10 @@ struct AppComponent : public afterhours::BaseComponent {
     std::unique_ptr<api::EventSubscription> eventSub;
     std::string subscribedId;               // session eventSub is bound to
     std::atomic<bool> eventRefetch{false};  // set by worker, polled by loader
+    // Steady-clock ms of the last live event the SSE worker saw (0 = none yet).
+    // Set thread-safely by the sink; read by the status bar to flash a "live"
+    // indicator briefly after activity. Atomic so the worker can write it.
+    std::atomic<long long> lastEventMs{0};
     // Timestamp of the last live refetch, for debouncing a burst of events.
     std::chrono::steady_clock::time_point lastEventRefetch{};
     // A live refetch (newest-N) in flight, polled like transcriptFuture.

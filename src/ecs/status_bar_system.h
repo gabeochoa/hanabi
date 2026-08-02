@@ -18,6 +18,7 @@
 // theme tokens (contrast >= 4.5:1 in BOTH modes on sidebar_bg). A hairline top
 // border separates the bar from the content above it.
 
+#include <chrono>
 #include <cstdlib>
 #include <string>
 
@@ -140,6 +141,65 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_render_layer(5)
                 .with_debug_name("status_right"));
+
+        // --- live (SSE) indicator: a "● live" cluster left of the session
+        // count, shown only when a real live subscription is bound to the OPEN
+        // thread (mock/unconfigured http never subscribe, so this stays hidden
+        // there). The dot brightens for ~1.5s after each live event so activity
+        // is visible, then settles to a calm steady "connected" tone.
+        // HANABI_LIVE_DEMO=1 forces it on (with a fresh flash) for screenshots.
+        const bool liveDemo = [] {
+            const char* v = std::getenv("HANABI_LIVE_DEMO");
+            return v && *v && std::string(v) != "0";
+        }();
+        const bool liveConnected =
+            liveDemo || (!app->subscribedId.empty() && app->eventSub &&
+                         app->subscribedId == app->selectedId);
+        if (liveConnected) {
+            const long long nowMs =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count();
+            const long long last =
+                liveDemo ? nowMs : app->lastEventMs.load();
+            const bool fresh = last > 0 && (nowMs - last) < 1500;
+            const auto liveColor =
+                fresh ? theme::status_active() : theme::text_faint();
+
+            // "live" label sits just left of the session count; the dot sits
+            // left of the label. Reserve a small fixed cluster width.
+            constexpr float kLiveW = 34.0f;   // "live" text
+            constexpr float kLiveDot = 6.0f;
+            const float liveTextRight = r.x + r.width - rw;  // = session cluster left
+            const float liveTextX = liveTextRight - kLiveW - kGutter;
+            const float liveDotX = liveTextX - kLiveDot - 5.0f;
+            const float liveDotY = r.y + (r.height - kLiveDot) * 0.5f;
+            div(ctx, mk(uiRoot, 3007),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(kLiveDot), pixels(kLiveDot)})
+                    .with_absolute_position()
+                    .with_translate(liveDotX, liveDotY)
+                    .with_custom_background(liveColor)
+                    .with_roundness(1.0f)
+                    .with_render_layer(5)
+                    .with_debug_name("status_live_dot"));
+            div(ctx, mk(uiRoot, 3008),
+                ComponentConfig{}
+                    .with_label("live")
+                    .with_size(ComponentSize{pixels(kLiveW), pixels(r.height)})
+                    .with_absolute_position()
+                    .with_translate(liveTextX, r.y)
+                    .with_padding(Padding{.top = pixels(vpad), .right = pixels(0),
+                                          .bottom = pixels(vpad),
+                                          .left = pixels(0)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(liveColor)
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(5)
+                    .with_debug_name("status_live_label"));
+        }
     }
 };
 

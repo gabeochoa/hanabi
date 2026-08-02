@@ -561,11 +561,16 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
         app.subscribedId = id;
         std::atomic<bool>* flag = &app.eventRefetch;
+        std::atomic<long long>* stamp = &app.lastEventMs;
         api::EventSink sink;
-        sink.on_activity = [flag](const std::string&) {
-            // Cheap + thread-safe: just mark "something changed". The loader
-            // polls this on the UI thread, debounces, and refetches.
+        sink.on_activity = [flag, stamp](const std::string&) {
+            // Cheap + thread-safe: mark "something changed" AND record when, so
+            // the status bar can briefly flash a "live" indicator. The loader
+            // polls the flag on the UI thread, debounces, and refetches.
             flag->store(true);
+            stamp->store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count());
         };
         // on_error left unset: a failed stream just stops (capped reconnects
         // happen inside the subscription); the transcript still refreshes on
