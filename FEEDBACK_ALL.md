@@ -60,7 +60,7 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [~] M7 settings: Data section added; MORE possible (Connection/backend, About/version, Notifications toggle)
 - [x] Local-first #1: 'refreshing…' read-state in transcript header (ddbaa26)
 - [x] Local-first #3: sidebar search matches cached conversation CONTENT (389b4ac)
-- [ ] I1 hover perf / T7 idle-frame — needs afterhours help (incoming) or per-frame reduction
+- [B] I1 hover / T7 idle-frame — RE-CONFIRMED vendor-blocked 2026-08-02 (reprofiled: 9.35ms/frame = 3.05 tick + 6.29 render; both halves in vendored code; sokol vsync-locked, no app-side fps cap; BeginUIContextManager clears tree so app-side idle-skip renders empty. Needs afterhours dirty-frame/retained-layout — gap #27). App-side perf already maxed (virtualization + measure-cache + app_singleton cache).
 - [ ] I2 split view
 - [ ] refactor quick-wins (REFACTOR_REVIEW.md): delete dead code, consolidate helpers
 - [B] V3 tab top-round + inline code pills — afterhours patches ready, awaiting maintainer
