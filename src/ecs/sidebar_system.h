@@ -986,8 +986,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // icon lands on the SAME right edge as the thread-row counts
                 // (and clears the temp scroll bar, which sits ~8px in).
                 .with_justify_content(JustifyContent::SpaceBetween)
+                // Smaller right inset than the row counts (kCountRightPad) so
+                // the wider fold-all button sits closer to the panel edge —
+                // its 28px box already gives the icon breathing room, so the
+                // glyph still clears the temp scrollbar.
                 .with_padding(Padding{.top = pixels(6),
-                                      .right = pixels(kCountRightPad),
+                                      .right = pixels(4),
                                       .bottom = pixels(4), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -997,9 +1001,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // fold-all button to the far right edge. Clamp it so label + button +
         // pads never exceed the header content box on a narrow sidebar (else
         // the NoWrap head overflows every frame → warn + solve_violations
-        // churn). Content = panelW − left 14 − right kCountRightPad.
-        float headContent = panelW - 14.0f - kCountRightPad;
-        float foldLabelW = headContent - 20.0f;  // minus the fold-all button
+        // churn). Content = panelW − left 14 − right 4.
+        float headContent = panelW - 14.0f - 4.0f;
+        float foldLabelW = headContent - 28.0f;  // minus the fold-all button
         if (foldLabelW > 64.0f) foldLabelW = 64.0f;
         if (foldLabelW < 16.0f) foldLabelW = 16.0f;
         div(ctx, mk(head.ent(), 1),
@@ -1015,19 +1019,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Fold-all button (chevrons-down-up sprite). Its tint brightens when
         // all folders are currently folded, echoing the mock's active state.
+        // Wider tap target (28px) so it's easy to hit, a clearer hover surface
+        // (panel_bg_2 wash reads as a real button, not just a tint), and a
+        // smaller right inset than the row counts so it sits closer to the edge.
         theme::Color foldTint =
             app.foldAllFolders ? theme::text_secondary() : theme::text_faint();
         auto foldBtn = button(ctx, mk(head.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(20), pixels(18)})
+                .with_size(ComponentSize{pixels(28), pixels(20)})
                 .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
+                .with_roundness(0.35f)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "fold_all", "\xe2\x87\x85", foldTint, 14.0f, -1.0f))
+                    "fold_all", "\xe2\x87\x85", foldTint, 15.0f, -1.0f))
                 .with_debug_name("sb_fold_all"));
         if (foldBtn) {
             app.foldAllFolders = !app.foldAllFolders;
@@ -1704,14 +1711,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                          (showStar ? kStarW : 0.0f);
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
-        // Ellipsize to the title column's width. At ROW size a char is ~6.4px;
-        // budget conservatively (÷6.6) so a long title truncates INSIDE its
-        // column instead of bleeding under the timestamp. Clamp to a sane
-        // range so a narrow sidebar still shows a few chars and a wide one
-        // doesn't over-truncate.
-        size_t titleChars = static_cast<size_t>(rowTitleW / 6.6f);
+        // Ellipsize to the title column's width. At ROW size (12.5px) an avg
+        // proportional glyph is ~6.0px; budget at /6.1 (was /6.6, which
+        // under-counted ~8% and clipped titles a couple chars early even though
+        // the column had room). The label widget also hard-clips at its pixel
+        // width, so a hair-generous char budget just lets the text use the full
+        // column instead of ellipsizing before it needs to.
+        size_t titleChars = static_cast<size_t>(rowTitleW / 6.1f);
         if (titleChars < 4) titleChars = 4;
-        if (titleChars > 40) titleChars = 40;
+        if (titleChars > 48) titleChars = 48;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(fmtutil::ellipsize(strip_parked_prefix(s.title),
