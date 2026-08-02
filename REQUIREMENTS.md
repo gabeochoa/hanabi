@@ -130,6 +130,7 @@ against the real backend behind env/config.
 - [x] White-RGB atlas so theme tint applies (dark-mode icons were invisible) (da2d5ae).
 - [x] `gen_icons.py` regenerator (fetches real Lucide SVGs, rasterizes); clock + repeat sprites added for cron rows (651f3de).
 - [x] `TODO(icon-atlas)` convention for missing-sprite fallbacks (372c6e1).
+- [x] **Phase H sweep**: all remaining unicode chrome glyphs routed through the atlas — added Lucide `close` (x) + `archive` sprites (atlas → 17 icons, 128×160); migrated the 4 raw `×` close buttons (tab / composer / settings / search-clear) + the Archived smart view; no known-missing sprites remain (0c99ec7).
 
 ### Theme / Visual polish
 - [x] Light + dark theming via a single swappable token set; dark default; runtime `set_mode()`; persisted (8320a4a).
@@ -181,7 +182,7 @@ against the real backend behind env/config.
 - [ ] **Fold-all icon: right-align to full sidebar width.**
 - [ ] **Collapsed-rail icons: left-align.**
 - [ ] **Fix stale fold-all `kKeys[]`** (hardcoded stars/oncall/`__t_*__`/`__archived__`) — build from `distinct_folders(app)` instead (bug the agent introduced).
-- [ ] Missing "archive" sprite in the atlas (uses `TODO(icon-atlas)` fallback for now).
+- [x] ~~Missing "archive" sprite in the atlas~~ — DONE: real Lucide `archive` sprite cut into the atlas; `close` sprite too; last `TODO(icon-atlas)` cleared (Phase H, 0c99ec7).
 
 ### Other open UI items
 - [ ] **Layout-overflow warnings** — pixel-sizing flex children stopped the sidebar spam (1a97a55); watch for remaining NoWrap warnings elsewhere.
