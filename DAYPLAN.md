@@ -53,4 +53,18 @@ No vendor edits (log gaps). No company names. Mock default. One mutator per file
 ## VENDOR-PATCH WORKFLOW (new — Gabe OK'd editing the afterhours submodule)
 - Prototype fix in vendor/afterhours, PROVE in hanabi, capture as vendor_patches/NN-*.patch + submodule tag, revert to PINNED so main builds. Maintainer applies + bumps pointer.
 - DONE: #25 (rounded-corner degenerate triangle), #22 (styled spans word-wrap).
-- BUG FOUND (light-theme agent): settings_footnote overflows settings_panel (ph too short by ~13px) — fix in settings_system.h.
+- settings_footnote overflow (light-theme agent): RESOLVED — the earlier alignment
+  unification fixed it; verified 0 layout warns in a headless settings capture.
+
+## MOCK ASSET-SPLIT (shared css/data/ui, file://-safe) — VERIFIED DONE
+- mock/{index,bluesky,messages}.html are fully externalized (no inline <style>/<script>).
+- Shared base: assets/hanabi.css + data.js (THREADS/FOLDER_MEMBERS) + ui.js;
+  bluesky layers v2.css/v2.js, messages layers messages.css/messages.js — deltas, not copies.
+- file://-safe by construction: relative assets/ paths, NO fetch/import/localStorage/.json.
+- PROVEN: headless Chrome loaded all 3 via file:// — exit 0, zero asset/CORS/local-load
+  errors (only Chrome-internal noise), full render (index MVP + bluesky V2 empty-states/motion).
+- HARD CONSTRAINT re-checked: 0 parent-company/internal-URL leakage in mock/ (and src/, docs/).
+
+## PHASE H ICON SWEEP — COMPLETE
+- Last raw unicode chrome glyph (tool-pile count badge's ≡) migrated to Lucide 'layers'
+  sprite (atlas -> 18). 0 raw unicode chrome glyphs remain (250d9b4).
