@@ -24,7 +24,7 @@ ifeq ($(UNAME_S),Darwin)
     EXT := .exe
     FRAMEWORKS := -framework CoreFoundation -framework CoreServices \
         -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore \
-        -framework Carbon
+        -framework Carbon -framework CoreSpotlight -framework UniformTypeIdentifiers
 else ifeq ($(OS),Windows_NT)
     CXX := g++
     EXT := .exe
@@ -186,12 +186,26 @@ bundle: $(MAIN_EXE) copy-resources
 		'    <string>com.hanabi.app</string>' \
 		'    <key>CFBundleName</key>' \
 		'    <string>Hanabi</string>' \
+		'    <key>CFBundleDisplayName</key>' \
+		'    <string>Hanabi</string>' \
 		'    <key>CFBundleVersion</key>' \
+		'    <string>0.1.0</string>' \
+		'    <key>CFBundleShortVersionString</key>' \
 		'    <string>0.1.0</string>' \
 		'    <key>CFBundlePackageType</key>' \
 		'    <string>APPL</string>' \
+		'    <key>CFBundleInfoDictionaryVersion</key>' \
+		'    <string>6.0</string>' \
+		'    <key>LSMinimumSystemVersion</key>' \
+		'    <string>12.0</string>' \
+		'    <key>LSApplicationCategoryType</key>' \
+		'    <string>public.app-category.developer-tools</string>' \
 		'    <key>NSHighResolutionCapable</key>' \
 		'    <true/>' \
+		'    <key>NSSupportsAutomaticGraphicsSwitching</key>' \
+		'    <true/>' \
+		'    <key>NSHumanReadableCopyright</key>' \
+		'    <string>hanabi — native Navi desktop client</string>' \
 		'</dict>' \
 		'</plist>' > $(APP_BUNDLE)/Contents/Info.plist
 	@echo "Built $(APP_BUNDLE)"
