@@ -84,6 +84,73 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
 //   * count: number of tabs.
 // Returns a clamped insertion index in [0, count-1].
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Chrome-style overflow width (pure, unit-tested).
+//
+// Chrome keeps every open tab visible by SHRINKING them to share the strip,
+// down to a comfortable floor. Below that floor it stops shrinking (tabs would
+// become illegible) and instead lets the strip SCROLL. We model exactly that:
+//
+//   compute_tab_width(stripW, count, minW, maxW, gap):
+//     * 0 tabs            -> maxW (unused, but well-defined).
+//     * fits at <= maxW   -> uniform share (stripW split evenly), capped at
+//                            maxW so a couple of tabs don't stretch huge.
+//     * would go < minW   -> CLAMP at minW; the tabs now overflow and the
+//                            strip must scroll (see compute_max_scroll).
+//   The returned width is the SAME for every tab (uniform), which keeps the
+//   existing drag-reorder slot math (slotStride) valid.
+// ---------------------------------------------------------------------------
+inline float compute_tab_width(float stripW, size_t count, float minW,
+                               float maxW, float gap) {
+    if (count == 0) return maxW;
+    float totalGap = gap * static_cast<float>(count - 1);
+    float perTab = (stripW - totalGap) / static_cast<float>(count);
+    return std::clamp(perTab, minW, maxW);
+}
+
+// Total pixel width the tabs+gaps occupy at width `tabW`. (count-1 gaps.)
+inline float compute_content_width(size_t count, float tabW, float gap) {
+    if (count == 0) return 0.0f;
+    return static_cast<float>(count) * tabW +
+           gap * static_cast<float>(count - 1);
+}
+
+// How far the strip can scroll horizontally: content width beyond the visible
+// strip, floored at 0 (never scroll when everything fits).
+inline float compute_max_scroll(float stripW, size_t count, float tabW,
+                                float gap) {
+    float content = compute_content_width(count, tabW, gap);
+    return std::max(0.0f, content - stripW);
+}
+
+// Clamp a proposed scroll offset into [0, maxScroll].
+inline float clamp_scroll(float offset, float maxScroll) {
+    if (maxScroll <= 0.0f) return 0.0f;
+    return std::clamp(offset, 0.0f, maxScroll);
+}
+
+// Given the currently-active tab's index, return a scroll offset that makes
+// that tab FULLY visible (Chrome scrolls a freshly-selected off-screen tab
+// into view). If the tab's left edge is left of the viewport, scroll so its
+// left aligns to the strip's left; if its right edge is past the viewport,
+// scroll so its right aligns to the strip's right. Otherwise keep `offset`.
+// slotStride == tabW + gap. Result is clamped to [0, maxScroll].
+inline float scroll_to_show(size_t activeIndex, float offset, float stripW,
+                            float tabW, float gap, size_t count) {
+    if (count == 0) return 0.0f;
+    float slotStride = tabW + gap;
+    float tabLeft = slotStride * static_cast<float>(activeIndex);
+    float tabRight = tabLeft + tabW;
+    float maxScroll = compute_max_scroll(stripW, count, tabW, gap);
+    float out = offset;
+    if (tabLeft < offset) {
+        out = tabLeft;                    // scroll left to reveal
+    } else if (tabRight > offset + stripW) {
+        out = tabRight - stripW;          // scroll right to reveal
+    }
+    return clamp_scroll(out, maxScroll);
+}
+
 inline size_t compute_drop_index(float draggedCenterX, float stripX,
                                  float slotStride, size_t count) {
     if (count <= 1 || slotStride <= 0.0f) return 0;
@@ -136,6 +203,44 @@ inline void close_tab(TabStripComponent& strip, AppComponent& app,
             app.view = SmartView::Home;
         }
     }
+}
+
+// Close every tab EXCEPT the one for `keepId` (context-menu "Close others").
+// The kept tab is made active and its content stays open; all other tab
+// entities are marked for cleanup and dropped from tabOrder. If keepId isn't
+// open, this is a no-op. Pure order/marker manipulation — mirrors close_tab.
+inline void close_others(TabStripComponent& strip, AppComponent& app,
+                         const std::string& keepId) {
+    // Find the entity we're keeping and confirm it's actually open.
+    afterhours::Entity* keep = nullptr;
+    for (auto tabId : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (opt.valid() && opt->has<Tab>() &&
+            opt->get<Tab>().sessionId == keepId) {
+            keep = &opt.asE();
+            break;
+        }
+    }
+    if (!keep) return;  // not open -> nothing to do
+
+    // Cleanup all the others.
+    for (auto tabId : strip.tabOrder) {
+        if (tabId == keep->id) continue;
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (opt.valid()) opt.asE().cleanup = true;
+    }
+    // tabOrder becomes just the kept tab.
+    strip.tabOrder.clear();
+    strip.tabOrder.push_back(keep->id);
+    // Keep it active (switch_to_tab is a no-op selection-wise if already so).
+    switch_to_tab(app, *keep);
+}
+
+// The Navi web session URL for a thread — used by the tab context menu's
+// "Copy Navi URL" action. Kept here (pure, testable) so the exact URL shape is
+// asserted by a unit test rather than only formed inline at the call site.
+inline std::string navi_url_for(const std::string& sessionId) {
+    return "https://navibot.dev/" + sessionId;
 }
 
 }  // namespace ecs::model

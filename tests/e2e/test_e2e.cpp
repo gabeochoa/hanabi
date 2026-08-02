@@ -11,6 +11,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <string>
 
 // afterhours ECS core only (headless-safe: no graphics backend linked).
@@ -432,7 +433,143 @@ static void test_tab_reorder_edge_cases() {
 }
 
 // ---------------------------------------------------------------------------
+// Chrome-style overflow width + horizontal scroll math (pure model). These are
+// the SHIPPED functions the tab bar uses to size tabs and clamp the scroll
+// offset, exercised directly (no window / no mouse).
+// ---------------------------------------------------------------------------
+static void test_tab_overflow_width() {
+    std::printf("test_tab_overflow_width\n");
+    const float minW = 40.0f;
+    const float maxW = 240.0f;
+    const float gap = 3.0f;
+
+    // A single tab in a wide strip is capped at maxW (doesn't stretch huge).
+    CHECK(ecs::model::compute_tab_width(1200.0f, 1, minW, maxW, gap) == maxW);
+    // Two tabs still capped (2*240 + gap < 1200).
+    CHECK(ecs::model::compute_tab_width(1200.0f, 2, minW, maxW, gap) == maxW);
+
+    // Enough tabs that the uniform share drops below maxW but stays above minW:
+    // 10 tabs in 1000px -> ~(1000 - 27)/10 = 97.3px, between min and max.
+    float w10 = ecs::model::compute_tab_width(1000.0f, 10, minW, maxW, gap);
+    CHECK(w10 > minW && w10 < maxW);
+    CHECK(std::fabs(w10 - (1000.0f - gap * 9.0f) / 10.0f) < 0.01f);
+
+    // Many tabs: the share would go below minW, so it CLAMPS at minW (Chrome
+    // stops shrinking and scrolls instead). 40 tabs in 300px -> way under min.
+    CHECK(ecs::model::compute_tab_width(300.0f, 40, minW, maxW, gap) == minW);
+
+    // Zero tabs -> maxW (well-defined, unused).
+    CHECK(ecs::model::compute_tab_width(500.0f, 0, minW, maxW, gap) == maxW);
+}
+
+static void test_tab_scroll_clamp_and_max() {
+    std::printf("test_tab_scroll_clamp_and_max\n");
+    const float gap = 3.0f;
+    const float tabW = 40.0f;
+
+    // Content that fits -> no scroll possible (maxScroll == 0), any offset
+    // clamps to 0.
+    float fitMax = ecs::model::compute_max_scroll(1000.0f, 3, tabW, gap);
+    CHECK(fitMax == 0.0f);
+    CHECK(ecs::model::clamp_scroll(50.0f, fitMax) == 0.0f);
+    CHECK(ecs::model::clamp_scroll(-50.0f, fitMax) == 0.0f);
+
+    // Content overflows: 20 tabs @ 40px + 19 gaps = 800 + 57 = 857; strip 300
+    // -> maxScroll 557.
+    float ovMax = ecs::model::compute_max_scroll(300.0f, 20, tabW, gap);
+    CHECK(std::fabs(ovMax - (857.0f - 300.0f)) < 0.01f);
+    // Clamp respects [0, maxScroll].
+    CHECK(ecs::model::clamp_scroll(-10.0f, ovMax) == 0.0f);
+    CHECK(ecs::model::clamp_scroll(9999.0f, ovMax) == ovMax);
+    CHECK(ecs::model::clamp_scroll(100.0f, ovMax) == 100.0f);
+}
+
+static void test_tab_scroll_to_show_active() {
+    std::printf("test_tab_scroll_to_show_active\n");
+    const float gap = 3.0f;
+    const float tabW = 40.0f;
+    const float stripW = 200.0f;   // fits ~4-5 tabs
+    const size_t n = 20;           // overflows
+    const float stride = tabW + gap;
+
+    // Tab already fully visible at offset 0 (index 0) -> offset unchanged (0).
+    CHECK(ecs::model::scroll_to_show(0, 0.0f, stripW, tabW, gap, n) == 0.0f);
+
+    // A far-right tab (index 19): its left edge = 19*43 = 817, right = 857.
+    // From offset 0 it's off-screen-right, so scroll so its right aligns to the
+    // strip's right: 857 - 200 = 657, clamped to maxScroll.
+    float maxScroll = ecs::model::compute_max_scroll(stripW, n, tabW, gap);
+    float toRight = ecs::model::scroll_to_show(19, 0.0f, stripW, tabW, gap, n);
+    CHECK(std::fabs(toRight - (817.0f + tabW - stripW)) < 0.01f);
+    CHECK(toRight <= maxScroll + 0.01f);
+
+    // A tab to the LEFT of the current viewport scrolls left to reveal its left
+    // edge. Start scrolled far right, then show index 0 -> offset becomes its
+    // left edge (0).
+    CHECK(ecs::model::scroll_to_show(0, maxScroll, stripW, tabW, gap, n) ==
+          0.0f);
+
+    // A tab already inside the viewport keeps the current offset. At offset
+    // 100, index 3 sits at [129,169] within [100,300] -> unchanged.
+    (void)stride;
+    CHECK(ecs::model::scroll_to_show(3, 100.0f, stripW, tabW, gap, n) ==
+          100.0f);
+}
+
+// close_others: closes every tab except the right-clicked one, keeps it active,
+// and its content stays open. Mirrors the tab context-menu action.
+static void test_tab_close_others() {
+    std::printf("test_tab_close_others\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+
+    ecs::model::open_session_in_tab(strip, app, "t1");  // idx 0
+    ecs::model::open_session_in_tab(strip, app, "t4");  // idx 1
+    ecs::model::open_session_in_tab(strip, app, "t5");  // idx 2 (active)
+    CHECK(strip.tabOrder.size() == 3);
+
+    // Keep the MIDDLE (non-active) tab t4; the others (t1, t5) close.
+    ecs::model::close_others(strip, app, "t4");
+    CHECK(strip.tabOrder.size() == 1);
+    auto keptOpt =
+        afterhours::EntityHelper::getEntityForID(strip.tabOrder[0]);
+    CHECK(keptOpt.valid());
+    CHECK(keptOpt->get<ecs::Tab>().sessionId == "t4");
+    // The kept tab becomes active and its content is open.
+    CHECK(keptOpt->has<ecs::ActiveTab>());
+    CHECK(app.selectedId == "t4");
+    CHECK(app.view == ecs::SmartView::Chat);
+    // Exactly one active tab.
+    int active = 0;
+    for (auto id : strip.tabOrder) {
+        auto o = afterhours::EntityHelper::getEntityForID(id);
+        if (o.valid() && o->has<ecs::ActiveTab>()) ++active;
+    }
+    CHECK(active == 1);
+
+    // Closing others when only the kept tab remains is a stable no-op.
+    ecs::model::close_others(strip, app, "t4");
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(app.selectedId == "t4");
+
+    // Keeping a tab that isn't open is a no-op (order unchanged).
+    ecs::model::close_others(strip, app, "does-not-exist");
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(strip.tabOrder[0] == keptOpt->id);
+}
+
+// The Navi web URL shape the "Copy Navi URL" action copies.
+static void test_navi_url_shape() {
+    std::printf("test_navi_url_shape\n");
+    CHECK(ecs::model::navi_url_for("t5") == "https://navibot.dev/t5");
+    CHECK(ecs::model::navi_url_for("abc-123") ==
+          "https://navibot.dev/abc-123");
+    CHECK(ecs::model::navi_url_for("") == "https://navibot.dev/");
+}
+
+// ---------------------------------------------------------------------------
 // 5) http adapter defaults: with no env config, make_client() returns the
+
 //    mock; a default summary (what the generic http adapter yields) is calm.
 // ---------------------------------------------------------------------------
 static void test_backend_agnostic_defaults() {
@@ -621,6 +758,11 @@ int main() {
     test_tab_reorder_drop_index();
     test_tab_reorder_moves_and_preserves_active();
     test_tab_reorder_edge_cases();
+    test_tab_overflow_width();
+    test_tab_scroll_clamp_and_max();
+    test_tab_scroll_to_show_active();
+    test_tab_close_others();
+    test_navi_url_shape();
     test_backend_agnostic_defaults();
     test_transcript_cache();
 

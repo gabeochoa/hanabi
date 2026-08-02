@@ -322,6 +322,29 @@ struct TabStripComponent : public afterhours::BaseComponent {
         dragStartX = dragCurX = 0.0f;
         dragFromIndex = 0;
     }
+
+    // ---- Chrome-style overflow scroll (set/read only by TabBarSystem) -----
+    // When more tabs are open than fit at their min width, the strip stops
+    // shrinking the tabs and scrolls instead. scrollX shifts every tab's
+    // x-position left; it's clamped each frame to [0, maxScroll] by the
+    // pure model (model::clamp_scroll / compute_max_scroll). A horizontal
+    // wheel / shift+wheel over the strip adjusts it; selecting an off-screen
+    // tab scrolls it into view (model::scroll_to_show).
+    float scrollX = 0.0f;
+
+    // ---- Right-click context menu state (set/read only by TabBarSystem) ---
+    // A right-click on a tab opens a small overlay menu anchored at the cursor
+    // with per-tab actions ("Copy Navi URL", "Close others"). Dismissed on
+    // click-away or after an action. menuTabId is the tab the menu acts on.
+    bool menuOpen = false;
+    afterhours::EntityID menuTabId =
+        std::numeric_limits<afterhours::EntityID>::max();
+    float menuX = 0.0f;         // cursor x at right-click (menu top-left)
+    float menuY = 0.0f;         // cursor y at right-click
+    void close_menu() {
+        menuOpen = false;
+        menuTabId = std::numeric_limits<afterhours::EntityID>::max();
+    }
 };
 
 }  // namespace ecs
