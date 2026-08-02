@@ -18,11 +18,66 @@
 #endif
 #include <httplib.h>
 
+#ifdef HANABI_ENABLE_TLS
+#include <mutex>
+#include <openssl/crypto.h>
+#include <openssl/provider.h>
+#include <openssl/ssl.h>
+#endif
+
 namespace api {
 
 using json = nlohmann::json;
 
 namespace {
+
+#ifdef HANABI_ENABLE_TLS
+// Force a single, thread-safe OpenSSL initialization BEFORE any worker thread
+// runs a TLS handshake, AND serialize the handshake itself.
+//
+// Root cause of the intermittent SIGSEGV on a large real-backend transcript:
+// opening a big thread kicks concurrent std::async fetches on separate worker
+// threads — the initial newest-N transcript load, the "load older" full re-fetch
+// (drive_load_older), and per-tab live (SSE) refetches. Each request builds its
+// OWN httplib::Client on the stack, and for an https origin the first TLS
+// handshake lazily initializes OpenSSL 3 state (the default provider + the
+// EVP/OBJ algorithm-name tables, reached via tls_process_server_hello ->
+// int_ctx_new -> evp_pkey_name2type). When TWO worker threads run that first-
+// touch init simultaneously, OpenSSL's run-once machinery races and a
+// CRYPTO_THREAD lock is read before it is created — a null pthread_rwlock deref
+// (EXC_BAD_ACCESS at 0x0). It only reproduces when two fetches overlap, which is
+// exactly what the big transcript triggers (hence "fast standalone / never under
+// lldb/ASan": those change the timing so the two inits don't collide).
+//
+// Fix, two layers:
+//  (1) std::call_once forces OPENSSL_init_ssl + loading the default provider
+//      once, single-threaded, so the lazy tables exist before any handshake.
+//  (2) A process-wide mutex serializes each get()/post_json() request (both run
+//      on background worker threads, never the UI thread), so two TLS handshakes
+//      can never build OpenSSL's lazily-created per-op locks concurrently. This
+//      only affects the short JSON fetches; long-lived SSE streaming/subscribe
+//      keep their own separate path and are not serialized here.
+void ensure_openssl_init() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS |
+                             OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
+                         nullptr);
+        // Force the default provider (and its property-store locks) to be
+        // created now, on one thread, so a concurrent first handshake doesn't
+        // race creating it.
+        OSSL_PROVIDER_load(nullptr, "default");
+    });
+}
+
+// Serializes TLS handshakes across the concurrent fetch workers (see above).
+std::mutex& http_request_mutex() {
+    static std::mutex m;
+    return m;
+}
+#else
+inline void ensure_openssl_init() {}
+#endif
 
 // Split "https://host:port/prefix" into a scheme+host[:port] origin (for the
 // httplib::Client) and a leading path prefix that is prepended to requests.
@@ -531,6 +586,12 @@ Result<std::string> HttpClient::get(const std::string& path) {
 #endif
 
     try {
+        ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
+#ifdef HANABI_ENABLE_TLS
+        // Serialize the TLS handshake across concurrent fetch workers so the
+        // first-handshake OpenSSL lazy-init can't race (see http_request_mutex).
+        std::lock_guard<std::mutex> _tls_lock(http_request_mutex());
+#endif
         httplib::Client cli(s.origin.c_str());
         cli.set_connection_timeout(5, 0);
         cli.set_read_timeout(10, 0);
@@ -572,6 +633,12 @@ Result<std::string> HttpClient::post_json(const std::string& path,
 #endif
 
     try {
+        ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
+#ifdef HANABI_ENABLE_TLS
+        // Serialize the TLS handshake across concurrent fetch workers so the
+        // first-handshake OpenSSL lazy-init can't race (see http_request_mutex).
+        std::lock_guard<std::mutex> _tls_lock(http_request_mutex());
+#endif
         httplib::Client cli(s.origin.c_str());
         cli.set_connection_timeout(5, 0);
         cli.set_read_timeout(30, 0);  // a reply may take longer than a GET
@@ -964,6 +1031,7 @@ void HttpClient::send_message_streaming(const std::string& session_id,
     bool sawDone = false;
 
     try {
+        ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
         httplib::Client cli(s.origin.c_str());
         cli.set_connection_timeout(5, 0);
         cli.set_read_timeout(60, 0);  // a streamed reply can run a while.
@@ -1037,6 +1105,7 @@ AuthTransport make_http_auth_transport(const Config& cfg) {
         }
 #endif
         try {
+            ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
             httplib::Client cli(s.origin.c_str());
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(15, 0);
@@ -1177,6 +1246,7 @@ class HttpEventSubscription : public EventSubscription {
         for (int attempt = 0; attempt <= kMaxReconnects && !stop_.load();
              ++attempt) {
             try {
+                ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
                 httplib::Client cli(s.origin.c_str());
                 cli.set_connection_timeout(5, 0);
                 cli.set_read_timeout(120, 0);  // long-lived stream.
