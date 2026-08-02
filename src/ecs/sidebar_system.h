@@ -160,9 +160,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // No invented "Recent" folder — per Gabe, only real API folders get a
         // header. (If the backend later files every session under a workspace,
         // this list is simply empty and only real folders show.)
+        //
+        // V6: fill the available vertical space instead of always capping at a
+        // fixed ~12 rows (which left empty space below the "Show N more…"
+        // button in a tall window). The scroll viewport is scrollH px tall and
+        // each thread row is kRowHeight px, so ~scrollH/kRowHeight rows fill
+        // one viewport. This headerless catch-all is the LAST and dominant
+        // list, so sizing its cap to a viewport-worth of rows makes the list
+        // reach the bottom of the visible area, putting "Show N more…" at the
+        // bottom rather than mid-panel. We use the FULL viewport height as the
+        // fill target (a slight over-estimate when folders sit above) so the
+        // panel is always filled — any surplus simply extends the scroll
+        // content, and the show-more button rides at the end of the list. The
+        // cap never drops below kBucketCap, so a short window still shows a
+        // reasonable minimum. Named folders above keep the default kBucketCap.
+        int fillCap = static_cast<int>(scrollH / kRowHeight);
+        if (fillCap < kBucketCap) fillCap = kBucketCap;
         shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                *app, q, r.width, /*archived=*/false,
-                               /*catchAll=*/true, /*headerless=*/true);
+                               /*catchAll=*/true, /*headerless=*/true,
+                               /*cap=*/fillCap);
         // (Archived is now a smart VIEW in the Views section above, not a
         // sidebar folder â per Gabe. Sending a message to an archived thread
         // unarchives it, same as the backend behavior.)
@@ -210,10 +227,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // id slot so it never collides with a capped body row (base+1..base+12).
     static constexpr int kBucketCap = 12;
     static constexpr int kMoreRowIdOffset = 199;
+    // The fixed on-screen height of one chat row (see render_chat_row's
+    // .with_size height). Used by V6's fill-the-viewport cap computation so
+    // the headerless catch-all shows enough rows to fill the scroll area.
+    static constexpr float kRowHeight = 24.0f;
     // Per-row trailing relative-time column width ("2h" / "Jul 28"). Wide
     // enough for a short absolute date so old rows aren't clipped; kept small
     // so the title still gets most of the row.
     static constexpr float kRowTimeColW = 46.0f;
+    // A thread row's left inset (padding-left) and its leading status-glyph
+    // slot width. The title text therefore starts at kRowLeftInset + kGlyphW
+    // from the row's left edge — the "Show N more…" expander matches that so
+    // its label aligns with the thread titles (V7), not the row edge.
+    static constexpr float kRowLeftInset = 22.0f;
+    static constexpr float kGlyphW = 12.0f;   // leading status glyph slot
     // A count's LEFT edge (== its column start x) is the same for every
     // section: panelW − kCountRightPad − kCountColW. Given a section's own
     // left inset, the label column width is that start-x minus the left inset
@@ -1310,7 +1337,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                       const std::string& name, const std::string& key,
                       AppComponent& app, const std::string& q, float panelW,
                       bool archived = false, bool catchAll = false,
-                      bool headerless = false) {
+                      bool headerless = false, int cap = kBucketCap) {
         // Collect member threads, honoring the live search filter.
         std::vector<const api::SessionSummary*> members;
         for (const auto& s : app.sessions) {
@@ -1345,7 +1372,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                       });
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
-                            panelW, archived, headerless);
+                            panelW, archived, headerless, cap);
     }
 
     // ---- collapsible group header (shared by folders + time-groups) ----
@@ -1460,7 +1487,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                      const std::string& name, const std::string& key,
                      const std::vector<const api::SessionSummary*>& members,
                      AppComponent& app, const std::string& q, float panelW,
-                     bool archived, bool headerless = false) {
+                     bool archived, bool headerless = false,
+                     int cap = kBucketCap) {
         if (members.empty()) return 0;
         // Headerless: unfoldered sessions render as a plain flat list with NO
         // folder header (per Gabe: "only keep the real folders" — no invented
@@ -1479,13 +1507,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Defect #2: a single heavy bucket (e.g. real data landing ~92
         // sessions in "Yesterday") is still a scroll-pit even though it has a
         // header — the finer time-bucketing MOVED the pile, it didn't SPLIT
-        // it. So within an expanded group we CAP the visible rows at
-        // kBucketCap and, when there are more, render a "Show N more…" expander
+        // it. So within an expanded group we CAP the visible rows at `cap`
+        // and, when there are more, render a "Show N more…" expander
         // row instead of the full wall. Clicking it flips a per-group "show
         // all" flag so the user opts into the long list explicitly. This is
         // the standard chat-app fix and it GUARANTEES no single section
         // renders a 90-row wall on first open, regardless of how the backend
         // clusters timestamps.
+        //
+        // `cap` defaults to kBucketCap (named folders / time buckets), but the
+        // headerless catch-all passes a larger, viewport-sized cap so it FILLS
+        // the scroll area with the "Show N more…" button riding at the bottom
+        // (V6) instead of leaving empty space below a fixed ~12-row cap.
         //
         // The expanded state is stored in the existing collapsedFolders set
         // (no new AppComponent field — that component is owned elsewhere) under
@@ -1499,7 +1532,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const bool expandedMore =
             !q.empty() || app.collapsedFolders.count(moreKey) > 0;
         const int limit =
-            (expandedMore || total <= kBucketCap) ? total : kBucketCap;
+            (expandedMore || total <= cap) ? total : cap;
 
         int i = 0;
         for (const auto* s : members) {
@@ -1512,15 +1545,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // key so the next frame renders every row. Placed at the TOP of the
         // slot's id range (base + kMoreRowIdOffset) so it never collides with a
         // body row id (base + 1 .. base + total).
-        if (!expandedMore && total > kBucketCap) {
-            const int hidden = total - kBucketCap;
+        if (!expandedMore && total > cap) {
+            const int hidden = total - cap;
             auto more = div(ctx, mk(parent, base + kMoreRowIdOffset),
                 ComponentConfig{}
                     .with_label("Show " + std::to_string(hidden) + " more\xe2\x80\xa6")
                     .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    // V7: align the "Show N more…" label with the thread-row
+                    // TITLE text above it, not the row's left edge. A thread
+                    // row's title begins after the row left inset (22px) PLUS
+                    // its leading status-glyph slot (kGlyphW = 12px), so its
+                    // text starts at 34px. The old 22px here left the label
+                    // flush under the glyph column instead of under the titles;
+                    // matching 22 + kGlyphW lands "Show N more…" directly under
+                    // the thread titles so it reads as part of the same list.
                     .with_padding(Padding{.top = pixels(2), .right = pixels(8),
                                           .bottom = pixels(2),
-                                          .left = pixels(22)})
+                                          .left = pixels(kRowLeftInset +
+                                                         kGlyphW)})
                     .with_custom_background(theme::sidebar_bg())
                     .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                     .with_custom_text_color(theme::text_faint())
@@ -1605,8 +1647,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                          const api::SessionSummary& s, AppComponent& app,
                          bool archived, float panelW) {
         bool attn = is_attention(s.state);
-        bool running = s.state == api::ThreadState::Running;
-        bool parked = s.state == api::ThreadState::Parked;
         bool selected = app.selectedId == s.id;
         // Defect #5: cron / scheduled rows are visually de-emphasized (not
         // hidden). Detect purely by title shape ("Schedule:" prefix / "-tick"
@@ -1656,7 +1696,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.top = pixels(2), .right = pixels(8),
-                                      .bottom = pixels(2), .left = pixels(22)})
+                                      .bottom = pixels(2),
+                                      .left = pixels(kRowLeftInset)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
                 // Selected row = no hover reaction (hover bg == selected fill);
@@ -1702,13 +1743,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 })
                 .with_debug_name("row_glyph"));
 
-        // Title. attn=bold(primary), running=dim(faint), parked/archived=grey.
-        // Bold is approximated via the primary text color (immediate-mode UI
-        // has no per-label weight); the mock's bold-on-attention intent is
-        // preserved by the primary/secondary/faint color split.
+        // Title color (V5): a normal thread row's title uses the SAME token as
+        // the VIEWS-section rows (Home/Blocked/Review/Starred/Archived), which
+        // render their label in text_secondary() when unselected (see
+        // smart_item's `txt = active ? primary : secondary`). Earlier this file
+        // dimmed running/parked rows to text_faint(), which is darker than the
+        // VIEWS token — so the thread list read noticeably darker than the
+        // views above it. Unify the base to text_secondary() so the thread
+        // titles match the VIEWS rows exactly. Attention rows still brighten to
+        // primary (the mock's bold-on-attention intent). Only the DELIBERATELY
+        // de-emphasized families stay faint: archived (a low-signal, separate
+        // smart view) and automated/cron rows (defect #5 — quiet metadata).
         theme::Color titleColor = theme::text_secondary();
         if (attn) titleColor = theme::text_primary();
-        else if (running || parked || archived) titleColor = theme::text_faint();
+        else if (archived) titleColor = theme::text_faint();
         // Defect #5: automated/cron rows always read as quiet metadata — a
         // faint title — so real conversations stand out even inside a bucket.
         // (Applied last so it de-emphasizes regardless of the state above.)
@@ -1744,8 +1792,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // optional trailing columns (time first, then star) when they wouldn't
         // fit, rather than overflow. Below the floor even without them, the
         // title simply shrinks (it can't overflow — it's the only flex column).
-        const float kRowPad = 30.0f;      // row left 22 + right 8
-        const float kGlyphW = 12.0f;      // leading status glyph slot
+        const float kRowPad = kRowLeftInset + 8.0f;  // row left + right 8
         const float kStarW = 18.0f;       // trailing star slot
         const float kTitleMin = 40.0f;    // title floor before dropping columns
         float rowContent = panelW - kRowPad;
