@@ -2970,17 +2970,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_margin(Margin{.bottom = pixels(kToolRowGap)})
                     .with_roundness(0.3f)
                     .with_debug_name("tool_out"));
-            div(ctx, mk(panel.ent(), 1),
+            // Render each line as its OWN fixed-pitch mono row — afterhours'
+            // wrap treats '\n' as a word char (gap #24), so a single label
+            // would run the whole log onto one wrapped blob. Per-line rows honor
+            // the hard breaks and exactly match tool_out_height (lines*pitch).
+            auto outCol = div(ctx, mk(panel.ent(), 1),
                 ComponentConfig{}
-                    .with_label(out.empty() ? " " : out)
                     .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
                     .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font("mono", theme::type::SM)
-                    .with_text_overflow(TextOverflow::Wrap)
-                    .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("tool_out_txt"));
+                    .with_debug_name("tool_out_col"));
+            {
+                size_t ls = 0;
+                int li = 0;
+                while (ls <= out.size()) {
+                    size_t nl2 = out.find('\n', ls);
+                    size_t e = (nl2 == std::string::npos) ? out.size() : nl2;
+                    std::string ln = out.substr(ls, e - ls);
+                    // Tabs -> 2 spaces for stable columns (same as code lines).
+                    for (size_t p = ln.find('\t'); p != std::string::npos;
+                         p = ln.find('\t', p))
+                        ln.replace(p, 1, "  ");
+                    div(ctx, mk(outCol.ent(), 1 + li),
+                        ComponentConfig{}
+                            .with_label(ln.empty() ? " " : ln)
+                            .with_size(ComponentSize{percent(1.0f),
+                                                     pixels(kLinePitch)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_secondary())
+                            .with_font("mono", theme::type::SM)
+                            .with_alignment(TextAlignment::Left)
+                            .with_roundness(0.0f)
+                            .with_debug_name("tool_out_line"));
+                    ++li;
+                    if (nl2 == std::string::npos) break;
+                    ls = nl2 + 1;
+                }
+            }
             (void)truncated;
         }
     }

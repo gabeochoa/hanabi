@@ -544,6 +544,9 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   heights so it matches the render exactly. Bounded by #23's virtualization so
   the extra per-line boxes only exist for visible turns. Side benefit: real list
   breaks + hanging structure with no vendor change.
+  UPDATE (2026-08-02): the expanded tool-output panel (render_tool_block) now
+  uses the SAME per-line split — its captured tool_result honors \n breaks +
+  indentation instead of collapsing to a run-on blob.
 - **Minimal fix (owned elsewhere — vendor/afterhours):** teach
   `wrap_text_to_width` to force a line break on `\n` (and the draw loop + the
   measure API #A to advance a line), so a single wrapping label honors hard
