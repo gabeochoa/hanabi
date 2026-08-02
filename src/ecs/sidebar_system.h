@@ -99,6 +99,23 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto scroll = div(ctx, mk(panel.ent(), 5),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(scrollH)})
+                // preset::ScrollPanel is a FlexDirection::Column but leaves
+                // flex_wrap at its Wrap default. The sidebar puts MANY direct
+                // children in this panel (folder heads + 90+ chat rows); once
+                // their stacked height exceeds the viewport, a WRAPPING column
+                // wraps the overflow into a SECOND column at x += column-width
+                // — i.e. off the right edge of the sidebar, where the scroll
+                // viewport's scissor clips it away. The visible result: only
+                // the first viewport-height of rows ever draws; every row past
+                // content-Y ≈ viewport height renders (and lays out) in a
+                // clipped-out second column, so at a non-zero scroll offset the
+                // list looks empty even though the rows exist + stay clickable
+                // (their hit rects use the same wrapped positions). Forcing
+                // NoWrap keeps every child stacked in ONE column so the scroll
+                // offset simply slides the whole list. (The main-pane
+                // ScrollPanels don't hit this because they hold a SINGLE
+                // content child; only this many-direct-children panel wraps.)
+                .with_flex_wrap(FlexWrap::NoWrap)
                 .with_custom_background(theme::sidebar_bg())
                 .with_debug_name("sidebar_scroll"));
         // Match the OS "natural scrolling" setting (see util/scroll_prefs.h).
@@ -109,7 +126,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // "FOLDERS" section label + fold-all control (mirrors the mock's
         // second section header, which carries a fold-all affordance).
-        folders_section_head(ctx, scroll.ent(), 4, *app);
+        folders_section_head(ctx, scroll.ent(), 4, *app, r.width);
 
         // Live search filter: when the query is non-empty, folders only render
         // matching rows and empty folders are hidden. Track whether ANY row
@@ -628,6 +645,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_header"));
 
         if (!folded) {
+            // Header content box (panelW − left pad kRailIconInset − right 8).
+            // The action cluster (+ / gear / collapse) is essential and fixed
+            // at kActionsW; the brand block takes whatever's left so the two
+            // never sum past the header and trip a NoWrap overflow (which would
+            // warn + run solve_violations every frame on a narrow sidebar /
+            // small window). At the tightest widths the wordmark is dropped and
+            // only the ✦ mark shows; and if even the mark + full action cluster
+            // won't fit (a sub-~120px sidebar / tiny window), the action
+            // cluster's own width is clamped to the remaining space so the
+            // header still never overflows (the icons right-justify within it).
+            const float kBrandMin = 18.0f;  // just the ✦ mark
+            float hdrContent = layout.sidebar.width - kRailIconInset - 8.0f;
+            if (hdrContent < kBrandMin + 8.0f) hdrContent = kBrandMin + 8.0f;
+            float actionsW = 92.0f;
+            if (actionsW > hdrContent - kBrandMin)
+                actionsW = hdrContent - kBrandMin;
+            if (actionsW < 8.0f) actionsW = 8.0f;
+            const float kActionsW = actionsW;
+            float brandW = hdrContent - kActionsW;
+            if (brandW < kBrandMin) brandW = kBrandMin;  // at least the mark
+            if (brandW > 96.0f) brandW = 96.0f;   // original cap
+            bool showWordmark = brandW >= 18.0f + 40.0f;  // mark + room for text
             // --- brand block (left-anchored): ✦ mark + "hanabi" wordmark ---
             // Fixed-width so SpaceBetween has real slack to distribute; the
             // ✦ mark is a Lucide "sparkle" sprite (on_draw_fg), the wordmark
@@ -635,7 +674,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // anchors to the sidebar's right edge.
             auto brand = div(ctx, mk(header.ent(), 1),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(96), pixels(26)})
+                    .with_size(ComponentSize{pixels(brandW), pixels(26)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
@@ -652,10 +691,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         "brand", "\xe2\x9c\xa6", theme::accent(), 15.0f,
                         -1.0f))
                     .with_debug_name("sb_brand_mark"));
+            if (showWordmark)
             div(ctx, mk(brand.ent(), 2),
                 ComponentConfig{}
                     .with_label("hanabi")
-                    .with_size(ComponentSize{pixels(72), pixels(24)})
+                    .with_size(ComponentSize{pixels(brandW - 24.0f), pixels(24)})
                     .with_padding(Padding{.left = pixels(6)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
@@ -670,7 +710,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // (icon_btn_sprite) so they read as one consistent control group.
             auto actions = div(ctx, mk(header.ent(), 2),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(92), pixels(28)})
+                    .with_size(ComponentSize{pixels(kActionsW), pixels(28)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
@@ -681,20 +721,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("sb_actions"));
 
             // New task → open the composer (Phase K composer system renders it).
+            // Icons are 28px + 3px gap; at very narrow header widths only as
+            // many as fit are shown (collapse is essential and kept last, then
+            // settings, then new) so the cluster never overflows its clamped
+            // width and churns solve_violations. At realistic widths (≥ ~140px
+            // sidebar) all three fit.
+            int iconsFit = static_cast<int>((kActionsW + 3.0f) / 31.0f);
+            if (iconsFit < 1) iconsFit = 1;
+            if (iconsFit > 3) iconsFit = 3;
+            if (iconsFit >= 3) {
             auto newBtn = button(ctx, mk(actions.ent(), 1),
                 icon_btn_sprite("plus", "+").with_debug_name("sb_new"));
             if (newBtn) {
                 if (auto* app = find_singleton<AppComponent>())
                     app->composerOpen = true;
             }
+            }
 
             // Settings → open the settings overlay (Phase K settings system).
+            if (iconsFit >= 2) {
             auto setBtn = button(ctx, mk(actions.ent(), 2),
                 icon_btn_sprite("gear", "\xe2\x9a\x99")
                     .with_debug_name("sb_settings"));
             if (setBtn) {
                 if (auto* app = find_singleton<AppComponent>())
                     app->showSettings = true;
+            }
             }
 
             // Collapse toggle joins the cluster (unfolded state).
@@ -818,7 +870,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         float searchInner = panelW - 36.0f;             // field content box
         float searchTextW = searchInner - kSearchSlot;  // minus magnifier slot
         if (hasQuery) searchTextW -= kSearchSlot;        // minus clear-× slot
-        if (searchTextW < 40.0f) searchTextW = 40.0f;
+        // Clamp so the text field never exceeds the pill's inner box (else the
+        // NoWrap search row overflows + churns solve_violations). Prefer 40px,
+        // but if the field is genuinely tiny (a sub-usable sidebar width), fall
+        // back to the actual remaining width so it still can't overflow.
+        if (searchTextW < 40.0f)
+            searchTextW = std::max(12.0f, searchInner - kSearchSlot -
+                                              (hasQuery ? kSearchSlot : 0.0f));
         afterhours::text_input::text_input(
             ctx, mk(field.ent(), 2), app.searchQuery,
             ComponentConfig{}
@@ -911,7 +969,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // app.foldAllFolders and applies that state to every folder key, so all
     // folders snap open or closed together.
     void folders_section_head(UIContext<InputAction>& ctx, Entity& parent,
-                              int base, AppComponent& app) {
+                              int base, AppComponent& app, float panelW) {
         auto head = div(ctx, mk(parent, base),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(28)})
@@ -932,13 +990,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("sb_folders_head"));
 
+        // FOLDERS label: intrinsic-ish fixed width so SpaceBetween pushes the
+        // fold-all button to the far right edge. Clamp it so label + button +
+        // pads never exceed the header content box on a narrow sidebar (else
+        // the NoWrap head overflows every frame → warn + solve_violations
+        // churn). Content = panelW − left 14 − right kCountRightPad.
+        float headContent = panelW - 14.0f - kCountRightPad;
+        float foldLabelW = headContent - 20.0f;  // minus the fold-all button
+        if (foldLabelW > 64.0f) foldLabelW = 64.0f;
+        if (foldLabelW < 16.0f) foldLabelW = 16.0f;
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
                 .with_label("FOLDERS")
-                // Intrinsic-ish fixed width sized to the label text (not a
-                // percent) so SpaceBetween can push the fold-all button to the
-                // far right edge instead of anchoring it at ~72% across.
-                .with_size(ComponentSize{pixels(64), pixels(16)})
+                .with_size(ComponentSize{pixels(foldLabelW), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::LABEL)
@@ -1121,8 +1185,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         //             = panelW − 28. label = content − icon(18) − count(kCol).
         // With the count box right edge == panelW − kCountRightPad, the smart
         // counts line up with the folder / time-group counts.
-        float svLabelW = panelW - 28.0f - 18.0f - kCountColW;
-        if (svLabelW < 30.0f) svLabelW = 30.0f;
+        //
+        // No-overflow (defect: layout-warn spam): if icon+label+count exceed
+        // the row content the NoWrap row overflows every frame (warn +
+        // solve_violations churn). At narrow widths DROP the count rather than
+        // clamp the label into an overflow; the label then takes the full
+        // remaining width. Uses a small label floor so we only keep the count
+        // while it genuinely fits.
+        const float kSvContent = panelW - 28.0f;
+        const float kSvLabelMin = 30.0f;
+        bool svShowCount =
+            count > 0 && (kSvContent - 18.0f - kSvLabelMin) >= kCountColW;
+        float svLabelW = kSvContent - 18.0f - (svShowCount ? kCountColW : 0.0f);
+        if (svLabelW < 16.0f) svLabelW = 16.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(label)
@@ -1135,7 +1210,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
 
-        if (count > 0) {
+        if (svShowCount) {
             // Count column: fixed width, right-aligned. Its right edge lands at
             // panelW − kCountRightPad because the label above is sized to push
             // it flush to the row edge (unified column; see the count geometry
@@ -1324,18 +1399,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("folder_chevron"));
         // Name column: explicit pixel width so the count column starts at the
         // same x for every group. leftInset = head left pad (10); leadSlot =
-        // the 16px chevron.
+        // the 16px chevron. At narrow widths the trailing count is dropped
+        // (not clamped into an overflow) so the NoWrap header never overflows
+        // + churns solve_violations — see label_col_w / the row width note.
+        const float kHeadContent = panelW - 10.0f - kCountRightPad;
+        bool headShowCount = (kHeadContent - 16.0f - 30.0f) >= kCountColW;
+        float headNameW = headShowCount
+                              ? label_col_w(panelW, 10.0f, 16.0f)
+                              : (kHeadContent - 16.0f);
+        if (headNameW < 16.0f) headNameW = 16.0f;
         div(ctx, mk(head.ent(), 4),
             ComponentConfig{}
                 .with_label(name)
-                .with_size(ComponentSize{
-                    pixels(label_col_w(panelW, 10.0f, 16.0f)), pixels(18)})
+                .with_size(ComponentSize{pixels(headNameW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(headColor)
                 .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("folder_name"));
+        if (headShowCount)
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
                 .with_label(std::to_string(count))
@@ -1575,25 +1658,49 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // (afterhours_gaps.md #18), so a percent(1.0f) title in this NoWrap
         // row means 100% of the row and would overflow past the glyph + time +
         // star siblings every frame. The row content box = panelW − row pad
-        // (left 22 + right 8) = panelW − 30. Reserve, in order:
+        // (left 22 + right 8) = panelW − 30. Columns, in order:
         //   glyph slot   12px  (leading status indicator — always drawn)
-        //   time slot    kRowTimeColW (trailing relative-time — always reserved)
+        //   title        (flex-ish, sized in px — takes the remaining width)
         //   star slot    18px  (renders on hover / when starred, but ALWAYS
         //                       reserved so the row doesn't reflow on hover)
-        // Title width = panelW − 30 − 12 − kRowTimeColW − 18, clamped to a sane
-        // min so a narrow sidebar never goes negative. The time + star slots
-        // are ADJACENT on the right (time left of star) and both fixed, so the
-        // faint timestamp never collides with the star/glyph (gap #18 width
-        // math — we size every column in pixels).
-        float rowTitleW = panelW - 30.0f - 12.0f - kRowTimeColW - 18.0f;
-        if (rowTitleW < 40.0f) rowTitleW = 40.0f;
+        //   time slot    kRowTimeColW (trailing relative-time)
+        //
+        // WIDTH MATH / no-overflow (defect: layout-warn spam + solve_violations
+        // churn). The columns are fixed-px in a NoWrap row, so if
+        // glyph+title+star+time ever exceeds the row content box the row
+        // overflows EVERY frame — afterhours logs a wrap/overflow warning AND
+        // runs solve_violations (up to 10 iters) trying to resolve it, a real
+        // per-frame drag. This hit hard at narrow widths and all through the
+        // collapse tween (280→52 sweeps every intermediate width). So instead
+        // of a fixed reserve + a title floor that can exceed the box, we FIT
+        // the columns to the box: keep the title at a sane minimum and DROP the
+        // optional trailing columns (time first, then star) when they wouldn't
+        // fit, rather than overflow. Below the floor even without them, the
+        // title simply shrinks (it can't overflow — it's the only flex column).
+        const float kRowPad = 30.0f;      // row left 22 + right 8
+        const float kGlyphW = 12.0f;      // leading status glyph slot
+        const float kStarW = 18.0f;       // trailing star slot
+        const float kTitleMin = 40.0f;    // title floor before dropping columns
+        float rowContent = panelW - kRowPad;
+        if (rowContent < kGlyphW + 10.0f) rowContent = kGlyphW + 10.0f;
+        // Greedily reserve trailing columns only while the title can still hold
+        // its floor. Time is the first to go, then the star (matches "drop the
+        // least essential column at narrow widths").
+        bool showTime = (rowContent - kGlyphW - kTitleMin) >= kRowTimeColW;
+        bool showStar =
+            (rowContent - kGlyphW - kTitleMin -
+             (showTime ? kRowTimeColW : 0.0f)) >= kStarW;
+        float reserved = kGlyphW + (showTime ? kRowTimeColW : 0.0f) +
+                         (showStar ? kStarW : 0.0f);
+        float rowTitleW = rowContent - reserved;
+        if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
         // Ellipsize to the title column's width. At ROW size a char is ~6.4px;
         // budget conservatively (÷6.6) so a long title truncates INSIDE its
         // column instead of bleeding under the timestamp. Clamp to a sane
         // range so a narrow sidebar still shows a few chars and a wide one
         // doesn't over-truncate.
         size_t titleChars = static_cast<size_t>(rowTitleW / 6.6f);
-        if (titleChars < 8) titleChars = 8;
+        if (titleChars < 4) titleChars = 4;
         if (titleChars > 40) titleChars = 40;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
@@ -1624,7 +1731,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                           // the star-on-hover affordance headlessly). No-op
                           // unless HANABI_TEST_HOVER=row:<sessionId>.
                           hanabi::test_hooks::force_hover("row:" + s.id);
-        if (s.starred || rowHovered) {
+        // The star column is DROPPED entirely (not just blank) when the row is
+        // too narrow to hold it without overflow (showStar) — see the row
+        // width math above. Otherwise it's ALWAYS emitted (as a live star or a
+        // blank reserved slot) so the trailing timestamp never reflows on
+        // hover.
+        if (showStar && (s.starred || rowHovered)) {
             theme::Color starColor =
                 s.starred ? theme::tag_ready_fg() : theme::text_faint();
             std::string sid = s.id;
@@ -1632,13 +1744,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(18), pixels(20)})
-                    .with_custom_background(selected ? theme::selected_bg()
-                                                     : theme::sidebar_bg())
-                    .with_custom_hover_bg(theme::hover_over(
-                        selected ? theme::selected_bg() : theme::sidebar_bg()))
+                    // No background of its own (and no hover-bg box): the star
+                    // is a bare affordance that sits in the row, NOT a boxed
+                    // button. A custom bg (even matching the row) drew a
+                    // subtly-different rounded rect that read as a stray box;
+                    // transparent lets the row's own fill show through so only
+                    // the glyph is visible. The star slot is a fixed column
+                    // pinned immediately LEFT of the rightmost `row_time`
+                    // column, so it's right-aligned in the row by layout; the
+                    // glyph is centered in its 18px slot (draw_fg centers).
+                    .with_transparent_bg()
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.3f)
+                    .with_roundness(0.0f)
                     .with_on_draw_fg(hanabi::icons::draw_fg(
                         "star", s.starred ? "\xe2\x98\x85" : "\xe2\x98\x86",
                         starColor, 12.0f, -1.0f))
@@ -1646,7 +1764,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (star) {
                 app.requestToggleStar = sid;
             }
-        } else {
+        } else if (showStar) {
             // Reserve the star slot even when no star is shown, so the trailing
             // timestamp column stays put (no reflow on hover).
             div(ctx, mk(row.ent(), 3),
@@ -1660,6 +1778,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
         std::string ageLabel = row_time_label(s.updated_at, nowSecs);
+        // Time column dropped at very narrow widths (showTime) to avoid
+        // overflowing the row — see the row width math above.
+        if (showTime)
         div(ctx, mk(row.ent(), 4),
             ComponentConfig{}
                 .with_label(ageLabel)
