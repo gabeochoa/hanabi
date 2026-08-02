@@ -48,3 +48,21 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 4. I1 hover perf / F2 latency (frame-time; may need afterhours help)
 5. local-first outbox + optimistic offline send
 6. V8 (needs Gabe target), V3 + code pills (blocked on afterhours)
+
+## SESSION 2 PROGRESS (polish loop) — updated statuses
+- [x] V8 alignment: settings segmented controls full-width edge-hug (2e1c6aa)
+- [x] Local-first foundation: SyncState enum + Message.sync (9d3c056)
+- [x] Local-first #2/#5: crash-safe outbox + optimistic send + visible "· sent/sending/saved locally" (16c7dae)
+- [x] Local-first #4: owned Markdown export + Settings Data section (f0b599a)
+- [x] fold-all icon fixed (5e1beae); M2/M3/M4/M5 sidebar (7723eae); M1 (5ebb809)
+- [x] M6 text input on real backend (99dbc4c) + steering (3b0df1b)
+- [x] afterhours gap #28 logged (nested bubble child + on_draw_fg on bg div don't render)
+- [~] M7 settings: Data section added; MORE possible (Connection/backend, About/version, Notifications toggle)
+- [ ] Local-first #1 (read-primary stale-while-revalidate) — cache exists; make default + header cached/live badge
+- [ ] Local-first #3 (local full-text search over cached transcripts)
+- [ ] I1 hover perf / T7 idle-frame — needs afterhours help (incoming) or per-frame reduction
+- [ ] I2 split view
+- [ ] refactor quick-wins (REFACTOR_REVIEW.md): delete dead code, consolidate helpers
+- [B] V3 tab top-round + inline code pills — afterhours patches ready, awaiting maintainer
+- [ ] V8 remaining: sweep the rest of the UI for centered-should-be-edge (beyond settings)
+- [?] API asks -> send to the thread that OWNS api PRs (NOT public PR comment) — need the thread id from Gabe
