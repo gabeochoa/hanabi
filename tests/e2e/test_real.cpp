@@ -102,6 +102,29 @@ int main() {
         }
     }
 
+    // 3) FEATURE #4: read user settings from the real backend (GET /whoami).
+    //    Read-only. Proves the settings-read wiring works against real data; a
+    //    backend without the endpoint would return HTML/404 and fail parsing
+    //    (surfaced here, not shipped as a silent no-op).
+    if (client.supports_settings()) {
+        auto st = client.get_settings();
+        CHECK(st.ok);
+        if (st.ok) {
+            std::printf("  get_settings: user_id=%s sessions=%lld "
+                        "schedules=%lld skills=%lld\n",
+                        st.value.user_id.c_str(),
+                        (long long)st.value.session_count,
+                        (long long)st.value.schedule_count,
+                        (long long)st.value.skill_count);
+            // A real /whoami carries at least a user identity.
+            CHECK(!st.value.user_id.empty());
+        } else {
+            std::printf("  get_settings error: %s\n", st.error.c_str());
+        }
+    } else {
+        std::printf("  get_settings: SKIP (settings_path not configured)\n");
+    }
+
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

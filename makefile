@@ -256,6 +256,12 @@ $(TEST_DIR)/test_tools: tests/unit/test_tools.cpp src/api/config.cpp src/api/htt
 	@echo "Compiling test_tools..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
+# queue ordering/draining, newest-N windowing, settings read.
+$(TEST_DIR)/test_data: tests/unit/test_data.cpp src/api/config.cpp src/api/http_client.cpp src/api/disk_cache.cpp | $(TEST_DIR)
+	@echo "Compiling test_data..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
 $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
@@ -263,7 +269,7 @@ $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_cli
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
 # Headless perf micro-benchmark: in-process thread-switch latency (built -O2).
-$(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp src/api/disk_cache.cpp | $(TEST_DIR)
 	@echo "Compiling test_perf..."
 	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
@@ -277,7 +283,7 @@ $(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_c
 	@echo "Compiling test_real..."
 	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_data
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

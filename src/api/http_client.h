@@ -57,6 +57,15 @@ class HttpClient : public Client {
     // is configured.
     bool supports_events() const override { return cfg_.events_ready(); }
 
+    // The http backend can read settings only when a settings path is set.
+    bool supports_settings() const override { return cfg_.settings_ready(); }
+
+    // Read user settings/config (feature #4). GETs the configured settings_path
+    // (e.g. /whoami) and maps the response onto UserSettings via the config's
+    // field_settings_* mapping. Requires cfg.settings_ready(); reports a clean
+    // failure otherwise (never crashes). Read-only.
+    Result<UserSettings> get_settings() override;
+
     // Subscribe to a session's live event stream over SSE (on a worker thread).
     // POSTs/GETs the configured events path (with {id} substituted) and feeds
     // the text/event-stream response through parse_events_frame, invoking the

@@ -13,7 +13,10 @@
 
 #include <chrono>
 #include <cstdio>
+#include <future>
+#include <optional>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #define AFTER_HOURS_ENTITY_HELPER
@@ -21,6 +24,7 @@
 #define AFTER_HOURS_SYSTEM
 #include "../../vendor/afterhours/src/ecs.h"
 
+#include "../../src/api/disk_cache.h"
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/tab_model.h"
@@ -128,6 +132,76 @@ int main() {
                 kCachedSwitchCeilingMs);
 
     CHECK(cachedPerSwitchMs < kCachedSwitchCeilingMs);
+
+    // --- FEATURE #1: UI-thread cost of a MISS-path switch (async disk read) --
+    // The beachball Gabe hit was the disk-cache read + JSON parse of a big
+    // transcript running SYNCHRONOUSLY on the UI thread during a switch. We now
+    // do that on a worker thread. This benchmark measures BOTH so the win is
+    // visible in the log:
+    //   * OLD (synchronous): the UI thread pays the full disk read + parse.
+    //   * NEW (async dispatch): the UI thread only LAUNCHES std::async — the
+    //     read+parse happen on the worker. We assert the UI-thread portion is
+    //     well under 2ms (the perf gate), independent of transcript size.
+    {
+        // Build a big transcript and persist it to an isolated /tmp cache so
+        // load_transcript() has a real, large file to open+parse.
+        setenv("HANABI_CACHE_DIR",
+               ("/tmp/hanabi_perf_cache_" + std::to_string(::getpid())).c_str(),
+               1);
+        api::disk_cache::set_namespace("");
+        api::disk_cache::wipe_all();
+        setenv("HANABI_BIG_TRANSCRIPT", "1", 1);
+        api::MockClient big;
+        auto bigTx = big.get_session("rbig");  // ~200 messages
+        api::disk_cache::save_transcript(bigTx.value);
+        const std::string bigId = bigTx.value.summary.id;
+
+        constexpr int kIters = 200;
+
+        // OLD path: synchronous disk read + parse on the (would-be) UI thread.
+        auto o0 = std::chrono::high_resolution_clock::now();
+        size_t osink = 0;
+        for (int i = 0; i < kIters; ++i) {
+            auto s = api::disk_cache::load_transcript(bigId);  // BLOCKS
+            if (s) osink += s->messages.size();
+        }
+        auto o1 = std::chrono::high_resolution_clock::now();
+        double oldPerSwitchMs =
+            std::chrono::duration<double, std::milli>(o1 - o0).count() / kIters;
+
+        // NEW path: the UI thread only LAUNCHES the async read (what the loader
+        // now does on switch). We time ONLY the launch; the worker does the
+        // read+parse. Keep the futures alive so the launch isn't optimized out.
+        std::vector<std::future<std::optional<api::Session>>> futs;
+        futs.reserve(kIters);
+        auto n0 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < kIters; ++i) {
+            futs.push_back(std::async(std::launch::async, [bigId] {
+                return api::disk_cache::load_transcript(bigId);
+            }));
+        }
+        auto n1 = std::chrono::high_resolution_clock::now();
+        double newPerSwitchMs =
+            std::chrono::duration<double, std::milli>(n1 - n0).count() / kIters;
+        size_t nsink = 0;
+        for (auto& f : futs)
+            if (auto s = f.get()) nsink += s->messages.size();
+
+        std::printf("----------------------------------------\n");
+        std::printf("=== FEATURE #1: switch UI-thread cost (big transcript) ===\n");
+        std::printf("  transcript messages: %zu\n", bigTx.value.messages.size());
+        std::printf("  OLD (sync disk read+parse on UI): %.4f ms/switch\n",
+                    oldPerSwitchMs);
+        std::printf("  NEW (async dispatch on UI):       %.4f ms/switch\n",
+                    newPerSwitchMs);
+        std::printf("  (osink=%zu nsink=%zu)\n", osink, nsink);
+        // The UI-thread portion of the NEW path must be well under the 1-2ms
+        // budget regardless of transcript size (the heavy work is on a worker).
+        CHECK(newPerSwitchMs < 2.0);
+        api::disk_cache::wipe_all();
+        unsetenv("HANABI_BIG_TRANSCRIPT");
+        unsetenv("HANABI_CACHE_DIR");
+    }
 
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {

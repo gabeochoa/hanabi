@@ -64,6 +64,30 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
+        // FEATURE #3 (message queuing) — INTERCEPT. The composer (a render
+        // file we don't own) sets requestSendPrompt / requestStreamPrompt
+        // directly. If a reply/stream is ALREADY in flight for the open thread,
+        // servicing that flag now would either be dropped (a THIRD rapid send
+        // overwrites the held second) or interleave. So when the target session
+        // is busy, MOVE the pending prompt into the ordered per-session queue
+        // and let drive_send_queue() dispatch it FIFO once the current turn
+        // finishes. When the session is IDLE the flag falls through untouched
+        // to the existing immediate START below (no behavior change for the
+        // common single-send case). drive_send_queue only ever re-sets the flag
+        // when the session is free, so this intercept never re-captures it.
+        if (!app.selectedId.empty() && app.sending_for(app.selectedId)) {
+            if (!app.requestStreamPrompt.empty()) {
+                app.enqueue_send(app.selectedId,
+                                 std::move(app.requestStreamPrompt));
+                app.requestStreamPrompt.clear();
+            }
+            if (!app.requestSendPrompt.empty()) {
+                app.enqueue_send(app.selectedId,
+                                 std::move(app.requestSendPrompt));
+                app.requestSendPrompt.clear();
+            }
+        }
+
         // --- Session list ---
         if (app.requestListRefresh && !app.listPending) {
             app.requestListRefresh = false;
@@ -153,6 +177,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.openSession = std::move(*hit);
                 app.transcriptState = LoadState::Loaded;
                 app.transcriptError.clear();
+                app.transcriptLoadingId.clear();  // nothing loading now
                 app.hasMoreOlder = app.openSession->has_more_older;
                 // Mock is static -> cache is authoritative (no revalidation).
                 // SEAM: a live backend would kick a background revalidate here
@@ -160,38 +185,63 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // Bind the live (SSE) subscription to this session.
                 ensure_subscription(app, id);
             } else {
-                // MISS in the in-memory LRU. Before falling back to a
-                // (possibly slow) network fetch, try the ON-DISK cache: if this
-                // thread was opened in a prior session, paint it INSTANTLY from
-                // disk so a slow-network open shows the transcript immediately.
-                // We then STILL kick the async fetch below to revalidate and
-                // swap in fresh data when it arrives (stale-while-revalidate).
-                bool paintedStale = false;
-                if (auto disk = disk_cache_enabled(app)
-                                    ? api::disk_cache::load_transcript(id)
-                                    : std::nullopt) {
-                    app.transcriptCache.put(*disk);
-                    app.openSession = std::move(*disk);
-                    app.transcriptState = LoadState::Loaded;  // show stale now
-                    app.transcriptError.clear();
-                    app.hasMoreOlder = app.openSession->has_more_older;
-                    paintedStale = true;
+                // MISS in the in-memory LRU. FEATURE #1 (never beachball): the
+                // disk-cache read USED to happen synchronously RIGHT HERE, on
+                // the UI thread — open + JSON-parse of an up-to-690-message
+                // transcript file. On a big thread that blocked the UI thread
+                // for tens of ms (the beachball). Now we:
+                //   (a) set transcriptState=Loading + transcriptLoadingId
+                //       IMMEDIATELY (trivially cheap) so the pane can paint a
+                //       spinner on the very next frame, and
+                //   (b) launch the disk read on a WORKER THREAD (diskReadFuture)
+                //       and the network revalidate on ANOTHER worker
+                //       (transcriptFuture) — the UI thread does NEITHER the
+                //       disk read/parse NOR the network. Whichever lands first
+                //       (disk = stale paint, network = fresh) is applied by the
+                //       pollers below.
+                // The heavy parse/window work is entirely off the UI thread.
+                app.transcriptState = LoadState::Loading;
+                app.transcriptLoadingId = id;
+
+                // (a) Disk-cache read on a worker (stale-while-revalidate).
+                if (disk_cache_enabled(app)) {
+                    app.diskReadPending = true;
+                    app.diskReadId = id;
+                    app.diskReadFuture = std::async(
+                        std::launch::async,
+                        [id] { return api::disk_cache::load_transcript(id); });
                 }
-                // Kick the network fetch to revalidate (or to do the first-ever
-                // load when there's no disk copy). When we've already painted
-                // stale, this refresh happens in the background without a
-                // Loading flash. MEMORY-LIGHT: fetch only the newest N (not the
-                // full transcript) so a huge thread doesn't balloon RAM — you
-                // open at the bottom, older messages load on demand.
+                // (b) Network revalidate / first-ever load, newest-N only.
                 app.transcriptPending = true;
                 app.transcriptPendingId = id;
-                if (!paintedStale) app.transcriptState = LoadState::Loading;
                 api::Client* c = app.client.get();
                 app.transcriptFuture = std::async(
                     std::launch::async,
                     [c, id] { return c->get_session(id, kMessagesWindow); });
                 // Bind the live (SSE) subscription to this session.
                 ensure_subscription(app, id);
+            }
+        }
+        // Poll the worker-thread disk-cache read (stale paint). Lands ahead of
+        // — or alongside — the network fetch; applied only if this is still the
+        // thread the user wants AND the network hasn't already painted it.
+        if (app.diskReadPending && app.diskReadFuture.valid() &&
+            app.diskReadFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto disk = app.diskReadFuture.get();
+            app.diskReadPending = false;
+            if (disk && app.selectedId == app.diskReadId &&
+                // Don't clobber a fresh network result that already landed.
+                app.transcriptState != LoadState::Loaded) {
+                app.transcriptCache.put(*disk);
+                app.openSession = std::move(*disk);
+                app.transcriptState = LoadState::Loaded;  // show stale now
+                app.transcriptError.clear();
+                app.hasMoreOlder = app.openSession->has_more_older;
+                // A stale paint clears the spinner for THIS thread; the network
+                // revalidate still runs in the background (no Loading flash).
+                if (app.transcriptLoadingId == app.diskReadId)
+                    app.transcriptLoadingId.clear();
             }
         }
         if (app.transcriptPending && app.transcriptFuture.valid()) {
@@ -213,6 +263,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         app.transcriptState = LoadState::Loaded;
                         app.transcriptError.clear();
                         app.hasMoreOlder = app.openSession->has_more_older;
+                        // Fresh data landed — clear the "loading this thread"
+                        // spinner flag for this id.
+                        if (app.transcriptLoadingId ==
+                            app.openSession->summary.id)
+                            app.transcriptLoadingId.clear();
                     }
                 } else {
                     // Network fetch failed. If we already painted a stale copy
@@ -227,6 +282,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         app.openSession.reset();
                         app.transcriptState = LoadState::Error;
                     }
+                    // Fetch resolved (success or fail) for this thread — stop
+                    // showing the spinner. A pending disk read (if any) may
+                    // still paint a stale copy afterwards.
+                    if (app.transcriptLoadingId == app.transcriptPendingId &&
+                        !app.diskReadPending)
+                        app.transcriptLoadingId.clear();
                 }
             }
         }
@@ -306,9 +367,91 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         drive_stream(app);
         drive_load_older(app);
         drive_live_events(app);
+        drive_send_queue(app);
+        drive_settings(app);
     }
 
   private:
+    // ---- Message-send queue (FEATURE #3) ---------------------------------
+    //
+    // When the user fires a second send into a session that already has a
+    // reply/stream in flight, we must QUEUE it (ordered) and dispatch the next
+    // one only once the current completes — never drop it, never interleave.
+    //
+    // The composer (render, separate stream) enqueues EVERY send via
+    // app.enqueue_send(id, prompt). This loader owns the mechanics: each frame,
+    // for the head of the queue whose session is currently FREE (no
+    // send/stream in flight), pop it and dispatch — preferring the streamed
+    // path when the backend supports it (mirrors the composer's own choice),
+    // else the synchronous reply path. Because sending_for(id) already covers
+    // sendPending + streamCollecting + streamActive, a session drains exactly
+    // one queued item per completed turn, in FIFO order.
+    void drive_send_queue(AppComponent& app) {
+        if (app.pendingSendQueue.empty() || !app.client) return;
+        // Find the FIRST queued send whose session is free AND not already
+        // being dispatched this frame (requestSendPrompt/requestStreamPrompt
+        // still unconsumed). Preserve per-session FIFO by scanning front-first.
+        for (auto it = app.pendingSendQueue.begin();
+             it != app.pendingSendQueue.end(); ++it) {
+            const std::string& id = it->sessionId;
+            if (app.sending_for(id)) continue;  // busy: keep it queued
+            // Don't stomp an un-consumed dispatch for this same session.
+            if (!app.requestSendPrompt.empty() && app.selectedId == id) continue;
+            if (!app.requestStreamPrompt.empty() && app.selectedId == id)
+                continue;
+            // Dispatch this one. The existing reply/stream START blocks read
+            // requestSendPrompt/requestStreamPrompt for app.selectedId, so a
+            // queued send only fires against the OPEN thread — which is the
+            // only thread the composer can target anyway. If the queued send
+            // is for a non-open thread, hold it until that thread is opened
+            // (keeps ordering; never sends into the wrong transcript).
+            if (app.selectedId != id) continue;
+            const std::string prompt = it->prompt;
+            app.pendingSendQueue.erase(it);
+            if (app.client->supports_stream())
+                app.requestStreamPrompt = prompt;
+            else
+                app.requestSendPrompt = prompt;
+            return;  // one dispatch per frame; the rest drain on later frames.
+        }
+    }
+
+    // ---- Settings read (FEATURE #4) --------------------------------------
+    //
+    // On requestSettings, fetch user/account settings from the backend on a
+    // WORKER THREAD (never the UI thread) and store the result on AppComponent
+    // so the settings screen can verify setup. Same async + poll pattern as the
+    // transcript/list fetches.
+    void drive_settings(AppComponent& app) {
+        if (app.requestSettings && !app.settingsPending && app.client) {
+            app.requestSettings = false;
+            if (!app.client->supports_settings()) {
+                app.settingsState = LoadState::Error;
+                app.settingsError = "backend does not expose settings";
+            } else {
+                app.settingsPending = true;
+                app.settingsState = LoadState::Loading;
+                api::Client* c = app.client.get();
+                app.settingsFuture = std::async(
+                    std::launch::async, [c] { return c->get_settings(); });
+            }
+        }
+        if (app.settingsPending && app.settingsFuture.valid() &&
+            app.settingsFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.settingsFuture.get();
+            app.settingsPending = false;
+            if (r.ok) {
+                app.settings = std::move(r.value);
+                app.settingsState = LoadState::Loaded;
+                app.settingsError.clear();
+            } else {
+                app.settingsState = LoadState::Error;
+                app.settingsError = r.error;
+            }
+        }
+    }
+
     // ---- Load OLDER (full transcript on demand) --------------------------
     //
     // The render side sets app.requestLoadOlder when the user scrolls to the
@@ -401,11 +544,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     void ensure_subscription(AppComponent& app, const std::string& id) {
         if (!app.client || !app.client->supports_events()) return;
         if (app.subscribedId == id && app.eventSub) return;
-        // Tear down the previous subscription (joins its worker) before
-        // rebinding — never leak.
+        // FEATURE #1 (never beachball): tearing down the previous subscription
+        // must NOT block the UI thread. eventSub->stop() JOINS the SSE worker,
+        // whose blocking read can sit for up to the read timeout — so calling
+        // it here on the switch path is a UI-thread stall on every thread
+        // switch. Instead, hand the old handle to a DETACHED reaper thread that
+        // stops+joins+destroys it in the background; the UI thread returns
+        // immediately. (The handle is owned solely by the reaper via move, so
+        // there's no lifetime race with the ECS.)
         if (app.eventSub) {
-            app.eventSub->stop();
-            app.eventSub.reset();
+            std::thread([sub = std::move(app.eventSub)]() mutable {
+                sub->stop();   // joins the worker off the UI thread
+                sub.reset();   // destroy the handle here, not on the UI thread
+            }).detach();
+            app.eventSub.reset();  // already moved-from; make it explicit
         }
         app.subscribedId = id;
         std::atomic<bool>* flag = &app.eventRefetch;

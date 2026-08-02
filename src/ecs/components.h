@@ -259,6 +259,85 @@ struct AppComponent : public afterhours::BaseComponent {
     bool authNeedsBegin = false;
     std::future<void> authBeginFuture;
     bool authBeginPending = false;
+
+    // ==== Feature #1: never-beachball thread switch ======================
+    // The id of the thread whose transcript is CURRENTLY loading (async fetch
+    // and/or async disk-cache read in flight), or empty when nothing is
+    // loading. The RENDER side reads this to show a per-thread spinner: show
+    // the spinner when transcriptState == Loading (already the signal) AND/OR
+    // when transcriptLoadingId == the tab's session id. It is set IMMEDIATELY
+    // (synchronously, ~0 cost) the instant a switch is requested, BEFORE any
+    // heavy work, so the pane can paint a spinner on the very next frame while
+    // the worker thread does the disk read + JSON parse + windowing off the UI
+    // thread. Cleared when the fetch/disk result is applied (or dropped because
+    // the user switched away again).
+    std::string transcriptLoadingId;
+
+    // A worker-thread disk-cache read of a transcript, polled like
+    // transcriptFuture. On a MISS the loader USED to call
+    // disk_cache::load_transcript() synchronously on the UI thread — opening +
+    // JSON-parsing an up-to-690-message file, the exact beachball Gabe hit.
+    // Now that read runs on this future's worker thread; the loader polls it
+    // (non-blocking wait_for(0)) and paints the stale copy when it lands, still
+    // ahead of (or alongside) the network revalidate. std::optional inside the
+    // Result: nullopt == cache miss (no stale copy to paint).
+    std::future<std::optional<api::Session>> diskReadFuture;
+    bool diskReadPending = false;
+    std::string diskReadId;  // the thread the disk read targets
+
+    // ==== Feature #3: composer message queue =============================
+    // When the user sends a message into a session that ALREADY has a reply /
+    // stream in flight, we QUEUE it (FIFO) instead of dropping or interleaving.
+    // The loader drains ONE queued send per session as soon as that session's
+    // current send/stream completes, preserving order. The composer (render)
+    // side: (a) pushes onto this via enqueue_send() instead of setting
+    // requestSendPrompt directly when a send is already pending for the target;
+    // (b) reads pending_send_count(id) to show "N queued" + sending_for(id) for
+    // a per-session "sending…" indicator. Keyed by session id so each thread's
+    // queue is independent and drafts-per-session are unaffected.
+    struct PendingSend {
+        std::string sessionId;
+        std::string prompt;
+    };
+    std::vector<PendingSend> pendingSendQueue;
+
+    // True while ANY send/stream is in flight for `id` (so the composer can
+    // disable/queue and show a spinner). Covers the synchronous reply path
+    // (sendPending), the collect+drain stream path (streamCollecting /
+    // streamActive), all scoped to the matching session id.
+    bool sending_for(const std::string& id) const {
+        if (sendPending && sendSessionId == id) return true;
+        if (streamCollecting && streamPendingSession == id) return true;
+        if (streamActive && streamSessionId == id) return true;
+        return false;
+    }
+
+    // How many messages are queued (not yet sent) for `id`.
+    size_t pending_send_count(const std::string& id) const {
+        size_t n = 0;
+        for (const auto& p : pendingSendQueue)
+            if (p.sessionId == id) ++n;
+        return n;
+    }
+
+    // Enqueue a user send for `id`. The composer calls this for EVERY send; the
+    // loader decides whether to dispatch immediately (nothing in flight) or
+    // hold it in the queue. Ordered per session (push_back = FIFO).
+    void enqueue_send(const std::string& id, const std::string& prompt) {
+        pendingSendQueue.push_back(PendingSend{id, prompt});
+    }
+
+    // ==== Feature #4: settings read from the API =========================
+    // The user/account settings fetched from the backend so the app can verify
+    // it is set up correctly. requestSettings kicks the async fetch (loader);
+    // settings holds the last result; settingsState tracks the fetch. The
+    // settings screen (render, separate stream) reads settings + settingsState.
+    api::UserSettings settings;
+    LoadState settingsState = LoadState::Idle;
+    std::string settingsError;
+    bool requestSettings = false;  // one-shot: set to trigger a fetch
+    std::future<api::Result<api::UserSettings>> settingsFuture;
+    bool settingsPending = false;
 };
 
 // Layout rectangles recomputed each frame from the window size.
