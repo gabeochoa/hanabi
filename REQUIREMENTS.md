@@ -130,7 +130,7 @@ against the real backend behind env/config.
 - [x] White-RGB atlas so theme tint applies (dark-mode icons were invisible) (da2d5ae).
 - [x] `gen_icons.py` regenerator (fetches real Lucide SVGs, rasterizes); clock + repeat sprites added for cron rows (651f3de).
 - [x] `TODO(icon-atlas)` convention for missing-sprite fallbacks (372c6e1).
-- [x] **Phase H sweep**: all remaining unicode chrome glyphs routed through the atlas — added Lucide `close` (x) + `archive` sprites (atlas → 17 icons, 128×160); migrated the 4 raw `×` close buttons (tab / composer / settings / search-clear) + the Archived smart view; no known-missing sprites remain (0c99ec7).
+- [x] **Phase H sweep**: all remaining unicode chrome glyphs routed through the atlas — added Lucide `close` (x) + `archive` sprites (atlas → 17 icons, 128×160); migrated the 4 raw `×` close buttons (tab / composer / settings / search-clear) + the Archived smart view; no known-missing sprites remain (0c99ec7). **Phase H COMPLETE** (250d9b4): the last raw unicode chrome glyph — the tool-pile count badge's `≡` (U+2261) — migrated to a Lucide `layers` sprite (atlas → 18 icons); 0 raw unicode chrome glyphs remain (only legitimate text arrows/bullets).
 
 ### Theme / Visual polish
 - [x] Light + dark theming via a single swappable token set; dark default; runtime `set_mode()`; persisted (8320a4a).
