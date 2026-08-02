@@ -60,6 +60,14 @@ std::optional<Session> load_transcript(const std::string& id);
 std::string export_dir();
 int export_all_markdown();
 
+// --- Local full-text search (local-first idea #3) -----------------------
+// content_matches(id, lowerQuery): true if the CACHED transcript for `id`
+// contains `lowerQuery` (case-insensitive) in any message body. Lets the
+// sidebar search match on conversation CONTENT (not just titles) using only
+// the local cache — instant, offline, no server round-trip. Cheap: reads the
+// one tx_*.json and substring-scans. Returns false if not cached / no match.
+bool content_matches(const std::string& id, const std::string& lowerQuery);
+
 // --- Introspection / maintenance (for the settings screen) --------------
 // total_bytes(): sum of the byte sizes of every cache file under cache_dir()
 // (sessions.json + every tx_*.json in the ACTIVE namespace). Cheap stat walk,

@@ -1394,7 +1394,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 match = (s.folder == key &&
                          s.state != api::ThreadState::Archived);
             }
-            if (match && title_matches(s.title, q)) members.push_back(&s);
+            // Match on TITLE or, failing that, on cached CONVERSATION CONTENT
+            // (local-first idea #3): the sidebar search now finds threads by
+            // what was SAID in them, not just their title — using only the
+            // local transcript cache (instant, offline). Content is only
+            // checked when there's a query and the title didn't already match.
+            if (match &&
+                (title_matches(s.title, q) ||
+                 (!q.empty() && api::disk_cache::content_matches(s.id, q))))
+                members.push_back(&s);
         }
         // Hide a folder with no (matching) members. With an active query this
         // is what drops non-matching folders out of the tree.

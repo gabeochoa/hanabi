@@ -375,6 +375,23 @@ int export_all_markdown() {
     return written;
 }
 
+// ---- local full-text search (local-first idea #3) -----------------------
+bool content_matches(const std::string& id, const std::string& lowerQuery) {
+    if (lowerQuery.empty()) return false;
+    const std::string path = transcript_file(id);
+    if (path.empty()) return false;
+    std::ifstream in(path);
+    if (!in.good()) return false;
+    // Lowercase substring scan over the raw file text — cheaper than parsing
+    // JSON, and message bodies/tool output are all in there. Good enough for a
+    // sidebar filter (an exact index is idea #3's future upgrade).
+    std::string blob((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    for (char& c : blob)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return blob.find(lowerQuery) != std::string::npos;
+}
+
 namespace {
 // True for a file this cache owns (sessions.json or a tx_*.json transcript).
 // Used to bound total_bytes()/wipe_all() to OUR files, never anything else a
