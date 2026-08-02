@@ -223,6 +223,19 @@ static void build_systems(afterhours::SystemManager& sm) {
 }
 
 static void app_init() {
+    // app_init runs AFTER graphics::run has created the Metal/Cocoa window + GPU
+    // context. Profiling (2026-08-02) showed that window+GPU init is ~130-220ms
+    // (cold: up to ~1.4s on the first launch after a build, as Metal compiles
+    // its pipeline/shader cache + dyld warms) while ALL of our own init below is
+    // ~3ms. So the historical single "Startup" number was dominated by
+    // unavoidable OS/Metal window creation inside the vendored backend, not our
+    // code. We now log BOTH: `Gfx init` (window+GPU, from process start to here)
+    // and `App init` (our preload+state+systems), so the metric reflects what
+    // hanabi actually controls. See afterhours_gaps.md (graphics-init cost).
+    auto gfxReady = std::chrono::high_resolution_clock::now();
+    auto gfxMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                     gfxReady - app_state::startTime).count();
+
     Preload::get().init("hanabi").make_singleton();
     setup_app_state();
 
@@ -231,10 +244,16 @@ static void app_init() {
     build_systems(sm);
 
     auto readyTime = std::chrono::high_resolution_clock::now();
+    auto appMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                     readyTime - gfxReady).count();
     auto startupMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                         readyTime - app_state::startTime)
-                         .count();
+                         readyTime - app_state::startTime).count();
+    // Startup = total (kept for the perf gate + back-compat); the split shows
+    // where it goes.
     log_info("Startup: {} ms", startupMs);
+    log_info("  Gfx init: {} ms (window + GPU/Metal context — vendored/OS)",
+             gfxMs);
+    log_info("  App init: {} ms (preload + state + systems — ours)", appMs);
 }
 
 static void app_frame() {

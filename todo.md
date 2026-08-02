@@ -141,3 +141,29 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
       showed 1164-1464ms on real-backend cold launch — likely the synchronous list/auth on the UI thread.)
 - [ ] LOCAL MOCK SERVER (tooling): REST + SSE, drives send-message e2e + easier iteration.
 - [ ] /tmp file cache for thread info (memory-footprint reduction; complements newest-N loading).
+
+## OPEN ASKS — batch 6 (2026-08-02, live testing during provider hiccups — NOT STARTED)
+- [ ] TRANSCRIPT: "jump to bottom" button (down chevron) bottom-right of the thread. If AT bottom, stay
+      pinned when new msgs arrive; if NOT at bottom, don't move. (Ties into open-at-bottom + SSE.)
+- [ ] ARCHIVED needs a real ICON (currently U+25A4 box fallback) — cut a Lucide archive sprite into the
+      atlas (icons_atlas.h + icons.png via scripts/gen_icons.py) and drop the fallback. (gap TODO(icon-atlas))
+- [ ] TOOL CALL missing info (screenshot): the tool row shows only an icon + count(5) + 53s + check, but
+      NO command/name text. Wire the REAL tool fields (name->subtitle, command->text) so the row shows
+      what ran. (Overlaps the render-wiring owed after data-layer merge — the block-split emits these now.)
+- [ ] THREAD SWITCH super slow / BEACHBALL: switching threads blocks the UI thread. Make the switch
+      async (spinner while loading), keep UI interactive. ALL API calls on the API/worker thread, never
+      UI thread. (Overlaps loader async + the jank/idle-cost work.)
+- [ ] TABS: horizontal scroll along the tab strip (hscroll) when many tabs.
+- [ ] SETTINGS: button to WIPE the on-disk cache + show current cache storage size used.
+- [ ] MEMORY: lazy-load transcript text from disk when needed (/tmp file cache), don't keep all in RAM.
+- [ ] SIDEBAR SCROLL BUG (re-confirmed via screenshot): scrolling down, row TEXT disappears but rows
+      remain clickable — text not drawn past a scroll offset. ADD E2E TESTS. (dup of batch-4 bug, still open.)
+- [ ] STARTUP: profile + fix (Gabe: do the profiling IN A SUBAGENT). Windowed cold launch 1164-1464ms on
+      real backend; instrument app_init phases (Gfx-init vs App-init split already added), find + cut cost.
+- [ ] MESSAGE HOVER ACTIONS: buttons under a message on hover (copy/retry) — batch-5, still open.
+
+## STANDING DIRECTIVES RESTATED (Gabe, batch 5+6)
+- Work the WHOLE list autonomously; merge+push freely (permission granted).
+- Every 3 commits: screenshot audit (>=10 UI/UX findings, log them). Every 5 commits: perf audit.
+- Build a LOCAL MOCK SERVER (REST + SSE) to test easier + drive real send-message e2e.
+- ALL API requests to the API thread (worker), never the UI thread. Keep UI interactive (spinners, not beachballs).
