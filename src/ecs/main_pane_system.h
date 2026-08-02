@@ -1460,6 +1460,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 fmtutil::relative_time(app.openSession->summary.updated_at);
             if (!age.empty())
                 sub = sub.empty() ? age : (sub + "  \xc2\xb7  " + age);
+            // Local-first read state (idea #1): when a cached/stale copy is
+            // already painted AND a background refresh is in flight for THIS
+            // thread, say so — the read is served instantly from the local
+            // copy (never a spinner), with the server revalidate happening
+            // quietly. Makes "you're seeing your local copy, refreshing" visible.
+            if (!app.transcriptLoadingId.empty() &&
+                app.transcriptLoadingId == app.openSession->summary.id)
+                sub = sub.empty() ? "refreshing\xe2\x80\xa6"
+                                  : (sub + "  \xc2\xb7  refreshing\xe2\x80\xa6");
             transcript_header(ctx, parent, title, sub);
         } else {
             header(ctx, parent, title, "");
