@@ -167,3 +167,22 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 - Every 3 commits: screenshot audit (>=10 UI/UX findings, log them). Every 5 commits: perf audit.
 - Build a LOCAL MOCK SERVER (REST + SSE) to test easier + drive real send-message e2e.
 - ALL API requests to the API thread (worker), never the UI thread. Keep UI interactive (spinners, not beachballs).
+
+## PERF AUDIT (2026-08-02, commit 0f31e2e, under subagent load ~4.2)
+- Home (no transcript): 8.6ms/frame (~116fps) — the APP FLOOR (T7 idle-cost).
+- Short thread r9: 12.3ms/frame (~81fps).
+- Big transcript (200-msg, virtualized): 11.5ms/frame (~87fps) — CHEAPER than short thread => virtualization works.
+- Launch perf-gate flaked 285-291ms under 5-subagent build contention; isolated best-of-6 = 219ms PASS.
+  The gate is contention-sensitive; startup-profile subagent (2d834f91) investigating real cold-launch.
+- CONCLUSION: the ~8.6ms app floor (rebuild+relayout every frame) is the dominant perf lever (T7 dirty-flag
+  skip-rebuild). Transcript virtualization is solid. Thread-switch async is in flight (data-async agent).
+
+## VISUAL/DESIGN AUDIT dispatched (subagent 68c5bd34) — 12 screens captured (scripts/screens.sh + HANABI_VIEW/
+   HANABI_BIG_TRANSCRIPT/HANABI_EXPAND supplements). Auditor: >=10 defects + per-screen presence validation.
+   Screens: home dark/light, transcript, blocked/review/starred/home views, big transcript, many tabs,
+   tools expanded, hover row-star, hover tab. Handles in /tmp/screen_handles.txt.
+
+## VISUAL E2E (Gabe ask): scripts/screens.sh captures 7 base states; supplemented ad-hoc with env
+   (HANABI_VIEW smart views, HANABI_BIG_TRANSCRIPT, HANABI_EXPAND, many-tabs settings). TODO: fold the
+   supplements INTO screens.sh so `bash scripts/screens.sh` captures ALL ~14 screens in one shot + wire a
+   visual-regression check. (Deferred: screens.sh render files partly owned by running agents.)
