@@ -2,8 +2,25 @@
 
 UNAME_S := $(shell uname -s)
 
+# --- Build-speed: parallel by default -----------------------------------------
+# Bare `make` used to run serially (~22s clean). Default to all cores so a plain
+# `make` is as fast as `make -jN` (~6s clean here). An explicit `-jN` on the
+# command line still wins (make honours the last -j it sees). `make NPROC=1` or
+# `make -j1` forces serial. Detects core count on macOS/Linux, falls back to 4.
+NPROC ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+MAKEFLAGS += -j$(NPROC)
+
+# --- Build-speed: ccache (opt-in, auto-detected) ------------------------------
+# ccache turns rebuilds of unchanged translation units (branch switches, a
+# `make clean`, a header touch that ends up identical) into near-instant cache
+# hits — a warm clean rebuild drops from ~7s to ~0.1s here. Only used when the
+# ccache binary is present; otherwise the compiler is invoked directly, so this
+# is a no-op on machines without it. Disable explicitly with `make USE_CCACHE=0`.
+USE_CCACHE ?= 1
+CCACHE := $(if $(filter 1,$(USE_CCACHE)),$(shell command -v ccache 2>/dev/null))
+
 ifeq ($(UNAME_S),Darwin)
-    CXX := clang++
+    CXX := $(CCACHE) clang++
     EXT := .exe
     FRAMEWORKS := -framework CoreFoundation -framework CoreServices \
         -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore
@@ -12,7 +29,7 @@ else ifeq ($(OS),Windows_NT)
     EXT := .exe
     FRAMEWORKS :=
 else
-    CXX := clang++
+    CXX := $(CCACHE) clang++
     EXT :=
     FRAMEWORKS :=
 endif
