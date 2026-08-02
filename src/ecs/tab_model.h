@@ -68,6 +68,10 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
 
     app.selectedId = id;
     app.requestOpenId = id;  // loader fetches the transcript
+    // First time this thread is opened (a NEW tab) -> land at the bottom
+    // (newest message). Switching to an already-open tab returns above and
+    // never sets this, so its scroll position is preserved.
+    app.scrollBottomPending = id;
     app.view = SmartView::Chat;
 }
 

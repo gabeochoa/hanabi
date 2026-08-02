@@ -1417,23 +1417,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // a function-local static so we jump-to-bottom exactly once per open
         // (no AppComponent growth). `wasAtBottom` is computed from LAST frame's
         // metrics (content_size/viewport/offset) captured below.
-        static std::string s_bottomedId;
+        // Open-at-bottom + stay-pinned model:
+        //   * A thread opened for the FIRST time (new tab) lands at the bottom
+        //     (newest message). This is driven by app.scrollBottomPending, set
+        //     ONLY in the new-tab open path (switching to an already-open tab
+        //     does NOT set it, so that tab keeps its scroll position).
+        //   * While a thread is streaming here, or the user is already AT the
+        //     bottom, keep them pinned as new messages arrive.
+        //   * If the user scrolled UP, leave their position alone.
+        // scrollBottomPending is cleared only once we've actually pinned
+        // against REAL laid-out content (content_size known) — the first render
+        // frame after an open has no content_size yet, so clearing on frame 0
+        // would clamp 1e9 against a stale height and never reach the true
+        // bottom (the old s_bottomedId bug).
         const std::string curId = app.openSession->summary.id;
+        const bool wantOpenBottom = (app.scrollBottomPending == curId);
         bool atBottom = true;  // default true so a fresh open pins to bottom
         float contentH = totalH;
+        bool contentLaidOut = false;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            if (sv.content_size.y > 1.0f) contentH = sv.content_size.y;
+            if (sv.content_size.y > 1.0f) {
+                contentH = sv.content_size.y;
+                contentLaidOut = true;
+            }
             // Within ~24px of the end counts as "at bottom".
             atBottom = (sv.scroll_offset.y + viewH >= contentH - 24.0f);
         }
-        const bool firstOpenOfThread = (s_bottomedId != curId);
-        // Pin to bottom on first open of a thread, while streaming here, OR when
-        // the user was already at the bottom (stay-pinned on new content).
-        if (firstOpenOfThread || streamingHere || atBottom) {
-            scrollY = totalH;
-            s_bottomedId = curId;
-        }
+        // Pin to bottom on a first-open (until real content is laid out AND
+        // pinned), while streaming here, OR when the user was already at bottom.
+        const bool pinBottom = wantOpenBottom || streamingHere || atBottom;
+        if (pinBottom) scrollY = totalH;
         // Build half a viewport of margin above + below the visible window so a
         // fast flick never reveals a blank gap, but we don't over-build.
         const float kMargin = viewH * 0.5f;        const float visTop = scrollY - kMargin;
@@ -1490,13 +1504,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_bottom_pad"));
 
-        // Pin to the bottom when we decided to (first open / streaming / the
-        // user was already at the end). Otherwise leave the user's scroll be.
-        const bool pinBottom = firstOpenOfThread || streamingHere || atBottom;
+        // Apply the bottom pin when we decided to (first-open / streaming /
+        // already-at-end). Otherwise leave the user's scroll be.
         if (pinBottom && scroll.ent().has<afterhours::ui::HasScrollView>()) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
             sv.scroll_offset.y = 1e9f;  // clamped to content end next line
             sv.clamp_scroll();
+        }
+        // Clear the first-open request only once we've pinned against REAL
+        // laid-out content (content_size known this frame). Until then keep the
+        // request alive so the next frame (which HAS the laid-out height) does
+        // the real jump-to-bottom. Guard on curId so a fast switch to another
+        // new thread doesn't clear the wrong pending id.
+        if (wantOpenBottom && contentLaidOut &&
+            app.scrollBottomPending == curId) {
+            app.scrollBottomPending.clear();
         }
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to

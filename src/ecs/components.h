@@ -124,6 +124,15 @@ struct AppComponent : public afterhours::BaseComponent {
     // the loader.
     std::string requestOpenId;
 
+    // Set to a session id ONLY when a thread is opened for the FIRST time (a
+    // new tab) — NOT when switching to an already-open tab. The transcript
+    // render pins the scroll to the bottom (newest message) while this matches
+    // the open thread, then clears it once the content is laid out and pinned,
+    // so a freshly-opened thread lands at the bottom exactly once. Switching
+    // back to an existing tab leaves this empty, so the user's scroll position
+    // in that tab is preserved.
+    std::string scrollBottomPending;
+
     // Look up a summary by id (for tab labels, row rendering).
     const api::SessionSummary* find_summary(const std::string& id) const {
         for (const auto& s : sessions)
