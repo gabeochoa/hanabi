@@ -239,3 +239,12 @@ Re-verified post-merge: many-tabs strip clean (headline defect fixed), light the
     neutral tri-color section labels; archived real sprite (still U+25A4 box); empty-transcript void
   - T7 idle 8.6ms/frame dirty-flag skip-rebuild (biggest perf lever)
   - fold screens.sh supplements in (all ~14 states one-shot) + visual regression
+
+## PHASE AUTH — COMPLETE (d80701d). Device-code flow was already live-proven (no client_id/secret —
+   client mints its own deviceCode; endpoints /api/cli/auth/code+poll verified live). Startup async fix
+   made begin() non-blocking. NOW ADDED token-refresh: DeviceCodeFlow::refresh() -> POST
+   /api/cli/auth/refresh {refreshToken} (endpoint verified real: 401=exists/needs-token). Captures +
+   rotates refresh_token; config+env driven; 2 unit tests. Phase AUTH has no remaining gaps.
+## PHASE G — menu-bar NSStatusItem already shipped. Native extras dispatched (agent e70ea435, wt/phase-g):
+   global hotkey (Cmd+Shift+N), native notifications on blocked-count increase, Spotlight (best-effort;
+   likely needs .app bundle — honest verdict expected). Follows the extern "C" + poll-take-flag seam.
