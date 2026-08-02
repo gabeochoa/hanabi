@@ -93,8 +93,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (folded) return;  // rail stops after icon views
 
         // Scrollable region: folders + recent + archived.
-        // header(40) + search(40) + VIEWS label(25) + views(148).
-        float used = 40.0f + 40.0f + 25.0f + 178.0f;
+        // header(40) + search(40) + VIEWS label(25) + views block(~162, now
+        // children()-sized). Keep in rough sync with the VIEWS block so the
+        // scroll region is sized right; a few px off just changes scroll extent.
+        float used = 40.0f + 40.0f + 25.0f + 162.0f;
         float scrollH = r.height - used;
         if (scrollH < 40.0f) scrollH = 40.0f;
         auto scroll = div(ctx, mk(panel.ent(), 5),
@@ -164,17 +166,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // V6: fill the available vertical space instead of always capping at a
         // fixed ~12 rows (which left empty space below the "Show N more…"
         // button in a tall window). The scroll viewport is scrollH px tall and
-        // each thread row is kRowHeight px, so ~scrollH/kRowHeight rows fill
-        // one viewport. This headerless catch-all is the LAST and dominant
-        // list, so sizing its cap to a viewport-worth of rows makes the list
-        // reach the bottom of the visible area, putting "Show N more…" at the
-        // bottom rather than mid-panel. We use the FULL viewport height as the
-        // fill target (a slight over-estimate when folders sit above) so the
-        // panel is always filled — any surplus simply extends the scroll
-        // content, and the show-more button rides at the end of the list. The
-        // cap never drops below kBucketCap, so a short window still shows a
-        // reasonable minimum. Named folders above keep the default kBucketCap.
-        int fillCap = static_cast<int>(scrollH / kRowHeight);
+        // each thread row is kRowHeight px. We want the list to reach the
+        // bottom of the visible area AND leave the "Show N more…" button
+        // VISIBLE at the bottom of the viewport — not pushed below the fold
+        // (M2: filling the FULL viewport hid the show-more). So the cap targets
+        // the viewport MINUS the space already taken by folders rendered above
+        // (shown-so-far, in rows) MINUS one row reserved for the show-more
+        // button itself. This keeps the panel filled without shoving the
+        // show-more off-screen. Never drops below kBucketCap.
+        int viewportRows = static_cast<int>(scrollH / kRowHeight);
+        int rowsUsedAbove = static_cast<int>(shown / kRowHeight);
+        int fillCap = viewportRows - rowsUsedAbove - 1;  // -1 = show-more row
         if (fillCap < kBucketCap) fillCap = kBucketCap;
         shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                *app, q, r.width, /*archived=*/false,
@@ -239,7 +241,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // slot width. The title text therefore starts at kRowLeftInset + kGlyphW
     // from the row's left edge — the "Show N more…" expander matches that so
     // its label aligns with the thread titles (V7), not the row edge.
-    static constexpr float kRowLeftInset = 22.0f;
+    // 16px = the VIEWS rows' icon left edge (container 8 + smart_item pad 8),
+    // so FOLDER rows line up with the VIEWS rows above them (M4).
+    static constexpr float kRowLeftInset = 16.0f;
     static constexpr float kGlyphW = 12.0f;   // leading status glyph slot
     // A count's LEFT edge (== its column start x) is the same for every
     // section: panelW − kCountRightPad − kCountColW. Given a section's own
@@ -1091,7 +1095,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         auto container = div(ctx, mk(parent, 3),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(178)})
+                // Height fits the 5 rows exactly (children()) — a fixed 178px
+                // was taller than the rows (~160px), leaving dead space that
+                // opened a large gap before the FOLDERS section (M3).
+                .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 // Folded rail: left inset == the header toggle's, so the icon
@@ -1854,35 +1861,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                           hanabi::test_hooks::force_hover("row:" + s.id);
 
         // Trailing relative-time column FIRST (so it sits to the LEFT of the
-        // star): a small, faint, right-aligned age ("2h","3d","Jul 28"). Empty
-        // label (unknown/future updated_at) renders blank but still reserves
-        // its width, keeping the layout stable. Dropped at very narrow widths
-        // (showTime) to avoid overflowing the row — see the row width math.
-        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
-        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
-        if (showTime)
-        div(ctx, mk(row.ent(), 4),
-            ComponentConfig{}
-                .with_label(ageLabel)
-                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("row_time"));
-
-        // Star affordance: the RIGHTMOST column (created last so flex lays it
-        // out flush to the row's right edge — per Gabe: "the star should be
-        // right-aligned"). Shown when the row is HOVERED, or always when the
-        // thread is already starred (so starred state stays visible at rest).
-        // A starred row shows a filled accent star; a hovered-unstarred row
-        // shows a faint hollow star to toggle; an unhovered-unstarred row shows
-        // a blank reserved slot (so the layout never reflows on hover).
-        //
-        // The star column is DROPPED entirely (not just blank) when the row is
-        // too narrow to hold it without overflow (showStar) — see the row
-        // width math above.
+        // ---- M5: star sits to the LEFT of the timestamp, both right-aligned.
+        // Render the STAR first, then the time column — in a Row, earlier
+        // children lay out further left, so this yields  title … [star] [time]
+        // with the timestamp flush to the row's right edge and the star just
+        // to its left. (Previously time-then-star put the star rightmost.)
         if (showStar && (s.starred || rowHovered)) {
             theme::Color starColor =
                 s.starred ? theme::tag_ready_fg() : theme::text_faint();
@@ -1893,15 +1876,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{pixels(18), pixels(20)})
                     // No background of its own (and no hover-bg box): the star
                     // is a bare affordance that sits in the row, NOT a boxed
-                    // button. A custom bg (even matching the row) drew a
-                    // subtly-different rounded rect that read as a stray box;
-                    // transparent lets the row's own fill show through so only
-                    // the glyph is visible. skip_hover_override keeps even that
-                    // transparent fill from being tinted on hover, so hovering
-                    // the star never paints a box of its own — the only visible
-                    // hover effect is the (stable) row wash baked in above.
-                    // Rightmost column → the glyph is centered in its 18px slot
-                    // (draw_fg centers) hard against the row's right edge.
+                    // button. transparent lets the row's own fill show through
+                    // so only the glyph is visible. skip_hover_override keeps
+                    // even that transparent fill from being tinted on hover.
                     .with_transparent_bg()
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
@@ -1925,8 +1902,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // Reserve the star slot even when no star is shown, so the row's
             // trailing columns stay put (no reflow on hover). This blank slot
             // is a plain div (no HasClickListener), so it never steals hot from
-            // the row — only the live star button (above) does, which the
-            // stable-hover baking already accounts for.
+            // the row — only the live star button (above) does.
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(" ")
@@ -1935,6 +1911,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("row_star_slot"));
         }
+
+        // Trailing relative-time column LAST → the RIGHTMOST column ("2h","3d",
+        // "Jul 28"), right-aligned, with the star immediately to its left (M5).
+        // Empty label (unknown/future updated_at) renders blank but still
+        // reserves width. Dropped at very narrow widths (showTime).
+        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
+        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
+        if (showTime)
+        div(ctx, mk(row.ent(), 4),
+            ComponentConfig{}
+                .with_label(ageLabel)
+                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("row_time"));
 
     }
 };
