@@ -470,6 +470,7 @@ std::vector<Message> split_message_blocks(const json& e, const Config& cfg) {
                     m.text = "[" + node + "] " + cmd;
                 else
                     m.text = cmd;
+                m.tool_node = node;  // dedicated field (renderer prefers this)
             }
             // Timestamps: tool piece uses the call's startedAt when present.
             const int64_t started = efield(tc, cfg.field_tool_started_at);

@@ -2251,19 +2251,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("meta_line"));
     }
     // ---- Tool-row metadata derivation ------------------------------------
-    // api::Message has no duration/count/node fields, so derive stable,
-    // plausible values from what exists (id/text) — deterministic per message
-    // so a row doesn't flicker frame-to-frame. Gives the target's dense
-    // metadata cluster (count badge + run duration + check) with no schema
-    // change (a real backend would supply real values; logged as a want).
-    static unsigned msg_hash(const api::Message& m) {
-        unsigned h = 2166136261u;
-        for (char c : (m.id + m.text)) {
-            h ^= static_cast<unsigned char>(c);
-            h *= 16777619u;
-        }
-        return h;
-    }
+    // api::Message now carries the real tool fields the backend supplies
+    // (tool_node / tool_status / tool_duration_ms / tool_result), so the
+    // renderer reads those directly — no fabricated per-message values. Counts
+    // come from the real pile size (one Tool message == one call).
     static std::string tool_duration(const api::Message& m) {
         // Prefer the REAL duration parsed from the backend (completedAt-startedAt).
         if (m.tool_duration_ms > 0) {
@@ -2278,7 +2269,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return "";  // unknown duration -> show nothing (no fake number)
     }
     static std::string tool_node(const api::Message& m) {
-        return "cli:" + std::to_string(100000 + (msg_hash(m) % 900000));
+        // Prefer the REAL node the backend supplied (tool input -> tool_node).
+        if (!m.tool_node.empty()) return m.tool_node;
+        // Back-compat: some paths embed it as a "[node] cmd" text prefix.
+        if (m.text.size() > 2 && m.text.front() == '[') {
+            size_t close = m.text.find(']');
+            if (close != std::string::npos && close > 1)
+                return m.text.substr(1, close - 1);
+        }
+        return "";  // unknown node -> show nothing (no fabricated cli:NNNNNN)
     }
     static std::string tool_command(const api::Message& m) {
         std::string t = redact_secrets(m.text);
@@ -2289,8 +2288,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (t.empty()) t = !m.subtitle.empty() ? m.subtitle : std::string("tool call");
         return t;
     }
-    static int tool_count(const api::Message& m) {
-        return 1 + static_cast<int>(msg_hash(m) % 6);
+    static int tool_count(const api::Message&) {
+        // One Tool message == one tool call. Piles sum by message count, so this
+        // is always 1; kept only for callers that ask per-message.
+        return 1;
     }
     // Real tool status -> check color. "completed"/"" (assume ok) => ready green;
     // "failed"/"error" => blocked red. Drives the row's trailing check mark.
@@ -2488,8 +2489,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         std::string cmd = std::to_string(count) + " tool calls  \xc2\xb7  " +
                           tool_command(msgs[lo]);
-        int total = 0;
-        for (int k = lo; k < hi; ++k) total += tool_count(msgs[k]);
+        // The badge shows the REAL pile size (one Tool message == one call), so
+        // it always matches the "N tool calls" header text. (Previously summed a
+        // hashed per-message fake, which could disagree with the header.)
+        int total = count;
         std::string dur = tool_duration(msgs[lo]);
         Entity& head =
             tool_row(ctx, wrap.ent(), 1, rowW, true, open, cmd, total, dur);

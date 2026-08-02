@@ -79,6 +79,7 @@ static void test_split_interleaved_blocks() {
     CHECK(out[1].role == api::Role::Tool);
     CHECK(out[1].subtitle == "bash");                 // name -> subtitle
     CHECK(out[1].text == "[cli:aspen] ls -la");        // command (+node) -> text
+    CHECK(out[1].tool_node == "cli:aspen");            // node -> dedicated field
     CHECK(out[1].tool_result == "total 8\ndrwxr-xr-x");
     CHECK(out[1].tool_status == "completed");
     CHECK(out[1].tool_duration_ms == 26000);           // 1026000 - 1000000

@@ -73,9 +73,13 @@ struct Message {
     //   tool_result       — the tool's captured output (for the nested sub-row)
     //   tool_status        — "completed" / "failed" / "" (drives the check mark)
     //   tool_duration_ms   — completedAt - startedAt in ms; 0 = unknown
+    //   tool_node          — the node/host the tool ran on (from tool input),
+    //                        e.g. "cli:aspen"; empty = unknown (renderer shows
+    //                        nothing rather than a fabricated node).
     std::string tool_result;
     std::string tool_status;
     int64_t tool_duration_ms = 0;
+    std::string tool_node;
 };
 
 // Lightweight summary of a session for the list view.
