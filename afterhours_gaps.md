@@ -119,6 +119,41 @@ exact knob needed here (e.g. configurable font-atlas dimensions, a texture-cache
 eviction hook) and work around in app code (e.g. our own image-cache eviction for
 textures we own). Placeholder until measured.
 
+### #8 — Windowed launch cost is dominated by the vendored/OS graphics init (NOT ours; log-only)
+Rigorous windowed-launch profiling (2026-08-02, cli:aspen; `HANABI_STARTUP_PROF=1`
++ `HANABI_QUIT_AFTER_FIRST_FRAME=1` — both diagnostic-only envs added in
+src/main.cpp) decomposed the REAL windowed cold launch (`main()` →
+`graphics::run` → sokol `sokol_init_cb` [`sg_setup` + `setup_sokol_gl_and_fonts`]
+→ our `app_init` → first `app_frame`):
+
+    phase                                cold        warm
+    Gfx init (process→app_init entry)    150-205ms   122-149ms   ← vendored/OS
+    App init (preload+state+systems)     1-6ms       0-1ms       ← OURS
+    WindowedFirstFrame (total)           171-266ms   146-170ms
+
+The overwhelming majority of the launch number is **Gfx init**: everything from
+process start until our `app_init` runs — i.e. `sapp_run()` creating the
+Cocoa/Metal window + GPU context, `sg_setup()`, and `setup_sokol_gl_and_fonts()`
+(the fixed 2048×2048 fontstash atlas alloc). All of that is inside vendored
+afterhours / the OS Metal driver. Clearing the Metal function/pipeline cache
+(`~/…/C/com.apple.metal`) adds ~40-70ms to Gfx init (first-draw shader/pipeline
+compile) — also a Metal-driver cost, not ours. This span is NOT ours to cut and
+we do NOT patch vendor; the split log makes it honest (App-init is ~1-3ms, so
+"our" launch cost is negligible).
+
+Note: the earlier reported 1.1-1.4s cold launches were NOT reproducible in
+steady state on this machine — they were either (a) a genuinely-cold box (cold
+dyld shared cache after reboot + cold Metal driver + first `amfid` signature
+validation of a never-run adhoc binary) which is a one-time OS cost that
+disappears on the 2nd run, OR (b) the auth-blocking bug below (which WAS ours and
+is now fixed). `DYLD_PRINT_STATISTICS` is suppressed by the hardened runtime on
+the adhoc-signed binary, so dyld pre-main can't be attributed from inside.
+
+UPSTREAM ASK (optional, low priority): a hook/callback afterhours could fire
+right at the top of `sokol_init_cb` (before `sg_setup`) so an app can time the
+window-create vs GPU-setup split itself. Until then, Gfx init is a single
+opaque vendored span. Log-only; do NOT patch vendor.
+
 ---
 
 ## Animation gaps (V2 / post-MVP — surfaced by docs/animation-assessment.md)

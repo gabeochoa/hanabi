@@ -245,6 +245,20 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set by the overlay's "Use offline (mock)" / Cancel escape; main.cpp
     // consumes it to dismiss the overlay and keep the current (mock) client.
     bool requestAuthCancel = false;
+    // Launch-perf: DeviceCodeFlow::begin() does a BLOCKING network POST (device
+    // code request). Calling it in setup_app_state (pre-first-frame) put a full
+    // auth-server round-trip on the windowed launch critical path — the single
+    // biggest OURS cost when auth is configured but no token exists (a real
+    // https server adds ~hundreds of ms to ~1s; an unreachable one blocks for
+    // the whole connect timeout, ~5s). We now DEFER begin(): setup_app_state
+    // sets authNeedsBegin=true (window paints immediately, overlay shows a
+    // "requesting code…" state) and LoaderSystem kicks begin() on a worker via
+    // authBeginFuture, exactly like the async list fetch. Nothing about the
+    // flow's behavior changes — only WHEN the first request fires (off the
+    // launch path).
+    bool authNeedsBegin = false;
+    std::future<void> authBeginFuture;
+    bool authBeginPending = false;
 };
 
 // Layout rectangles recomputed each frame from the window size.
