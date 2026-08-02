@@ -195,7 +195,17 @@ bundle: $(MAIN_EXE) copy-resources
 		'</plist>' > $(APP_BUNDLE)/Contents/Info.plist
 	@echo "Built $(APP_BUNDLE)"
 
-.PHONY: all clean clean-all deps copy-resources output run bundle
+# `make mock-server` — launch the local dev mock server (tools/mock_server).
+# Serves the REST + SSE shape hanabi's http adapter expects so the app can be
+# exercised fully offline (list / transcripts / pagination / live events /
+# SENDING messages). Pure Python 3 stdlib — no install. See tools/mock_server/
+# README.md for the exact env to point hanabi at it (local http, so a NON-TLS
+# build works). Override the port with `make mock-server MOCK_PORT=9000`.
+MOCK_PORT ?= 8787
+mock-server:
+	python3 tools/mock_server/server.py --port $(MOCK_PORT)
+
+.PHONY: all clean clean-all deps copy-resources output run bundle mock-server
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)
