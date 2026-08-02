@@ -660,20 +660,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border(theme::border(), pixels(1.0f))
                 .with_roundness(theme::layout::ROUNDNESS_BOX)
                 .with_debug_name("skeleton_card"));
-        // Title bar (~55% width).
+        // Title bar (~55% width). Use a clearly-visible raised tone (border
+        // level, composited over the card) — the old hover_bg-over-panel wash
+        // was near-invisible on the card (~#37 on #2a2a31), so the skeleton read
+        // as a broken page rather than "loading" (critique #10). border() is a
+        // distinct step above panel_bg_2 in both themes.
         div(ctx, mk(card.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(0.55f), pixels(11)})
-                .with_custom_background(theme::over(theme::hover_bg(),
-                                                    theme::panel_bg_2()))
-                .with_margin(Margin{.bottom = pixels(7)})
+                .with_size(ComponentSize{percent(0.55f), pixels(12)})
+                .with_custom_background(theme::border())
+                .with_margin(Margin{.bottom = pixels(8)})
                 .with_roundness(0.4f)
                 .with_debug_name("skeleton_title"));
-        // Metadata bar (~28% width, dimmer).
+        // Metadata bar (~30% width, one step dimmer than the title).
         div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(0.28f), pixels(9)})
-                .with_custom_background(theme::over(theme::hover_bg(),
+                .with_size(ComponentSize{percent(0.30f), pixels(10)})
+                .with_custom_background(theme::over(theme::border(),
                                                     theme::panel_bg_2()))
                 .with_roundness(0.4f)
                 .with_debug_name("skeleton_meta"));
