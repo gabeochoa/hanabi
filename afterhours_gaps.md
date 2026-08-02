@@ -954,3 +954,8 @@ per-row id cache + base-color baking could collapse to a single call.
 - **Impact:** Blocked the "WhatsApp-style sync check as a nested badge under the bubble" approach. Worked around by appending a font-safe text suffix to the bubble's single body label ("· sent" etc.). A proper trailing badge/glyph row inside a filled bubble needs either (a) on_draw_fg to fire on bg divs, or (b) multi-child layout to render for custom-bg columns.
 - **Repro:** add a 2nd `div(mk(bub.ent(), 9), ...label...)` after the user_text label; it doesn't appear. Add on_draw_fg to `bub`; it doesn't fire.
 - **Also:** unicode U+2713 (✓) renders BLANK in the bundled font (JetBrainsMono/Roboto) at MICRO size — a check glyph must come from the icon atlas (draw_at "star"-style) or a drawn shape, not a text label.
+
+### #29 — text_input has no placeholder support
+- **Gap:** `afterhours::ui::imm::text_input` renders an empty field with no placeholder/ghost-text affordance when the bound string is empty. The hanabi composer + sidebar search both show a blank box with no "Reply…" / "Search…" hint. A `with_placeholder("…")` (rendered as faint text, cleared on first keystroke, not part of the value) would fix it cleanly.
+- **Impact:** minor UX — the composer gives no cue what to type. Worked around by adjacent labels elsewhere; a real placeholder needs input support.
+- **Related:** gap #17 (text_input forces its own Secondary bg + derives font size from height, ignoring per-widget colors) — same widget, same "input is hard to style" family.
