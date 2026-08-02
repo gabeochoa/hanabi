@@ -50,6 +50,24 @@ enum class ThreadTag {
     Done,
 };
 
+// Local-first sync state for anything with a "on this device" vs "confirmed on
+// the server" distinction (a sent message, a queued/outbox item). Drives a
+// small trailing glyph (WhatsApp-style checks) so the user always knows whether
+// their work is merely LOCAL or actually PERSISTED to the backend.
+//   None        — not applicable (e.g. a message that came FROM the server on
+//                 load — it's inherently synced; we don't badge those).
+//   LocalOnly   — saved on this device only (in the local outbox), not yet sent.
+//   Persisting  — send in flight to the server.
+//   Synced      — confirmed accepted by the server.
+//   Failed      — send failed; held locally, will retry.
+enum class SyncState {
+    None,
+    LocalOnly,
+    Persisting,
+    Synced,
+    Failed,
+};
+
 // One message inside a session transcript.
 struct Message {
     std::string id;
@@ -80,6 +98,13 @@ struct Message {
     std::string tool_status;
     int64_t tool_duration_ms = 0;
     std::string tool_node;
+
+    // Local-first sync badge (see SyncState). Defaults to None: a message
+    // parsed from the server on transcript load is inherently synced and shows
+    // no badge. A locally-authored message (optimistic send / outbox) sets this
+    // to LocalOnly → Persisting → Synced/Failed so the transcript shows a
+    // WhatsApp-style check reflecting whether the work has reached the server.
+    SyncState sync = SyncState::None;
 };
 
 // Lightweight summary of a session for the list view.
