@@ -22,7 +22,7 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [~] S1 writing/compose API — RESEARCHED: POST /api/chat {sessionId?,message}->{sessionId,messageId,turnId}; steer POST /api/chat/steer {sessionId,message,steeringId?}. Wire = M6.
 - [ ] V8 left-align "these" — TARGET UNCONFIRMED (need Gabe to point)
 - [x] F3 settings buttons wired (verified) — deeper polish = M7
-- [~] API send needs to navi PR thread — documented; compile final list
+- [~] API asks -> navi PR thread (par-msl/navi#4081) — COMPILED in API_ASKS_FOR_NAVI.md; NOT posted (needs Gabe go for human-visible PR comment).
 - [B] CTX afterhours fixes incoming (unblocks V3 + inline code pills #22)
 
 ## Batch 3 (M-series)
@@ -32,7 +32,7 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [x] M4 FOLDERS indent match VIEWS — kRowLeftInset 22->16 (7723eae)
 - [x] M5 star left of right-aligned timestamp (7723eae)
 - [x] fold-all icon broken — clean triangles + clears scrollbar (5e1beae)
-- [ ] M6 text input + STEERING to real backend — chat_path unset on real config; wire /api/chat + /api/chat/steer (fields message/sessionId), enable composer on real backend
+- [~] M6 text input + STEERING — text input DONE (99dbc4c: origin-absolute routing + local config chat_path -> composer renders + send-ready on real backend, verified). STEERING in flight (subagent: /api/chat/steer when agent Running).
 - [ ] M7 settings page needs a ton of work — audit + expand
 
 ## Process asks
