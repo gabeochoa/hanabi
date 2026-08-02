@@ -41,6 +41,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         if (!app->showSettings) return;
 
+        // Fetch account/settings from the backend ONCE when the overlay opens
+        // (so the user can verify setup). The loader services requestSettings on
+        // a worker; we only kick it when idle + not already loaded. Read-only.
+        if (app->settingsState == ecs::LoadState::Idle && !app->requestSettings)
+            app->requestSettings = true;
+
         // Keep themeChoice in sync with the palette the app booted with
         // (main.cpp applies the persisted theme via theme::set_mode at startup
         // but doesn't touch themeChoice). Only reconcile the light/dark case;
@@ -86,7 +92,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         // Centered panel.
         const float pw = 360.0f;
-        const float ph = 250.0f;  // +54 for the cache row
+        const float ph = 322.0f;  // +54 cache row, +72 account row
         const float px = (sw - pw) * 0.5f;
         const float py = (sh - ph) * 0.5f;
 
@@ -108,6 +114,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         render_header(ctx, panel.ent(), *app);
         render_theme_row(ctx, panel.ent(), *app);
         render_cache_row(ctx, panel.ent(), *app);
+        render_account_row(ctx, panel.ent(), *app);
         render_footnote(ctx, panel.ent(), *app);
     }
 
@@ -253,6 +260,60 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (clear) {
             api::disk_cache::wipe_all();
         }
+    }
+
+    // Account row: shows the backend-reported identity + counts so the user can
+    // verify hanabi is talking to the right account / is set up correctly.
+    // Data comes from the async /whoami fetch (app.settings / settingsState),
+    // kicked when the overlay opens. Shows a loading/err/empty state honestly.
+    void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app) {
+        div(ctx, mk(parent, 30),
+            ComponentConfig{}
+                .with_label("Account")
+                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_padding(Padding{.top = pixels(10)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(FontSize::Medium)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_account_label"));
+
+        std::string line;
+        theme::Color col = theme::text_faint();
+        if (app.settingsState == ecs::LoadState::Loading) {
+            line = "checking\xe2\x80\xa6";
+        } else if (app.settingsState == ecs::LoadState::Error) {
+            line = "couldn't reach the backend";
+            col = theme::tag_blocked_fg();
+        } else if (app.settings.ok) {
+            // e.g. "gabeochoa@\u2026  \u00b7  19048 sessions  \u00b7  62 schedules"
+            line = app.settings.user_id.empty() ? "(no identity)"
+                                                : app.settings.user_id;
+            if (app.settings.session_count >= 0)
+                line += "  \xc2\xb7  " +
+                        std::to_string(app.settings.session_count) + " sessions";
+            if (app.settings.schedule_count >= 0)
+                line += "  \xc2\xb7  " +
+                        std::to_string(app.settings.schedule_count) +
+                        " schedules";
+            col = theme::text_secondary();
+        } else {
+            // Idle with no data — the backend doesn't expose settings, or mock.
+            line = "not available on this backend";
+        }
+        div(ctx, mk(parent, 31),
+            ComponentConfig{}
+                .with_label(line)
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_padding(Padding{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(col)
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_account_value"));
     }
 
     // One segmented theme button. Selected = accent fill; others = secondary.
