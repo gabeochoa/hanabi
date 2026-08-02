@@ -1933,6 +1933,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return static_cast<float>(lines) * kLinePitch + 2.0f * kBodyPad;
     }
 
+    // A markdown code-fence line: ``` or ```lang (trimmed of trailing space).
+    // Real assistant messages wrap code in fences; without handling them the
+    // literal ``` markers render as body text (a clear "not a product" tell).
+    // We render the fence markers as ZERO-height (skipped) and the inner lines
+    // in a monospace, sunken code style — this keeps every OTHER line's height
+    // identical, so the render/measure mirror below stays in lock-step.
+    static bool is_code_fence(const std::string& line) {
+        size_t i = 0;
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+        return line.compare(i, 3, "```") == 0;
+    }
+
     // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
     // method's per-segment layout exactly (blank line = half pitch, else
     // segLines*pitch) so virtualization spacers line up with what renders.
@@ -1940,16 +1952,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int perLine = wrap_perline(textW);
         float h = 0.0f;
         size_t start = 0;
+        bool inCode = false;
         while (start <= body.size()) {
             size_t nl = body.find('\n', start);
             size_t end = (nl == std::string::npos) ? body.size() : nl;
-            int len = static_cast<int>(end - start);
-            if (len <= 0) {
-                h += kLinePitch * 0.5f;
+            std::string line = body.substr(start, end - start);
+            if (is_code_fence(line)) {
+                // Fence markers are not rendered; a block adds one kBodyPad of
+                // breathing room on open + close so it sits off the prose.
+                h += kBodyPad;
+                inCode = !inCode;
+            } else if (inCode) {
+                // Code lines are pre-formatted: exactly one pitch, no wrap
+                // (matches the mock's white-space:pre block).
+                h += kLinePitch;
             } else {
-                int segLines = (len + perLine - 1) / perLine;
-                if (segLines < 1) segLines = 1;
-                h += static_cast<float>(segLines) * kLinePitch;
+                int len = static_cast<int>(line.size());
+                if (len <= 0) {
+                    h += kLinePitch * 0.5f;
+                } else {
+                    int segLines = (len + perLine - 1) / perLine;
+                    if (segLines < 1) segLines = 1;
+                    h += static_cast<float>(segLines) * kLinePitch;
+                }
             }
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -2076,6 +2101,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int perLine = wrap_perline(textW);
         size_t start = 0;
         int seg = 0;
+        bool inCode = false;          // inside a ``` fence
         float y = bodyStartY;         // running content-y of this segment's top
         float pending = 0.0f;         // accumulated off-window height to flush
         auto flush = [&](int tag) {
@@ -2094,8 +2120,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             std::string line = shown.substr(start, end - start);
             float segH;
             bool blank = line.empty();
+            const bool fence = is_code_fence(line);
+            const bool codeLine = inCode && !fence;
             int segLines = 1;
-            if (blank) {
+            if (fence) {
+                segH = kBodyPad;          // matches rich_body_h
+            } else if (codeLine) {
+                segH = kLinePitch;        // pre-formatted: one pitch, no wrap
+            } else if (blank) {
                 segH = kLinePitch * 0.5f;
             } else {
                 segLines = (static_cast<int>(line.size()) + perLine - 1) /
@@ -2108,8 +2140,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             y = segBot;
             const bool visible =
                 !cull || (segBot >= winTop && segTop <= winBot);
-            if (!visible) {
+            if (fence) {
+                // Fence markers render nothing (just the small pad); toggle.
+                if (visible) flush(9000 + seg);
+                else pending += segH;
+                inCode = !inCode;
+            } else if (!visible) {
                 pending += segH;      // collapse off-window segment into spacer
+            } else if (codeLine) {
+                flush(9000 + seg);
+                // A sunken monospace code row: tinted background + mono font +
+                // NO wrap (pre-formatted), so it reads as a code block like the
+                // mock. Tab expands to two spaces for stable columns.
+                std::string codeTxt = line;
+                for (size_t p = codeTxt.find('\t'); p != std::string::npos;
+                     p = codeTxt.find('\t', p))
+                    codeTxt.replace(p, 1, "  ");
+                div(ctx, mk(parent, 100 + seg),
+                    ComponentConfig{}
+                        .with_label(codeTxt.empty() ? " " : codeTxt)
+                        .with_size(ComponentSize{percent(1.0f), pixels(segH)})
+                        // A recessed (sunken) plane one step BELOW the pane +
+                        // mono text = a code block, like the mock's --sunken.
+                        .with_custom_background(theme::window_bg())
+                        .with_padding(Padding{.right = pixels(8),
+                                              .left = pixels(10)})
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font("mono", theme::type::BODY)
+                        .with_alignment(TextAlignment::Left)
+                        .with_roundness(0.0f)
+                        .with_debug_name("asst_code_line"));
             } else if (blank) {
                 flush(9000 + seg);
                 div(ctx, mk(parent, 100 + seg),

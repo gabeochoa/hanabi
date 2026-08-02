@@ -499,7 +499,14 @@ class MockClient : public Client {
                  hrs_ago(4), ""},
                 {"m2", Role::Assistant,
                  "Implemented the upgrade path with a proration line item on "
-                 "the receipt. Wrote 18 new tests.",
+                 "the receipt. The core of it:\n"
+                 "```ts\n"
+                 "function prorate(from: Tier, to: Tier, daysLeft: number) {\n"
+                 "  const delta = to.price - from.price;\n"
+                 "  return Math.round(delta * (daysLeft / 30) * 100) / 100;\n"
+                 "}\n"
+                 "```\n"
+                 "Wrote 18 new tests.",
                  hrs_ago(1), ""},
                 {"m3", Role::Tool,
                  "make test \xe2\x86\x92 214 passed, 0 failed \xc2\xb7 lint "
