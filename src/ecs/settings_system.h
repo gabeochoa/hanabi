@@ -22,6 +22,7 @@
 
 #include "../api/disk_cache.h"
 #include "../settings.h"
+#include "../version.h"
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -545,6 +546,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             app.themeChoice == "system"
                 ? "System follows the OS soon; using Dark for now."
                 : "Persists across relaunch. Esc or click outside to close.";
+        // Append the app version (single source of truth: src/version.h) so the
+        // in-app About line and `--version` never drift.
+        note += "   \xc2\xb7   hanabi ";
+        note += hanabi::kVersion;
         div(ctx, mk(parent, 4),
             ComponentConfig{}
                 .with_label(note)

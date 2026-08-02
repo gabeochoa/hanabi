@@ -17,6 +17,7 @@
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
+#include "version.h"
 #include "ui_context.h"
 
 #include "../vendor/afterhours/src/ecs.h"
@@ -864,7 +865,7 @@ int main(int argc, char* argv[]) {
 
     // --version prints and exits.
     if (cmdl["--version"] || cmdl["-V"]) {
-        printf("hanabi 0.1.0\n");
+        printf("hanabi %s\n", hanabi::kVersion);
         return 0;
     }
 
