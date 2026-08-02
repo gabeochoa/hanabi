@@ -154,12 +154,17 @@ inline const Tokens kDark = {
 // near-invisible (defect #8); {176,176,190} lifts it to ~2.1:1 vs pane and
 // ~2.0:1 vs the card fill so every card gets a crisp edge without looking heavy.
 inline const Tokens kLight = {
-    /*window_bg*/ {238, 238, 242, 255},
-    /*sidebar_bg*/ {230, 230, 235, 255},
-    /*panel_bg*/ {255, 255, 255, 255},
-    /*panel_bg_2*/ {247, 247, 250, 255},
-    /*border*/ {176, 176, 190, 255},
-    /*border_soft*/ {0, 0, 0, 40},
+    // True macOS light theme (was a muddy mid-grey that read as "dark with the
+    // lights half-on", audit #2). Sidebar = near-white with a hairline divider;
+    // canvas = a very light neutral (#f6f6f7); main pane = pure white; cards
+    // sit on white with a crisp 1px border. This gives real light/dark polarity
+    // instead of two greys.
+    /*window_bg*/ {246, 246, 247, 255},   // canvas behind panels
+    /*sidebar_bg*/ {251, 251, 252, 255},  // near-white sidebar
+    /*panel_bg*/ {255, 255, 255, 255},    // main / transcript = pure white
+    /*panel_bg_2*/ {242, 242, 245, 255},  // search field / recessed surfaces
+    /*border*/ {209, 209, 216, 255},      // crisp hairline (was too dark 176)
+    /*border_soft*/ {0, 0, 0, 22},
 
     /*text_primary*/ {33, 33, 43, 255},
     /*text_secondary*/ {85, 85, 95, 255},
