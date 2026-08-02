@@ -111,13 +111,16 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // space evenly. Never let a tab go below minW — if even minW-width tabs
         // won't all fit, we stop drawing once we hit the right edge (below), so
         // nothing renders off-frame.
+        // UNIFORM tab width: every tab gets the SAME width (Gabe's ask),
+        // sized to share the strip evenly up to a comfortable cap, instead of
+        // each tab sizing to its own label (which gave ragged widths).
         const size_t nTabs = strip.tabOrder.size();
-        float maxW = maxWCap;
+        float uniformW = maxWCap;
         if (nTabs > 0) {
             float totalGap = gap * static_cast<float>(nTabs - 1);
             float perTab =
                 (r.width - totalGap) / static_cast<float>(nTabs);
-            maxW = std::clamp(perTab, minW, maxWCap);
+            uniformW = std::clamp(perTab, minW, maxWCap);
         }
 
         for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
@@ -128,9 +131,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             auto& tab = tabEntity.get<Tab>();
             bool isActive = tabEntity.has<ActiveTab>();
 
-            float labelW =
-                static_cast<float>(tab.label.size()) * 7.0f + 44.0f;
-            float tabW = std::clamp(labelW, minW, maxW);
+            float tabW = uniformW;
 
             // Overflow guard: if this tab would extend past the strip's right
             // edge, clamp its width to whatever room is left; if there's no

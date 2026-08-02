@@ -143,9 +143,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static Entity& centered_wrap(UIContext<InputAction>& ctx, Entity& scroll,
-                                 int id, float innerW) {
-        constexpr float kCap = kWrapCap;
-        float wrapW = innerW < kCap ? innerW : kCap;
+                                 int id, float innerW,
+                                 float cap = kWrapCap) {
+        float wrapW = innerW < cap ? innerW : cap;
         auto row = div(ctx, mk(scroll, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
@@ -1140,10 +1140,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        constexpr float kMsgCol = 740.0f;
+        // Fill the available pane width (Gabe's ask) rather than capping the
+        // reading column — keep a modest side margin so text isn't flush to the
+        // scrollbar/edge. A high cap keeps it sane on an ultrawide window; pass
+        // it through centered_wrap so the transcript ISN'T re-clamped to the
+        // narrower shared reading cap (Home/digest still use the 900 default).
+        constexpr float kMsgCol = 1400.0f;
         float innerW = paneW - 36.0f;
         float colW = innerW < kMsgCol ? innerW : kMsgCol;
-        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW);
+        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, kMsgCol);
 
         render_cache().reset_for_thread(app.openSession->summary.id);
 
