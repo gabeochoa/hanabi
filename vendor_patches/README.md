@@ -6,8 +6,24 @@ submodule, verified to fix the real hanabi symptom (screenshot / behavior), and
 captured here as a ready-to-apply patch + rationale so landing it upstream is
 low-effort. Each corresponds to a numbered entry in `afterhours_gaps.md`.
 
-Apply a patch from the submodule root:
-    cd vendor/afterhours && git apply ../../vendor_patches/<file>.patch
+## Applying (from the afterhours repo/submodule root)
+
+These are `git format-patch`-style patches (they carry From/Date/Subject), so the
+PREFERRED path preserves the commit message + authorship:
+
+    cd vendor/afterhours
+    git am ../../vendor_patches/<file>.patch          # keeps message + author
+
+If you only want the diff applied to the working tree (no commit), use:
+
+    git apply ../../vendor_patches/<file>.patch        # working-tree only
+    git apply --check ../../vendor_patches/<file>.patch # dry-run: verify it applies
+
+Both are verified to apply cleanly against the pinned base (edfe234). Apply order
+is independent — the two patches touch different files (drawing_helpers.h vs
+rendering.h) and do not conflict. After landing upstream, bump hanabi's
+`vendor/afterhours` submodule pointer to the new commit and delete the applied
+patch from this folder.
 
 ## Landed / proven
 - **25-rounded-corner-degenerate-triangle.patch** — `draw_rectangle_rounded`'s
