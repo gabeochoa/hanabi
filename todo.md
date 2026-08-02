@@ -194,3 +194,20 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
    -> Wire in-app send + test against mock server AFTER data-async (message-queue) merges.
 ## IN FLIGHT: sidebar-fixes(baf89d58), tabs-overflow(b83d422a), data-async(6afbad89), startup-profile(2d834f91), visual-audit(68c5bd34)
 ## NOTE: pkill -9 -f hanabi.exe kills OTHER worktrees' captures — scope kills / coordinate when agents run concurrently.
+
+## VISUAL AUDIT RESULTS (2026-08-02, subagent 68c5bd34) — 24 defects, verdict "halfway"
+TOP 10 (ranked) + owner routing:
+1. [P0] Many-tabs overflow garbled (hard clip, bleeding fragments, no overflow menu) -> TABS agent (in flight).
+2. [P0] LIGHT THEME broken (muddy grey sidebar, no card contrast, not shippable) -> NEW task: fix light tokens (theme.h).
+3. [P0] Tool row incomplete: GREY check (no success color), NO duration, heavy count pill -> MY tool-row fix
+   (0f31e2e) added real duration+status+green/red check — VERIFY on mock+real; the audit screenshot PREDATES it. Mock has no duration (blank is correct); real has it. Re-audit tool row post-fix.
+4. [P0] Nested per-node tool SUB-ROWS missing (expanded pile shows only sub-agent chips) -> the block-split
+   emits Role::Tool msgs; need the pile EXPAND to render nested sub-rows w/ node+subcmd+dur+check (main_pane).
+5. [P1] Send button always grey/dead -> accent when field non-empty (composer_system.h; ties to data-async send).
+6. [P1] Tri-color section labels (red/grey/green) break one-accent rule -> neutral labels, color only in glyph (main_pane home digest).
+7. [P1] Smart-view row inconsistency (Blocked=title+time, Starred=title+subtitle+pill) -> unify one row component (main_pane digest).
+8. [P1] Status-pill contrast (DONE grey-on-grey invisible) -> muted-but-legible tints (theme.h + digest).
+9. [P2] Too many sidebar glyph shapes/colors (triangle/spinner/hollow/diamond/square/⇄) -> reduce to running/blocked/done/idle (sidebar).
+10. [P1/P2] Empty transcript void + dim centered "Task:" stray line -> anchor content / promote header (main_pane).
+Other notable: #14 cost meter "$$$$" placeholder -> real "$0.12"; #18 chunky scrollbar (PREDATES scrollbar merge — verify thin now); #22 tab × collides with truncated title (tabs agent); #2 light theme is THE headline.
+NOTE: audit screenshots predate the scrollbar merge (e997b33) + tool-row fix (0f31e2e) — re-capture after current agents merge before trusting #3/#18.
