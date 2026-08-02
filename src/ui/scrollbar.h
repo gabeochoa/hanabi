@@ -18,12 +18,16 @@
 // never reaches into that right strip, painting the bar in the panel's own fg
 // (same layer as children) never overlaps text.
 //
-// v1 is an INDICATOR ONLY — it accurately reflects scroll position + content
-// ratio and updates every frame as the wheel scrolls, but the thumb is not
-// draggable. Auto-hides when content fits (nothing to scroll).
+// The thumb is now DRAGGABLE (app-side, still no vendor edits) — see the drag
+// section below. Clicking + dragging the thumb scrolls the content; clicking
+// the track above/below the thumb pages toward the click. It still accurately
+// reflects scroll position + content ratio and updates every frame as the wheel
+// scrolls. Auto-hides when content fits (nothing to scroll).
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
+#include <unordered_map>
 
 #include "../rl.h"
 #include "theme.h"
@@ -75,7 +79,92 @@ scroll_indicator(afterhours::EntityID scrollId) {
         float frac = maxScroll > 0.5f
                          ? std::clamp(sv.scroll_offset.y / maxScroll, 0.0f, 1.0f)
                          : 0.0f;
-        const float thumbY = trackY + frac * (trackH - thumbH);
+        float thumbY = trackY + frac * (trackH - thumbH);
+
+        // ---- Drag / paging (app-side interaction; afterhours has no built-in
+        // draggable scrollbar — gap #26). on_draw_fg runs during RENDER, after
+        // layout, so mutating scroll_offset here takes effect NEXT frame — the
+        // same pattern main_pane_system.h uses for jump-to-bottom. We only ever
+        // write scroll_offset while THIS bar is actively dragging, so we never
+        // fight the wheel or other bars.
+        //
+        // Drag math (all in the viewport's screen-space y):
+        //   The thumb's top can travel over [trackY, trackY + (trackH-thumbH)].
+        //   That travel range maps linearly onto scroll_offset.y in
+        //   [0, maxScroll]. On press we remember grabDY = mouseY - thumbY (where
+        //   inside the thumb the user grabbed). While dragging, the thumb top
+        //   should follow the cursor keeping that grab point fixed:
+        //       desiredThumbTop = mouseY - grabDY
+        //   Convert back to a scroll fraction, then to an offset:
+        //       frac = (desiredThumbTop - trackY) / (trackH - thumbH)   [0..1]
+        //       scroll_offset.y = frac * maxScroll
+        //   clamp_scroll() re-clamps against the live content/viewport sizes.
+        struct DragState {
+            bool dragging = false;
+            float grabDY = 0.0f;   // cursor y offset from thumb top at grab
+            bool prevDown = false; // per-bar mouse-button edge detect
+        };
+        static std::unordered_map<afterhours::EntityID, DragState> s_drag;
+        // Only ONE scrollbar may drag at a time.
+        static afterhours::EntityID s_activeDrag = 0;
+
+        const auto mp = afterhours::input::get_mouse_position();
+        const float mx = mp.x;
+        const float my = mp.y;
+        const bool down = afterhours::input::is_mouse_button_down(0);
+
+        const float travel = trackH - thumbH;  // > 0 (trackH > kMinThumb, and
+                                                // thumbH clamped <= trackH)
+        DragState& ds = s_drag[scrollId];
+        // Edge-detect per-bar so multiple scroll panels in one frame each get a
+        // correct just-pressed (a single shared static would only be right for
+        // whichever bar rendered first).
+        const bool justPressed = down && !ds.prevDown;
+        ds.prevDown = down;
+
+        const bool overThumb = mx >= trackX && mx <= trackX + kBarW &&
+                               my >= thumbY && my <= thumbY + thumbH;
+        const bool overTrack = mx >= trackX && mx <= trackX + kBarW &&
+                               my >= trackY && my <= trackY + trackH;
+
+        if (justPressed && overThumb && s_activeDrag == 0) {
+            // Begin dragging this thumb.
+            ds.dragging = true;
+            ds.grabDY = my - thumbY;
+            s_activeDrag = scrollId;
+        } else if (justPressed && overTrack && !overThumb && s_activeDrag == 0) {
+            // Page toward the click (click above thumb → up a page, below →
+            // down a page). One-shot; does not start a drag.
+            auto& msv = ent.template get<HasScrollView>();
+            const float page = view;  // one viewport per click
+            if (my < thumbY)
+                msv.scroll_offset.y -= page;
+            else
+                msv.scroll_offset.y += page;
+            msv.clamp_scroll();
+        }
+
+        if (ds.dragging && s_activeDrag == scrollId) {
+            if (down && travel > 0.5f) {
+                const float desiredThumbTop = my - ds.grabDY;
+                float dfrac =
+                    std::clamp((desiredThumbTop - trackY) / travel, 0.0f, 1.0f);
+                auto& msv = ent.template get<HasScrollView>();
+                msv.scroll_offset.y = dfrac * maxScroll;
+                msv.clamp_scroll();
+                // Reflect the drag in THIS frame's paint (no 1-frame lag on the
+                // thumb visual) by recomputing frac/thumbY from the new offset.
+                frac = dfrac;
+                thumbY = trackY + frac * travel;
+            }
+            if (!down) {  // release
+                ds.dragging = false;
+                if (s_activeDrag == scrollId) s_activeDrag = 0;
+            }
+        }
+
+        const bool active = ds.dragging && s_activeDrag == scrollId;
+        const bool hot = active || overThumb;
 
         // Track: a barely-there groove (text_faint @ very low alpha over the
         // viewport's own backdrop). theme::over() is required because the UI
@@ -85,8 +174,10 @@ scroll_indicator(afterhours::EntityID scrollId) {
         const theme::Color backdrop = theme::panel_bg();
         const theme::Color trackCol =
             theme::over(theme::Color{faint.r, faint.g, faint.b, 18}, backdrop);
-        const theme::Color thumbCol =
-            theme::over(theme::Color{faint.r, faint.g, faint.b, 150}, backdrop);
+        // Brighter thumb while hovered/dragging as an affordance.
+        const std::uint8_t thumbA = hot ? 220 : 150;
+        const theme::Color thumbCol = theme::over(
+            theme::Color{faint.r, faint.g, faint.b, thumbA}, backdrop);
 
         afterhours::draw_rectangle_rounded(
             RectangleType{trackX, trackY, kBarW, trackH}, 1.0f, 8, trackCol);

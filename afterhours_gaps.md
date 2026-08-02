@@ -781,9 +781,21 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   right padding so text never runs under the bar. It **auto-hides** when
   `content_size.y <= viewport_size.y` (nothing to scroll). Translucency goes
   through `theme::over()` because the fill pipeline can't alpha-blend (gaps
-  #13/#15) — a raw low-alpha color would render as a harsh opaque block. v1 is an
-  **INDICATOR ONLY**: it accurately reflects position + content ratio and updates
-  every frame as the wheel scrolls, but the thumb is not draggable.
+  #13/#15) — a raw low-alpha color would render as a harsh opaque block. The
+  thumb is now **DRAGGABLE app-side** (2026-08-02): `scroll_indicator`'s
+  `on_draw_fg` hit-tests the thumb rect against `input::get_mouse_position()` /
+  `input::is_mouse_button_down(0)` (edge-detected per scroll-id in a function
+  static `unordered_map<EntityID, DragState>`), and on drag maps the cursor's
+  track-space y back into `scroll_offset.y` via
+  `frac = clamp((mouseY - grabDY - trackY) / (trackH - thumbH), 0, 1)`,
+  `scroll_offset.y = frac * (content - viewport)`, then `clamp_scroll()`. It
+  writes the offset during the render pass (takes effect next frame, same as the
+  jump-to-bottom pattern) and only ever mutates while THIS bar is actively
+  dragging (`s_activeDrag` global — one bar at a time), so it never fights the
+  wheel. Clicking the track above/below the thumb pages one viewport toward the
+  click. The thumb brightens (alpha 150 → 220) while hovered/dragging. It still
+  accurately reflects position + content ratio and updates every frame; still
+  **auto-hides** when content fits.
 - **Minimal upstream fix (vendor, off-limits here):** give `HasScrollView` an
   optional built-in scrollbar render — a config flag (e.g. `with_scrollbar()`)
   that, when the content overflows, draws a track + thumb from the metrics it
