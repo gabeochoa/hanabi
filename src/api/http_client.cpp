@@ -101,6 +101,20 @@ SplitUrl split_url(const std::string& url) {
     return s;
 }
 
+// Build the request target from a SplitUrl + a configured path. Normally a
+// path is relative to the base_url's prefix (e.g. base .../api/v1 + "/sessions"
+// -> "/api/v1/sessions"). But some endpoints live at a DIFFERENT root than the
+// data API (e.g. the Navi chat/send + steer endpoints sit at "/api/chat" while
+// sessions/messages are under "/api/v1"). A configured path beginning with "//"
+// is treated as ORIGIN-ABSOLUTE: the prefix is skipped and the single leading
+// slash of the remainder is kept (so chat_path "//api/chat" -> origin+"/api/chat").
+// This keeps every endpoint fully config-driven — nothing product-specific is
+// baked into the binary; the local config chooses the roots.
+std::string resolve_target(const SplitUrl& s, const std::string& path) {
+    if (path.rfind("//", 0) == 0) return path.substr(1);  // origin-absolute
+    return s.prefix + path;
+}
+
 std::string replace_id(std::string tmpl, const std::string& id) {
     auto pos = tmpl.find("{id}");
     if (pos != std::string::npos) tmpl.replace(pos, 4, id);
@@ -612,7 +626,7 @@ Result<std::string> HttpClient::get(const std::string& path) {
             headers.emplace("Authorization", "Bearer " + cfg_.token);
         headers.emplace("Accept", "application/json");
 
-        auto res = cli.Get((s.prefix + path).c_str(), headers);
+        auto res = cli.Get(resolve_target(s, path).c_str(), headers);
         if (!res)
             return Result<std::string>::failure("request failed (no response)");
         if (res->status < 200 || res->status >= 300)
@@ -659,7 +673,7 @@ Result<std::string> HttpClient::post_json(const std::string& path,
             headers.emplace("Authorization", "Bearer " + cfg_.token);
         headers.emplace("Accept", "application/json");
 
-        auto res = cli.Post((s.prefix + path).c_str(), headers, body,
+        auto res = cli.Post(resolve_target(s, path).c_str(), headers, body,
                             "application/json");
         if (!res)
             return Result<std::string>::failure("request failed (no response)");
@@ -1053,7 +1067,7 @@ void HttpClient::send_message_streaming(const std::string& session_id,
         headers.emplace("Accept", "text/event-stream");
 
         auto res = cli.Post(
-            (s.prefix + path).c_str(), headers, bodyStr, "application/json",
+            resolve_target(s, path).c_str(), headers, bodyStr, "application/json",
             [&](const char* data, size_t len) -> bool {
                 bool d = parse_sse_chunk(std::string(data, len), cfg_, sink,
                                          carry, assembled);
@@ -1268,7 +1282,7 @@ class HttpEventSubscription : public EventSubscription {
                 headers.emplace("Accept", "text/event-stream");
 
                 auto res = cli.Get(
-                    (s.prefix + path).c_str(), headers,
+                    resolve_target(s, path).c_str(), headers,
                     [&](const char* data, size_t len) -> bool {
                         if (stop_.load()) return false;  // tear down.
                         parse_events_frame(std::string(data, len), cfg_, sink_,
