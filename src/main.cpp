@@ -197,7 +197,10 @@ static void setup_app_state() {
 
     // Layout singleton.
     auto& layoutEntity = EntityHelper::createEntity();
-    layoutEntity.addComponent<ecs::LayoutComponent>();
+    auto& layoutComp = layoutEntity.addComponent<ecs::LayoutComponent>();
+    // Restore the persisted sidebar fold state (survives relaunch — see
+    // Settings::get_sidebar_collapsed). The toggle writes it back on flip.
+    layoutComp.sidebarCollapsed = Settings::get().get_sidebar_collapsed();
 
     // Tab strip singleton.
     auto& stripEntity = EntityHelper::createEntity();

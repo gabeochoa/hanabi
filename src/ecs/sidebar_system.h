@@ -68,6 +68,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                        afterhours::graphics::is_key_down(347);
         if (cmdDown && afterhours::graphics::is_key_pressed(66)) {  // B
             layout->sidebarCollapsed = !layout->sidebarCollapsed;
+            Settings::get().set_sidebar_collapsed(layout->sidebarCollapsed);
         }
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
@@ -783,6 +784,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("sb_collapse"));
             if (collapseBtn) {
                 layout.sidebarCollapsed = !layout.sidebarCollapsed;
+                Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
             }
             return;
         }
@@ -793,6 +795,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_collapse"));
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
+            Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
         }
     }
 

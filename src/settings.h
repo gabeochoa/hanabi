@@ -38,6 +38,12 @@ struct Settings {
     const std::string& get_theme() const;
     void set_theme(const std::string& mode);
 
+    // Sidebar collapsed (thin icon rail) vs expanded (full 280px). Persisted so
+    // a user who folds the sidebar and quits gets it folded on relaunch (the
+    // toggle otherwise lived only in the in-memory LayoutComponent). Auto-persists.
+    bool get_sidebar_collapsed() const;
+    void set_sidebar_collapsed(bool collapsed);  // auto-persists
+
     // Disk-cache size cap in BYTES. 0 == Unlimited (no eviction). Default 1 GB.
     // The settings modal offers 100 MB / 1 GB / 10 GB / Unlimited; the disk
     // cache trims the oldest data to stay under this after a transcript save
@@ -65,6 +71,7 @@ struct Settings {
     std::vector<std::string> open_tabs_;
     std::string active_tab_;
     std::string theme_ = "dark";
+    bool sidebar_collapsed_ = false;
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;

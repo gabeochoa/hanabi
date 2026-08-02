@@ -38,6 +38,7 @@ bool Settings::load_save_file() {
         last_session_ = j.value("last_session", last_session_);
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
+        sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
         cache_cap_bytes_ =
             j.value("cache_cap_bytes", cache_cap_bytes_);
         open_tabs_.clear();
@@ -67,6 +68,7 @@ void Settings::write_save_file() {
     j["open_tabs"] = open_tabs_;
     j["active_tab"] = active_tab_;
     j["theme"] = theme_;
+    j["sidebar_collapsed"] = sidebar_collapsed_;
     j["cache_cap_bytes"] = cache_cap_bytes_;
     j["starred"] = starred_ids_;
     std::ofstream out(get_settings_path());
@@ -97,6 +99,13 @@ void Settings::set_theme(const std::string& mode) {
     theme_ = mode;
     // Persist immediately so a theme change survives relaunch without callers
     // having to remember to write_save_file() themselves.
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_sidebar_collapsed() const { return sidebar_collapsed_; }
+void Settings::set_sidebar_collapsed(bool collapsed) {
+    if (sidebar_collapsed_ == collapsed) return;  // no-op, no needless write
+    sidebar_collapsed_ = collapsed;
     if (auto_save_enabled) write_save_file();
 }
 
