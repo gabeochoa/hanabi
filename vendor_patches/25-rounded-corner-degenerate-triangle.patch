@@ -1,0 +1,50 @@
+From 205717ace5649636c8fe7191ed40eaa0b91c26ce Mon Sep 17 00:00:00 2001
+From: "Navi (for gabeochoa)" <gabeochoa@users.noreply.github.com>
+Date: Sun, 2 Aug 2026 11:31:03 -0400
+Subject: [PATCH] =?UTF-8?q?fix(sokol):=20draw=5Frectangle=5Frounded=20?=
+ =?UTF-8?q?=E2=80=94=20no=20degenerate=20triangle=20on=20sharp=20corners?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+emit_corner_arc's radius<=0 (sharp corner) branch emitted a 2-vertex sgl
+triangle (center + corner point, no third vertex) — a degenerate primitive that
+rendered as a diagonal slice on any MIXED round/sharp corner config (e.g. a
+rounded-top tab: top_round()). The four edge triangles + center fan already run
+to the exact corner point, so a square corner is fully tiled without the arc —
+the sharp branch must emit nothing. Fix: return early.
+
+Proven against hanabi (rounded-top tabs render clean, no notch).
+---
+ src/backends/sokol/drawing_helpers.h | 15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/src/backends/sokol/drawing_helpers.h b/src/backends/sokol/drawing_helpers.h
+index d08ef1e..2c63083 100644
+--- a/src/backends/sokol/drawing_helpers.h
++++ b/src/backends/sokol/drawing_helpers.h
+@@ -143,13 +143,14 @@ inline void draw_rectangle_rounded(
+   auto emit_corner_arc = [&](float cornerX, float cornerY, float radius,
+                              float startAngle) {
+     if (radius <= 0.0f) {
+-      // Sharp corner: just one triangle from center to corner point
+-      sgl_begin_triangles();
+-      metal_draw_detail::set_color(color);
+-      sgl_v2f(cx, cy);
+-      sgl_v2f(cornerX, cornerY);
+-      // We'll handle connectivity outside
+-      sgl_end();
++      // Sharp corner: emit NOTHING. The four edge triangles below already run
++      // to the exact corner point (e.g. the top + left edges both include
++      // (x,y) when rTL==0), so together with the center fan they fully tile a
++      // square corner. The previous code emitted a 2-vertex sgl triangle here
++      // (cx,cy + cornerX,cornerY and no third vertex) — a DEGENERATE primitive
++      // that rendered as a diagonal "triangle" slice on any MIXED round/sharp
++      // corner config (e.g. rounded-top tabs). Returning is correct + removes
++      // the glitch. (hanabi gap #25)
+       return;
+     }
+     for (int i = 0; i < segs; i++) {
+-- 
+2.50.1
+

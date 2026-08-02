@@ -413,9 +413,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.35f)
                     // Round ALL corners: afterhours' sokol renderer emits a
                     // degenerate triangle for MIXED round/sharp corners (gap
-                    // #25), which showed as a diagonal notch on the tab. All-
-                    // round avoids the buggy path; the bottom corners sit on the
-                    // strip/content bridge so their slight round is invisible.
+                    // #25). All-round avoids the buggy path; the bottom corners
+                    // sit on the strip/content bridge so their round is hidden.
+                    // NOTE: the vendor fix is PROVEN + captured in
+                    // vendor_patches/25-*.patch — once it lands in afterhours
+                    // remote + the submodule pointer is bumped, switch this to
+                    // RoundedCorners().all_sharp().top_round() for the true tab
+                    // shape (verified clean with the patch applied).
                     .with_rounded_corners(
                         afterhours::ui::imm::RoundedCorners().all_round().get())
                     .with_render_layer(baseLayer)

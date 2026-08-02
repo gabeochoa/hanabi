@@ -744,6 +744,13 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   widgets — round ALL FOUR corners (`all_round()`) with a small roundness so no
   radius is 0. The bottom corners sit against the content bridge, so a slight
   round there is imperceptible; the tab still reads as rounded-topped.
+- **PROVEN FIX (2026-08-02):** applied `return;` in the sharp-corner branch,
+  rebuilt, and confirmed hanabi tabs render clean rounded-top/square-bottom
+  (top_round()) with NO diagonal glitch. Captured as
+  vendor_patches/25-rounded-corner-degenerate-triangle.patch (+ submodule tag
+  hanabi-fix-gap25). Not yet on the afterhours remote / pointer not bumped
+  (needs the maintainer's push); hanabi keeps the all_round() workaround until
+  then.
 - **Minimal upstream fix (vendor, off-limits here):** in the sharp-corner branch
   of `emit_corner_arc`, don't emit a 2-vertex triangle — either skip the arc
   entirely (the straight edges already cover a square corner via the center
