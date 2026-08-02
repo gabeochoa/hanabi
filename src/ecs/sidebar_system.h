@@ -101,6 +101,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(scrollH)})
                 .with_custom_background(theme::sidebar_bg())
                 .with_debug_name("sidebar_scroll"));
+        // Match the OS "natural scrolling" setting (see util/scroll_prefs.h).
+        hanabi::apply_scroll_prefs(scroll.ent());
 
         // "FOLDERS" section label + fold-all control (mirrors the mock's
         // second section header, which carries a fold-all affordance).
