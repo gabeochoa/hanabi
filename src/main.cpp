@@ -12,6 +12,7 @@
 #include <afterhours/src/logging.h>
 
 #include "menubar.h"
+#include "native_extras.h"
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
@@ -304,15 +305,22 @@ static void app_frame() {
     static bool menubarInstalled = false;
     if (!menubarInstalled) {
         menubar_install();
+        // Phase G extras: register the global hotkey (Cmd+Shift+N) on the same
+        // windowed-only, install-once path. Idempotent; headless never reaches
+        // here so no global listener lingers after a --screenshot capture.
+        native_hotkey_install();
         menubarInstalled = true;
     }
 
     // Drain menu-bar action flags into ECS state (single-owner: only the frame
     // loop mutates AppComponent). Show brings the window front; New task opens
     // the composer (via requestNewTask, mirrored below into composerOpen).
+    // The global hotkey (Cmd+Shift+N) folds into the SAME activate+new-task
+    // path, so a press behaves exactly like the "New task" menu item.
     {
-        bool wantShow = menubar_take_show();
-        bool wantNewTask = menubar_take_new_task();
+        bool hotkey = native_hotkey_take_triggered();
+        bool wantShow = menubar_take_show() || hotkey;
+        bool wantNewTask = menubar_take_new_task() || hotkey;
         if (wantShow) metal_activate_app();
         if (wantNewTask) {
             auto q = afterhours::EntityQuery({.force_merge = true})
@@ -415,9 +423,52 @@ static void app_frame() {
             }
 
             int blocked = 0;
+            const api::SessionSummary* newlyBlocked = nullptr;
             for (const auto& s : app.sessions)
-                if (s.tag == api::ThreadTag::Blocked) ++blocked;
+                if (s.tag == api::ThreadTag::Blocked) {
+                    ++blocked;
+                    if (newlyBlocked == nullptr) newlyBlocked = &s;
+                }
             menubar_set_blocked(blocked);
+
+            // Phase G extra: post a native notification when the blocked-on-you
+            // count NEWLY INCREASES (a thread just started needing the user).
+            // Debounced: fires only on a strict increase vs the last observed
+            // count, and rate-limited to at most once per kNotifyMinGapSecs so
+            // a burst of updates can't spam. Windowed path only — app_frame is
+            // never reached by run_headless_screenshot, so a --screenshot run
+            // never posts a notification (and NSUserNotification never prompts
+            // regardless). First observation (lastBlocked < 0) primes the
+            // baseline WITHOUT notifying, so launching into an already-blocked
+            // state is silent.
+            static int lastBlockedNotified = -1;
+            static double lastNotifyAt = -1.0;
+            constexpr double kNotifyMinGapSecs = 30.0;
+            if (lastBlockedNotified < 0) {
+                lastBlockedNotified = blocked;  // prime; no notification
+            } else if (blocked > lastBlockedNotified) {
+                const double nowSec =
+                    static_cast<double>(now_epoch_seconds());
+                if (lastNotifyAt < 0.0 ||
+                    nowSec - lastNotifyAt >= kNotifyMinGapSecs) {
+                    char title[64];
+                    std::snprintf(title, sizeof(title),
+                                  blocked == 1 ? "%d thread needs you"
+                                               : "%d threads need you",
+                                  blocked);
+                    const char* body =
+                        (newlyBlocked && !newlyBlocked->title.empty())
+                            ? newlyBlocked->title.c_str()
+                            : "";
+                    native_notify(title, body);
+                    lastNotifyAt = nowSec;
+                }
+                lastBlockedNotified = blocked;
+            } else if (blocked < lastBlockedNotified) {
+                // Count dropped (user handled something) — track it so a later
+                // re-increase re-notifies, but don't notify on the decrease.
+                lastBlockedNotified = blocked;
+            }
         }
     }
 }
