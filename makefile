@@ -23,7 +23,8 @@ ifeq ($(UNAME_S),Darwin)
     CXX := $(CCACHE) clang++
     EXT := .exe
     FRAMEWORKS := -framework CoreFoundation -framework CoreServices \
-        -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore
+        -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore \
+        -framework Carbon
 else ifeq ($(OS),Windows_NT)
     CXX := g++
     EXT := .exe
