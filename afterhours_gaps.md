@@ -483,6 +483,11 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   transform on the display string only (api::Message untouched). A short inline
   code token could later be split into its own non-wrapping styled widget if it
   fits, but a general wrapping-with-inline-styling body needs vendor support.
+- **UPDATE (2026-08-02):** the FENCED code-block case (multi-line ```` ``` ````
+  blocks) is now handled app-side WITHOUT this gap — a fenced run doesn't need
+  inline-in-paragraph styling, it's its own block, so main_pane_system renders
+  each inner line as a full-width sunken monospace row (no wrap needed). Only the
+  INLINE-in-a-wrapping-paragraph `code`/`**bold**` case still waits on this gap.
 - **Minimal fix (owned elsewhere — vendor/afterhours):** teach the wrapping text
   renderer (`detail::wrap_text_to_width` + the draw loop) to carry per-run color
   through the wrap, so a `spans` label wraps AND colors. Then hanabi can render
