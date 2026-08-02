@@ -69,3 +69,27 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 
 ## MILESTONE: all 5 local-first ideas DONE (#1 read-state, #2 outbox, #3 local search, #4 export, #5 optimistic send) + WhatsApp-style local-vs-synced indicator.
 ## refactor quick-wins done: dead code (2329ca5), app_singleton cache (cdd116a).
+
+## SESSION-2 LEDGER (polish loop, all pushed to origin/main, each build 0 + test 8/8 + screenshot-verified)
+- 2e1c6aa V8: settings full-width segmented controls (edge-hug)
+- 9d3c056 local-first SyncState foundation
+- 916b5ed local-first sync-glyph render infra
+- 16c7dae local-first #2/#5: optimistic send + crash-safe outbox + visible sync suffix
+- c9b4348 gap #28 (nested bubble child + on_draw_fg on bg div don't render)
+- 685ffd6 live Home screenshot refresh
+- ddbaa26 local-first #1: 'refreshing…' read-state
+- cdd116a perf: app_singleton() cache (REFACTOR_REVIEW #3)
+- 2329ca5 refactor: dead estimate_height + tool_count removed (#2)
+- f0b599a local-first #4: owned Markdown export + Settings Data section
+- 389b4ac local-first #3: sidebar search matches cached content
+- 3b4c3de M7: single-source version (src/version.h) + Settings About line
+- aa3095a gap #29 (text_input no placeholder)
+- ca5ff14 docs: I1/T7 re-confirmed vendor-blocked (reprofiled 9.35ms/frame)
+- 2c51fc4 refactor 2b: drop unused colW param + dead truncated local
+- 85f1a57 refactor 1c: shared fmtutil::to_upper/to_lower
+
+## GENUINELY REMAINING (honest)
+- I2 split-view (snap tab L/R) — large feature, unstarted, best with Gabe's UX steering
+- REFACTOR_REVIEW 1b (relative-time 3-4 impls), 1a (measure↔render mirrors — HIGH risk, careful), 1e/1f/1g — real but lower-urgency
+- [B] I1/T7 perf, V3 tab corners, #6/#10 inline code pills — all vendor-blocked (afterhours patches ready in vendor_patches/ OR gap #27/#28)
+- API asks: API_ASKS_FOR_NAVI.md ready; need the thread that owns API PRs
