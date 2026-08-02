@@ -99,6 +99,7 @@ static void setup_app_state() {
 
     app.client = api::make_client(cfg);
     app.backend_label = app.client ? app.client->backend_label() : "none";
+    app.webBaseUrl = cfg.web_base_url;  // "Copy URL" base (host-neutral if empty)
     // Scope the on-disk cache to THIS backend (keyed by base_url) so two
     // different real servers never read each other's stale sessions. Mock never
     // caches (the loader gates writes on backend_label=="http"), so only the

@@ -29,8 +29,11 @@ static int g_failures = 0;
     } while (0)
 
 static bool has_company_name(const std::string& t) {
+    // Parent-company-identifying tokens that must never appear in content we
+    // ship. "buck" is a company build tool that has leaked into mock tool rows
+    // twice — keep it here so any recurrence fails a test, not a manual scan.
     for (const char* w : {"Meta", "Facebook", "navibot", "internalfb",
-                          "fbsource", "Instagram"})
+                          "fbsource", "Instagram", "buck test", "Phabricator"})
         if (t.find(w) != std::string::npos) return true;
     return false;
 }

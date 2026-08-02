@@ -49,6 +49,11 @@ struct Config {
     //                        reply (response carries the assistant message(s)).
     std::string base_url;
     std::string token;
+    // Web/session URL base for the "Copy URL" action (client-side only; never
+    // an API endpoint). Empty by default => a host-neutral navi://session/<id>
+    // scheme is used, so we hardcode no host anywhere. Set via config
+    // web_base_url / env HANABI_WEB_BASE_URL to point at a real web UI origin.
+    std::string web_base_url;
     std::string sessions_path = "/sessions";
     std::string messages_path = "/sessions/{id}/messages";
     std::string chat_path;  // empty = http send disabled (opt-in)
@@ -193,13 +198,13 @@ struct Config {
     // Read user/account settings from the backend so the app can verify it is
     // set up correctly. FULLY generic + config-driven exactly like every other
     // path: empty default => http settings-read disabled (get_settings() reports
-    // it's unsupported). On navibot.dev the reachable endpoint is GET /whoami,
+    // it's unsupported). On the real backend the reachable endpoint is GET /whoami,
     // which returns {userId, bankId, counts:{sessions, assets, schedules,
     // authoredSkills}}; the adapter maps those onto UserSettings via the
     // field_settings_* mapping below. A backend with a different shape just
     // overrides the field names — nothing about any endpoint is compiled in.
     //   HANABI_SETTINGS_PATH  default "/whoami" (probed live to be the real
-    //                         settings/identity endpoint on navibot.dev)
+    //                         settings/identity endpoint on the real backend)
     std::string settings_path = "/whoami";
     std::string field_settings_user_id = "userId";
     std::string field_settings_bank_id = "bankId";

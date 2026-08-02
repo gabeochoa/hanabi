@@ -552,7 +552,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             int action;  // 0 = copy url, 1 = close others
         };
         static const Item kItems[] = {
-            {"Copy Navi URL", 0},
+            {"Copy URL", 0},
             {"Close others", 1},
         };
         const int nItems = static_cast<int>(sizeof(kItems) / sizeof(kItems[0]));
@@ -606,10 +606,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             if (itemHovered && ctx.mouse.just_pressed) {
                 std::string keepId = tab.sessionId;
                 if (kItems[k].action == 0) {
-                    // Copy Navi URL — real clipboard write via the afterhours
-                    // sokol-backed clipboard seam.
+                    // Copy URL — real clipboard write via the afterhours
+                    // sokol-backed clipboard seam. Base is config-driven
+                    // (host-neutral navi://session/<id> when unconfigured).
                     afterhours::clipboard::set_text(
-                        model::navi_url_for(keepId));
+                        model::navi_url_for(app.webBaseUrl, keepId));
                 } else {
                     model::close_others(strip, app, keepId);
                 }

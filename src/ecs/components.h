@@ -41,6 +41,10 @@ enum class SmartView {
 struct AppComponent : public afterhours::BaseComponent {
     std::unique_ptr<api::Client> client;
     std::string backend_label;
+    // Web/session URL base for the "Copy URL" tab action (from config
+    // web_base_url / env HANABI_WEB_BASE_URL). Empty => host-neutral
+    // navi://session/<id>. Never used as an API endpoint.
+    std::string webBaseUrl;
 
     // Session list.
     std::vector<api::SessionSummary> sessions;

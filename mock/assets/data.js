@@ -33,7 +33,7 @@ const THREADS = {
         sub:"ready for review · 30m", msgs:[
     {role:"system", ts:"4h", text:"Task: implement in-app upgrade from Tier 1 → Tier 2 with proration."},
     {role:"assistant", ts:"1h", text:"Implemented the upgrade path with a proration line item on the receipt. Wrote 18 new tests."},
-    {role:"tool", ts:"35m", text:"buck test → 214 passed, 0 failed · lint clean · type check clean ✓"},
+    {role:"tool", ts:"35m", text:"make test → 214 passed, 0 failed · lint clean · type check clean ✓"},
     {role:"assistant", ts:"30m", text:"Deployed to staging. <b>Test link is ready</b> — subscribe at Tier 1, upgrade to Tier 2, and confirm the proration line."},
   ]},
   t5: { title:"Payout worker race fix", state:"ready", tag:"ready", folder:"oncall", star:true,

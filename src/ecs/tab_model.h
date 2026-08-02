@@ -236,11 +236,17 @@ inline void close_others(TabStripComponent& strip, AppComponent& app,
     switch_to_tab(app, *keep);
 }
 
-// The Navi web session URL for a thread — used by the tab context menu's
-// "Copy Navi URL" action. Kept here (pure, testable) so the exact URL shape is
-// asserted by a unit test rather than only formed inline at the call site.
-inline std::string navi_url_for(const std::string& sessionId) {
-    return "https://navibot.dev/" + sessionId;
+// The web session URL for a thread — used by the tab context menu's "Copy URL"
+// action. Kept here (pure, testable) so the exact URL shape is asserted by a
+// unit test rather than only formed inline at the call site. The base comes
+// from config (web_base_url / env HANABI_WEB_BASE_URL); when unset we emit a
+// host-neutral navi://session/<id> scheme so NO web host is hardcoded here.
+inline std::string navi_url_for(const std::string& webBase,
+                                const std::string& sessionId) {
+    if (webBase.empty()) return "navi://session/" + sessionId;
+    // Join without doubling a trailing slash.
+    if (!webBase.empty() && webBase.back() == '/') return webBase + sessionId;
+    return webBase + "/" + sessionId;
 }
 
 }  // namespace ecs::model

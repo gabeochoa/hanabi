@@ -572,13 +572,18 @@ static void test_tab_close_others() {
     CHECK(strip.tabOrder[0] == keptOpt->id);
 }
 
-// The Navi web URL shape the "Copy Navi URL" action copies.
+// The web URL shape the "Copy URL" action copies. Default is host-neutral
+// (no hardcoded web host); a configured web base is joined without doubling '/'.
 static void test_navi_url_shape() {
     std::printf("test_navi_url_shape\n");
-    CHECK(ecs::model::navi_url_for("t5") == "https://navibot.dev/t5");
-    CHECK(ecs::model::navi_url_for("abc-123") ==
-          "https://navibot.dev/abc-123");
-    CHECK(ecs::model::navi_url_for("") == "https://navibot.dev/");
+    // Unconfigured => host-neutral scheme, no company/host baked in.
+    CHECK(ecs::model::navi_url_for("", "t5") == "navi://session/t5");
+    CHECK(ecs::model::navi_url_for("", "") == "navi://session/");
+    // Configured base (any origin the operator sets) is joined cleanly.
+    CHECK(ecs::model::navi_url_for("https://example.test", "t5") ==
+          "https://example.test/t5");
+    CHECK(ecs::model::navi_url_for("https://example.test/", "abc-123") ==
+          "https://example.test/abc-123");
 }
 
 // ---------------------------------------------------------------------------

@@ -644,7 +644,7 @@ Result<Session> HttpClient::get_session(const std::string& id) {
 }
 
 // Read user settings/config (feature #4). GET the configured settings_path and
-// map the response onto UserSettings. On navibot.dev this is GET /whoami ->
+// map the response onto UserSettings. On the real backend this is GET /whoami ->
 // {userId, bankId, counts:{sessions, assets, schedules, authoredSkills}}. Fully
 // config-driven: a different backend just overrides the field_settings_* names.
 Result<UserSettings> HttpClient::get_settings() {

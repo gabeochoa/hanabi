@@ -138,7 +138,7 @@ struct Session {
 // fields are backend-agnostic and OPTIONAL: an adapter fills whatever the
 // configured endpoint reports and leaves the rest at defaults. `ok`
 // distinguishes "fetched real settings" from a default-constructed value. On
-// navibot.dev the real endpoint is GET /whoami — {userId, bankId, counts:
+// the real backend the endpoint is GET /whoami — {userId, bankId, counts:
 // {sessions, assets, schedules, authoredSkills}} — which maps onto these
 // fields; a backend with a different shape just populates a different subset.
 struct UserSettings {
