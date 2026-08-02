@@ -517,6 +517,21 @@ class MockClient : public Client {
                  "1, upgrade to Tier 2, and confirm the proration line.",
                  hrs_ago(0) - 1800, ""},
             };
+            // Give the single tool call captured output so it's expandable
+            // (click to reveal) in the transcript — mirrors a real tool_result.
+            for (auto& mm : s.messages) {
+                if (mm.id == "m3") {
+                    mm.tool_result =
+                        "Running 214 tests across 18 suites\xe2\x80\xa6\n"
+                        "  subscriptions/upgrade ... ok (26 tests)\n"
+                        "  billing/proration ...... ok (18 tests)\n"
+                        "  receipts/lineitems ..... ok (12 tests)\n"
+                        "214 passed, 0 failed in 26.0s\n"
+                        "lint: clean  \xc2\xb7  typecheck: clean";
+                    mm.tool_status = "completed";
+                    mm.tool_duration_ms = 26000;
+                }
+            }
             v.push_back(std::move(s));
         }
         {

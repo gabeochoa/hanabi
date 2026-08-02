@@ -1388,7 +1388,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     Item it;
                     it.kind = Item::ToolBlock;
                     it.lo = i;
-                    it.height = tool_block_height();
+                    it.height = tool_block_height(app, msgs[i]);
                     totalH += it.height;
                     items.push_back(it);
                     ++i;
@@ -1452,10 +1452,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // pinned), while streaming here, OR when the user was already at bottom.
         const bool pinBottom = wantOpenBottom || streamingHere || atBottom;
         if (pinBottom) scrollY = totalH;
-        // Build half a viewport of margin above + below the visible window so a
-        // fast flick never reveals a blank gap, but we don't over-build.
-        const float kMargin = viewH * 0.5f;        const float visTop = scrollY - kMargin;
-        const float visBot = scrollY + viewH + kMargin;
+        // Build a virtualization window around the visible viewport. A fast
+        // fling moves scroll_offset by MANY px between frames, and we read LAST
+        // frame's offset here — so a fixed small margin (old: 0.5*viewH) let a
+        // fast scroll outrun the built window and reveal blank gaps until the
+        // user stopped. Fix: (a) a generous base margin, and (b) a
+        // velocity-aware extension in the direction of travel, computed from
+        // the per-frame scroll delta, so the window always covers where the
+        // content will be next frame. Tracked per-session so switching tabs
+        // doesn't inherit a stale velocity.
+        static std::string s_velId;
+        static float s_lastScrollY = 0.0f;
+        float vel = 0.0f;
+        if (s_velId == curId) vel = scrollY - s_lastScrollY;  // px/frame
+        s_velId = curId;
+        s_lastScrollY = scrollY;
+        // Base margin ~1 viewport each side (covers normal wheel steps), plus
+        // an extension of several frames of the current velocity in the travel
+        // direction (clamped so a huge jump doesn't build the whole doc).
+        const float kBaseMargin = viewH * 1.0f;
+        const float kMaxExtend = viewH * 4.0f;
+        const float extendDown = std::clamp(vel * 6.0f, 0.0f, kMaxExtend);
+        const float extendUp = std::clamp(-vel * 6.0f, 0.0f, kMaxExtend);
+        const float visTop = scrollY - kBaseMargin - extendUp;
+        const float visBot = scrollY + viewH + kBaseMargin + extendDown;
 
         // ---- Pass 2: emit spacers + only the visible items. ----------------
         float y = subH;
@@ -2504,7 +2524,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kToolRowGap = 4.0f;
     static constexpr float kSubRowH = 22.0f;
 
-    float tool_block_height() { return kToolRowGap + kToolRowH + kToolRowGap; }
+    // A single tool block is expandable IF it has captured output (tool_result)
+    // to show. Keyed in expandedPiles by the message id (shared with piles).
+    static bool tool_block_expandable(const api::Message& m) {
+        return !m.tool_result.empty();
+    }
+    // Max output lines shown when a single tool block is expanded (keeps a huge
+    // dump from dominating the pane; the row stays a peek, not the full log).
+    static constexpr int kToolOutLines = 8;
+    // Height of the expanded output panel for a single tool block (0 if not
+    // expanded / no output). Mirrors render_tool_block's expanded panel exactly.
+    float tool_out_height(AppComponent& app, const api::Message& m) {
+        if (!tool_block_expandable(m)) return 0.0f;
+        AppComponent* a = &app;
+        const std::string key = m.id.empty() ? "" : m.id;
+        const bool open = a && !key.empty() && a->expandedPiles.count(key) != 0;
+        if (!open) return 0.0f;
+        // Count newline-split lines in the result, capped.
+        int lines = 1;
+        for (char c : m.tool_result)
+            if (c == '\n') ++lines;
+        if (lines > kToolOutLines) lines = kToolOutLines;
+        return static_cast<float>(lines) * kLinePitch + 12.0f;  // + panel pad
+    }
+    float tool_block_height(AppComponent& app, const api::Message& m) {
+        return kToolRowGap + kToolRowH + kToolRowGap + tool_out_height(app, m);
+    }
     float tool_pile_height(AppComponent& app,
                            const std::vector<api::Message>& msgs, int lo,
                            int hi) {
@@ -2618,10 +2663,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     draw_wrench(rr, theme::role_tool());
                 })
                 .with_debug_name("tool_icon"));
+        // Right-align the meta cluster (count/dur/check) to the row's right
+        // edge. afterhours has no flex-grow (gap #18), so we compute the meta
+        // cluster's ACTUAL width from what will be shown and size the command
+        // column to fill the rest — otherwise a fixed 168px reserve left the
+        // numbers floating mid-row (worst for a single tool call, which has no
+        // count badge). Leading = chevron(12) + icon(16) + icon margin(6).
+        const float kLeadW = 12.0f + 16.0f + 6.0f;
+        float metaW = 14.0f;                         // check always
+        if (!dur.empty()) metaW += 44.0f + 8.0f;     // duration + its margin
+        if (showCount) metaW += 34.0f + 8.0f;        // count badge + its margin
+        float cmdW = rowW - kLeadW - metaW - 8.0f;   // 8 = row right padding
+        if (cmdW < 60.0f) cmdW = 60.0f;
         div(ctx, mk(head.ent(), 3),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(command, 64))
-                .with_size(ComponentSize{pixels(rowW - 168.0f), pixels(18)})
+                .with_label(fmtutil::ellipsize(command, 96))
+                .with_size(ComponentSize{pixels(cmdW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font("mono", theme::type::MD)
@@ -2764,9 +2821,71 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            int index, const api::Message& m, float paneWidth) {
         float rowW = paneWidth - 4.0f;
         if (rowW < 160.0f) rowW = 160.0f;
-        tool_row(ctx, parent, 200 + index * 10, rowW, false, false,
-                 tool_command(m), 1, tool_duration(m),
-                 /*showCount=*/false, /*failed=*/tool_failed(m));
+        AppComponent* app = app_singleton();
+        const std::string key = m.id.empty() ? "" : m.id;
+        const bool expandable = tool_block_expandable(m);
+        const bool open =
+            expandable && app && !key.empty() && app->expandedPiles.count(key);
+        // A single tool call is now clickable to reveal its captured output
+        // (tool_result), exactly like a pile expands to its sub-rows. The
+        // chevron shows only when there's something to expand.
+        Entity& head = tool_row(ctx, parent, 200 + index * 10, rowW,
+                                /*expandable=*/expandable, open,
+                                tool_command(m), 1, tool_duration(m),
+                                /*showCount=*/false, /*failed=*/tool_failed(m));
+        if (expandable && app && !key.empty()) {
+            head.addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            if (head.get<afterhours::ui::HasClickListener>().down) {
+                if (open) app->expandedPiles.erase(key);
+                else app->expandedPiles.insert(key);
+            }
+        }
+        if (open) {
+            // Expanded output: a sunken monospace panel showing the first
+            // kToolOutLines of the tool's captured result (a peek, not the full
+            // log). Height mirrors tool_out_height().
+            std::string out = m.tool_result;
+            // Keep only the first kToolOutLines lines.
+            int nl = 0;
+            size_t cut = std::string::npos;
+            for (size_t p = 0; p < out.size(); ++p) {
+                if (out[p] == '\n' && ++nl >= kToolOutLines) {
+                    cut = p;
+                    break;
+                }
+            }
+            bool truncated = false;
+            if (cut != std::string::npos) {
+                out = out.substr(0, cut);
+                truncated = true;
+            }
+            auto panel = div(ctx, mk(parent, 200 + index * 10 + 5),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(rowW),
+                                             pixels(tool_out_height(*app, m))})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_custom_background(theme::window_bg())
+                    .with_padding(Padding{.top = pixels(6), .right = pixels(10),
+                                          .bottom = pixels(6),
+                                          .left = pixels(12)})
+                    .with_margin(Margin{.bottom = pixels(kToolRowGap)})
+                    .with_roundness(0.3f)
+                    .with_debug_name("tool_out"));
+            div(ctx, mk(panel.ent(), 1),
+                ComponentConfig{}
+                    .with_label(out.empty() ? " " : out)
+                    .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font("mono", theme::type::SM)
+                    .with_text_overflow(TextOverflow::Wrap)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("tool_out_txt"));
+            (void)truncated;
+        }
     }
 
 };
