@@ -1018,12 +1018,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // icon lands on the SAME right edge as the thread-row counts
                 // (and clears the temp scroll bar, which sits ~8px in).
                 .with_justify_content(JustifyContent::SpaceBetween)
-                // Smaller right inset than the row counts (kCountRightPad) so
-                // the wider fold-all button sits closer to the panel edge —
-                // its 28px box already gives the icon breathing room, so the
-                // glyph still clears the temp scrollbar.
+                // Right inset clears the temporary scroll indicator (which sits
+                // ~8px in from the panel's right edge) so the fold-all glyph is
+                // never clipped by / overlapping the scrollbar corner.
                 .with_padding(Padding{.top = pixels(6),
-                                      .right = pixels(4),
+                                      .right = pixels(12),
                                       .bottom = pixels(4), .left = pixels(14)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -1059,14 +1058,48 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto foldBtn = button(ctx, mk(head.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(28), pixels(20)})
+                .with_size(ComponentSize{pixels(24), pixels(20)})
                 .with_custom_background(theme::sidebar_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.35f)
-                .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "fold_all", "\xe2\x87\x85", foldTint, 15.0f, -1.0f))
+                // Crisp custom double-chevron (the Lucide chevrons-down-up
+                // sprite rasterized poorly at ~15px and read as a broken glyph).
+                // Two chevrons meeting in the middle = the standard "collapse
+                // all" affordance: top points UP, bottom points DOWN when
+                // folders are expanded (i.e. "click to collapse"); it flips to
+                // point apart when everything is already folded.
+                .with_on_draw_fg([foldTint, allFolded = app.foldAllFolders]
+                                 (RectangleType r) {
+                    // Two stacked solid triangles (draw_triangle — crisp, no
+                    // rounded-cap blobbing like draw_line_ex gave at this size).
+                    const float cx = r.x + r.width * 0.5f;
+                    const float cy = r.y + r.height * 0.5f;
+                    const float s = 3.4f;   // triangle half-width
+                    const float hh = 3.0f;  // triangle half-height
+                    const float off = 3.4f; // vertical offset of each triangle
+                    using afterhours::vec2;
+                    if (!allFolded) {
+                        // Expanded -> "collapse": top triangle points UP,
+                        // bottom points DOWN (apexes away from center).
+                        float ty = cy - off;
+                        afterhours::draw_triangle(vec2{cx - s, ty + hh},
+                            vec2{cx + s, ty + hh}, vec2{cx, ty - hh}, foldTint);
+                        float by = cy + off;
+                        afterhours::draw_triangle(vec2{cx - s, by - hh},
+                            vec2{cx + s, by - hh}, vec2{cx, by + hh}, foldTint);
+                    } else {
+                        // All folded -> "expand": top points DOWN, bottom UP
+                        // (apexes toward center).
+                        float ty = cy - off;
+                        afterhours::draw_triangle(vec2{cx - s, ty - hh},
+                            vec2{cx + s, ty - hh}, vec2{cx, ty + hh}, foldTint);
+                        float by = cy + off;
+                        afterhours::draw_triangle(vec2{cx - s, by + hh},
+                            vec2{cx + s, by + hh}, vec2{cx, by - hh}, foldTint);
+                    }
+                })
                 .with_debug_name("sb_fold_all"));
         if (foldBtn) {
             app.foldAllFolders = !app.foldAllFolders;
