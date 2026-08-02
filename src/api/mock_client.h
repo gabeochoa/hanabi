@@ -1122,6 +1122,76 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // PERF FIXTURE: a deliberately LONG transcript for frame-time
+        // measurement + virtualization testing. Only seeded when
+        // HANABI_BIG_TRANSCRIPT is set (a headless perf run), so it never
+        // pollutes the normal mock list. ~120 messages: alternating user /
+        // long-assistant prose, interleaved tool runs (which pile), plus
+        // sub-agents — the exact shape that made the per-frame rebuild ~15-20ms.
+        if (const char* big = std::getenv("HANABI_BIG_TRANSCRIPT");
+            big && *big && std::string(big) != "0") {
+            Session s;
+            s.summary = calm("rbig", "PERF: long transcript for frame timing",
+                             days_ago(1), "active", ThreadState::Unknown,
+                             "120-message perf fixture");
+            const int64_t base = days_ago(1) - 200000;
+            for (int k = 0; k < 40; ++k) {
+                Message u;
+                u.id = "b_u" + std::to_string(k);
+                u.role = Role::User;
+                u.text = "Follow-up question #" + std::to_string(k) +
+                         ": can you dig into the " +
+                         (k % 2 ? "latency" : "memory") +
+                         " regression and report what you find?";
+                u.created_at = base + k * 4000;
+                s.messages.push_back(std::move(u));
+
+                Message a;
+                a.id = "b_a" + std::to_string(k);
+                a.role = Role::Assistant;
+                a.text =
+                    "Here's the breakdown for step " + std::to_string(k) +
+                    ":\n\n"
+                    "1. Pulled the trace and diffed it against the baseline.\n"
+                    "2. The hot path is `handle_request` calling into "
+                    "`parser_cache.entries` on every event.\n"
+                    "3. Under load that's ~40k calls/sec, each allocating.\n"
+                    "4. The fix caps the cache and hashes the key.\n\n"
+                    "Ruled out:\n"
+                    "- connection pool (steady)\n"
+                    "- metrics buffer (flat)\n\n"
+                    "Applying the LRU cap now and adding a regression test so "
+                    "this stays bounded going forward. Expected steady-state "
+                    "drop is significant.";
+                a.created_at = base + k * 4000 + 1000;
+                s.messages.push_back(std::move(a));
+
+                Message t1;
+                t1.id = "b_t" + std::to_string(k) + "a";
+                t1.role = Role::Tool;
+                t1.subtitle = "shell";
+                t1.text = "grep -rn \"parser_cache\" src/ \xe2\x86\x92 " +
+                          std::to_string(3 + k % 9) + " hits";
+                t1.created_at = base + k * 4000 + 1500;
+                s.messages.push_back(std::move(t1));
+
+                Message t2;
+                t2.id = "b_t" + std::to_string(k) + "b";
+                t2.role = Role::Tool;
+                t2.subtitle = "sql";
+                t2.text = "SELECT count(*) FROM cache_entries \xe2\x86\x92 " +
+                          std::to_string(40000 + k * 137);
+                t2.created_at = base + k * 4000 + 2000;
+                s.messages.push_back(std::move(t2));
+            }
+            s.sub_agents = {
+                {"bs1", "Heap analysis", SubAgentState::Done, "leak found"},
+                {"bs2", "Regression test", SubAgentState::Running, "writing"},
+                {"bs3", "Shadow rollout", SubAgentState::Blocked, "needs flag"},
+            };
+            v.push_back(std::move(s));
+        }
+
         return v;
     }
 };

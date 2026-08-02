@@ -1,10 +1,12 @@
 #include <argh.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
 #include <memory>
+#include <vector>
 #include <unistd.h>
 
 #include <afterhours/src/logging.h>
@@ -447,6 +449,38 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
         }
 
+        // Perf/screenshot affordance: HANABI_OPEN=<id> opens a specific thread
+        // in the headless capture (used to open the long perf fixture "rbig"
+        // or the rich mock "r9"). Sets requestOpenTab so the loader fetches +
+        // opens it; a few pump frames below let it land before capture/timing.
+        if (const char* oid = std::getenv("HANABI_OPEN"); oid && *oid) {
+            appForWait->requestOpenTab = oid;
+            appForWait->view = ecs::SmartView::Chat;
+            for (int p = 0; p < 6; ++p) {
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
+        }
+
+        // Perf/screenshot affordance: HANABI_EXPAND=1 pre-expands every tool
+        // pile + the sub-agent rollup in the open thread so a headless capture
+        // can photograph the EXPANDED nested sub-rows / chips. Uses the same
+        // expandedPiles state the click path toggles; render-only.
+        if (const char* ex = std::getenv("HANABI_EXPAND"); ex && *ex &&
+            std::string(ex) != "0") {
+            appForWait->expandedPiles.insert("__subagents__");
+            if (appForWait->openSession) {
+                const auto& ms = appForWait->openSession->messages;
+                for (size_t k = 0; k < ms.size(); ++k)
+                    if (ms[k].role == api::Role::Tool)
+                        appForWait->expandedPiles.insert(
+                            ms[k].id.empty() ? ("pile" + std::to_string(k))
+                                             : ms[k].id);
+            }
+        }
+
         // Screenshot affordance: HANABI_VIEW=blocked|review|starred|home forces
         // the landing smart-view so a headless capture can photograph any view
         // (including an empty one) without a click. Set AFTER the wait loop so a
@@ -512,6 +546,38 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                      app.sessions.size(), (int)app.listState);
         }
     }
+
+    // Perf affordance: HANABI_FRAME_TIMING=<N> runs N extra frames after warmup
+    // and reports the per-frame sm.run() cost (min / median / mean / max) so we
+    // can measure the transcript rebuild cost that drives choppy scroll. This
+    // is the headline number for the perf work. No capture side effects.
+    if (const char* ft = std::getenv("HANABI_FRAME_TIMING"); ft && *ft) {
+        int iters = std::atoi(ft);
+        if (iters < 10) iters = 60;
+        std::vector<double> ms;
+        ms.reserve(iters);
+        for (int i = 0; i < iters; ++i) {
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            auto a = std::chrono::high_resolution_clock::now();
+            sm.run(1.0f / 60.0f);
+            auto b = std::chrono::high_resolution_clock::now();
+            graphics::end_frame();
+            ms.push_back(
+                std::chrono::duration<double, std::milli>(b - a).count());
+        }
+        std::sort(ms.begin(), ms.end());
+        double sum = 0;
+        for (double v : ms) sum += v;
+        double mean = sum / ms.size();
+        double median = ms[ms.size() / 2];
+        log_info(
+            "FrameTiming: frames={} min={:.2f}ms median={:.2f}ms "
+            "mean={:.2f}ms max={:.2f}ms",
+            ms.size(), ms.front(), median, mean, ms.back());
+        fflush(stdout);
+    }
+
     bool ok = graphics::capture_frame(path);
     graphics::shutdown();
     if (!ok) {
