@@ -11,14 +11,19 @@
 //     mode ("backend: mock") in normal use — a shipped app shouldn't expose
 //     its transport as chrome. The backend label is only appended when the
 //     HANABI_DEBUG env var is set (dev affordance, invisible to real users).
-//   * RIGHT cluster — the session count, right-aligned with a matching gutter.
+//   * RIGHT cluster — the session count, right-aligned with a matching gutter,
+//     prefixed by a small "activity light" dot. That dot behaves like a
+//     hard-drive activity LED: it glows green ONLY while we are actively
+//     fetching data over the network (a session-list / transcript / send /
+//     stream / live refetch is in flight) and sits dim/gray when idle. It
+//     replaces the old free-standing "● live" text label — the green light IS
+//     the live indicator now, fused with the session count.
 //
 // Both clusters use symmetric vertical padding so the renderer centers their
 // text within the ~26px bar, a consistent ~12px left/right gutter, and legible
 // theme tokens (contrast >= 4.5:1 in BOTH modes on sidebar_bg). A hairline top
 // border separates the bar from the content above it.
 
-#include <chrono>
 #include <cstdlib>
 #include <string>
 
@@ -123,9 +128,31 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(5)
                 .with_debug_name("status_left"));
 
-        // --- right cluster: session count -----------------------------------
+        // --- right cluster: activity light + session count ------------------
+        // The dot is a hard-drive-style activity LED: green while ANY network
+        // fetch is in flight (list / transcript / load-older / send / stream /
+        // live refetch, incl. background per-tab live subscription refetches),
+        // dim otherwise. HANABI_LIVE_DEMO=1 forces it lit for screenshots.
+        // Disk-cache reads are deliberately NOT counted — this signals NETWORK
+        // activity only, matching Gabe's "fetching data from the network" ask.
+        const bool liveDemo = [] {
+            const char* v = std::getenv("HANABI_LIVE_DEMO");
+            return v && *v && std::string(v) != "0";
+        }();
+        bool bgLiveRefetch = false;
+        for (const auto& kv : app->liveSubs)
+            if (kv.second.pending) { bgLiveRefetch = true; break; }
+        const bool fetching =
+            liveDemo || app->listPending || app->transcriptPending ||
+            app->loadingOlder || app->livePending || app->sendPending ||
+            app->streamCollecting || app->kickoffPending ||
+            app->settingsPending || app->authBeginPending || bgLiveRefetch;
+        const auto activityColor =
+            fetching ? theme::status_active() : theme::text_faint();
+
         std::string right = std::to_string(app->sessions.size()) + " sessions";
         const float rw = r.width * 0.4f;
+        // Session count text, right-aligned within the right cluster.
         div(ctx, mk(uiRoot, 3002),
             ComponentConfig{}
                 .with_label(right)
@@ -142,62 +169,27 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(5)
                 .with_debug_name("status_right"));
 
-        // --- live (SSE) indicator: a "● live" cluster left of the session
-        // count, shown only when a real live subscription is bound to the OPEN
-        // thread (mock/unconfigured http never subscribe, so this stays hidden
-        // there). The dot brightens for ~1.5s after each live event so activity
-        // is visible, then settles to a calm steady "connected" tone.
-        // HANABI_LIVE_DEMO=1 forces it on (with a fresh flash) for screenshots.
-        const bool liveDemo = [] {
-            const char* v = std::getenv("HANABI_LIVE_DEMO");
-            return v && *v && std::string(v) != "0";
-        }();
-        const bool liveConnected = liveDemo || app->openThreadLive;
-        if (liveConnected) {
-            const long long nowMs =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch())
-                    .count();
-            const long long last =
-                liveDemo ? nowMs : app->lastEventMs.load();
-            const bool fresh = last > 0 && (nowMs - last) < 1500;
-            const auto liveColor =
-                fresh ? theme::status_active() : theme::text_faint();
-
-            // "live" label sits just left of the session count; the dot sits
-            // left of the label. Reserve a small fixed cluster width.
-            constexpr float kLiveW = 34.0f;   // "live" text
-            constexpr float kLiveDot = 6.0f;
-            const float liveTextRight = r.x + r.width - rw;  // = session cluster left
-            const float liveTextX = liveTextRight - kLiveW - kGutter;
-            const float liveDotX = liveTextX - kLiveDot - 5.0f;
-            const float liveDotY = r.y + (r.height - kLiveDot) * 0.5f;
-            div(ctx, mk(uiRoot, 3007),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(kLiveDot), pixels(kLiveDot)})
-                    .with_absolute_position()
-                    .with_translate(liveDotX, liveDotY)
-                    .with_custom_background(liveColor)
-                    .with_roundness(1.0f)
-                    .with_render_layer(5)
-                    .with_debug_name("status_live_dot"));
-            div(ctx, mk(uiRoot, 3008),
-                ComponentConfig{}
-                    .with_label("live")
-                    .with_size(ComponentSize{pixels(kLiveW), pixels(r.height)})
-                    .with_absolute_position()
-                    .with_translate(liveTextX, r.y)
-                    .with_padding(Padding{.top = pixels(vpad), .right = pixels(0),
-                                          .bottom = pixels(vpad),
-                                          .left = pixels(0)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(liveColor)
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_render_layer(5)
-                    .with_debug_name("status_live_label"));
-        }
+        // Activity light: a small dot just left of the session-count text,
+        // vertically centered. Approximate the text width so the dot hugs the
+        // left edge of "N sessions" instead of floating in the empty gutter.
+        constexpr float kActDot = 6.0f;
+        constexpr float kActGap = 6.0f;   // dot -> text spacing
+        // ~7px per glyph at MD is a stable estimate for this short label; the
+        // text is right-aligned against (r.x + r.width - kGutter), so its left
+        // edge is that minus the estimated text width.
+        const float rightTextW = static_cast<float>(right.size()) * 7.0f;
+        const float rightTextLeft = r.x + r.width - kGutter - rightTextW;
+        const float actDotX = rightTextLeft - kActGap - kActDot;
+        const float actDotY = r.y + (r.height - kActDot) * 0.5f;
+        div(ctx, mk(uiRoot, 3007),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kActDot), pixels(kActDot)})
+                .with_absolute_position()
+                .with_translate(actDotX, actDotY)
+                .with_custom_background(activityColor)
+                .with_roundness(1.0f)
+                .with_render_layer(5)
+                .with_debug_name("status_activity_dot"));
     }
 };
 
