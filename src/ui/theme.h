@@ -168,8 +168,15 @@ inline const Tokens kLight = {
 
     /*text_primary*/ {33, 33, 43, 255},
     /*text_secondary*/ {85, 85, 95, 255},
-    /*text_faint*/ {134, 134, 143, 255},
-    /*empty_state_text*/ {122, 122, 134, 255},
+    // text_faint renders on BOTH the white pane and the recessed card fill
+    // (panel_bg_2 = 242). The old {134,134,143} was 3.6:1 on white and only
+    // 3.2:1 on the card — below the 4.5:1 small-text bar (defect: faint text
+    // fails contrast on light). {110,110,122} lifts it to 5.0:1 (white) /
+    // 4.5:1 (card) while staying clearly lighter than text_secondary (7.4:1).
+    /*text_faint*/ {110, 110, 122, 255},
+    // empty-state copy is large & centered but was 4.2:1 on white; nudged to
+    // 4.9:1 so it clears 4.5:1 without going as dark as body text.
+    /*empty_state_text*/ {112, 112, 124, 255},
 
     /*accent*/ {46, 90, 236, 255},
     /*accent_soft*/ {46, 90, 236, 34},
@@ -206,7 +213,7 @@ inline const Tokens kLight = {
     /*tag_done_bg*/ {96, 104, 124, 120},
 
     /*role_user*/ {46, 90, 236, 255},
-    /*role_assistant*/ {40, 138, 72, 255},
+    /*role_assistant*/ {34, 124, 62, 255},
     /*role_system*/ {150, 112, 30, 255},
     /*role_tool*/ {114, 84, 184, 255},
     // User bubble = a MUTED NEUTRAL grey on light (transcript-only) — quiet,
@@ -215,9 +222,9 @@ inline const Tokens kLight = {
     /*bubble_assistant_bg*/ {224, 242, 230, 255},
     /*bubble_other_bg*/ {238, 238, 244, 255},
 
-    /*status_active*/ {40, 138, 72, 255},
+    /*status_active*/ {34, 124, 62, 255},
     /*status_idle*/ {150, 112, 30, 255},
-    /*status_archived*/ {134, 134, 146, 255},
+    /*status_archived*/ {110, 110, 122, 255},
 };
 
 // Active token set (mutable, swapped at runtime). Defaults to dark.
