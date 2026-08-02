@@ -233,6 +233,11 @@ struct Config {
     //                            Set this to point auth at a different origin.
     std::string auth_device_path = "/api/cli/auth/code";  // navi-CLI default
     std::string auth_token_path = "/api/cli/auth/poll";   // navi-CLI default
+    // Refresh path (POST {refreshToken:<tok>} -> {token:<new bearer>,
+    // refreshToken?:<rotated>}). The token is a ~30-day TTL; refresh() lets the
+    // app renew it without re-running the whole device-code flow. Empty = off.
+    //   HANABI_AUTH_REFRESH_PATH  (default /api/cli/auth/refresh)
+    std::string auth_refresh_path = "/api/cli/auth/refresh";
     std::string auth_base_url;     // empty => derive origin from base_url
     std::string auth_client_type = "cli";  // sent as clientType in the body
 
@@ -254,6 +259,9 @@ struct Config {
     std::string field_auth_url = "authUrl";
     std::string field_auth_status = "status";
     std::string field_token = "token";
+    // Refresh-token field: read from the authorize/refresh response AND sent as
+    // the body key on a refresh POST. (Both use the same key by convention.)
+    std::string field_refresh_token = "refreshToken";
     // The status VALUES the poll response reports (all overridable).
     std::string auth_status_pending = "pending";
     std::string auth_status_authorized = "authorized";

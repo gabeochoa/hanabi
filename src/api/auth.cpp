@@ -155,6 +155,9 @@ DeviceCodeFlow::State DeviceCodeFlow::poll_step(int64_t now) {
             return state_;
         }
         token_ = tok;
+        // Capture the refresh token if the backend returned one (optional) so
+        // refresh() can renew the ~30-day bearer without re-running the flow.
+        refresh_token_ = as_string(j, cfg_.field_refresh_token);
         state_ = State::Success;
         error_.clear();
         return state_;
@@ -169,6 +172,35 @@ DeviceCodeFlow::State DeviceCodeFlow::poll_step(int64_t now) {
     error_ = status.empty() ? "authorization failed"
                             : ("authorization " + status);
     return state_;
+}
+
+// Renew the bearer using the stored refresh token (POST auth_refresh_path with
+// {field_refresh_token: <refresh_token_>}). Best-effort: on success updates
+// token_ (and rotates refresh_token_ if the response carries a new one) and
+// returns true; on any failure returns false and leaves state untouched so the
+// caller can fall back to re-running the device-code flow. Does NOT change the
+// flow State (refresh is orthogonal to the login state machine).
+bool DeviceCodeFlow::refresh(int64_t /*now*/) {
+    if (cfg_.auth_refresh_path.empty() || refresh_token_.empty()) return false;
+    json body;
+    body[cfg_.field_refresh_token] = refresh_token_;
+    AuthResponse res =
+        transport_("POST", cfg_.auth_refresh_path, "", body.dump());
+    if (!res.ok) return false;
+    if (res.status != 0 && (res.status < 200 || res.status >= 300)) return false;
+    json j;
+    try {
+        j = json::parse(res.body);
+    } catch (...) {
+        return false;
+    }
+    const std::string tok = as_string(j, cfg_.field_token);
+    if (tok.empty()) return false;
+    token_ = tok;
+    // Rotate the refresh token if the backend issued a new one.
+    const std::string rt = as_string(j, cfg_.field_refresh_token);
+    if (!rt.empty()) refresh_token_ = rt;
+    return true;
 }
 
 }  // namespace api

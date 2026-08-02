@@ -104,6 +104,7 @@ void load_config_file(Config& c) {
     // auth OFF.
     str("auth_device_path", c.auth_device_path);
     str("auth_token_path", c.auth_token_path);
+    str("auth_refresh_path", c.auth_refresh_path);
     str("auth_base_url", c.auth_base_url);
     str("auth_client_type", c.auth_client_type);
     str("field_device_code", c.field_device_code);
@@ -113,6 +114,7 @@ void load_config_file(Config& c) {
     str("field_auth_url", c.field_auth_url);
     str("field_auth_status", c.field_auth_status);
     str("field_token", c.field_token);
+    str("field_refresh_token", c.field_refresh_token);
     str("auth_status_pending", c.auth_status_pending);
     str("auth_status_authorized", c.auth_status_authorized);
     auto num = [&](const char* key, int64_t& dst) {
@@ -214,6 +216,8 @@ Config Config::from_env() {
     c.auth_device_path =
         env_or("HANABI_AUTH_DEVICE_PATH", c.auth_device_path);
     c.auth_token_path = env_or("HANABI_AUTH_TOKEN_PATH", c.auth_token_path);
+    c.auth_refresh_path =
+        env_or("HANABI_AUTH_REFRESH_PATH", c.auth_refresh_path);
     c.auth_base_url = env_or("HANABI_AUTH_BASE_URL", c.auth_base_url);
     c.auth_client_type =
         env_or("HANABI_AUTH_CLIENT_TYPE", c.auth_client_type);
@@ -228,6 +232,8 @@ Config Config::from_env() {
     c.field_auth_status =
         env_or("HANABI_FIELD_AUTH_STATUS", c.field_auth_status);
     c.field_token = env_or("HANABI_FIELD_TOKEN", c.field_token);
+    c.field_refresh_token =
+        env_or("HANABI_FIELD_REFRESH_TOKEN", c.field_refresh_token);
     c.auth_status_pending =
         env_or("HANABI_AUTH_STATUS_PENDING", c.auth_status_pending);
     c.auth_status_authorized =

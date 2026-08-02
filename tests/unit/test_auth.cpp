@@ -272,6 +272,63 @@ static void test_authorized_missing_token() {
     CHECK(flow.poll_step(1002) == State::Failed);
 }
 
+static void test_refresh_renews_token() {
+    std::printf("test_refresh_renews_token\n");
+    api::Config c = auth_cfg();
+    int refresh_calls = 0;
+    std::string sent_body;
+    api::AuthTransport fake = [&](const std::string& method,
+                                  const std::string& path,
+                                  const std::string&,
+                                  const std::string& body) {
+        api::AuthResponse r;
+        r.ok = true;
+        r.status = 200;
+        if (method == "POST" && path == c.auth_device_path) {
+            r.body = "{\"userCode\":\"RFRSH1\",\"authUrl\":\"http://x/y\"}";
+            return r;
+        }
+        if (method == "GET" && path == c.auth_token_path) {
+            // Authorize with BOTH a token and a refresh token.
+            r.body = "{\"status\":\"authorized\",\"token\":\"tok-1\","
+                     "\"refreshToken\":\"rt-1\"}";
+            return r;
+        }
+        if (method == "POST" && path == c.auth_refresh_path) {
+            ++refresh_calls;
+            sent_body = body;
+            // Return a new bearer + a rotated refresh token.
+            r.body = "{\"token\":\"tok-2\",\"refreshToken\":\"rt-2\"}";
+            return r;
+        }
+        r.ok = false;
+        return r;
+    };
+    api::DeviceCodeFlow flow(c, fake);
+    CHECK(flow.begin(1000) == State::AwaitingUser);
+    CHECK(flow.poll_step(1002) == State::Success);
+    CHECK(flow.token() == "tok-1");
+    CHECK(flow.refresh_token() == "rt-1");
+    // Refresh: renews the bearer + rotates the refresh token, body carries rt-1.
+    CHECK(flow.refresh(2000) == true);
+    CHECK(refresh_calls == 1);
+    CHECK(sent_body.find("rt-1") != std::string::npos);
+    CHECK(flow.token() == "tok-2");
+    CHECK(flow.refresh_token() == "rt-2");
+}
+
+static void test_refresh_without_token_is_noop() {
+    std::printf("test_refresh_without_token_is_noop\n");
+    api::Config c = auth_cfg();
+    api::AuthTransport fake = [&](const std::string&, const std::string&,
+                                  const std::string&, const std::string&) {
+        api::AuthResponse r; r.ok = false; return r;
+    };
+    api::DeviceCodeFlow flow(c, fake);
+    // No refresh token captured yet -> refresh() is a no-op false, no transport.
+    CHECK(flow.refresh(1000) == false);
+}
+
 int main() {
     std::printf("=== test_auth ===\n");
     test_full_flow_success();
@@ -282,6 +339,8 @@ int main() {
     test_not_configured();
     test_uuid_generation();
     test_authorized_missing_token();
+    test_refresh_renews_token();
+    test_refresh_without_token_is_noop();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

@@ -71,6 +71,11 @@ class DeviceCodeFlow {
     // the state is AwaitingUser/Polling. Returns the current state.
     State poll_step(int64_t now);
 
+    // Renew the bearer via the stored refresh token (no device-code flow).
+    // Returns true + updates token() on success; false on any failure (caller
+    // should then re-run begin()). Orthogonal to the flow State.
+    bool refresh(int64_t now);
+
     State current_state() const { return state_; }
     const std::string& user_code() const { return user_code_; }
     // The URL the user opens to approve (authUrl). Named verification_uri for
