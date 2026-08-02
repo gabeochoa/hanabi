@@ -248,3 +248,15 @@ Re-verified post-merge: many-tabs strip clean (headline defect fixed), light the
 ## PHASE G — menu-bar NSStatusItem already shipped. Native extras dispatched (agent e70ea435, wt/phase-g):
    global hotkey (Cmd+Shift+N), native notifications on blocked-count increase, Spotlight (best-effort;
    likely needs .app bundle — honest verdict expected). Follows the extern "C" + poll-take-flag seam.
+
+## PHASE G — COMPLETE (merge fa56957). Native extras shipped:
+   - Global hotkey Cmd+Shift+N (Carbon RegisterEventHotKey, no Accessibility perm) -> activate + new task.
+   - Native notification on blocked-count INCREASE (NSUserNotification — no bundle/perm; UN needs .app),
+     debounced <=1/30s, primes silently, body=newly-blocked thread title. Guarded to windowed path.
+   - Spotlight: SEAM-ONLY no-op — CSSearchableIndex needs a .app bundle + LaunchServices reg (bare
+     output/hanabi.exe has no bundle id). Honest verdict + feasibility note in native_extras.mm. A .app
+     bundle would unlock BOTH Spotlight AND UN notifications — logged as the next native step.
+   New: src/native_extras.{h,mm}; makefile +Carbon. Headless --screenshot verified: no hotkey/notif side
+   effects. Gates: DEV+TLS 0/0, test 8/8, perf 155ms PASS.
+## NATIVE FOLLOW-UP (parked, needs decision): package hanabi as a .app bundle (Info.plist + bundle id +
+   LaunchServices) -> unlocks Spotlight indexing + modern UNUserNotificationCenter. Bigger packaging task.
