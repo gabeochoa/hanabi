@@ -446,14 +446,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static Entity& centered_wrap(UIContext<InputAction>& ctx, Entity& scroll,
                                  int id, float innerW,
-                                 float cap = kWrapCap) {
+                                 float cap = kWrapCap, bool center = false) {
         float wrapW = innerW < cap ? innerW : cap;
         auto row = div(ctx, mk(scroll, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(JustifyContent::FlexStart)
+                .with_justify_content(center ? JustifyContent::Center
+                                             : JustifyContent::FlexStart)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sv_center"));
@@ -1544,10 +1545,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // scrollbar/edge. A high cap keeps it sane on an ultrawide window; pass
         // it through centered_wrap so the transcript ISN'T re-clamped to the
         // narrower shared reading cap (Home/digest still use the 900 default).
-        constexpr float kMsgCol = 1400.0f;
+        // Modern-chat reading column: cap the transcript at a comfortable
+        // measure and CENTER it in the pane (ChatGPT/Claude/Gemini all do this)
+        // instead of letting messages hug the left edge of a wide window with
+        // dead space on the right. ~720px keeps assistant prose at a readable
+        // ~90-char measure; on a narrow pane it falls back to the full width.
+        constexpr float kMsgCol = 720.0f;
         float innerW = paneW - 36.0f;
         float colW = innerW < kMsgCol ? innerW : kMsgCol;
-        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, kMsgCol);
+        Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, kMsgCol,
+                                    /*center=*/true);
 
         render_cache().reset_for_thread(app.openSession->summary.id);
 
