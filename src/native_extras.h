@@ -8,10 +8,15 @@
 //
 // Three features live here:
 //
-//   1. Global hotkey. A system-wide chord that raises hanabi (and starts a
-//      new task) from ANY app, even when hanabi is not focused. Registered via
-//      Carbon RegisterEventHotKey — still the standard, and it works from a
-//      plain (non-bundled) app. See the CHOSEN CHORD note below.
+//   1. Focus-gated hotkey. A chord (Cmd+Shift+N) that raises hanabi (and starts
+//      a new task) — registered via Carbon RegisterEventHotKey ONLY while
+//      hanabi is the frontmost app. Because RegisterEventHotKey consumes a
+//      chord system-wide for the process lifetime, and Cmd+Shift+N is also
+//      Chrome's "New Incognito Window", a permanent global registration would
+//      steal it from every other app. So native_extras.mm observes
+//      NSApplication become/resign-active and registers the hotkey on focus,
+//      unregisters on blur — the chord works in hanabi and passes through to
+//      whatever app is focused otherwise. See the CHOSEN CHORD note below.
 //
 //   2. Native notification. Posts a macOS notification when the "blocked on
 //      you" count newly increases, so the user is told a thread needs them

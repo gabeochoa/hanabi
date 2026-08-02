@@ -26,12 +26,31 @@
 // events, and it works from a bare executable. It is "legacy" Carbon but not
 // deprecated for this use, and there is no modern Cocoa replacement that gives
 // a system-wide hotkey without extra entitlements — so it remains the right
-// tool here. We register a single hotkey and install one process-lifetime
-// application event handler that flips an atomic the frame loop drains.
+// tool here. We install one process-lifetime application event handler that
+// flips an atomic the frame loop drains.
+//
+// FOCUS GATING (bug fix — user reported the chord blocking Chrome):
+//   Cmd+Shift+N is Chrome's "New Incognito Window". A Carbon RegisterEventHotKey
+//   registration is SYSTEM-WIDE and CONSUMES the chord even when hanabi is not
+//   frontmost — so while it was registered for the whole process lifetime, it
+//   silently ate Cmd+Shift+N in Chrome (and every other app). Merely ignoring
+//   the press inside the handler does NOT help: the event is already swallowed
+//   before it reaches the frontmost app.
+//
+//   The only real fix is to REGISTER the Carbon hotkey ONLY while hanabi is the
+//   active (frontmost) app, and UNREGISTER it the moment hanabi resigns active.
+//   We do that by observing NSApplication's didBecomeActive / willResignActive
+//   notifications (see HotkeyFocusObserver below). Result:
+//     - hanabi focused  -> hotkey registered -> Cmd+Shift+N summons/new-task.
+//     - hanabi NOT focused -> hotkey unregistered -> Chrome (and everything
+//       else) receives Cmd+Shift+N normally.
+//   This trades away "summon from any app" for not stealing a common chord
+//   system-wide, which is the user's stated intent ("only when focused").
 
 static std::atomic<bool> g_hotkey_triggered{false};
-static EventHotKeyRef g_hotkey_ref = nullptr;   // non-null once registered
-static bool g_hotkey_installed = false;
+static EventHotKeyRef g_hotkey_ref = nullptr;   // non-null while registered
+static bool g_handler_installed = false;        // Carbon event handler once
+static bool g_focus_observed = false;           // NSApp notifications hooked
 
 // Our hotkey's identity, matched in the handler.
 static const OSType kHotkeySig = 'hnbi';        // 4-char creator-style tag
@@ -53,25 +72,10 @@ static OSStatus hotkey_handler(EventHandlerCallRef nextHandler,
     return noErr;
 }
 
-void native_hotkey_install(void) {
-    // Idempotent: only register once.
-    if (g_hotkey_installed) return;
-    // NSApp must exist for the event target to be live; guard defensively so a
-    // mis-timed call is a harmless no-op and the caller can retry next frame.
-    if (NSApp == nil) return;
-
-    EventTypeSpec evtSpec;
-    evtSpec.eventClass = kEventClassKeyboard;
-    evtSpec.eventKind = kEventHotKeyPressed;
-
-    // Install the application-level handler (once).
-    OSStatus st = InstallApplicationEventHandler(&hotkey_handler, 1, &evtSpec,
-                                                 nullptr, nullptr);
-    if (st != noErr) {
-        NSLog(@"native_extras: InstallApplicationEventHandler failed (%d)",
-              (int)st);
-        return;
-    }
+// Register the Carbon hotkey iff not already registered. Called when hanabi
+// becomes active. Runs on the main thread (notification + first-frame path).
+static void hotkey_register(void) {
+    if (g_hotkey_ref != nullptr) return;   // already registered
 
     EventHotKeyID hkId;
     hkId.signature = kHotkeySig;
@@ -79,8 +83,9 @@ void native_hotkey_install(void) {
 
     // Cmd+Shift+N. kVK_ANSI_N is the physical N key; cmdKey|shiftKey are the
     // Carbon modifier masks.
-    st = RegisterEventHotKey(kVK_ANSI_N, cmdKey | shiftKey, hkId,
-                             GetApplicationEventTarget(), 0, &g_hotkey_ref);
+    OSStatus st = RegisterEventHotKey(kVK_ANSI_N, cmdKey | shiftKey, hkId,
+                                      GetApplicationEventTarget(), 0,
+                                      &g_hotkey_ref);
     if (st != noErr) {
         // A collision with another app's global hotkey lands here. Log and
         // carry on — the app is fully usable without the chord.
@@ -90,9 +95,90 @@ void native_hotkey_install(void) {
         g_hotkey_ref = nullptr;
         return;
     }
+    NSLog(@"native_extras: global hotkey Cmd+Shift+N registered (hanabi active)");
+}
 
-    g_hotkey_installed = true;
-    NSLog(@"native_extras: global hotkey Cmd+Shift+N installed");
+// Unregister the Carbon hotkey iff registered. Called when hanabi resigns
+// active, so the chord flows through to whatever app is now frontmost.
+static void hotkey_unregister(void) {
+    if (g_hotkey_ref == nullptr) return;   // nothing registered
+    OSStatus st = UnregisterEventHotKey(g_hotkey_ref);
+    if (st != noErr) {
+        NSLog(@"native_extras: UnregisterEventHotKey failed (%d)", (int)st);
+    }
+    g_hotkey_ref = nullptr;
+    // Clear any press that arrived right at the focus boundary so a stale
+    // trigger doesn't fire after we've decided hanabi isn't focused.
+    g_hotkey_triggered.store(false);
+    NSLog(@"native_extras: global hotkey Cmd+Shift+N unregistered (hanabi "
+          @"resigned active) — passes through to other apps");
+}
+
+// Observer that toggles the Carbon hotkey registration with hanabi's active
+// state. Lives for the process lifetime (never released after install).
+@interface HotkeyFocusObserver : NSObject
+@end
+
+@implementation HotkeyFocusObserver
+- (void)appDidBecomeActive:(NSNotification*)note {
+    (void)note;
+    hotkey_register();
+}
+- (void)appWillResignActive:(NSNotification*)note {
+    (void)note;
+    hotkey_unregister();
+}
+@end
+
+static HotkeyFocusObserver* g_focus_observer = nil;
+
+void native_hotkey_install(void) {
+    // NSApp must exist for the event target + notifications to be live; guard
+    // defensively so a mis-timed call is a harmless no-op and the caller can
+    // retry next frame.
+    if (NSApp == nil) return;
+
+    // Install the application-level Carbon handler exactly once (it stays for
+    // the process lifetime; registration/unregistration of the hotkey itself
+    // is what toggles with focus).
+    if (!g_handler_installed) {
+        EventTypeSpec evtSpec;
+        evtSpec.eventClass = kEventClassKeyboard;
+        evtSpec.eventKind = kEventHotKeyPressed;
+        OSStatus st = InstallApplicationEventHandler(&hotkey_handler, 1,
+                                                     &evtSpec, nullptr, nullptr);
+        if (st != noErr) {
+            NSLog(@"native_extras: InstallApplicationEventHandler failed (%d)",
+                  (int)st);
+            return;
+        }
+        g_handler_installed = true;
+    }
+
+    // Hook NSApplication active/resign notifications exactly once so the
+    // hotkey is only registered while hanabi is frontmost.
+    if (!g_focus_observed) {
+        g_focus_observer = [[HotkeyFocusObserver alloc] init];
+        NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
+        [nc addObserver:g_focus_observer
+               selector:@selector(appDidBecomeActive:)
+                   name:NSApplicationDidBecomeActiveNotification
+                 object:nil];
+        [nc addObserver:g_focus_observer
+               selector:@selector(appWillResignActive:)
+                   name:NSApplicationWillResignActiveNotification
+                 object:nil];
+        g_focus_observed = true;
+        NSLog(@"native_extras: hotkey focus-gating installed (Cmd+Shift+N "
+              @"active only while hanabi is frontmost)");
+    }
+
+    // Seed the initial state from whether hanabi is CURRENTLY active. On the
+    // first windowed frame the app is normally frontmost, so this registers
+    // immediately; if it isn't, didBecomeActive will register on next focus.
+    if ([NSApp isActive]) {
+        hotkey_register();
+    }
 }
 
 bool native_hotkey_take_triggered(void) {
