@@ -47,8 +47,20 @@ class HttpClient : public Client {
     Result<Message> send_message(const std::string& session_id,
                                  const std::string& prompt) override;
 
+    // Steer: POST the prompt to the configured STEER path WITH the session id
+    // (body { field_session_id, field_prompt }, reusing the send mapping), to
+    // interrupt / redirect a currently-running agent. Requires cfg.steer_ready()
+    // — reports a clean failure otherwise. Routes through post_json, so the
+    // origin-absolute "//path" convention (resolve_target) applies. The reply
+    // is parsed exactly like send_message's (single object / array / wrapped).
+    Result<Message> steer(const std::string& session_id,
+                          const std::string& prompt) override;
+
     // The http backend can send only when a chat path is configured.
     bool supports_send() const override { return cfg_.send_ready(); }
+
+    // The http backend can STEER only when a steer path is configured.
+    bool supports_steer() const override { return cfg_.steer_ready(); }
 
     // The http backend can STREAM only when a stream path is configured.
     bool supports_stream() const override { return cfg_.stream_ready(); }

@@ -847,8 +847,57 @@ Result<Session> HttpClient::get_session(const std::string& id, int limit) {
 // adapter simplification for this phase. SSE streaming of the live reply stays
 // a separate deferred item; the seam (send_message returning a Message) is
 // unchanged when it lands — only the transport underneath swaps.
-Result<std::string> HttpClient::create_session(const std::string& prompt) {
-    if (!cfg_.send_ready())
+// Parse a reply/steer response body into the assistant Message it carries.
+// Shared by send_message and steer (both POST a {session_id, prompt} body and
+// read back the assistant turn the same way). The reply may be: a single
+// message object (optionally nested under "message"); a bare array of messages;
+// or an object wrapping an array under field_messages. In every case return the
+// LAST message that reads as the assistant's reply, matching the "return the
+// assistant Message" contract. Config-mapped field names — nothing baked in.
+static Result<Message> parse_reply_body(const std::string& raw,
+                                        const Config& cfg) {
+    try {
+        json j = json::parse(raw);
+        const json* arr = nullptr;
+        if (j.is_array()) {
+            arr = &j;
+        } else if (j.is_object() && j.contains(cfg.field_messages) &&
+                   j.at(cfg.field_messages).is_array()) {
+            arr = &j.at(cfg.field_messages);
+        }
+        if (arr) {
+            if (arr->empty())
+                return Result<Message>::failure("reply response was empty");
+            const json* pick = nullptr;
+            for (const auto& e : *arr) {
+                if (!e.is_object()) continue;
+                if (as_string(e, cfg.field_role) == "assistant") pick = &e;
+            }
+            if (!pick) pick = &arr->back();
+            Message m = parse_message(*pick, cfg);
+            m.created_at = as_epoch_seconds(*pick, cfg.field_created_at);
+            return Result<Message>::success(std::move(m));
+        }
+        if (j.is_object()) {
+            const json& obj =
+                (j.contains("message") && j.at("message").is_object())
+                    ? j.at("message")
+                    : j;
+            Message m = parse_message(obj, cfg);
+            m.created_at = as_epoch_seconds(obj, cfg.field_created_at);
+            if (m.text.empty() && m.id.empty())
+                return Result<Message>::failure(
+                    "reply response missing message fields");
+            return Result<Message>::success(std::move(m));
+        }
+        return Result<Message>::failure("unexpected reply response shape");
+    } catch (const std::exception& ex) {
+        return Result<Message>::failure(std::string("json parse error: ") +
+                                        ex.what());
+    }
+}
+
+Result<std::string> HttpClient::create_session(const std::string& prompt) {    if (!cfg_.send_ready())
         return Result<std::string>::failure(
             "http backend not configured for sending (set HANABI_CHAT_PATH)");
 
@@ -889,52 +938,28 @@ Result<Message> HttpClient::send_message(const std::string& session_id,
     auto raw = post_json(cfg_.chat_path, body.dump());
     if (!raw.ok) return Result<Message>::failure(raw.error);
 
-    try {
-        json j = json::parse(raw.value);
-        // The reply may be: a single message object; an array of messages; or
-        // an object wrapping an array under field_messages. In every case we
-        // return the LAST message that reads as the assistant's reply (the new
-        // turn), matching send_message's "return the assistant Message"
-        // contract. The loader is free to append it to the open transcript.
-        const json* arr = nullptr;
-        if (j.is_array()) {
-            arr = &j;
-        } else if (j.is_object() && j.contains(cfg_.field_messages) &&
-                   j.at(cfg_.field_messages).is_array()) {
-            arr = &j.at(cfg_.field_messages);
-        }
-        if (arr) {
-            if (arr->empty())
-                return Result<Message>::failure("reply response was empty");
-            // Prefer the last assistant message; fall back to the last message.
-            const json* pick = nullptr;
-            for (const auto& e : *arr) {
-                if (!e.is_object()) continue;
-                if (as_string(e, cfg_.field_role) == "assistant") pick = &e;
-            }
-            if (!pick) pick = &arr->back();
-            Message m = parse_message(*pick, cfg_);
-            m.created_at = as_epoch_seconds(*pick, cfg_.field_created_at);
-            return Result<Message>::success(std::move(m));
-        }
-        if (j.is_object()) {
-            // Single message object (possibly nested under "message").
-            const json& obj =
-                (j.contains("message") && j.at("message").is_object())
-                    ? j.at("message")
-                    : j;
-            Message m = parse_message(obj, cfg_);
-            m.created_at = as_epoch_seconds(obj, cfg_.field_created_at);
-            if (m.text.empty() && m.id.empty())
-                return Result<Message>::failure(
-                    "reply response missing message fields");
-            return Result<Message>::success(std::move(m));
-        }
-        return Result<Message>::failure("unexpected reply response shape");
-    } catch (const std::exception& ex) {
-        return Result<Message>::failure(std::string("json parse error: ") +
-                                        ex.what());
-    }
+    return parse_reply_body(raw.value, cfg_);
+}
+
+// Steer a currently-running agent. POSTs the SAME {session_id, prompt} body as
+// send_message, but to the SEPARATE steer_path (routed through post_json, so
+// the origin-absolute "//path" convention applies). The reply is parsed with
+// the shared parse_reply_body. Requires cfg.steer_ready(); reports a clean
+// failure otherwise so an unconfigured http backend never silently no-ops.
+Result<Message> HttpClient::steer(const std::string& session_id,
+                                  const std::string& prompt) {
+    if (!cfg_.steer_ready())
+        return Result<Message>::failure(
+            "http backend not configured for steering (set HANABI_STEER_PATH)");
+
+    // Body reuses the send mapping: { <field_session_id>: id, <field_prompt>: p }.
+    json body;
+    body[cfg_.field_session_id] = session_id;
+    body[cfg_.field_prompt] = prompt;
+    auto raw = post_json(cfg_.steer_path, body.dump());
+    if (!raw.ok) return Result<Message>::failure(raw.error);
+
+    return parse_reply_body(raw.value, cfg_);
 }
 
 // --- SSE streaming (Phase STREAM) -------------------------------------------

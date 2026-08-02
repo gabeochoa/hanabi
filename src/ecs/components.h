@@ -225,6 +225,28 @@ struct AppComponent : public afterhours::BaseComponent {
     std::future<api::Result<std::string>> kickoffFuture;
     bool kickoffPending = false;
 
+    // ==== Agent steering (Phase STEER) ====================================
+    // When a message is sent into the OPEN thread while that thread's agent is
+    // CURRENTLY RUNNING, it should STEER (interrupt/redirect) the in-flight
+    // turn instead of starting a fresh one. This is the single decision point
+    // the loader (and the composer's Send-vs-Steer relabel) reads: true iff
+    //   (a) the backend can steer (client->supports_steer()), AND
+    //   (b) the open thread's state is Running.
+    // When false the loader takes the normal send/stream path (no behavior
+    // change). Kept as a method (not a stored flag) so it always reflects the
+    // live client + open-session state with no staleness.
+    bool should_steer_open() const {
+        if (!client || !client->supports_steer()) return false;
+        if (!openSession) return false;
+        return openSession->summary.state == api::ThreadState::Running;
+    }
+
+    // Steer async state (steer() into selectedId). Parallels the reply
+    // (send_message) path: one future + a pending flag + the target id.
+    std::future<api::Result<api::Message>> steerFuture;
+    bool steerPending = false;
+    std::string steerSessionId;  // which session the in-flight steer targets
+
     // Reply async state (send_message into selectedId).
     std::future<api::Result<api::Message>> sendFuture;
     bool sendPending = false;
@@ -346,6 +368,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // streamActive), all scoped to the matching session id.
     bool sending_for(const std::string& id) const {
         if (sendPending && sendSessionId == id) return true;
+        if (steerPending && steerSessionId == id) return true;
         if (streamCollecting && streamPendingSession == id) return true;
         if (streamActive && streamSessionId == id) return true;
         return false;

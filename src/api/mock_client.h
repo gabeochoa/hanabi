@@ -116,6 +116,10 @@ class MockClient : public Client {
     // fully functional against it.
     bool supports_send() const override { return true; }
 
+    // The mock supports steering unconditionally (offline demo) so the
+    // steer-vs-send decision in the loader can be exercised without a network.
+    bool supports_steer() const override { return true; }
+
     // The mock reads settings offline (feature #4): a deterministic canned
     // UserSettings so the app can exercise "verify setup" with zero config and
     // no network. Mirrors the real /whoami shape the http adapter maps.
@@ -262,6 +266,45 @@ class MockClient : public Client {
         target->summary.preview = one_line(reply.text);
 
         return Result<Message>::success(reply);
+    }
+
+    // Steer a "running" agent offline. The mock has no real running turn, so it
+    // simply appends the user's steering message + a short "(steering) <msg>"
+    // acknowledgement and returns the ack — enough for the loader's steer-vs-
+    // send routing to be demonstrated with zero network. Deterministic, no
+    // company/product names. Mirrors send_message's mutation + preview refresh.
+    Result<Message> steer(const std::string& session_id,
+                          const std::string& prompt) override {
+        Session* target = find_mutable(session_id);
+        if (!target)
+            return Result<Message>::failure("no such session: " + session_id);
+
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int turn = static_cast<int>(target->messages.size());
+
+        // 1) the user's steering message.
+        Message user;
+        user.id = session_id + "-su" + std::to_string(turn + 1);
+        user.role = Role::User;
+        user.text = prompt;
+        user.created_at = now;
+        target->messages.push_back(user);
+
+        // 2) a small steering acknowledgement (distinct from a normal reply so
+        //    the offline demo reads as an interrupt/redirect, not a fresh turn).
+        Message ack;
+        ack.id = session_id + "-sa" + std::to_string(turn + 2);
+        ack.role = Role::Assistant;
+        ack.text = "(steering) " + (prompt.empty() ? std::string("acknowledged")
+                                                    : prompt);
+        ack.created_at = now + 1;
+        target->messages.push_back(ack);
+
+        // 3) reflect the new activity in the summary (sidebar preview + sort).
+        target->summary.updated_at = now + 1;
+        target->summary.preview = one_line(ack.text);
+
+        return Result<Message>::success(ack);
     }
 
   private:

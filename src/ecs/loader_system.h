@@ -5,6 +5,7 @@
 // writing results back into AppComponent. Keeps the UI thread responsive.
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <future>
 
@@ -301,6 +302,79 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (app.transcriptLoadingId == app.transcriptPendingId &&
                         !app.diskReadPending)
                         app.transcriptLoadingId.clear();
+                }
+            }
+        }
+
+        // --- STEER (send into a RUNNING thread interrupts the in-flight
+        //     turn instead of starting a fresh one) ---
+        //
+        // DECISION POINT: the composer sets requestSendPrompt (synchronous
+        // backends) or requestStreamPrompt (streaming backends, incl. the mock)
+        // for the OPEN thread exactly as for a normal reply. If that open
+        // thread's agent is CURRENTLY RUNNING and the backend can steer
+        // (app.should_steer_open()), we CONSUME that flag HERE and dispatch
+        // client->steer() on a worker thread — BEFORE the normal reply/stream
+        // paths below/downstream get a chance to service it. When the thread is
+        // idle (or steering is unsupported), this block is inert and the flags
+        // fall through to the existing send/stream plumbing unchanged.
+        //
+        // We only steer the OPEN thread (steer targets a specific session and
+        // reuses the open transcript for the appended turn). A steer already in
+        // flight for this session holds off a second dispatch (steerPending).
+        if (app.should_steer_open() && !app.steerPending &&
+            !app.selectedId.empty() && app.openSession &&
+            app.openSession->summary.id == app.selectedId &&
+            (!app.requestSendPrompt.empty() ||
+             !app.requestStreamPrompt.empty())) {
+            std::string prompt = !app.requestStreamPrompt.empty()
+                                     ? app.requestStreamPrompt
+                                     : app.requestSendPrompt;
+            // Consume BOTH so the downstream send/stream paths don't also fire.
+            app.requestStreamPrompt.clear();
+            app.requestSendPrompt.clear();
+            std::string id = app.selectedId;
+            app.steerPending = true;
+            app.steerSessionId = id;
+            app.sendingPrompt = prompt;  // reuse the "…" in-flight hint
+            api::Client* c = app.client.get();
+            // Opt-in debug trace (HANABI_DUMP), mirroring http_client.cpp's
+            // gated fprintf — proves the steer-vs-send routing fired without
+            // spamming a normal run.
+            if (std::getenv("HANABI_DUMP"))
+                fprintf(stderr,
+                        "[HANABI_DUMP] steer: routing into RUNNING session %s "
+                        "(state==Running, supports_steer)\n",
+                        id.c_str());
+            app.steerFuture = std::async(std::launch::async, [c, id, prompt] {
+                return c->steer(id, prompt);
+            });
+        }
+        if (app.steerPending && app.steerFuture.valid()) {
+            if (app.steerFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+                auto r = app.steerFuture.get();
+                app.steerPending = false;
+                std::string userText = app.sendingPrompt;
+                app.sendingPrompt.clear();
+                if (r.ok) {
+                    // Append the user's steering message + the returned reply to
+                    // the open transcript, mirroring the reply path so the
+                    // transcript reads as a full turn, then refresh the cache.
+                    if (app.openSession &&
+                        app.openSession->summary.id == app.steerSessionId) {
+                        api::Message um;
+                        um.role = api::Role::User;
+                        um.id = app.steerSessionId + "-u" +
+                                std::to_string(app.openSession->messages.size());
+                        um.text = userText;
+                        um.created_at = r.value.created_at;
+                        app.openSession->messages.push_back(std::move(um));
+                        app.openSession->messages.push_back(r.value);
+                        app.transcriptCache.put(*app.openSession);
+                    }
+                } else {
+                    app.transcriptError = r.error;
                 }
             }
         }

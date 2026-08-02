@@ -65,6 +65,10 @@ void load_config_file(Config& c) {
     str("sessions_path", c.sessions_path);
     str("messages_path", c.messages_path);
     str("chat_path", c.chat_path);
+    // Agent steering (Phase STEER). Optional; empty steer_path keeps http
+    // steering OFF (the app always sends normally). Origin-absolute "//path"
+    // is honored (skips the base prefix) exactly like chat_path.
+    str("steer_path", c.steer_path);
     str("field_id", c.field_id);
     str("field_title", c.field_title);
     str("field_updated_at", c.field_updated_at);
@@ -148,6 +152,12 @@ Config Config::from_env() {
     // Chat/send path (Phase SEND). Empty by default => http send is opt-in and
     // an unconfigured http backend honestly reports it can't reply.
     c.chat_path = env_or("HANABI_CHAT_PATH", c.chat_path);
+
+    // Steer path (Phase STEER). Empty by default => http steering is opt-in;
+    // when set (e.g. "//api/…"), a send into a Running thread interrupts the
+    // in-flight turn instead of starting a fresh one. Nothing endpoint-specific
+    // is baked in — the local config chooses the path.
+    c.steer_path = env_or("HANABI_STEER_PATH", c.steer_path);
 
     // Field-name overrides let the generic adapter match different response
     // shapes without recompiling.

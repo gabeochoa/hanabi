@@ -58,6 +58,19 @@ struct Config {
     std::string messages_path = "/sessions/{id}/messages";
     std::string chat_path;  // empty = http send disabled (opt-in)
 
+    // --- Agent steering (Phase STEER) -------------------------------------
+    // When a message is sent into a thread whose agent is CURRENTLY RUNNING,
+    // it should STEER (interrupt / redirect) the running turn rather than
+    // start a fresh one. Steering POSTs to a SEPARATE endpoint from chat_path.
+    // FULLY generic + opt-in exactly like chat_path: empty by default so an
+    // unconfigured http backend honestly reports supports_steer() == false and
+    // the app just sends normally. The path uses the SAME origin-absolute
+    // convention as chat_path (a leading "//" skips the base prefix — see
+    // resolve_target()), so a local config sets e.g. steer_path="//api/…". The
+    // request body reuses the send mapping: { field_session_id, field_prompt }.
+    //   HANABI_STEER_PATH   default EMPTY (http steering disabled unless set)
+    std::string steer_path;  // empty = http steering disabled (opt-in)
+
     // --- Memory-light transcript window -----------------------------------
     // Opening a thread fetches only the NEWEST N messages (not the whole
     // transcript) to keep the memory footprint small — you land at the bottom
@@ -283,6 +296,14 @@ struct Config {
     // it can't send and the composer stays in its disabled state.
     bool send_ready() const { return !base_url.empty() && !chat_path.empty(); }
 
+    // True when the http backend is configured to STEER a running agent: a
+    // base URL plus a steer path. When false, an http adapter reports
+    // supports_steer() == false and the loader always sends normally (never
+    // routes to steer). Opt-in exactly like send_ready()/stream_ready().
+    bool steer_ready() const {
+        return !base_url.empty() && !steer_path.empty();
+    }
+
     // True when the http backend is configured to STREAM a reply: a base URL
     // plus a stream path. When false, an http adapter reports supports_stream()
     // == false and the app uses the synchronous send_message path instead. The
@@ -453,12 +474,34 @@ class Client {
             "this backend does not support replies");
     }
 
+    // STEER a CURRENTLY-RUNNING agent: send a user prompt into `session_id` to
+    // interrupt / redirect the in-flight turn (as opposed to send_message,
+    // which starts a fresh turn). POSTs to a SEPARATE endpoint from the chat
+    // path. Default impl reports the backend doesn't support steering, so
+    // adapters opt in incrementally (mirrors send_message). The mock appends a
+    // small "(steering) <msg>" acknowledgement so the offline demo still works;
+    // the http adapter POSTs to the configured steer path when set.
+    virtual Result<Message> steer(const std::string& session_id,
+                                  const std::string& prompt) {
+        (void)session_id;
+        (void)prompt;
+        return Result<Message>::failure(
+            "this backend does not support steering");
+    }
+
     // Whether this client can send (kickoff + reply). The composer uses this to
     // decide between an enabled Send and the honest disabled caption. The mock
     // supports send; the http adapter supports it only when a chat path is
     // configured. Default false so a backend that hasn't wired send stays
     // honestly disabled.
     virtual bool supports_send() const { return false; }
+
+    // Whether this client can STEER a currently-running agent (Phase STEER).
+    // The http adapter does only when a steer path is configured; the mock
+    // supports it unconditionally (offline demo). Default false so a backend
+    // that hasn't wired steering never routes there — the loader falls back to
+    // a normal send. The loader gates the steer-vs-send decision on this.
+    virtual bool supports_steer() const { return false; }
 
     // Whether this client can STREAM a reply token-by-token (Phase STREAM).
     // The mock DOES (its whole reason for being is the offline demo story); the

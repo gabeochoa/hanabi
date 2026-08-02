@@ -1948,9 +1948,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // Send affordance. Enabled (primary-styled, clickable) when the backend
         // supports replies and the draft has text; otherwise disabled-styled.
+        // When the open thread's agent is RUNNING and the backend can steer,
+        // this same button STEERS (interrupt/redirect) — relabel to "Steer" so
+        // the action reads honestly. Minimal touch: label-only (fits the same
+        // fixed sendW), no layout change.
+        const bool steerMode = app.should_steer_open();
+        const char* sendLabel =
+            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "Send");
         auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(sending ? "\xe2\x80\xa6" : "Send")
+                .with_label(sendLabel)
                 .with_size(ComponentSize{pixels(sendW), pixels(32)})
                 .with_custom_background(sendEnabled ? theme::button_primary()
                                                     : theme::disabled_bg())
