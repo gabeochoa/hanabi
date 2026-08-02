@@ -251,6 +251,10 @@ struct AppComponent : public afterhours::BaseComponent {
     std::future<api::Result<api::Message>> sendFuture;
     bool sendPending = false;
     std::string sendSessionId;  // which session the in-flight reply targets
+    // The id of the OPTIMISTIC user bubble appended at send-dispatch (with
+    // sync=Persisting). The resolver flips its SyncState to Synced/Failed by
+    // matching this id. Empty when no optimistic send is in flight.
+    std::string optimisticSendId;
 
     // Phase STREAM: live token-by-token replies. When the active backend
     // supports_stream(), the transcript composer routes Send through here

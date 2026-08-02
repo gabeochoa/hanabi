@@ -101,6 +101,17 @@ std::vector<std::string> load_queue(const std::string& key);
 // sent/cleared so its saved copy doesn't linger. No-op if nothing was stored.
 void clear_draft(const std::string& key);
 
+// --- Local-first OUTBOX (crash-safe sent-message log) -------------------
+// A message is written to the outbox BEFORE it goes to the network, so a crash
+// mid-send never loses the user's words; it's removed once the server confirms
+// (Synced). A Failed send stays in the outbox to retry. Backed by the same
+// per-key store as the queue (survives restart). outbox_add appends `prompt`
+// under session `id`; outbox_remove drops the first matching `prompt`;
+// outbox_list returns the still-unconfirmed prompts for `id` (FIFO).
+void outbox_add(const std::string& id, const std::string& prompt);
+void outbox_remove(const std::string& id, const std::string& prompt);
+std::vector<std::string> outbox_list(const std::string& id);
+
 // --- Cache cap / eviction (feature #C) ----------------------------------
 // touch_transcript(id): bump the on-disk transcript file's modified-time to
 // "now" WITHOUT rewriting it. This is how a thread's LAST-OPENED time is

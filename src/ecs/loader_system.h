@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <future>
 
 #include "../settings.h"
@@ -43,6 +44,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (!disk_cache_enabled(app)) return;
         api::disk_cache::save_transcript(s);
         api::disk_cache::trim_to_cap(Settings::get().get_cache_cap_bytes());
+    }
+
+    // Flip the optimistic user bubble's sync badge (LocalOnly/Persisting ->
+    // Synced/Failed). Finds it by app.optimisticSendId in the open transcript;
+    // no-op if the id is empty or the thread was switched away.
+    static void mark_optimistic(AppComponent& app, api::SyncState st) {
+        if (app.optimisticSendId.empty() || !app.openSession) return;
+        for (auto it = app.openSession->messages.rbegin();
+             it != app.openSession->messages.rend(); ++it) {
+            if (it->id == app.optimisticSendId) {
+                it->sync = st;
+                return;
+            }
+        }
     }
 
     void for_each_with(Entity&, AppComponent& app, float) override {
@@ -414,6 +429,27 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.sendPending = true;
             app.sendSessionId = id;
             app.sendingPrompt = prompt;
+            // OPTIMISTIC + local-first: append the user's message to the open
+            // transcript IMMEDIATELY with sync=Persisting (in flight), and
+            // record it in the local outbox (survives a crash). On success it
+            // flips to Synced + the reply is appended; on failure it flips to
+            // Failed and stays in the outbox to retry. We remember the
+            // optimistic bubble's id so the resolver can find + update it.
+            api::disk_cache::outbox_add(id, prompt);
+            app.optimisticSendId.clear();
+            if (app.openSession && app.openSession->summary.id == id) {
+                api::Message um;
+                um.role = api::Role::User;
+                um.id = id + "-u" +
+                        std::to_string(app.openSession->messages.size());
+                um.text = prompt;
+                um.created_at =
+                    static_cast<int64_t>(std::time(nullptr));
+                um.sync = api::SyncState::Persisting;
+                app.optimisticSendId = um.id;
+                app.openSession->messages.push_back(std::move(um));
+                app.scrollBottomPending = id;  // keep the new bubble in view
+            }
             api::Client* c = app.client.get();
             app.sendFuture = std::async(std::launch::async, [c, id, prompt] {
                 return c->send_message(id, prompt);
@@ -428,24 +464,36 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::string userText = app.sendingPrompt;
                 app.sendingPrompt.clear();
                 if (r.ok) {
-                    // Append BOTH the user's prompt and the returned assistant
-                    // reply to the open transcript, then refresh the cache so a
-                    // later re-open shows the full exchange. The user message is
-                    // reconstructed here (the client returns only the assistant
-                    // reply) so the transcript reads as a full turn.
+                    // The optimistic user bubble is ALREADY in the transcript
+                    // (appended at dispatch with sync=Persisting). Flip it to
+                    // Synced, append the assistant reply, drop it from the local
+                    // outbox (confirmed on the server), and refresh the cache.
                     if (app.openSession &&
                         app.openSession->summary.id == app.sendSessionId) {
-                        api::Message um;
-                        um.role = api::Role::User;
-                        um.id = app.sendSessionId + "-u" +
-                                std::to_string(app.openSession->messages.size());
-                        um.text = userText;
-                        um.created_at = r.value.created_at;
-                        app.openSession->messages.push_back(std::move(um));
+                        mark_optimistic(app, api::SyncState::Synced);
+                        // Fallback: if the optimistic bubble wasn't recorded
+                        // (e.g. the thread was switched at dispatch), reconstruct
+                        // the user turn so the transcript still reads complete.
+                        if (app.optimisticSendId.empty()) {
+                            api::Message um;
+                            um.role = api::Role::User;
+                            um.id = app.sendSessionId + "-u" +
+                                    std::to_string(
+                                        app.openSession->messages.size());
+                            um.text = userText;
+                            um.created_at = r.value.created_at;
+                            um.sync = api::SyncState::Synced;
+                            app.openSession->messages.push_back(std::move(um));
+                        }
                         app.openSession->messages.push_back(r.value);
                         app.transcriptCache.put(*app.openSession);
                     }
+                    api::disk_cache::outbox_remove(app.sendSessionId, userText);
+                    app.optimisticSendId.clear();
                 } else {
+                    // Send failed: mark the optimistic bubble Failed (it stays
+                    // in the outbox to retry) and surface the error.
+                    mark_optimistic(app, api::SyncState::Failed);
                     app.transcriptError = r.error;
                 }
             }

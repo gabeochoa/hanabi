@@ -442,6 +442,36 @@ void clear_draft(const std::string& key) {
     write_file(path, doc.dump());
 }
 
+// ---- local-first outbox --------------------------------------------------
+// Reuses the per-key queue store under an "ob:" key namespace so an outbox
+// entry never collides with a session's composer draft-queue. Crash-safe: the
+// prompt is persisted before the network send and removed on server confirm.
+namespace {
+std::string outbox_key(const std::string& id) { return "ob:" + id; }
+}  // namespace
+
+void outbox_add(const std::string& id, const std::string& prompt) {
+    if (prompt.empty()) return;
+    auto v = load_queue(outbox_key(id));
+    v.push_back(prompt);
+    save_queue(outbox_key(id), v);
+}
+
+void outbox_remove(const std::string& id, const std::string& prompt) {
+    auto v = load_queue(outbox_key(id));
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        if (*it == prompt) {
+            v.erase(it);
+            break;  // remove only the first match
+        }
+    }
+    save_queue(outbox_key(id), v);
+}
+
+std::vector<std::string> outbox_list(const std::string& id) {
+    return load_queue(outbox_key(id));
+}
+
 // ---- cache cap / eviction (feature #C) -----------------------------------
 void touch_transcript(const std::string& id) {
     const std::string path = transcript_file(id);

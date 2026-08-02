@@ -2381,11 +2381,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       AppComponent::StreamPhase::Idle,
                                       /*rich=*/false);
             // +12px for the sync badge row under the bubble (local-first only;
-            // server-loaded messages have sync==None and add nothing). Mirrors
-            // the render's conditional badge row exactly.
-            const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
-            return kTurnGapTop + 10.0f + mr.height + kUserPadV + syncH +
-                   kTurnGapBot;
+            // +one line (kLinePitch) for the local-first sync suffix appended
+            // to the body when sync!=None (server-loaded messages add nothing).
+            // Mirrors render_bubble's userBody suffix exactly.
+            // The sync suffix is appended INLINE to the body (no extra line),
+            // so measured() already accounts for its height when it wraps.
+            return kTurnGapTop + 10.0f + mr.height + kUserPadV + kTurnGapBot;
         }
         float textW = paneWidth - 34.0f;
         const auto& mr = measured(m, textW, isLive, index,
@@ -2680,6 +2681,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
                                       streamPhase, /*rich=*/false);
             float bodyH = mr.height;
+            // Local-first sync suffix (WhatsApp-style), appended to the body on
+            // its own trailing line — a nested 2nd child of the user bubble does
+            // NOT render in this afterhours build (verified), and the body-text
+            // path is the reliable one. LocalOnly ✓ / Persisting ⋯ / Synced ✓✓ /
+            // Failed ⚠. Server-loaded messages (sync==None) get no suffix.
+            // Local-first sync suffix (font-safe, inline): a nested 2nd child
+            // of the user bubble does NOT render in this afterhours build
+            // (verified) and '\n' in a label renders as a space, so we append a
+            // short faint status word to the body. This is the local-vs-synced
+            // signal Gabe asked for (WhatsApp-style, adapted to what renders):
+            //   LocalOnly  "· saved locally"  — on this device only
+            //   Persisting "· sending…"       — in flight to the server
+            //   Synced     "· sent"           — confirmed on the server
+            //   Failed     "· not sent"       — held locally, will retry
+            std::string userBody = mr.body;
+            bool hasSync = (m.sync != api::SyncState::None);
+            if (hasSync) {
+                const char* g =
+                    m.sync == api::SyncState::Synced ? "  \xc2\xb7 sent"
+                    : m.sync == api::SyncState::Persisting ? "  \xc2\xb7 sending\xe2\x80\xa6"
+                    : m.sync == api::SyncState::Failed ? "  \xc2\xb7 not sent"
+                                                       : "  \xc2\xb7 saved locally";
+                userBody += std::string(g);
+            }
             auto row = div(ctx, mk(parent, 200 + index * 10),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), children()})
@@ -2709,7 +2734,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("user_bubble"));
             div(ctx, mk(bub.ent(), 2),
                 ComponentConfig{}
-                    .with_label(mr.body)
+                    .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
@@ -2718,26 +2743,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text"));
-            // Local-first sync badge (WhatsApp-style): a small check UNDER the
-            // bubble, right-aligned, only for locally-authored messages
-            // (m.sync != None). Gray single check = LocalOnly (device only),
-            // gray clock = Persisting, accent double check = Synced, amber
-            // check+dot = Failed. Server-loaded messages (sync==None) show none.
-            if (m.sync != api::SyncState::None) {
-                const api::SyncState st = m.sync;
-                div(ctx, mk(row.ent(), 2),
-                    ComponentConfig{}
-                        .with_label(" ")
-                        .with_size(ComponentSize{pixels(bubbleW), pixels(12)})
-                        .with_transparent_bg()
-                        .with_roundness(0.0f)
-                        .with_on_draw_fg([st](RectangleType r) {
-                            draw_sync_check(st,
-                                            r.x + r.width - 10.0f,
-                                            r.y + 6.0f);
-                        })
-                        .with_debug_name("user_sync"));
-            }
+            (void)hasSync;
             return;
         }
 
