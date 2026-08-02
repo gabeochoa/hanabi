@@ -1115,7 +1115,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // already sets the icon column's left edge, and the icon slot
                 // (kRailIconSlot, == the header toggle box) makes the centered
                 // glyph land on the same vertical line as the toggle above.
-                .with_padding(Padding{.top = pixels(4), .right = pixels(8),
+                // Right pad == kCountRightPad so the smart-view count's right
+                // edge lands on the SAME column as the folder-header + thread-
+                // row counts (was 8 vs 12 — a 4px cross-section count misalign).
+                .with_padding(Padding{.top = pixels(4),
+                                      .right = pixels(kCountRightPad),
                                       .bottom = pixels(4),
                                       .left = pixels(folded ? 0.0f : 8.0f)})
                 .with_margin(Margin{.top = pixels(1), .right = pixels(0),

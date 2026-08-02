@@ -90,8 +90,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(14), .right = pixels(20),
-                                      .bottom = pixels(8), .left = pixels(20)})
+                // Left inset == kContentInset so the view title lines up exactly
+                // with the section labels + cards in its scroll body (was 20 vs
+                // the body's 24 — a 4px title/content misalignment on every
+                // digest view). Right uses the same inset for symmetry.
+                .with_padding(Padding{.top = pixels(14),
+                                      .right = pixels(kContentInset),
+                                      .bottom = pixels(8),
+                                      .left = pixels(kContentInset)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("main_header"));
@@ -1041,7 +1047,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(20)})
                 .with_margin(Margin{.top = pixels(first ? 4 : 20),
                                     .right = pixels(0), .bottom = pixels(6),
-                                    .left = pixels(2)})
+                                    .left = pixels(0)})
                 .with_transparent_bg()
                 .with_custom_text_color(color)
                 .with_font_size(theme::type::LABEL)
