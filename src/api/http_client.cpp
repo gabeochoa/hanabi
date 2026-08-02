@@ -410,10 +410,20 @@ std::vector<Message> split_message_blocks(const json& e, const Config& cfg) {
     // Second pass: walk blocks in order, coalescing text runs and emitting a
     // Role::Tool message for each tool_call.
     std::string text_run;
+    int text_seq = 0;  // disambiguates multiple text fragments of ONE message
     auto flush_text = [&] {
         if (text_run.empty()) return;
         Message m;
-        m.id = msg_id;  // the text pieces share the parent id (fine for keys).
+        // A single parent message can split into SEVERAL text fragments
+        // (text, tool, text, tool, text...). They must NOT share an id: the
+        // renderer's measure cache is keyed by message id, so identical ids
+        // make every fragment collide onto the FIRST fragment's cached height
+        // — corrupting the virtualized layout (a 127-block message yields ~10
+        // text fragments, all mis-measured → messages render at wrong/zero
+        // height and effectively vanish). Suffix each fragment uniquely.
+        m.id = msg_id.empty() ? ("txt" + std::to_string(text_seq))
+                              : (msg_id + "-t" + std::to_string(text_seq));
+        ++text_seq;
         m.role = role;  // usually Assistant.
         m.text = text_run;
         m.created_at = msg_created;

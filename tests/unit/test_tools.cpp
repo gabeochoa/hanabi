@@ -88,6 +88,16 @@ static void test_split_interleaved_blocks() {
     CHECK(out[2].role == api::Role::Assistant);
     CHECK(out[2].text == "Now the second step.");
 
+    // Text fragments of ONE parent message must have DISTINCT ids: the
+    // renderer's measure cache is keyed by id, so colliding ids make every
+    // fragment inherit the first's cached height and corrupt the virtualized
+    // layout (a big real message splits into ~10 text fragments — they must
+    // not all share the parent id). Regression guard for the "messages vanish
+    // on large real transcripts" bug.
+    CHECK(out[0].id != out[2].id);
+    CHECK(!out[0].id.empty());
+    CHECK(!out[2].id.empty());
+
     CHECK(out[3].role == api::Role::Tool);
     CHECK(out[3].subtitle == "ipython");
     CHECK(out[3].text == "print(2+2)");                // stringified inputs parsed
