@@ -1,7 +1,11 @@
 #include "http_client.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
+#include <memory>
+#include <thread>
 
 #include "../../vendor/nlohmann/json.hpp"
 
@@ -310,6 +314,176 @@ void dump_transcript(const json& arr, const Config& cfg, size_t limit) {
 
 }  // namespace
 
+// --- Tool-call block splitting ----------------------------------------------
+// Real assistant messages are a SEQUENCE of interleaved blocks
+// [text, tool_call, tool_result, text, ...]; the backend only uses roles
+// user/assistant (tool activity lives INSIDE assistant blocks). To make the
+// transcript's rich tool-row renderer (which triggers on Role::Tool messages)
+// fire on real data, we split such a message, IN ORDER, into:
+//   * runs of text blocks -> a Role::Assistant message (joined text), and
+//   * each tool_call (+ its matching tool_result by toolCallId) -> a
+//     Role::Tool message carrying real name/command/output/status/duration.
+// A message with no blocks (or only text) yields exactly one message, matching
+// the old parse_message behavior. Nothing here is endpoint-specific — every
+// key comes from Config.
+std::vector<Message> split_message_blocks(const json& e, const Config& cfg) {
+    // Small local helpers (mirror the anon-namespace ones but usable here).
+    auto sfield = [](const json& o, const std::string& k) -> std::string {
+        if (o.is_object() && o.contains(k) && o.at(k).is_string())
+            return o.at(k).get<std::string>();
+        return "";
+    };
+    auto efield = [](const json& o, const std::string& k) -> int64_t {
+        if (!o.is_object() || !o.contains(k)) return 0;
+        const auto& v = o.at(k);
+        if (v.is_number_integer()) return v.get<int64_t>();
+        if (v.is_number_float()) return static_cast<int64_t>(v.get<double>());
+        return 0;
+    };
+
+    const int64_t msg_created = efield(e, cfg.field_created_at);
+    const Role role = [&] {
+        const std::string r = sfield(e, cfg.field_role);
+        if (r == "user") return Role::User;
+        if (r == "assistant") return Role::Assistant;
+        if (r == "system") return Role::System;
+        if (r == "tool") return Role::Tool;
+        return Role::Assistant;
+    }();
+    const std::string msg_id = sfield(e, cfg.field_id);
+
+    std::vector<Message> out;
+
+    const bool has_blocks = e.is_object() && e.contains(cfg.field_blocks) &&
+                            e.at(cfg.field_blocks).is_array();
+    if (!has_blocks) {
+        // No blocks: single flat-text message (unchanged behavior).
+        Message m;
+        m.id = msg_id;
+        m.role = role;
+        m.text = sfield(e, cfg.field_text);
+        m.created_at = msg_created;
+        out.push_back(std::move(m));
+        return out;
+    }
+
+    const json& blocks = e.at(cfg.field_blocks);
+
+    // First pass: collect tool_result blocks so a tool_call can find its
+    // matching result by toolCallId regardless of block ordering.
+    std::vector<const json*> tool_results;
+    for (const auto& b : blocks) {
+        if (!b.is_object()) continue;
+        if (sfield(b, cfg.field_block_type) == cfg.field_block_tool_result_type)
+            tool_results.push_back(&b);
+    }
+    auto find_result = [&](const std::string& call_id) -> const json* {
+        for (const json* tr : tool_results) {
+            const json& ro = (tr->contains(cfg.field_tool_result_obj) &&
+                              tr->at(cfg.field_tool_result_obj).is_object())
+                                 ? tr->at(cfg.field_tool_result_obj)
+                                 : *tr;
+            if (sfield(ro, cfg.field_tool_result_call_id) == call_id)
+                return &ro;
+        }
+        return nullptr;
+    };
+
+    // Second pass: walk blocks in order, coalescing text runs and emitting a
+    // Role::Tool message for each tool_call.
+    std::string text_run;
+    auto flush_text = [&] {
+        if (text_run.empty()) return;
+        Message m;
+        m.id = msg_id;  // the text pieces share the parent id (fine for keys).
+        m.role = role;  // usually Assistant.
+        m.text = text_run;
+        m.created_at = msg_created;
+        out.push_back(std::move(m));
+        text_run.clear();
+    };
+
+    for (const auto& b : blocks) {
+        if (!b.is_object()) continue;
+        const std::string bt = sfield(b, cfg.field_block_type);
+        if (bt == cfg.field_block_text_type) {
+            const std::string c = sfield(b, cfg.field_block_content);
+            if (!c.empty()) {
+                if (!text_run.empty()) text_run += "\n\n";
+                text_run += c;
+            }
+        } else if (bt == cfg.field_block_tool_call_type) {
+            flush_text();  // preserve order: text before this tool call.
+            const json& tc = (b.contains(cfg.field_tool_call_obj) &&
+                              b.at(cfg.field_tool_call_obj).is_object())
+                                 ? b.at(cfg.field_tool_call_obj)
+                                 : b;
+            Message m;
+            m.role = Role::Tool;
+            const std::string call_id = sfield(tc, cfg.field_tool_id);
+            m.id = !call_id.empty() ? call_id : (msg_id + "-tool");
+            // Name -> subtitle (the renderer's tool label + wrench icon key).
+            m.subtitle = sfield(tc, cfg.field_tool_name);
+            // Command line -> text. inputs may be a string (opaque blob) or an
+            // object; best-effort surface command (+ node) else the raw blob.
+            if (tc.contains(cfg.field_tool_inputs)) {
+                const json& in = tc.at(cfg.field_tool_inputs);
+                std::string cmd, node;
+                if (in.is_object()) {
+                    cmd = sfield(in, cfg.field_tool_input_command);
+                    node = sfield(in, cfg.field_tool_input_node);
+                } else if (in.is_string()) {
+                    // Stringified dict: try to parse it, else show truncated.
+                    const std::string raw = in.get<std::string>();
+                    try {
+                        json parsed = json::parse(raw);
+                        if (parsed.is_object()) {
+                            cmd = sfield(parsed, cfg.field_tool_input_command);
+                            node = sfield(parsed, cfg.field_tool_input_node);
+                        }
+                    } catch (...) {
+                    }
+                    if (cmd.empty()) {
+                        cmd = raw.size() > 200 ? raw.substr(0, 200) + "\xe2\x80\xa6"
+                                               : raw;
+                    }
+                }
+                if (!node.empty())
+                    m.text = "[" + node + "] " + cmd;
+                else
+                    m.text = cmd;
+            }
+            // Timestamps: tool piece uses the call's startedAt when present.
+            const int64_t started = efield(tc, cfg.field_tool_started_at);
+            m.created_at = started != 0 ? started : msg_created;
+            // Match the result (by toolCallId) for output/status/duration.
+            if (const json* ro = find_result(call_id)) {
+                m.tool_result = sfield(*ro, cfg.field_tool_output);
+                m.tool_status = sfield(*ro, cfg.field_tool_status);
+                const int64_t completed =
+                    efield(*ro, cfg.field_tool_completed_at);
+                if (started != 0 && completed != 0 && completed >= started)
+                    m.tool_duration_ms = completed - started;
+            }
+            out.push_back(std::move(m));
+        }
+        // tool_result blocks are consumed via find_result; steering / unknown
+        // blocks are ignored (forward-compatible), matching the spec.
+    }
+    flush_text();  // trailing text run.
+
+    // A message that had blocks but produced nothing (e.g. only steering)
+    // still yields one empty message so the transcript keeps its turn.
+    if (out.empty()) {
+        Message m;
+        m.id = msg_id;
+        m.role = role;
+        m.created_at = msg_created;
+        out.push_back(std::move(m));
+    }
+    return out;
+}
+
 Result<std::string> HttpClient::get(const std::string& path) {
     if (!cfg_.http_ready())
         return Result<std::string>::failure(
@@ -448,7 +622,19 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {    auto raw = 
 }
 
 Result<Session> HttpClient::get_session(const std::string& id) {
-    auto raw = get(replace_id(cfg_.messages_path, id));
+    return get_session(id, 0);  // 0 = no limit (full transcript).
+}
+
+// Append "?limit=N" (or "&limit=N" if the path already has a query) to a path.
+static std::string with_limit(const std::string& path, int limit) {
+    if (limit <= 0) return path;
+    const char sep = (path.find('?') == std::string::npos) ? '?' : '&';
+    return path + sep + "limit=" + std::to_string(limit);
+}
+
+Result<Session> HttpClient::get_session(const std::string& id, int limit) {
+    const std::string path = with_limit(replace_id(cfg_.messages_path, id), limit);
+    auto raw = get(path);
     if (!raw.ok) return Result<Session>::failure(raw.error);
 
     Session session;
@@ -461,6 +647,9 @@ Result<Session> HttpClient::get_session(const std::string& id) {
         } else if (j.is_object() && j.contains(cfg_.field_messages) &&
                    j.at(cfg_.field_messages).is_array()) {
             arr = &j.at(cfg_.field_messages);
+            // The windowed response is an OBJECT wrapping the array; read the
+            // "hasMore" flag so the UI can tell older messages weren't loaded.
+            session.has_more_older = as_bool(j, cfg_.field_has_more);
         }
         if (!arr)
             return Result<Session>::failure(
@@ -469,9 +658,19 @@ Result<Session> HttpClient::get_session(const std::string& id) {
         if (dump_enabled()) dump_transcript(*arr, cfg_, 5);
 
         for (const auto& e : *arr) {
-            Message m = parse_message(e, cfg_);
-            m.created_at = as_epoch_seconds(e, cfg_.field_created_at);
-            session.messages.push_back(std::move(m));
+            // SPLIT interleaved text/tool_call/tool_result blocks into an
+            // ordered sequence of Role::Assistant + Role::Tool messages so the
+            // transcript's rich tool-row renderer fires on real data. A message
+            // with no blocks yields a single message (old behavior).
+            std::vector<Message> pieces = split_message_blocks(e, cfg_);
+            for (auto& m : pieces) {
+                if (m.created_at == 0)
+                    m.created_at = as_epoch_seconds(e, cfg_.field_created_at);
+                else
+                    // Normalize any ms-epoch startedAt to seconds like the rest.
+                    if (m.created_at > 10000000000LL) m.created_at /= 1000;
+                session.messages.push_back(std::move(m));
+            }
         }
     } catch (const std::exception& ex) {
         return Result<Session>::failure(
@@ -803,6 +1002,168 @@ AuthTransport make_http_auth_transport(const Config& cfg) {
             return out;
         }
     };
+}
+
+// --- Live events (SSE) parser -----------------------------------------------
+//
+// Same frame discipline as parse_sse_chunk (blank-line-delimited "data:"
+// frames, CRLF-safe, carry across reads) but reads the LIVE-EVENT vocabulary
+// (see Config): a top-level {type:"connected"} frame is ignored; every other
+// frame's kind is event.type; the pure-telemetry kind (context_usage) is
+// ignored; anything else calls sink.on_activity(kind) so the caller coalesces
+// + re-fetches. Pure + transport-free (unit-tested against fixture text).
+void parse_events_frame(const std::string& bytes, const Config& cfg,
+                        const EventSink& sink, std::string& carry) {
+    carry += bytes;
+    size_t pos = 0;
+    for (;;) {
+        size_t sep = carry.find("\n\n", pos);
+        if (sep == std::string::npos) break;
+        std::string frame = carry.substr(pos, sep - pos);
+        pos = sep + 2;
+
+        // Concatenate the frame's "data:" line payloads (multi-line data ok).
+        std::string data;
+        size_t lp = 0;
+        while (lp < frame.size()) {
+            size_t nl = frame.find('\n', lp);
+            std::string line =
+                frame.substr(lp, nl == std::string::npos ? std::string::npos
+                                                         : nl - lp);
+            lp = (nl == std::string::npos) ? frame.size() : nl + 1;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.rfind("data:", 0) == 0) {
+                std::string payload = line.substr(5);
+                if (!payload.empty() && payload.front() == ' ')
+                    payload.erase(0, 1);
+                data += payload;
+            }
+        }
+        if (data.empty()) continue;
+
+        json j;
+        try {
+            j = json::parse(data);
+        } catch (...) {
+            continue;  // malformed frame: skip, keep the stream alive.
+        }
+        if (!j.is_object()) continue;
+
+        // Top-level {type:"connected"} => stream opened; ignore.
+        const std::string top = as_string(j, cfg.field_event_top_type);
+        if (top == cfg.event_type_connected) continue;
+
+        // Otherwise the meaningful kind lives under event.type. Fall back to
+        // the top-level type if there's no nested object (forward-compatible).
+        std::string kind;
+        if (j.contains(cfg.field_events_obj) &&
+            j.at(cfg.field_events_obj).is_object())
+            kind = as_string(j.at(cfg.field_events_obj), cfg.field_event_type);
+        if (kind.empty()) kind = top;
+
+        // Pure telemetry (fires constantly) => ignore, never refetch.
+        if (kind == cfg.event_type_ignore) continue;
+
+        // Anything else implies the transcript may have changed: signal the
+        // caller (it coalesces/debounces + re-fetches the newest-N). An empty
+        // kind (unrecognized shape) is treated as activity too — default to a
+        // cheap refetch rather than silently dropping a real change.
+        sink.emit_activity(kind);
+    }
+    carry.erase(0, pos);
+}
+
+namespace {
+
+// The concrete http subscription: owns a worker std::thread that opens the
+// text/event-stream and feeds parse_events_frame, plus an atomic stop flag the
+// worker checks between reads. stop() flips the flag + joins. Reconnects are
+// capped so a persistently-failing stream doesn't spin.
+class HttpEventSubscription : public EventSubscription {
+  public:
+    HttpEventSubscription(Config cfg, std::string session_id, EventSink sink)
+        : cfg_(std::move(cfg)),
+          session_id_(std::move(session_id)),
+          sink_(std::move(sink)) {
+        worker_ = std::thread([this] { run(); });
+    }
+    ~HttpEventSubscription() override { stop(); }
+
+    void stop() override {
+        stop_.store(true);
+        if (worker_.joinable()) worker_.join();
+    }
+
+  private:
+    void run() {
+        SplitUrl s = split_url(cfg_.base_url);
+        const std::string path = replace_id(cfg_.events_path, session_id_);
+
+#ifndef HANABI_ENABLE_TLS
+        if (s.origin.rfind("https://", 0) == 0) {
+            sink_.emit_error(
+                "https events require a TLS build (rebuild with HANABI_TLS=1)");
+            return;
+        }
+#endif
+        constexpr int kMaxReconnects = 5;
+        std::string carry;
+        for (int attempt = 0; attempt <= kMaxReconnects && !stop_.load();
+             ++attempt) {
+            try {
+                httplib::Client cli(s.origin.c_str());
+                cli.set_connection_timeout(5, 0);
+                cli.set_read_timeout(120, 0);  // long-lived stream.
+                cli.set_follow_location(true);
+
+                httplib::Headers headers;
+                if (!cfg_.token.empty())
+                    headers.emplace("Authorization", "Bearer " + cfg_.token);
+                headers.emplace("Accept", "text/event-stream");
+
+                auto res = cli.Get(
+                    (s.prefix + path).c_str(), headers,
+                    [&](const char* data, size_t len) -> bool {
+                        if (stop_.load()) return false;  // tear down.
+                        parse_events_frame(std::string(data, len), cfg_, sink_,
+                                           carry);
+                        return !stop_.load();  // keep receiving until stopped.
+                    });
+                if (stop_.load()) return;  // clean stop, no error.
+                if (!res) {
+                    sink_.emit_error("events stream failed (no response)");
+                } else if (res->status < 200 || res->status >= 300) {
+                    sink_.emit_error("events http status " +
+                                     std::to_string(res->status));
+                }
+            } catch (const std::exception& ex) {
+                sink_.emit_error(std::string("events stream failed: ") +
+                                 ex.what());
+            }
+            // Backoff a beat before reconnecting (bounded loop).
+            for (int i = 0; i < 10 && !stop_.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
+    Config cfg_;
+    std::string session_id_;
+    EventSink sink_;
+    std::atomic<bool> stop_{false};
+    std::thread worker_;
+};
+
+}  // namespace
+
+std::unique_ptr<EventSubscription> HttpClient::subscribe_events(
+    const std::string& session_id, EventSink sink) {
+    if (!cfg_.events_ready()) {
+        // Not configured: a no-op handle (nothing ever fires), consistent with
+        // the base-class default.
+        return Client::subscribe_events(session_id, std::move(sink));
+    }
+    return std::make_unique<HttpEventSubscription>(cfg_, session_id,
+                                                   std::move(sink));
 }
 
 }  // namespace api

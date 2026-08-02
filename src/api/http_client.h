@@ -11,8 +11,11 @@
 // return a clean failure Result (the app then shows an error and the user can
 // fall back to the mock backend).
 
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "../../vendor/nlohmann/json.hpp"
 #include "auth.h"
 #include "client.h"
 
@@ -26,6 +29,14 @@ class HttpClient : public Client {
 
     Result<std::vector<SessionSummary>> list_sessions() override;
     Result<Session> get_session(const std::string& id) override;
+
+    // MEMORY-LIGHT windowed fetch: GET messages_path with "?limit=N" appended
+    // (correctly, whether or not the path already carries a query), returning
+    // only the newest N messages + Session::has_more_older parsed from the
+    // response's "hasMore" flag. limit <= 0 => the full transcript (no query),
+    // identical to get_session(id). This is how the loader opens a thread at
+    // the bottom cheaply, and how "load older" re-fetches the whole transcript.
+    Result<Session> get_session(const std::string& id, int limit) override;
 
     // Kickoff: POST the prompt to the configured chat path with NO session id;
     // read the new session id out of the response. Requires cfg.send_ready().
@@ -41,6 +52,21 @@ class HttpClient : public Client {
 
     // The http backend can STREAM only when a stream path is configured.
     bool supports_stream() const override { return cfg_.stream_ready(); }
+
+    // The http backend can SUBSCRIBE to live events only when an events path
+    // is configured.
+    bool supports_events() const override { return cfg_.events_ready(); }
+
+    // Subscribe to a session's live event stream over SSE (on a worker thread).
+    // POSTs/GETs the configured events path (with {id} substituted) and feeds
+    // the text/event-stream response through parse_events_frame, invoking the
+    // sink's on_activity for every meaningful (non-telemetry) event. Returns an
+    // RAII handle that owns the worker thread + a stop flag; destroying it (or
+    // calling stop()) joins the worker. TLS-guarded like send_message_streaming
+    // — an https origin without a TLS build reports on_error and stops. Caps
+    // reconnects so a persistently-failing stream doesn't spin forever.
+    std::unique_ptr<EventSubscription> subscribe_events(
+        const std::string& session_id, EventSink sink) override;
 
     // Stream a reply over SSE (Phase STREAM). POSTs the prompt to the
     // configured stream path and parses the text/event-stream response into
@@ -91,5 +117,32 @@ AuthTransport make_http_auth_transport(const Config& cfg);
 bool parse_sse_chunk(const std::string& bytes, const Config& cfg,
                      const StreamSink& sink, std::string& carry,
                      std::string& assembled);
+
+// Pure LIVE-EVENT frame parser (SSE). Shares parse_sse_chunk's frame-splitting
+// discipline (blank-line-delimited "data:" frames, CRLF-safe, carry across
+// reads) but reads the LIVE-EVENT vocabulary instead of the reply-stream one:
+//   * a top-level {type:"connected",...} frame is IGNORED (stream opened);
+//   * every other frame's meaningful kind is event.type (nested under
+//     field_events_obj); the pure-telemetry kind event_type_ignore
+//     ("context_usage") is IGNORED (fires constantly);
+//   * anything else that implies the transcript changed calls sink.on_activity
+//     with the kind string (the caller coalesces/debounces + re-fetches).
+// Transport-free + side-effect-free (beyond the sink) so it is unit-tested
+// against fixture text. Bytes after the last frame boundary stay in `carry`.
+void parse_events_frame(const std::string& bytes, const Config& cfg,
+                        const EventSink& sink, std::string& carry);
+
+// Pure BLOCK SPLITTER (tool calls). Given one raw message JSON object and the
+// config field mapping, produce the ordered sequence of api::Messages it maps
+// to: runs of text blocks collapse into a Role::Assistant message; each
+// tool_call (+ its matching tool_result by toolCallId) becomes a Role::Tool
+// message with subtitle=name, text=command (best-effort from inputs),
+// tool_result=output, tool_status=status, tool_duration_ms=completedAt-
+// startedAt. A message with no blocks (or only text) yields a single message
+// exactly as parse_message did. ORDER is preserved so the transcript reads
+// correctly. Pure + unit-tested against a fixture; the mock path never calls
+// it (its Tool messages are authored directly).
+std::vector<Message> split_message_blocks(const nlohmann::json& e,
+                                           const Config& cfg);
 
 }  // namespace api

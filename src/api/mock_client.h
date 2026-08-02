@@ -66,6 +66,28 @@ class MockClient : public Client {
         return Result<Session>::failure("no such session: " + id);
     }
 
+    // MEMORY-LIGHT windowed fetch: return only the NEWEST `limit` messages
+    // (still oldest-first within the window) and set has_more_older when we
+    // truncated, so the newest-N loading path is testable deterministically
+    // (see the big HANABI_BIG_TRANSCRIPT fixture). limit <= 0 => full
+    // transcript (delegates to get_session(id)). This mirrors the verified
+    // live API: ?limit=N returns the newest N ascending + hasMore=true.
+    Result<Session> get_session(const std::string& id, int limit) override {
+        auto r = get_session(id);
+        if (!r.ok || limit <= 0) return r;
+        auto& msgs = r.value.messages;
+        if (static_cast<int>(msgs.size()) > limit) {
+            // Keep the LAST `limit` (newest), preserving order; flag older
+            // messages exist beyond the window.
+            msgs.erase(msgs.begin(),
+                       msgs.end() - static_cast<std::ptrdiff_t>(limit));
+            r.value.has_more_older = true;
+        } else {
+            r.value.has_more_older = false;
+        }
+        return r;
+    }
+
     // Compose a NEW in-memory session from the prompt. Deterministic id; the
     // prompt becomes the title + the first (user) message. Lives only for this
     // process run (the mock is otherwise stateless) — enough to drive the
