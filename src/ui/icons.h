@@ -135,6 +135,16 @@ draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
         // Fallback: draw the legacy unicode glyph as centered text. Uses the
         // backend text path (guarded internally against a missing font/context)
         // so a failed atlas never crashes or leaves chrome blank.
+        //
+        // TODO(icon-atlas): a fallback firing here means `name` has NO sprite in
+        // the Lucide atlas (src/ui/icons_atlas.h) and we're drawing a stand-in
+        // unicode glyph. Every fallback is a sprite we still owe. Missing
+        // sprites known today (add to the spritesheet + icons_atlas.h, then drop
+        // the fallback glyph at the call site):
+        //   - "archive"  (Archived smart view)  — currently the box glyph U+25A4
+        // CONVENTION: whenever you call draw_fg() with a name that isn't in the
+        // atlas, add a `// TODO(icon-atlas): <name> sprite missing` at the call
+        // site so we can come back and cut the real Lucide sprite.
         if (!fallback_glyph.empty()) {
             afterhours::draw_text(
                 fallback_glyph.c_str(),
