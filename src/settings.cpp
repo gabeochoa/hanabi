@@ -38,6 +38,8 @@ bool Settings::load_save_file() {
         last_session_ = j.value("last_session", last_session_);
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
+        cache_cap_bytes_ =
+            j.value("cache_cap_bytes", cache_cap_bytes_);
         open_tabs_.clear();
         if (j.contains("open_tabs") && j["open_tabs"].is_array()) {
             for (const auto& e : j["open_tabs"])
@@ -65,6 +67,7 @@ void Settings::write_save_file() {
     j["open_tabs"] = open_tabs_;
     j["active_tab"] = active_tab_;
     j["theme"] = theme_;
+    j["cache_cap_bytes"] = cache_cap_bytes_;
     j["starred"] = starred_ids_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
@@ -94,6 +97,14 @@ void Settings::set_theme(const std::string& mode) {
     theme_ = mode;
     // Persist immediately so a theme change survives relaunch without callers
     // having to remember to write_save_file() themselves.
+    if (auto_save_enabled) write_save_file();
+}
+
+std::uint64_t Settings::get_cache_cap_bytes() const { return cache_cap_bytes_; }
+void Settings::set_cache_cap_bytes(std::uint64_t bytes) {
+    if (bytes == cache_cap_bytes_) return;  // no change — skip the write
+    cache_cap_bytes_ = bytes;
+    // Persist immediately (mirrors set_theme) so the cap survives relaunch.
     if (auto_save_enabled) write_save_file();
 }
 

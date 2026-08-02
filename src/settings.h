@@ -2,6 +2,7 @@
 
 #include <afterhours/src/singleton.h>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,14 @@ struct Settings {
     const std::string& get_theme() const;
     void set_theme(const std::string& mode);
 
+    // Disk-cache size cap in BYTES. 0 == Unlimited (no eviction). Default 1 GB.
+    // The settings modal offers 100 MB / 1 GB / 10 GB / Unlimited; the disk
+    // cache trims the oldest data to stay under this after a transcript save
+    // (see api::disk_cache::trim_to_cap). Persisted so the choice survives
+    // relaunch. Auto-persists (mirrors set_theme).
+    std::uint64_t get_cache_cap_bytes() const;
+    void set_cache_cap_bytes(std::uint64_t bytes);  // auto-persists
+
     // Starred session ids (Phase I star toggle). Persisted so a user's stars
     // survive relaunch — otherwise a star flipped in the sidebar is lost on the
     // next launch (it lived only in the in-memory SessionSummary). The set is
@@ -56,5 +65,7 @@ struct Settings {
     std::vector<std::string> open_tabs_;
     std::string active_tab_;
     std::string theme_ = "dark";
+    // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
+    std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
 };

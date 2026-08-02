@@ -1,10 +1,12 @@
 #include "disk_cache.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
 #include "../../vendor/nlohmann/json.hpp"
 
@@ -335,6 +337,137 @@ std::size_t wipe_all() {
         if (fs::remove(p, rm) && !rm) ++removed;
     }
     return removed;
+}
+
+// ---- cache cap / eviction (feature #C) -----------------------------------
+void touch_transcript(const std::string& id) {
+    const std::string path = transcript_file(id);
+    if (path.empty()) return;
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return;
+    // Bump mtime to "now" without rewriting the file, so LRU eviction can order
+    // by last-opened. (last_write_time takes a file_clock time_point.)
+    fs::last_write_time(path, fs::file_time_type::clock::now(), ec);
+}
+
+namespace {
+// One transcript file on disk, with the metadata eviction needs.
+struct TxEntry {
+    fs::path path;
+    std::uint64_t size = 0;
+    fs::file_time_type mtime{};  // last-opened proxy (see touch_transcript)
+    bool archived = false;       // evict archived first
+    std::size_t msg_count = 0;   // to decide trim-vs-delete
+};
+
+// Peek a transcript file's summary.state + message count WITHOUT fully
+// materializing the Session (we only need archived-ness and how many messages
+// there are). Best-effort: a parse failure returns {false, 0}.
+std::pair<bool, std::size_t> peek_archived_and_count(const fs::path& p) {
+    std::ifstream in(p);
+    if (!in.good()) return {false, 0};
+    try {
+        json doc;
+        in >> doc;
+        bool archived = false;
+        if (doc.contains("summary") && doc["summary"].is_object()) {
+            const int st = doc["summary"].value(
+                "state", static_cast<int>(ThreadState::Unknown));
+            archived = (st == static_cast<int>(ThreadState::Archived));
+        }
+        std::size_t n = 0;
+        if (doc.contains("messages") && doc["messages"].is_array())
+            n = doc["messages"].size();
+        return {archived, n};
+    } catch (...) {
+        return {false, 0};
+    }
+}
+
+// Rewrite a transcript file keeping only its NEWEST keep_tail messages (tail),
+// preserving summary + sub_agents. Returns true on success. Messages are stored
+// oldest→newest (append order), so the tail is the last keep_tail entries.
+bool trim_transcript_file(const fs::path& p, std::size_t keep_tail) {
+    std::ifstream in(p);
+    if (!in.good()) return false;
+    json doc;
+    try {
+        in >> doc;
+    } catch (...) {
+        return false;
+    }
+    if (!doc.contains("messages") || !doc["messages"].is_array()) return false;
+    json& msgs = doc["messages"];
+    const std::size_t n = msgs.size();
+    if (n <= keep_tail) return false;  // nothing to trim (caller deletes)
+    json tail = json::array();
+    for (std::size_t i = n - keep_tail; i < n; ++i) tail.push_back(msgs[i]);
+    doc["messages"] = std::move(tail);
+    in.close();
+    return write_file(p.string(), doc.dump());
+}
+}  // namespace
+
+std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
+    if (cap_bytes == 0) return 0;  // unlimited — never evict
+    const std::string dir = cache_dir();
+    if (dir.empty()) return 0;
+
+    const std::uint64_t before = total_bytes();
+    if (before <= cap_bytes) return 0;  // already under cap
+
+    // Gather all transcript files (never sessions.json) with eviction metadata.
+    std::error_code ec;
+    std::vector<TxEntry> txs;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::string name = it->path().filename().string();
+        if (name == "sessions.json") continue;      // spine — never evict
+        if (!is_cache_file(name)) continue;          // only our tx_*.json
+        TxEntry e;
+        e.path = it->path();
+        std::error_code sz;
+        auto n = fs::file_size(it->path(), sz);
+        e.size = sz ? 0 : static_cast<std::uint64_t>(n);
+        std::error_code mt;
+        e.mtime = fs::last_write_time(it->path(), mt);
+        auto meta = peek_archived_and_count(it->path());
+        e.archived = meta.first;
+        e.msg_count = meta.second;
+        txs.push_back(std::move(e));
+    }
+
+    // Eviction order: archived-first, then least-recently-opened (oldest mtime)
+    // first within each group. That empties the threads least likely to be
+    // reopened before touching anything the user is actively working in.
+    std::sort(txs.begin(), txs.end(), [](const TxEntry& a, const TxEntry& b) {
+        if (a.archived != b.archived) return a.archived;  // archived first
+        return a.mtime < b.mtime;                          // oldest first
+    });
+
+    std::uint64_t total = before;
+    for (const auto& e : txs) {
+        if (total <= cap_bytes) break;
+        std::uint64_t reclaimed = 0;
+        if (e.msg_count > keep_tail && trim_transcript_file(e.path, keep_tail)) {
+            // Trimmed in place — recompute the shrunken file's size.
+            std::error_code sz;
+            auto after = fs::file_size(e.path, sz);
+            const std::uint64_t newSize =
+                sz ? 0 : static_cast<std::uint64_t>(after);
+            reclaimed = (e.size > newSize) ? (e.size - newSize) : 0;
+        } else {
+            // At/under keep_tail messages (or trim failed): the whole file is
+            // the eviction unit — remove it.
+            std::error_code rm;
+            if (fs::remove(e.path, rm) && !rm) reclaimed = e.size;
+        }
+        total = (total > reclaimed) ? (total - reclaimed) : 0;
+    }
+
+    const std::uint64_t after = total_bytes();
+    return (before > after) ? (before - after) : 0;
 }
 
 }  // namespace api::disk_cache

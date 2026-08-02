@@ -34,6 +34,16 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         return app.backend_label == "http";
     }
 
+    // Persist a freshly-fetched transcript AND enforce the user's cache cap.
+    // Trimming right after a save is the natural "cache grew" trigger; the cap
+    // comes from Settings (0 = Unlimited => trim_to_cap is a no-op). Archived +
+    // least-recently-opened threads are evicted first (see disk_cache).
+    static void save_and_trim(const AppComponent& app, const api::Session& s) {
+        if (!disk_cache_enabled(app)) return;
+        api::disk_cache::save_transcript(s);
+        api::disk_cache::trim_to_cap(Settings::get().get_cache_cap_bytes());
+    }
+
     void for_each_with(Entity&, AppComponent& app, float) override {
         if (!app.client) return;
 
@@ -169,6 +179,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             std::string id = app.requestOpenId;
             app.requestOpenId.clear();
             app.selectedId = id;
+            // Refresh this thread's disk-cache recency (mtime) so the cache-cap
+            // eviction's LRU ordering reflects OPENS, not just saves — the
+            // least-recently-OPENED thread is trimmed first when over cap.
+            if (disk_cache_enabled(app)) api::disk_cache::touch_transcript(id);
 
             // Phase X fast path: cache HIT -> render synchronously, no async
             // round-trip, no Loading flash. Marks the thread most-recently-used
@@ -254,8 +268,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // mark most-recently-used, then render. Also persist to disk
                     // for the next session's instant (stale) paint.
                     app.transcriptCache.put(r.value);
-                    if (disk_cache_enabled(app))
-                        api::disk_cache::save_transcript(r.value);
+                    save_and_trim(app, r.value);
                     // Only swap into the view if this is still the open thread
                     // (the user may have switched tabs during a slow fetch).
                     if (app.selectedId == r.value.summary.id) {
@@ -527,8 +540,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // switched during the fetch).
         if (app.selectedId != r.value.summary.id) return;
         app.transcriptCache.put(r.value);
-        if (disk_cache_enabled(app))
-            api::disk_cache::save_transcript(r.value);
+        save_and_trim(app, r.value);
         app.openSession = std::move(r.value);
         app.transcriptState = LoadState::Loaded;
         app.transcriptError.clear();

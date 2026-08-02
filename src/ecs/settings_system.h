@@ -70,10 +70,34 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             static_cast<float>(afterhours::graphics::get_screen_height());
 
+        // Panel geometry, computed BEFORE the backdrop so the backdrop click
+        // handler can hit-test the cursor against the panel rect (see below).
+        // Height is derived from the content stack so there's no dead space at
+        // the bottom (Task B) — pad(top+bottom) + header + each section
+        // (gap + label + control) + footnote (gap + line).
+        const float pw = 360.0f;
+        const float ph = kPadV * 2.0f + kHeaderH +
+                         (kSectionH + kThemeRowH) +      // Theme
+                         (kSectionH + kCacheRowH) +      // Cache (usage+clear)
+                         (kSectionH + kLimitRowH) +      // Cache limit
+                         (kSectionH + kAccountRowH) +    // Account
+                         (kFootnoteGap + kFootnoteH);    // footnote
+        const float px = (sw - pw) * 0.5f;
+        const float py = (sh - ph) * 0.5f;
+
         // Dimmed full-window backdrop. The UI fill pipeline has alpha blending
         // disabled (afterhours gap #13), so pre-blend a translucent black over
         // the window background via theme::over to get a real "dim" instead of
-        // an opaque black slab. Clicking it closes the sheet.
+        // an opaque black slab.
+        //
+        // Click-outside-to-close: the backdrop spans the whole window and sits
+        // UNDER the panel, but the immediate-mode button reports a click for
+        // ANY press while the cursor is over its (full-window) rect — including
+        // presses that land on the panel drawn on top of it. That fired the
+        // dismiss on every click inside the modal (the reported bug). Fix: only
+        // dismiss when the cursor is genuinely OUTSIDE the panel rect. Esc-close
+        // still works (handled above); clicks on rows/labels/empty panel space
+        // now do nothing.
         auto backdrop = button(ctx, mk(uiRoot, 8000),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(sw), pixels(sh)})
@@ -88,15 +112,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(10)
                 .with_debug_name("settings_backdrop"));
         if (backdrop) {
-            app->showSettings = false;
-            return;
+            const bool insidePanel = afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos, RectangleType{px, py, pw, ph});
+            if (!insidePanel) {
+                app->showSettings = false;
+                return;
+            }
         }
-
-        // Centered panel.
-        const float pw = 360.0f;
-        const float ph = 322.0f;  // +54 cache row, +72 account row
-        const float px = (sw - pw) * 0.5f;
-        const float py = (sh - ph) * 0.5f;
 
         auto panel = div(ctx, mk(uiRoot, 8010),
             ComponentConfig{}
@@ -107,8 +129,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border(theme::border(), pixels(1.0f))
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(18), .right = pixels(20),
-                                      .bottom = pixels(18), .left = pixels(20)})
+                .with_padding(Padding{.top = pixels(kPadV), .right = pixels(20),
+                                      .bottom = pixels(kPadV),
+                                      .left = pixels(20)})
                 .with_roundness(0.35f)
                 .with_render_layer(11)
                 .with_debug_name("settings_panel"));
@@ -116,9 +139,28 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         render_header(ctx, panel.ent(), *app);
         render_theme_row(ctx, panel.ent(), *app);
         render_cache_row(ctx, panel.ent(), *app);
+        render_cache_limit_row(ctx, panel.ent(), *app);
         render_account_row(ctx, panel.ent(), *app);
         render_footnote(ctx, panel.ent(), *app);
     }
+
+    // ---- layout constants (single source of truth for panel height + the
+    // consistent vertical rhythm; Task B). A section = a small gap, a header
+    // label, then its control. Between-section gap == kSectionGap; label->
+    // control gap is baked into the label's own bottom via kLabelH sizing.
+    static constexpr float kPadV = 20.0f;        // panel top/bottom padding
+    static constexpr float kHeaderH = 28.0f;     // title + close row
+    static constexpr float kSectionGap = 20.0f;  // space above each section label
+    static constexpr float kLabelH = 22.0f;      // section header label height
+    static constexpr float kLabelPadB = 6.0f;    // gap under a section label
+    // Total vertical footprint of one section header (gap + label + gap-below).
+    static constexpr float kSectionH = kSectionGap + kLabelH + kLabelPadB;
+    static constexpr float kThemeRowH = 34.0f;   // segmented control
+    static constexpr float kCacheRowH = 30.0f;   // usage + clear button
+    static constexpr float kLimitRowH = 34.0f;   // cache-limit segmented control
+    static constexpr float kAccountRowH = 24.0f; // identity + counts line
+    static constexpr float kFootnoteGap = 20.0f; // space above footnote
+    static constexpr float kFootnoteH = 18.0f;   // footnote line
 
   private:
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
@@ -165,23 +207,36 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (closeBtn) app.showSettings = false;
     }
 
-    void render_theme_row(UIContext<InputAction>& ctx, Entity& parent,
-                          AppComponent& app) {
-        div(ctx, mk(parent, 2),
+    // Consistent section header: a slightly-prominent label with a fixed gap
+    // above it (kSectionGap) and a fixed small gap to its control below
+    // (kLabelPadB). Unifies Theme/Cache/Account so they read as peers (Task B).
+    // Uses MARGIN (not padding) for the gaps: the autolayout stacks children by
+    // computed size + margin, so margin adds real space BETWEEN elements, while
+    // padding would only inset text inside the label's own fixed box (leaving
+    // the sections cramped + the panel with dead space — the bug this fixes).
+    void section_label(UIContext<InputAction>& ctx, Entity& parent, int id,
+                       const std::string& text, const std::string& dbg) {
+        div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_label("Theme")
-                .with_size(ComponentSize{percent(1.0f), pixels(26)})
-                .with_padding(Padding{.top = pixels(14)})
+                .with_label(text)
+                .with_size(ComponentSize{percent(1.0f), pixels(kLabelH)})
+                .with_margin(Margin{.top = pixels(kSectionGap),
+                                    .bottom = pixels(kLabelPadB)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("settings_theme_label"));
+                .with_debug_name(dbg));
+    }
+
+    void render_theme_row(UIContext<InputAction>& ctx, Entity& parent,
+                          AppComponent& app) {
+        section_label(ctx, parent, 2, "Theme", "settings_theme_label");
 
         auto row = div(ctx, mk(parent, 3),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(40)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -211,21 +266,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_cache_row(UIContext<InputAction>& ctx, Entity& parent,
                           AppComponent& app) {
         (void)app;
-        div(ctx, mk(parent, 20),
-            ComponentConfig{}
-                .with_label("Cache")
-                .with_size(ComponentSize{percent(1.0f), pixels(26)})
-                .with_padding(Padding{.top = pixels(10)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_cache_label"));
+        section_label(ctx, parent, 20, "Cache", "settings_cache_label");
 
         auto row = div(ctx, mk(parent, 21),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kCacheRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -267,23 +312,83 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // Cache-limit options (label, bytes). 0 == Unlimited (no eviction).
+    // Default is 1 GB (see Settings::cache_cap_bytes_).
+    struct CapOption {
+        const char* label;
+        std::uint64_t bytes;
+    };
+    static constexpr CapOption kCapOptions[] = {
+        {"100 MB", 100ull * 1024 * 1024},
+        {"1 GB", 1024ull * 1024 * 1024},
+        {"10 GB", 10ull * 1024ull * 1024 * 1024},
+        {"Unlimited", 0},
+    };
+
+    // Cache-limit row: a segmented control (100 MB / 1 GB / 10 GB / Unlimited)
+    // that caps the on-disk transcript cache. Persisted via Settings; changing
+    // it immediately trims the cache to the new cap so the effect is visible.
+    void render_cache_limit_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 40, "Cache limit",
+                      "settings_cache_limit_label");
+
+        auto row = div(ctx, mk(parent, 41),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kLimitRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_cache_limit_row"));
+
+        const std::uint64_t current = Settings::get().get_cache_cap_bytes();
+        int idx = 1;
+        for (int i = 0; i < 4; ++i) {
+            const auto& opt = kCapOptions[i];
+            const bool selected = (opt.bytes == current);
+            auto btn = button(ctx, mk(row.ent(), idx++),
+                ComponentConfig{}
+                    .with_label(opt.label)
+                    // Four segments across a 320px content width (~76 each).
+                    .with_size(ComponentSize{pixels(76), pixels(30)})
+                    .with_margin(Margin{.right = pixels(4)})
+                    .with_custom_background(selected ? theme::button_primary()
+                                                     : theme::button_secondary())
+                    .with_custom_hover_bg(selected ? theme::button_primary()
+                                                   : theme::hover_bg())
+                    .with_custom_text_color(selected ? theme::window_bg()
+                                                     : theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.35f)
+                    .with_debug_name(std::string("settings_cache_limit_") +
+                                     std::to_string(i)));
+            if (btn) {
+                auto& s = Settings::get();
+                s.set_cache_cap_bytes(opt.bytes);  // auto-persists
+                // Apply immediately: trim the on-disk cache to the new cap so
+                // the usage line above reflects the change on the next frame.
+                // (Ongoing "trim after each save" belongs in the loader — see
+                // REPORT; disk_cache::trim_to_cap is exposed for that wiring.)
+                api::disk_cache::trim_to_cap(opt.bytes);
+            }
+        }
+    }
+
     // Account row: shows the backend-reported identity + counts so the user can
     // verify hanabi is talking to the right account / is set up correctly.
     // Data comes from the async /whoami fetch (app.settings / settingsState),
     // kicked when the overlay opens. Shows a loading/err/empty state honestly.
     void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app) {
-        div(ctx, mk(parent, 30),
-            ComponentConfig{}
-                .with_label("Account")
-                .with_size(ComponentSize{percent(1.0f), pixels(26)})
-                .with_padding(Padding{.top = pixels(10)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_account_label"));
+        section_label(ctx, parent, 30, "Account", "settings_account_label");
 
         std::string line;
         theme::Color col = theme::text_faint();
@@ -312,7 +417,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(line)
                 .with_size(ComponentSize{percent(1.0f), pixels(20)})
-                .with_padding(Padding{.top = pixels(4)})
+                .with_margin(Margin{.top = pixels(4)})
                 .with_transparent_bg()
                 .with_custom_text_color(col)
                 .with_font_size(theme::type::SM)
@@ -373,8 +478,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(parent, 4),
             ComponentConfig{}
                 .with_label(note)
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
-                .with_padding(Padding{.top = pixels(18)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kFootnoteH)})
+                .with_margin(Margin{.top = pixels(kFootnoteGap)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(FontSize::Small)

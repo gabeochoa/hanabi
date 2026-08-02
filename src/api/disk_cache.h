@@ -64,4 +64,37 @@ std::uint64_t total_bytes();
 // touch other namespaces or non-cache files.
 std::size_t wipe_all();
 
+// --- Cache cap / eviction (feature #C) ----------------------------------
+// touch_transcript(id): bump the on-disk transcript file's modified-time to
+// "now" WITHOUT rewriting it. This is how a thread's LAST-OPENED time is
+// tracked for LRU eviction: the loader should call this whenever the user
+// opens a thread (a save already sets a fresh mtime, so an unopened-but-saved
+// thread and a just-opened one are distinguished only if open touches it).
+// No-op if the file doesn't exist. Cheap (a single utime()-style call).
+//
+// NOTE FOR THE PARENT AGENT: wiring this into "on thread open" lives in
+// loader_system.h, which THIS agent does not own. Until it's wired, eviction
+// still works correctly but orders purely by file mtime (= last SAVE time),
+// which is a reasonable recency proxy; opening a thread just won't refresh its
+// recency. See REPORT.
+void touch_transcript(const std::string& id);
+
+// trim_to_cap(cap_bytes, keep_tail): if the ACTIVE namespace's total_bytes()
+// exceeds cap_bytes, evict oldest transcript data until back under the cap.
+// cap_bytes == 0 means "unlimited" → a no-op. Eviction policy (oldest-first):
+//   1. ARCHIVED threads are evicted before non-archived ones (they're unlikely
+//      to be reopened soon), each group ordered least-recently-opened first
+//      (by file mtime — see touch_transcript).
+//   2. Eviction TRIMS a transcript to its newest `keep_tail` messages (tail of
+//      the cached transcript) and rewrites it smaller, rather than deleting it
+//      outright — a relaunch can still paint the last few messages instantly.
+//      A transcript already at/under keep_tail messages is deleted entirely
+//      (nothing left to trim; its whole file is the eviction unit).
+//   3. sessions.json is never evicted (it's tiny and the list is the app's
+//      spine); only tx_*.json transcripts are trimmed/removed.
+// Runs after a transcript save (the point the cache grows). Best-effort; any
+// per-file error is skipped. Returns the number of BYTES reclaimed (approx,
+// pre/post total_bytes delta). Safe to call with cap_bytes==0 (no-op).
+std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail = 10);
+
 }  // namespace api::disk_cache
