@@ -21,11 +21,15 @@ inline std::string to_lower(std::string s) {
 }
 
 // Compact relative age from a unix epoch (seconds): "now", "5m", "3h", "2d"...
-inline std::string relative_time(int64_t epoch) {
+// One canonical ladder. The two-arg overload takes an explicit `now` so callers
+// that need a deterministic / within-frame-consistent reference (and testable
+// output) can pass it; the no-arg version reads the clock. Both share the exact
+// same ladder so a sidebar row and a header can never disagree.
+inline constexpr int64_t kDaySecs = 24 * 60 * 60;  // seconds in a day
+inline std::string relative_time(int64_t epoch, int64_t now) {
     if (epoch <= 0) return "";
-    double secs = std::difftime(std::time(nullptr), static_cast<std::time_t>(epoch));
-    if (secs < 0) secs = 0;
-    long s = static_cast<long>(secs);
+    long s = static_cast<long>(now - epoch);
+    if (s < 0) s = 0;
     if (s < 60) return "now";
     long m = s / 60;
     if (m < 60) return std::to_string(m) + "m";
@@ -36,6 +40,9 @@ inline std::string relative_time(int64_t epoch) {
     if (d < 30) return std::to_string(d / 7) + "w";
     if (d < 365) return std::to_string(d / 30) + "mo";
     return std::to_string(d / 365) + "y";
+}
+inline std::string relative_time(int64_t epoch) {
+    return relative_time(epoch, static_cast<int64_t>(std::time(nullptr)));
 }
 
 // Truncate to n chars with an ellipsis.

@@ -275,12 +275,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // blank rather than lying. Pure + now-injected for headless testing.
     static std::string row_time_label(int64_t updated_at, int64_t now) {
         if (updated_at <= 0 || updated_at > now) return "";
-        int64_t secs = now - updated_at;
-        const int64_t day = 24 * 60 * 60;
-        if (secs < 60) return "now";
-        if (secs < 60 * 60) return std::to_string(secs / 60) + "m";
-        if (secs < day) return std::to_string(secs / 3600) + "h";
-        if (secs < 7 * day) return std::to_string(secs / day) + "d";
+        // Sub-week ages use the ONE canonical relative-time ladder (shared with
+        // the transcript header etc.) so they can never drift; only the
+        // older-than-a-week ABSOLUTE-date tail is bespoke to the sidebar.
+        if (now - updated_at < 7 * fmtutil::kDaySecs)
+            return fmtutil::relative_time(updated_at, now);
         // Older than a week: absolute short date ("Jul 28"), and append the
         // year when it differs from now's year so an old row is unambiguous.
         std::time_t ut = static_cast<std::time_t>(updated_at);
