@@ -82,9 +82,9 @@ class MockClient : public Client {
             msgs.erase(msgs.begin(),
                        msgs.end() - static_cast<std::ptrdiff_t>(limit));
             r.value.has_more_older = true;
-        } else {
-            r.value.has_more_older = false;
         }
+        // else: has_more_older stays at its Session default (false) — a fresh
+        // get_session(id) never sets it true on stored/seed sessions.
         return r;
     }
 

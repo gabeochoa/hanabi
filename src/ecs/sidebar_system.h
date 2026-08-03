@@ -442,8 +442,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             case Glyph::Diamond: return theme::tag_ready_fg();     // green
             case Glyph::Dot: return theme::tag_done_fg();          // blue
             case Glyph::Ring: return theme::accent();              // running
-            case Glyph::Automated: return theme::text_faint();     // cron/quiet
-            default: return theme::text_faint();
+            default: return theme::text_faint();  // Automated/None/calm — quiet
         }
     }
 
