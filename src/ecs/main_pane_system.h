@@ -2449,6 +2449,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.25f)
                 .with_debug_name("composer_reply_input"));
 
+        // Screenshot affordance: HANABI_TEST_FOCUS_COMPOSER=1 force-focuses the
+        // composer field so a capture can photograph the caret WITH text in it
+        // (verifying caret position). Test-only; ignored when unset.
+        if (std::getenv("HANABI_TEST_FOCUS_COMPOSER"))
+            ctx.set_focus(inputRes.ent().id);
+
         // Opt-in field diagnostics: dump the live text_input state so we can
         // see EXACTLY what the field receives (chars, cursor, h-scroll) —
         // pins down space/backspace/wrap issues instead of guessing across the
