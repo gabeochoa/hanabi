@@ -2742,12 +2742,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
         i += 3;  // past ```
         std::string lang;
-        while (i < line.size() && line[i] != ' ' && line[i] != '`') {
-            char c = line[i++];
-            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
-            lang += c;
-        }
-        return lang;
+        while (i < line.size() && line[i] != ' ' && line[i] != '`')
+            lang += line[i++];
+        return fmtutil::to_upper(std::move(lang));  // shared ASCII flip (1c)
     }
     // Fenced-code-block geometry (a single atomic segment in the body scan):
     // a lang-bar header + one row per inner code line, wrapped in a rounded

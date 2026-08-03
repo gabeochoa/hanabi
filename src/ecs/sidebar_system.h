@@ -1304,14 +1304,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (out[0] >= 'a' && out[0] <= 'z') out[0] = out[0] - 32;
             return out;
         }
-        // All-lowercase key: Title Case each word.
-        bool start = true;
-        for (char& c : out) {
-            if (c == ' ' || c == '-' || c == '_') { start = true; continue; }
-            if (start && c >= 'a' && c <= 'z') c = c - 32;
-            start = false;
-        }
-        return out;
+        // All-lowercase key: Title Case each word (shared ASCII helper, 1c).
+        return fmtutil::ascii_title(std::move(out));
     }
 
     // Distinct non-empty folder names present across the loaded sessions

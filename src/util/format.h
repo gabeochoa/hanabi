@@ -19,6 +19,19 @@ inline std::string to_lower(std::string s) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
     return s;
 }
+// ASCII Title Case: upper-case the first letter of each word (word boundaries
+// are space / '-' / '_'). Locale-independent, ASCII-only (same rationale as
+// to_upper/to_lower). Shared so the sidebar's folder-name display and any other
+// title-caser use ONE implementation (REFACTOR_REVIEW 1c).
+inline std::string ascii_title(std::string s) {
+    bool start = true;
+    for (char& c : s) {
+        if (c == ' ' || c == '-' || c == '_') { start = true; continue; }
+        if (start && c >= 'a' && c <= 'z') c = static_cast<char>(c - 32);
+        start = false;
+    }
+    return s;
+}
 
 // Compact relative age from a unix epoch (seconds): "now", "5m", "3h", "2d"...
 // One canonical ladder. The two-arg overload takes an explicit `now` so callers
