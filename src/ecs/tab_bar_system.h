@@ -578,10 +578,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         const auto& tab = tabEntity.get<Tab>();
         struct Item {
             const char* label;
-            int action;  // 0 = copy url, 1 = close others
+            int action;  // 0 = copy url, 1 = close others, 2 = open in split
         };
         static const Item kItems[] = {
             {"Copy URL", 0},
+            {"Open in split", 2},
             {"Close others", 1},
         };
         const int nItems = static_cast<int>(sizeof(kItems) / sizeof(kItems[0]));
@@ -640,6 +641,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     // (host-neutral navi://session/<id> when unconfigured).
                     afterhours::clipboard::set_text(
                         model::navi_url_for(app.webBaseUrl, keepId));
+                } else if (kItems[k].action == 2) {
+                    // Open in split (I2): show this thread in the RIGHT pane
+                    // beside the active one. No-op if it's the active thread.
+                    app.requestSplitOpen = keepId;
+                    app.view = SmartView::Chat;
                 } else {
                     model::close_others(strip, app, keepId);
                 }
