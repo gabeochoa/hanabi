@@ -703,10 +703,12 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             else if (vs == "starred") sv = ecs::SmartView::Starred;
             else if (vs == "home") sv = ecs::SmartView::Home;
             else if (vs == "archived") sv = ecs::SmartView::Archived;
+            else if (vs == "chat") sv = ecs::SmartView::Chat;  // welcome/no-thread
             else set = false;
             if (set) {
                 appForWait->view = sv;
                 appForWait->selectedId.clear();
+                if (sv == ecs::SmartView::Chat) appForWait->openSession.reset();
             }
         }
 

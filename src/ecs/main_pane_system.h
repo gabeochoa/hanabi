@@ -1432,6 +1432,92 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return c;
     }
 
+    // Chat welcome / empty state (no thread open): a centered hero — brand mark,
+    // a greeting, and a few suggestion chips — instead of a bare "open a thread"
+    // note in a tall void. Modern-chat "What can I help with?" landing.
+    void render_chat_welcome(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app, float paneW, float paneH) {
+        (void)paneW;
+        float colH = paneH - 20.0f;
+        if (colH < 120.0f) colH = 120.0f;
+        auto col = div(ctx, mk(parent, 90),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(colH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("chat_welcome"));
+        // Brand mark (the sparkle), muted.
+        div(ctx, mk(col.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(40), pixels(40)})
+                .with_transparent_bg()
+                .with_margin(Margin{.bottom = pixels(14)})
+                .with_on_draw_fg([](RectangleType r) {
+                    hanabi::icons::draw_at("brand", r.x + r.width * 0.5f,
+                                           r.y + r.height * 0.5f, 30.0f,
+                                           theme::text_secondary());
+                })
+                .with_debug_name("welcome_mark"));
+        div(ctx, mk(col.ent(), 2),
+            ComponentConfig{}
+                .with_label("What can I help with?")
+                .with_size(ComponentSize{pixels(360), pixels(28)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::H1)
+                .with_alignment(TextAlignment::Center)
+                .with_margin(Margin{.bottom = pixels(18)})
+                .with_roundness(0.0f)
+                .with_debug_name("welcome_greeting"));
+        // Suggestion chips — clicking one starts a new task seeded with it.
+        static const char* kChips[] = {
+            "Summarize what's waiting on me",
+            "What changed since I last looked?",
+            "Draft a status update",
+        };
+        auto chips = div(ctx, mk(col.ent(), 3),
+            ComponentConfig{}
+                .with_size(ComponentSize{children(), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("welcome_chips"));
+        for (int i = 0; i < 3; ++i) {
+            auto chip = button(ctx, mk(chips.ent(), 10 + i),
+                ComponentConfig{}
+                    .with_label(kChips[i])
+                    .with_size(ComponentSize{pixels(320), pixels(34)})
+                    .with_padding(Padding{.top = pixels(6), .right = pixels(14),
+                                          .bottom = pixels(6),
+                                          .left = pixels(14)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_margin(Margin{.bottom = pixels(8)})
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.5f)
+                    .with_debug_name("welcome_chip"));
+            if (chip) {
+                // Start a new task; the composer seed is picked up by the
+                // new-task draft slot on the next frame.
+                app.requestNewTask = true;
+                app.welcomeSeed = kChips[i];
+            }
+        }
+    }
+
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, float paneW, float paneH) {
         std::string title = "Select a thread";
@@ -1472,9 +1558,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 sub = sub.empty() ? "refreshing\xe2\x80\xa6"
                                   : (sub + "  \xc2\xb7  refreshing\xe2\x80\xa6");
             transcript_header(ctx, parent, title, sub);
-        } else {
-            header(ctx, parent, title, "");
         }
+        // (No header when there's no open thread — the welcome hero below is the
+        // whole surface; a "Select a thread" bar would just duplicate it.)
 
         if (app.transcriptState == LoadState::Error) {
             note(ctx, parent,
@@ -1482,7 +1568,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         if (!app.openSession) {
-            note(ctx, parent, "Open a thread to view its messages.");
+            render_chat_welcome(ctx, parent, app, paneW, paneH);
             return;
         }
         // Per-thread switch spinner: if we're loading a thread whose content is
@@ -1856,6 +1942,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string draftKey =
             app.openSession ? app.openSession->summary.id : std::string();
         std::string& replyDraft = replyDrafts[draftKey];
+
+        // Consume a welcome-screen suggestion-chip seed into the new-task draft
+        // (once). Only applies to the new-task composer (empty draftKey) so it
+        // never overwrites a real thread's in-progress reply.
+        if (!app.welcomeSeed.empty() && draftKey.empty()) {
+            replyDraft = app.welcomeSeed;
+            app.welcomeSeed.clear();
+        }
 
         // Screenshot affordance: HANABI_REPLY_DEMO=<text> seeds the draft ONCE
         // so a headless capture can photograph the composer's ENABLED (primary)

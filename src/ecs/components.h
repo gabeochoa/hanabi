@@ -204,6 +204,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // action fires; serviced there by opening the composer. A one-shot request
     // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
     bool requestNewTask = false;
+    // Optional text a welcome-screen suggestion chip seeds into the new-task
+    // composer draft (consumed once by render_composer). Empty = no seed.
+    std::string welcomeSeed;
 
     // Phase SEND: two one-shot send request flags (mirror requestNewTask),
     // serviced by LoaderSystem via the same std::async + poll pattern as
