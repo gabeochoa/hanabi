@@ -112,13 +112,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The ONE composer, pinned to the pane bottom, always present (unless
         // the backend genuinely can't send). Reply mode when a thread is open,
         // kickoff otherwise. This is the single source of the chat input — no
-        // view hides it. Rendered ABSOLUTELY at the pane bottom (not as a flex
-        // sibling of `content`) so a tall transcript that overflows its content
-        // box can never push the composer off the bottom edge — the windowed
-        // 'no chat input' bug (headless clipped, windowed overflowed).
+        // view hides it. Rendered ABSOLUTELY at the pane bottom as a direct
+        // uiRoot child (NOT a flex sibling of `content`), so a tall transcript
+        // that overflows its content box can never push the composer off the
+        // bottom edge — the windowed 'no chat input' bug (headless clipped fine,
+        // windowed overflowed and hid it). afterhours absolute+translate uses
+        // SCREEN coordinates (same as main_pane's own r.x,r.y), so pass the
+        // screen-space top-left of the composer strip.
         if (canReply)
-            render_composer(ctx, panel.ent(), *app, r.width, composerH,
-                            composerKickoff, r.height - composerH);
+            render_composer(ctx, uiRoot, *app, r.width, composerH,
+                            composerKickoff, r.x, r.y + r.height - composerH);
     }
 
   private:
@@ -2234,7 +2237,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // styled with an honest caption instead of faking it.
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH,
-                         bool kickoff = false, float absTopY = -1.0f) {
+                         bool kickoff = false, float absX = -1.0f,
+                         float absY = -1.0f) {
         // KICKOFF mode: rendered on the Home landing screen (no thread open) so
         // you can start typing the moment the app opens — every daily-driver
         // chat app has a persistent input on its landing view. In kickoff mode
@@ -2353,14 +2357,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // always visible (Gabe: "it should just always render").
                 .with_render_layer(2)
                 .with_debug_name("composer_bar");
-        // ABSOLUTE-PIN to the pane bottom when the caller passes absTopY. As a
-        // flex sibling, a tall transcript that overflows the content box pushed
-        // the composer off the bottom edge (the windowed 'no chat input' bug —
-        // headless clipped so it looked fine). Absolute position takes it OUT
-        // of the flex flow so its Y is fixed regardless of content height.
-        if (absTopY >= 0.0f) {
-            barCfg = barCfg.with_absolute_position().with_translate(0.0f,
-                                                                    absTopY);
+        // ABSOLUTE-PIN to the pane bottom in SCREEN coords when the caller
+        // passes absX/absY. As a flex sibling, a tall transcript that overflows
+        // the content box pushed the composer off the bottom edge (the windowed
+        // 'no chat input' bug — headless clipped so it looked fine). Absolute
+        // position takes it OUT of the flex flow so its position is fixed
+        // regardless of content height. afterhours absolute+translate is
+        // screen-space (see main_pane at r.x,r.y), so absX/absY are screen
+        // coords; a fixed width (not percent) since it has no flex parent now.
+        if (absX >= 0.0f && absY >= 0.0f) {
+            barCfg = barCfg
+                         .with_size(ComponentSize{pixels(paneW), pixels(composerH)})
+                         .with_absolute_position()
+                         .with_translate(absX, absY)
+                         .with_render_layer(6);  // above pane content
         }
         auto bar = div(ctx, mk(parent, 3), barCfg);
 
