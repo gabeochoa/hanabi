@@ -1001,3 +1001,11 @@ it records the wheel destination and glides scroll_offset toward it each frame. 
 has_smooth_scroll-guarded so it auto-DISABLES the day the vendor patch lands (vendor easing wins),
 and HANABI_SCROLL_SMOOTH=1 forces legacy instant. Pins (follow-latch to end / jump-to-top) are
 detected as snaps so stay-at-bottom is never slowed. No vendor edit; pure hanabi workaround.
+
+## gap #22 follow-up (2026-08-03): styled spans are COLOR-only (no per-run weight)
+The wrap-aware styled-label primitive (upstream fbb6aef/1e95cd1) that unblocked inline markdown
+carries per-run COLOR only (TextSpan{text,color}) — there is no per-run font/weight/slant. So
+hanabi renders **bold**/_italic_ as a brighter COLOR and `code` in an accent tint, not as heavier
+or oblique glyphs. Fine for now (color conveys emphasis + it word-wraps), but true bold/italic
+would need a per-run font field on TextSpan (e.g. {text,color,font_name}) + the styled draw path
+picking the run's font. Logged as a wishlist item; NOT patched (vendored afterhours is read-only).
