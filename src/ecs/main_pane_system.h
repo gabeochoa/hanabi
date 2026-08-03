@@ -1539,15 +1539,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // bare count, and NOT a second big H1 that just repeats the tab. This is
         // the single "what am I looking at" anchor for the pane.
         if (app.openSession) {
+            // Header subtitle = just the age (+ optional "refreshing…"). The
+            // message COUNT was dropped here (Gabe: "we don't need this at the
+            // top … i don't think we care about how many messages") — the count,
+            // if anyone wants it, rides in the tab title instead (see tab_bar).
             std::string sub;
-            const size_t nMsgs = app.openSession->messages.size();
-            if (nMsgs > 0)
-                sub = std::to_string(nMsgs) +
-                      (nMsgs == 1 ? " message" : " messages");
             const std::string age =
                 fmtutil::relative_time(app.openSession->summary.updated_at);
             if (!age.empty())
-                sub = sub.empty() ? age : (sub + "  \xc2\xb7  " + age);
+                sub = age;
             // Local-first read state (idea #1): when a cached/stale copy is
             // already painted AND a background refresh is in flight for THIS
             // thread, say so — the read is served instantly from the local
