@@ -56,7 +56,12 @@ struct Config {
     std::string web_base_url;
     std::string sessions_path = "/sessions";
     std::string messages_path = "/sessions/{id}/messages";
-    std::string chat_path;  // empty = http send disabled (opt-in)
+    // Chat/send endpoint. Defaults to the origin-root "//api/chat" (the leading
+    // "//" escapes the base_url's /api/v1 prefix — see http_client path join)
+    // so an http backend can SEND out of the box with just api_base_url+token,
+    // no extra config. Override via config chat_path / env HANABI_CHAT_PATH.
+    // (Set to "" explicitly to disable send on a backend that has no chat route.)
+    std::string chat_path = "//api/chat";
 
     // --- Agent steering (Phase STEER) -------------------------------------
     // When a message is sent into a thread whose agent is CURRENTLY RUNNING,
@@ -188,8 +193,8 @@ struct Config {
     //     message object, or an array of them under field_messages. Each is
     //     read with the same field_role / field_text / field_created_at /
     //     field_id / block mapping the transcript reader uses.
-    std::string field_prompt = "prompt";
-    std::string field_session_id = "session_id";
+    std::string field_prompt = "message";
+    std::string field_session_id = "sessionId";
 
     // --- Streaming (Phase STREAM) -----------------------------------------
     // Live token-by-token replies over a server-sent-events (SSE) channel. Like

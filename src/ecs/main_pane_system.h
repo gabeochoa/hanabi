@@ -50,14 +50,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // and push off-screen). LayoutSystem carves layout->composer out of the
         // bottom of layout->main, so content + composer never overlap. It
         // replies to the open thread when one is open, else kicks off a NEW
-        // conversation. Only truly absent when the backend can't send.
-        const bool canReply =
-            app->client &&
-            (app->client->supports_send() || app->client->supports_stream());
-        // Keep the layout's reserved composer height in sync with whether we
-        // can send — 0 gives the whole pane back to content on a read-only
-        // backend (next frame's layout picks it up).
-        layout->composerHeight = canReply ? 92.0f : 0.0f;
+        // conversation. It ALWAYS renders (even on a backend that can't send —
+        // it shows a disabled input with a reason, so it never silently
+        // vanishes: the whole 'no chat input' saga was a send-capability check
+        // hiding it entirely).
+        // Reserve the composer strip UNCONDITIONALLY so the input is always on
+        // screen (render_composer disables it + shows a reason when the backend
+        // can't send).
+        layout->composerHeight = 92.0f;
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
@@ -119,26 +119,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // absolute+translate is SCREEN-space (a uiRoot child's final pos ==
         // its translate), so pass the composer rect's screen top-left. No view
         // can hide it and no transcript overflow can push it off-screen.
-        if (canReply) {
+        // ALWAYS rendered — render_composer disables the input + shows a reason
+        // when the backend can't send, rather than the pane hiding it.
+        {
             const auto& cr = layout->composer;
-            if (std::getenv("HANABI_DBG_COMPOSER")) {
-                fprintf(stderr,
-                        "[DBG composer] canReply=1 view=%d kickoff=%d "
-                        "rect={x=%.1f y=%.1f w=%.1f h=%.1f} "
-                        "main={x=%.1f y=%.1f w=%.1f h=%.1f} composerH=%.1f\n",
-                        (int)app->view, (int)composerKickoff, cr.x, cr.y,
-                        cr.width, cr.height, r.x, r.y, r.width, r.height,
-                        layout->composerHeight);
-            }
             render_composer(ctx, uiRoot, *app, cr.width, cr.height,
                             composerKickoff, cr.x, cr.y);
-        } else if (std::getenv("HANABI_DBG_COMPOSER")) {
-            fprintf(stderr,
-                    "[DBG composer] canReply=0 — client=%p supports_send=%d "
-                    "supports_stream=%d (composer NOT rendered)\n",
-                    (void*)app->client.get(),
-                    app->client ? (int)app->client->supports_send() : -1,
-                    app->client ? (int)app->client->supports_stream() : -1);
         }
     }
 
@@ -2391,13 +2377,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          .with_render_layer(6);  // above pane content
         }
         auto bar = div(ctx, mk(parent, 3), barCfg);
-        if (std::getenv("HANABI_DBG_COMPOSER")) {
-            Entity& be = bar.ent();
-            fprintf(stderr,
-                    "[DBG composer] bar entity id=%d absPassed=(%.1f,%.1f) "
-                    "paneW=%.1f composerH=%.1f kickoff=%d\n",
-                    (int)be.id, absX, absY, paneW, composerH, (int)kickoff);
-        }
 
         // A hairline top border sold via a 1px divider row so the composer
         // reads as a distinct footer strip separated from the message column.
