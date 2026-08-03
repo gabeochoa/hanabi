@@ -2085,19 +2085,56 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.right = pixels(8)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
+                // Visible filled pill so the input reads as an INPUT even when
+                // empty (it was a near-invisible faint-bordered box — the
+                // "where's the input?" bug). The transparent text_input sits
+                // inside this pill; its forced Secondary fill (gap #17) is
+                // matched to panel_bg_2 below so they blend.
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(0.5f)
                 .with_debug_name("composer_input_wrap"));
 
+        // text_input forces its own Secondary bg over its rect (gap #17); point
+        // Secondary/Surface at panel_bg_2 so the field blends into the pill
+        // above instead of painting a jarring default-dark box.
+        ctx.theme.secondary = theme::panel_bg_2();
+        ctx.theme.surface = theme::panel_bg_2();
+        ctx.theme.font = theme::text_primary();
         afterhours::ui::imm::text_input(ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(34)})
-                .with_border(theme::border(), pixels(1.0f))
+                .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
-                // Rounder field (modern chat input pill) — was 0.3.
+                .with_padding(Padding{.left = pixels(12), .right = pixels(10)})
                 .with_roundness(0.5f)
                 .with_debug_name("composer_reply_input"));
+
+        // Placeholder (text_input has no native placeholder — gap #29): overlay
+        // faint hint text ON TOP of the empty field via an absolutely-positioned
+        // on_draw_fg child (same proven pattern as the sidebar search), so it's
+        // clearly an input at rest. Replaced by real glyphs the moment you type.
+        if (replyDraft.empty()) {
+            const bool steer = app.should_steer_open();
+            const char* ph = steer ? "Steer the running agent\xe2\x80\xa6"
+                                    : "Message hanabi\xe2\x80\xa6";
+            div(ctx, mk(inputWrap.ent(), 2),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                    .with_absolute_position()
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(3)
+                    .with_on_draw_fg([ph](RectangleType rect) {
+                        const float px = theme::type::BODY;
+                        const float ty = rect.y + rect.height * 0.5f - px * 0.5f;
+                        afterhours::draw_text(ph, rect.x + 12.0f, ty, px,
+                                              theme::text_faint());
+                    })
+                    .with_debug_name("composer_placeholder"));
+        }
 
         // Send affordance. Enabled (primary-styled, clickable) when the backend
         // supports replies and the draft has text; otherwise disabled-styled.
