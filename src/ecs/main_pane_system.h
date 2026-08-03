@@ -3123,17 +3123,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_margin(Margin{.right = pixels(8)})
                     .with_debug_name("tool_dur"));
         }
-        // Check reflects real status: green completed / red failed.
-        theme::Color checkC = failed ? theme::tag_blocked_fg()
-                                     : theme::tag_ready_fg();
+        // Chat redesign #3: status is a small calm trailing DOT, not a big
+        // checkmark — done = soft green, failed = red. Reads as an ambient
+        // status indicator on the quiet tool card, not a "task complete" stamp.
+        theme::Color dotC = failed ? theme::tag_blocked_fg()
+                                   : theme::status_active();
         div(ctx, mk(parent, idbase + 3),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(16)})
                 .with_transparent_bg()
-                .with_on_draw_fg([checkC, failed](RectangleType rr) {
-                    if (failed) draw_tool_fail(rr, checkC);
-                    else draw_check(rr, checkC);
+                .with_on_draw_fg([dotC, failed](RectangleType rr) {
+                    const float cx = rr.x + rr.width * 0.5f;
+                    const float cy = rr.y + rr.height * 0.5f;
+                    if (failed) {
+                        draw_tool_fail(rr, dotC);  // keep the × for failures
+                    } else {
+                        afterhours::draw_circle_v({cx, cy}, 3.0f, dotC);
+                    }
                 })
                 .with_debug_name("tool_check"));
     }
@@ -3159,16 +3166,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(0), .right = pixels(10),
-                                      .bottom = pixels(0), .left = pixels(8)})
+                .with_padding(Padding{.top = pixels(0), .right = pixels(12),
+                                      .bottom = pixels(0), .left = pixels(10)})
                 .with_margin(Margin{.top = pixels(kToolRowGap),
                                     .bottom = pixels(kToolRowGap)})
-                .with_custom_background(theme::panel_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_border(theme::border(), pixels(1.0f))
+                // Chat redesign #3: a calm raised surface, NOT a bordered box.
+                // The border + panel_bg made tool calls read as debug-log rules;
+                // a soft panel_bg_2 fill with no border integrates them into the
+                // assistant turn as a quiet step (spec: "belongs to the turn").
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(expandable ? afterhours::ui::CursorType::Pointer
                                         : afterhours::ui::CursorType::Default)
-                .with_roundness(0.4f)
+                .with_roundness(0.42f)
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
@@ -3189,7 +3199,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_margin(Margin{.right = pixels(6)})
                 .with_on_draw_fg([](RectangleType rr) {
-                    draw_wrench(rr, theme::role_tool());
+                    draw_wrench(rr, theme::text_faint());
                 })
                 .with_debug_name("tool_icon"));
         // Right-align the meta cluster (count/dur/check) to the row's right
@@ -3210,7 +3220,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(cmdW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
-                .with_font("mono", theme::type::MD)
+                .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("tool_cmd"));
