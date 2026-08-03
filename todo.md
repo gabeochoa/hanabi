@@ -304,3 +304,13 @@ Ranked by heat. Each must be VERIFIED (screenshot / e2e), not assumed.
 > STILL OPEN: #5 tool footer (count-centered/dur-right — current single-cluster right-align is
 > reasonable; needs Gabe confirm vs navi-web), #15 'you still didnt fix this' (need his repro),
 > F2 live latency (needs live measure), V3/inline-pills/T7 (vendor-patch-gated).
+
+## GABE FEEDBACK 2026-08-03 (batch 3) — all done
+- [x] Padding between star and time (star drawn 13px in from slot right edge) — 3c56657
+- [x] ENTER sends the message (was click-only; text_input had no on_submit) — babfb7a
+- [x] Center the green status dot in the tool-meta cluster — d3c6370
+- [x] Group the tool-meta icons (count/dur/dot) tighter — d3c6370
+- [x] Render markdown pipe-tables as a real grid — d3c6370
+- [x] Search input hover + focus-ring state — d3c6370
+- [x] Turn off noisy hotkey/menubar logging (HANABI_NATIVE_LOG gate) — d3c6370
+- [x] Window close hangs/freezes → app_cleanup persists then _Exit(0) (skip blocking future dtors) — d3c6370
