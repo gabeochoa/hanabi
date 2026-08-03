@@ -705,6 +705,19 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
         }
 
+        // Screenshot affordance: HANABI_SPLIT=<id> opens a SECOND thread in the
+        // right split pane (I2), so the split-view can be captured headlessly.
+        // Requires HANABI_OPEN to have set the primary pane first.
+        if (const char* sid = std::getenv("HANABI_SPLIT"); sid && *sid) {
+            appForWait->requestSplitOpen = sid;
+            appForWait->view = ecs::SmartView::Chat;
+            for (int p = 0; p < 6; ++p) {
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
+        }
         // Perf/screenshot affordance: HANABI_EXPAND=1 pre-expands every tool
         // pile + the sub-agent rollup in the open thread so a headless capture
         // can photograph the EXPANDED nested sub-rows / chips. Uses the same

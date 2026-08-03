@@ -58,6 +58,23 @@ struct AppComponent : public afterhours::BaseComponent {
     LoadState transcriptState = LoadState::Idle;
     std::string transcriptError;
 
+    // --- Split view (I2): an optional SECOND transcript shown to the RIGHT of
+    // the primary one. splitSessionId is the right pane's thread; splitSession
+    // is its transcript (served from the LRU cache on open, async-filled on a
+    // miss via requestSplitOpen). Empty splitSessionId == not split (single
+    // pane). Snapping a tab to the right edge sets splitSessionId; closing the
+    // split clears it. The primary pane keeps using openSession as before, so
+    // single-pane behavior is unchanged when splitSessionId is empty.
+    std::string splitSessionId;
+    std::optional<api::Session> splitSession;
+    // One-shot: sidebar/tab asks to open a thread in the RIGHT split pane.
+    std::string requestSplitOpen;
+    // One-shot: close the split (back to single pane).
+    bool requestSplitClose = false;
+    std::future<api::Result<api::Session>> splitFuture;
+    bool splitPending = false;
+    std::string splitPendingId;
+
     // Which main-pane view is showing.
     SmartView view = SmartView::Home;
 

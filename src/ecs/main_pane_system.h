@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../util/format.h"
@@ -43,7 +44,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         switch (app->view) {
             case SmartView::Chat:
-                render_transcript(ctx, panel.ent(), *app, r.width, r.height);
+                if (!app->splitSessionId.empty()) {
+                    render_split(ctx, panel.ent(), *app, r.width, r.height);
+                } else {
+                    render_transcript(ctx, panel.ent(), *app, r.width,
+                                      r.height);
+                }
                 break;
             case SmartView::Home:
                 render_home(ctx, panel.ent(), *app, r.width, r.height);
@@ -1518,6 +1524,107 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // ---- SPLIT VIEW (I2): two transcripts side by side ----------------------
+    // Left = the primary open thread (app.openSession); right = app.splitSession.
+    // render_transcript reads app.openSession throughout (20 call sites), so
+    // rather than thread a session param through all of it, we render the LEFT
+    // pane normally, then SWAP app.openSession<->app.splitSession around the
+    // RIGHT pane's render and restore after. Rendering is synchronous within the
+    // frame and every per-thread static in render_transcript is keyed by the
+    // session id (not a single "current"), so the swap is safe and each pane
+    // keeps its own scroll/follow state. A thin divider + a close (×) affordance
+    // sit between/above the panes.
+    void render_split(UIContext<InputAction>& ctx, Entity& parent,
+                      AppComponent& app, float paneW, float paneH) {
+        const float kDivider = 1.0f;
+        const float halfW = (paneW - kDivider) * 0.5f;
+
+        auto rowWrap = div(ctx, mk(parent, 4100),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(paneW), pixels(paneH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("split_row"));
+
+        // LEFT pane (primary thread).
+        auto leftPane = div(ctx, mk(rowWrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(halfW), pixels(paneH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("split_left"));
+        render_transcript(ctx, leftPane.ent(), app, halfW, paneH);
+
+        // Vertical divider.
+        div(ctx, mk(rowWrap.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kDivider), pixels(paneH)})
+                .with_custom_background(theme::border())
+                .with_roundness(0.0f)
+                .with_debug_name("split_divider"));
+
+        // RIGHT pane (split thread) — swap openSession in for the render.
+        auto rightPane = div(ctx, mk(rowWrap.ent(), 3),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(halfW), pixels(paneH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("split_right"));
+        if (app.splitSession) {
+            std::optional<api::Session> savedOpen = std::move(app.openSession);
+            std::string savedSel = app.selectedId;
+            app.openSession = std::move(app.splitSession);
+            app.selectedId = app.openSession->summary.id;
+            render_transcript(ctx, rightPane.ent(), app, halfW, paneH);
+            // Restore: move the (possibly mutated) session back to splitSession.
+            app.splitSession = std::move(app.openSession);
+            app.openSession = std::move(savedOpen);
+            app.selectedId = savedSel;
+        } else {
+            // Right pane still loading its transcript.
+            div(ctx, mk(rightPane.ent(), 1),
+                ComponentConfig{}
+                    .with_label("Loading\xe2\x80\xa6")
+                    .with_size(ComponentSize{percent(1.0f), pixels(40)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::BODY)
+                    .with_alignment(TextAlignment::Center)
+                    .with_roundness(0.0f)
+                    .with_debug_name("split_right_loading"));
+        }
+
+        // Close-split affordance: a small × pinned to the top-right of the
+        // whole main pane. Clicking clears the split (back to single pane).
+        auto closeBtn = div(ctx, mk(parent, 4150),
+            ComponentConfig{}
+                .with_label("\xc3\x97")
+                .with_size(ComponentSize{pixels(24), pixels(24)})
+                .with_absolute_position()
+                .with_translate(paneW - 30.0f, 8.0f)
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(theme::roundness_for_px(5.0f, 24.0f, 24.0f))
+                .with_render_layer(4)
+                .with_debug_name("split_close"));
+        closeBtn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (closeBtn.ent().get<afterhours::ui::HasClickListener>().down)
+            app.requestSplitClose = true;
+    }
+
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, float paneW, float paneH) {
         std::string title = "Select a thread";
@@ -1803,14 +1910,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // frame (growth never decreases offset). It re-arms when the user comes
         // back to within ~24px of the end. This makes "stay at bottom" robust to
         // the content-growth race.
-        static std::string s_followId;
-        static bool s_follow = true;
-        static float s_prevOffset = 0.0f;
-        if (s_followId != curId) {      // switched threads → reset latch
-            s_followId = curId;
-            s_follow = true;
-            s_prevOffset = -1.0f;
+        //
+        // Keyed PER SESSION (not a single static) so split-view can render two
+        // transcripts in one frame without their follow/scroll state clobbering
+        // each other. Each pane's curId indexes its own latch.
+        static std::unordered_map<std::string, bool> s_followMap;
+        static std::unordered_map<std::string, float> s_prevOffsetMap;
+        auto followIt = s_followMap.find(curId);
+        if (followIt == s_followMap.end()) {   // first sight of this thread
+            s_followMap[curId] = true;
+            s_prevOffsetMap[curId] = -1.0f;
         }
+        bool& s_follow = s_followMap[curId];
+        float& s_prevOffset = s_prevOffsetMap[curId];
         float curOffset = 0.0f;
         float contentH = totalH;
         bool contentLaidOut = false;
@@ -1843,14 +1955,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // user stopped. Fix: (a) a generous base margin, and (b) a
         // velocity-aware extension in the direction of travel, computed from
         // the per-frame scroll delta, so the window always covers where the
-        // content will be next frame. Tracked per-session so switching tabs
-        // doesn't inherit a stale velocity.
-        static std::string s_velId;
-        static float s_lastScrollY = 0.0f;
+        // content will be next frame. Tracked per-session (map, not a single
+        // static) so switching tabs — or rendering two panes in split-view —
+        // doesn't inherit a stale velocity from the other thread.
+        static std::unordered_map<std::string, float> s_lastScrollYMap;
+        auto velIt = s_lastScrollYMap.find(curId);
         float vel = 0.0f;
-        if (s_velId == curId) vel = scrollY - s_lastScrollY;  // px/frame
-        s_velId = curId;
-        s_lastScrollY = scrollY;
+        if (velIt != s_lastScrollYMap.end()) vel = scrollY - velIt->second;
+        s_lastScrollYMap[curId] = scrollY;
         // Base margin ~1 viewport each side (covers normal wheel steps), plus
         // an extension of several frames of the current velocity in the travel
         // direction (clamped so a huge jump doesn't build the whole doc).

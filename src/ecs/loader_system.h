@@ -321,8 +321,48 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
-        // --- STEER (send into a RUNNING thread interrupts the in-flight
-        //     turn instead of starting a fresh one) ---
+        // --- SPLIT VIEW (I2): open/close the RIGHT pane's second transcript.
+        // Mirrors the primary open path but simpler: cache-hit renders
+        // synchronously; a miss fills app.splitSession on a worker thread. The
+        // primary pane is untouched, so single-pane behavior is unchanged.
+        if (app.requestSplitClose) {
+            app.requestSplitClose = false;
+            app.splitSessionId.clear();
+            app.splitSession.reset();
+            app.splitPending = false;
+            app.splitPendingId.clear();
+        }
+        if (!app.requestSplitOpen.empty()) {
+            std::string id = app.requestSplitOpen;
+            app.requestSplitOpen.clear();
+            // Don't split a pane against itself; and opening the primary thread
+            // in the split is a no-op (nothing to compare).
+            if (id != app.selectedId) {
+                app.splitSessionId = id;
+                if (auto hit = app.transcriptCache.get(id)) {
+                    app.splitSession = std::move(*hit);  // instant from LRU
+                    app.splitPending = false;
+                } else if (!app.splitPending) {
+                    app.splitPending = true;
+                    app.splitPendingId = id;
+                    api::Client* c = app.client.get();
+                    app.splitFuture = std::async(std::launch::async, [c, id] {
+                        return c->get_session(id, kMessagesWindow);
+                    });
+                }
+            }
+        }
+        if (app.splitPending && app.splitFuture.valid() &&
+            app.splitFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.splitFuture.get();
+            app.splitPending = false;
+            if (r.ok && app.splitSessionId == r.value.summary.id) {
+                app.transcriptCache.put(r.value);
+                app.splitSession = std::move(r.value);
+            }
+        }
+
         //
         // DECISION POINT: the composer sets requestSendPrompt (synchronous
         // backends) or requestStreamPrompt (streaming backends, incl. the mock)
