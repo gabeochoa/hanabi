@@ -209,10 +209,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_overflow(Overflow::Scroll, Axis::Y)
                 .with_transparent_bg()
-                // Small top pad so the first section label's text isn't clipped
-                // by the scroll viewport's top edge (its own top margin sits at
-                // the clip origin otherwise).
-                .with_padding(Padding{.top = pixels(2.0f)})
+                // Top pad so the FIRST section label's ascenders aren't clipped
+                // by the scroll viewport's top edge. The first label's own top
+                // margin can be swallowed at the clip origin, so give the body
+                // real top clearance (>= the label's ascent slack).
+                .with_padding(Padding{.top = pixels(10.0f)})
                 .with_roundness(0.0f)
                 .with_debug_name("settings_body_scroll"));
         Entity& b = body.ent();
@@ -245,9 +246,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // control gap is baked into the label's own bottom via kLabelH sizing.
     static constexpr float kPadV = 20.0f;        // panel top/bottom padding
     static constexpr float kHeaderH = 28.0f;     // title + close row
-    static constexpr float kSectionGap = 20.0f;  // space above each section label
-    static constexpr float kLabelH = 22.0f;      // section header label height
-    static constexpr float kLabelPadB = 6.0f;    // gap under a section label
+    static constexpr float kSectionGap = 16.0f;  // space above each section label
+    static constexpr float kLabelH = 26.0f;      // section header label height
+    static constexpr float kLabelPadB = 4.0f;    // gap under a section label
     // Total vertical footprint of one section header (gap + label + gap-below).
     static constexpr float kSectionH = kSectionGap + kLabelH + kLabelPadB;
     static constexpr float kThemeRowH = 34.0f;   // segmented control
@@ -319,6 +320,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(kLabelH)})
                 .with_margin(Margin{.top = pixels(kSectionGap),
                                     .bottom = pixels(kLabelPadB)})
+                // Vertically center the ~20px label in its box — a bare label
+                // div top-anchors its text, so without this the ascenders clip
+                // against the box/scroll top edge (esp. the first section).
+                .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
