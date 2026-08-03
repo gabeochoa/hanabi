@@ -289,6 +289,29 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // ---- Middle-click closes a tab (browser convention) ---------------
+        // sokol/raylib maps mouse button 2 == middle. A middle-press over any
+        // tab closes THAT tab (not just the active one), like every browser.
+        if (afterhours::graphics::is_mouse_button_pressed(2) && nTabs > 0) {
+            for (size_t i = 0; i < nTabs; ++i) {
+                float px = baseX + slotStride * static_cast<float>(i);
+                float w = uniformW;
+                if (px + w <= r.x || px >= stripRight) continue;
+                float hitX = std::max(px, r.x);
+                float hitR = std::min(px + w, stripRight);
+                if (afterhours::ui::is_mouse_inside(
+                        ctx.mouse.pos,
+                        RectangleType{hitX, r.y, hitR - hitX, tabH})) {
+                    const afterhours::EntityID tabId = strip.tabOrder[i];
+                    auto o = EntityHelper::getEntityForID(tabId);
+                    const bool wasActive = o.valid() && o->has<ActiveTab>();
+                    close_tab(strip, app, tabId, i, wasActive);
+                    strip.clear_drag();  // a middle-press must not start a drag
+                    break;
+                }
+            }
+        }
+
         // Recompute after a possible reorder (tabOrder / index may have moved).
         const bool dragging = strip.dragging && strip.has_drag_candidate();
         const size_t dragFrom =
