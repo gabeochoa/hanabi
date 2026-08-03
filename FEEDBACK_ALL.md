@@ -111,3 +111,11 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 ## DESIGN CRITICS (2 adversarial: visual-craft + macOS-HIG) — consensus logged
 - HIG-critic top items (traffic-light window controls, vibrancy/NSVisualEffectView, real NSSegmentedControl) need actual AppKit — hanabi uses a custom C++ toolkit by design, so these are ARCHITECTURAL, not polish. Logged, not actioned.
 - craft-critic "contrast inversion" (titles dim, chrome loud): Home card titles already text_primary (fine); sidebar font + status glyphs were Gabe's explicit prior decisions (V5 lighten, shape+color state system) — NOT churned without his call.
+
+## SETTINGS (Gabe: mirror navi web groups, mark API-blocked, include advanced, font choice)
+- [x] Settings modal rebuilt to mirror navi web groups IN ORDER: Appearance (Theme + Font) / Behavior (Yap, Auto-archive, Memory) / Notifications (Sound) / Data (cache+limit+export) / Model / Advanced (branch URL, experiments, compaction, shortcuts, reset) / Account+Sign-out (912fb63)
+- [x] All 3 themes functional + controllable; System now tracks OS appearance (bd4dda6, gap #16 fixed)
+- [x] Font choice Default(Roboto)/Hyperlegible(Atkinson, OFL) — live swap + persist + startup restore; whole UI re-renders; no clipping in either font
+- [x] Scrollable body (navi's full section set is ~1164px > window) — header fixed, sections scroll
+- [x] API-settability marked per row: // TODO(settings-api): PUT /api/user/preferences.<field> for yapLevel/autoArchiveDays/memoryBackend/notificationSound/defaultModelId/branchOverrideUrl/enabledExperiments/compactionThreshold/keyboardShortcuts; // NOTE client-local for theme+font; reset needs a dedicated endpoint
+- [ ] Functional wiring of the stubbed rows (needs a hanabi PUT-preferences client — not built yet)
