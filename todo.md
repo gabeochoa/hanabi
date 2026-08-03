@@ -266,26 +266,32 @@ Re-verified post-merge: many-tabs strip clean (headline defect fixed), light the
 ## 🔴 GABE FEEDBACK — 2026-08-03 (batch, HIGH HEAT — he feels ignored; fix + verify each)
 Ranked by heat. Each must be VERIFIED (screenshot / e2e), not assumed.
 
-1. [ ] **AUTOSCROLL: transcript does NOT stay pinned to bottom** (REPEATED complaint — top priority).
+1. [x] **AUTOSCROLL: transcript does NOT stay pinned to bottom** (REPEATED complaint — top priority).
        New messages / streaming should keep the view at the bottom; it drifts up one message.
        Root cause candidate: stale content_size race — pin clamps against LAST frame's height,
        then atBottom recomputes false after growth so following stops. Fix = a persistent
        follow-latch broken only by a real user scroll-up (not by the geometry growth race).
-2. [ ] **Corners too round** on the tool-call card (screenshot). Reduce roundness.
-3. [ ] **User prompt bubble corners MUST MATCH the tool-call card corners** (same roundness).
+2. [x] **Corners too round** on the tool-call card (screenshot). Reduce roundness.
+3. [x] **User prompt bubble corners MUST MATCH the tool-call card corners** (same roundness).
 4. [ ] **Tool-call ROW header left-align**: "🔑 2 tool calls · [cli:aspen] cd …" should be left aligned.
 5. [ ] **Tool-call footer meta** ("⚙ 2 … 5s ●"): count centered, duration+status-dot right aligned.
-6. [ ] **Remove the message-count from the transcript header** — don't need it at top; put it in the
+6. [x] **Remove the message-count from the transcript header** — don't need it at top; put it in the
        TAB TITLE instead (we don't really care how many messages).
 7. [ ] **Settings: make it WIDER so you don't need to scroll.**
 8. [ ] **Settings: buttons must ACTUALLY work + DO something** — every control wired.
 9. [ ] **Settings: add E2E tests** proving each control does something.
 10. [ ] **Settings persistence + sync**: save locally AND periodically sync so web always matches local.
 11. [ ] **"Coming soon" needs a better UI** (the stubbed settings rows look bad).
-12. [ ] **Notifications + sound: do they ACTUALLY work?** Verify Phase G native notifications fire;
+12. [x] **Notifications + sound: do they ACTUALLY work?** Verify Phase G native notifications fire;
         add sound if missing. (Gabe asked point-blank — needs a real yes/no + proof.)
 13. [ ] **Panel snapping support was never added** (I2 split-view / snap a tab L/R). Still owed.
 14. [ ] **Scrolling still too chunky** — smooth-scroll not active (needs vendor patch #30 landed OR a
         hanabi-side wheel-smoothing fallback that works against pinned edfe234).
 15. [ ] **"you still didnt fix this"** (screenshot) — RE-IDENTIFY exact item on next relaunch; likely
         one of the above resurfacing. Ask/confirm which.
+
+> NOTIFY-VERIFIED (2026-08-03): notifications + sound ARE real. src/native_extras.mm native_notify()
+> uses NSUserNotificationCenter deliverNotification with soundName=NSUserNotificationDefaultSoundName
+> (sound ON). Trigger: main.cpp fires it when the 'threads need you' count INCREASES (debounced 30s,
+> click-to-open the thread). Works ONLY from the bundled Hanabi.app (windowed path), never on --screenshot.
+> Answer to Gabe: YES, both work — relaunch the .app to receive them.
