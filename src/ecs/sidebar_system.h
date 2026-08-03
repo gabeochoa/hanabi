@@ -1724,14 +1724,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const float kTitleMin = 40.0f;    // title floor before dropping columns
         float rowContent = panelW - kRowPad;
         if (rowContent < kGlyphW + 10.0f) rowContent = kGlyphW + 10.0f;
+        // The trailing time column is sized to the ACTUAL rendered width of this
+        // row's label (not a fixed 46px box). A fixed right-aligned box put the
+        // label flush to the row's right edge but left the STAR — which sits to
+        // the label's left — pinned to the box's LEFT edge, ~24px of dead gap
+        // between the star and "now" (Gabe: "star is still not in the right
+        // spot"). Measuring the label means the star hugs the text. The title
+        // flex column absorbs the slack, so every timestamp still right-aligns
+        // to the same edge. Capped at kRowTimeColW so a long date can't blow the
+        // layout; a tiny pad keeps the star glyph off the digits.
+        const int64_t nowSecsPre = static_cast<int64_t>(std::time(nullptr));
+        const std::string ageLabelPre = row_time_label(s.updated_at, nowSecsPre);
+        float timeW = ageLabelPre.empty()
+                          ? 0.0f
+                          : theme::text_px(ageLabelPre, theme::type::SM) + 2.0f;
+        if (timeW > kRowTimeColW) timeW = kRowTimeColW;
         // Greedily reserve trailing columns only while the title can still hold
         // its floor. Time is the first to go, then the star (matches "drop the
-        // least essential column at narrow widths").
-        bool showTime = (rowContent - kGlyphW - kTitleMin) >= kRowTimeColW;
+        // least essential column at narrow widths"). The DROP decision uses the
+        // max column width (kRowTimeColW) so it's conservative; the actual
+        // reserve uses the measured timeW so the title fills the freed space.
+        bool showTime = !ageLabelPre.empty() &&
+                        (rowContent - kGlyphW - kTitleMin) >= kRowTimeColW;
         bool showStar =
             (rowContent - kGlyphW - kTitleMin -
              (showTime ? kRowTimeColW : 0.0f)) >= kStarW;
-        float reserved = kGlyphW + (showTime ? kRowTimeColW : 0.0f) +
+        float reserved = kGlyphW + (showTime ? timeW : 0.0f) +
                          (showStar ? kStarW : 0.0f);
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
@@ -1847,15 +1865,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Trailing relative-time column LAST → the RIGHTMOST column ("2h","3d",
         // "Jul 28"), right-aligned, with the star immediately to its left (M5).
-        // Empty label (unknown/future updated_at) renders blank but still
-        // reserves width. Dropped at very narrow widths (showTime).
+        // Column sized to the MEASURED label width (timeW) so the star hugs the
+        // text instead of a fixed box's left edge. Dropped at very narrow widths
+        // (showTime).
         const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
         std::string ageLabel = row_time_label(s.updated_at, nowSecs);
         if (showTime)
         div(ctx, mk(row.ent(), 4),
             ComponentConfig{}
                 .with_label(ageLabel)
-                .with_size(ComponentSize{pixels(kRowTimeColW), pixels(20)})
+                .with_size(ComponentSize{pixels(timeW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)

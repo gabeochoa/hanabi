@@ -170,14 +170,14 @@ struct StatusBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("status_right"));
 
         // Activity light: a small dot just left of the session-count text,
-        // vertically centered. Approximate the text width so the dot hugs the
-        // left edge of "N sessions" instead of floating in the empty gutter.
+        // vertically centered. Sized off the MEASURED text width so the dot
+        // hugs the left edge of "N sessions" instead of floating in the gutter
+        // (Gabe: "the dot should be up against the session count"). The count
+        // text is right-aligned against (r.x + r.width - kGutter), so its left
+        // edge is that minus the real rendered width.
         constexpr float kActDot = 6.0f;
         constexpr float kActGap = 6.0f;   // dot -> text spacing
-        // ~7px per glyph at MD is a stable estimate for this short label; the
-        // text is right-aligned against (r.x + r.width - kGutter), so its left
-        // edge is that minus the estimated text width.
-        const float rightTextW = static_cast<float>(right.size()) * 7.0f;
+        const float rightTextW = theme::text_px(right, theme::type::MD);
         const float rightTextLeft = r.x + r.width - kGutter - rightTextW;
         const float actDotX = rightTextLeft - kActGap - kActDot;
         const float actDotY = r.y + (r.height - kActDot) * 0.5f;

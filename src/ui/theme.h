@@ -14,6 +14,7 @@
 #include <afterhours/src/drawing_helpers.h>
 
 #include <bitset>
+#include <string>
 
 namespace theme {
 
@@ -365,6 +366,24 @@ constexpr float XS = 10.0f;          // smallest body
 constexpr float CHIP = 9.5f;         // tag chip text
 constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
 }  // namespace type
+
+// Real rendered width (logical px) of `s` at font size `px`, measured against
+// the SAME active font draw_text uses (fontstash bounds). Replaces the
+// per-glyph width ESTIMATES that left trailing gaps — e.g. a fixed-width
+// right-aligned time column meant the star sat flush to the COLUMN edge, not
+// the text, and the status activity dot floated in the gutter left of the
+// count. Falls back to a conservative per-glyph estimate only if the font
+// context isn't ready yet (very first frame / headless before font load).
+inline float text_px(const char* s, float px) {
+    if (!s || !*s) return 0.0f;
+    float w = afterhours::measure_text_internal(s, px);
+    if (w > 0.0f) return w;
+    // Fallback: ~0.5em per glyph (only hit before the font context exists).
+    return static_cast<float>(std::char_traits<char>::length(s)) * px * 0.5f;
+}
+inline float text_px(const std::string& s, float px) {
+    return text_px(s.c_str(), px);
+}
 }  // namespace theme
 
 // Layout constants referenced by the design-system presets.
