@@ -632,17 +632,113 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
             return r;
         };
-        out = strip_paired(in, "**");   // bold first (before single *)
-        out = strip_paired(out, "__");
-        out = strip_paired(out, "`");    // inline code
-        // Per-line markdown normalization (display-only, char-level — no wrap
-        // or height change): turn "- "/"* "/"+ " list markers into a real
-        // bullet "\u2022  ", and a lone "---"/"***"/"___" rule line into a run
-        // of box-drawing dashes so lists + rules read like a chat app instead
-        // of raw markdown. Runs INSIDE a fenced code block are left untouched
-        // (code is verbatim) — the caller only feeds prose lines here.
-        out = normalize_md_lines(out);
+        out = normalize_md_lines(in);
         return out;
+    }
+    // Remove matched inline markers (**bold**/__bold__/`code`) WITHOUT styling —
+    // used for the flat (user-bubble) path, which renders a single plain label
+    // and has no per-line span rendering. The rich (assistant) path keeps the
+    // markers and renders them as colored spans via md_to_spans instead.
+    static std::string strip_inline_markers(const std::string& in) {
+        auto strip_paired = [](std::string s, const std::string& d) {
+            std::string r;
+            r.reserve(s.size());
+            size_t i = 0;
+            while (i < s.size()) {
+                if (s.compare(i, d.size(), d) == 0) {
+                    size_t close = s.find(d, i + d.size());
+                    if (close != std::string::npos && close > i + d.size()) {
+                        std::string inner = s.substr(i + d.size(),
+                                                     close - (i + d.size()));
+                        if (inner.find('\n') == std::string::npos) {
+                            r += inner;
+                            i = close + d.size();
+                            continue;
+                        }
+                    }
+                }
+                r += s[i++];
+            }
+            return r;
+        };
+        std::string out = strip_paired(in, "**");
+        out = strip_paired(out, "__");
+        out = strip_paired(out, "`");
+        return out;
+    }
+
+    // ---- Inline markdown -> colored spans (gap #22 now unblocked) ----------
+    // afterhours styled labels now WORD-WRAP (upstream fbb6aef/1e95cd1) and
+    // vary COLOR per run (TextSpan is text+color; no per-run weight). So instead
+    // of stripping `code`/**bold**/_italic_ markers, we render each as a
+    // distinct COLOR: inline code in an accent tint, bold/italic in bright
+    // primary. Returns the VISIBLE text (markers removed) + the color runs; the
+    // visible text is what BOTH measure and render use for wrap/height, so the
+    // virtualization mirror stays exact (markers never affect layout).
+    struct InlineParse {
+        std::string visible;                       // marker-free text
+        std::vector<afterhours::ui::TextSpan> spans;  // colored runs
+    };
+    static InlineParse md_to_spans(const std::string& line) {
+        InlineParse p;
+        const theme::Color base = theme::text_primary();
+        const theme::Color codeC = theme::accent();
+        const theme::Color strongC = theme::text_primary();
+        auto push = [&](const std::string& t, theme::Color c) {
+            if (t.empty()) return;
+            p.visible += t;
+            // Merge with the previous run if same color (fewer runs).
+            if (!p.spans.empty() && p.spans.back().color.r == c.r &&
+                p.spans.back().color.g == c.g && p.spans.back().color.b == c.b &&
+                p.spans.back().color.a == c.a)
+                p.spans.back().text += t;
+            else
+                p.spans.push_back(afterhours::ui::TextSpan{t, c});
+        };
+        size_t i = 0;
+        const size_t n = line.size();
+        while (i < n) {
+            // inline code `...`
+            if (line[i] == '`') {
+                size_t close = line.find('`', i + 1);
+                if (close != std::string::npos && close > i + 1) {
+                    push(line.substr(i + 1, close - i - 1), codeC);
+                    i = close + 1;
+                    continue;
+                }
+            }
+            // **bold** / __bold__
+            for (const char* d : {"**", "__"}) {
+                if (line.compare(i, 2, d) == 0) {
+                    size_t close = line.find(d, i + 2);
+                    if (close != std::string::npos && close > i + 2) {
+                        push(line.substr(i + 2, close - i - 2), strongC);
+                        i = close + 2;
+                        goto next;
+                    }
+                }
+            }
+            // *italic* / _italic_ (single delimiter; require non-space inner)
+            for (char d : {'*', '_'}) {
+                if (line[i] == d && i + 1 < n && line[i + 1] != ' ') {
+                    size_t close = line.find(d, i + 1);
+                    if (close != std::string::npos && close > i + 1) {
+                        push(line.substr(i + 1, close - i - 1), strongC);
+                        i = close + 1;
+                        goto next;
+                    }
+                }
+            }
+            push(std::string(1, line[i]), base);
+            ++i;
+        next:;
+        }
+        return p;
+    }
+    // Visible (marker-free) length of a line, for wrap/height math. MUST match
+    // md_to_spans(line).visible.size() so measure and render agree.
+    static std::string md_visible(const std::string& line) {
+        return md_to_spans(line).visible;
     }
     // Line-by-line: bullet markers -> "•", ordered "1." kept, hr -> dashes.
     static std::string normalize_md_lines(const std::string& in) {
@@ -2805,7 +2901,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 start = p;
                 continue;
             }
-            int len = static_cast<int>(line.size());
+            // VISIBLE length (markers removed) so inline **bold**/`code`/_em_
+            // don't inflate the wrapped line count — must match render, which
+            // wraps the same visible text (md_to_spans).
+            int len = static_cast<int>(md_visible(line).size());
             if (len <= 0) {
                 h += kBlankPitch;
             } else {
@@ -2845,7 +2944,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (const auto* hit = render_cache().get(key, textW)) return *hit;
         }
         ecs::model::MsgRender r;
+        // Rich (assistant) path KEEPS inline markers so render_rich_body can
+        // color them as spans (gap #22); the flat (user) path strips them since
+        // it renders one plain label. Both go through normalize_md_lines
+        // (bullets / rules) via strip_inline_md.
         r.body = strip_inline_md(redact_secrets(m.text));
+        if (!rich) r.body = strip_inline_markers(r.body);
         if (isLive) {
             if (r.body.empty() ||
                 phase == AppComponent::StreamPhase::Thinking)
@@ -3314,10 +3418,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             float segH;
             bool blank = line.empty();
             int segLines = 1;
+            // Parse inline markdown -> colored spans once; the VISIBLE text
+            // drives wrap/height (identical to the measure path), the spans
+            // drive the styled draw below.
+            InlineParse ip = md_to_spans(line);
             if (blank) {
                 segH = kBlankPitch;
             } else {
-                segLines = (static_cast<int>(line.size()) + perLine - 1) /
+                segLines = (static_cast<int>(ip.visible.size()) + perLine - 1) /
                            perLine;
                 if (segLines < 1) segLines = 1;
                 segH = static_cast<float>(segLines) * kLinePitch;
@@ -3342,7 +3450,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 flush(9000 + seg);
                 div(ctx, mk(parent, 100 + seg),
                     ComponentConfig{}
-                        .with_label(line)
+                        .with_label(ip.visible)
+                        .with_styled_label(ip.spans)
                         .with_size(ComponentSize{percent(1.0f), pixels(segH)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_primary())

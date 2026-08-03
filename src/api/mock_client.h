@@ -847,9 +847,10 @@ class MockClient : public Client {
                  "why?",
                  hrs_ago(4), ""},
                 {"m2", Role::Assistant,
-                 "Pulled the last 40 CI runs \xe2\x80\x94 6 failures, all on the same "
-                 "assertion (cart total off by one line item). Smells like a "
-                 "fixture setup race. Running it in a tight loop locally.",
+                 "Pulled the last 40 CI runs \xe2\x80\x94 **6 failures**, all on the same "
+                 "assertion (`cart.total` off by one line item). Smells like a "
+                 "fixture setup race in `seed_cart()`. Running it in a tight "
+                 "loop locally.",
                  hrs_ago(4), ""},
                 {"m3", Role::Tool,
                  "for i in $(seq 1 50); do run checkout_flow_test; done \xe2\x86\x92 "
