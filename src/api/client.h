@@ -56,12 +56,13 @@ struct Config {
     std::string web_base_url;
     std::string sessions_path = "/sessions";
     std::string messages_path = "/sessions/{id}/messages";
-    // Chat/send endpoint. Defaults to the origin-root "//api/chat" (the leading
-    // "//" escapes the base_url's /api/v1 prefix — see http_client path join)
-    // so an http backend can SEND out of the box with just api_base_url+token,
+    // Chat/send endpoint. Defaults to "/chat" under the base_url's /api/v1
+    // prefix (verified live: POST /api/v1/chat returns 201 and, with a
+    // session_id, appends to that thread; a bare origin "//api/chat" is 401).
+    // So an http backend can SEND out of the box with just api_base_url+token,
     // no extra config. Override via config chat_path / env HANABI_CHAT_PATH.
     // (Set to "" explicitly to disable send on a backend that has no chat route.)
-    std::string chat_path = "//api/chat";
+    std::string chat_path = "/chat";
 
     // --- Agent steering (Phase STEER) -------------------------------------
     // When a message is sent into a thread whose agent is CURRENTLY RUNNING,
@@ -193,8 +194,12 @@ struct Config {
     //     message object, or an array of them under field_messages. Each is
     //     read with the same field_role / field_text / field_created_at /
     //     field_id / block mapping the transcript reader uses.
+    // Chat/send request field names. Verified live against /api/v1/chat: the
+    // prompt is "message" and the target thread is "session_id" (snake_case —
+    // "sessionId" is IGNORED and a new session is created instead). The reply
+    // response echoes {"session_id","url"}.
     std::string field_prompt = "message";
-    std::string field_session_id = "sessionId";
+    std::string field_session_id = "session_id";
 
     // --- Streaming (Phase STREAM) -----------------------------------------
     // Live token-by-token replies over a server-sent-events (SSE) channel. Like

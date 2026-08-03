@@ -955,9 +955,25 @@ static Result<Message> parse_reply_body(const std::string& raw,
                     : j;
             Message m = parse_message(obj, cfg);
             m.created_at = as_epoch_seconds(obj, cfg.field_created_at);
-            if (m.text.empty() && m.id.empty())
+            if (m.text.empty() && m.id.empty()) {
+                // ASYNC-ACK shape: POST /api/v1/chat returns {"session_id","url"}
+                // — the message was ACCEPTED and the assistant reply streams in
+                // later via SSE / the next transcript refetch, NOT in this
+                // response body. Treat it as a successful (empty) reply rather
+                // than a failure — the send DID land. The optimistic user bubble
+                // + SSE refresh render the actual turn.
+                if (obj.contains(cfg.field_session_id) || obj.contains("url")) {
+                    Message ack;
+                    ack.role = Role::Assistant;
+                    // Empty text: the assistant reply streams in later via SSE /
+                    // the next transcript refetch. An empty assistant turn is
+                    // harmless; the loader's refresh replaces it with the real
+                    // reply.
+                    return Result<Message>::success(std::move(ack));
+                }
                 return Result<Message>::failure(
                     "reply response missing message fields");
+            }
             return Result<Message>::success(std::move(m));
         }
         return Result<Message>::failure("unexpected reply response shape");
@@ -979,7 +995,12 @@ Result<std::string> HttpClient::create_session(const std::string& prompt) {    i
 
     try {
         json j = json::parse(raw.value);
-        // The new id may be at the top level or nested under a "session" object.
+        // The new id may be under the chat response's session-id field
+        // (verified: POST /api/v1/chat returns {"session_id","url"}), the
+        // generic id field, or nested under a "session" object.
+        if (j.is_object() && j.contains(cfg_.field_session_id))
+            return Result<std::string>::success(
+                as_string(j, cfg_.field_session_id));
         if (j.is_object() && j.contains(cfg_.field_id))
             return Result<std::string>::success(as_string(j, cfg_.field_id));
         if (j.is_object() && j.contains("session") &&
