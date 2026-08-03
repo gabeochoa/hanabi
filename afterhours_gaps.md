@@ -1042,3 +1042,57 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
   codes in the SAPP_EVENTTYPE_CHAR case (`if (ev->char_code >= 32 &&
   ev->char_code != 0x7F) push_char(...)`), or tighten `insert_char`'s guard to
   also reject 0x7F. A one-liner in the backend's CHAR case is cleanest.
+
+### #32 — text_input CURSOR (caret) draws INSIDE the last glyph, not after it
+- **Symptom (Gabe):** "the typing playhead is inside the last typed letter" — the
+  blinking caret overlaps the final character instead of sitting one gap to its right.
+- **Where:** `vendor/afterhours/src/plugins/ui/text_input/component.h` cursor-overlay
+  render (~line 288+): the caret x is derived from measured text-before-cursor width
+  but is missing a small trailing advance / half-gap, so it lands on the glyph's right
+  edge (visually inside it) rather than in the inter-character gap.
+- **Fix direction (vendor):** offset the caret x by +1px (or +half the space advance)
+  past the measured prefix width; clamp to the field's content width. App can't fix it
+  (the caret is drawn entirely inside the vendored widget).
+
+### #33 — text_input has NO Shift+Enter newline (single-line only; Enter is the only submit)
+- **Symptom (Gabe):** "shift+enter should make a new line." The single-line `text_input`
+  treats plain Enter as submit (WidgetPress) and has no Shift+Enter → insert '\n' path.
+  `text_area` (multiline) exists but the composer uses `text_input`.
+- **Fix direction (vendor):** in `text_input`'s key handling, when WidgetPress fires AND
+  Shift is held, insert '\n' instead of invoking on_submit (and let the field grow / wrap).
+  Requires the field to render multi-line (see #34). Alternatively hanabi swaps the
+  composer to `text_area` — but that widget needs the same wrap fix and a submit binding.
+
+### #34 — text_input does NOT wrap or clip long text — it overflows OUTSIDE the field box
+- **Symptom (Gabe):** "the text is still not wrapping it just goes outside the box." Typing
+  past the field width draws the text beyond the input's right edge (over the Send button /
+  pane) instead of horizontally scrolling within the clip OR wrapping to a new line.
+- **Where:** `text_input/component.h` — there IS a horizontal-scroll offset
+  (state.scroll_offset_x) + an `Overflow::Hidden` inner container (~line 158-167), but in
+  hanabi's composer setup the text still paints outside. Likely the clip container's width
+  isn't propagating (the transparent text_input inside a fixed-width wrap), OR the draw
+  path draws at the widget rect ignoring the clip. Single-line has no wrap at all.
+- **Fix direction:** (a) ensure the text draw is scissor-clipped to the field content rect
+  so overflow is hidden and h-scroll keeps the caret visible; and/or (b) add an opt-in
+  multi-line WRAP mode (pairs with #33 shift+enter) so the composer grows vertically.
+- **App-side interim:** none reliable yet (the draw is inside the vendored widget); needs
+  the vendor fix. Tracked for the afterhours branch.
+
+### #35 — text_input: no Escape-to-clear; arrow-key caret movement depends on InputSystem
+- **Escape:** Gabe wants Esc (2nd press) to clear the field. text_input has no
+  clear-on-escape; MenuBack(ESC) is mapped app-side but not wired to the field. This is
+  APP-SIDE fixable (composer listens for ESC and clears replyDraft + field state).
+- **Arrow keys:** WidgetLeft/Right (arrows) move the caret via the action system — which
+  only works now that hanabi registered afterhours::input::InputSystem (see the fix in
+  build_systems). Before that, NO caret movement worked. HOME/END are mapped but LEFT/RIGHT
+  must also be in hanabi's mapping (they are). Verify caret moves post-InputSystem-fix.
+
+### #27-family (recurring) — spawn_status overflows spawn_card (NoWrap fixed-width child)
+- **Symptom (log spam, every frame):** `Layout overflow: 'spawn_status' extends outside
+  parent 'spawn_card'` + `NoWrap set but would overflow (child_size=140, offset=564,
+  container=692)`. The spawn card's status label is a fixed 140px child placed at offset
+  564 in a 692px card → 704 > 692 by 12px.
+- **This is APP-SIDE (hanabi's spawn_card renderer), not vendor:** the fixed-width status
+  column + lead columns exceed the card content width. Fix the width math (shrink the
+  status column / compute it from remaining width like the tool-row meta cluster) so it
+  fits, killing the per-frame overflow warn (which also triggers solve_violations = perf).

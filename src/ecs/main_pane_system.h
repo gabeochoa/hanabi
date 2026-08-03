@@ -2469,6 +2469,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // ESCAPE-TO-CLEAR (Gabe): when the composer field is focused and ESC is
+        // pressed, clear the input. (The first-ESC-pauses-the-agent behavior is
+        // deferred — for now ESC just clears, which is the common chat-app
+        // behavior.) Read the raw key (256=ESC) so it works regardless of the
+        // action mapping; only act when THIS field holds focus so ESC elsewhere
+        // (e.g. closing a modal) isn't hijacked.
+        if (inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
+            auto& st =
+                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+            if (st.is_focused && afterhours::graphics::is_key_pressed(256)) {
+                st.storage.clear();
+                st.cursor_position = 0;
+                replyDraft.clear();
+            }
+        }
+
         // ENTER-TO-SEND. afterhours' text_input fires on_submit on Enter
         // (WidgetPress == ENTER, preload.cpp) IF the entity carries a
         // HasTextInputListener — the imm wrapper doesn't attach one, so a naked
@@ -4461,7 +4477,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Two-line-ish text column: label + task (stacked).
         auto textCol = div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(rowW - 180.0f),
+                // Fill the remainder: content box = rowW - 24 (L/R pad); minus
+                // icon(18) + icon margin(10) + status dot slot(16) = rowW - 68.
+                // (Was rowW-180 for a 140px status slot that overflowed the card
+                // by 12px every frame — the spawn_status NoWrap overflow spam.)
+                .with_size(ComponentSize{pixels(rowW - 68.0f),
                                          pixels(kSpawnCardH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
@@ -4498,7 +4518,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(card.ent(), 3),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(140), pixels(18)})
+                .with_size(ComponentSize{pixels(16), pixels(18)})
                 .with_transparent_bg()
                 .with_on_draw_fg([dotC](RectangleType rr) {
                     afterhours::draw_circle_v(

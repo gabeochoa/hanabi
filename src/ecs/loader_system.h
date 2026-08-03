@@ -60,6 +60,35 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
     }
 
+    // Carry still-PENDING local messages forward when a server transcript
+    // replaces the open session. A just-sent optimistic user bubble
+    // (sync == LocalOnly/Persisting/Failed) can vanish if the server refetch
+    // lands before the backend has materialized that turn — the swap would
+    // replace the transcript with a version that doesn't contain it yet (Gabe:
+    // "shows two checkmarks then disappears until the server responds"). Before
+    // swapping, collect any pending-local messages from the CURRENT open
+    // session that the incoming `fresh` transcript does NOT already contain (by
+    // id AND by text, since the server may assign a new id), and append them so
+    // they stay visible until a later refetch includes the real turn.
+    static void reconcile_optimistic(AppComponent& app, api::Session& fresh) {
+        if (!app.openSession) return;
+        for (const auto& m : app.openSession->messages) {
+            const bool pending = (m.sync == api::SyncState::LocalOnly ||
+                                  m.sync == api::SyncState::Persisting ||
+                                  m.sync == api::SyncState::Failed);
+            if (!pending) continue;
+            bool already = false;
+            for (const auto& f : fresh.messages) {
+                if ((!m.id.empty() && f.id == m.id) ||
+                    (f.role == m.role && !m.text.empty() && f.text == m.text)) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) fresh.messages.push_back(m);
+        }
+    }
+
     void for_each_with(Entity&, AppComponent& app, float) override {
         if (!app.client) return;
 
@@ -850,6 +879,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (fromLoadOlder && r.value.messages.size() > app.anchorPrevMsgCount) {
             app.anchorPending = r.value.summary.id;
         }
+        // Preserve just-sent optimistic messages the server hasn't materialized
+        // yet, so they don't blink out on a refetch that predates the turn.
+        reconcile_optimistic(app, r.value);
         app.transcriptCache.put(r.value);
         save_and_trim(app, r.value);
         app.openSession = std::move(r.value);
