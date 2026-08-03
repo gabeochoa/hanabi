@@ -145,7 +145,10 @@ void menubar_set_blocked(int n) {
         g_last_blocked = n;
         g_status_item.button.title = title_for_blocked(n);
         if (g_status_row != nil) g_status_row.title = status_for_blocked(n);
-        NSLog(@"menubar: blocked=%d title=%@", n, g_status_item.button.title);
+        // Chatty (fires on every blocked-count change) — silent unless
+        // HANABI_NATIVE_LOG=1 (Gabe: turn off the working-as-expected logging).
+        if (const char* v = getenv("HANABI_NATIVE_LOG"); v && v[0] && v[0] != '0')
+            NSLog(@"menubar: blocked=%d title=%@", n, g_status_item.button.title);
     }
 }
 

@@ -20,6 +20,23 @@
 
 #include "native_extras.h"
 
+// Debug-only native logging. The hotkey register/unregister fires on EVERY
+// focus change (app activate/resign), which floods the console (Gabe: "you can
+// turn off this logging, it's working as expected"). Gate the chatty ones
+// behind HANABI_NATIVE_LOG=1 so they're SILENT by default; one-shot install /
+// real-error logs stay unconditional. Evaluated once (env is process-static).
+static bool hanabi_native_log_enabled(void) {
+    static const bool on = [] {
+        const char* v = getenv("HANABI_NATIVE_LOG");
+        return v && *v && strcmp(v, "0") != 0;
+    }();
+    return on;
+}
+#define HLOG(...)                                                              \
+    do {                                                                       \
+        if (hanabi_native_log_enabled()) NSLog(__VA_ARGS__);                   \
+    } while (0)
+
 // ===========================================================================
 // 1. Global hotkey — Cmd+Shift+N (see the CHOSEN CHORD note in native_extras.h)
 // ===========================================================================
@@ -99,7 +116,7 @@ static void hotkey_register(void) {
         g_hotkey_ref = nullptr;
         return;
     }
-    NSLog(@"native_extras: global hotkey Cmd+Shift+N registered (hanabi active)");
+    HLOG(@"native_extras: global hotkey Cmd+Shift+N registered (hanabi active)");
 }
 
 // Unregister the Carbon hotkey iff registered. Called when hanabi resigns
@@ -114,8 +131,8 @@ static void hotkey_unregister(void) {
     // Clear any press that arrived right at the focus boundary so a stale
     // trigger doesn't fire after we've decided hanabi isn't focused.
     g_hotkey_triggered.store(false);
-    NSLog(@"native_extras: global hotkey Cmd+Shift+N unregistered (hanabi "
-          @"resigned active) — passes through to other apps");
+    HLOG(@"native_extras: global hotkey Cmd+Shift+N unregistered (hanabi "
+         @"resigned active) — passes through to other apps");
 }
 
 // Observer that toggles the Carbon hotkey registration with hanabi's active

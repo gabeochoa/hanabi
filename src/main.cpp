@@ -599,6 +599,19 @@ static void app_cleanup() {
     Settings::get().set_theme(theme::mode() == theme::Mode::Light ? "light"
                                                                   : "dark");
     Settings::get().write_save_file();
+
+    // FAST, non-hanging quit. AppComponent holds ~9 std::future<>s from
+    // std::async (transcript/list/send/stream/steer/split/settings-sync). A
+    // future returned by std::async BLOCKS in its destructor until the worker
+    // thread finishes — so if a network fetch is in flight against the real
+    // https backend when the window closes, the normal teardown (static dtors
+    // after main() returns) would hang waiting on that socket (Gabe: "closing
+    // the window takes forever, it just hangs and freezes mid close"). We've
+    // already persisted everything durable above, so there is nothing left to
+    // flush — terminate the process immediately and let the OS reclaim the
+    // threads/sockets/memory instead of blocking on future destructors.
+    std::fflush(nullptr);
+    std::_Exit(0);
 }
 
 // Headless one-shot: render the real UI to an offscreen texture and write a

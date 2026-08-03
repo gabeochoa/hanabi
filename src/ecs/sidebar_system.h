@@ -792,10 +792,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_wrap"));
         // Search field: a row-flex pill holding a magnifier sprite slot + an
-        // editable text_input, so the icon sits in the left gutter and the
-        // typed query flows after it. The input is bound directly to
-        // app.searchQuery (afterhours' text_input syncs the std::string), so
-        // the folder tree filters live as the user types.
+        // editable text_input. HOVER + FOCUS states (Gabe: "you still didnt
+        // address the hover state for the input for search"): the pill lifts on
+        // hover (hover_over wash) and shows a focus RING (accent border) while
+        // the text_input is focused. Both are read from the PREVIOUS frame's
+        // context state (ids are stable across frames via mk()), since in
+        // immediate mode the pill div is emitted before its input child.
+        static afterhours::EntityID s_searchFieldId =
+            std::numeric_limits<afterhours::EntityID>::max();
+        static afterhours::EntityID s_searchInputId =
+            std::numeric_limits<afterhours::EntityID>::max();
+        const bool searchHot =
+            s_searchFieldId !=
+                std::numeric_limits<afterhours::EntityID>::max() &&
+            (ctx.is_hot(s_searchFieldId) || ctx.was_hot(s_searchFieldId) ||
+             (s_searchInputId !=
+                  std::numeric_limits<afterhours::EntityID>::max() &&
+              ctx.is_hot(s_searchInputId)));
+        const bool searchFocused =
+            s_searchInputId !=
+                std::numeric_limits<afterhours::EntityID>::max() &&
+            ctx.has_focus(s_searchInputId);
+        // Fill lifts on hover; border is the accent focus-ring when focused,
+        // a hairline otherwise (so the field always reads as an input, and
+        // clearly as the ACTIVE input while typing).
+        theme::Color fieldFill =
+            searchHot ? theme::hover_over(theme::panel_bg_2())
+                      : theme::panel_bg_2();
+        theme::Color fieldBorder =
+            searchFocused ? theme::focus_ring() : theme::border();
         auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(30)})
@@ -804,9 +829,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.top = pixels(5), .right = pixels(8),
                                       .bottom = pixels(5), .left = pixels(8)})
-                .with_custom_background(theme::panel_bg_2())
+                .with_custom_background(fieldFill)
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_border(fieldBorder,
+                             pixels(searchFocused ? 1.5f : 1.0f))
                 .with_roundness(0.3f)
                 .with_debug_name("sb_search"));
+        s_searchFieldId = field.ent().id;
         div(ctx, mk(field.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -842,7 +871,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (searchTextW < 40.0f)
             searchTextW = std::max(12.0f, searchInner - kSearchSlot -
                                               (hasQuery ? kSearchSlot : 0.0f));
-        afterhours::text_input::text_input(
+        auto searchRes = afterhours::text_input::text_input(
             ctx, mk(field.ent(), 2), app.searchQuery,
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(searchTextW), pixels(20)})
@@ -853,6 +882,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_text"));
+        s_searchInputId = searchRes.ent().id;
 
         // Clear affordance (only when a query is present): an ✕ that empties
         // the query and restores the full tree.

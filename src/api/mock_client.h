@@ -792,7 +792,14 @@ class MockClient : public Client {
                 {"m5", Role::Assistant,
                  "Backoff is in. One edge case: on a cold start the breaker "
                  "opens immediately if the very first call fails. I can seed "
-                 "it half-open instead \xe2\x80\x94 want that, or leave it strict?",
+                 "it half-open instead \xe2\x80\x94 want that, or leave it strict?"
+                 "\n\nHere's the retry schedule I landed on:\n\n"
+                 "| Attempt | Delay | Jitter |\n"
+                 "|---------|-------|--------|\n"
+                 "| 1 | 200ms | \xc2\xb1 50ms |\n"
+                 "| 2 | 800ms | \xc2\xb1 200ms |\n"
+                 "| 3 | 3.2s | \xc2\xb1 800ms |\n"
+                 "| 4+ | 30s cap | full |\n",
                  hrs_ago(1), ""},
             };
             // Real node on the tool calls so the collapsed pile header reads

@@ -2644,6 +2644,99 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                kCodeVMargin;
     }
 
+    // ---- Markdown pipe-tables -------------------------------------------
+    // A GitHub-style table is a header row of "| a | b |", a separator row of
+    // "|---|:--:|---|", then N body rows. We render it as a real grid (header
+    // band + zebra-free bordered rows) instead of dumping the raw pipes as
+    // text (Gabe: "lets render markdown as table here"). Detection + geometry
+    // are shared by render + measure so the virtualization mirror stays exact.
+    static constexpr float kTableRowH = 22.0f;    // one table row height
+    static constexpr float kTableVMargin = 8.0f;  // margin above + below
+
+    // Split a "| a | b | c |" row into trimmed cells (drops the leading/trailing
+    // empty cells the outer pipes create).
+    static std::vector<std::string> table_cells(const std::string& line) {
+        std::vector<std::string> cells;
+        std::string cur;
+        // Skip a single leading pipe if present.
+        size_t i = 0;
+        // A table cell separator is a bare '|' (we don't handle escaped \| —
+        // rare in agent output; kept simple + safe).
+        for (; i < line.size(); ++i) {
+            if (line[i] == '|') {
+                cells.push_back(cur);
+                cur.clear();
+            } else {
+                cur += line[i];
+            }
+        }
+        cells.push_back(cur);
+        // Trim whitespace on each cell; drop the empty first/last from outer |.
+        for (auto& c : cells) {
+            size_t a = c.find_first_not_of(" \t");
+            size_t b = c.find_last_not_of(" \t");
+            c = (a == std::string::npos) ? "" : c.substr(a, b - a + 1);
+        }
+        if (!cells.empty() && cells.front().empty()) cells.erase(cells.begin());
+        if (!cells.empty() && cells.back().empty()) cells.pop_back();
+        return cells;
+    }
+    // A separator row: every cell is only dashes/colons/spaces, and there is at
+    // least one dash (so "|---|:--:|" matches but "| a |" does not).
+    static bool is_table_separator(const std::string& line) {
+        if (line.find('|') == std::string::npos) return false;
+        bool sawDash = false;
+        for (char c : line) {
+            if (c == '-') sawDash = true;
+            else if (c != '|' && c != ':' && c != ' ' && c != '\t')
+                return false;
+        }
+        return sawDash;
+    }
+    // True if the line at `start` begins a table: a pipe row immediately
+    // followed by a separator row. Returns the cell count via out-param.
+    static bool is_table_start(const std::string& body, size_t start) {
+        size_t nl = body.find('\n', start);
+        if (nl == std::string::npos) return false;  // need a 2nd line
+        std::string l1 = body.substr(start, nl - start);
+        if (l1.find('|') == std::string::npos) return false;
+        size_t nl2 = body.find('\n', nl + 1);
+        std::string l2 = body.substr(nl + 1, (nl2 == std::string::npos)
+                                                 ? std::string::npos
+                                                 : nl2 - (nl + 1));
+        return is_table_separator(l2);
+    }
+    // Scan a table starting at `start`; fill `rows` (each a cell vector; row 0
+    // is the header, the separator row is skipped) and return the byte offset
+    // just past the table. Shared by render + measure.
+    static size_t scan_table(const std::string& body, size_t start,
+                             std::vector<std::vector<std::string>>* rows) {
+        size_t p = start;
+        int lineIdx = 0;
+        while (p <= body.size()) {
+            size_t nl = body.find('\n', p);
+            size_t end = (nl == std::string::npos) ? body.size() : nl;
+            std::string line = body.substr(p, end - p);
+            // A table ends at the first line with no pipe (or EOF).
+            if (line.find('|') == std::string::npos) break;
+            if (lineIdx == 1 && is_table_separator(line)) {
+                // skip the separator row (it only defines alignment)
+            } else if (rows) {
+                rows->push_back(table_cells(line));
+            }
+            ++lineIdx;
+            if (nl == std::string::npos) { p = body.size() + 1; break; }
+            p = nl + 1;
+        }
+        return p;
+    }
+    // Height of a table with `nRows` rendered rows (header counts as a row).
+    static float table_h(int nRows) {
+        if (nRows < 1) nRows = 1;
+        return kTableVMargin + static_cast<float>(nRows) * kTableRowH +
+               kTableVMargin;
+    }
+
     // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
     // method's per-segment layout exactly (blank line = half pitch, else
     // segLines*pitch) so virtualization spacers line up with what renders.
@@ -2655,6 +2748,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             size_t nl = body.find('\n', start);
             size_t end = (nl == std::string::npos) ? body.size() : nl;
             std::string line = body.substr(start, end - start);
+            // ---- Markdown table: ONE atomic segment (mirror render) --------
+            if (is_table_start(body, start)) {
+                std::vector<std::vector<std::string>> rows;
+                size_t p = scan_table(body, start, &rows);
+                h += table_h(static_cast<int>(rows.size()));
+                start = p;
+                continue;
+            }
             if (is_code_fence(line)) {
                 // A fenced block is ONE atomic segment: scan to its closing
                 // fence, count inner lines, add the whole block's height. Both
@@ -2819,6 +2920,75 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A fenced code block as ONE rounded sunken container (matches the mock's
     // `.block`): a lang-bar header (uppercase language, left) + one mono row per
     // code line, hairline border + vertical margin. Height == code_block_h().
+    // Render a markdown table as a real bordered grid: a raised header band +
+    // body rows, columns evenly split. `rows[0]` is the header. Height mirrors
+    // table_h() so virtualization stays exact.
+    void render_table(UIContext<InputAction>& ctx, Entity& parent, int id,
+                      const std::vector<std::vector<std::string>>& rows,
+                      float textW) {
+        if (rows.empty()) return;
+        // Column count = the widest row (ragged rows are padded with blanks).
+        size_t nCols = 0;
+        for (const auto& r : rows) nCols = std::max(nCols, r.size());
+        if (nCols == 0) nCols = 1;
+        const int nRows = static_cast<int>(rows.size());
+        const float gridW = textW;
+        const float colW = gridW / static_cast<float>(nCols);
+
+        auto grid = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(gridW),
+                                         pixels(table_h(nRows) -
+                                                2.0f * kTableVMargin)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(kTableVMargin),
+                                    .bottom = pixels(kTableVMargin)})
+                .with_custom_background(theme::panel_bg())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(0.18f)
+                .with_debug_name("md_table"));
+
+        for (int ri = 0; ri < nRows; ++ri) {
+            const bool header = (ri == 0);
+            auto rowDiv = div(ctx, mk(grid.ent(), 1 + ri),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(kTableRowH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    // Header band uses the raised surface; body rows are the
+                    // pane bg with a hairline top divider (except the first).
+                    .with_custom_background(header ? theme::panel_bg_2()
+                                                   : theme::panel_bg())
+                    .with_border(theme::border(),
+                                 pixels(header ? 0.0f : 0.5f))
+                    .with_roundness(0.0f)
+                    .with_debug_name("md_table_row"));
+            for (size_t ci = 0; ci < nCols; ++ci) {
+                std::string cell =
+                    ci < rows[ri].size() ? rows[ri][ci] : std::string();
+                // Ellipsize to the column width (~6px/char at ROW size).
+                size_t budget = static_cast<size_t>((colW - 16.0f) / 6.1f);
+                if (budget < 3) budget = 3;
+                div(ctx, mk(rowDiv.ent(), 1 + static_cast<int>(ci)),
+                    ComponentConfig{}
+                        .with_label(fmtutil::ellipsize(cell, budget))
+                        .with_size(ComponentSize{pixels(colW),
+                                                 pixels(kTableRowH)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(header ? theme::text_primary()
+                                                       : theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_padding(Padding{.right = pixels(8),
+                                              .left = pixels(8)})
+                        .with_roundness(0.0f)
+                        .with_debug_name("md_table_cell"));
+            }
+        }
+    }
+
     void render_code_block(UIContext<InputAction>& ctx, Entity& parent, int id,
                            const std::string& lang,
                            const std::vector<std::string>& lines) {
@@ -2948,6 +3118,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             size_t nl = shown.find('\n', start);
             size_t end = (nl == std::string::npos) ? shown.size() : nl;
             std::string line = shown.substr(start, end - start);
+
+            // ---- Markdown table: ONE atomic segment (grid render) ----------
+            if (is_table_start(shown, start)) {
+                std::vector<std::vector<std::string>> rows;
+                size_t p = scan_table(shown, start, &rows);
+                const float blockH = table_h(static_cast<int>(rows.size()));
+                const float segTop = y;
+                const float segBot = y + blockH;
+                y = segBot;
+                const bool visible =
+                    !cull || (segBot >= winTop && segTop <= winBot);
+                if (!visible) {
+                    pending += blockH;
+                } else {
+                    flush(9000 + seg);
+                    render_table(ctx, parent, 100 + seg, rows, textW);
+                }
+                ++seg;
+                start = p;
+                continue;
+            }
 
             // ---- Fenced code block: ONE atomic segment (container) ----------
             if (is_code_fence(line)) {
@@ -3466,7 +3657,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_padding(Padding{.right = pixels(6), .left = pixels(7)})
                     .with_custom_background(theme::panel_bg_2())
                     .with_roundness(0.5f)
-                    .with_margin(Margin{.right = pixels(8)})
+                    .with_margin(Margin{.right = pixels(6)})
                     .with_debug_name("tool_count"));
             // Lucide `layers` sprite (a stacked pile) — replaces the raw `≡`
             // unicode glyph (last raw chrome glyph; Phase H).
@@ -3495,27 +3686,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("tool_count_n"));
         }
         // Duration only when known (real ms parsed); blank -> no fake number.
+        // Sized to its CONTENT (children()) with a small trailing gap so it
+        // sits right next to the dot instead of floating at the right edge of a
+        // wide fixed box (Gabe: "group the icons together, why so much space").
         if (!dur.empty()) {
             div(ctx, mk(parent, idbase + 2),
                 ComponentConfig{}
                     .with_label(dur)
-                    .with_size(ComponentSize{pixels(44), pixels(18)})
+                    .with_size(ComponentSize{children(), pixels(18)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Right)
-                    .with_margin(Margin{.right = pixels(8)})
+                    .with_margin(Margin{.right = pixels(6)})
                     .with_debug_name("tool_dur"));
         }
         // Chat redesign #3: status is a small calm trailing DOT, not a big
         // checkmark — done = soft green, failed = red. Reads as an ambient
         // status indicator on the quiet tool card, not a "task complete" stamp.
+        // Slot is 18px tall (matches the count/dur rows) and align_items::Center
+        // on the parent row centers it vertically; the glyph is drawn at the
+        // exact slot center (Gabe: "center the green dot").
         theme::Color dotC = failed ? theme::tag_blocked_fg()
                                    : theme::status_active();
         div(ctx, mk(parent, idbase + 3),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(14), pixels(16)})
+                .with_size(ComponentSize{pixels(12), pixels(18)})
                 .with_transparent_bg()
                 .with_on_draw_fg([dotC, failed](RectangleType rr) {
                     const float cx = rr.x + rr.width * 0.5f;
@@ -3599,8 +3796,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // numbers floating mid-row (worst for a single tool call, which has no
         // count badge). Leading = chevron(12) + icon(16) + icon margin(6).
         const float kLeadW = 12.0f + 16.0f + 6.0f;
-        float metaW = 14.0f;                         // check always
-        if (!dur.empty()) metaW += 44.0f + 8.0f;     // duration + its margin
+        float metaW = 12.0f;                         // status dot slot (always)
+        if (!dur.empty()) metaW += 40.0f + 6.0f;     // duration (content) + margin
         if (showCount) metaW += 42.0f + 8.0f;        // count badge + its margin
         // The row has left=10 + right=12 padding (22 total), so the content box
         // is rowW-22; subtract lead + meta from THAT (the old -8 undercounted
