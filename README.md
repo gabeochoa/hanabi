@@ -86,7 +86,8 @@ git clone --recurse-submodules <this-repo>
 cd hanabi
 make            # build ./output/hanabi
 make run        # build + launch (mock backend)
-make bundle     # build a macOS Hanabi.app
+make app        # build a macOS Hanabi.app WITH TLS (for a real https:// backend)
+make bundle     # build a macOS Hanabi.app (mock-only; non-TLS)
 make test       # run unit tests
 ```
 

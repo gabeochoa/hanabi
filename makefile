@@ -169,8 +169,27 @@ run:
 
 # macOS .app bundle
 APP_BUNDLE := $(OUTPUT_DIR)/Hanabi.app
+
+# Canonical "build the shippable app" target. The real backend is https, so the
+# distributable .app MUST be a TLS build — otherwise every real thread fails with
+# "https backend requires a TLS build" and the transcript + composer never render
+# (looked like "no chat input box"). Always build the app via this target.
+app:
+	@$(MAKE) HANABI_TLS=1 bundle
+
 bundle: $(MAIN_EXE) copy-resources
 	@echo "Building Hanabi.app..."
+	@# Preflight: a .app pointed at a real https backend needs TLS linked in. If the
+	@# binary we're about to bundle has no libssl, WARN loudly (mock-only demo is a
+	@# valid non-TLS build, but shipping a non-TLS .app to a real-backend user is the
+	@# "where's the input box?" bug). Non-fatal so the mock demo bundle still works.
+	@if ! otool -L $(MAIN_EXE) 2>/dev/null | grep -qiE 'libssl|libcrypto'; then \
+		echo ""; \
+		echo "  ⚠️  WARNING: bundling a NON-TLS binary. A real https:// backend will fail"; \
+		echo "      with 'https backend requires a TLS build' (no transcript, no composer)."; \
+		echo "      For a real-backend .app run:  make app   (== make HANABI_TLS=1 bundle)"; \
+		echo ""; \
+	fi
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	@cp $(MAIN_EXE) $(APP_BUNDLE)/Contents/MacOS/hanabi
@@ -231,7 +250,7 @@ MOCK_PORT ?= 8787
 mock-server:
 	python3 tools/mock_server/server.py --port $(MOCK_PORT)
 
-.PHONY: all clean clean-all deps copy-resources output run bundle mock-server
+.PHONY: all clean clean-all deps copy-resources output run bundle app mock-server
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)
