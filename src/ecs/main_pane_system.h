@@ -121,8 +121,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // can hide it and no transcript overflow can push it off-screen.
         if (canReply) {
             const auto& cr = layout->composer;
+            if (std::getenv("HANABI_DBG_COMPOSER")) {
+                fprintf(stderr,
+                        "[DBG composer] canReply=1 view=%d kickoff=%d "
+                        "rect={x=%.1f y=%.1f w=%.1f h=%.1f} "
+                        "main={x=%.1f y=%.1f w=%.1f h=%.1f} composerH=%.1f\n",
+                        (int)app->view, (int)composerKickoff, cr.x, cr.y,
+                        cr.width, cr.height, r.x, r.y, r.width, r.height,
+                        layout->composerHeight);
+            }
             render_composer(ctx, uiRoot, *app, cr.width, cr.height,
                             composerKickoff, cr.x, cr.y);
+        } else if (std::getenv("HANABI_DBG_COMPOSER")) {
+            fprintf(stderr,
+                    "[DBG composer] canReply=0 — client=%p supports_send=%d "
+                    "supports_stream=%d (composer NOT rendered)\n",
+                    (void*)app->client.get(),
+                    app->client ? (int)app->client->supports_send() : -1,
+                    app->client ? (int)app->client->supports_stream() : -1);
         }
     }
 
@@ -2375,6 +2391,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          .with_render_layer(6);  // above pane content
         }
         auto bar = div(ctx, mk(parent, 3), barCfg);
+        if (std::getenv("HANABI_DBG_COMPOSER")) {
+            Entity& be = bar.ent();
+            fprintf(stderr,
+                    "[DBG composer] bar entity id=%d absPassed=(%.1f,%.1f) "
+                    "paneW=%.1f composerH=%.1f kickoff=%d\n",
+                    (int)be.id, absX, absY, paneW, composerH, (int)kickoff);
+        }
 
         // A hairline top border sold via a 1px divider row so the composer
         // reads as a distinct footer strip separated from the message column.
