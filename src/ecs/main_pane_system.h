@@ -3396,7 +3396,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float metaW = 14.0f;                         // check always
         if (!dur.empty()) metaW += 44.0f + 8.0f;     // duration + its margin
         if (showCount) metaW += 42.0f + 8.0f;        // count badge + its margin
-        float cmdW = rowW - kLeadW - metaW - 8.0f;   // 8 = row right padding
+        // The row has left=10 + right=12 padding (22 total), so the content box
+        // is rowW-22; subtract lead + meta from THAT (the old -8 undercounted
+        // the padding and the trailing check overflowed the row by ~2px).
+        float cmdW = rowW - 22.0f - kLeadW - metaW;
         if (cmdW < 60.0f) cmdW = 60.0f;
         div(ctx, mk(head.ent(), 3),
             ComponentConfig{}

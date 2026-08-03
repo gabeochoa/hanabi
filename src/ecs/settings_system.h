@@ -69,6 +69,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
 
+        // Apply a PENDING font swap at the top of the frame, BEFORE any text is
+        // rendered this frame — mutating the FontManager's DEFAULT_FONT handle
+        // mid-render (from a click handler) can leave the in-flight render using
+        // a stale/half-updated font handle (freeze/crash risk). Deferring the
+        // load_font to frame-top makes the swap atomic w.r.t. rendering.
+        apply_pending_font();
+
         // Cmd+, toggles the settings overlay (mirrors sidebar's Cmd+B pattern:
         // 343/347 = left/right super, 44 = KEY_COMMA).
         bool cmdDown = afterhours::graphics::is_key_down(343) ||
@@ -430,6 +437,24 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto& s = Settings::get();
         if (s.get_font_choice() == value) return;  // no-op
         s.set_font_choice(value);  // auto-persists
+        // Defer the actual FontManager.load_font to frame-top (see
+        // apply_pending_font) so we never swap the DEFAULT_FONT handle while
+        // this frame is still rendering text with it.
+        pending_font() = value;
+    }
+
+    // The pending font choice to apply at frame-top (empty = nothing pending).
+    static std::string& pending_font() {
+        static std::string p;
+        return p;
+    }
+
+    // Apply a deferred font swap (called at frame-top, before any text render).
+    static void apply_pending_font() {
+        std::string& p = pending_font();
+        if (p.empty()) return;
+        const std::string value = p;
+        p.clear();
         auto& fontMgr =
             afterhours::EntityHelper::get_singleton_cmp_enforce<
                 afterhours::ui::FontManager>();
