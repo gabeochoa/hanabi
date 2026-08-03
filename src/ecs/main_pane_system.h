@@ -2346,6 +2346,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .left = pixels(composerGutter)})
                 .with_custom_background(theme::panel_bg())
                 .with_roundness(0.0f)
+                // Render ABOVE the content (layer 2 > the content's default/1)
+                // so a transcript whose scroll content overflows its clip can
+                // never paint over the composer — it is always on top and
+                // always visible (Gabe: "it should just always render").
+                .with_render_layer(2)
                 .with_debug_name("composer_bar"));
 
         // A hairline top border sold via a 1px divider row so the composer
