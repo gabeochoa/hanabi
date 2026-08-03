@@ -141,6 +141,11 @@ struct Config {
     // on the network); a remote http(s) image would need a future download step.
     std::string field_block_image_type = "image";
     std::string field_block_image_url = "url";
+    // navi's real inline-artifact block type is "show" (an agent-displayed
+    // image/media/artifact carrying a url + filename). Treated the same as an
+    // image block: a local/file:// url renders inline. Both "image" and "show"
+    // blocks are scanned for a renderable local image.
+    std::string field_block_show_type = "show";
 
     // Tool-call / tool-result BLOCK mapping. Real assistant messages carry an
     // interleaved SEQUENCE of blocks (text, tool_call, tool_result, ...); the

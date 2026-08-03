@@ -187,7 +187,8 @@ Message parse_message(const json& e, const Config& cfg) {
                     joined += c;
                 }
             } else if (!btype.empty() && m.subtitle.empty() &&
-                       btype != cfg.field_block_image_type) {
+                       btype != cfg.field_block_image_type &&
+                       btype != cfg.field_block_show_type) {
                 m.subtitle = btype;
             }
         }
@@ -201,7 +202,13 @@ Message parse_message(const json& e, const Config& cfg) {
     if (m.image_path.empty() && hasBlocks) {
         for (const auto& b : e.at(cfg.field_blocks)) {
             if (!b.is_object()) continue;
-            if (as_string(b, cfg.field_block_type) != cfg.field_block_image_type)
+            const std::string bt = as_string(b, cfg.field_block_type);
+            // Both "image" blocks and navi's "show" artifact blocks carry a
+            // renderable url (field_block_image_url, e.g. "url"). Render only a
+            // LOCAL / file:// url inline; remote (manifold/http) is left for a
+            // future download-to-cache step.
+            if (bt != cfg.field_block_image_type &&
+                bt != cfg.field_block_show_type)
                 continue;
             std::string url = as_string(b, cfg.field_block_image_url);
             if (url.rfind("file://", 0) == 0) {

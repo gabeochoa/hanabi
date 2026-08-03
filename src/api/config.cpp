@@ -84,6 +84,7 @@ void load_config_file(Config& c) {
     str("field_block_text_type", c.field_block_text_type);
     str("field_block_image_type", c.field_block_image_type);
     str("field_block_image_url", c.field_block_image_url);
+    str("field_block_show_type", c.field_block_show_type);
     str("field_prompt", c.field_prompt);
     str("field_session_id", c.field_session_id);
     // Streaming (Phase STREAM). All optional; empty stream_path keeps http
@@ -225,6 +226,8 @@ Config Config::from_env() {
         env_or("HANABI_FIELD_BLOCK_IMAGE_TYPE", c.field_block_image_type);
     c.field_block_image_url =
         env_or("HANABI_FIELD_BLOCK_IMAGE_URL", c.field_block_image_url);
+    c.field_block_show_type =
+        env_or("HANABI_FIELD_BLOCK_SHOW_TYPE", c.field_block_show_type);
 
     // Device-code auth (Phase AUTH). The REAL navi-CLI flow. Endpoint paths
     // default to the generic navi-CLI paths (siblings of the API, hence the
