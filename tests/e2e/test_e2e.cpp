@@ -241,6 +241,33 @@ static void test_tab_open_focus_no_duplicate() {
     CHECK(active == 1);
 }
 
+// KICKOFF from the Home landing composer: the loader creates a brand-new
+// session (an id NOT yet in the summary list) and hands it to the tab flow via
+// open_session_in_tab. That MUST still create a tab + switch the view to Chat
+// even though no summary exists yet (the list refresh lands a frame later).
+// This is the regression guard for "no chat input" -> Home landing composer.
+static void test_kickoff_opens_new_tab_without_summary() {
+    std::printf("test_kickoff_opens_new_tab_without_summary\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+    app.view = ecs::SmartView::Home;
+
+    const std::string freshId = "brand-new-kickoff-id";
+    CHECK(app.find_summary(freshId) == nullptr);  // not in the list yet
+
+    ecs::model::open_session_in_tab(strip, app, freshId);
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(app.selectedId == freshId);
+    CHECK(app.view == ecs::SmartView::Chat);     // Home -> Chat transition
+    CHECK(app.requestOpenId == freshId);         // loader fetches the transcript
+    // With no summary, the label falls back to the id (no crash / empty label).
+    {
+        auto* e = ecs::model::active_tab_entity();
+        CHECK(e != nullptr);
+        CHECK(e->get<ecs::Tab>().label == freshId);
+    }
+}
+
 static void test_tab_close_fallback() {
     std::printf("test_tab_close_fallback\n");
     auto& app = setup_app_with_sessions();
@@ -906,6 +933,7 @@ int main() {
     test_state_model_and_glyphs();
     test_smart_view_filters();
     test_tab_open_focus_no_duplicate();
+    test_kickoff_opens_new_tab_without_summary();
     test_tab_close_fallback();
     test_tab_switch_between_open_tabs();
     test_tab_reorder_drop_index();

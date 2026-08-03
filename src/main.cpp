@@ -844,6 +844,17 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             std::string(d) != "0") {
             appForWait->loadingOlder = true;
         }
+        // Screenshot affordance: HANABI_KICKOFF_DEMO=<text> fires the Home
+        // landing composer's kickoff ONCE (create_session for a NEW thread),
+        // proving the full Home -> type -> new tab -> Chat flow headlessly. The
+        // loader creates the session, opens it in a tab, and switches to Chat —
+        // exactly as a real Send/Enter from the landing composer would. Mock
+        // backend generates the session; no real network.
+        if (const char* d = std::getenv("HANABI_KICKOFF_DEMO"); d && *d &&
+            std::string(d) != "0") {
+            appForWait->view = ecs::SmartView::Home;
+            appForWait->requestKickoffPrompt = d;
+        }
     }
 
     // Render several frames so async data loads and layout settles.
@@ -973,7 +984,10 @@ int main(int argc, char* argv[]) {
     // Accepts both "--screenshot <path>" and "--screenshot=<path>".
     std::string shot = cmdl("screenshot").str();
     if (!shot.empty()) {
-        return run_headless_screenshot(shot, 1100, 760);
+        int sw = 1100, sh = 760;
+        if (const char* ew = std::getenv("HANABI_WIN_W"); ew && *ew) sw = atoi(ew);
+        if (const char* eh = std::getenv("HANABI_WIN_H"); eh && *eh) sh = atoi(eh);
+        return run_headless_screenshot(shot, sw, sh);
     }
 
     afterhours::graphics::RunConfig cfg;

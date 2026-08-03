@@ -1117,7 +1117,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      AppComponent& app, float paneW, float paneH) {
         header(ctx, parent, "Home", "", theme::type::H1);
 
-        float listH = paneH - 46.0f;
+        // Landing composer: a persistent input pinned to the bottom of Home so
+        // you can start a new conversation the moment the app opens (Gabe: "no
+        // chat input" — the composer previously ONLY existed inside an open
+        // thread, so the no-tab landing screen had nowhere to type). Kickoff
+        // mode routes Send/Enter to create_session; the loader opens the new
+        // thread as a tab. Only when the backend can actually send.
+        const bool canKickoff =
+            app.client && app.client->supports_send();
+        const float kComposerH = canKickoff ? 92.0f : 0.0f;
+
+        float listH = paneH - 46.0f - kComposerH;
         if (listH < 40.0f) listH = 40.0f;
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -1143,6 +1153,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // skipped — this only bites the first-ever launch.)
         if (app.sessions.empty() && app.listState == LoadState::Loading) {
             for (int k = 0; k < 6; ++k) skeleton_card(ctx, wrap, k);
+            if (canKickoff)
+                render_composer(ctx, parent, app, paneW, kComposerH,
+                                /*kickoff=*/true);
             return;
         }
 
@@ -1239,6 +1252,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
                 digest_card(ctx, wrap, ++shown, *recent[k], app, false, cardW);
         }
+
+        // Landing composer, pinned below the scroll list (see the kComposerH
+        // reservation above). Rendered on the Home pane so a fresh launch (no
+        // open tab) still has a place to type — the fix for "no chat input".
+        if (canKickoff)
+            render_composer(ctx, parent, app, paneW, kComposerH,
+                            /*kickoff=*/true);
     }
 
     static std::string upper(std::string s) {
@@ -2188,7 +2208,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // can't reply (an unconfigured http backend), the button stays disabled-
     // styled with an honest caption instead of faking it.
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
-                         AppComponent& app, float paneW, float composerH) {
+                         AppComponent& app, float paneW, float composerH,
+                         bool kickoff = false) {
+        // KICKOFF mode: rendered on the Home landing screen (no thread open) so
+        // you can start typing the moment the app opens — every daily-driver
+        // chat app has a persistent input on its landing view. In kickoff mode
+        // Send/Enter route to app.requestKickoffPrompt (create_session), NOT the
+        // reply path (which needs an open selectedId). The loader opens the new
+        // thread as a tab, so the view transitions Home -> Chat automatically.
         // PER-THREAD persistent drafts. One composer instance renders whichever
         // thread is active, so a single shared draft would leak thread A's
         // half-typed reply into thread B on a tab switch. Key the draft by
@@ -2197,13 +2224,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // AppComponent; the map is small — one short string per opened thread).
         static std::map<std::string, std::string> replyDrafts;
         const std::string draftKey =
-            app.openSession ? app.openSession->summary.id : std::string();
+            kickoff ? std::string("__kickoff__")
+                    : (app.openSession ? app.openSession->summary.id
+                                       : std::string());
         std::string& replyDraft = replyDrafts[draftKey];
 
         // Consume a welcome-screen suggestion-chip seed into the new-task draft
-        // (once). Only applies to the new-task composer (empty draftKey) so it
-        // never overwrites a real thread's in-progress reply.
-        if (!app.welcomeSeed.empty() && draftKey.empty()) {
+        // (once). Applies to the new-task composers (kickoff Home composer or
+        // the empty-key overlay) so it never overwrites a real thread's
+        // in-progress reply.
+        if (!app.welcomeSeed.empty() && (kickoff || draftKey.empty())) {
             replyDraft = app.welcomeSeed;
             app.welcomeSeed.clear();
         }
@@ -2255,17 +2285,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool canStream = app.client && app.client->supports_stream();
         const std::string& openId = draftKey;  // same value: the open thread id
         // "Sending" covers BOTH the synchronous reply in flight and a live
-        // stream draining into this thread — either disables the composer.
+        // stream draining into this thread — either disables the composer. In
+        // kickoff mode it's the create_session round-trip (kickoffPending).
         const bool sending =
-            (app.sendPending && app.sendSessionId == openId) ||
-            (app.streamActive && app.streamSessionId == openId);
+            kickoff ? app.kickoffPending
+                    : ((app.sendPending && app.sendSessionId == openId) ||
+                       (app.streamActive && app.streamSessionId == openId));
         const bool hasText = !replyDraft.empty();
-        const size_t queued = app.pending_send_count(openId);
+        const size_t queued = kickoff ? 0 : app.pending_send_count(openId);
         // The loader QUEUES a send that arrives while one is in flight (FIFO,
         // drained when the current turn finishes), so Send stays enabled during
         // a send — you can line up the next message. Only truly-unavailable
-        // (no backend / empty field) disables it.
-        const bool sendEnabled = canSend && hasText;
+        // (no backend / empty field) disables it. Kickoff needs supports_send
+        // (create_session shares the chat_path) and no in-flight kickoff.
+        const bool sendEnabled =
+            kickoff ? (canSend && hasText && !app.kickoffPending)
+                    : (canSend && hasText);
 
         // Center the composer under the 720px reading column (same gutter as
         // the transcript scroll). Falls back to kContentInset on a narrow pane.
@@ -2366,7 +2401,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             inputEnt.addComponentIfMissing<
                 afterhours::text_input::HasTextInputListener>(
                 nullptr,  // on_change: not needed (imm syncs replyDraft)
-                [appPtr = &app, canStream, canSend,
+                [appPtr = &app, canStream, canSend, kickoff,
                  draftPtr = &replyDraft](Entity& e) {
                     // Read the CURRENT field text off the input state (the most
                     // up-to-date value, incl. the char typed just before Enter).
@@ -2381,7 +2416,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         text.pop_back();
                     if (text.empty()) return;              // nothing to send
                     if (!(canStream || canSend)) return;   // backend can't send
-                    if (canStream) appPtr->requestStreamPrompt = text;
+                    // Kickoff (Home landing composer) starts a NEW session via
+                    // create_session; a normal composer replies to the open one.
+                    if (kickoff) appPtr->requestKickoffPrompt = text;
+                    else if (canStream) appPtr->requestStreamPrompt = text;
                     else appPtr->requestSendPrompt = text;
                     // Clear BOTH the input state AND the persistent draft (the
                     // imm wrapper re-syncs state<-draft each frame, so clearing
@@ -2401,9 +2439,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // on_draw_fg child (same proven pattern as the sidebar search), so it's
         // clearly an input at rest. Replaced by real glyphs the moment you type.
         if (replyDraft.empty()) {
-            const bool steer = app.should_steer_open();
-            const char* ph = steer ? "Steer the running agent\xe2\x80\xa6"
-                                    : "Message hanabi\xe2\x80\xa6";
+            const bool steer = !kickoff && app.should_steer_open();
+            const char* ph = kickoff ? "Start a new conversation\xe2\x80\xa6"
+                             : steer  ? "Steer the running agent\xe2\x80\xa6"
+                                      : "Message hanabi\xe2\x80\xa6";
             div(ctx, mk(inputWrap.ent(), 2),
                 ComponentConfig{}
                     .with_label(" ")
@@ -2427,7 +2466,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // this same button STEERS (interrupt/redirect) — relabel to "Steer" so
         // the action reads honestly. Minimal touch: label-only (fits the same
         // fixed sendW), no layout change.
-        const bool steerMode = app.should_steer_open();
+        const bool steerMode = !kickoff && app.should_steer_open();
         // Send = a filled primary pill with an up-arrow (modern chat "send"),
         // Steer keeps its word (interrupt/redirect reads better as text), "…"
         // while in flight. Rounder (0.5) so it reads as an intentional primary
@@ -2454,12 +2493,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.5f)
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
-            // Route through the STREAMING path when the backend supports it
+            // Kickoff (Home landing composer) starts a NEW session via
+            // create_session (LoaderSystem opens it as a tab). A normal composer
+            // routes through the STREAMING path when the backend supports it
             // (the mock does), so the reply fills in token-by-token; otherwise
-            // fall back to the synchronous one-shot path (no regression). Both
+            // fall back to the synchronous one-shot path (no regression). All
             // are one-shot flags serviced by LoaderSystem; setting only one per
             // turn keeps them mutually exclusive.
-            if (canStream)
+            if (kickoff)
+                app.requestKickoffPrompt = replyDraft;
+            else if (canStream)
                 app.requestStreamPrompt = replyDraft;
             else
                 app.requestSendPrompt = replyDraft;

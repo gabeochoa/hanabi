@@ -450,9 +450,13 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 auto r = app.kickoffFuture.get();
                 app.kickoffPending = false;
                 if (r.ok) {
-                    // Refresh the list so the new thread appears, and open it.
+                    // Refresh the list so the new thread appears, and open it
+                    // in a TAB (requestOpenTab, not requestOpenId) so the view
+                    // transitions Home -> Chat and a tab is created for the new
+                    // session — otherwise the kickoff loaded the transcript but
+                    // left the user on Home with no visible tab.
                     app.requestListRefresh = true;
-                    app.requestOpenId = r.value;
+                    app.requestOpenTab = r.value;
                 } else {
                     // Surface the failure on the list rail (non-fatal).
                     app.listError = r.error;
