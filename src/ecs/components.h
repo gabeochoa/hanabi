@@ -95,7 +95,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // anchorPending is the session id awaiting the offset bump (empty = none).
     std::string anchorPending;
     size_t anchorPrevMsgCount = 0;   // message count before the older load
-    float anchorPrevContentH = 0.0f;  // content_size.y before the older load
 
     // --- Live events (SSE) — MULTI-thread background subscriptions --------
     // When the backend supports_events(), the loader keeps a POOL of live
@@ -129,7 +128,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // fetch whose result swaps into openSession.
     std::future<api::Result<api::Session>> liveFuture;
     bool livePending = false;
-    std::string livePendingId;
 
     // Phase X: LRU transcript cache (last 20 msgs x last 5 threads). On a
     // cache HIT the loader sets openSession synchronously (no fetch, no Loading
@@ -180,11 +178,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // Phase I: request to toggle a thread's starred flag (set by sidebar row,
     // consumed by whichever system owns the summary mutation).
     std::string requestToggleStar;
-
-    // Phase J (transcript): which sub-agent rows are expanded in the sub-agent
-    // panel (child session id -> expanded). Sub-agent viz lives in the
-    // transcript only, never the sidebar.
-    std::set<std::string> expandedSubAgents;
 
     // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
     // collapse into one "N tool calls" summary row (like the navi website); the

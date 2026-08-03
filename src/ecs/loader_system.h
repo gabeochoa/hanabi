@@ -616,7 +616,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.liveFuture = std::async(std::launch::async,
                                         [c, id] { return c->get_session(id, 0); });
             app.livePending = true;
-            app.livePendingId = id;
         }
         service_transcript_swap(app, /*fromLoadOlder=*/true);
     }

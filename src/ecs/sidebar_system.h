@@ -258,79 +258,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- text helpers ----
 
-    // ---- time-based grouping for the un-foldered "Recent" catch-all ----
-    // Real backends return sessions with no folder and mostly-calm state, so a
-    // flat "Recent (102)" catch-all isn't scannable. Worse: on a real backend
-    // ~all sessions are older than a week, so a coarse Today/This-Week/Earlier
-    // split dumped ~100 rows into ONE flat "Earlier (100)" bucket — still not
-    // scannable. So we bucket into the finer chat-app-standard set:
-    //   Today / Yesterday / Previous 7 Days / Previous 30 Days / Older
-    // Each non-empty bucket is its own collapsible dated section, so a big
-    // backlog breaks into several scannable groups. The classification is a
-    // pure, now-injected function so it is deterministic (updated_at is unix
-    // epoch seconds; 0 = unknown). Kept local to this owned file.
-    enum class TimeBucket { Today, Yesterday, PrevWeek, PrevMonth, Older };
-
-    // Classify `updated_at` relative to `now` (both unix epoch seconds). The
-    // day boundaries are LOCAL-calendar based (so "Today"/"Yesterday" match the
-    // user's wall clock), and the wider buckets are rolling day-count windows
-    // measured from local midnight so a session doesn't drift between buckets
-    // within a day:
-    //   Today      = same LOCAL calendar day as `now`
-    //   Yesterday  = the local calendar day before today
-    //   PrevWeek   = 2..7 days before today (this week's earlier days)
-    //   PrevMonth  = 8..30 days before today
-    //   Older      = >30 days, in the future (clock skew), or unknown(0)
-    static TimeBucket time_bucket(int64_t updated_at, int64_t now) {
-        if (updated_at <= 0) return TimeBucket::Older;   // unknown
-        if (updated_at > now) return TimeBucket::Older;  // future / skew
-        // Whole-day difference between the two LOCAL calendar dates. We compare
-        // by local midnight of each so DST / partial days don't misbucket.
-        const int64_t day = 24 * 60 * 60;
-        std::time_t nt = static_cast<std::time_t>(now);
-        std::time_t ut = static_cast<std::time_t>(updated_at);
-        std::tm ntm{};
-        std::tm utm{};
-        localtime_r(&nt, &ntm);
-        localtime_r(&ut, &utm);
-        // Local midnight (00:00:00) of each date.
-        std::tm nmid = ntm;
-        nmid.tm_hour = nmid.tm_min = nmid.tm_sec = 0;
-        std::tm umid = utm;
-        umid.tm_hour = umid.tm_min = umid.tm_sec = 0;
-        std::time_t n0 = std::mktime(&nmid);
-        std::time_t u0 = std::mktime(&umid);
-        int64_t days = static_cast<int64_t>((n0 - u0) / day);
-        if (days <= 0) return TimeBucket::Today;
-        if (days == 1) return TimeBucket::Yesterday;
-        if (days <= 7) return TimeBucket::PrevWeek;
-        if (days <= 30) return TimeBucket::PrevMonth;
-        return TimeBucket::Older;
-    }
-
-    // Stable display label + collapse key per bucket. The key drives the
-    // collapsed-set membership and must not collide with named-folder keys
-    // (stars/oncall/experiments/recent/__archived__).
-    static const char* time_bucket_label(TimeBucket b) {
-        switch (b) {
-            case TimeBucket::Today: return "Today";
-            case TimeBucket::Yesterday: return "Yesterday";
-            case TimeBucket::PrevWeek: return "Previous 7 Days";
-            case TimeBucket::PrevMonth: return "Previous 30 Days";
-            case TimeBucket::Older: return "Older";
-        }
-        return "Older";
-    }
-    static const char* time_bucket_key(TimeBucket b) {
-        switch (b) {
-            case TimeBucket::Today: return "__t_today__";
-            case TimeBucket::Yesterday: return "__t_yesterday__";
-            case TimeBucket::PrevWeek: return "__t_week__";
-            case TimeBucket::PrevMonth: return "__t_month__";
-            case TimeBucket::Older: return "__t_older__";
-        }
-        return "__t_older__";
-    }
 
     // Compact right-aligned per-row timestamp derived from `updated_at`
     // (relative to `now`). Recent rows read as a relative age ("now","5m",
@@ -1409,8 +1336,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Per Gabe: do NOT day-bucket. Both named folders and the Recent
         // catch-all render as a single FLAT list, newest-first. (The old
-        // Today/Yesterday/Prev-week time grouping is gone; render_time_groups
-        // is retained but unused so it can be re-enabled behind a toggle.)
+        // Today/Yesterday/Prev-week time grouping + render_time_groups were
+        // removed — dead per this decision, ponytail types pass 2026-08-03.)
         if (catchAll) {
             std::sort(members.begin(), members.end(),
                       [](const api::SessionSummary* a,
@@ -1627,65 +1554,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return total;
     }
 
-    // ---- time-based grouping for the Recent catch-all ----
-    // Splits `members` into Today / Yesterday / Previous 7 Days / Previous 30
-    // Days / Older buckets by updated_at (relative to the system clock) and
-    // renders each NON-EMPTY bucket as its own collapsible group, reusing the
-    // folder-header + collapse machinery. This turns a real backend's flat
-    // "Recent (100)" — which a coarse 3-bucket split would just re-pile into
-    // one "Earlier (100)" — into several scannable dated sections. Buckets
-    // render newest-first; within a bucket the order is whatever the members
-    // vector already carries (newest-first from the backend sort). Each bucket
-    // gets its own id block so entity ids never collide.
-    int render_time_groups(
-        UIContext<InputAction>& ctx, Entity& parent, int base,
-        const std::vector<const api::SessionSummary*>& members,
-        AppComponent& app, const std::string& q, float panelW, bool archived) {
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
-
-        // Partition, preserving each member's incoming (newest-first) order.
-        std::vector<const api::SessionSummary*> today, yesterday, week, month,
-            older;
-        for (const auto* s : members) {
-            switch (time_bucket(s->updated_at, now)) {
-                case TimeBucket::Today: today.push_back(s); break;
-                case TimeBucket::Yesterday: yesterday.push_back(s); break;
-                case TimeBucket::PrevWeek: week.push_back(s); break;
-                case TimeBucket::PrevMonth: month.push_back(s); break;
-                case TimeBucket::Older: older.push_back(s); break;
-            }
-        }
-
-        int shown = 0;
-        // Each bucket is rendered as its own collapsible group. The id blocks
-        // are spaced 300 apart (well above any realistic bucket row count) so
-        // entity ids never collide across buckets or with the next folder's
-        // base (folders are 1000 apart; 5 buckets * 300 = 1500 would exceed the
-        // 1000 spacing, so time-groups get a WIDER 200-apart base range that
-        // fits inside the Recent folder's 4000..4999 block — see note). We keep
-        // each bucket to a 200-id slot; 5 * 200 = 1000, exactly the folder
-        // spacing, and a bucket can hold ~199 rows before touching the next
-        // slot (plenty for a real backlog).
-        struct B {
-            TimeBucket b;
-            const std::vector<const api::SessionSummary*>* rows;
-        };
-        const B order[] = {{TimeBucket::Today, &today},
-                           {TimeBucket::Yesterday, &yesterday},
-                           {TimeBucket::PrevWeek, &week},
-                           {TimeBucket::PrevMonth, &month},
-                           {TimeBucket::Older, &older}};
-        int slot = 0;
-        for (const auto& e : order) {
-            if (!e.rows->empty()) {
-                shown += render_group(
-                    ctx, parent, base + slot * 200, time_bucket_label(e.b),
-                    time_bucket_key(e.b), *e.rows, app, q, panelW, archived);
-            }
-            ++slot;
-        }
-        return shown;
-    }
 
 
     // ---- high-signal chat row ----
