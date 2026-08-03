@@ -207,7 +207,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(kPadV), .right = pixels(kPadH),
                                       .bottom = pixels(kPadV),
                                       .left = pixels(kPadH)})
-                .with_roundness(0.35f)
+                // Modest corner like the buttons (Gabe: "reduce the corner radius
+                // on the settings container, similar to the buttons"). afterhours
+                // radius = min(w,h)*0.5*roundness, so on a 600px panel a fixed
+                // 0.35 was a huge sweep — derive a ~8px pixel radius instead.
+                .with_roundness(theme::roundness_for_px(8.0f, pw, ph))
                 .with_render_layer(11)
                 .with_debug_name("settings_panel"));
 
@@ -370,7 +374,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(header.ent(), 1),
             ComponentConfig{}
                 .with_label("Settings")
-                .with_size(ComponentSize{pixels(pw_title()), pixels(24)})
+                // Fill the row minus the close button so the ✕ pins flush-right
+                // (Gabe: "the x button is in the wrong space"). Full content
+                // width = kPanelW - 2*kPadH; reserve the 26px close + 8px gap.
+                .with_size(ComponentSize{pixels(full_content_w() - 34.0f),
+                                         pixels(24)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Large)
@@ -378,11 +386,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_title"));
 
-        // Close (✕).
+        // Close (✕) — pinned flush-right by the full-width title above.
         auto closeBtn = button(ctx, mk(header.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
+                .with_margin(Margin{.left = pixels(8)})
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_custom_text_color(theme::text_secondary())
@@ -481,7 +490,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_font_row(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app) {
         (void)app;
-        row_name(ctx, parent, 6, "Font", "settings_font_label");
+        // Clarify this is the APP's UI typeface (a hanabi-local preference — the
+        // web schema has no font field), and label the options by what they
+        // actually are: the standard UI font vs Atkinson Hyperlegible (an
+        // accessibility face). Gabe: "font setting doesn't make sense" — the
+        // bare "Default / Hyperlegible" pair read as arbitrary.
+        row_name(ctx, parent, 6, "App font", "settings_font_label");
 
         auto row = div(ctx, mk(parent, 7),
             ComponentConfig{}
@@ -498,7 +512,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         constexpr float kSegGap = 6.0f;
         const float content = content_w();
         const float segW = (content - kSegGap) / 2.0f;
-        font_choice_btn(ctx, row.ent(), 1, "Default", "default", segW, true);
+        font_choice_btn(ctx, row.ent(), 1, "Standard", "default", segW, true);
         font_choice_btn(ctx, row.ent(), 2, "Hyperlegible", "hyperlegible", segW,
                         false);
     }
@@ -817,6 +831,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void coming_soon_row(UIContext<InputAction>& ctx, Entity& parent, int id,
                          const std::string& label, const std::string& sub,
                          const std::string& dbg) {
+        // A quiet, clearly-NON-interactive row: no filled surface, no pill that
+        // looks like a button (Gabe: "the coming soon buttons look weird").
+        // Just the dimmed setting name on the left and a small faint
+        // "Coming soon" note on the right — reads as "not available yet", not
+        // as a clickable control.
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kSoonRowH)})
@@ -824,13 +843,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::SpaceBetween)
-                .with_custom_background(theme::panel_bg_2())
-                .with_padding(Padding{.right = pixels(8), .left = pixels(10)})
-                .with_roundness(0.3f)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
                 .with_debug_name(dbg + "_row"));
 
-        // Left: name (+ optional faint sub, appended inline so the row stays
-        // one line and can't wrap/overflow).
+        // Left: name (+ optional faint sub, appended inline) — dimmed.
         std::string left = label;
         if (!sub.empty()) left += "   \xc2\xb7   " + sub;
         div(ctx, mk(row.ent(), 1),
@@ -838,32 +855,24 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(left)
                 .with_size(ComponentSize{children(), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name(dbg + "_label"));
 
-        // Right: muted "Coming soon" pill. tag_done_bg is a LOW-ALPHA token;
-        // the fill pipeline can't alpha-blend (gap #13), so pre-blend it over
-        // the row's panel_bg_2 surface via theme::over — otherwise it renders
-        // as a near-opaque light slab that hides the (light) fg text. The
-        // rounded corners read the same at any pill size via roundness_for_px.
-        constexpr float kPillW = 96.0f, kPillH = 20.0f;
+        // Right: a small faint "Coming soon" note (plain text, right-aligned —
+        // NOT a pill/button).
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label("Coming soon")
-                .with_size(ComponentSize{pixels(kPillW), pixels(kPillH)})
-                .with_custom_background(
-                    theme::over(theme::tag_done_bg(), theme::panel_bg_2()))
-                .with_custom_text_color(theme::tag_done_fg())
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Center)
-                .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
-                .with_roundness(theme::roundness_for_px(kPillH * 0.5f,
-                                                        kPillW, kPillH))
-                .with_debug_name(dbg + "_pill"));
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_note"));
     }
 
     // ── Behavior group ─────────────────────────────────────────────────────

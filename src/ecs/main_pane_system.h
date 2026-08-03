@@ -2524,6 +2524,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // fix is to measure via afterhours measure_text (gap #26/wishlist A).
     static constexpr float kGlyphW = 7.6f;   // avg px per glyph @ BODY 13px
     static constexpr float kLinePitch = 16.0f;  // px per wrapped line
+    // Blank-line (paragraph / list-item gap) height. This is the vertical space
+    // between paragraphs and numbered-list items in an assistant turn. Was
+    // kLinePitch*0.5 (8px) which stacked into a loose, airy feed vs navi web's
+    // tighter spacing (Gabe: "the whitespace is still way too high"). 5px reads
+    // as a clear paragraph break without the big gap. ONE constant so the
+    // measure + render paths can never drift.
+    static constexpr float kBlankPitch = 5.0f;
     static int wrap_perline(float widthPx) {
         int p = static_cast<int>((widthPx - 10.0f) / kGlyphW);
         return p < 8 ? 8 : p;
@@ -2782,7 +2789,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
             int len = static_cast<int>(line.size());
             if (len <= 0) {
-                h += kLinePitch * 0.5f;
+                h += kBlankPitch;
             } else {
                 int segLines = (len + perLine - 1) / perLine;
                 if (segLines < 1) segLines = 1;
@@ -2877,7 +2884,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           ? rich_body_h(first_n_lines(mr.body, textW, kFoldLines),
                                         textW)
                           : mr.height;
-        float h = kTurnGapTop + 12.0f +
+        float h = kTurnGapTop + 8.0f +
                   (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + bodyH +
                   kTurnGapBot;
         AppComponent* app = app_singleton();
@@ -3004,7 +3011,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_code_block(UIContext<InputAction>& ctx, Entity& parent, int id,
                            const std::string& lang,
-                           const std::vector<std::string>& lines) {
+                           const std::vector<std::string>& lines,
+                           float blockW = 0.0f) {
         const int n = lines.empty() ? 1 : static_cast<int>(lines.size());
         auto block = div(ctx, mk(parent, id),
             ComponentConfig{}
@@ -3047,12 +3055,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // clipboard (mock's `.copy`). A spacer pushes it flush-right (no
         // flex-grow — gap #18 — so size the lang label fixed + a flexer).
         {
-            // Compute the flex spacer width so Copy pins right: bar content
-            // width ~ (block inner) - 12 - 10 pads - 120 lang - copyW.
+            // Compute the spacer width EXPLICITLY (afterhours has no flex-grow —
+            // gap #18 — so a percent(1.0) spacer in a NoWrap row resolves to the
+            // FULL parent width and overflows, flooding the log). Bar content
+            // box = blockW - (left 12 + right 10) pad; minus the 120px lang
+            // label and the copyW button = the spacer that pins Copy flush-right.
             const float copyW = 42.0f;
+            const float barContent = (blockW > 0.0f ? blockW : 698.0f) - 22.0f;
+            float spacerW = barContent - 120.0f - copyW;
+            if (spacerW < 0.0f) spacerW = 0.0f;
             div(ctx, mk(bar.ent(), 2),
                 ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                    .with_size(ComponentSize{pixels(spacerW), pixels(14)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("code_bar_spacer"));
@@ -3271,7 +3285,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     pending += blockH;
                 } else {
                     flush(9000 + seg);
-                    render_code_block(ctx, parent, 100 + seg, lang, codeLines);
+                    render_code_block(ctx, parent, 100 + seg, lang, codeLines,
+                                      textW);
                 }
                 ++seg;
                 start = p;
@@ -3282,7 +3297,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             bool blank = line.empty();
             int segLines = 1;
             if (blank) {
-                segH = kLinePitch * 0.5f;
+                segH = kBlankPitch;
             } else {
                 segLines = (static_cast<int>(line.size()) + perLine - 1) /
                            perLine;
@@ -3441,7 +3456,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(kTurnGapTop + 12.0f),
+                .with_margin(Margin{.top = pixels(kTurnGapTop + 8.0f),
                                     .right = pixels(0),
                                     .bottom = pixels(kTurnGapBot),
                                     .left = pixels(0)})
@@ -3494,7 +3509,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // cull the body's off-screen line-segments (intra-message
         // virtualization). Must mirror bubble_height's author-row term exactly.
         const float bodyStartY =
-            itemTopY + (kTurnGapTop + 12.0f) +
+            itemTopY + (kTurnGapTop + 8.0f) +
             (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f);
         // THINKING INDICATOR (Gabe: "we are missing these 'in progress, I'm
         // thinking' UI"): while the live turn is still THINKING (no visible
