@@ -1841,6 +1841,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("virt_spacer"));
             pendingSpacer = 0.0f;
         };
+        // Sparse-thread balance (chat spec #6): when the whole transcript is
+        // SHORTER than the viewport (a 1-3 message thread), don't pin it to the
+        // top with a big void below — nudge it toward the upper-middle with a
+        // leading spacer of ~1/3 the slack. Only when content fits (no scroll),
+        // so long threads + virtualization are untouched. Not while streaming
+        // (content is growing) or loading older.
+        if (totalH < viewH - 40.0f && !streamingHere && !app.loadingOlder &&
+            app.anchorPending.empty()) {
+            div(ctx, mk(col, 29999),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels((viewH - totalH) / 3.0f)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("sparse_balance"));
+        }
         for (const auto& it : items) {
             const float top = y;
             const float bot = y + it.height;
