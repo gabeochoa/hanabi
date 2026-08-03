@@ -737,6 +737,33 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 graphics::end_frame();
             }
         }
+        // Screenshot affordance: HANABI_THINK_DEMO=1 forces the live "thinking"
+        // indicator (pulsing dot + Thinking… + timer) so it can be captured
+        // headlessly. Appends a live empty assistant message to the open thread
+        // and sets streamPhase=Thinking with a start time a few seconds back.
+        if (const char* th = std::getenv("HANABI_THINK_DEMO");
+            th && *th && std::string(th) != "0" && appForWait->openSession) {
+            api::Message live;
+            live.role = api::Role::Assistant;
+            live.id = "__thinking_demo__";
+            live.text = "";
+            appForWait->openSession->messages.push_back(live);
+            appForWait->streamActive = true;
+            appForWait->streamSessionId = appForWait->openSession->summary.id;
+            appForWait->streamMsgIndex =
+                appForWait->openSession->messages.size() - 1;
+            appForWait->selectedId = appForWait->openSession->summary.id;
+            appForWait->streamPhase = ecs::AppComponent::StreamPhase::Thinking;
+            appForWait->streamStartedAt =
+                static_cast<int64_t>(std::time(nullptr)) - 32;  // "32s"
+            appForWait->view = ecs::SmartView::Chat;
+            for (int p = 0; p < 4; ++p) {
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
+        }
         // Perf/screenshot affordance: HANABI_EXPAND=1 pre-expands every tool
         // pile + the sub-agent rollup in the open thread so a headless capture
         // can photograph the EXPANDED nested sub-rows / chips. Uses the same

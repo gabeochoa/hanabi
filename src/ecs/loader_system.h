@@ -985,6 +985,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // Show the "thinking" affordance immediately so the send feels
             // instant even before the first chunk arrives.
             app.streamPhase = AppComponent::StreamPhase::Thinking;
+            app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
             api::Client* c = app.client.get();
             app.streamCollectFuture = std::async(
                 std::launch::async, [c, id, prompt]() {
@@ -1065,20 +1066,28 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // --- DRAIN a few chunks this frame ---
         // Screenshot affordance: HANABI_STREAM_DEMO_MAXTOKENS=<K> freezes the
         // drain after K chunks so a headless capture can photograph a genuine
-        // MID-STREAM bubble (partial text + caret). Ignored when unset; real
-        // rendered output, not a mock. Read once, cached.
+        // MID-STREAM bubble (partial text + caret). K=0 (explicitly set) HOLDS
+        // at the THINKING phase (no chunks drained) so the thinking indicator
+        // can be captured. Ignored when unset; real rendered output, not a mock.
+        static const bool kDemoCapSet = [] {
+            const char* v = std::getenv("HANABI_STREAM_DEMO_MAXTOKENS");
+            return v && *v;
+        }();
         static const size_t kDemoCap = [] () -> size_t {
             if (const char* v = std::getenv("HANABI_STREAM_DEMO_MAXTOKENS");
                 v && *v) {
                 long n = std::atol(v);
-                if (n > 0) return static_cast<size_t>(n);
+                if (n >= 0) return static_cast<size_t>(n);
             }
-            return 0;  // 0 = no cap.
+            return 0;
         }();
-        if (kDemoCap != 0 && app.streamCursor >= kDemoCap) {
-            // Held mid-stream for the demo capture; keep the phase Streaming so
-            // the caret affordance shows.
-            app.streamPhase = AppComponent::StreamPhase::Streaming;
+        if (kDemoCapSet && app.streamCursor >= kDemoCap) {
+            // Held for the demo capture. At K==0 keep the phase THINKING (no
+            // tokens yet → thinking indicator shows); at K>0 keep it Streaming
+            // so the mid-stream caret shows.
+            app.streamPhase = (kDemoCap == 0)
+                                  ? AppComponent::StreamPhase::Thinking
+                                  : AppComponent::StreamPhase::Streaming;
             return;
         }
 

@@ -2731,10 +2731,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return p;
     }
     // Height of a table with `nRows` rendered rows (header counts as a row).
+    // +1px for the hairline divider drawn under the header (when there's a body).
     static float table_h(int nRows) {
         if (nRows < 1) nRows = 1;
+        const float divider = (nRows > 1) ? 1.0f : 0.0f;
         return kTableVMargin + static_cast<float>(nRows) * kTableRowH +
-               kTableVMargin;
+               divider + kTableVMargin;
     }
 
     // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
@@ -2951,18 +2953,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         for (int ri = 0; ri < nRows; ++ri) {
             const bool header = (ri == 0);
-            auto rowDiv = div(ctx, mk(grid.ent(), 1 + ri),
+            auto rowDiv = div(ctx, mk(grid.ent(), 1 + ri * 2),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), pixels(kTableRowH)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    // Header band uses the raised surface; body rows are the
-                    // pane bg with a hairline top divider (except the first).
+                    // Header band = raised surface; body rows = pane bg. NO
+                    // per-row border (stacking 4-sided borders inside the grid's
+                    // own border produced the doubled/overhanging lines Gabe
+                    // flagged). Structure comes from the outer grid border + a
+                    // SINGLE divider under the header (below).
                     .with_custom_background(header ? theme::panel_bg_2()
                                                    : theme::panel_bg())
-                    .with_border(theme::border(),
-                                 pixels(header ? 0.0f : 0.5f))
                     .with_roundness(0.0f)
                     .with_debug_name("md_table_row"));
             for (size_t ci = 0; ci < nCols; ++ci) {
@@ -2985,6 +2988,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                               .left = pixels(8)})
                         .with_roundness(0.0f)
                         .with_debug_name("md_table_cell"));
+            }
+            // Single hairline divider UNDER the header row only (separates the
+            // header band from the body; clean, no per-row border doubling).
+            if (header && nRows > 1) {
+                div(ctx, mk(grid.ent(), 2 + ri * 2),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{percent(1.0f), pixels(1.0f)})
+                        .with_custom_background(theme::border())
+                        .with_roundness(0.0f)
+                        .with_debug_name("md_table_hdr_divider"));
             }
         }
     }
@@ -3092,6 +3105,92 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("code_block_line"));
             ++li;
         }
+    }
+
+    // "In progress / thinking" indicator: a pulsing accent dot + a muted label
+    // + an elapsed timer, shown on a live assistant turn while it's THINKING
+    // (before any tokens stream). Matches the reference Gabe shared (a soft
+    // glowing dot beside "Laying the groundwork · 32s"). The status word is
+    // "Thinking…" (a backend free-text step label like "Laying the groundwork"
+    // needs a status SSE field we don't parse yet — logged as an API ask); the
+    // dot pulse + elapsed timer are fully client-side.
+    void render_thinking_indicator(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent* app) {
+        // Elapsed seconds since the turn began.
+        long elapsed = 0;
+        if (app && app->streamStartedAt > 0) {
+            long now = static_cast<long>(std::time(nullptr));
+            elapsed = now - app->streamStartedAt;
+            if (elapsed < 0) elapsed = 0;
+        }
+        std::string timer = std::to_string(elapsed) + "s";
+
+        auto row = div(ctx, mk(parent, 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(24.0f)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("thinking_row"));
+
+        // Pulsing dot: a filled accent circle whose radius eases up/down with a
+        // sine of wall-clock time, plus a fainter halo — a soft "breathing"
+        // glow. Drawn in a fixed slot so the label sits at a stable x.
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(18.0f), pixels(18.0f)})
+                .with_transparent_bg()
+                .with_margin(Margin{.right = pixels(8)})
+                .with_on_draw_fg([](RectangleType r) {
+                    const float cx = r.x + r.width * 0.5f;
+                    const float cy = r.y + r.height * 0.5f;
+                    const double t = afterhours::graphics::get_time();
+                    // 0..1 breathing factor (~1.4s period).
+                    const float p = 0.5f + 0.5f * static_cast<float>(
+                                                std::sin(t * 4.5));
+                    theme::Color accent = theme::accent();
+                    // Faint halo (bigger, low-ish intensity) — pre-blended over
+                    // the pane bg since fills can't alpha-blend (gap #13).
+                    theme::Color halo =
+                        theme::over(theme::Color{accent.r, accent.g, accent.b,
+                                                 static_cast<unsigned char>(
+                                                     40 + 40 * p)},
+                                    theme::panel_bg());
+                    afterhours::draw_circle_v({cx, cy}, 5.0f + 2.0f * p, halo);
+                    // Core dot.
+                    afterhours::draw_circle_v({cx, cy}, 3.4f, accent);
+                })
+                .with_debug_name("thinking_dot"));
+
+        // Label — muted, reads as "working". (Kept as one label; afterhours has
+        // no italic variant here — the muted color + the pulsing dot carry the
+        // "in progress" feel.)
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label("Thinking\xe2\x80\xa6")
+                .with_size(ComponentSize{children(), pixels(18.0f)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_margin(Margin{.right = pixels(8)})
+                .with_roundness(0.0f)
+                .with_debug_name("thinking_label"));
+
+        // Elapsed timer — fainter, trailing.
+        div(ctx, mk(row.ent(), 3),
+            ComponentConfig{}
+                .with_label(timer)
+                .with_size(ComponentSize{children(), pixels(18.0f)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("thinking_timer"));
     }
 
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
@@ -3397,8 +3496,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float bodyStartY =
             itemTopY + (kTurnGapTop + 12.0f) +
             (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f);
-        render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
-                         bodyStartY);
+        // THINKING INDICATOR (Gabe: "we are missing these 'in progress, I'm
+        // thinking' UI"): while the live turn is still THINKING (no visible
+        // tokens yet), show a pulsing accent dot + an italic "Thinking…" label
+        // + an elapsed timer, instead of the plain "thinking…" body text. Once
+        // real tokens stream in (phase Streaming), fall through to the normal
+        // document render so the text takes over.
+        if (isLive && streamPhase == AppComponent::StreamPhase::Thinking) {
+            render_thinking_indicator(ctx, turn.ent(), app);
+        } else {
+            render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
+                             bodyStartY);
+        }
 
         // Inline image (agent surface): if the message carries a decodable
         // local image (e.g. a screenshot the agent produced), render it under

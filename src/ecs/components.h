@@ -288,6 +288,10 @@ struct AppComponent : public afterhours::BaseComponent {
     bool streamActive = false;         // a stream is in flight.
     std::string streamSessionId;       // which session the stream targets.
     StreamPhase streamPhase = StreamPhase::Idle;
+    // Wall-clock (seconds) when the current stream/thinking turn began, so the
+    // live "thinking" indicator can show an elapsed timer ("Thinking… · 32s").
+    // 0 = not started. Set when a stream/steer kicks off; cleared on Done/Idle.
+    int64_t streamStartedAt = 0;
     std::string streamBuffer;          // the in-progress assistant text so far.
     std::vector<std::string> streamQueue;  // remaining ordered text chunks.
     size_t streamCursor = 0;           // index of the next chunk to drain.

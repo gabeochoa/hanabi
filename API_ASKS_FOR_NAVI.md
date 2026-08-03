@@ -53,3 +53,11 @@ Once (1) is known, hanabi adds an async download-to-cache (GET -> ~/…/cache/
 img_<hash> -> set Message.image_path) reusing the existing TLS GET path; https
 urls already work with that path. Until then, only local/file:// show-block
 images render inline (agent-produced local screenshots).
+
+## Stream status label (thinking indicator)
+hanabi now shows a live "thinking" indicator (pulsing dot + "Thinking…" + elapsed
+timer) while a turn is in the Thinking phase. Navi web shows a richer free-text
+step label ("Laying the groundwork", "Reading files", …). To match it, hanabi needs
+that label from the stream: a per-turn `status`/`step` string on the SSE stream
+(e.g. a {type:"status", text:"Laying the groundwork"} event, or a status field on
+the thinking event). Until then hanabi shows the generic "Thinking…".
