@@ -807,6 +807,29 @@ class MockClient : public Client {
             // nothing when this is empty, so no fabricated node elsewhere).
             for (auto& mm : s.messages)
                 if (mm.role == Role::Tool) mm.tool_node = "cli:aspen";
+            // Sample captured output + status + duration so expanding a tool
+            // reveals real DETAILS (Gabe: "we are missing tool details").
+            for (auto& mm : s.messages) {
+                if (mm.role != Role::Tool) continue;
+                if (mm.id == "m3") {
+                    mm.tool_result =
+                        "worker/sync_loop.rs:42  retry_backoff(attempt)\n"
+                        "worker/sync_loop.rs:58  const MAX_RETRIES = 5\n"
+                        "worker/breaker.rs:11    fn should_open()\n"
+                        "\xe2\x80\xa6 8 more matches";
+                    mm.tool_status = "completed";
+                    mm.tool_duration_ms = 1200;
+                } else if (mm.id == "m4") {
+                    mm.tool_result =
+                        "@@ worker/sync_loop.rs\n"
+                        "- let delay = Duration::from_millis(200);\n"
+                        "+ let delay = full_jitter(base, attempt).min(CAP);\n"
+                        "+ if breaker.should_open() { return Err(Tripped); }\n"
+                        "34 insertions(+), 8 deletions(-)";
+                    mm.tool_status = "completed";
+                    mm.tool_duration_ms = 3400;
+                }
+            }
             v.push_back(std::move(s));
         }
         {

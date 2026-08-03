@@ -3758,7 +3758,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             msgs[lo].id.empty() ? ("pile" + std::to_string(lo)) : msgs[lo].id;
         const bool open = app.expandedPiles.count(key) != 0;
         float h = kToolRowGap + kToolRowH + kToolRowGap;
-        if (open) h += (hi - lo) * (kSubRowH + 2.0f) + 6.0f;
+        if (open) {
+            h += (hi - lo) * (kSubRowH + 2.0f) + 6.0f;
+            // + each sub-row's output-detail panel (0 when no captured result).
+            for (int k = lo; k < hi; ++k) h += sub_out_height(msgs[k]);
+        }
         return h;
     }
 
@@ -4003,8 +4007,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("tool_nest"));
-            for (int k = lo; k < hi; ++k)
-                tool_sub_row(ctx, nest.ent(), 100 + k, msgs[k], rowW - 20.0f);
+            for (int k = lo; k < hi; ++k) {
+                tool_sub_row(ctx, nest.ent(), 100 + k * 4, msgs[k],
+                             rowW - 20.0f);
+                // Tool DETAILS: show a compact output preview under each
+                // sub-row when the backend captured a result (Gabe: "we are
+                // missing tool details"). A sunken mono panel with the first
+                // few lines — the pile's expand reveals WHAT each call did, not
+                // just that it ran. Height mirrored in tool_pile_height.
+                if (!msgs[k].tool_result.empty())
+                    tool_sub_output(ctx, nest.ent(), 100 + k * 4 + 1, msgs[k],
+                                    rowW - 20.0f);
+            }
         }
     }
 
@@ -4073,6 +4087,68 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     draw_check(rr, theme::tag_ready_fg());
                 })
                 .with_debug_name("sub_check"));
+    }
+
+    // How many output lines a sub-row's detail panel shows (a peek, not a dump).
+    static constexpr int kSubOutLines = 4;
+    // Number of result lines actually rendered for a sub-row (capped).
+    static int sub_out_lines(const api::Message& m) {
+        if (m.tool_result.empty()) return 0;
+        int n = 1;
+        for (char c : m.tool_result) if (c == '\n') ++n;
+        return n > kSubOutLines ? kSubOutLines : n;
+    }
+    // Height of a sub-row's output panel (0 when no result). Mirrored in
+    // tool_pile_height so the virtualization spacers line up.
+    static float sub_out_height(const api::Message& m) {
+        int n = sub_out_lines(m);
+        if (n <= 0) return 0.0f;
+        return static_cast<float>(n) * (kLinePitch - 2.0f) + 8.0f + 4.0f;
+    }
+    // Compact output preview under a pile sub-row: a sunken mono panel with the
+    // first kSubOutLines of the captured tool_result — the "tool details".
+    void tool_sub_output(UIContext<InputAction>& ctx, Entity& parent, int id,
+                         const api::Message& m, float rowW) {
+        const int n = sub_out_lines(m);
+        if (n <= 0) return;
+        auto panel = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rowW - 20.0f),
+                                         pixels(sub_out_height(m))})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_custom_background(theme::window_bg())
+                .with_padding(Padding{.top = pixels(4), .right = pixels(8),
+                                      .bottom = pixels(4), .left = pixels(10)})
+                .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
+                .with_roundness(theme::roundness_for_px(4.0f, rowW, 40.0f))
+                .with_debug_name("sub_out"));
+        // Split tool_result into lines; render the first kSubOutLines.
+        size_t ls = 0;
+        int li = 0;
+        while (ls <= m.tool_result.size() && li < n) {
+            size_t nl = m.tool_result.find('\n', ls);
+            size_t e = (nl == std::string::npos) ? m.tool_result.size() : nl;
+            std::string line = m.tool_result.substr(ls, e - ls);
+            for (size_t t = line.find('\t'); t != std::string::npos;
+                 t = line.find('\t', t))
+                line.replace(t, 1, "  ");
+            div(ctx, mk(panel.ent(), 1 + li),
+                ComponentConfig{}
+                    .with_label(line.empty() ? " "
+                                             : fmtutil::ellipsize(line, 90))
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels(kLinePitch - 2.0f)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font("mono", theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("sub_out_line"));
+            ++li;
+            if (nl == std::string::npos) break;
+            ls = nl + 1;
+        }
     }
 
     // A lone Tool message: one dense collapsed tool row (not expandable).
