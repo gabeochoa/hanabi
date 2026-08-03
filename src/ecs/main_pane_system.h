@@ -2249,7 +2249,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.secondary = theme::panel_bg_2();
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
-        afterhours::ui::imm::text_input(ctx, mk(inputWrap.ent(), 1), replyDraft,
+        auto inputRes = afterhours::ui::imm::text_input(
+            ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(34)})
                 .with_transparent_bg()
@@ -2258,6 +2259,49 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.left = pixels(12), .right = pixels(10)})
                 .with_roundness(0.5f)
                 .with_debug_name("composer_reply_input"));
+
+        // ENTER-TO-SEND. afterhours' text_input fires on_submit on Enter
+        // (WidgetPress == ENTER, preload.cpp) IF the entity carries a
+        // HasTextInputListener — the imm wrapper doesn't attach one, so a naked
+        // text_input swallowed Enter and the ONLY way to send was clicking the
+        // button (Gabe: "HOW DO I SEND A MESSAGE"). Attach a listener whose
+        // on_submit sets the SAME one-shot send/stream request the Send button
+        // does, so Enter sends like every chat app. Shift+Enter is NOT a newline
+        // here (single-line composer); plain Enter = send.
+        {
+            Entity& inputEnt = inputRes.ent();
+            inputEnt.addComponentIfMissing<
+                afterhours::text_input::HasTextInputListener>(
+                nullptr,  // on_change: not needed (imm syncs replyDraft)
+                [appPtr = &app, canStream, canSend,
+                 draftPtr = &replyDraft](Entity& e) {
+                    // Read the CURRENT field text off the input state (the most
+                    // up-to-date value, incl. the char typed just before Enter).
+                    std::string text;
+                    if (e.has<afterhours::text_input::HasTextInputState>())
+                        text = e.get<afterhours::text_input::HasTextInputState>()
+                                   .text();
+                    // Trim trailing whitespace/newline the Enter may leave.
+                    while (!text.empty() &&
+                           (text.back() == '\n' || text.back() == '\r' ||
+                            text.back() == ' '))
+                        text.pop_back();
+                    if (text.empty()) return;              // nothing to send
+                    if (!(canStream || canSend)) return;   // backend can't send
+                    if (canStream) appPtr->requestStreamPrompt = text;
+                    else appPtr->requestSendPrompt = text;
+                    // Clear BOTH the input state AND the persistent draft (the
+                    // imm wrapper re-syncs state<-draft each frame, so clearing
+                    // only the state would let the draft repopulate it).
+                    if (e.has<afterhours::text_input::HasTextInputState>()) {
+                        auto& st =
+                            e.get<afterhours::text_input::HasTextInputState>();
+                        st.storage.clear();
+                        st.cursor_position = 0;
+                    }
+                    if (draftPtr) draftPtr->clear();
+                });
+        }
 
         // Placeholder (text_input has no native placeholder — gap #29): overlay
         // faint hint text ON TOP of the empty field via an absolutely-positioned
@@ -2379,6 +2423,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             caption = "sending\xe2\x80\xa6";
         else if (queued > 0)
             caption = std::to_string(queued) + " queued";
+        else if (canSend && hasText)
+            // Discoverability: when there's text to send and we're idle, tell
+            // the user Enter sends (the fix for "HOW DO I SEND A MESSAGE" — the
+            // composer now sends on Enter, not just the button click).
+            caption = steerMode ? "\xe2\x86\xb5 steer" : "\xe2\x86\xb5 send";
         if (!caption.empty()) {
             div(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
