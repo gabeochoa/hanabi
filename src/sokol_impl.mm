@@ -225,3 +225,16 @@ extern "C" bool macos_natural_scroll(void) {
                    boolForKey:@"com.apple.swipescrolldirection"];
     }
 }
+
+// True when the OS is in Dark appearance. Lets the "System" theme choice track
+// the real macOS setting instead of falling back to Dark (was gap #16). Uses
+// AppleInterfaceStyle == "Dark" (the standard, dependency-free probe); absent
+// key = Light. Read on demand (theme apply), cheap.
+extern "C" bool macos_is_dark_mode(void) {
+    @autoreleasepool {
+        NSString* style = [[NSUserDefaults standardUserDefaults]
+                              stringForKey:@"AppleInterfaceStyle"];
+        return style != nil &&
+               [style caseInsensitiveCompare:@"Dark"] == NSOrderedSame;
+    }
+}

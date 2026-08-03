@@ -23,6 +23,7 @@
 #include "../api/disk_cache.h"
 #include "../settings.h"
 #include "../version.h"
+#include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -526,16 +527,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // Apply a theme choice: remember it, persist it, and re-tint live.
     static void apply_theme(AppComponent& app, const std::string& value) {
         app.themeChoice = value;
-        // System has no OS-appearance query (gap #16) — fall back to dark for
-        // both the persisted mode and the live palette, but keep themeChoice
-        // == "system" so intent is remembered.
-        const bool light = (value == "light");
+        // "System" now tracks the real macOS appearance (macos_is_dark_mode,
+        // AppleInterfaceStyle) instead of always falling back to Dark — gap #16
+        // resolved. Light/Dark are explicit; System resolves live.
+        bool light;
+        if (value == "system")
+            light = !hanabi::os_is_dark_mode();
+        else
+            light = (value == "light");
         auto& s = Settings::get();
-        s.set_theme(light ? "light" : "dark");
-        // NOTE: in this tree Settings::set_theme is a bare in-memory setter
-        // (it does NOT auto-save — see REPORT), so persist explicitly through
-        // the public write_save_file(). Once set_theme auto-saves upstream this
-        // line becomes redundant but harmless.
+        // Persist the CHOICE (light/dark/system) so System stays System across
+        // relaunch and re-resolves against the OS each launch.
+        s.set_theme(value);
         s.write_save_file();
         theme::set_mode(light ? theme::Mode::Light : theme::Mode::Dark);
     }

@@ -69,9 +69,15 @@ static void setup_app_state() {
     Settings::get().auto_save_enabled = false;
     Settings::get().load_save_file();
 
-    // Apply persisted theme (dark default).
-    theme::set_mode(Settings::get().get_theme() == "light" ? theme::Mode::Light
-                                                           : theme::Mode::Dark);
+    // Apply persisted theme. "system" resolves against the live OS appearance
+    // (gap #16 fixed via macos_is_dark_mode); "light"/"dark" are explicit;
+    // anything else (or unset) defaults to dark.
+    {
+        const std::string& tc = Settings::get().get_theme();
+        bool light = (tc == "light") ||
+                     (tc == "system" && !hanabi::os_is_dark_mode());
+        theme::set_mode(light ? theme::Mode::Light : theme::Mode::Dark);
+    }
 
     ui_imm::initUIContext(Settings::get().get_window_width(),
                           Settings::get().get_window_height());

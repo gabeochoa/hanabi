@@ -94,6 +94,26 @@ void native_openurl_install(void);
 // AppComponent::requestOpenTab to open + navigate to the thread.
 bool native_take_open_thread(char* out, int cap);
 
+// ---- 5. OS appearance (for the "System" theme choice) ----------------------
+
+// True when the OS is in Dark appearance (macOS: AppleInterfaceStyle == Dark).
+// Defined in sokol_impl.mm (macOS-only link). Lets the "System" theme resolve
+// to the real OS setting instead of always falling back to Dark (gap #16).
+bool macos_is_dark_mode(void);
+
 #ifdef __cplusplus
 }
+
+namespace hanabi {
+// Cross-platform wrapper: is the OS in dark mode? macOS uses the real setting;
+// other platforms default to dark (no OS seam wired). Header-only so any UI
+// code can call it without linking a new TU.
+inline bool os_is_dark_mode() {
+#if defined(__APPLE__)
+    return macos_is_dark_mode();
+#else
+    return true;
+#endif
+}
+}  // namespace hanabi
 #endif
