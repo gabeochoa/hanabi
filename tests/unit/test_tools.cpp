@@ -137,6 +137,50 @@ static void test_split_error_block() {
     CHECK(b.empty());
 }
 
+// A `steering` block is the USER's mid-stream interjection into a RUNNING
+// agent's turn. The backend embeds it inside the ASSISTANT message's blocks[],
+// but the words are the user's — so it MUST split out as a Role::User message,
+// not fold into the assistant text. Regression guard for "my message shows up
+// as your message" (Gabe typed 'still no chat input' into a running agent and
+// it rendered as the assistant's text).
+static void test_split_steering_is_user() {
+    std::printf("test_split_steering_is_user\n");
+    api::Config cfg;
+    // assistant turn: text, then a user steer, then more assistant text.
+    json e = {
+        {"id", "msgS"},
+        {"role", "assistant"},
+        {"created_at", 500},
+        {"blocks", json::array({
+            {{"type", "text"}, {"content", "Working on it."}},
+            {{"type", "steering"}, {"content", "still no chat input"}},
+            {{"type", "text"}, {"content", "Got it — investigating."}},
+        })},
+    };
+    auto out = api::split_message_blocks(e, cfg);
+    // Order preserved: Assistant, User(steer), Assistant.
+    CHECK(out.size() == 3);
+    CHECK(out[0].role == api::Role::Assistant);
+    CHECK(out[0].text == "Working on it.");
+    CHECK(out[1].role == api::Role::User);              // the steer is the USER
+    CHECK(out[1].text == "still no chat input");
+    CHECK(out[2].role == api::Role::Assistant);
+    CHECK(out[2].text == "Got it — investigating.");
+    // The steer fragment must have a DISTINCT id (measure-cache keying).
+    CHECK(out[1].id != out[0].id);
+    CHECK(out[1].id != out[2].id);
+    CHECK(!out[1].id.empty());
+
+    // A steering block that also carries `text` (not `content`) still works.
+    json e2 = {{"id", "msgT"}, {"role", "assistant"},
+               {"blocks", json::array({
+                   {{"type", "steering"}, {"text", "hurry up"}}})}};
+    auto out2 = api::split_message_blocks(e2, cfg);
+    CHECK(out2.size() == 1);
+    CHECK(out2[0].role == api::Role::User);
+    CHECK(out2[0].text == "hurry up");
+}
+
 // --- 2. MockClient memory-light newest-N -----------------------------------
 static void test_mock_windowed_newest_n() {
     std::printf("test_mock_windowed_newest_n\n");
@@ -237,6 +281,7 @@ int main() {
     test_split_interleaved_blocks();
     test_split_flat_message();
     test_split_error_block();
+    test_split_steering_is_user();
     test_mock_windowed_newest_n();
     test_mock_events_noop();
     test_parse_events_frame();

@@ -595,6 +595,28 @@ std::vector<Message> split_message_blocks(const json& e, const Config& cfg) {
             out.push_back(std::move(m));
         } else if (bt == cfg.field_block_tool_result_type) {
             // consumed via find_result — nothing to emit here.
+        } else if (bt == cfg.field_block_steering_type) {
+            // A steering block is the USER's mid-stream message to a running
+            // agent. It lives inside the assistant message's blocks[], but the
+            // text is the USER's — so emit it as a Role::User message, NOT
+            // folded into the assistant text_run (the "my message shows up as
+            // your message" bug). Flush any pending assistant text first so the
+            // turn order (assistant text … user steer … assistant text) reads
+            // correctly.
+            std::string c = sfield(b, cfg.field_block_content);
+            if (c.empty()) c = sfield(b, "text");
+            if (!c.empty()) {
+                flush_text();  // preserve order: assistant text before the steer
+                Message m;
+                m.id = msg_id.empty()
+                           ? ("steer" + std::to_string(text_seq))
+                           : (msg_id + "-s" + std::to_string(text_seq));
+                ++text_seq;
+                m.role = Role::User;   // the user's own words
+                m.text = c;
+                m.created_at = msg_created;
+                out.push_back(std::move(m));
+            }
         } else {
             // Any OTHER block type (error, thinking, etc.): surface its text
             // content if it carries any, so a message whose only block is an
@@ -613,11 +635,13 @@ std::vector<Message> split_message_blocks(const json& e, const Config& cfg) {
     }
     flush_text();  // trailing text run.
 
-    // A message whose blocks produced NOTHING renderable (e.g. an empty/steering
-    // block with no text and no tool call) is DROPPED — emitting an empty turn
-    // rendered as a blank grey bubble (M1). Only keep a fallback empty message
-    // for a message that had NO blocks at all (handled by the has_blocks guard
-    // earlier) — here, if blocks existed but yielded nothing, produce nothing.
+    // A message whose blocks produced NOTHING renderable (e.g. an empty block
+    // with no text and no tool call) is DROPPED — emitting an empty turn
+    // rendered as a blank grey bubble (M1). (A steering block WITH text is
+    // emitted as a Role::User message above.) Only keep a fallback empty
+    // message for a message that had NO blocks at all (handled by the
+    // has_blocks guard earlier) — here, if blocks existed but yielded nothing,
+    // produce nothing.
     return out;
 }
 

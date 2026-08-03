@@ -159,6 +159,11 @@ struct Config {
     // code changes; nothing endpoint-specific is baked in.
     std::string field_block_tool_call_type = "tool_call";
     std::string field_block_tool_result_type = "tool_result";
+    // A "steering" block is the USER's mid-stream interjection into a running
+    // agent's turn (it lives inside the assistant message's blocks[], but it is
+    // the user's own text). It MUST render as a user message, not assistant
+    // text — otherwise the user's words show up as if the assistant wrote them.
+    std::string field_block_steering_type = "steering";
     std::string field_tool_call_obj = "toolCall";      // wrapper on a tool_call
     std::string field_tool_result_obj = "toolResult";  // wrapper on a tool_result
     std::string field_tool_name = "name";
