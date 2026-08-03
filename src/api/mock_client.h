@@ -862,6 +862,10 @@ class MockClient : public Client {
                  "I'll add an explicit await on fixture-ready. Writing the fix.",
                  hrs_ago(3), ""},
             };
+            // Seed a sync state on the user messages (gap #28 probe + demoes the
+            // local-first WhatsApp-style sync indicator).
+            for (auto& mm : s.messages)
+                if (mm.role == Role::User) mm.sync = api::SyncState::Synced;
             v.push_back(std::move(s));
         }
         // Two AUTOMATED (scheduled/cron) rows: titles shaped like a live

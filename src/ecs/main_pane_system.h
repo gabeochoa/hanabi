@@ -608,32 +608,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // only removes matched paired delimiters, leaves lone `*`/`_`/`` ` `` alone
     // (e.g. "a * b" or a path with underscores is untouched).
     static std::string strip_inline_md(const std::string& in) {
-        std::string out;
-        out.reserve(in.size());
-        auto strip_paired = [](std::string s, const std::string& d) {
-            std::string r;
-            r.reserve(s.size());
-            size_t i = 0;
-            while (i < s.size()) {
-                if (s.compare(i, d.size(), d) == 0) {
-                    size_t close = s.find(d, i + d.size());
-                    // require a non-empty, single-line span between delimiters
-                    if (close != std::string::npos && close > i + d.size()) {
-                        std::string inner = s.substr(i + d.size(),
-                                                     close - (i + d.size()));
-                        if (inner.find('\n') == std::string::npos) {
-                            r += inner;
-                            i = close + d.size();
-                            continue;
-                        }
-                    }
-                }
-                r += s[i++];
-            }
-            return r;
-        };
-        out = normalize_md_lines(in);
-        return out;
+        // Inline markers (**bold**/`code`/_italic_) are NO LONGER stripped here:
+        // the rich (assistant) path renders them as colored spans (md_to_spans)
+        // and the flat (user) path strips them via strip_inline_markers(). This
+        // now only applies per-line normalization (bullets / rules).
+        return normalize_md_lines(in);
     }
     // Remove matched inline markers (**bold**/__bold__/`code`) WITHOUT styling —
     // used for the flat (user-bubble) path, which renders a single plain label
@@ -2986,13 +2965,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
                                       AppComponent::StreamPhase::Idle,
                                       /*rich=*/false);
-            // +12px for the sync badge row under the bubble (local-first only;
-            // +one line (kLinePitch) for the local-first sync suffix appended
-            // to the body when sync!=None (server-loaded messages add nothing).
-            // Mirrors render_bubble's userBody suffix exactly.
-            // The sync suffix is appended INLINE to the body (no extra line),
-            // so measured() already accounts for its height when it wraps.
-            return kTurnGapTop + 10.0f + mr.height + kUserPadV + kTurnGapBot;
+            // +12px for the sync-glyph child under the body when sync!=None
+            // (a real ✓/✓✓ corner mark, gap #28 now fixed); server-loaded
+            // messages (sync==None) add nothing. Mirrors render_bubble.
+            const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
+            return kTurnGapTop + 10.0f + mr.height + syncH + kUserPadV +
+                   kTurnGapBot;
         }
         float textW = paneWidth - 34.0f;
         const auto& mr = measured(m, textW, isLive, index,
@@ -3515,14 +3493,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             //   Failed     "· not sent"       — held locally, will retry
             std::string userBody = mr.body;
             bool hasSync = (m.sync != api::SyncState::None);
-            if (hasSync) {
-                const char* g =
-                    m.sync == api::SyncState::Synced ? "  \xc2\xb7 sent"
-                    : m.sync == api::SyncState::Persisting ? "  \xc2\xb7 sending\xe2\x80\xa6"
-                    : m.sync == api::SyncState::Failed ? "  \xc2\xb7 not sent"
-                                                       : "  \xc2\xb7 saved locally";
-                userBody += std::string(g);
-            }
+            // The sync state is shown as a real ✓/✓✓ glyph in the bubble's
+            // corner (a nested on_draw_fg child, now that gap #28 is fixed) —
+            // NOT appended to the body text. See the sync_check child below.
             auto row = div(ctx, mk(parent, 200 + index * 10),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), children()})
@@ -3564,6 +3537,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text"));
+            // WhatsApp-style sync glyph in the bubble's bottom-right corner.
+            // gap #28 (nested child of a custom-bg bubble + on_draw_fg didn't
+            // fire) is now FIXED upstream (afterhours bump), so we render the
+            // real ✓/✓✓ glyph via draw_sync_check instead of the text suffix.
+            if (hasSync) {
+                const api::SyncState st = m.sync;
+                div(ctx, mk(bub.ent(), 3),
+                    ComponentConfig{}
+                        .with_label(" ")
+                        .with_size(ComponentSize{percent(1.0f), pixels(12)})
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_on_draw_fg([st](RectangleType r) {
+                            draw_sync_check(st, r.x + r.width - 4.0f,
+                                            r.y + r.height * 0.5f);
+                        })
+                        .with_debug_name("sync_check"));
+            }
             (void)hasSync;
             return;
         }

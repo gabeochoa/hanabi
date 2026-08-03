@@ -1009,3 +1009,11 @@ hanabi renders **bold**/_italic_ as a brighter COLOR and `code` in an accent tin
 or oblique glyphs. Fine for now (color conveys emphasis + it word-wraps), but true bold/italic
 would need a per-run font field on TextSpan (e.g. {text,color,font_name}) + the styled draw path
 picking the run's font. Logged as a wishlist item; NOT patched (vendored afterhours is read-only).
+
+## gap #28 RESOLVED (2026-08-03): nested custom-bg child + on_draw_fg now fires
+After the afterhours bump (edfe234 -> f24508a), a 2nd child of the custom-bg user bubble WITH
+on_draw_fg now renders (verified with a probe box, then the real glyph). This unblocked the true
+WhatsApp-style sync indicator: the user bubble now shows a real ✓/✓✓ corner glyph via
+draw_sync_check (LocalOnly single gray ✓ / Persisting gray dot / Synced accent ✓✓ / Failed amber
+✓+dot) INSTEAD of the interim body-text suffix ("· sent"). draw_sync_check was previously dead
+code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ renders, test 9/9.
