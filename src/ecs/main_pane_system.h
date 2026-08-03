@@ -3942,11 +3942,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // label with on_draw_fg on one widget doesn't render the text.)
             auto badge = div(ctx, mk(parent, idbase + 1),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(42), pixels(18)})
+                    .with_size(ComponentSize{children(), pixels(18)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.right = pixels(6), .left = pixels(7)})
+                    .with_padding(Padding{.right = pixels(7), .left = pixels(7)})
                     .with_custom_background(theme::panel_bg_2())
                     .with_roundness(0.5f)
                     .with_margin(Margin{.right = pixels(6)})
@@ -3958,7 +3958,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(12), pixels(18)})
                     .with_transparent_bg()
-                    .with_margin(Margin{.right = pixels(3)})
+                    .with_margin(Margin{.right = pixels(1)})
                     .with_on_draw_fg([](RectangleType r) {
                         hanabi::icons::draw_at(
                             "layers", r.x + r.width * 0.5f,
@@ -3969,7 +3969,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(badge.ent(), 2),
                 ComponentConfig{}
                     .with_label(std::to_string(count))
-                    .with_size(ComponentSize{pixels(14), pixels(18)})
+                    .with_size(ComponentSize{children(), pixels(18)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
                     .with_font_size(theme::type::MICRO)
@@ -4039,7 +4039,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(0), .right = pixels(12),
+                .with_padding(Padding{.top = pixels(0), .right = pixels(16),
                                       .bottom = pixels(0), .left = pixels(10)})
                 .with_margin(Margin{.top = pixels(kToolRowGap),
                                     .bottom = pixels(kToolRowGap)})
@@ -4090,11 +4090,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float kLeadW = 12.0f + 16.0f + 6.0f;
         float metaW = 12.0f;                         // status dot slot (always)
         if (!dur.empty()) metaW += 40.0f + 6.0f;     // duration (content) + margin
-        if (showCount) metaW += 42.0f + 8.0f;        // count badge + its margin
-        // The row has left=10 + right=12 padding (22 total), so the content box
-        // is rowW-22; subtract lead + meta from THAT (the old -8 undercounted
-        // the padding and the trailing check overflowed the row by ~2px).
-        float cmdW = rowW - 22.0f - kLeadW - metaW;
+        if (showCount) metaW += 37.0f + 6.0f;        // count badge (content-sized) + margin
+        // The row has left=10 + right=16 padding (26 total), so the content box
+        // is rowW-26; subtract lead + meta from THAT. The wider right pad gives
+        // the trailing status dot / duration breathing room from the hover
+        // box's right edge (Gabe: "hover state too close to the time").
+        float cmdW = rowW - 26.0f - kLeadW - metaW;
         if (cmdW < 60.0f) cmdW = 60.0f;
         div(ctx, mk(head.ent(), 3),
             ComponentConfig{}
