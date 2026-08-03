@@ -3076,7 +3076,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.top = pixels(kTableVMargin),
                                     .bottom = pixels(kTableVMargin)})
                 .with_custom_background(theme::panel_bg())
-                .with_border(theme::row_separator(), pixels(1.0f))
+                .with_border(theme::border(), pixels(1.0f))
                 .with_roundness(0.18f)
                 .with_debug_name("md_table"));
 
@@ -3130,7 +3130,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 div(ctx, mk(grid.ent(), 2 + ri * 2),
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f), pixels(1.5f)})
-                        .with_custom_background(theme::row_separator())
+                        .with_custom_background(theme::border())
                         .with_roundness(0.0f)
                         .with_debug_name("md_table_hdr_divider"));
             }
@@ -4251,7 +4251,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_custom_background(theme::window_bg())
-                .with_border(theme::row_separator(), pixels(1.0f))
+                .with_border(theme::border(), pixels(1.0f))
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
@@ -4449,7 +4449,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_custom_background(theme::window_bg())
-                    .with_border(theme::row_separator(), pixels(1.0f))
+                    .with_border(theme::border(), pixels(1.0f))
                     .with_padding(Padding{.top = pixels(6), .right = pixels(10),
                                           .bottom = pixels(6),
                                           .left = pixels(12)})
