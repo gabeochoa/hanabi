@@ -35,3 +35,18 @@ that would make hanabi (or any thin native/local-first client) better.
 - hanabi is fully config-driven (endpoints + JSON field names in local config; nothing
   product-specific compiled in) so it adapts to field renames without a rebuild.
 - Biggest single win for a local-first client: #1 (cursor pagination) + #2 (attentionState).
+
+## Remote inline images (show/image blocks) — need the manifold resolve path
+hanabi renders inline images from show/image blocks with a LOCAL or file:// url
+(done). Real agent artifacts are usually `manifold://...` (or occasionally
+https). To render those inline we need:
+1. **How to resolve `manifold://<...>` to a fetchable CDN URL** from the client —
+   is there a `GET /api/manifold/resolve?url=...` (or similar) that returns a
+   short-lived https URL? navi web uses `resolveManifoldUrl()` server-side; the
+   desktop client needs an equivalent endpoint (or the API could pre-resolve
+   show-block urls to https in the transcript payload — simplest for clients).
+2. Whether transcript image bytes require the auth bearer token (assume yes).
+Once (1) is known, hanabi adds an async download-to-cache (GET -> ~/…/cache/
+img_<hash> -> set Message.image_path) reusing the existing TLS GET path; https
+urls already work with that path. Until then, only local/file:// show-block
+images render inline (agent-produced local screenshots).
