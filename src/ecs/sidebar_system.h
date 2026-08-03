@@ -1640,9 +1640,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
-        if (row.ent().get<afterhours::ui::HasClickListener>().down) {
-            app.requestOpenTab = s.id;
-        }
+        // Defer the open-thread decision: a click on the STAR (a child button)
+        // also registers as a click on the row, so opening here would both star
+        // AND open the thread (the star appeared "not working" because the
+        // thread opened over it). Capture the row-click now, but only actually
+        // open below IF the star wasn't the thing clicked this frame.
+        bool rowClicked = row.ent().get<afterhours::ui::HasClickListener>().down;
+        bool starClicked = false;
 
         // Status glyph slot: a small transparent box whose foreground draw
         // paints the shape-per-status glyph. Nothing is drawn when calm.
@@ -1791,9 +1795,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.0f)
-                    .with_on_draw_fg(hanabi::icons::draw_fg(
-                        "star", s.starred ? "\xe2\x98\x85" : "\xe2\x98\x86",
-                        starColor, 12.0f, -1.0f))
+                    .with_on_draw_fg([starColor, st = s.starred](RectangleType r) {
+                        // Right-align the star glyph within its slot so it sits
+                        // flush against the timestamp column to its right (Gabe:
+                        // "align the star next to the time") instead of floating
+                        // at the slot's left with a gap.
+                        const float cx = r.x + r.width - 7.0f;
+                        const float cy = r.y + r.height * 0.5f - 1.0f;
+                        if (!hanabi::icons::draw_at(
+                                "star", cx, cy, 12.0f, starColor)) {
+                            afterhours::draw_text(st ? "\xe2\x98\x85"
+                                                     : "\xe2\x98\x86",
+                                                  cx - 6.0f, cy - 6.0f, 12.0f,
+                                                  starColor);
+                        }
+                    })
                     .with_debug_name("row_star"));
             // Keep the star's own fill from ever washing on hover (belt +
             // suspenders with transparent_bg): the row carries the hover wash.
@@ -1805,6 +1821,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             starIds[s.id] = star.ent().id;
             if (star) {
                 app.requestToggleStar = sid;
+                starClicked = true;  // suppress the row's open-thread this frame
             }
         } else if (showStar) {
             // Reserve the star slot even when no star is shown, so the row's
@@ -1838,6 +1855,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("row_time"));
 
+        // Apply the deferred row-open: open the thread on a row click UNLESS the
+        // star was what got clicked (starring must not also open the thread).
+        if (rowClicked && !starClicked) {
+            app.requestOpenTab = s.id;
+        }
     }
 };
 
