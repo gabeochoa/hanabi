@@ -119,3 +119,8 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [x] Scrollable body (navi's full section set is ~1164px > window) — header fixed, sections scroll
 - [x] API-settability marked per row: // TODO(settings-api): PUT /api/user/preferences.<field> for yapLevel/autoArchiveDays/memoryBackend/notificationSound/defaultModelId/branchOverrideUrl/enabledExperiments/compactionThreshold/keyboardShortcuts; // NOTE client-local for theme+font; reset needs a dedicated endpoint
 - [ ] Functional wiring of the stubbed rows (needs a hanabi PUT-preferences client — not built yet)
+
+## QA SWEEP (2026-08-03, post-redesign)
+- [x] FIXED: settings section labels clipped at top (bare label divs top-anchor ~20px text) — AlignItems::Center + taller box (9313021)
+- [x] Verified clean: Home sections (eyebrow font, no clip), transcript header (already centered), Blocked/Starred digest views (centered_wrap center=false — unaffected by transcript centering), Light+Dark themes, Hyperlegible font (whole-UI, no clip)
+- Root cause noted for future: any bare label div with a ~20px font needs AlignItems::Center or it top-clips.
