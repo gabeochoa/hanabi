@@ -434,17 +434,15 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                           .right = pixels(showClose ? 24 : 8)})
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.35f)
-                    // Round ALL corners: afterhours' sokol renderer emits a
-                    // degenerate triangle for MIXED round/sharp corners (gap
-                    // #25). All-round avoids the buggy path; the bottom corners
-                    // sit on the strip/content bridge so their round is hidden.
-                    // NOTE: the vendor fix is PROVEN + captured in
-                    // vendor_patches/25-*.patch — once it lands in afterhours
-                    // remote + the submodule pointer is bumped, switch this to
-                    // RoundedCorners().all_sharp().top_round() for the true tab
-                    // shape (verified clean with the patch applied).
-                    .with_rounded_corners(
-                        afterhours::ui::imm::RoundedCorners().all_round().get())
+                    // V3: round ONLY the TOP corners (sharp bottom) for the true
+                    // tab shape. The degenerate-triangle bug on mixed round/sharp
+                    // corners (gap #25) is now FIXED upstream (afterhours
+                    // 88a156d, submodule bumped), so we can use the real shape
+                    // instead of the all_round() workaround.
+                    .with_rounded_corners(afterhours::ui::imm::RoundedCorners()
+                                              .all_sharp()
+                                              .top_round()
+                                              .get())
                     .with_render_layer(baseLayer)
                     .with_debug_name("tab_" + tab.sessionId));
             // Label as a centered child whose height EQUALS the strip content
