@@ -1786,21 +1786,55 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // bottom (the old s_bottomedId bug).
         const std::string curId = app.openSession->summary.id;
         const bool wantOpenBottom = (app.scrollBottomPending == curId);
-        bool atBottom = true;  // default true so a fresh open pins to bottom
+
+        // ---- Persistent FOLLOW-LATCH (fixes "page doesn't stay at bottom") ---
+        // The old model recomputed `atBottom` from geometry EVERY frame:
+        //   atBottom = (offset + viewH >= contentH - 24)
+        // But when a new message arrives or a stream token lands, contentH grows
+        // while offset stays put — so that test flips FALSE the instant content
+        // grows, and following stops one message from the end (exactly Gabe's
+        // repeated complaint). The distinction the geometry test misses: content
+        // GROWTH and a user SCROLL-UP both increase (contentH - offset - viewH),
+        // but only a scroll-up is a real "user left the bottom" signal.
+        //
+        // Fix: a per-session latch that means "keep pinned to bottom". It starts
+        // TRUE (fresh opens pin to bottom) and is broken ONLY when the user
+        // actively scrolls UP — detected as scroll_offset DECREASING frame over
+        // frame (growth never decreases offset). It re-arms when the user comes
+        // back to within ~24px of the end. This makes "stay at bottom" robust to
+        // the content-growth race.
+        static std::string s_followId;
+        static bool s_follow = true;
+        static float s_prevOffset = 0.0f;
+        if (s_followId != curId) {      // switched threads → reset latch
+            s_followId = curId;
+            s_follow = true;
+            s_prevOffset = -1.0f;
+        }
+        float curOffset = 0.0f;
         float contentH = totalH;
         bool contentLaidOut = false;
+        bool nearEnd = true;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            curOffset = sv.scroll_offset.y;
             if (sv.content_size.y > 1.0f) {
                 contentH = sv.content_size.y;
                 contentLaidOut = true;
             }
-            // Within ~24px of the end counts as "at bottom".
-            atBottom = (sv.scroll_offset.y + viewH >= contentH - 24.0f);
+            nearEnd = (curOffset + viewH >= contentH - 24.0f);
+            // A meaningful DECREASE in offset = the user scrolled up → stop
+            // following. (Small jitter / clamp wobble ignored via a 2px floor.)
+            if (s_prevOffset >= 0.0f && curOffset < s_prevOffset - 2.0f)
+                s_follow = false;
+            // Returning to the bottom re-arms follow.
+            if (nearEnd) s_follow = true;
+            s_prevOffset = curOffset;
         }
-        // Pin to bottom on a first-open (until real content is laid out AND
-        // pinned), while streaming here, OR when the user was already at bottom.
-        const bool pinBottom = wantOpenBottom || streamingHere || atBottom;
+        // Pin to bottom on a first-open, while streaming here, or whenever the
+        // follow-latch is engaged (user hasn't scrolled up).
+        const bool atBottom = s_follow || nearEnd;
+        const bool pinBottom = wantOpenBottom || streamingHere || s_follow;
         if (pinBottom) scrollY = totalH;
         // Build a virtualization window around the visible viewport. A fast
         // fling moves scroll_offset by MANY px between frames, and we read LAST
@@ -1899,7 +1933,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (pinBottom && scroll.ent().has<afterhours::ui::HasScrollView>()) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
             sv.scroll_offset.y = 1e9f;  // clamped to content end next line
+            hanabi::set_scroll_target_y(sv, 1e9f);  // sync eased target (patch)
             sv.clamp_scroll();
+            s_prevOffset = sv.scroll_offset.y;  // don't read the pin as scroll-up
         }
         // Clear the first-open request only once we've pinned against REAL
         // laid-out content (content_size known this frame). Until then keep the
@@ -2913,10 +2949,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_padding(Padding{.top = pixels(8), .right = pixels(14),
                                           .bottom = pixels(9),
                                           .left = pixels(14)})
-                    // Small roundness: afterhours radius = (min(w,h)*0.5)*rnd,
-                    // so 0.5 turned tall bubbles into a stadium blob. 0.12 keeps
-                    // a clean ~8px corner across bubble sizes.
-                    .with_roundness(0.12f)
+                    // Shared chat corner: derive roundness from the bubble's own
+                    // size so its pixel corner MATCHES the tool-call card (both
+                    // target theme::kChatCorner). afterhours radius =
+                    // min(w,h)*0.5*roundness, so a fixed roundness gave the
+                    // bubble and the (shorter) tool row different corners.
+                    .with_roundness(theme::roundness_for_px(
+                        theme::kChatCorner, bubbleW, bodyH + 17.0f))
                     .with_debug_name("user_bubble"));
             div(ctx, mk(bub.ent(), 2),
                 ComponentConfig{}
@@ -3362,7 +3401,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(expandable ? afterhours::ui::CursorType::Pointer
                                         : afterhours::ui::CursorType::Default)
-                .with_roundness(0.42f)
+                // Shared chat corner: derive roundness from THIS row's height so
+                // the tool card's pixel corner matches the user prompt bubble
+                // (both target theme::kChatCorner). 0.42 here made a much rounder
+                // corner than the bubble's — Gabe: "why did you round the corners
+                // so much" + "corners of my prompt must match the tool call".
+                .with_roundness(theme::roundness_for_px(theme::kChatCorner, rowW,
+                                                        kToolRowH))
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
