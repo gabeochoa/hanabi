@@ -73,10 +73,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     static void reconcile_optimistic(AppComponent& app, api::Session& fresh) {
         if (!app.openSession) return;
         for (const auto& m : app.openSession->messages) {
-            const bool pending = (m.sync == api::SyncState::LocalOnly ||
-                                  m.sync == api::SyncState::Persisting ||
-                                  m.sync == api::SyncState::Failed);
-            if (!pending) continue;
+            // Any LOCALLY-ORIGINATED message (sync != None) is a candidate: a
+            // just-sent bubble is LocalOnly/Persisting/Failed, and even after
+            // the server ACKs it (flipped to Synced) the backend may take up to
+            // ~30s to include the turn in a refetch — dropping it here made it
+            // vanish for that whole window (Gabe: "disappears after 30 seconds
+            // before the server sends it back"). Carry it forward until the
+            // server transcript ACTUALLY contains it (matched by id OR role+text).
+            if (m.sync == api::SyncState::None) continue;
             bool already = false;
             for (const auto& f : fresh.messages) {
                 if ((!m.id.empty() && f.id == m.id) ||
