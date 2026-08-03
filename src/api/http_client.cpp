@@ -774,6 +774,23 @@ Result<Session> HttpClient::get_session(const std::string& id) {
     return get_session(id, 0);  // 0 = no limit (full transcript).
 }
 
+// Push local user settings to the backend so the web app matches local
+// (best-effort sync). Sends the settings JSON (carried in UserSettings.raw_json,
+// built by the loader from the local Settings) to the configured
+// settings_update_path. NOTHING about any real endpoint is compiled in — this
+// only fires when the user sets settings_update_path in their LOCAL config.
+// Returns false (no error surfaced) when the write path isn't configured, so
+// local-only persistence keeps working. Uses the JSON POST primitive (the
+// endpoint/verb is a backend concern, config-driven like every other path).
+bool HttpClient::update_settings(const UserSettings& s) {
+    if (!cfg_.settings_write_ready()) return false;  // local-only; no error
+    // Prefer the caller-supplied JSON body (the local preference snapshot);
+    // fall back to a minimal identity echo if none was provided.
+    std::string body = s.raw_json.empty() ? std::string("{}") : s.raw_json;
+    auto r = post_json(cfg_.settings_update_path, body);
+    return r.ok;
+}
+
 // Read user settings/config (feature #4). GET the configured settings_path and
 // map the response onto UserSettings. On the real backend this is GET /whoami ->
 // {userId, bankId, counts:{sessions, assets, schedules, authoredSkills}}. Fully

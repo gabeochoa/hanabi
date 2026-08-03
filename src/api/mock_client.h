@@ -140,6 +140,21 @@ class MockClient : public Client {
         return Result<UserSettings>::success(std::move(s));
     }
 
+    // The mock also WRITES settings (zero-config sync target): it simply
+    // accepts the pushed UserSettings, stores it in memory, and reports
+    // success. This makes the periodic-sync path fully exercisable offline —
+    // the web-matches-local story works with no network + no config. The
+    // stored copy is inspectable via last_written_settings() for tests.
+    bool supports_settings_write() const override { return true; }
+    bool update_settings(const UserSettings& s) override {
+        last_written_ = s;
+        ++write_count_;
+        return true;
+    }
+    // Test/inspection helpers for the in-memory write sink.
+    const UserSettings& last_written_settings() const { return last_written_; }
+    int settings_write_count() const { return write_count_; }
+
     // The mock also STREAMS (Phase STREAM): the whole point of the offline demo
     // is a live token-by-token reply with no network. See send_message_streaming
     // and prepare_stream below.
@@ -372,6 +387,11 @@ class MockClient : public Client {
     // Sessions created via the composer during this run (mock is otherwise
     // stateless). Merged into list_sessions/get_session above.
     std::vector<Session> created_;
+
+    // In-memory sink for the settings-write path (see update_settings). Lets
+    // the periodic-sync story run + be asserted offline with zero config.
+    UserSettings last_written_;
+    int write_count_ = 0;
 
     static int64_t hrs_ago(int64_t h) {
         // Now-based reference so the sidebar time buckets (Today / This Week /

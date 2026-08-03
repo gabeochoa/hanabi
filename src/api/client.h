@@ -230,6 +230,12 @@ struct Config {
     //   HANABI_SETTINGS_PATH  default "/whoami" (probed live to be the real
     //                         settings/identity endpoint on the real backend)
     std::string settings_path = "/whoami";
+    // WRITE side (settings sync). EMPTY by default => settings-write disabled
+    // (update_settings() reports unsupported). This deliberately carries NO
+    // real endpoint value — the zero-config default is the in-memory mock. A
+    // real backend only activates the write when the user sets this in their
+    // LOCAL config (never committed). Mirrors the read settings_path pattern.
+    std::string settings_update_path;  // empty = http settings-write disabled
     std::string field_settings_user_id = "userId";
     std::string field_settings_bank_id = "bankId";
     // The nested object carrying the counts, and its member field names.
@@ -340,6 +346,13 @@ struct Config {
     // UserSettings unconditionally (zero-config offline default).
     bool settings_ready() const {
         return !base_url.empty() && !settings_path.empty();
+    }
+    // WRITE side: only ready when a base URL AND a settings_update_path are
+    // set. Empty settings_update_path (the default) keeps http writes OFF —
+    // local-only persistence still works; nothing is pushed. Mirrors
+    // settings_ready() for the read path.
+    bool settings_write_ready() const {
+        return !base_url.empty() && !settings_update_path.empty();
     }
 
     // True when the device-code flow has the minimum it needs: a base URL plus
@@ -541,6 +554,24 @@ class Client {
     virtual Result<UserSettings> get_settings() {
         return Result<UserSettings>::failure(
             "this backend does not support reading settings");
+    }
+
+    // Whether this client can WRITE user settings back to the backend so the
+    // web app matches local. The http adapter does only when a
+    // settings_update_path is configured (empty by default => off); the mock
+    // returns true (it stores in memory offline). Default false so a backend
+    // that hasn't wired the write path stays honest and local-only still works.
+    virtual bool supports_settings_write() const { return false; }
+
+    // Push local user settings to the backend (best-effort, called off the UI
+    // thread by the loader when a preference changes). Returns true on a
+    // successful push. The http adapter PUTs the configured settings_update_path
+    // ONLY when settings_write_ready(); the mock accepts + stores in memory.
+    // Default impl is a no-op returning false so local-only persistence still
+    // works with zero config and no error is surfaced.
+    virtual bool update_settings(const UserSettings& s) {
+        (void)s;
+        return false;
     }
 
     // Open a live subscription to `session_id`'s events. The sink's callbacks

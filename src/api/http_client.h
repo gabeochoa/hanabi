@@ -78,6 +78,19 @@ class HttpClient : public Client {
     // failure otherwise (never crashes). Read-only.
     Result<UserSettings> get_settings() override;
 
+    // The http backend can WRITE settings only when a settings_update_path is
+    // configured (empty by default => off). No real endpoint is compiled in —
+    // this activates purely from the user's local config.
+    bool supports_settings_write() const override {
+        return cfg_.settings_write_ready();
+    }
+
+    // Push local user settings to the backend (feature: web-matches-local
+    // sync). PUTs the configured settings_update_path with the settings JSON.
+    // Requires cfg.settings_write_ready(); returns false (no error surfaced)
+    // otherwise so local-only persistence still works. Best-effort.
+    bool update_settings(const UserSettings& s) override;
+
     // Subscribe to a session's live event stream over SSE (on a worker thread).
     // POSTs/GETs the configured events path (with {id} substituted) and feeds
     // the text/event-stream response through parse_events_frame, invoking the

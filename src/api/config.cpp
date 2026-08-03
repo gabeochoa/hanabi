@@ -101,6 +101,10 @@ void load_config_file(Config& c) {
     // User settings / config read (feature #4). Optional; settings_path
     // defaults to "/whoami" (the reachable real endpoint on the real backend).
     str("settings_path", c.settings_path);
+    // WRITE side (settings sync). Empty by default => http settings-write off;
+    // the mock is the zero-config default. Only a LOCAL config value activates
+    // a real backend write (never committed).
+    str("settings_update_path", c.settings_update_path);
     str("field_settings_user_id", c.field_settings_user_id);
     str("field_settings_bank_id", c.field_settings_bank_id);
     str("field_settings_counts", c.field_settings_counts);
@@ -199,6 +203,10 @@ Config Config::from_env() {
     // User settings / config read (feature #4). settings_path defaults to
     // "/whoami"; the field_settings_* names map its response onto UserSettings.
     c.settings_path = env_or("HANABI_SETTINGS_PATH", c.settings_path);
+    // WRITE side: empty default keeps http settings-write off (mock is the
+    // zero-config default). A local override activates it against a real backend.
+    c.settings_update_path =
+        env_or("HANABI_SETTINGS_UPDATE_PATH", c.settings_update_path);
     c.field_settings_user_id =
         env_or("HANABI_FIELD_SETTINGS_USER_ID", c.field_settings_user_id);
     c.field_settings_bank_id =
