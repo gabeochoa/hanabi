@@ -42,6 +42,11 @@ bool Settings::load_save_file() {
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
         cache_cap_bytes_ =
             j.value("cache_cap_bytes", cache_cap_bytes_);
+        yap_level_ = j.value("yap_level", yap_level_);
+        auto_archive_days_ = j.value("auto_archive_days", auto_archive_days_);
+        notification_sound_ = j.value("notification_sound", notification_sound_);
+        memory_backend_ = j.value("memory_backend", memory_backend_);
+        default_model_ = j.value("default_model", default_model_);
         open_tabs_.clear();
         if (j.contains("open_tabs") && j["open_tabs"].is_array()) {
             for (const auto& e : j["open_tabs"])
@@ -72,6 +77,11 @@ void Settings::write_save_file() {
     j["font"] = font_choice_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
     j["cache_cap_bytes"] = cache_cap_bytes_;
+    j["yap_level"] = yap_level_;
+    j["auto_archive_days"] = auto_archive_days_;
+    j["notification_sound"] = notification_sound_;
+    j["memory_backend"] = memory_backend_;
+    j["default_model"] = default_model_;
     j["starred"] = starred_ids_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
@@ -149,3 +159,52 @@ void Settings::set_starred(const std::string& id, bool starred) {
     // Persist immediately (mirrors set_theme) so a star survives relaunch.
     if (auto_save_enabled) write_save_file();
 }
+
+// ── Preference slots. Each auto-persists (mirrors set_theme) AND marks the
+// sync-dirty flag so the loader can push the change to the backend. No-op
+// writes are skipped so re-selecting the current value doesn't churn.
+int Settings::get_yap_level() const { return yap_level_; }
+void Settings::set_yap_level(int level) {
+    if (level == yap_level_) return;
+    yap_level_ = level;
+    settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+int Settings::get_auto_archive_days() const { return auto_archive_days_; }
+void Settings::set_auto_archive_days(int days) {
+    if (days == auto_archive_days_) return;
+    auto_archive_days_ = days;
+    settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_notification_sound() const { return notification_sound_; }
+void Settings::set_notification_sound(bool on) {
+    if (on == notification_sound_) return;
+    notification_sound_ = on;
+    settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_memory_backend() const {
+    return memory_backend_;
+}
+void Settings::set_memory_backend(const std::string& backend) {
+    if (backend == memory_backend_) return;
+    memory_backend_ = backend;
+    settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_default_model() const { return default_model_; }
+void Settings::set_default_model(const std::string& model) {
+    if (model == default_model_) return;
+    default_model_ = model;
+    settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::is_settings_dirty() const { return settings_dirty_; }
+void Settings::mark_settings_dirty() { settings_dirty_ = true; }
+void Settings::clear_settings_dirty() { settings_dirty_ = false; }

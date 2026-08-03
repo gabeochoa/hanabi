@@ -68,6 +68,41 @@ struct Settings {
     bool is_starred(const std::string& id) const;
     void set_starred(const std::string& id, bool starred);  // auto-persists
 
+    // ── Preference slots (settings modal). Each auto-persists (mirrors
+    // set_theme) AND marks the sync-dirty flag so the loader can push the
+    // change to the backend when a write path is configured. These map onto
+    // the web PUT-preferences schema (yapLevel / autoArchiveDays /
+    // notificationSound / memoryBackend / defaultModelId) but persist locally
+    // FIRST — the app is fully usable offline; the server just gets a copy.
+
+    // Yap / verbosity level: 0 = No yapping, 1 = A little, 2 = Full. Default 2.
+    int get_yap_level() const;
+    void set_yap_level(int level);  // auto-persists + marks dirty
+
+    // Auto-archive threads after N days. 0 = never. Default 5.
+    int get_auto_archive_days() const;
+    void set_auto_archive_days(int days);  // auto-persists + marks dirty
+
+    // Notification sound on/off. Default true (Ping).
+    bool get_notification_sound() const;
+    void set_notification_sound(bool on);  // auto-persists + marks dirty
+
+    // Memory backend: "traditional" (default) or "hindsight".
+    const std::string& get_memory_backend() const;
+    void set_memory_backend(const std::string& backend);  // auto-persists + dirty
+
+    // Default model id, e.g. "default" (server default) / a named model.
+    const std::string& get_default_model() const;
+    void set_default_model(const std::string& model);  // auto-persists + dirty
+
+    // ── Backend-sync bookkeeping. Any preference change flips settings_dirty_;
+    // the loader debounces + pushes to the backend (best-effort) via
+    // ApiClient::update_settings, then clears the flag. Purely in-memory (NOT
+    // persisted): a relaunch starts clean and a real change re-flips it.
+    bool is_settings_dirty() const;
+    void mark_settings_dirty();
+    void clear_settings_dirty();
+
     std::string get_settings_path() const;
 
     bool auto_save_enabled = true;
@@ -84,4 +119,13 @@ struct Settings {
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
+    // Preference slots (see getters). Defaults mirror the web defaults.
+    int yap_level_ = 2;
+    int auto_archive_days_ = 5;
+    bool notification_sound_ = true;
+    std::string memory_backend_ = "traditional";
+    std::string default_model_ = "default";
+    // In-memory only: set on any preference change, cleared by the loader
+    // after a successful (or best-effort) backend push.
+    bool settings_dirty_ = false;
 };
