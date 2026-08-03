@@ -4,42 +4,46 @@
 // full-window backdrop when AppComponent::showSettings is true. Closes on
 // Cmd+, (toggle), Esc, the ✕ close button, or clicking the backdrop.
 //
-// STRUCTURE — mirrors the navi web settings menu, grouped the SAME way and in
-// the SAME order (Appearance / Behavior / Notifications / Data / Model /
-// Advanced / Account). Each row is either wired here or rendered as a visible
-// TODO stub (label + disabled-looking control) so the full structure is
-// legible even before the backing API/UI lands.
+// LAYOUT — a WIDE (kPanelW) two-column sheet so the whole section set fits a
+// normal window WITHOUT scrolling. Grouped the SAME way + order as the navi
+// web settings (Appearance / Behavior / Notifications / Data / Model /
+// Advanced / Account). Every content width derives from ONE panel-width
+// constant (kPanelW → content_w()/col_w()) so segmented-control gutters can't
+// drift. Left column: Appearance / Behavior / Notifications / Model. Right
+// column: Data / Advanced / Account. The footnote spans full width beneath.
 //
-// ─── API SETTABILITY (the web app's PUT /api/user/preferences schema) ───────
-// The web backend can persist ONLY these preference fields:
-//   defaultModelId, yapLevel, branchOverrideUrl, memoryBackend,
-//   notificationSound, compactionThreshold, enabledExperiments,
-//   keyboardShortcuts, autoArchiveDays.
-// It CANNOT set: theme, font  — those are CLIENT-LOCAL (persisted here in
-// Settings, never sent to the backend). Rows that would need the API but
-// aren't wired to it yet carry `// TODO(settings-api):` pointing at the exact
-// field; genuinely client-only rows carry `// NOTE: client-local only`.
-// hanabi has no PUT-preferences client yet, so every API-backed row below is a
-// visible stub until that wiring exists (see REPORT).
+// ─── PERSISTENCE + SYNC ─────────────────────────────────────────────────────
+// Every WIRED control persists LOCALLY first: it writes through the Settings
+// singleton, which auto-saves to the on-disk settings JSON immediately
+// (mirrors set_theme). A change also flips Settings' sync-dirty flag; the
+// loader (loader_system.h, drive_settings_sync) DEBOUNCES it and best-effort
+// PUSHES a snapshot to the backend via ApiClient::update_settings so the web
+// app matches local. With the zero-config mock the push stores in memory; a
+// real backend only activates when the user sets settings_update_path in their
+// LOCAL config (never committed). If no write path is configured, local-only
+// persistence still works and no error is surfaced.
 //
-// Appearance:
-//   Theme  (Light/Dark/System)  — WIRED, client-local (theme::set_mode).
-//   Font   (Default/Hyperlegible) — WIRED, client-local (FontManager swap).
-// Behavior:
-//   Yap level (0/1/2)           — stub, API field yapLevel.
-//   Auto-archive (days)         — stub, API field autoArchiveDays.
-//   Memory backend (Trad/Hind)  — stub, API field memoryBackend (Hindsight
-//                                  admin-only in the web app).
-// Notifications:
-//   Notification sound (Off/Ping) — stub, API field notificationSound.
-// Data:  cache usage + clear / cache limit / export — WIRED, all client-local.
-// Model: Default model          — stub, API field defaultModelId (needs a
-//                                  model list from the API too).
-// Advanced: branch override URL / enabled experiments / compaction threshold /
-//   keyboard shortcuts / reset onboarding+sandbox — all stubs (API fields
-//   branchOverrideUrl / enabledExperiments / compactionThreshold /
-//   keyboardShortcuts; reset needs API support).
-// Account: identity + counts — WIRED (read-only /whoami). Sign out — stub.
+// The web PUT-preferences schema fields we map onto: defaultModelId, yapLevel,
+// memoryBackend, notificationSound, autoArchiveDays (+ theme/font which stay
+// CLIENT-LOCAL — the web schema has no theme/font field).
+//
+// WIRED (persist locally + sync):
+//   Appearance · Theme  (Light/Dark/System)   — client-local (theme::set_mode).
+//   Appearance · Font   (Default/Hyperlegible) — client-local (FontManager).
+//   Behavior · Yap level (No yapping/A little/Full).
+//   Behavior · Auto-archive (Never/5/14/30 days).
+//   Behavior · Memory backend (Traditional/Hindsight).
+//   Notifications · Sound (Off/Ping).
+//   Data · cache usage + clear / cache limit / export — client-local.
+//   Model · Default model (Server default/Fast/Reasoning).
+//   Account · identity + counts — read-only /whoami.
+//
+// COMING SOON (genuinely need server work we can't do yet, so rendered with the
+// intentional coming-soon treatment — a clean row + muted pill, NOT a dead
+// disabled control):
+//   Advanced · power-user options (branch override / experiments / compaction
+//     threshold / keyboard shortcuts / reset) — need dedicated API support.
+//   Account · Sign out — needs an auth-clear + client-teardown flow.
 //
 // "System" theme tracks the real macOS appearance via hanabi::os_is_dark_mode()
 // (afterhours exposes no OS-appearance query — see afterhours_gaps.md #16).
@@ -118,25 +122,30 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // Height is derived from the content stack so there's no dead space at
         // the bottom (Task B) — pad(top+bottom) + header + each section
         // (gap + label + control) + footnote (gap + line).
-        const float pw = 360.0f;
+        const float pw = kPanelW;
         // contentH = the full stacked height of every section body (everything
-        // BELOW the fixed header). This mirrors navi web's settings, which has
-        // far more rows than fit in a fixed sheet — so the body scrolls.
+        // BELOW the fixed header). Sized so the whole set FITS a normal window
+        // WITHOUT scrolling (Task 1) — the wider panel + tightened section set
+        // means idealPh is well under a default 760px window. The scroll body
+        // remains only as a safety net for a very short window; on a normal
+        // window bodyViewH == contentH so nothing scrolls or clips.
         // Update this sum whenever a section is added/removed.
+        // Two-column content height = the TALLER column + the full-width
+        // footnote beneath. Each column is a stack of (group header + its
+        // control rows). Keep this in sync with the LEFT/RIGHT render blocks.
+        const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
+        const float leftH =
+            (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
+            (kGroupH + ctrlRow * 3.0f) +          // Behavior: 3 rows
+            (kGroupH + ctrlRow) +                 // Notifications: Sound
+            (kGroupH + ctrlRow);                  // Model: default model
+        const float rightH =
+            (kGroupH + (kRowNameFoot + kCacheRowH) + (kRowNameFoot + kLimitRowH) +
+             (kRowNameFoot + kCacheRowH)) +       // Data: cache/limit/export
+            (kGroupH + kAdvancedH) +              // Advanced: coming-soon
+            (kGroupH + kAccountRowH);             // Account: identity+signout
         const float contentH =
-                         (kSectionH + kThemeRowH) +      // Appearance: Theme
-                         (kSectionH + kThemeRowH) +      // Appearance: Font
-                         (kSectionH + kThemeRowH) +      // Behavior: Yap level
-                         (kSectionH + kCacheRowH) +      // Behavior: Auto-archive
-                         (kSectionH + kCacheRowH) +      // Behavior: Memory backend
-                         (kSectionH + kCacheRowH) +      // Notifications: sound
-                         (kSectionH + kCacheRowH) +      // Data: cache (usage+clear)
-                         (kSectionH + kLimitRowH) +      // Data: cache limit
-                         (kSectionH + kCacheRowH) +      // Data: export
-                         (kSectionH + kCacheRowH) +      // Model: default model
-                         (kSectionH + kAdvancedH) +      // Advanced: stubs + note
-                         (kSectionH + kAccountRowH) +    // Account: identity+signout
-                         (kFootnoteGap + kFootnoteH);    // footnote
+            std::max(leftH, rightH) + (kFootnoteGap + kFootnoteH) + 8.0f;
         // Ideal (unclipped) panel height = pad + header + all content.
         const float idealPh = kPadV * 2.0f + kHeaderH + contentH;
         // But the panel is a fixed centered sheet — cap it so it always fits
@@ -195,9 +204,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border(theme::border(), pixels(1.0f))
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(kPadV), .right = pixels(20),
+                .with_padding(Padding{.top = pixels(kPadV), .right = pixels(kPadH),
                                       .bottom = pixels(kPadV),
-                                      .left = pixels(20)})
+                                      .left = pixels(kPadH)})
                 .with_roundness(0.35f)
                 .with_render_layer(11)
                 .with_debug_name("settings_panel"));
@@ -216,55 +225,133 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_overflow(Overflow::Scroll, Axis::Y)
                 .with_transparent_bg()
-                // Top pad so the FIRST section label's ascenders aren't clipped
-                // by the scroll viewport's top edge. The first label's own top
-                // margin can be swallowed at the clip origin, so give the body
-                // real top clearance (>= the label's ascent slack).
-                .with_padding(Padding{.top = pixels(10.0f)})
+                // Top pad so the FIRST group label's ascenders aren't clipped
+                // by the scroll viewport's top edge.
+                .with_padding(Padding{.top = pixels(8.0f)})
                 .with_roundness(0.0f)
                 .with_debug_name("settings_body_scroll"));
         Entity& b = body.ent();
 
-        // Appearance
-        render_theme_row(ctx, b, *app);
-        render_font_row(ctx, b, *app);
-        // Behavior
-        render_yap_row(ctx, b, *app);
-        render_autoarchive_row(ctx, b, *app);
-        render_memory_backend_row(ctx, b, *app);
-        // Notifications
-        render_notification_row(ctx, b, *app);
-        // Data
-        render_cache_row(ctx, b, *app);
-        render_cache_limit_row(ctx, b, *app);
-        render_export_row(ctx, b, *app);
-        // Model
-        render_model_row(ctx, b, *app);
-        // Advanced
-        render_advanced_section(ctx, b, *app);
-        // Account
-        render_account_row(ctx, b, *app);
+        // TWO-COLUMN layout (Task 1): the wider panel is split into two equal
+        // columns so the full section set fits a normal window WITHOUT
+        // scrolling. Left column = Appearance / Behavior / Notifications /
+        // Model; right column = Data / Advanced / Account. Each control sizes
+        // to its column via content_w() (set per column below). The footnote
+        // spans full width beneath both columns.
+        auto cols = div(ctx, mk(b, 490),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_cols"));
+
+        auto leftCol = div(ctx, mk(cols.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(col_w()), children()})
+                .with_margin(Margin{.right = pixels(kColGap)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_col_left"));
+        auto rightCol = div(ctx, mk(cols.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(col_w()), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_col_right"));
+
+        // LEFT column: Appearance / Behavior / Notifications / Model.
+        active_col_w_ = col_w();
+        {
+            Entity& L = leftCol.ent();
+            group_label(ctx, L, 2, "Appearance", "settings_grp_appearance");
+            render_theme_row(ctx, L, *app);
+            render_font_row(ctx, L, *app);
+            group_label(ctx, L, 3, "Behavior", "settings_grp_behavior");
+            render_yap_row(ctx, L, *app);
+            render_autoarchive_row(ctx, L, *app);
+            render_memory_backend_row(ctx, L, *app);
+            group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
+            render_notification_row(ctx, L, *app);
+            group_label(ctx, L, 6, "Model", "settings_grp_model");
+            render_model_row(ctx, L, *app);
+        }
+        // RIGHT column: Data / Advanced / Account.
+        {
+            Entity& R = rightCol.ent();
+            group_label(ctx, R, 5, "Data", "settings_grp_data");
+            render_cache_row(ctx, R, *app);
+            render_cache_limit_row(ctx, R, *app);
+            render_export_row(ctx, R, *app);
+            group_label(ctx, R, 7, "Advanced", "settings_grp_advanced");
+            render_advanced_section(ctx, R, *app);
+            group_label(ctx, R, 8, "Account", "settings_grp_account");
+            render_account_row(ctx, R, *app);
+        }
+        active_col_w_ = 0.0f;  // reset to full-width for the spanning footnote
+
         render_footnote(ctx, b, *app);
     }
 
-    // ---- layout constants (single source of truth for panel height + the
-    // consistent vertical rhythm; Task B). A section = a small gap, a header
-    // label, then its control. Between-section gap == kSectionGap; label->
-    // control gap is baked into the label's own bottom via kLabelH sizing.
+    // ---- layout constants (single source of truth for panel WIDTH + height +
+    // the consistent vertical rhythm; Task B). A section = a small gap, a
+    // header label, then its control. Between-section gap == kSectionGap;
+    // label-> control gap is baked into the label's own bottom via kLabelH.
+    //
+    // PANEL WIDTH is ONE constant (kPanelW). Every content-width computation
+    // (segmented-control gutters etc.) derives from content_w() so they can't
+    // drift. Widened from 360 → 600 so the whole section set fits WITHOUT
+    // vertical scrolling on a normal window (Task 1).
+    static constexpr float kPanelW = 600.0f;    // panel width (single source)
+    static constexpr float kPadH = 24.0f;       // panel left/right padding
+    // Usable content width inside the panel (both horizontal pads removed).
+    // Usable content width for controls in the CURRENTLY-rendering column.
+    // Two-column layout: set per-column to col_w() before rendering that
+    // column's rows so every segmented control sizes to its column, not the
+    // whole panel. Defaults to the full content width (single-column fallback).
+    // ONE source of truth — no hardcoded widths drift.
+    float content_w() const {
+        return active_col_w_ > 0.0f ? active_col_w_ : full_content_w();
+    }
+    // Full inside-panel width (both horizontal pads removed).
+    static constexpr float full_content_w() { return kPanelW - kPadH * 2.0f; }
+    // Column geometry: two equal columns split from full_content_w() with a
+    // gutter between them.
+    static constexpr float kColGap = 24.0f;
+    static constexpr float col_w() {
+        return (full_content_w() - kColGap) * 0.5f;
+    }
     static constexpr float kPadV = 20.0f;        // panel top/bottom padding
     static constexpr float kHeaderH = 28.0f;     // title + close row
-    static constexpr float kSectionGap = 16.0f;  // space above each section label
-    static constexpr float kLabelH = 26.0f;      // section header label height
-    static constexpr float kLabelPadB = 4.0f;    // gap under a section label
-    // Total vertical footprint of one section header (gap + label + gap-below).
-    static constexpr float kSectionH = kSectionGap + kLabelH + kLabelPadB;
-    static constexpr float kThemeRowH = 34.0f;   // segmented control
-    static constexpr float kCacheRowH = 30.0f;   // usage + clear button
-    static constexpr float kLimitRowH = 34.0f;   // cache-limit segmented control
-    static constexpr float kAccountRowH = 42.0f; // identity/counts + sign-out
-    // Advanced section body: 5 stacked stub rows (~20 each) + a note line.
-    static constexpr float kAdvancedH = 20.0f * 5.0f + 24.0f;
-    static constexpr float kFootnoteGap = 20.0f; // space above footnote
+    // Group headers (Appearance / Behavior / …). ONE per group; controls stack
+    // under it, each with its own compact inline name (kRowNameH). Grouping
+    // keeps the whole set inside a normal window without scrolling (Task 1).
+    static constexpr float kGroupGap = 14.0f;    // space above a group label
+    static constexpr float kLabelH = 18.0f;      // group header label height
+    static constexpr float kLabelPadB = 3.0f;    // gap under a group label
+    static constexpr float kGroupH = kGroupGap + kLabelH + kLabelPadB;
+    static constexpr float kRowNameH = 15.0f;    // compact per-row name label
+    static constexpr float kRowNameGap = 2.0f;   // gap under a row name
+    // One row name's total vertical footprint.
+    static constexpr float kRowNameFoot = kRowNameH + kRowNameGap;
+    static constexpr float kThemeRowH = 30.0f;   // segmented control
+    static constexpr float kCacheRowH = 28.0f;   // usage + clear button
+    static constexpr float kLimitRowH = 30.0f;   // cache-limit segmented control
+    // Account body: identity line (20) + gap + one sign-out coming-soon row.
+    static constexpr float kAccountRowH = 62.0f; // identity/counts + sign-out
+    // Coming-soon row geometry (Advanced + Sign out).
+    static constexpr float kSoonRowH = 28.0f;    // one coming-soon pill row
+    static constexpr float kSoonRowGap = 5.0f;   // gap below each such row
+    // Advanced section body: ONE summary coming-soon row (the individual
+    // power-user toggles genuinely need server work; one tidy row communicates
+    // that without a tall stack).
+    static constexpr float kAdvancedH = kSoonRowH + kSoonRowGap;
+    static constexpr float kFootnoteGap = 14.0f; // space above footnote
     static constexpr float kFootnoteH = 18.0f;   // footnote line
 
   private:
@@ -312,24 +399,22 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (closeBtn) app.showSettings = false;
     }
 
-    // Consistent section header: a slightly-prominent label with a fixed gap
-    // above it (kSectionGap) and a fixed small gap to its control below
-    // (kLabelPadB). Unifies Theme/Cache/Account so they read as peers (Task B).
-    // Uses MARGIN (not padding) for the gaps: the autolayout stacks children by
-    // computed size + margin, so margin adds real space BETWEEN elements, while
-    // padding would only inset text inside the label's own fixed box (leaving
-    // the sections cramped + the panel with dead space — the bug this fixes).
-    void section_label(UIContext<InputAction>& ctx, Entity& parent, int id,
-                       const std::string& text, const std::string& dbg) {
+    // Group header: a slightly-prominent label with a fixed gap above it
+    // (kGroupGap) and a small gap to its first control below (kLabelPadB). ONE
+    // per group (Appearance / Behavior / …); the group's controls stack under
+    // it, each with its own compact inline row_name(). Uses MARGIN (not
+    // padding) for the gaps: the autolayout stacks children by computed size +
+    // margin, so margin adds real space BETWEEN elements.
+    void group_label(UIContext<InputAction>& ctx, Entity& parent, int id,
+                     const std::string& text, const std::string& dbg) {
         div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(text)
                 .with_size(ComponentSize{percent(1.0f), pixels(kLabelH)})
-                .with_margin(Margin{.top = pixels(kSectionGap),
+                .with_margin(Margin{.top = pixels(kGroupGap),
                                     .bottom = pixels(kLabelPadB)})
-                // Vertically center the ~20px label in its box — a bare label
-                // div top-anchors its text, so without this the ascenders clip
-                // against the box/scroll top edge (esp. the first section).
+                // Vertically center the label in its box so ascenders don't clip
+                // against the box/scroll top edge (esp. the first group).
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
@@ -339,12 +424,30 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name(dbg));
     }
 
+    // Compact inline row name above a control (e.g. "Yap level", "Sound").
+    // Small + secondary so the group header stays the visual anchor; kRowNameGap
+    // under it separates it from the control.
+    void row_name(UIContext<InputAction>& ctx, Entity& parent, int id,
+                  const std::string& text, const std::string& dbg) {
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(text)
+                .with_size(ComponentSize{percent(1.0f), pixels(kRowNameH)})
+                .with_margin(Margin{.bottom = pixels(kRowNameGap)})
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_name"));
+    }
+
     void render_theme_row(UIContext<InputAction>& ctx, Entity& parent,
                           AppComponent& app) {
         // Appearance group -> Theme. NOTE: client-local only (not an API
         // setting) — the web PUT /api/user/preferences has no theme field.
-        section_label(ctx, parent, 2, "Appearance \xc2\xb7 Theme",
-                      "settings_theme_label");
+        row_name(ctx, parent, 2, "Theme", "settings_theme_label");
 
         auto row = div(ctx, mk(parent, 3),
             ComponentConfig{}
@@ -358,11 +461,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         // Full-width segmented control (V8: hug both edges, don't float centered).
         // afterhours has no flex-grow (gap #18) so size each segment from the
-        // real content width: panel 360 − left/right pad 20 each = 320, minus
-        // the inter-segment gaps, split N ways. No trailing margin so the group
+        // real content width (content_w() = kPanelW − both pads), minus the
+        // inter-segment gaps, split N ways. No trailing margin so the group
         // spans exactly left-inset → right-inset.
         constexpr float kSegGap = 6.0f;
-        const float content = 360.0f - 20.0f - 20.0f;
+        const float content = content_w();
         const float segW = (content - kSegGap * 2.0f) / 3.0f;
         theme_choice(ctx, row.ent(), 1, "Light", "light", app, segW, true);
         theme_choice(ctx, row.ent(), 2, "Dark", "dark", app, segW, true);
@@ -378,8 +481,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_font_row(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 6, "Appearance \xc2\xb7 Font",
-                      "settings_font_label");
+        row_name(ctx, parent, 6, "Font", "settings_font_label");
 
         auto row = div(ctx, mk(parent, 7),
             ComponentConfig{}
@@ -391,10 +493,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_font_row"));
 
-        // Same gutter math as render_theme_row: content = 360 - 20 - 20 = 320,
-        // minus one inter-segment gap, split 2 ways.
+        // Same gutter math as render_theme_row: content_w(), minus one
+        // inter-segment gap, split 2 ways.
         constexpr float kSegGap = 6.0f;
-        const float content = 360.0f - 20.0f - 20.0f;
+        const float content = content_w();
         const float segW = (content - kSegGap) / 2.0f;
         font_choice_btn(ctx, row.ent(), 1, "Default", "default", segW, true);
         font_choice_btn(ctx, row.ent(), 2, "Hyperlegible", "hyperlegible", segW,
@@ -484,7 +586,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_cache_row(UIContext<InputAction>& ctx, Entity& parent,
                           AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 20, "Cache", "settings_cache_label");
+        row_name(ctx, parent, 20, "On-disk cache", "settings_cache_label");
 
         auto row = div(ctx, mk(parent, 21),
             ComponentConfig{}
@@ -537,7 +639,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_export_row(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 60, "Data", "settings_data_label");
+        row_name(ctx, parent, 60, "Export", "settings_data_label");
         auto row = div(ctx, mk(parent, 61),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kCacheRowH)})
@@ -603,8 +705,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_cache_limit_row(UIContext<InputAction>& ctx, Entity& parent,
                                 AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 40, "Cache limit",
-                      "settings_cache_limit_label");
+        row_name(ctx, parent, 40, "Cache limit", "settings_cache_limit_label");
 
         auto row = div(ctx, mk(parent, 41),
             ComponentConfig{}
@@ -618,10 +719,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         const std::uint64_t current = Settings::get().get_cache_cap_bytes();
         // Full-width 4-segment control (V8: hug both edges). Size from the real
-        // content width (320) minus 3 inter-segment gaps; no trailing margin so
-        // the group spans exactly left-inset → right-inset.
+        // content width (content_w()) minus 3 inter-segment gaps; no trailing
+        // margin so the group spans exactly left-inset → right-inset.
         constexpr float kSegGap = 4.0f;
-        const float segW = (320.0f - kSegGap * 3.0f) / 4.0f;
+        const float segW = (content_w() - kSegGap * 3.0f) / 4.0f;
         int idx = 1;
         for (int i = 0; i < 4; ++i) {
             const auto& opt = kCapOptions[i];
@@ -659,17 +760,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ── Shared stub helpers ────────────────────────────────────────────────
-    // A single disabled-looking segmented control that shows structure but does
-    // nothing yet. `selectedIdx` highlights the current value so the row reads
-    // as a real (but inert) choice. Used by the API-blocked Behavior /
-    // Notifications rows until a PUT-preferences client exists.
-    void stub_segmented(UIContext<InputAction>& ctx, Entity& parent,
+    // ── Shared control helpers ─────────────────────────────────────────────
+    // A REAL, working segmented control: N clickable segments, `selectedIdx`
+    // highlighted (accent fill, like theme/font/cache-limit). Clicking segment
+    // i invokes onPick(i). Used by every WIRED Behavior/Notifications row —
+    // each persists locally + marks the sync-dirty flag through its onPick.
+    template <typename Fn>
+    void real_segmented(UIContext<InputAction>& ctx, Entity& parent,
                         int baseId, const std::vector<std::string>& labels,
-                        int selectedIdx, const std::string& dbg) {
+                        int selectedIdx, const std::string& dbg, Fn onPick) {
         auto row = div(ctx, mk(parent, baseId),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -678,51 +780,62 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name(dbg + "_row"));
         constexpr float kSegGap = 6.0f;
         const int n = static_cast<int>(labels.size());
-        const float content = 360.0f - 20.0f - 20.0f;
         const float segW =
-            (content - kSegGap * (n - 1)) / static_cast<float>(n);
+            (content_w() - kSegGap * (n - 1)) / static_cast<float>(n);
         for (int i = 0; i < n; ++i) {
             const bool sel = (i == selectedIdx);
             const bool last = (i == n - 1);
-            // Rendered as a div (not a button): visibly present, but inert —
-            // the control is a stub until the API is wired.
-            div(ctx, mk(row.ent(), i + 1),
+            auto btn = button(ctx, mk(row.ent(), i + 1),
                 ComponentConfig{}
                     .with_label(labels[static_cast<size_t>(i)])
-                    .with_size(ComponentSize{pixels(segW), pixels(28)})
+                    .with_size(ComponentSize{pixels(segW), pixels(32)})
                     .with_margin(Margin{.right = pixels(last ? 0.0f : kSegGap)})
-                    .with_custom_background(sel ? theme::button_secondary()
-                                                : theme::panel_bg())
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_custom_text_color(sel ? theme::text_secondary()
-                                                : theme::text_faint())
+                    .with_custom_background(sel ? theme::button_primary()
+                                                : theme::button_secondary())
+                    .with_custom_hover_bg(sel ? theme::button_primary()
+                                              : theme::hover_bg())
+                    .with_custom_text_color(sel ? theme::window_bg()
+                                                : theme::text_primary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.35f)
                     .with_debug_name(dbg + "_" + std::to_string(i)));
+            if (btn) onPick(i);
         }
     }
 
-    // A one-line stub row: a small label on the left, a faint value/"coming
-    // soon" hint on the right. For Advanced text rows + Model default.
-    void stub_line(UIContext<InputAction>& ctx, Entity& parent, int id,
-                   const std::string& label, const std::string& hint,
-                   const std::string& dbg) {
+    // ── "Coming soon" treatment (Task 4) ────────────────────────────────────
+    // A clean, INTENTIONAL row for a setting that genuinely needs server work
+    // we can't do yet: the setting name on the left, a muted "Coming soon" pill
+    // (tag_done tokens) hugging the right. Reads as designed, not broken — no
+    // faint disabled control. `sub` is an optional dimmer descriptor under the
+    // name (e.g. the current server default) shown small + faint.
+    void coming_soon_row(UIContext<InputAction>& ctx, Entity& parent, int id,
+                         const std::string& label, const std::string& sub,
+                         const std::string& dbg) {
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kSoonRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::SpaceBetween)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
+                .with_custom_background(theme::panel_bg_2())
+                .with_padding(Padding{.right = pixels(8), .left = pixels(10)})
+                .with_roundness(0.3f)
                 .with_debug_name(dbg + "_row"));
+
+        // Left: name (+ optional faint sub, appended inline so the row stays
+        // one line and can't wrap/overflow).
+        std::string left = label;
+        if (!sub.empty()) left += "   \xc2\xb7   " + sub;
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_label(label)
+                .with_label(left)
                 .with_size(ComponentSize{children(), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
@@ -730,123 +843,127 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name(dbg + "_label"));
+
+        // Right: muted "Coming soon" pill. tag_done_bg is a LOW-ALPHA token;
+        // the fill pipeline can't alpha-blend (gap #13), so pre-blend it over
+        // the row's panel_bg_2 surface via theme::over — otherwise it renders
+        // as a near-opaque light slab that hides the (light) fg text. The
+        // rounded corners read the same at any pill size via roundness_for_px.
+        constexpr float kPillW = 96.0f, kPillH = 20.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(hint)
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_label("Coming soon")
+                .with_size(ComponentSize{pixels(kPillW), pixels(kPillH)})
+                .with_custom_background(
+                    theme::over(theme::tag_done_bg(), theme::panel_bg_2()))
+                .with_custom_text_color(theme::tag_done_fg())
                 .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_hint"));
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_roundness(theme::roundness_for_px(kPillH * 0.5f,
+                                                        kPillW, kPillH))
+                .with_debug_name(dbg + "_pill"));
     }
 
     // ── Behavior group ─────────────────────────────────────────────────────
-    // Yap level / verbosity (0 = No yapping, 1 = A little, 2 = Full). Mirrors
-    // the web yap-level segmented control.
-    // TODO(settings-api): needs PUT /api/user/preferences.yapLevel — not wired
-    // yet (hanabi has no preferences-write client). Rendered as an inert stub.
+    // Yap level / verbosity (0 = No yapping, 1 = A little, 2 = Full). WIRED:
+    // reads Settings::get_yap_level(), writes on click (auto-persists locally +
+    // marks the sync-dirty flag so the loader pushes it to the backend). Maps
+    // onto the web preferences yapLevel field.
     void render_yap_row(UIContext<InputAction>& ctx, Entity& parent,
                         AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 100, "Behavior \xc2\xb7 Yap level",
-                      "settings_yap_label");
-        // Default highlight = "Full" (web default is 2) until we can read the
-        // real value from the API.
-        stub_segmented(ctx, parent, 101,
-                       {"No yapping", "A little", "Full"}, 2, "settings_yap");
+        row_name(ctx, parent, 100, "Yap level", "settings_yap_label");
+        const int cur = Settings::get().get_yap_level();
+        real_segmented(ctx, parent, 101, {"No yapping", "A little", "Full"},
+                       cur, "settings_yap",
+                       [](int i) { Settings::get().set_yap_level(i); });
     }
 
-    // Auto-archive after N days. Numeric in the web app; shown here as a
-    // read-only value stub.
-    // TODO(settings-api): needs PUT /api/user/preferences.autoArchiveDays —
-    // not wired yet.
+    // Auto-archive after N days. WIRED: a small set of preset day-counts as a
+    // segmented control; the selection persists locally + syncs (autoArchiveDays).
     void render_autoarchive_row(UIContext<InputAction>& ctx, Entity& parent,
                                 AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 110, "Behavior \xc2\xb7 Auto-archive",
-                      "settings_autoarchive_label");
-        stub_line(ctx, parent, 111, "Archive threads after",
-                  "5 days \xc2\xb7 coming soon", "settings_autoarchive");
+        row_name(ctx, parent, 110, "Auto-archive", "settings_autoarchive_label");
+        static const int kDays[] = {0, 5, 14, 30};
+        const int cur = Settings::get().get_auto_archive_days();
+        int selIdx = 1;  // default highlight = 5 days if no exact match
+        for (int i = 0; i < 4; ++i)
+            if (kDays[i] == cur) selIdx = i;
+        real_segmented(ctx, parent, 111,
+                       {"Never", "5 days", "14 days", "30 days"}, selIdx,
+                       "settings_autoarchive",
+                       [](int i) {
+                           Settings::get().set_auto_archive_days(kDays[i]);
+                       });
     }
 
-    // Memory backend: Traditional vs Hindsight (Hindsight is admin-only in the
-    // web app). Shown as an inert segmented stub.
-    // TODO(settings-api): needs PUT /api/user/preferences.memoryBackend — not
-    // wired yet (Hindsight also gated to admins server-side).
+    // Memory backend: Traditional vs Hindsight. WIRED locally (persists +
+    // syncs the choice as memoryBackend). Note: Hindsight is admin-gated
+    // server-side, but the client-local preference is safe to store either way.
     void render_memory_backend_row(UIContext<InputAction>& ctx, Entity& parent,
                                    AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 120, "Behavior \xc2\xb7 Memory backend",
-                      "settings_memory_label");
-        stub_line(ctx, parent, 121, "Memory backend",
-                  "Traditional \xc2\xb7 coming soon", "settings_memory");
+        row_name(ctx, parent, 120, "Memory backend", "settings_memory_label");
+        const bool hind =
+            (Settings::get().get_memory_backend() == "hindsight");
+        real_segmented(ctx, parent, 121, {"Traditional", "Hindsight"},
+                       hind ? 1 : 0, "settings_memory",
+                       [](int i) {
+                           Settings::get().set_memory_backend(
+                               i == 1 ? "hindsight" : "traditional");
+                       });
     }
 
     // ── Notifications group ────────────────────────────────────────────────
-    // Notification sound: Off / Ping. Inert segmented stub.
-    // TODO(settings-api): needs PUT /api/user/preferences.notificationSound —
-    // not wired yet.
+    // Notification sound: Off / Ping. WIRED: persists locally (notificationSound)
+    // + syncs.
     void render_notification_row(UIContext<InputAction>& ctx, Entity& parent,
                                  AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 130, "Notifications \xc2\xb7 Sound",
-                      "settings_notif_label");
-        // Default highlight = Ping (matches the web default).
-        stub_segmented(ctx, parent, 131, {"Off", "Ping"}, 1, "settings_notif");
+        row_name(ctx, parent, 130, "Sound", "settings_notif_label");
+        const bool on = Settings::get().get_notification_sound();
+        real_segmented(ctx, parent, 131, {"Off", "Ping"}, on ? 1 : 0,
+                       "settings_notif",
+                       [](int i) {
+                           Settings::get().set_notification_sound(i == 1);
+                       });
     }
 
     // ── Model group ────────────────────────────────────────────────────────
-    // Default model. Needs a model list fetched from the API to populate a
-    // picker, plus a write path to persist the selection.
-    // TODO(settings-api): needs PUT /api/user/preferences.defaultModelId — not
-    // wired yet; also needs a GET model-list endpoint to enumerate choices.
+    // Default model. WIRED locally: a small set of choices persisted as
+    // defaultModelId + synced. "Server default" leaves the backend to pick;
+    // the named choices express a client preference the server can honor.
     void render_model_row(UIContext<InputAction>& ctx, Entity& parent,
                           AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 140, "Model \xc2\xb7 Default model",
-                      "settings_model_label");
-        stub_line(ctx, parent, 141, "Default model",
-                  "(uses server default) \xc2\xb7 coming soon",
-                  "settings_model");
+        row_name(ctx, parent, 140, "Default model", "settings_model_label");
+        static const char* kModels[] = {"default", "fast", "reasoning"};
+        const std::string cur = Settings::get().get_default_model();
+        int selIdx = 0;
+        for (int i = 0; i < 3; ++i)
+            if (cur == kModels[i]) selIdx = i;
+        real_segmented(ctx, parent, 141,
+                       {"Server default", "Fast", "Reasoning"}, selIdx,
+                       "settings_model",
+                       [](int i) {
+                           Settings::get().set_default_model(kModels[i]);
+                       });
     }
 
     // ── Advanced group ─────────────────────────────────────────────────────
-    // A cluster of power-user rows, all inert stubs pending API support.
+    // Power-user settings that GENUINELY need server work we can't do yet
+    // (branch override / experiments / compaction threshold / keyboard
+    // shortcuts / reset). Rather than a tall stack of dead controls, ONE tidy
+    // coming-soon row with the intentional treatment (Task 4): the group of
+    // features named on the left + a muted pill. Designed, not broken.
     void render_advanced_section(UIContext<InputAction>& ctx, Entity& parent,
                                  AppComponent& app) {
         (void)app;
-        section_label(ctx, parent, 150, "Advanced", "settings_advanced_label");
-        // TODO(settings-api): needs PUT /api/user/preferences.branchOverrideUrl
-        stub_line(ctx, parent, 151, "Branch override URL", "\xe2\x80\x94",
-                  "settings_branch");
-        // TODO(settings-api): needs PUT /api/user/preferences.enabledExperiments
-        stub_line(ctx, parent, 152, "Enabled experiments", "none",
-                  "settings_experiments");
-        // TODO(settings-api): needs PUT
-        // /api/user/preferences.compactionThreshold (10\xe2\x80\x9390)
-        stub_line(ctx, parent, 153, "Compaction threshold", "default",
-                  "settings_compaction");
-        // TODO(settings-api): needs PUT /api/user/preferences.keyboardShortcuts
-        stub_line(ctx, parent, 154, "Keyboard shortcuts", "defaults",
-                  "settings_shortcuts");
-        // TODO(settings-api): reset onboarding / sandbox needs a dedicated API
-        // endpoint (not part of the preferences schema).
-        stub_line(ctx, parent, 155, "Reset onboarding / sandbox", "\xe2\x80\xa6",
-                  "settings_reset");
-        // Note: these all require API support that hanabi doesn't have yet.
-        div(ctx, mk(parent, 156),
-            ComponentConfig{}
-                .with_label("These require API support (not wired yet).")
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_margin(Margin{.top = pixels(4)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_advanced_note"));
+        coming_soon_row(ctx, parent, 151, "Power-user options", "",
+                        "settings_advanced");
     }
 
     // Account row: shows the backend-reported identity + counts so the user can
@@ -855,8 +972,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // kicked when the overlay opens. Shows a loading/err/empty state honestly.
     void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app) {
-        section_label(ctx, parent, 30, "Account", "settings_account_label");
-
         std::string line;
         theme::Color col = theme::text_faint();
         if (app.settingsState == ecs::LoadState::Loading) {
@@ -892,12 +1007,22 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_account_value"));
 
-        // Sign out — inert stub (no auth-clear/sign-out flow wired yet).
+        // Sign out — genuinely needs an auth-clear + client-teardown flow that
+        // doesn't exist yet, so it gets the intentional coming-soon treatment
+        // (a clean row + muted pill) rather than a dead disabled control.
         // TODO(settings): wire to token_store clear + client teardown +
-        // return-to-login. Rendered as a disabled-looking secondary button so
-        // the row is visible.
-        stub_line(ctx, parent, 32, "Sign out", "coming soon",
-                  "settings_signout");
+        // return-to-login.
+        auto signout_wrap = div(ctx, mk(parent, 32),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSoonRowH)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_signout_wrap"));
+        coming_soon_row(ctx, signout_wrap.ent(), 1, "Sign out", "",
+                        "settings_signout");
     }
 
     // One segmented theme button. Selected = accent fill; others = secondary.
@@ -970,6 +1095,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static float pw_title() { return 300.0f; }
+
+    // The width controls should size to this frame — set to col_w() per column
+    // by the render loop. 0 => fall back to the full panel content width.
+    float active_col_w_ = 0.0f;
 };
 
 }  // namespace ecs
