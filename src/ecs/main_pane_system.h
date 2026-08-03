@@ -1419,7 +1419,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // its measured height so we can (a) sum total content height and (b)
     // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
     struct Item {
-        enum Kind { Bubble, ToolPile, ToolBlock } kind;
+        enum Kind { Bubble, ToolPile, ToolBlock, Spawn } kind;
         int lo = 0;
         int hi = 0;
         float height = 0.0f;
@@ -1784,8 +1784,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             while (i < n) {
                 const auto& m = msgs[i];
                 if (m.role == api::Role::Tool) {
+                    // A SPAWN (sub-agent launch) is rendered as its own distinct
+                    // inline card, NOT lumped into a tool pile (Gabe: "add UI for
+                    // when a thing is spawned").
+                    if (is_spawn_tool(m)) {
+                        Item it;
+                        it.kind = Item::Spawn;
+                        it.lo = i;
+                        it.height = spawn_card_height();
+                        totalH += it.height;
+                        items.push_back(it);
+                        ++i;
+                        continue;
+                    }
                     int j = i;
-                    while (j < n && msgs[j].role == api::Role::Tool) ++j;
+                    while (j < n && msgs[j].role == api::Role::Tool &&
+                           !is_spawn_tool(msgs[j]))
+                        ++j;
                     if (j - i >= 2) {
                         Item it;
                         it.kind = Item::ToolPile;
@@ -2024,6 +2039,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Item::ToolBlock:
                     render_tool_block(ctx, col, it.lo, msgs[it.lo], colW);
+                    break;
+                case Item::Spawn:
+                    render_spawn_card(ctx, col, it.lo, msgs[it.lo], colW);
                     break;
             }
         }
@@ -4149,6 +4167,116 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (nl == std::string::npos) break;
             ls = nl + 1;
         }
+    }
+
+    // ---- Spawned sub-agent inline card -----------------------------------
+    // A spawn is a Tool-role message whose tool name (subtitle) marks a
+    // sub-agent launch. We detect it by name so the http adapter + mock both
+    // work, and render a DISTINCT inline card (sparkle + "Spawned agent" +
+    // the task) at the point in the transcript where it happened (Gabe: "add UI
+    // for when a thing is spawned"), instead of a generic tool row.
+    static bool is_spawn_tool(const api::Message& m) {
+        if (m.role != api::Role::Tool) return false;
+        const std::string& n = m.subtitle;
+        return n == "spawn_agent" || n == "spawn" || n == "Task" ||
+               n == "task" || n == "sub_agent" || n == "spawn_sub_agent";
+    }
+    static constexpr float kSpawnCardH = 46.0f;
+    static float spawn_card_height() {
+        return kToolRowGap + kSpawnCardH + kToolRowGap;
+    }
+    void render_spawn_card(UIContext<InputAction>& ctx, Entity& parent,
+                           int index, const api::Message& m, float paneWidth) {
+        float rowW = paneWidth - 4.0f;
+        if (rowW < 160.0f) rowW = 160.0f;
+        const std::string task = tool_command(m);  // the spawned task/prompt
+        const bool failed = tool_failed(m);
+
+        auto card = div(ctx, mk(parent, 240 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rowW), pixels(kSpawnCardH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_margin(Margin{.top = pixels(kToolRowGap),
+                                    .bottom = pixels(kToolRowGap)})
+                .with_padding(Padding{.top = pixels(0), .right = pixels(12),
+                                      .bottom = pixels(0), .left = pixels(12)})
+                // A calm accent-tinted surface (distinct from the neutral tool
+                // card) so a spawn reads as a notable "new agent" event.
+                .with_custom_background(
+                    theme::over(theme::accent_soft(), theme::panel_bg()))
+                .with_border(theme::accent(), pixels(1.0f))
+                .with_roundness(theme::roundness_for_px(theme::kChatCorner, rowW,
+                                                        kSpawnCardH))
+                .with_debug_name("spawn_card"));
+
+        // Sparkle icon (sub-agent). Uses the same sprite as the brand mark.
+        div(ctx, mk(card.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(18), pixels(18)})
+                .with_transparent_bg()
+                .with_margin(Margin{.right = pixels(10)})
+                .with_on_draw_fg([](RectangleType r) {
+                    if (!hanabi::icons::draw_at("brand", r.x + r.width * 0.5f,
+                                                r.y + r.height * 0.5f, 14.0f,
+                                                theme::accent())) {
+                        afterhours::draw_text("\xe2\x9c\xa6", r.x + 3.0f,
+                                              r.y + 3.0f, 14.0f,
+                                              theme::accent());
+                    }
+                })
+                .with_debug_name("spawn_icon"));
+
+        // Two-line-ish text column: label + task (stacked).
+        auto textCol = div(ctx, mk(card.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rowW - 180.0f),
+                                         pixels(kSpawnCardH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_justify_content(JustifyContent::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("spawn_textcol"));
+        div(ctx, mk(textCol.ent(), 1),
+            ComponentConfig{}
+                .with_label("Spawned agent")
+                .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::accent())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("spawn_label"));
+        div(ctx, mk(textCol.ent(), 2),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(task, 64))
+                .with_size(ComponentSize{percent(1.0f), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("spawn_task"));
+
+        // Trailing status dot (running amber / done green / failed red).
+        theme::Color dotC =
+            failed ? theme::tag_blocked_fg()
+                   : (m.tool_status == "completed" ? theme::status_active()
+                                                   : theme::status_idle());
+        div(ctx, mk(card.ent(), 3),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(140), pixels(18)})
+                .with_transparent_bg()
+                .with_on_draw_fg([dotC](RectangleType rr) {
+                    afterhours::draw_circle_v(
+                        {rr.x + rr.width - 6.0f, rr.y + rr.height * 0.5f}, 3.0f,
+                        dotC);
+                })
+                .with_debug_name("spawn_status"));
     }
 
     // A lone Tool message: one dense collapsed tool row (not expandable).

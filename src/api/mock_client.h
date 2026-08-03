@@ -789,6 +789,10 @@ class MockClient : public Client {
                  hrs_ago(2), "shell"},
                 {"m4", Role::Tool,
                  "edit worker/sync_loop.rs \xc2\xb7 +34 -8", hrs_ago(1), "editor"},
+                {"m4b", Role::Tool,
+                 "Verify the backoff math + add a property test for the jitter "
+                 "bounds across 10k attempts",
+                 hrs_ago(1), "spawn_agent"},
                 {"m5", Role::Assistant,
                  "Backoff is in. One edge case: on a cold start the breaker "
                  "opens immediately if the very first call fails. I can seed "
