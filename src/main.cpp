@@ -1,5 +1,9 @@
 #include <argh.h>
 
+#ifndef HANABI_BUILD_STAMP
+#define HANABI_BUILD_STAMP "dev"
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -990,7 +994,11 @@ int main(int argc, char* argv[]) {
     afterhours::graphics::RunConfig cfg;
     cfg.width = 1100;
     cfg.height = 760;
-    cfg.title = "hanabi";
+    // Include the build stamp in the title so a screenshot instantly reveals
+    // WHICH binary is running (the "am I even on the new build?" blind spot).
+    static std::string s_title =
+        std::string("hanabi  ·  build ") + HANABI_BUILD_STAMP;
+    cfg.title = s_title.c_str();
     cfg.target_fps = 120;
     cfg.flags = afterhours::graphics::FLAG_WINDOW_RESIZABLE;
     cfg.init = app_init;

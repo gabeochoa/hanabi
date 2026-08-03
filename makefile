@@ -46,7 +46,8 @@ CXXFLAGS_SUPPRESS := -Wno-deprecated-volatile -Wno-missing-field-initializers \
 CXXFLAGS := $(CXXSTD) $(CXXFLAGS_BASE) $(CXXFLAGS_SUPPRESS) \
     -DAFTER_HOURS_UI_SINGLE_COLLECTION \
     -DAFTER_HOURS_USE_METAL \
-    -DFMT_HEADER_ONLY
+    -DFMT_HEADER_ONLY \
+    -DHANABI_BUILD_STAMP=\"$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)\"
 
 INCLUDES := -isystem vendor/ -isystem vendor/afterhours/vendor/
 LDFLAGS := -L. $(FRAMEWORKS)
