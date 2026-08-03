@@ -61,3 +61,20 @@ step label ("Laying the groundwork", "Reading files", …). To match it, hanabi 
 that label from the stream: a per-turn `status`/`step` string on the SSE stream
 (e.g. a {type:"status", text:"Laying the groundwork"} event, or a status field on
 the thinking event). Until then hanabi shows the generic "Thinking…".
+
+## Readable user-preference VALUES (settings-match-web)
+hanabi's Settings screen wires the same prefs the web app has (yap/verbosity level,
+default model, memory backend, auto-archive days, notification sound, theme/font).
+It persists them LOCALLY and can PUT them back (write path, config-gated). But it
+can't SHOW the user's CURRENT web values because the only read surface (`/whoami`)
+returns identity + counts, not the editable preference values. Ask:
+1. Expose the current preference VALUES on a client-readable endpoint — either add
+   a `preferences`/`settings` object to `/whoami` (e.g. { yapLevel, defaultModelId,
+   memoryBackend, autoArchiveDays, notificationSound, verbosity, … }) OR a dedicated
+   `GET /api/v1/preferences`. Field names documented so a config-driven client maps
+   them without hardcoding (hanabi will read them via local config field names).
+2. Confirm the WRITE shape (what PUT/PATCH body the same endpoint accepts) so
+   local→web sync round-trips against the same schema it reads. (PR #4042 exposed
+   these to the chat-action WRITE side; this is the client READ + write-endpoint.)
+Result: hanabi's Settings screen reflects the user's real web setup on open, and
+edits sync back — "verify + change my setup" from the native client.
