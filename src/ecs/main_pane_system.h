@@ -2855,7 +2855,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // +1px for the hairline divider drawn under the header (when there's a body).
     static float table_h(int nRows) {
         if (nRows < 1) nRows = 1;
-        const float divider = (nRows > 1) ? 1.0f : 0.0f;
+        const float divider = (nRows > 1) ? 1.5f : 0.0f;
         return kTableVMargin + static_cast<float>(nRows) * kTableRowH +
                divider + kTableVMargin;
     }
@@ -3076,7 +3076,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.top = pixels(kTableVMargin),
                                     .bottom = pixels(kTableVMargin)})
                 .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_border(theme::row_separator(), pixels(1.0f))
                 .with_roundness(0.18f)
                 .with_debug_name("md_table"));
 
@@ -3091,10 +3091,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // Header band = raised surface; body rows = pane bg. NO
                     // per-row border (stacking 4-sided borders inside the grid's
                     // own border produced the doubled/overhanging lines Gabe
-                    // flagged). Structure comes from the outer grid border + a
-                    // SINGLE divider under the header (below).
+                    // flagged). Structure comes from the outer grid border, a
+                    // divider under the header, and thin between-row dividers.
                     .with_custom_background(header ? theme::panel_bg_2()
                                                    : theme::panel_bg())
+                    // Thin top divider on body rows after the first, so rows are
+                    // legible on light (where the header-fill delta alone is too
+                    // subtle to separate rows). Header's own divider is below.
+                    .with_border_top(theme::row_separator(),
+                                     pixels((ri >= 2) ? 1.0f : 0.0f))
                     .with_roundness(0.0f)
                     .with_debug_name("md_table_row"));
             for (size_t ci = 0; ci < nCols; ++ci) {
@@ -3118,13 +3123,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_roundness(0.0f)
                         .with_debug_name("md_table_cell"));
             }
-            // Single hairline divider UNDER the header row only (separates the
-            // header band from the body; clean, no per-row border doubling).
+            // Single divider UNDER the header row (separates header from body).
+            // row_separator reads on BOTH themes (border() was near-invisible on
+            // the light pane); 1.5px so the header band is clearly delimited.
             if (header && nRows > 1) {
                 div(ctx, mk(grid.ent(), 2 + ri * 2),
                     ComponentConfig{}
-                        .with_size(ComponentSize{percent(1.0f), pixels(1.0f)})
-                        .with_custom_background(theme::border())
+                        .with_size(ComponentSize{percent(1.0f), pixels(1.5f)})
+                        .with_custom_background(theme::row_separator())
                         .with_roundness(0.0f)
                         .with_debug_name("md_table_hdr_divider"));
             }
