@@ -132,7 +132,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     for (auto& s : app.sessions)
                         if (Settings::get().is_starred(s.id)) s.starred = true;
                     app.listState = LoadState::Loaded;  // show stale now
-                    if (app.selectedId.empty() && !app.sessions.empty())
+                    // sessions is provably non-empty here (loaded from a
+                    // !cached->empty() cache), so no re-check needed.
+                    if (app.selectedId.empty())
                         app.requestOpenId = app.sessions.front().id;
                 } else {
                     app.listState = LoadState::Loading;

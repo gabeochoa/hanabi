@@ -393,11 +393,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // (sendPending), the collect+drain stream path (streamCollecting /
     // streamActive), all scoped to the matching session id.
     bool sending_for(const std::string& id) const {
-        if (sendPending && sendSessionId == id) return true;
-        if (steerPending && steerSessionId == id) return true;
-        if (streamCollecting && streamPendingSession == id) return true;
-        if (streamActive && streamSessionId == id) return true;
-        return false;
+        return (sendPending && sendSessionId == id) ||
+               (steerPending && steerSessionId == id) ||
+               (streamCollecting && streamPendingSession == id) ||
+               (streamActive && streamSessionId == id);
     }
 
     // How many messages are queued (not yet sent) for `id`.

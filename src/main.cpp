@@ -537,9 +537,10 @@ static void app_frame() {
             static int lastBlockedNotified = -1;
             static double lastNotifyAt = -1.0;
             constexpr double kNotifyMinGapSecs = 30.0;
-            if (lastBlockedNotified < 0) {
-                lastBlockedNotified = blocked;  // prime; no notification
-            } else if (blocked > lastBlockedNotified) {
+            // Only an INCREASE past a primed baseline notifies; prime, decrease,
+            // and equal all just track the count (writing it unconditionally at
+            // the end is behavior-identical — ponytail: dup branch bodies).
+            if (lastBlockedNotified >= 0 && blocked > lastBlockedNotified) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||
@@ -563,12 +564,8 @@ static void app_frame() {
                     native_notify(title, body, tid);
                     lastNotifyAt = nowSec;
                 }
-                lastBlockedNotified = blocked;
-            } else if (blocked < lastBlockedNotified) {
-                // Count dropped (user handled something) — track it so a later
-                // re-increase re-notifies, but don't notify on the decrease.
-                lastBlockedNotified = blocked;
             }
+            lastBlockedNotified = blocked;
         }
     }
 }

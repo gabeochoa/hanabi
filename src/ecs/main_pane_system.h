@@ -392,7 +392,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     enum class EmptyGlyph { Check, Inbox, Star, Archive, None };
     static EmptyGlyph view_glyph(SmartView v) {
         switch (v) {
-            case SmartView::Blocked: return EmptyGlyph::Check;   // nothing waiting
+            case SmartView::Blocked:
             case SmartView::Review:  return EmptyGlyph::Check;
             case SmartView::Starred: return EmptyGlyph::Star;
             case SmartView::Archived:return EmptyGlyph::Archive;
@@ -446,8 +446,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             afterhours::draw_line_ex({cx - 10, cy - 2},
                                 {cx + 10, cy - 2}, 1.6f, c);
                             break;
-                        case EmptyGlyph::Inbox:
-                        default:
+                        default:  // includes EmptyGlyph::Inbox / None
                             afterhours::draw_rectangle_outline(
                                 {cx - 10, cy - 8, 20, 16}, c);
                             break;
@@ -775,8 +774,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                      rest[0] == '+') &&
                 rest[1] == ' ') {
                 line = indent + "\xe2\x80\xa2  " + rest.substr(2);
-            } else if ((rest == "---" || rest == "***" || rest == "___" ||
-                        rest == "----" || rest == "-----")) {
+            } else if (rest == "---" || rest == "***" || rest == "___" ||
+                       rest == "----" || rest == "-----") {
                 // horizontal rule -> a light dashed line
                 line = "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80"
                        "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80";
@@ -2587,10 +2586,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             caption = "sending\xe2\x80\xa6";
         else if (queued > 0)
             caption = std::to_string(queued) + " queued";
-        else if (canSend && hasText)
+        else if (hasText)
             // Discoverability: when there's text to send and we're idle, tell
             // the user Enter sends (the fix for "HOW DO I SEND A MESSAGE" — the
             // composer now sends on Enter, not just the button click).
+            // (canSend is provably true here — the !canSend arm returned above.)
             caption = steerMode ? "\xe2\x86\xb5 steer" : "\xe2\x86\xb5 send";
         if (!caption.empty()) {
             div(ctx, mk(rightMeta.ent(), 1),
@@ -3906,8 +3906,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 afterhours::draw_circle_v({rx - 11.0f, cy}, 1.4f, warn);
                 break;
             }
-            case api::SyncState::None:
-            default:
+            default:  // includes SyncState::None
                 break;
         }
     }
