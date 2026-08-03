@@ -1915,17 +1915,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (no backend / empty field) disables it.
         const bool sendEnabled = canSend && hasText;
 
+        // Center the composer under the 720px reading column (same gutter as
+        // the transcript scroll). Falls back to kContentInset on a narrow pane.
+        constexpr float kReadCol = 720.0f;
+        float composerGutter = (paneW - kReadCol) * 0.5f;
+        if (composerGutter < kContentInset) composerGutter = kContentInset;
+
         auto bar = div(ctx, mk(parent, 3),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(composerH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                // Match the shared content inset so the input's left edge lines
-                // up with the header title + message column above it.
+                // Center the composer under the 720px reading column (matches
+                // the transcript gutters) so the input lines up with the
+                // messages instead of spanning the full pane. Same gutter math
+                // as render_transcript's scroll padding.
                 .with_padding(Padding{.top = pixels(8),
-                                      .right = pixels(kContentInset),
+                                      .right = pixels(composerGutter),
                                       .bottom = pixels(8),
-                                      .left = pixels(kContentInset)})
+                                      .left = pixels(composerGutter)})
                 .with_custom_background(theme::panel_bg())
                 .with_roundness(0.0f)
                 .with_debug_name("composer_bar"));
@@ -1957,7 +1965,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // ~34px tall for a readable ~17px font, matching the composer overlay
         // and sidebar search field workarounds.
         float sendW = 78.0f;
-        float inputW = paneW - (kContentInset * 2.0f) - sendW - 8.0f;
+        float inputW = paneW - (composerGutter * 2.0f) - sendW - 8.0f;
         if (inputW < 120.0f) inputW = 120.0f;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
