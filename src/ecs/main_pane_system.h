@@ -4251,6 +4251,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_custom_background(theme::window_bg())
+                .with_border(theme::row_separator(), pixels(1.0f))
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
@@ -4448,6 +4449,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_custom_background(theme::window_bg())
+                    .with_border(theme::row_separator(), pixels(1.0f))
                     .with_padding(Padding{.top = pixels(6), .right = pixels(10),
                                           .bottom = pixels(6),
                                           .left = pixels(12)})
