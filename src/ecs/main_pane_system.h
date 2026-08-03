@@ -2421,7 +2421,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // matched to panel_bg_2 below so they blend.
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
-                .with_roundness(0.5f)
+                // A subtle ~10px corner, NOT a full pill — roundness 0.5 on a
+                // 34px-tall bar makes semicircle end-caps that read as ugly
+                // brackets. roundness_for_px targets a fixed radius regardless
+                // of the bar's width/height.
+                .with_roundness(theme::roundness_for_px(10.0f, inputW, 34.0f))
                 .with_debug_name("composer_input_wrap"));
 
         // text_input forces its own Secondary bg over its rect (gap #17); point
@@ -2438,7 +2442,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
                 .with_padding(Padding{.left = pixels(12), .right = pixels(10)})
-                .with_roundness(0.5f)
+                // Match the wrap's ~10px corner (gap #17: text_input paints its
+                // own bg over its rect, so a mismatched roundness double-draws
+                // an inner rounded box). Keep them identical so it reads as one
+                // clean field.
+                .with_roundness(theme::roundness_for_px(10.0f, inputW, 34.0f))
                 .with_debug_name("composer_reply_input"));
 
         // ENTER-TO-SEND. afterhours' text_input fires on_submit on Enter
@@ -2520,10 +2528,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the action reads honestly. Minimal touch: label-only (fits the same
         // fixed sendW), no layout change.
         const bool steerMode = !kickoff && app.should_steer_open();
-        // Send = a filled primary pill with an up-arrow (modern chat "send"),
+        // Send = a filled primary button with an up-arrow (modern chat "send"),
         // Steer keeps its word (interrupt/redirect reads better as text), "…"
-        // while in flight. Rounder (0.5) so it reads as an intentional primary
-        // action, not a flat rectangle.
+        // while in flight. ~10px corner to match the input pill (0.5 made a
+        // fully-rounded lozenge that clashed with the field).
         const char* sendLabel =
             sending ? "\xe2\x80\xa6"
                     : (steerMode ? "Steer" : "Send  \xe2\x86\x91");
@@ -2543,7 +2551,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.5f)
+                .with_roundness(theme::roundness_for_px(10.0f, sendW, 32.0f))
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
             // Kickoff (Home landing composer) starts a NEW session via
