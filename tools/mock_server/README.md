@@ -3,7 +3,7 @@
 A standalone dev tool that serves the **same REST + SSE shape** hanabi's http
 adapter (`src/api/http_client.cpp`, configured via `src/api/client.h` +
 `~/.config/hanabi/config.json`) expects — so the app can be exercised fully
-**offline**, including **sending messages**, without the real navibot.dev
+**offline**, including **sending messages**, without the real remote
 backend or a token.
 
 - Pure **Python 3 stdlib** (`http.server` + threading). No install, no deps.
@@ -61,7 +61,7 @@ is the simplest path.
 
 ### For context (real backend)
 
-hanabi's real config points at `navibot.dev` over https with a device-code
+hanabi's real config points at the remote backend over https with a device-code
 token. This mock reproduces the same endpoint *shapes* so you can develop
 against it offline; nothing here is baked into the app.
 

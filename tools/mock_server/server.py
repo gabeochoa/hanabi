@@ -155,8 +155,8 @@ def new_session(sid, title, status="active", updated=None, created=None,
 
 
 WORKSPACES = [
-    {"id": "ws-subs", "name": "Subscriptions", "description": "Facebook Subscriptions work",
-     "appearance": {"color": "#4267B2", "emoji": "📊"},
+    {"id": "ws-subs", "name": "Subscriptions", "description": "Subscriptions work",
+     "appearance": {"color": "#5B8DEF", "emoji": "📊"},
      "createdAt": ago(30 * 86400), "updatedAt": ago(2 * 3600)},
     {"id": "ws-stars", "name": "Stars", "description": "Creator Stars",
      "appearance": {"color": "#F5A623", "emoji": "⭐"},
