@@ -124,3 +124,16 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [x] FIXED: settings section labels clipped at top (bare label divs top-anchor ~20px text) — AlignItems::Center + taller box (9313021)
 - [x] Verified clean: Home sections (eyebrow font, no clip), transcript header (already centered), Blocked/Starred digest views (centered_wrap center=false — unaffected by transcript centering), Light+Dark themes, Hyperlegible font (whole-UI, no clip)
 - Root cause noted for future: any bare label div with a ~20px font needs AlignItems::Center or it top-clips.
+
+## GABE BUG REPORTS (2026-08-03 session) — all addressed
+- [x] Input box invisible -> visible pill + placeholder (9f64b28)
+- [x] Star not working (row-open swallowed the click) (9e7ef17)
+- [x] Star position -> flush next to timestamp (9e7ef17)
+- [x] Middle-click closes a tab (5ddd4db)
+- [x] Folders collapsed by default + chevron show/hide (d776bae)
+- [x] Settings freeze/crash: 2 real defects fixed (font-swap mid-render deferred; tool-card overflow) (8aafeac).
+      Could NOT reproduce the crash on current HEAD via 3 attempts: headless settings render (exit 0),
+      windowed + scroll the settings body (survived), windowed + click theme/font toggles (survived).
+      Likely a STALE binary — rebuilt fresh output/Hanabi.app. If it persists post-relaunch, need exact repro action.
+- [~] "Missing all icons/shapes" — all icons render in current build (toolbar/view/status/star/chevron verified);
+      almost certainly a stale binary. Fresh .app rebuilt.
