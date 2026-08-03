@@ -1821,11 +1821,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.0f)
                     .with_on_draw_fg([starColor, st = s.starred](RectangleType r) {
-                        // Right-align the star glyph within its slot so it sits
-                        // flush against the timestamp column to its right (Gabe:
-                        // "align the star next to the time") instead of floating
-                        // at the slot's left with a gap.
-                        const float cx = r.x + r.width - 7.0f;
+                        // Star sits toward the right of its slot but with a
+                        // deliberate GAP before the timestamp column to its
+                        // right (Gabe: "add padding between the star and time").
+                        // ~13px in from the slot's right edge leaves a clean
+                        // gap between the star glyph and the time digits.
+                        const float cx = r.x + r.width - 13.0f;
                         const float cy = r.y + r.height * 0.5f - 1.0f;
                         if (!hanabi::icons::draw_at(
                                 "star", cx, cy, 12.0f, starColor)) {
