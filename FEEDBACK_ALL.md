@@ -104,7 +104,7 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - [x] inline image rendering (agent surface: screenshots render in transcript) — render (b5b6354) + real-backend block wiring (c991635)
 - [x] ponytail types pass: dead TimeBucket cluster (132 lines) + 3 dead AppComponent fields removed (804d894)
 - [ ] #4b composer elevation/rounding + placeholder ("Message hanabi…") + circular primary send
-- [ ] #6 empty/sparse state: greeting + suggestion chips (new task); vertically balance 1-3 msg threads
+- [x] #6 empty/sparse state: welcome greeting+chips (9993527) + sparse-thread vertical balance (195743c)
 - [ ] inline HTML + big code/text block rendering (agent surface follow-on)
 - [ ] remote image download-to-cache (only local/file:// rendered today)
 
