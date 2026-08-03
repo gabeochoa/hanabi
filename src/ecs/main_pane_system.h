@@ -2421,11 +2421,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // matched to panel_bg_2 below so they blend.
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
-                // A subtle ~10px corner, NOT a full pill — roundness 0.5 on a
-                // 34px-tall bar makes semicircle end-caps that read as ugly
-                // brackets. roundness_for_px targets a fixed radius regardless
-                // of the bar's width/height.
-                .with_roundness(theme::roundness_for_px(10.0f, inputW, 34.0f))
+                // Modest uniform roundness (all 4 corners). A high fractional
+                // value (roundness_for_px(10) => ~0.59 on a 34px bar) drove the
+                // arc-heavy path that renders jagged bracket end-caps; 0.25 is a
+                // clean subtle corner. Uniform (not mixed) so it never hits the
+                // gap #25 degenerate-corner path.
+                .with_roundness(0.25f)
                 .with_debug_name("composer_input_wrap"));
 
         // text_input forces its own Secondary bg over its rect (gap #17); point
@@ -2442,11 +2443,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
                 .with_padding(Padding{.left = pixels(12), .right = pixels(10)})
-                // Match the wrap's ~10px corner (gap #17: text_input paints its
-                // own bg over its rect, so a mismatched roundness double-draws
-                // an inner rounded box). Keep them identical so it reads as one
-                // clean field.
-                .with_roundness(theme::roundness_for_px(10.0f, inputW, 34.0f))
+                // Match the wrap's uniform 0.25 corner (gap #17: text_input
+                // paints its own bg over its rect, so a mismatched roundness
+                // double-draws an inner rounded box).
+                .with_roundness(0.25f)
                 .with_debug_name("composer_reply_input"));
 
         // Opt-in field diagnostics: dump the live text_input state so we can
@@ -2571,7 +2571,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(theme::roundness_for_px(10.0f, sendW, 32.0f))
+                .with_roundness(0.25f)
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
             // Kickoff (Home landing composer) starts a NEW session via

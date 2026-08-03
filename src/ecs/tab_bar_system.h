@@ -433,16 +433,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_padding(Padding{.left = pixels(12),
                                           .right = pixels(showClose ? 24 : 8)})
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.35f)
-                    // V3: round ONLY the TOP corners (sharp bottom) for the true
-                    // tab shape. The degenerate-triangle bug on mixed round/sharp
-                    // corners (gap #25) is now FIXED upstream (afterhours
-                    // 88a156d, submodule bumped), so we can use the real shape
-                    // instead of the all_round() workaround.
-                    .with_rounded_corners(afterhours::ui::imm::RoundedCorners()
-                                              .all_sharp()
-                                              .top_round()
-                                              .get())
+                    .with_roundness(0.25f)
+                    // Round ALL FOUR corners with a modest radius (the safe
+                    // shape). The mixed top_round()/sharp-bottom path still
+                    // renders a jagged bracket artifact on inactive tabs even
+                    // with the gap #25 FILL fix — the outline/edge path glitches
+                    // on the sharp bottom corners. all_round() never hits the
+                    // degenerate branch (every radius > 0), so the tab reads as
+                    // a clean rounded chip. (Gabe screenshot: jagged tab corners.)
                     .with_render_layer(baseLayer)
                     .with_debug_name("tab_" + tab.sessionId));
             // Label as a centered child whose height EQUALS the strip content
