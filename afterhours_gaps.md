@@ -1017,3 +1017,28 @@ WhatsApp-style sync indicator: the user bubble now shows a real ✓/✓✓ corne
 draw_sync_check (LocalOnly single gray ✓ / Persisting gray dot / Synced accent ✓✓ / Failed amber
 ✓+dot) INSTEAD of the interim body-text suffix ("· sent"). draw_sync_check was previously dead
 code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ renders, test 9/9.
+
+### #31 — sokol macOS backend pushes CONTROL-CODE chars (backspace U+007F) into the CHAR queue
+- **Gap/bug:** `vendor/afterhours/vendor/sokol/sokol_app.h` `keyDown:` emits a
+  `SAPP_EVENTTYPE_CHAR` for every key whose `NSEvent.characters` is non-empty —
+  including BACKSPACE (characters = U+007F DEL) and other control keys. The
+  afterhours sokol backend (`backends/sokol/backend.h` SAPP_EVENTTYPE_CHAR case)
+  pushes ANY `char_code > 0` into the char queue, and the text_input widget
+  drains it via `insert_char()`, whose only guard is `codepoint < 32` — so 0x7F
+  (127 >= 32) is NOT rejected and gets TYPED into the field as a DEL glyph.
+- **Symptom (Gabe, macOS, 2026-08-03):** "hitting backspace adds a space, hitting
+  space does nothing" — the stray 0x7F is inserted (renders like a space/box) and
+  the control byte corrupts the field so real editing misbehaves.
+- **Proven:** `insert_char(state, 0x7F)` returns true and appends byte 0x7f
+  (tests/unit/test_textinput.cpp; standalone repro confirmed).
+- **App-side workaround (used):** `ecs::ComposerCharFilterSystem` (src/ecs/
+  char_filter_system.h) runs before the UI-creating systems, drains the char
+  queue via `metal_detail::pop_char()`, drops non-typable codepoints
+  (`hanabi::is_typable_char` — rejects C0 controls + 0x7F, keeps tab + space +
+  printable), and re-pushes the survivors in order. The widget then only ever
+  pops real characters. `metal_detail::push_char/pop_char` are public, so no
+  vendored edit is needed.
+- **Minimal upstream fix (vendor, off-limits here):** either don't push control
+  codes in the SAPP_EVENTTYPE_CHAR case (`if (ev->char_code >= 32 &&
+  ev->char_code != 0x7F) push_char(...)`), or tighten `insert_char`'s guard to
+  also reject 0x7F. A one-liner in the backend's CHAR case is cleanest.

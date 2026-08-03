@@ -302,6 +302,14 @@ $(TEST_DIR)/test_tools: tests/unit/test_tools.cpp src/api/config.cpp src/api/htt
 	@echo "Compiling test_tools..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Composer text-input key handling (gap #31): the macOS sokol backend emits a
+# CHAR event for backspace (U+007F); hanabi's is_typable_char filter must reject
+# control codes so they aren't typed into the field. Pure logic — drives the
+# real afterhours text_input state + insert_char with the exact macOS codepoints.
+$(TEST_DIR)/test_textinput: tests/unit/test_textinput.cpp | $(TEST_DIR)
+	@echo "Compiling test_textinput..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
 # queue ordering/draining, newest-N windowing, settings read.
 $(TEST_DIR)/test_data: tests/unit/test_data.cpp src/api/config.cpp src/api/http_client.cpp src/api/disk_cache.cpp | $(TEST_DIR)
@@ -339,7 +347,7 @@ $(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_c
 	@echo "Compiling test_real..."
 	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
