@@ -151,6 +151,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // a widely-spaced id base (1000 apart) so its rows never collide with
         // the next folder's id range.
         std::vector<std::string> folders = distinct_folders(*app);
+        // Folders start COLLAPSED by default (Gabe: subthreads hidden until you
+        // open a folder). Seed every folder key into collapsedFolders ONCE, the
+        // first render that actually has folders; afterwards the user's own
+        // expand/collapse choices stand for the session.
+        if (!app->foldersDefaultCollapsedSeeded && !folders.empty()) {
+            for (const auto& fname : folders) app->collapsedFolders.insert(fname);
+            app->foldersDefaultCollapsedSeeded = true;
+        }
         int fbase = 1000;
         for (const auto& fname : folders) {
             shown += render_folder(ctx, scroll.ent(), fbase,

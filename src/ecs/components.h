@@ -172,6 +172,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // a global fold-all flag, and the live search query. The sidebar system
     // reads/writes these; empty query = show everything.
     std::set<std::string> collapsedFolders;
+    // One-time guard: folders start COLLAPSED by default (Gabe — subthreads
+    // hidden until you expand a folder). The first render that sees folders
+    // seeds every folder key into collapsedFolders, then sets this so the user's
+    // subsequent expand/collapse choices are respected for the session.
+    bool foldersDefaultCollapsedSeeded = false;
     bool foldAllFolders = false;
     std::string searchQuery;
 
