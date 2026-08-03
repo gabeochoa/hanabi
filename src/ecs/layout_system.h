@@ -54,9 +54,19 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         float mainW = w - sidebarW;
         if (mainW < 0) mainW = 0;
 
+        // Composer strip: pinned at the bottom of the main pane, directly above
+        // the status bar. Carved OUT of `main` (which shrinks by its height) so
+        // the content area and the composer never overlap. Same
+        // dedicated-rect + absolute-render pattern as the status bar (which
+        // renders reliably at the bottom every frame).
+        float compH = layout.composerHeight;
+        float mainH = contentH - tabH - compH;
+        if (mainH < 0) mainH = 0;
+
         layout.sidebar = {0, 0, sidebarW, contentH};
         layout.tabStrip = {mainX, 0, mainW, tabH};
-        layout.main = {mainX, tabH, mainW, contentH - tabH};
+        layout.main = {mainX, tabH, mainW, mainH};
+        layout.composer = {mainX, tabH + mainH, mainW, compH};
         layout.statusBar = {0, contentH, w, barH};
     }
 };

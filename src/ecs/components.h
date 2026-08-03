@@ -433,6 +433,7 @@ struct LayoutComponent : public afterhours::BaseComponent {
     Rect sidebar;
     Rect tabStrip;    // tab strip across the top of the main pane
     Rect main;        // transcript / smart-view content (below the tab strip)
+    Rect composer;    // chat input strip, pinned above the status bar
     Rect statusBar;
 
     // Sidebar collapse model. `collapsed` picks the thin rail width; the
@@ -448,6 +449,7 @@ struct LayoutComponent : public afterhours::BaseComponent {
 
     float tabStripHeight = 38.0f;
     float statusBarHeight = 26.0f;
+    float composerHeight = 92.0f;  // chat input strip height (0 hides it)
 };
 
 // ---- Tab components (VS Code-style closable content tabs) ----

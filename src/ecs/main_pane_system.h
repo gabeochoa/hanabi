@@ -43,33 +43,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("main_pane"));
 
         // The composer ALWAYS renders (Gabe: "it should just always render …
-        // why would we hide it at any point"). It lives at the PANE level — one
-        // instance pinned to the bottom, NOT buried inside each view behind
-        // early-returns (Error/Loading/no-session/wrong-view all used to hide
-        // it → the "no chat input" bug). It replies to the open thread when one
-        // is open, else it kicks off a NEW conversation. Only truly absent when
-        // the backend can't send at all (an unconfigured adapter).
+        // why would we hide it at any point"). It renders as its OWN absolute
+        // strip at layout->composer — the SAME dedicated-rect pattern the
+        // status bar uses to sit reliably at the bottom every frame — NOT as a
+        // flex sibling of the content (which a tall transcript could overflow
+        // and push off-screen). LayoutSystem carves layout->composer out of the
+        // bottom of layout->main, so content + composer never overlap. It
+        // replies to the open thread when one is open, else kicks off a NEW
+        // conversation. Only truly absent when the backend can't send.
         const bool canReply =
             app->client &&
             (app->client->supports_send() || app->client->supports_stream());
-        const float composerH = canReply ? 92.0f : 0.0f;
-        const float contentH = r.height - composerH;
+        // Keep the layout's reserved composer height in sync with whether we
+        // can send — 0 gives the whole pane back to content on a read-only
+        // backend (next frame's layout picks it up).
+        layout->composerHeight = canReply ? 92.0f : 0.0f;
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
             !(app->view == SmartView::Chat && app->openSession);
 
-        // Content area: fixed height so the composer is always pinned to the
-        // pane bottom (even when a view's content is short — no floating
-        // composer in the middle).
+        // Content fills the pane (layout->main already excludes the composer).
         auto content = div(ctx, mk(panel.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(contentH)})
+                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("main_content"));
+
+        const float contentH = r.height;  // views size against the pane height
 
         switch (app->view) {
             case SmartView::Chat:
@@ -109,19 +113,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 break;
         }
 
-        // The ONE composer, pinned to the pane bottom, always present (unless
-        // the backend genuinely can't send). Reply mode when a thread is open,
-        // kickoff otherwise. This is the single source of the chat input — no
-        // view hides it. Rendered ABSOLUTELY at the pane bottom as a direct
-        // uiRoot child (NOT a flex sibling of `content`), so a tall transcript
-        // that overflows its content box can never push the composer off the
-        // bottom edge — the windowed 'no chat input' bug (headless clipped fine,
-        // windowed overflowed and hid it). afterhours absolute+translate uses
-        // SCREEN coordinates (same as main_pane's own r.x,r.y), so pass the
-        // screen-space top-left of the composer strip.
-        if (canReply)
-            render_composer(ctx, uiRoot, *app, r.width, composerH,
-                            composerKickoff, r.x, r.y + r.height - composerH);
+        // The ONE composer, rendered as its own absolute strip at
+        // layout->composer (the SAME pattern the status bar uses to pin
+        // reliably to the bottom). It is a direct uiRoot child; afterhours
+        // absolute+translate is SCREEN-space (a uiRoot child's final pos ==
+        // its translate), so pass the composer rect's screen top-left. No view
+        // can hide it and no transcript overflow can push it off-screen.
+        if (canReply) {
+            const auto& cr = layout->composer;
+            render_composer(ctx, uiRoot, *app, cr.width, cr.height,
+                            composerKickoff, cr.x, cr.y);
+        }
     }
 
   private:
