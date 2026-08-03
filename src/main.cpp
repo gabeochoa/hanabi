@@ -228,6 +228,26 @@ static void setup_app_state() {
         }
     }
 
+    // WARM-OPEN the restored active thread from the disk cache RIGHT NOW, before
+    // the first frame, so a relaunch paints the cached conversation instead of
+    // flashing the Home screen until the network list/transcript arrive (Gabe:
+    // "it defaults to the last thread but shows Home until it loads — looks like
+    // a bug"). We're already on that thread (selectedId), so show its content.
+    // Only when the http cache has a stored transcript for it; otherwise leave
+    // the normal async open path (TabFlowSystem restores the tab once the list
+    // loads). Guarded to the http backend (the mock doesn't cache).
+    if (!app.restoreActiveId.empty() && app.backend_label == "http") {
+        if (auto cached = api::disk_cache::load_transcript(app.restoreActiveId)) {
+            app.openSession = std::move(*cached);
+            app.selectedId = app.restoreActiveId;
+            app.transcriptState = ecs::LoadState::Loaded;
+            app.view = ecs::SmartView::Chat;  // paint the transcript, not Home
+            // A background refresh still runs (requestListRefresh below +
+            // TabFlowSystem's tab restore), swapping in fresh data when it lands.
+            app.transcriptCache.put(*app.openSession);
+        }
+    }
+
     // Layout singleton.
     auto& layoutEntity = EntityHelper::createEntity();
     auto& layoutComp = layoutEntity.addComponent<ecs::LayoutComponent>();
@@ -246,6 +266,16 @@ static void setup_app_state() {
 // windowed and headless (screenshot) paths so both render identically.
 static void build_systems(afterhours::SystemManager& sm) {
     using namespace afterhours;
+
+    // CRITICAL: populate the InputCollector each frame. add_singleton_components
+    // (preload) only ADDS the collector component; the InputSystem that FILLS it
+    // (raw keys -> mapped actions: TextBackspace, WidgetPress/Enter, etc.) is a
+    // SEPARATE registration that was never made — so ctx.pressed(WidgetPress)
+    // and pressed_or_repeat(TextBackspace) never fired. Result: Enter didn't
+    // send and Backspace didn't delete (typing worked because that's the char
+    // queue, a different path). Must run BEFORE the UI pre-layout bridge, which
+    // READS the collector into the UIContext.
+    afterhours::input::register_update_systems(sm);
 
     ui_imm::registerUIPreLayoutSystems(sm);
 

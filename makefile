@@ -310,6 +310,14 @@ $(TEST_DIR)/test_textinput: tests/unit/test_textinput.cpp | $(TEST_DIR)
 	@echo "Compiling test_textinput..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Input action mapping (root cause of Enter-not-send / Backspace-not-delete):
+# guards that hanabi's key mapping resolves BACKSPACE->TextBackspace and
+# ENTER->WidgetPress (and SPACE binds to no action) via the SAME resolution
+# impl the InputSystem runs. Backend-free (custom key-check stub).
+$(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp | $(TEST_DIR)
+	@echo "Compiling test_input_pipeline..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
 # queue ordering/draining, newest-N windowing, settings read.
 $(TEST_DIR)/test_data: tests/unit/test_data.cpp src/api/config.cpp src/api/http_client.cpp src/api/disk_cache.cpp | $(TEST_DIR)
@@ -347,7 +355,7 @@ $(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_c
 	@echo "Compiling test_real..."
 	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
