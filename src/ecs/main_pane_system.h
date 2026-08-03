@@ -112,10 +112,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The ONE composer, pinned to the pane bottom, always present (unless
         // the backend genuinely can't send). Reply mode when a thread is open,
         // kickoff otherwise. This is the single source of the chat input — no
-        // view hides it.
+        // view hides it. Rendered ABSOLUTELY at the pane bottom (not as a flex
+        // sibling of `content`) so a tall transcript that overflows its content
+        // box can never push the composer off the bottom edge — the windowed
+        // 'no chat input' bug (headless clipped, windowed overflowed).
         if (canReply)
             render_composer(ctx, panel.ent(), *app, r.width, composerH,
-                            composerKickoff);
+                            composerKickoff, r.height - composerH);
     }
 
   private:
@@ -2231,7 +2234,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // styled with an honest caption instead of faking it.
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH,
-                         bool kickoff = false) {
+                         bool kickoff = false, float absTopY = -1.0f) {
         // KICKOFF mode: rendered on the Home landing screen (no thread open) so
         // you can start typing the moment the app opens — every daily-driver
         // chat app has a persistent input on its landing view. In kickoff mode
@@ -2330,8 +2333,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float composerGutter = (paneW - kReadCol) * 0.5f;
         if (composerGutter < kContentInset) composerGutter = kContentInset;
 
-        auto bar = div(ctx, mk(parent, 3),
-            ComponentConfig{}
+        auto barCfg = ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(composerH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
@@ -2350,7 +2352,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // never paint over the composer — it is always on top and
                 // always visible (Gabe: "it should just always render").
                 .with_render_layer(2)
-                .with_debug_name("composer_bar"));
+                .with_debug_name("composer_bar");
+        // ABSOLUTE-PIN to the pane bottom when the caller passes absTopY. As a
+        // flex sibling, a tall transcript that overflows the content box pushed
+        // the composer off the bottom edge (the windowed 'no chat input' bug —
+        // headless clipped so it looked fine). Absolute position takes it OUT
+        // of the flex flow so its Y is fixed regardless of content height.
+        if (absTopY >= 0.0f) {
+            barCfg = barCfg.with_absolute_position().with_translate(0.0f,
+                                                                    absTopY);
+        }
+        auto bar = div(ctx, mk(parent, 3), barCfg);
 
         // A hairline top border sold via a 1px divider row so the composer
         // reads as a distinct footer strip separated from the message column.
