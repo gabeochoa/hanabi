@@ -92,6 +92,48 @@ extern "C" void metal_set_window_size(int width, int height) {
     }
 }
 
+// Constrain the window to the screen's VISIBLE frame (below the menu bar, above
+// the Dock) so its bottom edge — where the composer + status bar live — is
+// always on-screen. A user can drag/resize the window taller than the display
+// (macOS also restores a too-large frame across launches), which pushes the
+// composer BELOW the visible area — it renders, but you can't see or reach it
+// ("HOW DO I SEND A MESSAGE" — the input was off the bottom of the screen).
+// Idempotent + cheap; safe to call on the first frame and on activate.
+extern "C" void metal_constrain_window_to_screen(void) {
+    @autoreleasepool {
+        NSWindow* window = [NSApp mainWindow];
+        if (!window) window = [NSApp keyWindow];
+        if (!window) {
+            for (NSWindow* w in [NSApp windows]) {
+                if ([w isVisible]) { window = w; break; }
+            }
+        }
+        if (!window) return;
+        NSScreen* screen = [window screen];
+        if (!screen) screen = [NSScreen mainScreen];
+        if (!screen) return;
+        NSRect vis = [screen visibleFrame];   // excludes menu bar + Dock
+        NSRect frame = [window frame];
+        NSRect nf = frame;
+        // Clamp size to the visible area (leave a small margin so the frame
+        // isn't flush to the screen edges).
+        CGFloat maxW = vis.size.width;
+        CGFloat maxH = vis.size.height;
+        if (nf.size.width > maxW) nf.size.width = maxW;
+        if (nf.size.height > maxH) nf.size.height = maxH;
+        // Reposition so the whole frame is inside vis (fix a bottom/edge that
+        // spilled off-screen). macOS origin is bottom-left.
+        if (nf.origin.x < vis.origin.x) nf.origin.x = vis.origin.x;
+        if (nf.origin.y < vis.origin.y) nf.origin.y = vis.origin.y;
+        if (nf.origin.x + nf.size.width > vis.origin.x + vis.size.width)
+            nf.origin.x = vis.origin.x + vis.size.width - nf.size.width;
+        if (nf.origin.y + nf.size.height > vis.origin.y + vis.size.height)
+            nf.origin.y = vis.origin.y + vis.size.height - nf.size.height;
+        if (!NSEqualRects(nf, frame))
+            [window setFrame:nf display:YES animate:NO];
+    }
+}
+
 #import <objc/runtime.h>
 
 static id _e2e_activity_token = nil;

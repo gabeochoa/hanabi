@@ -49,6 +49,7 @@ struct MainRenderSystem : afterhours::System<> {
 // by the menu-bar "Show hanabi" action. Declared here (no header) to match the
 // existing extern "C" style; the windowed link pulls in the .mm definition.
 extern "C" void metal_activate_app(void);
+extern "C" void metal_constrain_window_to_screen(void);
 
 namespace app_state {
 afterhours::SystemManager* systemManager = nullptr;
@@ -354,6 +355,11 @@ static void app_frame() {
         // Windowed-only + install-once, same as the hotkey.
         native_openurl_install();
         menubarInstalled = true;
+        // Ensure the window fits ON-SCREEN: a restored/dragged frame taller
+        // than the display pushes the bottom (composer + status bar) below the
+        // visible area — the composer renders but is unreachable ("how do I
+        // send a message"). Constrain once on the first frame.
+        metal_constrain_window_to_screen();
         // Diagnostic (windowed-only, fires once): HANABI_NOTIFY_TEST=<thread-id>
         // posts a single native notification carrying that id, so the
         // notification banner + click->open-thread path can be exercised
