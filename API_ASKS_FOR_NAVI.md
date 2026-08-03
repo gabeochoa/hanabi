@@ -2,6 +2,9 @@
 Compiled from building the native client against the real API. Each is something
 that would make hanabi (or any thin native/local-first client) better.
 
+> **Posted 2026-08-03** to the Navi Draft PR Review thread (session 47bc4cf8) as ranked asks #0–#6;
+> #0 (manifold:// resolve) leads because it unblocks the already-shipped inline-image feature.
+
 ## Confirmed shapes (working today — documenting for the thread, no change needed)
 - GET /api/v1/sessions -> { ... , array under top-level or "messages"/"data" } (list works)
 - GET /api/v1/sessions/{id}/messages -> { messages:[{id,role,blocks:[{type,content|toolCall|toolResult}],createdAt}], hasMore, isStreaming }
