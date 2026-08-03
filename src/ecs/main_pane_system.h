@@ -3484,7 +3484,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("tool_pile"));
 
+        // Header command: prefix the node (e.g. "[cli:aspen] ") when the tool
+        // ran on a specific node, so the collapsed header reads like Gabe asked:
+        // "N tool calls · [node] cmd". tool_node() returns "" for local/unknown
+        // (no fabricated node), so the prefix only appears when real.
+        const std::string pileNode = tool_node(msgs[lo]);
         std::string cmd = std::to_string(count) + " tool calls  \xc2\xb7  " +
+                          (pileNode.empty() ? "" : ("[" + pileNode + "] ")) +
                           tool_command(msgs[lo]);
         // The badge shows the REAL pile size (one Tool message == one call), so
         // it always matches the "N tool calls" header text. (Previously summed a
@@ -3600,9 +3606,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // A single tool call is now clickable to reveal its captured output
         // (tool_result), exactly like a pile expands to its sub-rows. The
         // chevron shows only when there's something to expand.
+        // Single tool row: prefix the node ("[cli:aspen] cmd") when known, same
+        // as the pile header (Gabe: "[cli:aspen] cd …"). Empty for local/unknown.
+        const std::string oneNode = tool_node(m);
+        const std::string oneCmd =
+            (oneNode.empty() ? "" : ("[" + oneNode + "] ")) + tool_command(m);
         Entity& head = tool_row(ctx, parent, 200 + index * 10, rowW,
                                 /*expandable=*/expandable, open,
-                                tool_command(m), 1, tool_duration(m),
+                                oneCmd, 1, tool_duration(m),
                                 /*showCount=*/false, /*failed=*/tool_failed(m));
         if (expandable && app && !key.empty()) {
             head.addComponentIfMissing<afterhours::ui::HasClickListener>(

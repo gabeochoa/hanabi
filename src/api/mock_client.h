@@ -775,6 +775,11 @@ class MockClient : public Client {
                  "it half-open instead \xe2\x80\x94 want that, or leave it strict?",
                  hrs_ago(1), ""},
             };
+            // Real node on the tool calls so the collapsed pile header reads
+            // "[cli:aspen] cmd" (demonstrates tool_node prefix; renderer shows
+            // nothing when this is empty, so no fabricated node elsewhere).
+            for (auto& mm : s.messages)
+                if (mm.role == Role::Tool) mm.tool_node = "cli:aspen";
             v.push_back(std::move(s));
         }
         {
