@@ -173,8 +173,9 @@ Message parse_message(const json& e, const Config& cfg) {
     m.role = parse_role(as_string(e, cfg.field_role));
     // created_at handled by caller-side normalization below when present.
     m.text = as_string(e, cfg.field_text);
-    if (m.text.empty() && e.is_object() && e.contains(cfg.field_blocks) &&
-        e.at(cfg.field_blocks).is_array()) {
+    const bool hasBlocks = e.is_object() && e.contains(cfg.field_blocks) &&
+                           e.at(cfg.field_blocks).is_array();
+    if (m.text.empty() && hasBlocks) {
         std::string joined;
         for (const auto& b : e.at(cfg.field_blocks)) {
             if (!b.is_object()) continue;
@@ -185,11 +186,32 @@ Message parse_message(const json& e, const Config& cfg) {
                     if (!joined.empty()) joined += "\n\n";
                     joined += c;
                 }
-            } else if (!btype.empty() && m.subtitle.empty()) {
+            } else if (!btype.empty() && m.subtitle.empty() &&
+                       btype != cfg.field_block_image_type) {
                 m.subtitle = btype;
             }
         }
         m.text = std::move(joined);
+    }
+    // Image blocks are scanned INDEPENDENTLY of the text path — an assistant
+    // message commonly has BOTH prose (in field_text) AND an image block, so
+    // this must run even when m.text came from field_text directly. Render only
+    // a LOCAL path / file:// URL (never block the transcript on a network
+    // fetch); a remote http(s) image is left for a future download-to-cache.
+    if (m.image_path.empty() && hasBlocks) {
+        for (const auto& b : e.at(cfg.field_blocks)) {
+            if (!b.is_object()) continue;
+            if (as_string(b, cfg.field_block_type) != cfg.field_block_image_type)
+                continue;
+            std::string url = as_string(b, cfg.field_block_image_url);
+            if (url.rfind("file://", 0) == 0) {
+                m.image_path = url.substr(7);
+                break;
+            } else if (!url.empty() && url.front() == '/') {
+                m.image_path = url;
+                break;
+            }
+        }
     }
     return m;
 }

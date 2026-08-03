@@ -135,6 +135,12 @@ struct Config {
     std::string field_block_type = "type";
     std::string field_block_content = "content";
     std::string field_block_text_type = "text";
+    // Image-block support (inline agent artifacts): a block whose type ==
+    // field_block_image_type carries an image reference in field_block_image_url.
+    // Only a LOCAL path / file:// URL is rendered inline (rendering never blocks
+    // on the network); a remote http(s) image would need a future download step.
+    std::string field_block_image_type = "image";
+    std::string field_block_image_url = "url";
 
     // Tool-call / tool-result BLOCK mapping. Real assistant messages carry an
     // interleaved SEQUENCE of blocks (text, tool_call, tool_result, ...); the
