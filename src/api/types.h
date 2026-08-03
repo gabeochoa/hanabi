@@ -99,6 +99,14 @@ struct Message {
     int64_t tool_duration_ms = 0;
     std::string tool_node;
 
+    // Optional inline image (agent surface): a LOCAL filesystem path to an
+    // image the agent produced/attached (e.g. a screenshot). When set, the
+    // transcript renders the decoded image inline under the message text at
+    // column width. Empty = no image (the common case). Kept a local path
+    // (not a URL) so rendering never blocks on the network; a future adapter
+    // can download a remote image to the cache dir and set this.
+    std::string image_path;
+
     // Local-first sync badge (see SyncState). Defaults to None: a message
     // parsed from the server on transcript load is inherently synced and shows
     // no badge. A locally-authored message (optimistic send / outbox) sets this

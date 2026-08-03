@@ -13,6 +13,7 @@
 #include "../util/format.h"
 #include "thread_model.h"
 #include "transcript_render_cache.h"
+#include "../ui/inline_image.h"
 #include "ui_imports.h"
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -2431,6 +2432,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         bool expanded = app && app->expandedMsgs.count(mkey) != 0;
         if (!isLive && (folded || (expanded && mr.line_count > kFoldLines)))
             h += kFoldBtnH;
+        // Inline image term (mirrors render_bubble's asst_image element:
+        // margin.top 8 + fitted image height + margin.bottom 4).
+        if (!m.image_path.empty() &&
+            hanabi::inline_image::available(m.image_path))
+            h += 8.0f + hanabi::inline_image::fitted_height(m.image_path, textW) +
+                 4.0f;
         return h;
     }
 
@@ -2847,6 +2854,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f);
         render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
                          bodyStartY);
+
+        // Inline image (agent surface): if the message carries a decodable
+        // local image (e.g. a screenshot the agent produced), render it under
+        // the text at column width. A dedicated transparent element (its
+        // on_draw_fg fires — unlike a custom-bg div, gap #28) draws the cached
+        // texture. Height mirrors bubble_height's image term exactly.
+        if (!m.image_path.empty() &&
+            hanabi::inline_image::available(m.image_path)) {
+            const std::string ip = m.image_path;
+            const float imgH =
+                hanabi::inline_image::fitted_height(ip, textW);
+            div(ctx, mk(turn.ent(), 7),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(textW), pixels(imgH)})
+                    .with_margin(Margin{.top = pixels(8), .bottom = pixels(4)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([ip, textW, imgH](RectangleType r) {
+                        hanabi::inline_image::draw(ip, r.x, r.y, textW, imgH);
+                    })
+                    .with_debug_name("asst_image"));
+        }
 
         if (app && !isLive &&
             (folded || (expanded && lineCount > kFoldLines))) {
