@@ -2449,6 +2449,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(theme::roundness_for_px(10.0f, inputW, 34.0f))
                 .with_debug_name("composer_reply_input"));
 
+        // Opt-in field diagnostics: dump the live text_input state so we can
+        // see EXACTLY what the field receives (chars, cursor, h-scroll) —
+        // pins down space/backspace/wrap issues instead of guessing across the
+        // vendored widget. Gated on HANABI_DBG_INPUT; a no-op when unset.
+        if (std::getenv("HANABI_DBG_INPUT") &&
+            inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
+            const auto& st =
+                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+            static std::string s_last;
+            std::string cur = st.text();
+            if (cur != s_last) {  // only log on change (avoid per-frame spam)
+                s_last = cur;
+                fprintf(stderr,
+                        "[DBG input] focused=%d text_len=%zu cursor=%zu "
+                        "inputW=%.1f text=\"%s\"\n",
+                        (int)st.is_focused, cur.size(),
+                        (size_t)st.cursor_position, inputW, cur.c_str());
+            }
+        }
+
         // ENTER-TO-SEND. afterhours' text_input fires on_submit on Enter
         // (WidgetPress == ENTER, preload.cpp) IF the entity carries a
         // HasTextInputListener — the imm wrapper doesn't attach one, so a naked
