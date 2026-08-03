@@ -990,3 +990,14 @@ afterhours is a game/UI framework; hanabi is the first *native macOS desktop app
 
 ### #36 — MISSING: config/save path is fine, but no "app data/cache dir" distinct from config
 - `files::get_config_path()` (per-app config dir) works and hanabi uses it. But there's no separate get_cache_path() (XDG cache / ~/Library/Caches) — hanabi puts its transcript disk-cache under the config dir. Minor; a cache-vs-config split is the platform-correct convention.
+
+## gap #30 update (2026-08-03): hanabi-side eased-scroll workaround shipped
+The vendor smooth-scroll patch (#30, scroll_target/scroll_smoothing fields) is captured in
+vendor_patches/ but NOT landed in the pinned submodule, so HandleScrollInput still writes the
+wheel delta straight into scroll_offset (stepped/chunky). Rather than wait on the vendor merge,
+hanabi now eases scrolling ENTIRELY in hanabi-owned state via ecs::ScrollEaseSystem
+(src/ecs/scroll_ease_system.h), a render-phase system that runs before the UI render systems:
+it records the wheel destination and glides scroll_offset toward it each frame. It is
+has_smooth_scroll-guarded so it auto-DISABLES the day the vendor patch lands (vendor easing wins),
+and HANABI_SCROLL_SMOOTH=1 forces legacy instant. Pins (follow-latch to end / jump-to-top) are
+detected as snaps so stay-at-bottom is never slowed. No vendor edit; pure hanabi workaround.

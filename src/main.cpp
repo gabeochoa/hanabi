@@ -33,6 +33,7 @@
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
 #include "ecs/main_pane_system.h"
+#include "ecs/scroll_ease_system.h"
 #include "ecs/sidebar_system.h"
 #include "ecs/settings_system.h"
 #include "ecs/status_bar_system.h"
@@ -264,6 +265,13 @@ static void build_systems(afterhours::SystemManager& sm) {
 
     // Render systems.
     sm.register_render_system(std::make_unique<MainRenderSystem>());
+    // Hanabi-side eased scrolling: runs BEFORE the UI render systems read
+    // scroll_offset, gliding the offset toward the wheel's destination so
+    // scrolling isn't stepped/"chunky" (works against pinned afterhours; idles
+    // if the vendor smooth-scroll patch is present). No-op with
+    // HANABI_SCROLL_SMOOTH=1. Safe with the transcript follow-latch (a pin to
+    // the end is detected as a snap, not eased).
+    sm.register_render_system(std::make_unique<ecs::ScrollEaseSystem>());
     ui_imm::registerUIRenderSystems(sm);
 }
 
