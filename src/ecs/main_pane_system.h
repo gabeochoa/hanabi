@@ -1985,7 +1985,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
-                .with_roundness(0.3f)
+                // Rounder field (modern chat input pill) — was 0.3.
+                .with_roundness(0.5f)
                 .with_debug_name("composer_reply_input"));
 
         // Send affordance. Enabled (primary-styled, clickable) when the backend
@@ -1995,16 +1996,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the action reads honestly. Minimal touch: label-only (fits the same
         // fixed sendW), no layout change.
         const bool steerMode = app.should_steer_open();
+        // Send = a filled primary pill with an up-arrow (modern chat "send"),
+        // Steer keeps its word (interrupt/redirect reads better as text), "…"
+        // while in flight. Rounder (0.5) so it reads as an intentional primary
+        // action, not a flat rectangle.
         const char* sendLabel =
-            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "Send");
+            sending ? "\xe2\x80\xa6"
+                    : (steerMode ? "Steer" : "Send  \xe2\x86\x91");
         auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(sendLabel)
                 .with_size(ComponentSize{pixels(sendW), pixels(32)})
                 .with_custom_background(sendEnabled ? theme::button_primary()
                                                     : theme::disabled_bg())
-                .with_custom_hover_bg(sendEnabled ? theme::button_primary()
-                                                  : theme::disabled_bg())
+                .with_custom_hover_bg(sendEnabled
+                                          ? theme::hover_over(theme::button_primary())
+                                          : theme::disabled_bg())
                 .with_custom_text_color(sendEnabled ? theme::window_bg()
                                                     : theme::disabled_text())
                 .with_font_size(FontSize::Medium)
@@ -2012,7 +2019,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.35f)
+                .with_roundness(0.5f)
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
             // Route through the STREAMING path when the backend supports it
