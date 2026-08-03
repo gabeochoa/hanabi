@@ -42,43 +42,80 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(1)
                 .with_debug_name("main_pane"));
 
+        // The composer ALWAYS renders (Gabe: "it should just always render …
+        // why would we hide it at any point"). It lives at the PANE level — one
+        // instance pinned to the bottom, NOT buried inside each view behind
+        // early-returns (Error/Loading/no-session/wrong-view all used to hide
+        // it → the "no chat input" bug). It replies to the open thread when one
+        // is open, else it kicks off a NEW conversation. Only truly absent when
+        // the backend can't send at all (an unconfigured adapter).
+        const bool canReply =
+            app->client &&
+            (app->client->supports_send() || app->client->supports_stream());
+        const float composerH = canReply ? 92.0f : 0.0f;
+        const float contentH = r.height - composerH;
+        // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
+        // a new session). Split view still replies to its primary open thread.
+        const bool composerKickoff =
+            !(app->view == SmartView::Chat && app->openSession);
+
+        // Content area: fixed height so the composer is always pinned to the
+        // pane bottom (even when a view's content is short — no floating
+        // composer in the middle).
+        auto content = div(ctx, mk(panel.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(contentH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("main_content"));
+
         switch (app->view) {
             case SmartView::Chat:
                 if (!app->splitSessionId.empty()) {
-                    render_split(ctx, panel.ent(), *app, r.width, r.height);
+                    render_split(ctx, content.ent(), *app, r.width, contentH);
                 } else {
-                    render_transcript(ctx, panel.ent(), *app, r.width,
-                                      r.height);
+                    render_transcript(ctx, content.ent(), *app, r.width,
+                                      contentH);
                 }
                 break;
             case SmartView::Home:
-                render_home(ctx, panel.ent(), *app, r.width, r.height);
+                render_home(ctx, content.ent(), *app, r.width, contentH);
                 break;
             case SmartView::Blocked:
-                render_digest(ctx, panel.ent(), *app, "Blocked on you",
-                              r.width, r.height, ecs::model::in_blocked_view,
+                render_digest(ctx, content.ent(), *app, "Blocked on you",
+                              r.width, contentH, ecs::model::in_blocked_view,
                               "Nothing is waiting on you. \xf0\x9f\x8e\x89",
                               /*singleState=*/true);
                 break;
             case SmartView::Review:
-                render_digest(ctx, panel.ent(), *app, "Ready for review",
-                              r.width, r.height, ecs::model::in_review_view,
+                render_digest(ctx, content.ent(), *app, "Ready for review",
+                              r.width, contentH, ecs::model::in_review_view,
                               "No threads are ready for review yet.",
                               /*singleState=*/true);
                 break;
             case SmartView::Starred:
-                render_digest(ctx, panel.ent(), *app, "Starred", r.width,
-                              r.height, ecs::model::in_starred_view,
+                render_digest(ctx, content.ent(), *app, "Starred", r.width,
+                              contentH, ecs::model::in_starred_view,
                               "No starred conversations. Star a thread to pin "
                               "it here.");
                 break;
             case SmartView::Archived:
-                render_digest(ctx, panel.ent(), *app, "Archived", r.width,
-                              r.height, ecs::model::in_archived_view,
+                render_digest(ctx, content.ent(), *app, "Archived", r.width,
+                              contentH, ecs::model::in_archived_view,
                               "No archived conversations. Sending a message to "
                               "an archived thread unarchives it.");
                 break;
         }
+
+        // The ONE composer, pinned to the pane bottom, always present (unless
+        // the backend genuinely can't send). Reply mode when a thread is open,
+        // kickoff otherwise. This is the single source of the chat input — no
+        // view hides it.
+        if (canReply)
+            render_composer(ctx, panel.ent(), *app, r.width, composerH,
+                            composerKickoff);
     }
 
   private:
@@ -1117,17 +1154,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      AppComponent& app, float paneW, float paneH) {
         header(ctx, parent, "Home", "", theme::type::H1);
 
-        // Landing composer: a persistent input pinned to the bottom of Home so
-        // you can start a new conversation the moment the app opens (Gabe: "no
-        // chat input" — the composer previously ONLY existed inside an open
-        // thread, so the no-tab landing screen had nowhere to type). Kickoff
-        // mode routes Send/Enter to create_session; the loader opens the new
-        // thread as a tab. Only when the backend can actually send.
-        const bool canKickoff =
-            app.client && app.client->supports_send();
-        const float kComposerH = canKickoff ? 92.0f : 0.0f;
-
-        float listH = paneH - 46.0f - kComposerH;
+        // The composer is rendered ONCE at the pane level (always visible), so
+        // Home just fills its content height with the digest list.
+        float listH = paneH - 46.0f;
         if (listH < 40.0f) listH = 40.0f;
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -1153,9 +1182,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // skipped — this only bites the first-ever launch.)
         if (app.sessions.empty() && app.listState == LoadState::Loading) {
             for (int k = 0; k < 6; ++k) skeleton_card(ctx, wrap, k);
-            if (canKickoff)
-                render_composer(ctx, parent, app, paneW, kComposerH,
-                                /*kickoff=*/true);
             return;
         }
 
@@ -1252,13 +1278,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
                 digest_card(ctx, wrap, ++shown, *recent[k], app, false, cardW);
         }
-
-        // Landing composer, pinned below the scroll list (see the kComposerH
-        // reservation above). Rendered on the Home pane so a fresh launch (no
-        // open tab) still has a place to type — the fix for "no chat input".
-        if (canKickoff)
-            render_composer(ctx, parent, app, paneW, kComposerH,
-                            /*kickoff=*/true);
     }
 
     static std::string upper(std::string s) {
@@ -1539,6 +1558,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_chat_welcome(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, float paneW, float paneH) {
         (void)paneW;
+        // The composer is rendered ONCE at the pane level (always visible), so
+        // the welcome hero just fills its content height.
         float colH = paneH - 20.0f;
         if (colH < 120.0f) colH = 120.0f;
         auto col = div(ctx, mk(parent, 90),
@@ -1611,9 +1632,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.5f)
                     .with_debug_name("welcome_chip"));
             if (chip) {
-                // Start a new task; the composer seed is picked up by the
-                // new-task draft slot on the next frame.
-                app.requestNewTask = true;
+                // Seed the LANDING composer's kickoff draft (below) instead of
+                // opening the modal overlay — the composer picks up welcomeSeed
+                // in kickoff mode, so the chip pre-fills the visible input and
+                // the user hits Send/Enter to start the new session.
                 app.welcomeSeed = kChips[i];
             }
         }
@@ -1786,15 +1808,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
+        // The composer is rendered ONCE at the pane level; paneH here is
+        // already the CONTENT height (pane minus composer), so the transcript
+        // fills it directly — no local composer reservation.
         const bool canReply =
             app.client &&
             (app.client->supports_send() || app.client->supports_stream());
-        const float kComposerH = canReply ? 92.0f : 0.0f;
         // Header is the stacked transcript_header (title + metadata sub); its
         // total height (52 content + 14 top + 8 bottom pad) is ~74px. Subtract
         // that so the scroll list starts cleanly beneath the header.
         constexpr float kHeaderH = 62.0f;
-        float listH = paneH - kHeaderH - kComposerH;
+        float listH = paneH - kHeaderH;
         if (listH < 20.0f) listH = 20.0f;
 
         // Modern-chat centering: the transcript reads best in a ~720px column
@@ -1836,7 +1860,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                           .left = pixels(18)})
                     .with_alignment(TextAlignment::Center)
                     .with_debug_name("transcript_empty"));
-            if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);
             return;
         }
 
@@ -2191,8 +2214,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.loadingOlder) {
             loading_older_pill(ctx, parent, paneW, 62.0f + 6.0f);
         }
-
-        if (canReply) render_composer(ctx, parent, app, paneW, kComposerH);
+        // (Composer is rendered once at the pane level — not here.)
+        (void)canReply;
     }
 
     // Persistent composer pinned to the bottom of the transcript pane. A real,
