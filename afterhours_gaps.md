@@ -964,3 +964,29 @@ per-row id cache + base-color baking could collapse to a single call.
 - **Gap:** `HandleScrollInput` does `scroll_offset += direction * wheel * speed` — the rendered offset jumps by the raw wheel delta each event. There's no eased/target-based scrolling, so on macOS (where native scroll has momentum + sub-pixel smoothing) hanabi's scroll feels stepped/janky even at 100+fps. This is the "scroll perf" complaint — it's smoothness, not framerate (frame cost on a 120-msg transcript is only ~5.8ms).
 - **Fix (PROVEN, vendor_patches/30-smooth-eased-scrolling.patch):** add `scroll_target` (wheel writes here) + `scroll_smoothing` factor; `scroll_offset` eases toward `scroll_target` once per frame (before the mouse-inside early return so an in-flight glide keeps animating). `scroll_smoothing >= 1` = instant (byte-identical legacy default); 0.28 = smooth glide that settles exactly (0.5px snap). clamp_scroll clamps both. Ease math unit-verified (first step 28%, settles ~21 frames ≈ 0.2-0.35s).
 - **hanabi-side (committed, SFINAE-guarded):** `apply_scroll_prefs` sets `scroll_smoothing=0.28` (env `HANABI_SCROLL_SMOOTH` overrides); programmatic offset writes (jump-to-bottom, scrollbar drag/page) sync `scroll_target`. All guarded via `hanabi::has_smooth_scroll<>` detection so hanabi compiles against BOTH pinned edfe234 (no-op) and the patched afterhours (active) — verified both directions build 0 + test 8/8. Activates automatically when Gabe lands the patch + bumps the pointer.
+
+---
+## Reusable app-scaffolding gaps (survey 2026-08-03) — what a NATIVE DESKTOP app needs that afterhours doesn't provide
+
+afterhours is a game/UI framework; hanabi is the first *native macOS desktop app* on it, so it had to hand-roll all the OS-integration + packaging scaffolding below. These are candidates to upstream so the next desktop app doesn't re-implement them. Grouped by whether afterhours is MISSING it or HAS-but-unusable.
+
+### #31 — MISSING: macOS `.app` bundle packaging (Info.plist, Resources, URL schemes)
+- afterhours has zero bundling support. hanabi's `makefile` hand-writes the whole `.app`: `Contents/MacOS/<exe>`, `rsync` of `Contents/Resources/`, and a heredoc'd `Info.plist` (CFBundle* keys, LSMinimumSystemVersion, NSHighResolutionCapable, LSApplicationCategoryType, **CFBundleURLTypes** for the `hanabi://` scheme).
+- Upstream shape: a reusable `bundle.mk` include or a `tools/mk_bundle.sh <exe> <name> <id> <plist-extras>` that any afterhours desktop app can call. Also a Linux `.desktop` + Windows resource equivalent for cross-platform.
+
+### #32 — HAS-BUT-UNUSABLE: `files::get_resource_path` resolves relative to CWD, not the executable/bundle
+- `ProvidesResourcePaths` sets `resource_folder_path = fs::current_path() / root_folder` (files.cpp ~54). A launched `.app` has CWD `/`, so bundled resources under `Contents/Resources/` are never found — the app can only find resources when run from its build dir. This makes the resource API unusable for the exact case (a shipped bundle) it's most needed for.
+- hanabi workaround (src/preload.cpp `get_exe_dir()` + `resolve_resource_root()`): platform-specific exe-path lookup (`_NSGetExecutablePath` / `/proc/self/exe` / `GetModuleFileNameA`) then probe `<exe>/resources`, then `<exe>/../Resources` (.app), then CWD fallback — and pass THAT to `files::init`.
+- Upstream fix: `files::init` should resolve the resource root from the executable path (with a CWD/dev fallback), not raw CWD. The exe-dir helper is trivially generic and belongs in the files plugin.
+
+### #33 — MISSING: native menu-bar extra (NSStatusItem), notifications, global hotkey, Spotlight
+- afterhours has no menu-bar / tray, no native notifications, no global-hotkey registration, no Spotlight/indexing. hanabi implemented all of these in `src/native_extras.mm` (NSStatusItem status item + menu; UNUserNotification/NSUserNotification click-to-open; Carbon RegisterEventHotKey Cmd+Shift+N; CoreSpotlight donation). These are generic desktop-app needs — a thin `afterhours/desktop` (mac) shim (menubar item, post-notification, register-hotkey, on-activate callback) would be broadly reusable.
+
+### #34 — MISSING: URL-scheme / deep-link handling (Apple-event kInternetEventClass/kAEGetURL)
+- A non-App-Store bundle receives `myapp://...` opens via the classic Apple-event route (`kInternetEventClass`/`kAEGetURL` on the shared NSAppleEventManager). hanabi hand-registers a handler (`native_extras.mm handleGetURLEvent`) and drains it into the app via a pending-open queue. Generic: afterhours could expose `desktop::on_open_url(cb)` + auto-register the handler when the bundle declares CFBundleURLTypes.
+
+### #35 — MISSING: runtime font swap is possible but there's no "list installed system fonts" / font-picker primitive
+- FontManager.load_font(name, path) DOES allow swapping a named font at runtime (good — hanabi uses it for a font-choice pref). But there's no way to ENUMERATE available system fonts (macOS CTFontManagerCopyAvailableFontFamilyNames / fontconfig on Linux), so an app can't offer "pick any system font" without its own platform code. A `fonts::list_system_families()` would enable a real font picker. (hanabi ships a bundled-font CHOICE instead — Roboto default + Atkinson Hyperlegible, both OFL/Apache, no enumeration needed.)
+
+### #36 — MISSING: config/save path is fine, but no "app data/cache dir" distinct from config
+- `files::get_config_path()` (per-app config dir) works and hanabi uses it. But there's no separate get_cache_path() (XDG cache / ~/Library/Caches) — hanabi puts its transcript disk-cache under the config dir. Minor; a cache-vs-config split is the platform-correct convention.
