@@ -545,9 +545,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         drive_live_events(app);
         drive_send_queue(app);
         drive_settings(app);
+        drive_settings_sync(app);
     }
 
   private:
+    // ---- Settings-sync state (see drive_settings_sync) -------------------
+    // Debounce window: coalesce a burst of preference clicks into one push.
+    static constexpr std::chrono::milliseconds kSyncDebounce{1500};
+    bool settings_sync_armed_ = false;   // debounce timer running
+    bool settings_sync_pending_ = false; // a push is in flight
+    std::chrono::steady_clock::time_point settings_sync_deadline_{};
+    std::future<bool> settings_sync_future_;
+
     // ---- Message-send queue (FEATURE #3) ---------------------------------
     //
     // When the user fires a second send into a session that already has a
@@ -626,6 +635,95 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.settingsError = r.error;
             }
         }
+    }
+
+    // ---- Settings SYNC (web-matches-local) -------------------------------
+    //
+    // The settings modal persists every preference change LOCALLY first (the
+    // Settings singleton auto-saves to disk) and flips Settings::mark_dirty().
+    // This tick DEBOUNCES those changes and pushes a snapshot to the backend so
+    // the web app matches — best-effort, non-blocking (std::async, like the
+    // read path). When the backend has no write path configured (the zero-config
+    // mock is the default) the push is a no-op that still clears the dirty flag,
+    // so local-only persistence works and NO error is surfaced.
+    //
+    // Debounce: after the last change, wait kSyncDebounce before pushing (so a
+    // burst of clicks coalesces into one push). The modal-close path can force
+    // an immediate flush by leaving the flag set; the next tick with the timer
+    // elapsed sends it. One in-flight push at a time; the future is polled and
+    // reaped here.
+    void drive_settings_sync(AppComponent& app) {
+        auto& s = Settings::get();
+
+        // Reap a completed in-flight push (clears the pending slot).
+        if (settings_sync_pending_ && settings_sync_future_.valid() &&
+            settings_sync_future_.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            (void)settings_sync_future_.get();  // best-effort: ignore result
+            settings_sync_pending_ = false;
+        }
+
+        if (!s.is_settings_dirty()) return;    // nothing changed
+        if (settings_sync_pending_) return;    // a push is already in flight
+        if (!app.client) return;
+
+        // Debounce: start/refresh the timer on the first dirty observation.
+        const auto now = std::chrono::steady_clock::now();
+        if (!settings_sync_armed_) {
+            settings_sync_armed_ = true;
+            settings_sync_deadline_ = now + kSyncDebounce;
+            return;  // let the burst settle
+        }
+        if (now < settings_sync_deadline_) return;  // still coalescing
+
+        // Timer elapsed: clear local flags NOW (so new changes re-arm cleanly)
+        // and launch the push. Clearing dirty up front is safe — a change that
+        // lands mid-push re-marks dirty and gets its own later push.
+        settings_sync_armed_ = false;
+        s.clear_settings_dirty();
+
+        // If the backend can't write, we're done: local-only, no error. The
+        // dirty flag is already cleared so we don't spin every frame.
+        if (!app.client->supports_settings_write()) return;
+
+        // Build the snapshot payload from the local Settings. Carried in
+        // UserSettings.raw_json so the http adapter can PUT it verbatim and the
+        // mock can store it — WITHOUT baking any field mapping into the client.
+        api::UserSettings snap;
+        snap.ok = true;
+        snap.user_id = app.settings.user_id;
+        snap.raw_json = build_settings_payload(s);
+
+        api::Client* c = app.client.get();
+        settings_sync_pending_ = true;
+        settings_sync_future_ = std::async(std::launch::async, [c, snap] {
+            return c->update_settings(snap);
+        });
+    }
+
+    // Serialize the client-syncable preference slots to a compact JSON object
+    // matching the web PUT-preferences field names. Built by hand (no json dep
+    // in this header) — the values come straight from the local Settings.
+    static std::string build_settings_payload(Settings& s) {
+        auto esc = [](const std::string& in) {
+            std::string o;
+            o.reserve(in.size() + 2);
+            for (char ch : in) {
+                if (ch == '"' || ch == '\\') o.push_back('\\');
+                o.push_back(ch);
+            }
+            return o;
+        };
+        std::string j = "{";
+        j += "\"yapLevel\":" + std::to_string(s.get_yap_level());
+        j += ",\"autoArchiveDays\":" +
+             std::to_string(s.get_auto_archive_days());
+        j += ",\"notificationSound\":";
+        j += (s.get_notification_sound() ? "true" : "false");
+        j += ",\"memoryBackend\":\"" + esc(s.get_memory_backend()) + "\"";
+        j += ",\"defaultModelId\":\"" + esc(s.get_default_model()) + "\"";
+        j += "}";
+        return j;
     }
 
     // ---- Load OLDER (full transcript on demand) --------------------------
