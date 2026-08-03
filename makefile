@@ -307,6 +307,16 @@ $(TEST_DIR)/test_data: tests/unit/test_data.cpp src/api/config.cpp src/api/http_
 	@echo "Compiling test_data..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Settings rework (wt/settings): each wired preference control changes the
+# persisted Settings value + marks the sync-dirty flag; the mock's settings
+# WRITE path accepts + stores a pushed snapshot; the http write-gate is opt-in
+# + OFF by default. Pure logic — no graphics, no network. settings.cpp supplies
+# the persistence slots; config.cpp + http_client.cpp supply Config + the
+# header-only mock client.
+$(TEST_DIR)/test_settings: tests/unit/test_settings.cpp src/settings.cpp src/api/config.cpp src/api/http_client.cpp vendor/afterhours/src/plugins/files.cpp | $(TEST_DIR)
+	@echo "Compiling test_settings..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
 $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
@@ -328,7 +338,7 @@ $(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_c
 	@echo "Compiling test_real..."
 	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_data
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
