@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <afterhours/src/logging.h>
+#include <afterhours/src/plugins/files.h>
 
 #include "menubar.h"
 #include "native_extras.h"
@@ -77,6 +78,25 @@ static void setup_app_state() {
         bool light = (tc == "light") ||
                      (tc == "system" && !hanabi::os_is_dark_mode());
         theme::set_mode(light ? theme::Mode::Light : theme::Mode::Dark);
+    }
+
+    // Apply the persisted UI font choice. preload() loaded Roboto as
+    // DEFAULT_FONT and Atkinson Hyperlegible under "hyperlegible"; if the user
+    // last chose Hyperlegible, swap it into DEFAULT_FONT now so the whole UI
+    // renders in it from the first frame. Client-local only (no API field).
+    {
+        const std::string& fc = Settings::get().get_font_choice();
+        if (fc == "hyperlegible") {
+            auto& fontMgr =
+                afterhours::EntityHelper::get_singleton_cmp_enforce<
+                    afterhours::ui::FontManager>();
+            const std::string path =
+                afterhours::files::get_resource_path(
+                    "fonts", "AtkinsonHyperlegible-Regular.ttf")
+                    .string();
+            fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT,
+                              path.c_str());
+        }
     }
 
     ui_imm::initUIContext(Settings::get().get_window_width(),

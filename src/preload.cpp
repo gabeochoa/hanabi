@@ -115,6 +115,13 @@ Preload& Preload::make_singleton() {
         files::get_resource_path("fonts", "Roboto-Regular.ttf").string();
     std::string mono_font_path =
         files::get_resource_path("fonts", "JetBrainsMono-Regular.ttf").string();
+    // Atkinson Hyperlegible: an alternate UI font offered in Settings
+    // (Appearance -> Font). Loaded under a stable name here; the settings
+    // control / startup restore swaps it into DEFAULT_FONT live via
+    // FontManager.load_font. Client-local choice only (no API field).
+    std::string hyperlegible_font_path =
+        files::get_resource_path("fonts", "AtkinsonHyperlegible-Regular.ttf")
+            .string();
 
     auto& fontMgr =
         EntityHelper::get_singleton_cmp_enforce<ui::FontManager>();
@@ -124,6 +131,7 @@ Preload& Preload::make_singleton() {
     fontMgr.load_font(ui::UIComponent::SYMBOL_FONT,
                       ui_font_path.c_str());
     fontMgr.load_font("mono", mono_font_path.c_str());
+    fontMgr.load_font("hyperlegible", hyperlegible_font_path.c_str());
 
     // Dark theme setup
     {

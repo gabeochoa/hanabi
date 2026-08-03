@@ -38,6 +38,14 @@ struct Settings {
     const std::string& get_theme() const;
     void set_theme(const std::string& mode);
 
+    // UI font choice: "default" (Roboto, default) or "hyperlegible" (Atkinson
+    // Hyperlegible). Client-local only — NOT an API preference; the web app has
+    // no font field in PUT /api/user/preferences (theme + font are both purely
+    // client-side). Persisted like theme so a choice survives relaunch.
+    // Auto-persists (mirrors set_theme).
+    const std::string& get_font_choice() const;
+    void set_font_choice(const std::string& font);  // auto-persists
+
     // Sidebar collapsed (thin icon rail) vs expanded (full 280px). Persisted so
     // a user who folds the sidebar and quits gets it folded on relaunch (the
     // toggle otherwise lived only in the in-memory LayoutComponent). Auto-persists.
@@ -71,6 +79,7 @@ struct Settings {
     std::vector<std::string> open_tabs_;
     std::string active_tab_;
     std::string theme_ = "dark";
+    std::string font_choice_ = "default";
     bool sidebar_collapsed_ = false;
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;

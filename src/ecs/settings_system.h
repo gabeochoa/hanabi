@@ -1,24 +1,58 @@
 #pragma once
 
 // Settings overlay (Phase K). Renders a centered settings sheet over a dimmed
-// full-window backdrop when AppComponent::showSettings is true. The panel
-// carries a THEME toggle (Light / Dark / System) wired live: selecting a mode
-// sets app.themeChoice, persists it via Settings::set_theme (auto-saves), and
-// swaps the active token set via theme::set_mode so the whole UI re-tints this
-// frame. Closes on Cmd+, (toggle), Esc, the ✕ close button, or clicking the
-// backdrop.
+// full-window backdrop when AppComponent::showSettings is true. Closes on
+// Cmd+, (toggle), Esc, the ✕ close button, or clicking the backdrop.
 //
-// "System" mode: afterhours exposes no OS-appearance query (afterhours_gaps.md
-// #16), so System is a labelled *choice* that currently falls back to Dark for
-// the rendered palette; app.themeChoice remembers "system" so a future OS hook
-// can honor it without touching this UI.
+// STRUCTURE — mirrors the navi web settings menu, grouped the SAME way and in
+// the SAME order (Appearance / Behavior / Notifications / Data / Model /
+// Advanced / Account). Each row is either wired here or rendered as a visible
+// TODO stub (label + disabled-looking control) so the full structure is
+// legible even before the backing API/UI lands.
+//
+// ─── API SETTABILITY (the web app's PUT /api/user/preferences schema) ───────
+// The web backend can persist ONLY these preference fields:
+//   defaultModelId, yapLevel, branchOverrideUrl, memoryBackend,
+//   notificationSound, compactionThreshold, enabledExperiments,
+//   keyboardShortcuts, autoArchiveDays.
+// It CANNOT set: theme, font  — those are CLIENT-LOCAL (persisted here in
+// Settings, never sent to the backend). Rows that would need the API but
+// aren't wired to it yet carry `// TODO(settings-api):` pointing at the exact
+// field; genuinely client-only rows carry `// NOTE: client-local only`.
+// hanabi has no PUT-preferences client yet, so every API-backed row below is a
+// visible stub until that wiring exists (see REPORT).
+//
+// Appearance:
+//   Theme  (Light/Dark/System)  — WIRED, client-local (theme::set_mode).
+//   Font   (Default/Hyperlegible) — WIRED, client-local (FontManager swap).
+// Behavior:
+//   Yap level (0/1/2)           — stub, API field yapLevel.
+//   Auto-archive (days)         — stub, API field autoArchiveDays.
+//   Memory backend (Trad/Hind)  — stub, API field memoryBackend (Hindsight
+//                                  admin-only in the web app).
+// Notifications:
+//   Notification sound (Off/Ping) — stub, API field notificationSound.
+// Data:  cache usage + clear / cache limit / export — WIRED, all client-local.
+// Model: Default model          — stub, API field defaultModelId (needs a
+//                                  model list from the API too).
+// Advanced: branch override URL / enabled experiments / compaction threshold /
+//   keyboard shortcuts / reset onboarding+sandbox — all stubs (API fields
+//   branchOverrideUrl / enabledExperiments / compactionThreshold /
+//   keyboardShortcuts; reset needs API support).
+// Account: identity + counts — WIRED (read-only /whoami). Sign out — stub.
+//
+// "System" theme tracks the real macOS appearance via hanabi::os_is_dark_mode()
+// (afterhours exposes no OS-appearance query — see afterhours_gaps.md #16).
 //
 // Owns this file only. The gear button that would toggle showSettings lives in
-// sidebar_system.h (owned by another agent); until that one-line hook lands,
-// Cmd+, opens/closes this overlay.
+// sidebar_system.h (owned by another agent); Cmd+, opens/closes this overlay.
 
 #include <cstdio>
 #include <string>
+#include <vector>
+#include <algorithm>
+
+#include <afterhours/src/plugins/files.h>
 
 #include "../api/disk_cache.h"
 #include "../settings.h"
@@ -78,13 +112,35 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // the bottom (Task B) — pad(top+bottom) + header + each section
         // (gap + label + control) + footnote (gap + line).
         const float pw = 360.0f;
-        const float ph = kPadV * 2.0f + kHeaderH +
-                         (kSectionH + kThemeRowH) +      // Theme
-                         (kSectionH + kCacheRowH) +      // Cache (usage+clear)
-                         (kSectionH + kLimitRowH) +      // Cache limit
-                         (kSectionH + kCacheRowH) +      // Data (export)
-                         (kSectionH + kAccountRowH) +    // Account
+        // contentH = the full stacked height of every section body (everything
+        // BELOW the fixed header). This mirrors navi web's settings, which has
+        // far more rows than fit in a fixed sheet — so the body scrolls.
+        // Update this sum whenever a section is added/removed.
+        const float contentH =
+                         (kSectionH + kThemeRowH) +      // Appearance: Theme
+                         (kSectionH + kThemeRowH) +      // Appearance: Font
+                         (kSectionH + kThemeRowH) +      // Behavior: Yap level
+                         (kSectionH + kCacheRowH) +      // Behavior: Auto-archive
+                         (kSectionH + kCacheRowH) +      // Behavior: Memory backend
+                         (kSectionH + kCacheRowH) +      // Notifications: sound
+                         (kSectionH + kCacheRowH) +      // Data: cache (usage+clear)
+                         (kSectionH + kLimitRowH) +      // Data: cache limit
+                         (kSectionH + kCacheRowH) +      // Data: export
+                         (kSectionH + kCacheRowH) +      // Model: default model
+                         (kSectionH + kAdvancedH) +      // Advanced: stubs + note
+                         (kSectionH + kAccountRowH) +    // Account: identity+signout
                          (kFootnoteGap + kFootnoteH);    // footnote
+        // Ideal (unclipped) panel height = pad + header + all content.
+        const float idealPh = kPadV * 2.0f + kHeaderH + contentH;
+        // But the panel is a fixed centered sheet — cap it so it always fits
+        // the window (leave a margin top+bottom); the body div scrolls when the
+        // content is taller than the visible area.
+        const float kWinMargin = 48.0f;  // min gap to window edges
+        const float ph = std::min(idealPh, sh - kWinMargin);
+        // Visible height available for the scrollable body (panel minus pad +
+        // header). The body's CONTENT is contentH; when contentH > bodyViewH
+        // the overflow scrolls.
+        const float bodyViewH = ph - kPadV * 2.0f - kHeaderH;
         const float px = (sw - pw) * 0.5f;
         const float py = (sh - ph) * 0.5f;
 
@@ -140,12 +196,47 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_panel"));
 
         render_header(ctx, panel.ent(), *app);
-        render_theme_row(ctx, panel.ent(), *app);
-        render_cache_row(ctx, panel.ent(), *app);
-        render_cache_limit_row(ctx, panel.ent(), *app);
-        render_export_row(ctx, panel.ent(), *app);
-        render_account_row(ctx, panel.ent(), *app);
-        render_footnote(ctx, panel.ent(), *app);
+
+        // Scrollable body: fixed visible height (bodyViewH), vertical overflow
+        // scrolls. afterhours attaches a HasScrollView + clips children when a
+        // child config sets Overflow::Scroll, and the UI plugin drives the
+        // wheel. This lets the centered sheet stay a fixed size while holding
+        // the full navi-web section set (which is taller than any sheet).
+        auto body = div(ctx, mk(panel.ent(), 500),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(bodyViewH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_overflow(Overflow::Scroll, Axis::Y)
+                .with_transparent_bg()
+                // Small top pad so the first section label's text isn't clipped
+                // by the scroll viewport's top edge (its own top margin sits at
+                // the clip origin otherwise).
+                .with_padding(Padding{.top = pixels(2.0f)})
+                .with_roundness(0.0f)
+                .with_debug_name("settings_body_scroll"));
+        Entity& b = body.ent();
+
+        // Appearance
+        render_theme_row(ctx, b, *app);
+        render_font_row(ctx, b, *app);
+        // Behavior
+        render_yap_row(ctx, b, *app);
+        render_autoarchive_row(ctx, b, *app);
+        render_memory_backend_row(ctx, b, *app);
+        // Notifications
+        render_notification_row(ctx, b, *app);
+        // Data
+        render_cache_row(ctx, b, *app);
+        render_cache_limit_row(ctx, b, *app);
+        render_export_row(ctx, b, *app);
+        // Model
+        render_model_row(ctx, b, *app);
+        // Advanced
+        render_advanced_section(ctx, b, *app);
+        // Account
+        render_account_row(ctx, b, *app);
+        render_footnote(ctx, b, *app);
     }
 
     // ---- layout constants (single source of truth for panel height + the
@@ -162,7 +253,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kThemeRowH = 34.0f;   // segmented control
     static constexpr float kCacheRowH = 30.0f;   // usage + clear button
     static constexpr float kLimitRowH = 34.0f;   // cache-limit segmented control
-    static constexpr float kAccountRowH = 24.0f; // identity + counts line
+    static constexpr float kAccountRowH = 42.0f; // identity/counts + sign-out
+    // Advanced section body: 5 stacked stub rows (~20 each) + a note line.
+    static constexpr float kAdvancedH = 20.0f * 5.0f + 24.0f;
     static constexpr float kFootnoteGap = 20.0f; // space above footnote
     static constexpr float kFootnoteH = 18.0f;   // footnote line
 
@@ -236,7 +329,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_theme_row(UIContext<InputAction>& ctx, Entity& parent,
                           AppComponent& app) {
-        section_label(ctx, parent, 2, "Theme", "settings_theme_label");
+        // Appearance group -> Theme. NOTE: client-local only (not an API
+        // setting) — the web PUT /api/user/preferences has no theme field.
+        section_label(ctx, parent, 2, "Appearance \xc2\xb7 Theme",
+                      "settings_theme_label");
 
         auto row = div(ctx, mk(parent, 3),
             ComponentConfig{}
@@ -259,6 +355,86 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         theme_choice(ctx, row.ent(), 1, "Light", "light", app, segW, true);
         theme_choice(ctx, row.ent(), 2, "Dark", "dark", app, segW, true);
         theme_choice(ctx, row.ent(), 3, "System", "system", app, segW, false);
+    }
+
+    // Appearance group -> Font. A 2-way segmented control mirroring the theme
+    // control's edge-hugging gutter math. Selecting a choice swaps the active
+    // UI font live via FontManager.load_font(DEFAULT_FONT, path) and persists
+    // it through Settings::set_font_choice (auto-saves). WIRED + functional.
+    // NOTE: client-local only (not an API setting) — the web PUT
+    // /api/user/preferences has no font field; font is a pure client choice.
+    void render_font_row(UIContext<InputAction>& ctx, Entity& parent,
+                         AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 6, "Appearance \xc2\xb7 Font",
+                      "settings_font_label");
+
+        auto row = div(ctx, mk(parent, 7),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_font_row"));
+
+        // Same gutter math as render_theme_row: content = 360 - 20 - 20 = 320,
+        // minus one inter-segment gap, split 2 ways.
+        constexpr float kSegGap = 6.0f;
+        const float content = 360.0f - 20.0f - 20.0f;
+        const float segW = (content - kSegGap) / 2.0f;
+        font_choice_btn(ctx, row.ent(), 1, "Default", "default", segW, true);
+        font_choice_btn(ctx, row.ent(), 2, "Hyperlegible", "hyperlegible", segW,
+                        false);
+    }
+
+    // One segmented font button. Selected = accent fill; others = secondary.
+    // On click: swap DEFAULT_FONT live via FontManager and persist the choice.
+    void font_choice_btn(UIContext<InputAction>& ctx, Entity& parent, int id,
+                         const std::string& label, const std::string& value,
+                         float segW, bool trailingGap) {
+        const bool selected = (Settings::get().get_font_choice() == value);
+        auto btn = button(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
+                .with_custom_background(selected ? theme::button_primary()
+                                                 : theme::button_secondary())
+                .with_custom_hover_bg(selected ? theme::button_primary()
+                                               : theme::hover_bg())
+                .with_custom_text_color(selected ? theme::window_bg()
+                                                 : theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("settings_font_" + value));
+        if (btn) apply_font(value);
+    }
+
+    // Apply a font choice: persist it and swap DEFAULT_FONT live so the whole
+    // UI re-renders in the new face this frame. Roboto = "default" (the font
+    // loaded at DEFAULT_FONT in preload); "hyperlegible" = Atkinson
+    // Hyperlegible loaded under the "hyperlegible" name in preload.cpp.
+    static void apply_font(const std::string& value) {
+        auto& s = Settings::get();
+        if (s.get_font_choice() == value) return;  // no-op
+        s.set_font_choice(value);  // auto-persists
+        auto& fontMgr =
+            afterhours::EntityHelper::get_singleton_cmp_enforce<
+                afterhours::ui::FontManager>();
+        const char* file = (value == "hyperlegible")
+                               ? "AtkinsonHyperlegible-Regular.ttf"
+                               : "Roboto-Regular.ttf";
+        const std::string path =
+            afterhours::files::get_resource_path("fonts", file).string();
+        fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT,
+                          path.c_str());
     }
 
     // Human-readable byte size: B / KB / MB.
@@ -453,6 +629,196 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // ── Shared stub helpers ────────────────────────────────────────────────
+    // A single disabled-looking segmented control that shows structure but does
+    // nothing yet. `selectedIdx` highlights the current value so the row reads
+    // as a real (but inert) choice. Used by the API-blocked Behavior /
+    // Notifications rows until a PUT-preferences client exists.
+    void stub_segmented(UIContext<InputAction>& ctx, Entity& parent,
+                        int baseId, const std::vector<std::string>& labels,
+                        int selectedIdx, const std::string& dbg) {
+        auto row = div(ctx, mk(parent, baseId),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_row"));
+        constexpr float kSegGap = 6.0f;
+        const int n = static_cast<int>(labels.size());
+        const float content = 360.0f - 20.0f - 20.0f;
+        const float segW =
+            (content - kSegGap * (n - 1)) / static_cast<float>(n);
+        for (int i = 0; i < n; ++i) {
+            const bool sel = (i == selectedIdx);
+            const bool last = (i == n - 1);
+            // Rendered as a div (not a button): visibly present, but inert —
+            // the control is a stub until the API is wired.
+            div(ctx, mk(row.ent(), i + 1),
+                ComponentConfig{}
+                    .with_label(labels[static_cast<size_t>(i)])
+                    .with_size(ComponentSize{pixels(segW), pixels(28)})
+                    .with_margin(Margin{.right = pixels(last ? 0.0f : kSegGap)})
+                    .with_custom_background(sel ? theme::button_secondary()
+                                                : theme::panel_bg())
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_custom_text_color(sel ? theme::text_secondary()
+                                                : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_roundness(0.35f)
+                    .with_debug_name(dbg + "_" + std::to_string(i)));
+        }
+    }
+
+    // A one-line stub row: a small label on the left, a faint value/"coming
+    // soon" hint on the right. For Advanced text rows + Model default.
+    void stub_line(UIContext<InputAction>& ctx, Entity& parent, int id,
+                   const std::string& label, const std::string& hint,
+                   const std::string& dbg) {
+        auto row = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_row"));
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_label"));
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(hint)
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_hint"));
+    }
+
+    // ── Behavior group ─────────────────────────────────────────────────────
+    // Yap level / verbosity (0 = No yapping, 1 = A little, 2 = Full). Mirrors
+    // the web yap-level segmented control.
+    // TODO(settings-api): needs PUT /api/user/preferences.yapLevel — not wired
+    // yet (hanabi has no preferences-write client). Rendered as an inert stub.
+    void render_yap_row(UIContext<InputAction>& ctx, Entity& parent,
+                        AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 100, "Behavior \xc2\xb7 Yap level",
+                      "settings_yap_label");
+        // Default highlight = "Full" (web default is 2) until we can read the
+        // real value from the API.
+        stub_segmented(ctx, parent, 101,
+                       {"No yapping", "A little", "Full"}, 2, "settings_yap");
+    }
+
+    // Auto-archive after N days. Numeric in the web app; shown here as a
+    // read-only value stub.
+    // TODO(settings-api): needs PUT /api/user/preferences.autoArchiveDays —
+    // not wired yet.
+    void render_autoarchive_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 110, "Behavior \xc2\xb7 Auto-archive",
+                      "settings_autoarchive_label");
+        stub_line(ctx, parent, 111, "Archive threads after",
+                  "5 days \xc2\xb7 coming soon", "settings_autoarchive");
+    }
+
+    // Memory backend: Traditional vs Hindsight (Hindsight is admin-only in the
+    // web app). Shown as an inert segmented stub.
+    // TODO(settings-api): needs PUT /api/user/preferences.memoryBackend — not
+    // wired yet (Hindsight also gated to admins server-side).
+    void render_memory_backend_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 120, "Behavior \xc2\xb7 Memory backend",
+                      "settings_memory_label");
+        stub_line(ctx, parent, 121, "Memory backend",
+                  "Traditional \xc2\xb7 coming soon", "settings_memory");
+    }
+
+    // ── Notifications group ────────────────────────────────────────────────
+    // Notification sound: Off / Ping. Inert segmented stub.
+    // TODO(settings-api): needs PUT /api/user/preferences.notificationSound —
+    // not wired yet.
+    void render_notification_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 130, "Notifications \xc2\xb7 Sound",
+                      "settings_notif_label");
+        // Default highlight = Ping (matches the web default).
+        stub_segmented(ctx, parent, 131, {"Off", "Ping"}, 1, "settings_notif");
+    }
+
+    // ── Model group ────────────────────────────────────────────────────────
+    // Default model. Needs a model list fetched from the API to populate a
+    // picker, plus a write path to persist the selection.
+    // TODO(settings-api): needs PUT /api/user/preferences.defaultModelId — not
+    // wired yet; also needs a GET model-list endpoint to enumerate choices.
+    void render_model_row(UIContext<InputAction>& ctx, Entity& parent,
+                          AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 140, "Model \xc2\xb7 Default model",
+                      "settings_model_label");
+        stub_line(ctx, parent, 141, "Default model",
+                  "(uses server default) \xc2\xb7 coming soon",
+                  "settings_model");
+    }
+
+    // ── Advanced group ─────────────────────────────────────────────────────
+    // A cluster of power-user rows, all inert stubs pending API support.
+    void render_advanced_section(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        section_label(ctx, parent, 150, "Advanced", "settings_advanced_label");
+        // TODO(settings-api): needs PUT /api/user/preferences.branchOverrideUrl
+        stub_line(ctx, parent, 151, "Branch override URL", "\xe2\x80\x94",
+                  "settings_branch");
+        // TODO(settings-api): needs PUT /api/user/preferences.enabledExperiments
+        stub_line(ctx, parent, 152, "Enabled experiments", "none",
+                  "settings_experiments");
+        // TODO(settings-api): needs PUT
+        // /api/user/preferences.compactionThreshold (10\xe2\x80\x9390)
+        stub_line(ctx, parent, 153, "Compaction threshold", "default",
+                  "settings_compaction");
+        // TODO(settings-api): needs PUT /api/user/preferences.keyboardShortcuts
+        stub_line(ctx, parent, 154, "Keyboard shortcuts", "defaults",
+                  "settings_shortcuts");
+        // TODO(settings-api): reset onboarding / sandbox needs a dedicated API
+        // endpoint (not part of the preferences schema).
+        stub_line(ctx, parent, 155, "Reset onboarding / sandbox", "\xe2\x80\xa6",
+                  "settings_reset");
+        // Note: these all require API support that hanabi doesn't have yet.
+        div(ctx, mk(parent, 156),
+            ComponentConfig{}
+                .with_label("These require API support (not wired yet).")
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_advanced_note"));
+    }
+
     // Account row: shows the backend-reported identity + counts so the user can
     // verify hanabi is talking to the right account / is set up correctly.
     // Data comes from the async /whoami fetch (app.settings / settingsState),
@@ -495,6 +861,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_account_value"));
+
+        // Sign out — inert stub (no auth-clear/sign-out flow wired yet).
+        // TODO(settings): wire to token_store clear + client teardown +
+        // return-to-login. Rendered as a disabled-looking secondary button so
+        // the row is visible.
+        stub_line(ctx, parent, 32, "Sign out", "coming soon",
+                  "settings_signout");
     }
 
     // One segmented theme button. Selected = accent fill; others = secondary.
