@@ -93,3 +93,21 @@ Legend: [x]=done+verified · [~]=partial · [ ]=open · [B]=blocked-external
 - REFACTOR_REVIEW 1b (relative-time 3-4 impls), 1a (measure↔render mirrors — HIGH risk, careful), 1e/1f/1g — real but lower-urgency
 - [B] I1/T7 perf, V3 tab corners, #6/#10 inline code pills — all vendor-blocked (afterhours patches ready in vendor_patches/ OR gap #27/#28)
 - API asks: API_ASKS_FOR_NAVI.md ready; need the thread that owns API PRs
+
+## CHAT REDESIGN (Gabe: "chat screen needs a ton of work" + ChatGPT/Gemini/Navi-web direction + his build spec)
+- [x] #1 centered 720px reading column (d6c8e68)
+- [x] #2 killed green "hanabi" author label -> clean document text (899e7cf)
+- [x] #3 tool calls reskinned as calm integrated cards (soft fill, no border, muted icon, status dot) (a4dd1c0)
+- [x] #4a composer centered under the reading column (eacda3a)
+- [x] #5 softened user bubble (899e7cf)
+- [x] smooth eased scrolling (scroll perf) — vendor patch #30, SFINAE-guarded (3ea6cd3)
+- [x] inline image rendering (agent surface: screenshots render in transcript) — render (b5b6354) + real-backend block wiring (c991635)
+- [x] ponytail types pass: dead TimeBucket cluster (132 lines) + 3 dead AppComponent fields removed (804d894)
+- [ ] #4b composer elevation/rounding + placeholder ("Message hanabi…") + circular primary send
+- [ ] #6 empty/sparse state: greeting + suggestion chips (new task); vertically balance 1-3 msg threads
+- [ ] inline HTML + big code/text block rendering (agent surface follow-on)
+- [ ] remote image download-to-cache (only local/file:// rendered today)
+
+## DESIGN CRITICS (2 adversarial: visual-craft + macOS-HIG) — consensus logged
+- HIG-critic top items (traffic-light window controls, vibrancy/NSVisualEffectView, real NSSegmentedControl) need actual AppKit — hanabi uses a custom C++ toolkit by design, so these are ARCHITECTURAL, not polish. Logged, not actioned.
+- craft-critic "contrast inversion" (titles dim, chrome loud): Home card titles already text_primary (fine); sidebar font + status glyphs were Gabe's explicit prior decisions (V5 lighten, shape+color state system) — NOT churned without his call.
