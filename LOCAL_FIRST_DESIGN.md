@@ -54,3 +54,18 @@ POLISH/PERF BACKLOG (keep grinding):
 - I1 hover latency + T7 idle-frame (perf): reduce per-frame rebuild; afterhours help incoming.
 - F2 live latency; transcript scroll perf on big threads.
 - refactor review quick wins (REFACTOR_REVIEW.md): delete ~300 lines dead code, consolidate helpers.
+
+## VERIFICATION (2026-08-03): all 5 ideas wired at HEAD; one honest gap noted
+Re-audited each idea against code (not the checkbox):
+1. read-primary cache + "refreshing" header — WIRED (loader stale-while-revalidate + header).
+2. prompt outbox — WIRED: disk_cache::outbox_add before send (loader ~478), outbox_remove on
+   success (~531); a FAILED send marks the bubble Failed and LEAVES the entry in the outbox.
+   HONEST GAP: there is no reconnect-DRAIN yet — a failed entry persists (durable) but nothing
+   re-attempts it automatically when the backend recovers; the user must re-send. The durable
+   safety (never lose a prompt) is there; the auto-retry is not. Deferred: hard to exercise
+   headlessly (needs a real offline→online transition) and low-frequency; the manual re-send
+   path works. Left as a documented follow-up rather than a speculative untested driver.
+3. local content search — WIRED: disk_cache::content_matches() in sidebar row filter (~1361).
+4. durable export — WIRED: settings render_export_row + disk_cache export to ~/hanabi/threads.
+5. optimistic offline send — WIRED: SyncState Persisting/Synced/Failed + the real ✓/✓✓ glyph
+   (gap #28 fix). Live-send path verified (optimistic bubble renders, flips to Synced).
