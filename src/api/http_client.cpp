@@ -877,6 +877,14 @@ Result<Session> HttpClient::get_session(const std::string& id, int limit) {
             // The windowed response is an OBJECT wrapping the array; read the
             // "hasMore" flag so the UI can tell older messages weren't loaded.
             session.has_more_older = as_bool(j, cfg_.field_has_more);
+            // The transcript response ALSO carries the session TITLE (verified
+            // live: {messages, title, model, workspace, ...}). Parse it so the
+            // transcript header shows the real title instead of falling back to
+            // the raw session id when the thread is opened before / independent
+            // of the sessions-list fetch. Only overwrite when non-empty so a
+            // list-sourced title isn't clobbered by an empty transcript field.
+            if (std::string t = as_string(j, cfg_.field_title); !t.empty())
+                session.summary.title = t;
         }
         if (!arr)
             return Result<Session>::failure(
