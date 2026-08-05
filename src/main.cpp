@@ -38,7 +38,6 @@
 #include "ecs/loader_system.h"
 #include "ecs/main_pane_system.h"
 #include "ecs/scroll_ease_system.h"
-#include "ecs/char_filter_system.h"
 #include "ecs/sidebar_system.h"
 #include "ecs/settings_system.h"
 #include "ecs/status_bar_system.h"
@@ -278,12 +277,6 @@ static void build_systems(afterhours::SystemManager& sm) {
     afterhours::input::register_update_systems(sm);
 
     ui_imm::registerUIPreLayoutSystems(sm);
-
-    // Strip control-code CHAR events (esp. macOS backspace's U+007F) from the
-    // input char queue BEFORE any text_input widget drains them — otherwise
-    // 0x7F is typed as a DEL glyph ("backspace adds a space"). afterhours
-    // gap #31; must run ahead of the UI-creating systems.
-    sm.register_update_system(std::make_unique<ecs::ComposerCharFilterSystem>());
 
     // Data + layout must run before UI-creating systems.
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
