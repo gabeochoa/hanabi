@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "../../src/api/http_client.h"
 #include "../../src/api/mock_client.h"
 
 static int g_failures = 0;
@@ -117,6 +118,71 @@ static void test_http_defaults_are_calm() {
     CHECK(s.folder.empty());
 }
 
+// The server-reported attentionState (par-msl/navi#4091) must beat the title
+// heuristics when present, must NOT fire on the backend's settled/default
+// value, and must leave a signal-less backend exactly as it was.
+static void test_attention_state_field() {
+    std::printf("test_attention_state_field\n");
+    api::Config c;  // defaults: attentionState / needs_user / running
+
+    auto derive = [&c](const char* raw, const char* title) {
+        api::SessionSummary s;
+        s.title = title ? title : "";
+        auto e = nlohmann::json::parse(raw);
+        s.status = e.value("status", "");
+        api::derive_state(s, e, c);
+        return s;
+    };
+
+    // needs_user is trusted outright — even for a calm-sounding title.
+    auto blocked = derive(R"({"attentionState":"needs_user"})", "just a title");
+    CHECK(blocked.state == api::ThreadState::Attention);
+    CHECK(blocked.tag == api::ThreadTag::Blocked);
+
+    // running is trusted outright — even when the title screams "waiting".
+    auto running = derive(R"({"attentionState":"running"})", "waiting on you");
+    CHECK(running.state == api::ThreadState::Running);
+    CHECK(running.tag == api::ThreadTag::None);
+
+    // "done" is that API's DEFAULT for every idle session, so it must NOT be
+    // read as hanabi's Done nudge — a calm row stays calm...
+    auto calm = derive(R"({"attentionState":"done"})", "some ordinary thread");
+    CHECK(calm.state == api::ThreadState::Unknown);
+    CHECK(calm.tag == api::ThreadTag::None);
+
+    // ...and it must not silence a local signal either: the heuristics still
+    // get their say on a parked thread.
+    auto parked = derive(R"({"attentionState":"done"})", "[P] needs my call");
+    CHECK(parked.state == api::ThreadState::Attention);
+    CHECK(parked.tag == api::ThreadTag::Blocked);
+
+    // An unrecognised value is treated like an absent one (forward-compatible).
+    auto future = derive(R"({"attentionState":"needs_robot"})", "shipped it");
+    CHECK(future.state == api::ThreadState::Attention);
+    CHECK(future.tag == api::ThreadTag::Done);
+
+    // No field at all: the pre-#4091 heuristics, untouched.
+    auto legacy = derive(R"({"isProcessing":true})", "anything");
+    CHECK(legacy.state == api::ThreadState::Running);
+    auto quiet = derive(R"({})", "ordinary thread");
+    CHECK(quiet.state == api::ThreadState::Unknown);
+
+    // Archived still wins its own row when the server says nothing actionable.
+    auto arch = derive(R"({"attentionState":"done","status":"archived"})", "x");
+    CHECK(arch.state == api::ThreadState::Archived);
+
+    // A renamed field/value pair is config-driven, not compiled in.
+    api::Config renamed;
+    renamed.field_attention_state = "triage";
+    renamed.field_attention_needs_user = "ON_USER";
+    api::SessionSummary s;
+    s.title = "calm";
+    auto e = nlohmann::json::parse(R"({"triage":"on_user"})");
+    api::derive_state(s, e, renamed);
+    CHECK(s.state == api::ThreadState::Attention);
+    CHECK(s.tag == api::ThreadTag::Blocked);
+}
+
 int main() {
     std::printf("=== test_api ===\n");
     test_config_defaults();
@@ -125,6 +191,7 @@ int main() {
     test_mock_get_session();
     test_mock_high_signal_model();
     test_http_defaults_are_calm();
+    test_attention_state_field();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

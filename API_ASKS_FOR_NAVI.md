@@ -21,6 +21,13 @@ that would make hanabi (or any thin native/local-first client) better.
    today it's inferred from isProcessing/subSessionStatus. A first-class field (e.g.
    attentionState: needs_user | running | done, + a one-line "waiting on: <why>")
    would make the Blocked/Review views correct instead of heuristic.
+   > **✅ SHIPPED 2026-08-06 — par-msl/navi#4091.** `attentionState:
+   > needs_user | running | done` is on the session object for both the list and
+   > the detail endpoint. hanabi consumes it (config-driven field names, falls back
+   > to the old heuristics when absent). Still open from this ask: the one-line
+   > **"waiting on: &lt;why&gt;"** reason string — `needs_user` tells us THAT a thread
+   > is on the user, never WHY (failed sub-agent vs blocked goal), so the Blocked
+   > view still cannot explain itself. Small follow-up: a `attentionReason` enum.
 3. **A settings/config read endpoint** (or fields on /whoami): user prefs like default
    model, verbosity, theme — so a native client can mirror the web setup instead of
    re-deriving. Small, high-leverage for "verify my setup" UX.
@@ -33,6 +40,12 @@ that would make hanabi (or any thin native/local-first client) better.
    `error` and others — a canonical enum would let clients render each intentionally.)
 6. **workspaceId filter** on /api/v1/sessions (?workspaceId=) + workspaceId on the
    session object, so folder/workspace grouping is server-driven not inferred.
+   > **PARTIAL 2026-08-06 — par-msl/navi#4082** added `GET /api/v1/session-folders`
+   > (id, name, workspaceId, position, rule, timestamps), and the session object
+   > already carries `folderId`, so the folder TREE is now server-driven. hanabi
+   > does not consume it yet — it still infers a folder name from the `workspace`
+   > string, which that API returns as null. Remaining from this ask:
+   > `workspaceId` on the session object itself.
 
 ## Notes for maintainers
 - hanabi is fully config-driven (endpoints + JSON field names in local config; nothing

@@ -152,6 +152,16 @@ bool parse_sse_chunk(const std::string& bytes, const Config& cfg,
                      const StreamSink& sink, std::string& carry,
                      std::string& assembled);
 
+// Fill in a session row's high-signal attention model (state + tag) from one
+// raw session object. Pure, network-free, and unit-tested directly.
+//
+// Reads the OPTIONAL server-reported state first (cfg.field_attention_state);
+// when that is absent, unrecognised, or the backend's "settled" value, it falls
+// back to the title-text + generic-field heuristics. See the definition in
+// http_client.cpp for why a "done"-style value must NOT be trusted as hanabi's
+// Done nudge. Fields already parsed onto `s` (title, status) are used as-is.
+void derive_state(SessionSummary& s, const nlohmann::json& e, const Config& cfg);
+
 // Pure LIVE-EVENT frame parser (SSE). Shares parse_sse_chunk's frame-splitting
 // discipline (blank-line-delimited "data:" frames, CRLF-safe, carry across
 // reads) but reads the LIVE-EVENT vocabulary instead of the reply-stream one:

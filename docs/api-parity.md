@@ -79,6 +79,22 @@ rules (client-side, from the primitives above):
 If a backend later adds a real `state` field, the adapter reads it when PRESENT
 (optional, config-driven field name) and falls back to the derive rules when ABSENT.
 
+**DELIVERED 2026-08-06 (par-msl/navi#4091).** The navi API now returns
+`attentionState: needs_user | running | done` on the session object — on
+`GET /api/v1/sessions` (list) and `GET /api/v1/sessions/{id}` (detail; the
+detail endpoint additionally reports `needs_user` for an explicitly blocked
+thread goal, which the list strips). hanabi reads it via
+`field_attention_state` / `field_attention_needs_user` / `field_attention_running`
+(see `derive_state()` in `src/api/http_client.cpp`).
+
+One asymmetry to keep in mind: **their `done` is not our Done.** It is that
+API's default row for every idle/paused/archived session, whereas hanabi's
+Attention/Done means "this finished since you last looked" — a nudge. So we
+map only the two actionable values and treat `done` exactly like an absent
+field: fall through to the heuristics. "Finished since you looked" stays a
+client-side notion until a backend can express it (it needs a per-viewer
+last-seen watermark, which no backend has).
+
 ### Gap 2 — no hard cancel/abort of a running turn
 Steering / queueing works; a true cancel would need a small NEW backend endpoint.
 hanabi keeps a `cancel` / abort method in the adapter interface (no-op on mock, gated
