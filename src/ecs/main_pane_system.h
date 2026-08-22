@@ -1402,6 +1402,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // panel). Returns the total height it occupied (for virtualization math).
     // Only shown when the session carries REAL sub-agents — tool activity now
     // has its own dense rows, so we no longer duplicate it here.
+    static constexpr float kSubAgentRowH = 24.0f;
+    static constexpr float kSubAgentMargin = 8.0f;
+    static constexpr float kSubAgentChipH = 26.0f;
+
+    // Trailing spacer under the last message, so it can be scrolled clear of
+    // the pane bottom instead of sitting flush against it.
+    static constexpr float kTranscriptBottomPad = 28.0f;
+
+    // Height of the sub-agent rollup, WITHOUT rendering it — the transcript
+    // needs the number during its measure pass, before it knows where in the
+    // column the rollup will actually sit.
+    static float sub_agent_panel_height(AppComponent& app) {
+        const auto& subs = app.openSession->sub_agents;
+        if (subs.empty()) return 0.0f;
+        float total = kSubAgentMargin + kSubAgentRowH + kSubAgentMargin;
+        if (app.expandedPiles.count("__subagents__") != 0) {
+            const int rows = (static_cast<int>(subs.size()) + 2) / 3;
+            total += 6.0f + rows * (kSubAgentChipH + 6.0f);
+        }
+        return total;
+    }
+
     float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
                           AppComponent& app) {
         const auto& subs = app.openSession->sub_agents;
@@ -1419,10 +1441,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string key = "__subagents__";
         const bool open = app.expandedPiles.count(key) != 0;
 
-        constexpr float kRowH = 24.0f;
-        constexpr float kMargin = 8.0f;
-        constexpr float kChipH = 26.0f;
-        float total = kMargin + kRowH + kMargin;
+        constexpr float kRowH = kSubAgentRowH;
+        constexpr float kMargin = kSubAgentMargin;
+        const float total = sub_agent_panel_height(app);
 
         auto wrap = div(ctx, mk(col, 8000),
             ComponentConfig{}
@@ -1492,8 +1513,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          sa.title);
                 ++i;
             }
-            int rows = (static_cast<int>(count) + 2) / 3;
-            total += 6.0f + rows * (kChipH + 6.0f);
         }
         return total;
     }
@@ -1503,7 +1522,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                   SubGlyph g, const std::string& title) {
         auto chip = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{children(), pixels(26)})
+                .with_size(ComponentSize{children(), pixels(kSubAgentChipH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -1891,7 +1910,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         render_cache().reset_for_thread(app.openSession->summary.id);
 
-        float subH = sub_agent_panel(ctx, col, app);
+        // Measured here, RENDERED further down: the rollup is the first thing
+        // in the column, but a short thread gets a leading spacer in front of
+        // it, and the spacer's size isn't known until every item is measured.
+        const float subH = sub_agent_panel_height(app);
 
         const bool streamingHere =
             app.streamActive &&
@@ -2129,22 +2151,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("virt_spacer"));
             pendingSpacer = 0.0f;
         };
-        // Sparse-thread balance (chat spec #6): when the whole transcript is
-        // SHORTER than the viewport (a 1-3 message thread), don't pin it to the
-        // top with a big void below — nudge it toward the upper-middle with a
-        // leading spacer of ~1/3 the slack. Only when content fits (no scroll),
-        // so long threads + virtualization are untouched. Not while streaming
-        // (content is growing) or loading older.
+        // Short-thread bottom anchor: when the whole transcript fits in the
+        // viewport there is nothing to scroll, and afterhours stacks a column
+        // from the top — so a two-message thread floated at the top of the pane
+        // with a few hundred px of dead space above the composer. A chat log
+        // reads bottom-up: the newest line sits just above the input and the
+        // conversation grows upward off the top. A leading spacer of the whole
+        // slack gives exactly that, and it keeps the transition into a
+        // scrollable thread seamless (the last line stays where it was).
+        // Skipped while content is growing (streaming) or shifting (load-older)
+        // so the anchor math isn't fighting a spacer that resizes underneath it.
         if (totalH < viewH - 40.0f && !streamingHere && !app.loadingOlder &&
             app.anchorPending.empty()) {
             div(ctx, mk(col, 29999),
                 ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f),
-                                             pixels((viewH - totalH) / 3.0f)})
+                    .with_size(ComponentSize{
+                        percent(1.0f),
+                        pixels(viewH - totalH - kTranscriptBottomPad - 6.0f)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("sparse_balance"));
         }
+        sub_agent_panel(ctx, col, app);
         for (const auto& it : items) {
             const float top = y;
             const float bot = y + it.height;
@@ -2180,7 +2208,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the edge and couldn't be brought fully into view.
         div(ctx, mk(col, 30000 + 88888),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(28.0f)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(kTranscriptBottomPad)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_bottom_pad"));
