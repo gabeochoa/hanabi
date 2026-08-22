@@ -354,20 +354,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // rotated atlas cell (the atlas has no chevron-right).
     static void draw_chevron(RectangleType rect, bool collapsed,
                              theme::Color c) {
-        const float cx = rect.x + rect.width * 0.5f;
-        const float cy = rect.y + rect.height * 0.5f;
-        const float s = 3.6f;  // half-extent
-        if (collapsed) {
-            // Right-pointing: apex on the right, base on the left.
-            afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
-                                      afterhours::vec2{cx - s, cy + s},
-                                      afterhours::vec2{cx + s, cy}, c);
-        } else {
-            // Down-pointing: apex at bottom, base along the top.
-            afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
-                                      afterhours::vec2{cx + s, cy - s},
-                                      afterhours::vec2{cx, cy + s}, c);
-        }
+        hanabi::glyph::chevron(rect, collapsed, c);
     }
 
     // ---- attention model helpers ----

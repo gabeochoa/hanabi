@@ -1986,3 +1986,75 @@ with content: the same proportions on a bigger screen are a bigger bill.
 - **Severity: blocks the feature.** Together with #39 and #40 this is three
   independent ways a UI script reports success it did not earn. All three bit us
   in the first hour of using the harness, and all three are small fixes.
+
+### #48 — A codepoint the font lacks draws NOTHING, and there is no way to ask
+
+- **What I was trying to build.** Ordinary UI furniture typed as characters: a
+  disclosure chevron on a collapsible row, a return-arrow in the composer's
+  "↵ send" hint, an up-arrow on the Send button, a block caret at the end of a
+  streaming reply, a horizontal rule for markdown `---`.
+
+- **What happened.** Several of them were never on screen and nobody noticed,
+  because a codepoint the loaded font does not cover renders as **nothing at
+  all** — no `.notdef` box, no warning, no log line. `fons__getGlyph` returns
+  no glyph and the draw is silently skipped.
+
+  The composer's hint had been reading a bare lowercase **"send"** floating next
+  to the context meter, which looks like a stray label rather than a keyboard
+  hint. The Send button was `"Send  ↑"`, so it had a trailing gap and no arrow.
+  The sub-agent rollup and the tool pile had no disclosure triangle, so neither
+  looked expandable. And a markdown `---` produced a blank line.
+
+  Auditing this from screenshots does not work — you are looking for something
+  that is not there. What worked was reading the font's `cmap` directly and
+  cross-referencing every non-ASCII literal in the source:
+
+  ```
+  0x21b5 '↵'   composer hint            0x2500 '─'  markdown rule
+  0x2191 '↑'   Send button              0x258b '▋'  streaming caret
+  0x25b8 '▸'   collapsed disclosure     0x25be '▾'  expanded disclosure
+  0x2605 '★'   0x2606 '☆'  0x2713 '✓'  0x2699 '⚙'  0x26d4 '⛔'  0x2302 '⌂'
+  0x25a4 '▤'   0x2726 '✦'  0x1f389 '🎉' 0x1f50d '🔍'
+  ```
+
+  Every one of those is in Roboto's coverage hole — it has no Arrows block, no
+  Geometric Shapes block, no Box Drawing block. That is not unusual: it is one
+  of the most widely-used UI faces there is, and a toolkit's users will reach
+  for these characters constantly.
+
+- **The workaround.** Draw the shaped ones as vectors
+  (`hanabi::glyph::chevron`, a filled triangle — hanabi already had one of these
+  in the sidebar and now shares it), and for the rest pick characters Roboto
+  does cover: em dashes for the rule, `|` for the caret, and plain words —
+  "Enter to send" — for the hint. Plus a `tests/ui` script asserting the hint
+  and the button label are on screen, since the failure is invisible.
+
+- **What the library could offer instead.** Three things, cheapest first:
+
+  1. **A coverage query.** fontstash already parses the `cmap`; expose it.
+
+     ```cpp
+     [[nodiscard]] bool FontManager::has_glyph(std::string_view font,
+                                               uint32_t codepoint) const;
+     ```
+
+     An app can then pick a fallback at startup instead of shipping an invisible
+     label.
+
+  2. **Draw `.notdef`.** A visible box is the convention for a reason: it turns
+     a silent bug into an obvious one. Behind a flag if it would upset anyone —
+     `theme.show_missing_glyphs = true` in debug builds would be enough.
+
+  3. **A `log_warn` on the first miss per codepoint.** Rate-limited to once, this
+     costs nothing and would have put the whole list above in the terminal on
+     the first run. This is the one I would do first.
+
+  A fourth, bigger and genuinely valuable: **font fallback**. `FontManager`
+  already holds several faces (hanabi has Roboto, JetBrains Mono and Atkinson
+  Hyperlegible loaded at once, and JetBrains Mono covers `⏎` and `→`). A
+  per-glyph fallback chain — try the requested face, then the others in
+  registration order — would have made every one of these Just Work.
+
+- **Severity: makes it ugly**, but it is the most *insidious* item on this list.
+  Every other gap announced itself. This one produces a screenshot that looks
+  fine until you know what should have been there.

@@ -177,3 +177,29 @@ inline bool draw_at(std::string_view name, float cx, float cy, float px,
 }
 
 }  // namespace hanabi::icons
+
+// Small vector marks the UI font cannot draw. Roboto has no arrows, no
+// geometric-shape block and no box-drawing block, and a codepoint it lacks is
+// rendered as NOTHING — no tofu box, no warning — so a label that leans on one
+// silently loses it (afterhours_gaps.md #48). Anything shaped is drawn here
+// instead of typed.
+namespace hanabi::glyph {
+
+// A disclosure chevron: pointing DOWN when open, RIGHT when collapsed. Filled
+// triangle so it stays crisp at any size without a rotated atlas cell.
+inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
+                    float halfExtent = 3.6f) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    const float s = halfExtent;
+    if (collapsed)
+        afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
+                                  afterhours::vec2{cx - s, cy + s},
+                                  afterhours::vec2{cx + s, cy}, c);
+    else
+        afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
+                                  afterhours::vec2{cx + s, cy - s},
+                                  afterhours::vec2{cx, cy + s}, c);
+}
+
+}  // namespace hanabi::glyph

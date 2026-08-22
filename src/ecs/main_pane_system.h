@@ -795,8 +795,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else if (rest == "---" || rest == "***" || rest == "___" ||
                        rest == "----" || rest == "-----") {
                 // horizontal rule -> a light dashed line
-                line = "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80"
-                       "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80";
+                line = "\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94"
+                       "\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94";
             }
             out += line;
             if (nl == std::string::npos) break;
@@ -1484,12 +1484,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
-                .with_label(open ? "\xe2\x96\xbe" : "\xe2\x96\xb8")
+                .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Center)
+                .with_on_draw_fg([open](RectangleType r) {
+                    hanabi::glyph::chevron(r, !open, theme::text_faint(), 3.2f);
+                })
                 .with_debug_name("subrollup_chev"));
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
@@ -2630,8 +2630,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // while in flight. ~10px corner to match the input pill (0.5 made a
         // fully-rounded lozenge that clashed with the field).
         const char* sendLabel =
-            sending ? "\xe2\x80\xa6"
-                    : (steerMode ? "Steer" : "Send  \xe2\x86\x91");
+            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "Send");
         auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(sendLabel)
@@ -2684,7 +2683,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Left: model selector chip.
         div(ctx, mk(meta.ent(), 1),
             ComponentConfig{}
-                .with_label("Opus 4.8 (xhigh)  \xe2\x96\xbe")
+                .with_label("Opus 4.8 (xhigh)")
                 .with_size(ComponentSize{children(), pixels(16)})
                 .with_padding(Padding{.top = pixels(1), .right = pixels(8),
                                       .bottom = pixels(1), .left = pixels(8)})
@@ -2722,7 +2721,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // the user Enter sends (the fix for "HOW DO I SEND A MESSAGE" — the
             // composer now sends on Enter, not just the button click).
             // (canSend is provably true here — the !canSend arm returned above.)
-            caption = steerMode ? "\xe2\x86\xb5 steer" : "\xe2\x86\xb5 send";
+            caption = steerMode ? "Enter to steer" : "Enter to send";
         if (!caption.empty()) {
             div(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
@@ -3133,7 +3132,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 phase == AppComponent::StreamPhase::Thinking)
                 r.body = "thinking\xe2\x80\xa6";
             else
-                r.body += " \xe2\x96\x8b";
+                r.body += " |";
         }
         r.line_count = count_lines(r.body, textW);  // logical lines (for fold)
         r.wrap_w = textW;
@@ -4326,15 +4325,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
-                .with_label(expandable ? (open ? "\xe2\x96\xbe"
-                                               : "\xe2\x96\xb8")
-                                       : " ")
+                .with_label(" ")
                 .with_size(ComponentSize{pixels(12), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Center)
                 .with_roundness(0.0f)
+                .with_on_draw_fg([expandable, open](RectangleType r) {
+                    if (expandable)
+                        hanabi::glyph::chevron(r, !open, theme::text_faint(),
+                                               3.2f);
+                })
                 .with_debug_name("tool_chev"));
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
