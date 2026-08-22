@@ -37,6 +37,13 @@
 #   single capture. This lets us photograph e.g. a chat row's star-on-hover
 #   and a hovered content tab.
 #
+#   Every screen the app can reach is covered: the smart views via HANABI_VIEW,
+#   the folded sidebar via the persisted sidebar_collapsed setting, the
+#   keypress-only overlays (settings / new task / device-code login) via
+#   HANABI_TEST_OVERLAY and HANABI_AUTH_DEMO, and the transient states
+#   (skeleton, thread-loading, load-older, thinking, streaming) via their
+#   *_DEMO knobs. Add a state here rather than running the app by hand.
+#
 # EXIT: non-zero if any capture failed or produced a non-1100x760 PNG.
 # ===========================================================================
 set -u
@@ -167,64 +174,75 @@ echo "=== capturing into $OUTDIR (timeout ${SHOT_TIMEOUT}s/shot) ==="
 # States. NN prefix keeps them ordered on disk for at-a-glance review.
 # ---------------------------------------------------------------------------
 
-# Home digest (no tabs) -- dark + light. `view` defaults to Home when no tabs.
-capture 01_home_dark  '{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
-capture 02_home_light '{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light"}'
+# Shorthand settings bodies. TABS opens three threads so the strip is real;
+# NOTABS lands on the Home digest.
+NOTABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
+NOTABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light"}'
+TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
+TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"light"}'
+TABS_T6='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t6","theme":"dark"}'
+MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
+FOLDED='{"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}'
 
-# Transcript with tabs + sub-agent panel. t2 (Stars payout, blocked, has sub-
-# agents running+done) active; t6 (Backfill, 3 sub-agents) and t1 (Multi-tier,
-# blocked) also open so the tab strip shows multiple tabs.
-capture 03_transcript_dark  '{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
-capture 04_transcript_light '{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"light"}'
+# --- Home digest ------------------------------------------------------------
+capture 01_home_dark  "$NOTABS_DARK"
+capture 02_home_light "$NOTABS_LIGHT"
 
-# A different active transcript: t6 (Backfill, running + 3 sub-agents) so the
-# sub-agent panel content differs from t2.
-capture 05_transcript_t6_dark '{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t6","theme":"dark"}'
+# --- Transcript. t2 (Stars payout, blocked, sub-agents running+done) active;
+#     t6 (Backfill, 3 sub-agents) and t1 (Multi-tier, blocked) also open.
+capture 03_transcript_dark  "$TABS_DARK"
+capture 04_transcript_light "$TABS_LIGHT"
+capture 05_transcript_t6_dark "$TABS_T6"
 
-# HOVER STATES (test-only hook). Forces one widget's hover branch.
+# --- HOVER STATES (test-only hook). Forces one widget's hover branch.
 #  - a hovered UNSTARRED chat row revealing its faint hollow star. t2 is
 #    unstarred in the mock (folder "stars"), so HANABI_TEST_HOVER=row:t2 shows
 #    the hollow-star affordance a real mouse hover would reveal.
-capture 06_hover_row_star_dark  '{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'  HANABI_TEST_HOVER=row:t2
+capture 06_hover_row_star_dark "$NOTABS_DARK" HANABI_TEST_HOVER=row:t2
 #  - a hovered content TAB (non-active) showing the tab-hover background. With
 #    t2 active, hovering t6 lights its hover bg.
-capture 07_hover_tab_dark '{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'  HANABI_TEST_HOVER=tab:t6
+capture 07_hover_tab_dark "$TABS_DARK" HANABI_TEST_HOVER=tab:t6
+
+# --- Smart views. HANABI_VIEW forces the landing view (no click needed).
+capture 08_view_blocked_dark  "$NOTABS_DARK"  HANABI_VIEW=blocked
+capture 09_view_review_dark   "$NOTABS_DARK"  HANABI_VIEW=review
+capture 10_view_starred_dark  "$NOTABS_DARK"  HANABI_VIEW=starred
+capture 11_view_archived_dark "$NOTABS_DARK"  HANABI_VIEW=archived
+capture 12_view_blocked_light "$NOTABS_LIGHT" HANABI_VIEW=blocked
+
+# --- Chat with no thread open: the welcome / start-a-conversation screen.
+capture 13_chat_welcome_dark "$NOTABS_DARK" HANABI_VIEW=chat
+
+# --- Sidebar folded to the icon rail (persisted setting, no Cmd+B needed).
+capture 14_sidebar_folded_dark "$FOLDED"
+
+# --- Overlays that are otherwise keypress-only.
+capture 15_settings_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=settings
+capture 16_settings_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=settings
+capture 17_newtask_dark   "$NOTABS_DARK"  HANABI_TEST_OVERLAY=composer
+capture 18_auth_dark      "$NOTABS_DARK"  HANABI_AUTH_DEMO=1
+
+# --- Tab strip under pressure: ten open tabs (overflow / shrink-to-fit).
+capture 19_many_tabs_dark "$MANYTABS"
+
+# --- Long transcript (perf fixture) + every tool row pre-expanded.
+capture 20_big_transcript_dark "$TABS_DARK" HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
+capture 21_tools_expanded_dark "$TABS_DARK" HANABI_EXPAND=1
+capture 22_split_view_dark     "$TABS_DARK" HANABI_OPEN=t2 HANABI_SPLIT=t6
+
+# --- Transient states: the ones a user only sees for a second.
+capture 23_skeleton_dark      "$NOTABS_DARK" HANABI_SKELETON_DEMO=1
+capture 24_thread_loading_dark "$TABS_DARK"  HANABI_LOADING_DEMO=1
+capture 25_load_older_dark    "$TABS_DARK"   HANABI_OLDER_DEMO=1
+capture 26_thinking_dark      "$TABS_DARK"   HANABI_THINK_DEMO=1
+capture 27_streaming_dark     "$TABS_DARK"   HANABI_STREAM_DEMO=1
+
+# --- Composer focused (caret + focus ring).
+capture 28_composer_focus_dark "$TABS_DARK" HANABI_TEST_FOCUS_COMPOSER=1
 
 echo
 echo "=== SUMMARY ==="
 for line in "${SUMMARY[@]}"; do echo "$line"; done
-
-# ---------------------------------------------------------------------------
-# States that CANNOT be captured via headless --screenshot today, and why.
-# (Documented, not silently skipped.)
-# ---------------------------------------------------------------------------
-cat <<'NOTE'
-
-=== NOT capturable headlessly today (documented) ===
-  blocked_dark / review / starred smart views
-      The active smart view (AppComponent::view) is in-app state, set by a
-      SIDEBAR CLICK -- it is NOT persisted in or loaded from settings.json
-      (only Home vs Chat are reachable: Home when open_tabs is empty, Chat when
-      tabs restore). No headless mouse => cannot click a smart view. Needs an
-      in-app click, or a new settings/env key to preselect AppComponent::view.
-
-  sidebar_folded
-      LayoutComponent::sidebarCollapsed is not persisted in settings and is
-      toggled only by Cmd+B / a click. No headless keyboard/mouse => cannot
-      fold. Needs a persisted "sidebar_collapsed" setting or a test env knob.
-
-  settings_overlay (Cmd+,) / composer_overlay (Cmd+N)
-      AppComponent::showSettings / composerOpen are toggled by keypress only,
-      never read from settings.json. No headless key events => cannot open.
-      A test hook (e.g. HANABI_TEST_OVERLAY=settings|composer read once in
-      setup_app_state) would be needed to open one for a capture.
-
-  transcript_empty (a thread with 0 messages)
-      The mock backend is a zero-config compile-time fixture and EVERY sample
-      session (t1..t14) has >=1 message; there is no empty thread to open. The
-      mock must stay zero-config, so no empty fixture is added. Would require
-      either an http backend serving an empty session or a dedicated fixture.
-NOTE
 
 if [ "$FAILED" -ne 0 ]; then
     echo
