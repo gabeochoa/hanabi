@@ -76,7 +76,9 @@ capture() {
     for kv in "$@"; do envv+=("$kv"); done
 
     if [ -n "$SHOT_SCRIPT" ]; then
-        ( cd "$wt" && make uitest-build ) >"${log%.log}_build.log" 2>&1
+        # uitest-build is recent; an older base ref only has the exe target.
+        ( cd "$wt" && { make uitest-build || make output/hanabi_uitest.exe copy-resources; } ) \
+            >"${log%.log}_build.log" 2>&1
         local tmp="$STAGE/${label}.e2e"
         sed "s#^screenshot .*#screenshot $png#" "$SHOT_SCRIPT" > "$tmp"
         ( env "${envv[@]}" "$wt/output/hanabi_uitest.exe" --e2e "$tmp" >"$log" 2>&1 ) &

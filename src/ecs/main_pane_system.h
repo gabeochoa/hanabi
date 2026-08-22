@@ -3686,7 +3686,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void message_actions(UIContext<InputAction>& ctx, Entity& turn,
                          int index, const std::string& key,
-                         const std::string& rawText, bool alignRight) {
+                         const std::string& rawText, bool alignRight,
+                         int64_t sentAt = 0) {
         // mouse_was_in_subtree answers "is the pointer on this turn or on
         // anything inside it" from LAST frame's hit test — the tree being built
         // right now hasn't been resolved yet. Without the subtree form, moving
@@ -3710,6 +3711,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("msg_actions"));
         if (!show) return;
 
+        // On a user bubble the row runs right-to-left, so the time is emitted
+        // FIRST to end up left of the button; on an assistant turn it trails.
+        const std::string stamp = fmtutil::clock_time(sentAt);
+        auto time_chip = [&](int id) {
+            if (stamp.empty()) return;
+            div(ctx, mk(bar.ent(), id),
+                ComponentConfig{}
+                    .with_label(stamp)
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.right = pixels(8), .left = pixels(8)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("msg_time"));
+        };
+        if (alignRight) time_chip(2);
+
         auto btn = div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_label(copied ? "Copied" : "Copy")
@@ -3731,6 +3750,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             copied_key() = key;
             copied_at() = std::chrono::steady_clock::now();
         }
+        if (!alignRight) time_chip(2);
         (void)index;
     }
 
@@ -3858,7 +3878,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             message_actions(ctx, uturn.ent(), index,
                             m.id.empty() ? ("msg" + std::to_string(index))
                                          : m.id,
-                            m.text, /*alignRight=*/true);
+                            m.text, /*alignRight=*/true, m.created_at);
             return;
         }
 
@@ -4007,7 +4027,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
         message_actions(ctx, turn.ent(), index, mkey, m.text,
-                        /*alignRight=*/false);
+                        /*alignRight=*/false, m.created_at);
     }
 
     // A System message: a quiet, centered, muted caption — conversation
