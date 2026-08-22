@@ -236,6 +236,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // (reply); cleared on consume.
     std::string requestKickoffPrompt;  // start a NEW session from this prompt
     std::string requestSendPrompt;     // reply into the OPEN session
+    // What Enter in the composer submitted, before it has been routed. The
+    // text-input listener is attached once and lives for the entity's whole
+    // life, so it cannot be the thing that decides between kickoff and reply —
+    // it would decide with whatever was true on the frame it was attached.
+    // It parks the text here and the composer, which recomputes the mode every
+    // frame, routes it exactly as the Send button does.
+    std::string composerSubmit;
     // The prompt currently being sent, for a "sending…" hint while in flight.
     std::string sendingPrompt;
 

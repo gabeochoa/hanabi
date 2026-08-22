@@ -2354,6 +2354,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool canSend = app.client && app.client->supports_send();
         const bool canStream = app.client && app.client->supports_stream();
         const std::string& openId = draftKey;  // same value: the open thread id
+
+        // Enter parked its text here (see the listener at the bottom of this
+        // function). Route it the same way the Send button does, with the mode
+        // recomputed for THIS frame.
+        if (!app.composerSubmit.empty()) {
+            const std::string text = std::move(app.composerSubmit);
+            app.composerSubmit.clear();
+            if (canStream || canSend) {
+                if (kickoff) app.requestKickoffPrompt = text;
+                else if (canStream) app.requestStreamPrompt = text;
+                else app.requestSendPrompt = text;
+            }
+            replyDraft.clear();
+        }
         // "Sending" covers BOTH the synchronous reply in flight and a live
         // stream draining into this thread — either disables the composer. In
         // kickoff mode it's the create_session round-trip (kickoffPending).
@@ -2536,13 +2550,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // on_submit sets the SAME one-shot send/stream request the Send button
         // does, so Enter sends like every chat app. Shift+Enter is NOT a newline
         // here (single-line composer); plain Enter = send.
+        //
+        // addComponentIfMissing means the listener attached on some early frame
+        // is the one that runs forever. Anything it captures is frozen at that
+        // moment — and on the frames right after launch there is no open
+        // session, so a captured `kickoff` was baked in as TRUE and Enter
+        // started a new conversation for the rest of the process even with a
+        // thread open (the Send button, recomputed every frame, replied
+        // correctly — so the two did different things). The same freeze applied
+        // to the &replyDraft pointer, which would clear whichever thread's
+        // draft happened to be current when the field was born.
+        //
+        // So the listener decides nothing: it parks the text on the app and the
+        // per-frame code above routes it.
         {
             Entity& inputEnt = inputRes.ent();
             inputEnt.addComponentIfMissing<
                 afterhours::text_input::HasTextInputListener>(
                 nullptr,  // on_change: not needed (imm syncs replyDraft)
-                [appPtr = &app, canStream, canSend, kickoff,
-                 draftPtr = &replyDraft](Entity& e) {
+                [appPtr = &app](Entity& e) {
                     // Read the CURRENT field text off the input state (the most
                     // up-to-date value, incl. the char typed just before Enter).
                     std::string text;
@@ -2554,23 +2580,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            (text.back() == '\n' || text.back() == '\r' ||
                             text.back() == ' '))
                         text.pop_back();
-                    if (text.empty()) return;              // nothing to send
-                    if (!(canStream || canSend)) return;   // backend can't send
-                    // Kickoff (Home landing composer) starts a NEW session via
-                    // create_session; a normal composer replies to the open one.
-                    if (kickoff) appPtr->requestKickoffPrompt = text;
-                    else if (canStream) appPtr->requestStreamPrompt = text;
-                    else appPtr->requestSendPrompt = text;
-                    // Clear BOTH the input state AND the persistent draft (the
-                    // imm wrapper re-syncs state<-draft each frame, so clearing
-                    // only the state would let the draft repopulate it).
+                    if (text.empty()) return;  // nothing to send
+                    appPtr->composerSubmit = text;
                     if (e.has<afterhours::text_input::HasTextInputState>()) {
                         auto& st =
                             e.get<afterhours::text_input::HasTextInputState>();
                         st.storage.clear();
                         st.cursor_position = 0;
                     }
-                    if (draftPtr) draftPtr->clear();
                 });
         }
 
