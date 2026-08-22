@@ -125,8 +125,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // when the backend can't send, rather than the pane hiding it.
         {
             const auto& cr = layout->composer;
-            render_composer(ctx, uiRoot, *app, cr.width, cr.height,
-                            composerKickoff, cr.x, cr.y);
+            // In split view the composer replies to the LEFT (primary) thread
+            // only, so it takes the left pane's width. Full-width under two
+            // panes gave no clue which conversation you were typing into.
+            const bool split = app->view == SmartView::Chat &&
+                               !app->splitSessionId.empty();
+            const float cw = split ? (cr.width - 1.0f) * 0.5f : cr.width;
+            render_composer(ctx, uiRoot, *app, cw, cr.height, composerKickoff,
+                            cr.x, cr.y);
         }
     }
 
@@ -3351,13 +3357,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("code_bar_spacer"));
+            // Same in-place confirmation as a message's Copy: a press that
+            // changes nothing on screen reads as a press that did nothing.
+            const std::string ckey = "code:" + std::to_string(id);
+            const bool ccopied = recently_copied(ckey);
             auto copy = button(ctx, mk(bar.ent(), 3),
                 ComponentConfig{}
-                    .with_label("Copy")
+                    .with_label(ccopied ? "Copied" : "Copy")
                     .with_size(ComponentSize{pixels(copyW), pixels(15)})
                     .with_custom_background(theme::panel_bg_2())
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(theme::text_secondary())
+                    .with_custom_text_color(ccopied ? theme::status_active()
+                                                    : theme::text_secondary())
                     .with_font_size(theme::type::MICRO)
                     .with_alignment(TextAlignment::Center)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
@@ -3371,6 +3382,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (k + 1 < lines.size()) joined += "\n";
                 }
                 afterhours::clipboard::set_text(joined);
+                copied_key() = ckey;
+                copied_at() = std::chrono::steady_clock::now();
             }
         }
         // Code body: mono rows, no wrap (pre-formatted).
