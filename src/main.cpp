@@ -718,6 +718,24 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "find") app->findOpen = true;
     }
+    // Screenshot affordance: HANABI_UNREAD_DEMO=<n> marks the open thread as
+    // last read just before its Nth-from-last message, so the "new messages"
+    // divider can be captured and tested. Writes the same persisted stamp a
+    // real read would; the isolated HOME every harness uses keeps it out of a
+    // real settings file.
+    if (const char* u = std::getenv("HANABI_UNREAD_DEMO"); u && *u) {
+        const int back = std::atoi(u);
+        if (app->openSession && back > 0) {
+            const auto& ms = app->openSession->messages;
+            if (static_cast<int>(ms.size()) > back) {
+                const int64_t at = ms[ms.size() - back - 1].created_at;
+                if (at > 0)
+                    Settings::get().set_last_read(app->openSession->summary.id,
+                                                  at);
+            }
+        }
+    }
+
     // Screenshot affordance: HANABI_CONTEXT_WINDOW=<tokens> stands in for a
     // backend that reports a context window, so the composer's proportion bar
     // — which is drawn ONLY when a real denominator exists — can be captured

@@ -3,6 +3,7 @@
 #include <afterhours/src/singleton.h>
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -68,6 +69,18 @@ struct Settings {
     bool is_starred(const std::string& id) const;
     void set_starred(const std::string& id, bool starred);  // auto-persists
 
+    // How far a thread had been READ, as the timestamp of its newest message
+    // at the moment it was last open. Persisted so reopening a conversation
+    // can say what arrived while you were away — without it, a thread that
+    // gained twelve messages overnight looks exactly like one that gained
+    // none. 0 means never opened (so nothing is marked new).
+    // A plain store: it records whatever it is given. "Never go backwards" is
+    // the transcript's rule, not this one's — it only advances the stamp when
+    // the reader has actually reached the end — and keeping the policy at the
+    // call site is what lets a test place the boundary anywhere it likes.
+    int64_t get_last_read(const std::string& id) const;
+    void set_last_read(const std::string& id, int64_t stamp);  // auto-persists
+
     // ── Preference slots (settings modal). Each auto-persists (mirrors
     // set_theme) AND marks the sync-dirty flag so the loader can push the
     // change to the backend when a write path is configured. These map onto
@@ -119,6 +132,7 @@ struct Settings {
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
+    std::map<std::string, int64_t> last_read_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;
     int auto_archive_days_ = 5;

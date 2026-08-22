@@ -52,6 +52,12 @@ bool Settings::load_save_file() {
             for (const auto& e : j["open_tabs"])
                 if (e.is_string()) open_tabs_.push_back(e.get<std::string>());
         }
+        last_read_.clear();
+        if (j.contains("last_read") && j["last_read"].is_object()) {
+            for (const auto& [k, v] : j["last_read"].items())
+                if (v.is_number_integer())
+                    last_read_[k] = v.get<int64_t>();
+        }
         starred_ids_.clear();
         if (j.contains("starred") && j["starred"].is_array()) {
             for (const auto& e : j["starred"])
@@ -83,6 +89,7 @@ void Settings::write_save_file() {
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
     j["starred"] = starred_ids_;
+    j["last_read"] = last_read_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
 }
@@ -157,6 +164,18 @@ void Settings::set_starred(const std::string& id, bool starred) {
         return;  // no change — skip the write
     }
     // Persist immediately (mirrors set_theme) so a star survives relaunch.
+    if (auto_save_enabled) write_save_file();
+}
+
+int64_t Settings::get_last_read(const std::string& id) const {
+    auto it = last_read_.find(id);
+    return it == last_read_.end() ? 0 : it->second;
+}
+void Settings::set_last_read(const std::string& id, int64_t stamp) {
+    if (id.empty() || stamp <= 0) return;
+    auto it = last_read_.find(id);
+    if (it != last_read_.end() && it->second == stamp) return;  // no churn
+    last_read_[id] = stamp;
     if (auto_save_enabled) write_save_file();
 }
 
