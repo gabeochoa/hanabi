@@ -1723,9 +1723,46 @@ with content: the same proportions on a bigger screen are a bigger bill.
   microbenchmark, and it suggests the *type-identity* half is worth pulling out
   as its own smaller change: the profile says `strcmp`, not cache misses.
 
-- **Severity: makes it slow.** ~0.15ms/frame here. Cheap to fix relative to the
-  rest of the speed.md list, and it scales with entity count, so it gets worse
-  exactly as an app gets more interesting.
+#### #43, measured
+
+A percentage of a flame graph is hard to act on, so here is the gap with a
+number on it. `make perf` in hanabi now times the two lookups head to head
+(`tests/e2e/test_perf.cpp`, "afterhours #43"), on an entity with three
+components, averaging a present component and an absent one:
+
+```
+  has_child_of<T> (dynamic_cast):     61.6 ns/call
+  has<T>          (bitset):            1.0 ns/call
+  ratio:                                63x
+```
+
+**61.6 ns versus 1.0 ns for the same question.** Two things make it that bad:
+`has_child_of` walks the whole `componentArray` — `max_num_components` slots,
+not the components the entity actually has — and dynamic_casts each one; and
+each cast's inner loop can bottom out in `strcmp` on mangled type names.
+
+What that costs per frame depends on the shape of the app.
+`run_systems_on_ui_entities` runs every system over every UI entity, and
+`for_each_derived` asks `has_child_of` once per required component. hanabi's
+idle Home digest is 315 UI entities; the render pass alone walks them with
+several derived systems. At 61.6 ns a call, a few thousand calls a frame is a
+few tenths of a millisecond — which matches the ~16% of a 0.95 ms frame the
+profile attributed to this chain, from the other direction.
+
+The scaling is the part that should worry a library author: it is
+O(entities x systems x required-components) with a ~60x constant, and every one
+of those three grows as an app gets more interesting. hanabi is a small app.
+
+**The fix looks cheap.** `Entity::has<T>()` already answers the same question
+via `components::get_type_id<T>()` and a bitset, in 1 ns, and never appears in
+a profile. If the child relationship genuinely needs a runtime downcast, the
+result is cacheable per (entity, component-type): the component set of a UI
+entity is stable for its life, and the imm layer reuses entities across frames.
+
+- **Severity: makes it slow.** ~0.15ms/frame here, 63x slower than the
+  alternative that already exists in the same header. Cheap to fix relative to
+  the rest of the speed.md list, and it scales with entity count, so it gets
+  worse exactly as an app gets more interesting.
 
 ### #44 — The imm builder copies its config a lot
 
@@ -2348,3 +2385,51 @@ elements**. Dragging from one message into the next needs a document order over
 the widget tree, which is a real design question and a much bigger one than
 this. Within an element covers grabbing a value, a path, or a sentence, which is
 the thing people actually do.
+
+### #52 — Selection across elements needs a document order (deliberately not built)
+
+Filing this separately from #37 so it can be judged on its own, because it is
+the one piece of selection I chose NOT to build and I do not think an app
+should.
+
+- **What is missing.** Selection in hanabi lives inside one rendered element:
+  one line of an assistant turn, or one user bubble. Dragging from the middle
+  of one message into the next selects only within the one the press landed
+  on. A real transcript reader eventually wants to drag across three messages
+  and take the lot.
+
+- **Why the app cannot do it.** The pieces an app can reach are per-element:
+  each text element knows its own rect and its own string. To select across
+  them you need to know, for two arbitrary elements, **which one comes first in
+  reading order** — and then, for every element between them, that it is fully
+  covered. That is a traversal of the widget tree in paint order, with the
+  scroll transform applied, skipping anything that is not text and anything
+  clipped away. An app can approximate it by sorting rects top-to-bottom, and
+  that approximation breaks the moment there are two columns (hanabi's split
+  view is exactly that), or a floating overlay, or an element that wraps.
+
+  It is also not composable with what exists: `text_selection.h` is written
+  around one text block's lines, and `Selection`'s anchor/cursor are byte
+  offsets into a single string.
+
+- **What the library could offer.** The tree, the paint order and the clip
+  rects are all already known to the renderer. A minimal shape:
+
+  ```cpp
+  // Elements that opted into selection, in document order.
+  [[nodiscard]] std::vector<EntityID> ui::selectable_order();
+
+  // The whole selection, across however many elements it spans.
+  struct SelectionSpan { EntityID element; size_t begin, end; };
+  [[nodiscard]] std::vector<SelectionSpan> UIContext::selection_spans() const;
+  [[nodiscard]] std::string UIContext::selected_text() const;  // joined
+  ```
+
+  With `selectable_order()` alone an app could do the rest. The full version
+  belongs upstream because the join rule (a newline between blocks? between
+  wrapped lines?) should be one decision, not one per app.
+
+- **Severity: makes it ugly.** Per-element selection covers the common case —
+  grabbing a value, a path, a sentence. The cross-element version is a
+  completeness thing, and it is worth doing properly once rather than
+  approximately in every app.
