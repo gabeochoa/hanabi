@@ -664,6 +664,23 @@ static void app_cleanup() {
 // reachable in the other. Every one is ignored when its variable is unset, does
 // no network, and only writes app state — the knobs that need frames pumped
 // through them stay with the capture path that can pump them.
+// Knobs that ask the LOADER for something and therefore need frames pumped
+// afterwards. Split from apply_test_knobs so each headless entry point can run
+// them before its own settle loop rather than growing a pump of its own.
+static void request_test_opens(ecs::AppComponent* app) {
+    if (app == nullptr) return;
+    // HANABI_OPEN=<id> opens a specific thread (the long perf fixture "rbig",
+    // say). Sets requestOpenTab; the caller's settle frames land it.
+    if (const char* oid = std::getenv("HANABI_OPEN"); oid && *oid) {
+        app->requestOpenTab = oid;
+        app->view = ecs::SmartView::Chat;
+    }
+    // HANABI_SPLIT=<id> opens a SECOND thread in the right pane. Needs
+    // HANABI_OPEN to have named the primary.
+    if (const char* sid = std::getenv("HANABI_SPLIT"); sid && *sid)
+        app->requestSplitOpen = sid;
+}
+
 static void apply_test_knobs(ecs::AppComponent* app) {
     if (app == nullptr) return;
     // Screenshot affordance: HANABI_VIEW=blocked|review|starred|home forces
@@ -1099,13 +1116,42 @@ static int run_e2e(const std::string& path, int w, int h) {
     runner.set_screenshot_callback(
         [](const std::string& p) { graphics::capture_frame(p); });
 
+    // Ask for any thread the script wants open BEFORE settling, so the settle
+    // frames below are also the frames that service the request.
+    {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        if (!q.empty())
+            request_test_opens(&q[0].get().get<ecs::AppComponent>());
+    }
+
     // Settle: the session list loads asynchronously, and a script that clicks a
-    // sidebar row before the rows exist clicks empty space.
-    for (int i = 0; i < 45; ++i) {
-        graphics::begin_frame();
-        graphics::clear_background(theme::window_bg());
-        sm.run(1.0f / 60.0f);
-        graphics::end_frame();
+    // sidebar row before the rows exist clicks empty space. A thread requested
+    // above also has its transcript fetched on a worker, so this waits for the
+    // pane to actually have content rather than counting frames and hoping —
+    // 45 was enough for the list and not for a 120-message transcript.
+    {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        ecs::AppComponent* app = q.empty()
+                                     ? nullptr
+                                     : &q[0].get().get<ecs::AppComponent>();
+        const bool wantsThread = std::getenv("HANABI_OPEN") != nullptr;
+        for (int i = 0; i < 300; ++i) {
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+            if (i < 45) continue;
+            if (app == nullptr) break;
+            if (app->listState == ecs::LoadState::Loading) continue;
+            if (wantsThread &&
+                (!app->openSession || app->openSession->messages.empty()))
+                continue;
+            break;
+        }
     }
 
     // Same state knobs the capture path honours, so a script can start from any

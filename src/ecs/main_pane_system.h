@@ -1801,6 +1801,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.requestSplitClose = true;
     }
 
+    // Is any text field holding the keyboard? While one is, the reading keys
+    // belong to it: Home and End move the caret, and space is a character.
+    static bool any_text_field_focused() {
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection
+                 .get_entities()) {
+            if (!e) continue;
+            if (!e->has<afterhours::text_input::HasTextInputState>()) continue;
+            if (e->get<afterhours::text_input::HasTextInputState>().is_focused)
+                return true;
+        }
+        return false;
+    }
+
     // Make one text element selectable: hit-testable, tracked for press and
     // drag, and showing an I-beam. The listener is empty — an element with no
     // click or drag listener is never eligible to be the hot element
@@ -2439,6 +2453,46 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (nearEnd) s_follow = true;
             s_prevOffset = curOffset;
         }
+
+        // ---- Reading the transcript from the keyboard ----------------------
+        // A long thread is a document, and a document scrolls without the
+        // mouse. Home/End jump to the ends, Page moves a viewport less a
+        // couple of lines of overlap (so the line you were reading is still on
+        // screen), and the arrows move a few lines.
+        //
+        // Suppressed while a text field owns the keyboard: Home and End belong
+        // to the caret then, and space belongs to the message being typed.
+        // TextInputSystem sets a focused field's is_focused, so anything
+        // focused means the composer or the find box is the target.
+        if (scroll.ent().has<afterhours::ui::HasScrollView>() &&
+            !any_text_field_focused()) {
+            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            const float page = std::max(40.0f, viewH - 2.0f * kLinePitch);
+            const float step = 3.0f * kLinePitch;
+            float delta = 0.0f;
+            bool jumpTop = false, jumpEnd = false;
+            if (hanabi::keys::pressed(hanabi::keys::kPageUp)) delta -= page;
+            if (hanabi::keys::pressed(hanabi::keys::kPageDown)) delta += page;
+            if (hanabi::keys::pressed(hanabi::keys::kUp)) delta -= step;
+            if (hanabi::keys::pressed(hanabi::keys::kDown)) delta += step;
+            if (hanabi::keys::pressed(hanabi::keys::kHome)) jumpTop = true;
+            if (hanabi::keys::pressed(hanabi::keys::kEnd)) jumpEnd = true;
+
+            if (jumpTop || jumpEnd || delta != 0.0f) {
+                float want = jumpTop  ? 0.0f
+                             : jumpEnd ? 1e9f
+                                       : sv.scroll_offset.y + delta;
+                sv.scroll_offset.y = want;
+                hanabi::set_scroll_target_y(sv, want);
+                sv.clamp_scroll();
+                scrollY = sv.scroll_offset.y;
+                // Scrolling up by hand means "stop following the bottom", the
+                // same as a wheel scroll does; End means "follow again".
+                s_follow = jumpEnd;
+                s_prevOffset = scrollY;
+            }
+        }
+
         // Pin to bottom on a first-open, while streaming here, or whenever the
         // follow-latch is engaged (user hasn't scrolled up).
         const bool atBottom = s_follow || nearEnd;

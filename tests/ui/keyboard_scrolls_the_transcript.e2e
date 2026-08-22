@@ -1,0 +1,28 @@
+# A long thread is a document, and a document scrolls from the keyboard.
+#
+# Home and End jump to the ends; Page moves a viewport less a couple of lines
+# so the line you were reading is still on screen. Driven on the 120-message
+# perf fixture, the only thread here tall enough to scroll far.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# "#0:" is that word here: it appears in the first message and no other.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
+
+# Opens at the bottom, so the first message is far above the viewport and is
+# not rendered at all.
+expect_no_text #0:
+
+key HOME
+wait_frames 10
+expect_text "Follow-up question #0:"
+
+key END
+wait_frames 10
+expect_no_text #0:
+
+# A page back from the end moves, but not all the way to the top.
+key PAGE_UP
+wait_frames 10
+expect_no_text #0:
