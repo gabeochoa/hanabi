@@ -1,0 +1,18 @@
+# The header toggle folds the sidebar to an icon rail and back.
+#
+# NOTE: assert on FOLDERS, not on the search field's placeholder — the
+# placeholder is painted through on_draw_fg (afterhours has no native
+# placeholder, gap #29) and never reaches the visible-text registry.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "FOLDERS"
+expect_text "Draft release notes for 4.2"
+
+click 259 21
+wait_frames 25
+expect_no_text FOLDERS
+
+click 22 21
+wait_frames 25
+expect_text "FOLDERS"

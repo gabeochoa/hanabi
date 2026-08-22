@@ -1,0 +1,16 @@
+# The sidebar search filters the thread list, and clearing it restores.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Draft release notes for 4.2"
+expect_text "clean up dead feature flags"
+
+click 140 58
+wait_frames 4
+type "release"
+wait_frames 8
+
+expect_text "Draft release notes for 4.2"
+expect_no_text flags

@@ -193,6 +193,11 @@ a hang is attributed to the script that caused it. Same isolation contract as
 the screenshot harness: throwaway `HOME`, mock backend forced, runtime config
 pointed at a path that does not exist.
 
+**Two things the registry cannot see.** Text painted through `on_draw_fg`
+(the search field's placeholder, every drawn glyph) never reaches it, so
+assert on a real label nearby instead. And text scrolled out of the viewport is
+not registered, which is usually what you want.
+
 **Write assertions that can fail.** A row title that is also in the sidebar is
 visible before and after the click that was supposed to open it — assert on
 something only the new state shows. Two sharp edges in the harness are worked
