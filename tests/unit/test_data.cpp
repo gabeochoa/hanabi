@@ -20,6 +20,7 @@
 #include "../../src/api/disk_cache.h"
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
+#include "../../src/util/format.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -217,6 +218,37 @@ static void test_settings_config_gate() {
     CHECK(!c.settings_ready());  // cleared path => opt-out
 }
 
+// --- (5) composer footer figures --------------------------------------------
+// The composer prints the open thread's size as "~4.2k tokens". Both halves are
+// pure: the char->token estimate and the short-count formatting.
+static void test_compact_count() {
+    std::printf("test_compact_count\n");
+    CHECK(fmtutil::compact_count(0) == "0");
+    CHECK(fmtutil::compact_count(940) == "940");
+    CHECK(fmtutil::compact_count(999) == "999");
+    CHECK(fmtutil::compact_count(1000) == "1k");
+    CHECK(fmtutil::compact_count(4200) == "4.2k");
+    CHECK(fmtutil::compact_count(4999) == "4.9k");   // truncates, never rounds up
+    CHECK(fmtutil::compact_count(10500) == "10k");   // no decimal past 10k
+    CHECK(fmtutil::compact_count(130000) == "130k");
+    CHECK(fmtutil::compact_count(2500000) == "2M");
+    CHECK(fmtutil::compact_count(-1).empty());
+}
+
+static void test_clock_time() {
+    std::printf("test_clock_time\n");
+    CHECK(fmtutil::clock_time(0).empty());     // unset stamp prints nothing
+    CHECK(fmtutil::clock_time(-5).empty());
+    const std::string t = fmtutil::clock_time(1700000000);
+    CHECK(t.size() == 5);                      // HH:MM
+    CHECK(t[2] == ':');
+    CHECK(t[0] >= '0' && t[0] <= '2');
+    // Whatever the machine's zone, an hour later reads an hour later.
+    const std::string later = fmtutil::clock_time(1700000000 + 3600);
+    CHECK(later != t);
+    CHECK(later.substr(3) == t.substr(3));     // same minute-of-hour
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -225,6 +257,8 @@ int main() {
     test_newest_n_window();
     test_settings_read_mock();
     test_settings_config_gate();
+    test_compact_count();
+    test_clock_time();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

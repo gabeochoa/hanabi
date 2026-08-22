@@ -2734,39 +2734,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Right)
                     .with_debug_name("composer_status"));
         }
-        if (canSend) {
-            // Context-usage meter: a small filled bar + "N% context". Replaces
-            // the old "38% $$$$" placeholder (audit #14 — the four $ read as
-            // unfinished). The backend's SSE context_usage event carries the
-            // real token breakdown; until that's wired to the composer we show
-            // a representative fill. (No fake dollar signs — a real cost figure
-            // needs a backend cost field, requested from the API maintainers.)
-            div(ctx, mk(rightMeta.ent(), 2),
-                ComponentConfig{}
-                    .with_label("context")
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.right = pixels(6)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_debug_name("composer_meter_label"));
-            // Thin track + accent fill = a real meter, not $ glyphs.
-            div(ctx, mk(rightMeta.ent(), 3),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(56), pixels(6)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_roundness(0.5f)
-                    .with_on_draw_fg([](RectangleType rr) {
-                        constexpr float kCtxPct = 0.38f;
-                        float w = rr.width * kCtxPct;
-                        if (w < 2.0f) w = 2.0f;
-                        afterhours::draw_rectangle_rounded(
-                            RectangleType{rr.x, rr.y, w, rr.height}, 0.5f, 6,
-                            theme::over(theme::accent(), theme::panel_bg_2()));
-                    })
-                    .with_debug_name("composer_meter"));
+        // Conversation size. This used to be a bar filled to a hardcoded 38%
+        // next to the word "context" — a meter that moved for nobody and told
+        // the user nothing. A bar needs a denominator and no backend here
+        // supplies a context window, so the bar is gone and what is left is a
+        // real number: the open thread's own size, measured from its text.
+        if (canSend && app.openSession) {
+            const int64_t tok = estimated_tokens(*app.openSession);
+            if (tok > 0) {
+                div(ctx, mk(rightMeta.ent(), 2),
+                    ComponentConfig{}
+                        .with_label("~" + fmtutil::compact_count(tok) +
+                                    " tokens")
+                        .with_size(ComponentSize{children(), pixels(16)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Right)
+                        .with_debug_name("composer_size"));
+            }
         }
+    }
+
+    // A rough size for the open conversation, in tokens. Counts the characters
+    // the thread actually carries — message bodies plus captured tool output —
+    // and divides by four, the usual English rule of thumb. Deliberately
+    // approximate and labelled "~": an exact count needs the tokenizer the
+    // model uses, which is the backend's to know, and a wrong precise number is
+    // worse than an honest estimate.
+    static int64_t estimated_tokens(const api::Session& s) {
+        size_t chars = 0;
+        for (const auto& m : s.messages) {
+            chars += m.text.size();
+            chars += m.tool_result.size();
+        }
+        return static_cast<int64_t>(chars / 4);
     }
 
     static const char* role_label(api::Role r) {
