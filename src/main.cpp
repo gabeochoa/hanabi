@@ -974,10 +974,17 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         for (double v : ms) sum += v;
         double mean = sum / ms.size();
         double median = ms[ms.size() / 2];
+        // Widget count is the number that explains the rest: the tree is torn
+        // down and rebuilt every frame, and full-tree layout is re-solved every
+        // frame, so per-frame cost tracks it almost linearly.
+        size_t widgets = 0;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities())
+            if (e && e->has<afterhours::ui::UIComponent>()) ++widgets;
         log_info(
-            "FrameTiming: frames={} min={:.2f}ms median={:.2f}ms "
+            "FrameTiming: frames={} widgets={} min={:.2f}ms median={:.2f}ms "
             "mean={:.2f}ms max={:.2f}ms",
-            ms.size(), ms.front(), median, mean, ms.back());
+            ms.size(), widgets, ms.front(), median, mean, ms.back());
         if (split && !msU.empty()) {
             std::sort(msU.begin(), msU.end());
             std::sort(msR.begin(), msR.end());

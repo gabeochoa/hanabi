@@ -80,13 +80,27 @@ the top of the script):
 | Launch      | FirstFrame  | 250 ms  | phased-plan Phase P |
 | Peak RSS    | RSS         | 250 MB  | phased-plan Phase X |
 
-## Current measured numbers (cli:aspen)
+## Current measured numbers
 
-- Startup ~19–28 ms · FirstFrame ~22–31 ms  (budget < 250 ms) — huge headroom
+Headless, 1100×760, mock backend, Apple Silicon, `HANABI_FRAME_TIMING=240
+HANABI_FRAME_SPLIT=1`, median of 240 frames:
+
+| screen | widgets | frame | update (rebuild) | render (layout+draw) |
+|---|---|---|---|---|
+| Home digest, idle | 315 | 0.95 ms | 0.38 ms | 0.57 ms |
+| a short transcript | 343 | 1.14 ms | 0.29 ms | 0.85 ms |
+| 120-message transcript | 460 | 1.64 ms | 0.38 ms | 1.25 ms |
+
+- Startup ~27 ms · FirstFrame ~223 ms (budget < 250 ms; FirstFrame is nearly
+  all graphics-stack init, not ours — see gap #8)
 - Peak RSS ~47 MB (headless)  (budget < 250 MB)
-- Thread-switch ~0.004 ms/switch (current uncached mock path)
+- Thread-switch ~0.013 ms uncached / ~0.0005 ms cached
 
-See `todo.md` → **Perf baseline** for the dated snapshot.
+**Those numbers are at `-O2`, which the app only started building at recently.**
+Before that there was no `-O` flag in the main build at all, and the same three
+screens measured 5.45 / 6.25 / 9.08 ms — the "idle frame floor" that had been
+attributed to per-frame tree rebuilding was 5-6x compiler, not architecture.
+`make OPT=0` reproduces the old build if you need to compare.
 
 ## Notes on what can / can't be asserted headlessly
 

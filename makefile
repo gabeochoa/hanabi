@@ -37,7 +37,16 @@ endif
 
 CXXSTD := -std=c++23
 
-CXXFLAGS_BASE := -g -Wall -Wextra -Wpedantic -pipe -fno-common
+# Optimisation. The app shipped at -O0 for a long time: no -O flag anywhere in
+# the main build, only the perf micro-benchmark asked for -O2. That is a 5-6x
+# frame-time difference on this UI (Home idle 5.45ms -> 0.95ms, a 120-message
+# transcript 9.08ms -> 1.64ms), and `make app` builds the distributable from
+# these same objects — so the .app people actually run was the slow one. Default
+# to -O2 and keep -g; `make OPT=0` gives the old fast-to-compile build for
+# stepping through in a debugger.
+OPT ?= 2
+
+CXXFLAGS_BASE := -g -O$(OPT) -Wall -Wextra -Wpedantic -pipe -fno-common
 
 CXXFLAGS_SUPPRESS := -Wno-deprecated-volatile -Wno-missing-field-initializers \
     -Wno-c99-extensions -Wno-unused-function -Wno-sign-conversion \
@@ -66,7 +75,7 @@ ifeq ($(HANABI_TLS),1)
     endif
 endif
 
-OBJ_DIR := output/objs-$(if $(filter 1,$(HANABI_TLS)),tls,notls)
+OBJ_DIR := output/objs-$(if $(filter 1,$(HANABI_TLS)),tls,notls)-O$(OPT)
 OUTPUT_DIR := output
 
 MAIN_SRC := $(shell find src -name '*.cpp')
@@ -95,7 +104,7 @@ MAIN_EXE := $(OUTPUT_DIR)/hanabi$(EXT)
 # differs from the current mode we bump the marker's mtime at parse time so the
 # exe's timestamp rule triggers a relink from the (cached) objects — a link,
 # not a recompile.
-TLS_WANT := $(if $(filter 1,$(HANABI_TLS)),tls,notls)
+TLS_WANT := $(if $(filter 1,$(HANABI_TLS)),tls,notls)-O$(OPT)
 EXE_MODE_MARKER := $(OUTPUT_DIR)/.exe_mode
 EXE_MODE_PREV := $(shell cat $(EXE_MODE_MARKER) 2>/dev/null || echo none)
 ifneq ($(EXE_MODE_PREV),$(TLS_WANT))
@@ -139,7 +148,7 @@ deps:
 
 clean:
 	@echo "Cleaning..."
-	rm -rf output/objs-tls output/objs-notls output/objs
+	rm -rf output/objs-tls* output/objs-notls* output/objs-uitest* output/objs
 
 clean-all: clean
 	rm -f $(MAIN_EXE)
@@ -420,7 +429,7 @@ count:
 # on, that drives the real UI from a .e2e script: move the mouse, click, type,
 # assert on the text that is actually on screen. Its own object dir so the
 # shipping build never sees the test-input branches.
-UITEST_OBJ_DIR := output/objs-uitest
+UITEST_OBJ_DIR := output/objs-uitest-O$(OPT)
 UITEST_CXXFLAGS := $(CXXFLAGS) -DAFTER_HOURS_ENABLE_E2E_TESTING
 UITEST_OBJS := $(MAIN_SRC:src/%.cpp=$(UITEST_OBJ_DIR)/%.o)
 UITEST_OBJS += $(patsubst src/%.mm,$(UITEST_OBJ_DIR)/%.o,$(MAIN_MM_SRC))
