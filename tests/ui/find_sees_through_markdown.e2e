@@ -1,0 +1,7 @@
+# A phrase wrapped in bold markers is found by what it PAINTS, not by what it
+# stores. The transcript shows "6 failures"; the message holds "**6 failures**".
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r2"],"active_tab":"r2","theme":"dark"}
+# env: HANABI_FIND_DEMO='6 failures'
+
+expect_text "1 of 1"
