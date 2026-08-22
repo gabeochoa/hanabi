@@ -162,6 +162,17 @@ Preload& Preload::make_singleton() {
         theme.font_sizing.large = 14.0f;
         theme.font_sizing.xl = 17.0f;
 
+        // Focus ring: ONE hairline, flush with the element. The default draws
+        // an outline plus `thickness` concentric rounded-line rects, each with
+        // the same roundness FRACTION — and radius = min(w,h) * 0.5 * roundness,
+        // so every ring out from the element has a larger corner radius than the
+        // one inside it. On a 34px-tall rounded field the four rings fan apart
+        // at the corners and read as bracket marks hanging off each end
+        // (afterhours_gaps.md #46). One ring at offset 0 has nothing to diverge
+        // from, and it is the desktop convention anyway.
+        theme.focus_ring_thickness = 1.0f;
+        theme.focus_ring_offset = 0.0f;
+
         ui::imm::UIStylingDefaults::get().set_grid_snapping(true);
     }
 

@@ -44,6 +44,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
         ctx.theme.font_muted = theme::text_faint();
+        ctx.theme.focus = theme::accent();
 
         // Apply a pending star-toggle request (set by a row's star affordance).
         // The mutation lives HERE so this owned system is the single writer of

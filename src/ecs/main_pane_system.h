@@ -2486,6 +2486,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.secondary = theme::panel_bg_2();
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
+        ctx.theme.focus = theme::accent();
         auto inputRes = afterhours::ui::imm::text_input(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}

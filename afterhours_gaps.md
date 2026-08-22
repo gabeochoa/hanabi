@@ -1836,3 +1836,91 @@ with content: the same proportions on a bigger screen are a bigger bill.
   class of bug is worse than the instance: any listener attached this way with
   a captured value is wrong in a way that only shows up in a specific startup
   order.
+
+### #46 — The focus ring fans out at the corners (concentric rings, constant roundness)
+
+- **What I was trying to build.** A focused chat composer that looks like a
+  focused text field.
+
+- **What happened.** Clicking into the composer drew bracket marks hanging off
+  each corner — four short arcs that don't join the ring, at a visibly bigger
+  radius than the field's own corner. It reads as a rendering glitch, and it is
+  on the app's most-used control.
+
+  `rendering.h` (~1481-1536) draws the ring as an outline plus `thickness`
+  concentric rounded-line rects:
+
+  ```cpp
+  for (float t = 0; t < thickness; t += 1.0f) {
+    RectangleType thickRect = {focus_rect.x - t, focus_rect.y - t,
+                               focus_rect.width  + t * 2.0f,
+                               focus_rect.height + t * 2.0f};
+    draw_rectangle_rounded_lines(thickRect, focus_roundness, focus_segments,
+                                 focus_col, focus_corner_settings);
+  }
+  ```
+
+  Every ring is passed the same **roundness fraction**, and roundness is
+  relative: `radius = min(w, h) * 0.5 * roundness`. Each ring outward is 2px
+  taller, so each ring's corner radius is 0.25px larger than the one inside it.
+  The straight edges stay parallel — a 1px step is invisible there — but at the
+  corners the arcs sweep different radii from different centres, so they splay
+  apart into a fan. With the defaults (`focus_ring_thickness = 3`,
+  `focus_ring_offset = 4`, plus the contrast outline) that is five arcs at five
+  radii, which is the bracket.
+
+  It is worst exactly where you would want a focus ring most: a short wide
+  control. On a 34px-tall field `min(w,h)` is the height, so the ring's radius
+  is dominated by the dimension that is changing fastest in relative terms.
+
+- **The workaround.** Collapse the ring to a single hairline flush with the
+  element, in `ThemeDefaults` at startup:
+
+  ```cpp
+  theme.focus_ring_thickness = 1.0f;
+  theme.focus_ring_offset    = 0.0f;
+  ```
+
+  One ring has nothing to diverge from. It costs the ring's visibility on
+  low-contrast backgrounds — the dual-colour outline is a genuinely good idea
+  and this throws it away — and it doesn't fully clear the artifact: two faint
+  accent arcs remain at the left corners, drawn about 10px in (roughly the
+  field's `padding.left`), which suggests a second focus-coloured rounded rect
+  is being emitted somewhere for the input's content rect. That one I could not
+  reach from app code.
+
+- **What the library could offer instead.** Grow the ring in **radius**, not
+  just in rect — keep the arcs concentric:
+
+  ```cpp
+  // radius of the element's own corner
+  const float base_r = std::min(focus_rect.width, focus_rect.height)
+                       * 0.5f * focus_roundness;
+  for (float t = 0; t < thickness; t += 1.0f) {
+    RectangleType r = { focus_rect.x - t, focus_rect.y - t,
+                        focus_rect.width + t*2.0f, focus_rect.height + t*2.0f };
+    // absolute radius grows 1:1 with the offset, so every ring is parallel
+    draw_rectangle_rounded_lines_px(r, base_r + t, focus_segments,
+                                    focus_col, focus_corner_settings);
+  }
+  ```
+
+  which needs a **pixel-radius entry point** next to the fraction-based one:
+
+  ```cpp
+  void draw_rectangle_rounded_lines_px(RectangleType, float radius_px,
+                                       int segments, Color, CornerSettings);
+  ```
+
+  That primitive is worth having on its own. A relative roundness is a
+  reasonable default for a standalone widget, but it makes any two rectangles of
+  different sizes impossible to keep visually parallel — hanabi already carries
+  a `theme::roundness_for_px(px, w, h)` helper that back-solves the fraction
+  from a wanted pixel radius, purely to line a message bubble up with the tool
+  card next to it. Both problems disappear if the primitive can just be told the
+  radius. (Related: gap #25, the degenerate triangle on mixed corners, is in the
+  same family of "the rounded-rect path is doing radius arithmetic the caller
+  cannot see".)
+
+- **Severity: makes it ugly** — cosmetic, but on the control the user looks at
+  most, and it made a polished app look broken.
