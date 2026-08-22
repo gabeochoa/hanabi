@@ -44,6 +44,21 @@ inline void switch_to_tab(AppComponent& app, afterhours::Entity& newTab) {
     app.view = SmartView::Chat;
 }
 
+// A tab's caption: the thread's title, or the raw id while the list has not
+// caught up. A thread the user just started is created locally and only appears
+// in the session list on the next refresh, so at open time there is no title
+// and the tab used to be stuck reading its id ("new1") for the rest of the
+// session. Resolved fresh on every render instead.
+inline std::string tab_label_for(const AppComponent& app,
+                                 const std::string& id) {
+    const auto* sum = app.find_summary(id);
+    if (sum && !sum->title.empty()) return fmtutil::display_title(sum->title);
+    if (app.openSession && app.openSession->summary.id == id &&
+        !app.openSession->summary.title.empty())
+        return fmtutil::display_title(app.openSession->summary.title);
+    return id;
+}
+
 // Open `id` in a tab: focus if already open, else create a new tab.
 inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                 const std::string& id) {
@@ -61,8 +76,7 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     auto& e = afterhours::EntityHelper::createEntity();
     auto& tab = e.addComponent<Tab>();
     tab.sessionId = id;
-    const auto* sum = app.find_summary(id);
-    tab.label = sum ? (sum->title.empty() ? id : fmtutil::display_title(sum->title)) : id;
+    tab.label = tab_label_for(app, id);
     e.addComponent<ActiveTab>();
     strip.tabOrder.push_back(e.id);
 

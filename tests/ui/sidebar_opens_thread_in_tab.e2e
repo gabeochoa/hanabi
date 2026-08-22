@@ -4,8 +4,13 @@
 
 # Home, nothing open. The row's TITLE is already in the sidebar, so assert on
 # transcript content instead — otherwise the check passes without a click.
+# NOTE: expect_no_text takes a BARE single word, never a quoted string —
+# the script parser only strips quotes for expect_text, so a quoted
+# argument here is matched WITH its quote characters and can never hit.
+# afterhours_gaps.md #47.
+
 expect_text "Home"
-expect_no_text "Pulled the 62 landed changes"
+expect_no_text Pulled
 
 # "Draft release notes for 4.2" sits in the sidebar list.
 click 120 511
@@ -13,4 +18,4 @@ wait_frames 8
 expect_text "Pulled the 62 landed changes"
 
 # The composer switches from kickoff to reply once a thread is open.
-expect_no_text "Start a new conversation"
+expect_no_text Start

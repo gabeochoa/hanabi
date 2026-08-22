@@ -1,0 +1,22 @@
+# A thread started from the Home composer gets a tab captioned with the thread,
+# not with its raw session id — the list has not refreshed at open time, so the
+# title has to be resolved again once it lands.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+# NOTE: expect_no_text takes a BARE single word, never a quoted string —
+# the script parser only strips quotes for expect_text, so a quoted
+# argument here is matched WITH its quote characters and can never hit.
+# afterhours_gaps.md #47.
+
+expect_text "Home"
+
+click 646 674
+wait_frames 4
+type "tab caption check"
+wait_frames 4
+key ENTER
+wait_frames 45
+
+expect_text "tab caption check"
+expect_no_text new1

@@ -1924,3 +1924,65 @@ with content: the same proportions on a bigger screen are a bigger bill.
 
 - **Severity: makes it ugly** — cosmetic, but on the control the user looks at
   most, and it made a polished app look broken.
+
+### #47 — `expect_no_text` can never fail (its argument keeps the quotes)
+
+- **What happened.** Every negative assertion in every UI script passes,
+  including this one, on a build where the tab plainly reads `new1`:
+
+  ```
+  expect_text    "new1"      # PASSES  — the text is on screen
+  expect_no_text "new1"      # ALSO PASSES — on the same frame
+  ```
+
+  `parse_script` gives `parse_quoted()` to `expect_text`,
+  `expect_selected_text`, `expect_input_text` and `assert_ui_text`, but
+  `expect_no_text` is not in that chain and falls through to the generic
+  tail:
+
+  ```cpp
+  } else {
+      std::string arg;
+      while (iss >> arg) cmd.args.push_back(arg);   // whitespace-split, quotes kept
+  }
+  ```
+
+  So `args[0]` is the seven characters `"new1"` — with the quote marks — and
+  `VisibleTextRegistry::contains()` is asked for a substring nothing will ever
+  contain. The handler is correct; it is never given the string the script
+  meant. A multi-word argument fails a second way: it is split on whitespace and
+  only the first fragment is ever consulted.
+
+  This is the quietest possible failure mode. `expect_no_text` is exactly the
+  assertion you write when you want to be sure something is gone, and it has
+  been answering "yes, gone" unconditionally.
+
+- **The workaround.** Pass a bare single word — `expect_no_text Copy` — and
+  choose a distinctive one, since multi-word phrases are unusable. Every script
+  in `tests/ui/` now carries a comment saying why, because the natural thing to
+  write is the quoted form and it looks right.
+
+- **What the library could offer instead.** One line, next to its sibling:
+
+  ```cpp
+  } else if (cmd.name == "expect_text" || cmd.name == "expect_no_text") {
+      cmd.args.push_back(parse_quoted());
+      cmd.wait_seconds = 1 * frame;
+  }
+  ```
+
+  Worth a wider look while in there: `parse_script`'s dispatch is a chain of
+  string comparisons plus three `constexpr` name arrays, and a command that
+  matches none of them silently gets whitespace-split args rather than an error.
+  Any command whose argument can contain a space is one forgotten branch away
+  from this same bug. Having the tables declare an arity *and* a quoting rule
+  per command — rather than the branch order deciding — would make the class
+  impossible.
+
+  A test for the harness itself, along the lines of "`expect_no_text` fails when
+  the text is present", is the other half. It is a two-line test and it would
+  have caught this the day it was written.
+
+- **Severity: blocks the feature.** Together with #39 and #40 this is three
+  independent ways a UI script reports success it did not earn. All three bit us
+  in the first hour of using the harness, and all three are small fixes.
