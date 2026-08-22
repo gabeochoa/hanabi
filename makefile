@@ -462,4 +462,8 @@ $(UITEST_EXE): $(UITEST_OBJS) | $(OUTPUT_DIR)/.stamp
 uitest: $(UITEST_EXE) copy-resources
 	@bash scripts/run_ui_tests.sh
 
-.PHONY: uitest
+# Build the scripted-UI binary without running the suite (used by
+# scripts/review_shots.sh, which drives it directly).
+uitest-build: $(UITEST_EXE) copy-resources
+
+.PHONY: uitest uitest-build
