@@ -22,7 +22,10 @@
 // need, which is grabbing a value, a path, or a sentence.
 // ---------------------------------------------------------------------------
 
+#include <chrono>
+#include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -48,6 +51,10 @@ struct State {
     [[nodiscard]] size_t begin() const { return anchor < cursor ? anchor : cursor; }
     [[nodiscard]] size_t end() const { return anchor < cursor ? cursor : anchor; }
 };
+
+// A second press within this long, and this close, continues a click run.
+inline constexpr int kMultiClickMs = 400;
+inline constexpr float kMultiClickSlopPx = 4.0f;
 
 inline State& state() {
     static State s;
@@ -165,6 +172,32 @@ inline size_t offset_at(const Layout& lay, const std::string& text,
     return base + best;
 }
 
+// Multi-click bookkeeping. Free functions over statics, to keep the module
+// header-only and stateless from the caller's point of view.
+inline std::chrono::steady_clock::time_point& last_press_at() {
+    static std::chrono::steady_clock::time_point t{};
+    return t;
+}
+inline float& last_press_x() { static float v = 0.0f; return v; }
+inline float& last_press_y() { static float v = 0.0f; return v; }
+inline int& click_run() { static int n = 0; return n; }
+
+// The word around `off`: a run of anything that is not whitespace. Punctuation
+// is kept, so double-clicking a path or an amount takes the whole of it rather
+// than stopping at the first dot.
+inline std::pair<size_t, size_t> word_at(const std::string& text, size_t off) {
+    if (text.empty()) return {0, 0};
+    if (off > text.size()) off = text.size();
+    const auto is_sep = [](char c) {
+        return c == ' ' || c == '\t' || c == '\n';
+    };
+    size_t b = off;
+    while (b > 0 && !is_sep(text[b - 1])) --b;
+    size_t e = off;
+    while (e < text.size() && !is_sep(text[e])) ++e;
+    return {b, e};
+}
+
 }  // namespace detail
 
 // Paint the selection inside this element, if it owns one. Call from
@@ -231,13 +264,47 @@ inline void update(afterhours::EntityID id, RectangleType rect,
         const auto lay = detail::layout_of(rect, text, fontPx);
         if (!lay.ok) return;
         const size_t off = detail::offset_at(lay, text, mx, my, fontPx);
+
+        // Multi-click, counted here because a press is all the UI layer
+        // reports: the pointer state carries no click count, and the e2e
+        // double_click/triple_click commands are simply two and three presses.
+        // Same rule every desktop uses — near in time, near in space.
+        const auto now = std::chrono::steady_clock::now();
+        const bool nearInTime = (now - detail::last_press_at()) <
+                                std::chrono::milliseconds(kMultiClickMs);
+        const bool nearInSpace =
+            std::abs(mx - detail::last_press_x()) < kMultiClickSlopPx &&
+            std::abs(my - detail::last_press_y()) < kMultiClickSlopPx;
+        detail::click_run() =
+            (nearInTime && nearInSpace) ? detail::click_run() + 1 : 1;
+        detail::last_press_at() = now;
+        detail::last_press_x() = mx;
+        detail::last_press_y() = my;
+
         s.owner = id;
         s.text = text;
         s.fontPx = fontPx;
+        claimed_this_frame() = true;
+
+        if (detail::click_run() >= 3) {
+            // Triple takes the whole element: one source line of an assistant
+            // turn, or one user message — the unit a reader means by "this
+            // line".
+            s.anchor = 0;
+            s.cursor = text.size();
+            s.dragging = false;
+            return;
+        }
+        if (detail::click_run() == 2) {
+            const auto w = detail::word_at(text, off);
+            s.anchor = w.first;
+            s.cursor = w.second;
+            s.dragging = false;
+            return;
+        }
         s.anchor = off;
         s.cursor = off;
         s.dragging = true;
-        claimed_this_frame() = true;
         return;
     }
     if (s.owner == id && s.dragging) {

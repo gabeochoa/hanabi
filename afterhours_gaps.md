@@ -2324,10 +2324,19 @@ information loss.
 
 Two things I would add to the original ask, having built it:
 
-- **Double-click a word, triple-click a line.** Now that the offsets exist,
-  their absence is what makes the feature feel unfinished; the text-input spec
-  in this file already wants both (§4), and one implementation serves both
-  widgets.
+- **Double-click a word, triple-click a line** — now built here too, and it
+  needed one more thing worth naming: **the pointer state carries no click
+  count.** `MousePointerState` has `pos`, `left_down`, `just_pressed`,
+  `just_released`, `press_pos`, `press_moved` — everything except how many
+  presses this one is. So the app keeps its own last-press time and position and
+  re-derives the run (400ms, 4px), which is a rule the toolkit should own: every
+  widget that wants a double-click will otherwise pick its own thresholds and
+  they will not match each other. A `click_count` on the pointer state is a
+  handful of lines where it is already tracking `press_pos`, and the e2e
+  `double_click`/`triple_click` commands — which are simply two and three
+  presses — would then mean the same thing to every app.
+  The text-input spec in this file already wants both (§4), and one
+  implementation serves both widgets.
 - **`joined_text` should come with offsets.** Whatever the selection API ends
   up being, a wrapped line wants to carry where it started in the source. Every
   caller that maps a screen position back to real bytes needs it, and every one

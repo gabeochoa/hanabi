@@ -2989,6 +2989,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the user nothing. A bar needs a denominator and no backend here
         // supplies a context window, so the bar is gone and what is left is a
         // real number: the open thread's own size, measured from its text.
+        // A live selection says how much is on the clipboard's doorstep. It
+        // also confirms the selection exists at all: the band is drawn behind
+        // text and easy to miss on a short run.
+        if (const std::string sel = hanabi::text_select::selected_text();
+            !sel.empty()) {
+            div(ctx, mk(rightMeta.ent(), 4),
+                ComponentConfig{}
+                    .with_label(std::to_string(sel.size()) + " selected")
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.right = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Right)
+                    .with_debug_name("composer_selected"));
+        }
         if (canSend && app.openSession) {
             const int64_t tok = estimated_tokens(*app.openSession);
             if (tok > 0) {
