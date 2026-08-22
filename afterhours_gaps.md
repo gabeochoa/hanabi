@@ -1203,3 +1203,172 @@ NSText standard key bindings.
   5. [GAP] macOS Cmd-based bindings (word/line nav, select-all, clipboard, undo).
   6. [GAP] double/triple-click + drag selection.
   7. [GAP] first-class placeholder (#29) + honor style config (#17).
+
+---
+
+# Session 2026-08-22 — parity pass (transcript polish)
+
+### #37 — No text selection on read-only text (you cannot copy an answer)
+
+- **What I was trying to build.** The transcript is the product. A user reads an
+  answer and wants a line of it: drag across it, Cmd+C, paste into a terminal.
+  Every chat client on the desktop does this, and it is the single most common
+  thing anyone does with a body of text they did not write.
+
+- **What I tried.** Rendered the message body the ordinary way and dragged
+  across it:
+
+  ```cpp
+  div(ctx, mk(turn, 2),
+      ComponentConfig{}
+          .with_label(body)
+          .with_text_overflow(TextOverflow::Wrap)
+          .with_font_size(theme::type::BODY)
+          .with_debug_name("asst_line"));
+  ```
+
+  Then went looking for the opt-in — `with_selectable()`, a `HasTextSelection`,
+  anything on `ComponentConfig` — and for a context-level accessor that would
+  hand back whatever the user had highlighted.
+
+- **What happened.** Nothing highlights and nothing is exposed. `ComponentConfig`
+  has no selection knob (the only near-miss is the `readonly` comment on
+  `component_config.h:152`, which is a text_input mode, not a label feature), and
+  the press/drag path never associates a byte range with a rendered label.
+  Dragging across a message does exactly what dragging across a rectangle does.
+
+  The frustrating part is how close it already is. `ui/text_selection.h` is a
+  complete, backend-free selection-geometry module — `byte_offset_at()`,
+  `selection_rects()`, `substring()`, `line_start_offsets()`, `Selection` with
+  anchor/cursor — deliberately written against a `measure` callable so it builds
+  anywhere. `clipboard::set_text()` works on the sokol backend. But
+  `grep -rl 'text_selection::' src/` returns exactly one file,
+  `ui/text_input/text_layout.h`. All of the hard geometry is done and it is
+  reachable only from inside the editable widget.
+
+- **The workaround.** A per-message **Copy** button, revealed on hover
+  (`main_pane_system.h`, `message_actions`). 108 added lines, and three costs
+  worth naming:
+  1. **A permanent 24px of vertical space per message.** The strip has to be in
+     `bubble_height()` or the virtualization spacers drift the instant the mouse
+     moves, so it is reserved on every turn whether or not it is painted. On a
+     120-message transcript that is ~2900px of reserved whitespace.
+  2. **Whole-message granularity.** A user who wants one account number out of a
+     four-line reply copies all four lines and edits them somewhere else.
+  3. **No selection, so no Cmd+C.** The keyboard route people actually use is
+     still dead; they have to find and hit a button.
+
+- **What the library could offer instead.** An opt-in on the config, defaulting
+  off so nothing changes for anyone who doesn't ask:
+
+  ```cpp
+  // ComponentConfig
+  .with_selectable_text()            // opt in; no cost when unset
+
+  // Context, after the frame resolves
+  [[nodiscard]] std::string selected_text() const;
+  [[nodiscard]] bool has_selection() const;
+  ```
+
+  The implementation is mostly assembly of parts that exist. On press inside a
+  selectable element, claim it (one selection at a time — a press anywhere else
+  clears) and seed `Selection.anchor` from
+  `text_selection::byte_offset_at(lines, local, line_h, measure)`; on drag,
+  update `.cursor` the same way; in the render pass, paint
+  `selection_rects(...)` behind the glyphs in a theme token
+  (`selection_bg`/`selection_fg`) — the rects come back in the element's own
+  coordinates already; on Cmd/Ctrl+C, `clipboard::set_text(substring(lines,
+  sel.range()))`.
+
+  Two things that would make it genuinely good rather than merely present:
+  **double-click selects a word, triple-click a line** (the text-input spec in
+  this file already wants both, §4 — one implementation could serve both
+  widgets), and an **`I` beam cursor** over selectable text via the existing
+  `HasCursor`, so it is discoverable.
+
+  Selection spanning *several* elements (drag from one message into the next) is
+  a much bigger design question — a document-order model across the tree — and I
+  would explicitly leave it out of v1. Per-element selection alone covers the
+  overwhelming majority of the need, and it is the difference between "I can get
+  this text out" and "I cannot".
+
+- **Severity: blocks the feature.** Not the app — hanabi ships with a Copy
+  button — but it blocks the interaction, and it is the one gap on this list a
+  user notices in the first thirty seconds. For any app whose main surface is
+  text somebody wants to keep, this is the highest-value thing on the list.
+
+### #38 — A container cannot report hover unless it is clickable
+
+- **What I was trying to build.** The reveal half of #37's workaround: show the
+  Copy button only while the pointer is over that message. The natural shape is
+  "does the mouse sit anywhere in this turn's subtree", asked of the plain
+  `Column` div that already wraps the turn.
+
+- **What I tried.**
+
+  ```cpp
+  auto turn = div(ctx, mk(parent, 200 + index * 10),
+      ComponentConfig{}
+          .with_size(ComponentSize{percent(1.0f), children()})
+          .with_flex_direction(FlexDirection::Column)
+          .with_transparent_bg()
+          .with_debug_name("asst_turn"));
+  const bool hovered = ctx.mouse_was_in_subtree(turn.ent().id);   // always false
+  ```
+
+- **What happened.** Always false. `ResolveHitTarget::is_candidate`
+  (`ui/systems.h`) opens with
+
+  ```cpp
+  if (e.is_missing<HasClickListener>() && e.is_missing<HasDragListener>())
+    return false;
+  ```
+
+  so an element with no listener is never eligible to be `hot_id`, and every
+  query derived from `hot_id` — `is_hot`, `was_hot`, `mouse_in_subtree`,
+  `mouse_was_in_subtree` — reports false for it forever. The rule is a
+  reasonable default for click resolution; it just also means *hover is a
+  privilege of clickable things*, which containers and read-only surfaces are
+  not.
+
+- **The workaround.** Two lines per turn, and neither reads like intent:
+
+  ```cpp
+  // hoverable only because of this listener; it deliberately does nothing
+  turn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+      [](Entity&) {});
+  turn.ent().get<afterhours::HasColor>().skip_hover_override = true;
+  ```
+
+  The empty lambda is load-bearing, which is exactly the kind of line that gets
+  "cleaned up" by the next person through. And the second line is needed because
+  the moment an element becomes hot, `rendering.h` (~1549) swaps its fill for
+  `hover_bg()` unless `HasColor::skip_hover_override` is set — a field with no
+  `ComponentConfig` setter, so it has to be poked directly on the component
+  after construction, bypassing the config API the rest of the call site uses.
+  hanabi now does this in two places (`sidebar_system.h:1866` for the star, and
+  here).
+
+- **What the library could offer instead.** Two small additions:
+
+  ```cpp
+  .with_hoverable()             // eligible for hot_id; no click semantics
+  .with_skip_hover_override()   // opt out of the automatic hover fill
+  ```
+
+  `with_hoverable()` would add whatever marker `is_candidate` should really be
+  testing — say `AcceptsPointer` — with `HasClickListener`/`HasDragListener`
+  implying it. That keeps today's behaviour for every existing call site while
+  letting a container say "I want to know about the pointer" without pretending
+  to be a button. `with_skip_hover_override()` is a one-line config setter for a
+  field that is already there.
+
+- **Severity: makes it ugly.** Everything works; the code lies about why.
+
+- **Credit where it is due:** `mouse_was_in_subtree()` is the right primitive and
+  it is exactly what this needed. Gap #29 in this file (a hoverable child steals
+  the parent row's hover fill) describes the problem it solves, and the sidebar's
+  hand-rolled fix for #29 — caching the star's id and OR-ing `is_hot`/`was_hot`
+  across both entities, `sidebar_system.h:1607-1665` — predates it and can now be
+  deleted. **#29 is resolved.** One call, no id bookkeeping, and it composes to
+  any depth. Thank you.
