@@ -58,8 +58,14 @@ for s in "${SCRIPTS[@]}"; do
     [ -n "$cfg" ] || cfg='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
     printf '%s\n' "$cfg" > "$ISO_HOME/Library/Application Support/hanabi/settings.json"
 
+    # A leading "# env: KEY=VAL KEY=VAL" line adds environment for this script.
+    # Needed for any state a click cannot reach — an overlay whose only binding
+    # is a Cmd chord, for instance, which the injector cannot produce
+    # (afterhours_gaps.md #49).
+    read -r -a extra_env <<<"$(sed -nE 's/^# env:[[:space:]]*//p' "$s" | head -1)"
+
     ( env HOME="$ISO_HOME" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock \
-        "$EXE" --e2e "$s" >"$log" 2>&1 ) &
+        "${extra_env[@]}" "$EXE" --e2e "$s" >"$log" 2>&1 ) &
     pid=$!
     for ((i=0; i<TIMEOUT; i++)); do
         kill -0 "$pid" 2>/dev/null || break

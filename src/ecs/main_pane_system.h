@@ -17,6 +17,7 @@
 #include "thread_model.h"
 #include "transcript_render_cache.h"
 #include "../ui/inline_image.h"
+#include "../keys.h"
 #include "ui_imports.h"
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -2536,7 +2537,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
             auto& st =
                 inputRes.ent().get<afterhours::text_input::HasTextInputState>();
-            if (st.is_focused && afterhours::graphics::is_key_pressed(256)) {
+            if (st.is_focused &&
+                hanabi::keys::pressed(hanabi::keys::kEscape)) {
                 st.storage.clear();
                 st.cursor_position = 0;
                 replyDraft.clear();

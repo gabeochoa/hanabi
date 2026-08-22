@@ -2058,3 +2058,106 @@ with content: the same proportions on a bigger screen are a bigger bill.
 - **Severity: makes it ugly**, but it is the most *insidious* item on this list.
   Every other gap announced itself. This one produces a screenshot that looks
   fine until you know what should have been there.
+
+### #49 — A scripted test cannot press Cmd (the Super modifier is parsed, never held)
+
+- **What I was trying to build.** A test for the app's keyboard shortcuts. On
+  macOS every one of them is a Cmd chord: Cmd+B folds the sidebar, Cmd+, opens
+  settings, Cmd+W closes a tab, Cmd+/ opens the new shortcut reference.
+
+- **What I tried.**
+
+  ```
+  key CMD+SLASH
+  wait_frames 8
+  expect_text "Keyboard shortcuts"
+  ```
+
+- **What happened.** Nothing opened. Two things in the way, and the second is
+  the real one:
+
+  1. `parse_key_combo` maps `CMD+` to **Control**, with the comment
+     `// Mac convention: Cmd = Ctrl for shortcuts` (`core/key_codes.h:302`).
+     That convention holds for cross-platform game bindings, but a native macOS
+     app reads the actual Command key — `LEFT_SUPER`/`RIGHT_SUPER`, 343/347 —
+     because that is what the OS delivers. So `CMD+X` presses the wrong key.
+  2. `KeyCombo` has a `super` field and `parse_key_combo` sets it for `SUPER+`,
+     `WIN+` and `META+` — but **`HandleKeyCommand` never reads it**:
+
+     ```cpp
+     if (combo.ctrl)  input_injector::set_key_held(keys::LEFT_CONTROL);
+     if (combo.shift) input_injector::set_key_held(keys::LEFT_SHIFT);
+     if (combo.alt)   input_injector::set_key_held(keys::LEFT_ALT);
+     // combo.super — parsed, then dropped
+     ```
+
+     So `SUPER+SLASH` presses the slash key with no modifier held. There is no
+     spelling of a Cmd chord that works, and the whole shortcut surface of a
+     macOS app is unreachable from a script.
+
+- **The workaround.** Open the sheet through a state knob instead of the key
+  that really opens it (`# env: HANABI_TEST_OVERLAY=shortcuts`, a per-script
+  environment line the harness now supports), and script only the Esc that
+  closes it. The test covers the sheet's content and its dismissal; the binding
+  itself — the part most likely to break — is asserted by nobody.
+
+- **What the library could offer instead.** Three lines and a rename:
+
+  ```cpp
+  if (combo.super) input_injector::set_key_held(keys::LEFT_SUPER);
+  ```
+
+  plus releasing it alongside the others in `key_release_detail`, and mapping
+  `CMD+` to `super` rather than `ctrl`. That last one is a behaviour change for
+  existing scripts, so it may want to be `CMD+` → super on macOS and ctrl
+  elsewhere, or a new `SUPERCMD+`; either is better than a modifier that parses
+  and evaporates. A `hold <keyname>` / `release <keyname>` pair for raw keys
+  would also cover it generically, and would let a script test chords the
+  parser has never heard of.
+
+- **Severity: blocks the feature** — every keyboard shortcut in a macOS app is
+  untestable.
+
+### #50 — Key reads through the graphics layer bypass the input injector
+
+- **What happened.** Even with a Cmd chord expressible, the app's shortcuts
+  would not have fired: hanabi read keys with
+  `afterhours::graphics::is_key_pressed(...)`, and the e2e hooks are on the
+  INPUT plugin. `input_system.h` wraps every key and mouse read in
+  `#ifdef AFTER_HOURS_ENABLE_E2E_TESTING → testing::test_input::...`; the
+  graphics-layer key API has no such branch. Both are public, both look like
+  the way to ask "is this key down", and only one of them is testable.
+
+  The failure is silent and confusing from the app side: synthetic keys type
+  into text fields and move focus (those paths go through the input plugin), so
+  injection is plainly working — but the app's own shortcut handlers never see a
+  thing.
+
+- **The workaround.** A four-line shim in the app (`src/keys.h`) that calls
+  `testing::platform_input::` in the scripted-UI build and `graphics::` in the
+  shipping build, and routing all six shortcut sites through it. Cheap, and
+  worth having anyway — but every app on this library has to independently
+  discover the need for it.
+
+- **What the library could offer instead.** Give the graphics key API the same
+  `#ifdef` branch the input plugin already has, so the two agree:
+
+  ```cpp
+  // graphics.h
+  inline bool is_key_pressed(int key) {
+  #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    return testing::test_input::is_key_pressed(key, [](int k) {
+        return PlatformAPI::is_key_pressed(k); });
+  #else
+    return PlatformAPI::is_key_pressed(key);
+  #endif
+  }
+  ```
+
+  Or, if the intended rule is "apps read input through the input plugin, never
+  through graphics", say so in `PLUGIN_API.md` — the fix is then a doc line
+  rather than code, and both are better than the current position where the
+  choice is silent and one branch cannot be tested.
+
+- **Severity: makes it ugly** (the workaround is small), but it cost an hour of
+  believing the injector was broken.

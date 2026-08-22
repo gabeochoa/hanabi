@@ -16,6 +16,7 @@
 #include "../test_hooks.h"
 #include "../util/format.h"
 #include "tab_model.h"
+#include "../keys.h"
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -76,9 +77,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         auto& strip = *stripP;
 
         // Cmd+W closes the active tab.
-        bool cmdDown = afterhours::graphics::is_key_down(343) ||
-                       afterhours::graphics::is_key_down(347);
-        if (cmdDown && afterhours::graphics::is_key_pressed(87)) {  // W
+        bool cmdDown = hanabi::keys::cmd_down();
+        if (cmdDown && hanabi::keys::pressed(hanabi::keys::kW)) {
             for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
                 auto opt = EntityHelper::getEntityForID(strip.tabOrder[i]);
                 if (opt.valid() && opt->has<ActiveTab>()) {

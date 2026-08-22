@@ -218,6 +218,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // currently selected in the panel ("dark"/"light"/"system"); composer
     // open state + its draft text for kicking off a new task.
     bool showSettings = false;
+    // The keyboard-shortcut reference (Cmd+/). Every binding in this app is
+    // otherwise invisible.
+    bool showShortcuts = false;
     std::string themeChoice = "dark";
     bool composerOpen = false;
     std::string composerDraft;

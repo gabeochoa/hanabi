@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "../keys.h"
 #include "ui_imports.h"
 
 #include "../api/disk_cache.h"
@@ -32,9 +33,8 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         if (!app) return;
 
         // Cmd+N toggles the composer (343/347 = super, 78 = KEY_N).
-        bool cmdDown = afterhours::graphics::is_key_down(343) ||
-                       afterhours::graphics::is_key_down(347);
-        if (cmdDown && afterhours::graphics::is_key_pressed(78)) {
+        bool cmdDown = hanabi::keys::cmd_down();
+        if (cmdDown && hanabi::keys::pressed(hanabi::keys::kN)) {
             app->composerOpen = !app->composerOpen;
         }
 
@@ -59,7 +59,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         if (!app->composerOpen) return;
 
         // Esc closes.
-        if (afterhours::graphics::is_key_pressed(256)) {  // KEY_ESCAPE
+        if (hanabi::keys::pressed(hanabi::keys::kEscape)) {
             app->composerOpen = false;
             return;
         }

@@ -223,6 +223,8 @@ capture 14_sidebar_folded_dark "$FOLDED"
 capture 15_settings_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=settings
 capture 16_settings_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=settings
 capture 17_newtask_dark   "$NOTABS_DARK"  HANABI_TEST_OVERLAY=composer
+capture 17b_shortcuts_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=shortcuts
+capture 17c_shortcuts_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=shortcuts
 capture 18_auth_dark      "$NOTABS_DARK"  HANABI_AUTH_DEMO=1
 
 # --- Tab strip under pressure: ten open tabs (overflow / shrink-to-fit).
