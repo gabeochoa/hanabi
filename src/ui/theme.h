@@ -46,6 +46,9 @@ struct Tokens {
     // Behind a find-in-conversation match. Warm rather than accent-coloured so
     // a highlighted run cannot be mistaken for a link or a selected row.
     Color find_match;
+    // Behind selected text. Blue-grey, the desktop convention, and distinct
+    // from the warm find band so the two read differently when both are up.
+    Color selection_bg;
     Color button_primary;
     Color button_secondary;
     Color hover_bg;
@@ -110,6 +113,7 @@ inline const Tokens kDark = {
     /*accent*/ {90, 128, 255, 255},
     /*accent_soft*/ {90, 128, 255, 38},
     /*find_match*/ {235, 180, 60, 90},
+    /*selection_bg*/ {90, 128, 255, 96},
     /*button_primary*/ {90, 128, 255, 255},
     /*button_secondary*/ {58, 58, 66, 255},
     /*hover_bg*/ {255, 255, 255, 16},
@@ -200,6 +204,7 @@ inline const Tokens kLight = {
     /*accent*/ {46, 90, 236, 255},
     /*accent_soft*/ {46, 90, 236, 34},
     /*find_match*/ {250, 205, 90, 170},
+    /*selection_bg*/ {46, 90, 236, 70},
     /*button_primary*/ {46, 90, 236, 255},
     /*button_secondary*/ {224, 224, 230, 255},
     /*hover_bg*/ {0, 0, 0, 14},
@@ -303,6 +308,7 @@ inline Color empty_state_text() { return t.empty_state_text; }
 inline Color accent() { return t.accent; }
 inline Color accent_soft() { return t.accent_soft; }
 inline Color find_match() { return t.find_match; }
+inline Color selection_bg() { return t.selection_bg; }
 inline Color button_primary() { return t.button_primary; }
 inline Color button_secondary() { return t.button_secondary; }
 inline Color hover_bg() { return t.hover_bg; }

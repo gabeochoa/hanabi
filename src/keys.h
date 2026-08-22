@@ -33,6 +33,7 @@ inline constexpr int kEscape = 256;
 inline constexpr int kComma = 44;
 inline constexpr int kSlash = 47;
 inline constexpr int kB = 66;
+inline constexpr int kC = 67;
 inline constexpr int kF = 70;
 inline constexpr int kN = 78;
 inline constexpr int kW = 87;

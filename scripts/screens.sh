@@ -249,6 +249,9 @@ capture 28_composer_focus_dark "$TABS_DARK" HANABI_TEST_FOCUS_COMPOSER=1
 capture 29_find_dark  "$TABS_DARK"  HANABI_FIND_DEMO=ledger
 capture 30_find_light "$TABS_LIGHT" HANABI_FIND_DEMO=ledger
 
+# --- A run of transcript text selected.
+capture 31_selection_dark "$TABS_DARK" 'HANABI_SELECT_DEMO=4,810 match to the cent'
+
 echo
 echo "=== SUMMARY ==="
 for line in "${SUMMARY[@]}"; do echo "$line"; done

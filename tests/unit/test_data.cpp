@@ -21,6 +21,7 @@
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/util/format.h"
+#include "../../src/util/textscan.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -249,6 +250,36 @@ static void test_clock_time() {
     CHECK(later.substr(3) == t.substr(3));     // same minute-of-hour
 }
 
+// --- (6) find-in-conversation match scanning --------------------------------
+// The offsets the highlight paints from. Case-insensitive, non-overlapping.
+static void test_find_occurrences() {
+    std::printf("test_find_occurrences\n");
+    using textscan::occurrences;
+    CHECK(occurrences("", "x").empty());
+    CHECK(occurrences("abc", "").empty());
+    CHECK(occurrences("abc", "abcd").empty());        // needle longer than hay
+    {
+        auto o = occurrences("ledger and Ledger and LEDGER", "ledger");
+        CHECK(o.size() == 3);
+        if (o.size() == 3) {
+            CHECK(o[0] == 0);
+            CHECK(o[1] == 11);
+            CHECK(o[2] == 22);
+        }
+    }
+    {
+        // Non-overlapping: "aa" occurs twice in "aaaa", not three times.
+        auto o = occurrences("aaaa", "aa");
+        CHECK(o.size() == 2);
+        if (o.size() == 2) { CHECK(o[0] == 0); CHECK(o[1] == 2); }
+    }
+    {
+        auto o = occurrences("acct 8842 - ledger $128.60", "LEDGER");
+        CHECK(o.size() == 1);
+        if (o.size() == 1) CHECK(o[0] == 12);
+    }
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -259,6 +290,7 @@ int main() {
     test_settings_config_gate();
     test_compact_count();
     test_clock_time();
+    test_find_occurrences();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

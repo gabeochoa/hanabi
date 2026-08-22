@@ -701,6 +701,13 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "find") app->findOpen = true;
     }
+    // Screenshot affordance: HANABI_SELECT_DEMO=<text> pre-selects a run of
+    // the open thread's first assistant message, so the selection band can be
+    // photographed without a live drag. Render-only.
+    if (const char* d = std::getenv("HANABI_SELECT_DEMO"); d && *d) {
+        app->selectDemo = d;
+    }
+
     // Screenshot affordance: HANABI_FIND_DEMO=<text> opens find-in-conversation
     // with a query already typed, so the match highlighting and the "N of M"
     // tally can be photographed. Render-only; no network.
