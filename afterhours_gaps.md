@@ -1749,3 +1749,90 @@ with content: the same proportions on a bigger screen are a bigger bill.
 
 - **Severity: makes it slow** (mildly). Listed because it is a small, local
   change on the hottest possible path.
+
+### #45 — Widget callbacks outlive the frame that wrote them (no imm `on_submit`)
+
+- **What I was trying to build.** Enter sends the message in the chat composer.
+  The same composer is a "reply to this thread" field when a thread is open and
+  a "start a new conversation" field when one isn't, so the handler has to know
+  which — the same decision the Send button makes.
+
+- **What I tried.** The imm layer has `text_input(...)` but no submit hook, so
+  the handler goes on the entity, the way the docs and the existing widgets do
+  it:
+
+  ```cpp
+  inputEnt.addComponentIfMissing<text_input::HasTextInputListener>(
+      nullptr,
+      [appPtr = &app, kickoff, canSend, canStream, draftPtr = &replyDraft]
+      (Entity& e) {
+          …
+          if (kickoff) appPtr->requestKickoffPrompt = text;
+          else         appPtr->requestSendPrompt = text;
+          draftPtr->clear();
+      });
+  ```
+
+- **What happened.** Enter created a brand-new conversation every time, even
+  with a thread open — while the Send button, three lines away and reading the
+  same variables, replied correctly. Two controls that are supposed to be the
+  same action, doing different things.
+
+  `addComponentIfMissing` keeps the FIRST closure forever. In an immediate-mode
+  UI the surrounding code runs every frame, so it is natural to write a lambda
+  that captures this frame's values — but the lambda that survives is the one
+  from whatever frame the entity happened to be created on. Here that was a
+  frame during startup, before the session finished loading, when `kickoff` was
+  legitimately `true`. It stayed `true` for the life of the process. The
+  captured `&replyDraft` had the same problem: it pointed into a per-thread
+  draft map at whichever thread was open at birth, so Enter cleared the wrong
+  thread's draft after a tab switch.
+
+  Nothing here is a bug in afterhours — `addComponentIfMissing` does exactly
+  what it says. But it is a trap the imm style walks you into: everything else
+  in the frame is rebuilt from current state, and this one thing silently isn't.
+  It is also invisible in review; the code reads correctly.
+
+- **The workaround.** The listener is now stateless — it parks the submitted
+  text on the app, and the per-frame composer code routes it with a mode
+  computed this frame. ~15 lines, one new field on the app component, and a
+  paragraph of comment so nobody "simplifies" it back.
+
+- **What the library could offer instead.** Two options, and I would want both:
+
+  1. **A config-level submit hook, refreshed each frame like every other
+     config value:**
+
+     ```cpp
+     text_input(ctx, mk(parent, 1), draft,
+         ComponentConfig{}
+             .with_on_submit([&](std::string_view text) { … })   // re-set every frame
+             .with_placeholder("Message…"));
+     ```
+
+     `ComponentConfig` already carries `std::function`s (`on_draw_fg`) and they
+     are applied fresh on every build, so the mechanism exists — this would just
+     extend it to submit. The frozen-capture class of bug then cannot happen,
+     because the callback is replaced every frame along with everything else.
+
+  2. **A result-style read, matching `button()`:** the imm layer's whole idiom
+     is `if (button(...)) { … }` — the widget returns what happened and the
+     caller reacts in the frame's own scope, where all the state is live. A
+     `text_input(...)` that returned `{changed, submitted}` would let the
+     composer write:
+
+     ```cpp
+     auto res = text_input(ctx, mk(parent, 1), draft, cfg);
+     if (res.submitted) { /* full access to this frame's state */ }
+     ```
+
+     which is the shape that makes the bug unwriteable.
+
+  Failing either, a line in `PLUGIN_API.md` next to `addComponentIfMissing`
+  saying "the first closure wins; do not capture per-frame state" would have
+  saved this.
+
+- **Severity: blocks the feature** (it shipped broken and looked fine), and the
+  class of bug is worse than the instance: any listener attached this way with
+  a captured value is wrong in a way that only shows up in a specific startup
+  order.
