@@ -1372,3 +1372,162 @@ NSText standard key bindings.
   across both entities, `sidebar_system.h:1607-1665` — predates it and can now be
   deleted. **#29 is resolved.** One call, no id bookkeeping, and it composes to
   any depth. Thank you.
+
+### #39 — The e2e runner never fails a single-script run
+
+- **What I was trying to build.** Scripted UI tests: hover this, click that,
+  assert the text that appeared. One script per process so a hang is attributed
+  to the script that caused it, and the process exit code is the verdict.
+
+- **What I tried.** The documented shape, from the Quick Start in
+  `e2e_testing.h`:
+
+  ```cpp
+  t::E2ERunner runner;
+  runner.load_script(path);
+  while (!runner.is_finished()) { t::test_input::reset_frame();
+                                  runner.tick(dt); render_one_frame(); }
+  return runner.has_failed() ? 1 : 0;
+  ```
+
+- **What happened.** Every script passed, including one written to fail. This
+  script exits 0:
+
+  ```
+  mouse_move 140 700          # the sidebar — nowhere near a message
+  wait_frames 3
+  expect_text "Copy"          # only ever rendered on a hovered message
+  ```
+
+  The assertion does fail. `E2ECommandCleanupSystem` times the command out after
+  `MAX_FRAMES`, logs `[E2E ERROR]`, and increments
+  `detail::command_error_count()`. But `has_failed()` returns `failed_`, and
+  `failed_` is only ever set by the `validate` path; the bridge from the counter
+  into the result is `finalize_current_script()`, which begins
+
+  ```cpp
+  if (script_results_.empty() || current_script_idx_ >= script_results_.size())
+      return;
+  ```
+
+  and `script_results_` is only populated by `load_scripts_from_directory()`. So
+  in single-script mode the counter is read by nobody and the runner is
+  structurally incapable of reporting a failure. A green suite that cannot go
+  red is worse than no suite.
+
+- **The workaround.** Ignore `has_failed()` and read the handlers' counter
+  directly (`src/main.cpp`, `run_e2e`):
+
+  ```cpp
+  const int errors = t::get_command_error_count();
+  const bool failed = errors > 0 || runner.has_failed() || ranOut;
+  ```
+
+  Two lines, but they require having read the internals of three headers to know
+  the public API is not load-bearing.
+
+- **What the library could offer instead.** Fold the counter in for both modes —
+  give `finalize_current_script()` a single-script branch, or have `has_failed()`
+  itself consider `get_command_error_count()`:
+
+  ```cpp
+  bool has_failed() const {
+    if (!script_results_.empty()) { /* … as today … */ }
+    return failed_ || get_command_error_count() > 0;
+  }
+  ```
+
+  A test in the library's own suite that runs a deliberately-failing script and
+  asserts the runner reports failure would have caught this, and is worth having
+  whichever way it is fixed.
+
+- **Severity: blocks the feature** — silently, which is the bad kind. Anyone
+  adopting the harness in single-script mode gets a suite that always passes and
+  no signal that anything is wrong.
+
+### #40 — The last command's result is never observed
+
+- **What happened.** A script's final assertion is not waited for. `tick()` ends
+  with
+
+  ```cpp
+  dispatch_command(cmd);
+  index_++;
+  if (index_ >= commands_.size()) { finalize_current_script(); finished_ = true; }
+  ```
+
+  so the last command is dispatched and the runner declares itself finished in
+  the *same* tick, before any system has had a chance to handle it. The host's
+  `while (!runner.is_finished())` loop exits immediately, the frame that would
+  have evaluated the assertion never runs, and `finalize_current_script()` reads
+  an error count the command had no opportunity to increment. There is a guard
+  for exactly this a few lines above —
+
+  ```cpp
+  if (index_ >= commands_.size()) { if (has_pending_commands()) return; … }
+  ```
+
+  — but it is unreachable, because the bottom of the previous tick already set
+  `finished_`. Ending a script with an assertion is the normal case, so this
+  affects most scripts.
+
+- **The workaround.** Pump 40 more frames after the runner says it is done —
+  past `PendingE2ECommand::MAX_FRAMES` (30) — so a trailing command resolves or
+  times out for real, and only then read the verdict. Costs ~0.7s per script and
+  an explanation in the host loop.
+
+- **What the library could offer instead.** Don't set `finished_` while commands
+  are outstanding; let the top-of-tick guard do its job:
+
+  ```cpp
+  dispatch_command(cmd);
+  index_++;
+  // …and nothing else. The next tick's
+  //   if (index_ >= commands_.size()) { if (has_pending_commands()) return; … }
+  // finalizes once the queue actually drains.
+  ```
+
+  That is a deletion, and it makes the existing guard meaningful.
+
+- **Severity: blocks the feature** (paired with #39 — together they are why a
+  script asserting something plainly false came back green).
+
+### #41 — The e2e harness has no worked example of a host loop
+
+- **What happened.** Wiring the driver into an app took reading five headers,
+  because nothing in the repo does it. `grep -rl E2ERunner .` returns only the
+  three headers that define it; no `examples/` program hosts one. The Quick
+  Start in `e2e_testing.h` covers handler registration and stops there, which is
+  the easy half.
+
+  The things that had to be discovered by reading source:
+  1. **`AFTER_HOURS_ENABLE_E2E_TESTING` is the switch.** Without it,
+     `input_system.h` compiles the injection branches out and every synthetic
+     click goes to the real platform. It is not named in `e2e_testing.h` at all.
+  2. **`test_input::reset_frame()` is the host's job and nothing says so.** The
+     library never calls it. Without it a synthetic press stays pressed forever
+     and the second click of a script never registers — which looks like a bug
+     in the app, not in the harness.
+  3. **Registration order is load-bearing.** The handlers inject this frame's
+     input, so they have to be registered ahead of the input and UI systems or
+     every click lands a frame late and races the assertions.
+  4. **Screen size comes from `window_manager::ProvidesCurrentResolution`,** so
+     percentage coordinates silently fall back to 1280x720 if the app hasn't
+     registered it.
+  5. **The app must settle before the script starts.** Data loads
+     asynchronously; a script that clicks a sidebar row on frame 1 clicks empty
+     space.
+
+- **What the library could offer instead.** One example program under
+  `examples/` — a window, three widgets, a `.e2e` script, and the host loop —
+  plus a HOST LOOP section in the Quick Start covering the five points above.
+  The whole loop is about 25 lines; having it written down once would have saved
+  most of an evening, and it is the difference between a feature people adopt
+  and a feature people don't find.
+
+  `hanabi`'s integration is in `src/main.cpp` (`run_e2e`) and
+  `scripts/run_ui_tests.sh` if a worked example is useful to crib from — it is
+  MIT, take any of it.
+
+- **Severity: makes it ugly** — nothing is broken, but a genuinely good piece of
+  the library is sitting unused for want of a page of documentation.

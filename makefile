@@ -391,10 +391,11 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 
-# `make test` = unit + e2e + perf (the full harness, one command).
+# `make test` = unit + e2e + scripted UI + perf (the full harness, one command).
 test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running unit + e2e tests..."
 	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES))
+	@$(MAKE) uitest
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 
@@ -413,3 +414,43 @@ test-real:
 
 count:
 	git ls-files | grep "src" | grep -v "resources" | grep -v "vendor" | xargs wc -l | sort -rn
+
+# --- Scripted UI tests --------------------------------------------------------
+# A SECOND binary of the whole app, compiled with afterhours' e2e input hooks
+# on, that drives the real UI from a .e2e script: move the mouse, click, type,
+# assert on the text that is actually on screen. Its own object dir so the
+# shipping build never sees the test-input branches.
+UITEST_OBJ_DIR := output/objs-uitest
+UITEST_CXXFLAGS := $(CXXFLAGS) -DAFTER_HOURS_ENABLE_E2E_TESTING
+UITEST_OBJS := $(MAIN_SRC:src/%.cpp=$(UITEST_OBJ_DIR)/%.o)
+UITEST_OBJS += $(patsubst src/%.mm,$(UITEST_OBJ_DIR)/%.o,$(MAIN_MM_SRC))
+UITEST_OBJS += $(UITEST_OBJ_DIR)/vendor_afterhours_files.o
+UITEST_DEPS := $(UITEST_OBJS:.o=.d)
+UITEST_EXE := $(OUTPUT_DIR)/hanabi_uitest$(EXT)
+
+-include $(UITEST_DEPS)
+
+$(UITEST_OBJ_DIR)/%.o: src/%.cpp
+	@echo "Compiling (uitest) $<..."
+	@mkdir -p $(dir $@)
+	$(CXX) $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
+
+$(UITEST_OBJ_DIR)/%.o: src/%.mm
+	@echo "Compiling (uitest, ObjC++) $<..."
+	@mkdir -p $(dir $@)
+	$(CXX) -ObjC++ $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
+
+$(UITEST_OBJ_DIR)/vendor_afterhours_files.o: vendor/afterhours/src/plugins/files.cpp
+	@echo "Compiling (uitest) vendor/afterhours/src/plugins/files.cpp..."
+	@mkdir -p $(dir $@)
+	$(CXX) $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
+
+$(UITEST_EXE): $(UITEST_OBJS) | $(OUTPUT_DIR)/.stamp
+	@echo "Linking $(UITEST_EXE)..."
+	$(CXX) $(UITEST_CXXFLAGS) $(UITEST_OBJS) $(LDFLAGS) -o $@
+	@echo "Built $(UITEST_EXE)"
+
+uitest: $(UITEST_EXE) copy-resources
+	@bash scripts/run_ui_tests.sh
+
+.PHONY: uitest

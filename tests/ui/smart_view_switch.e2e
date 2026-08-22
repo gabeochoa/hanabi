@@ -1,0 +1,17 @@
+# The sidebar's smart views each swap the main pane.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Home"
+
+click 60 151
+wait_frames 6
+expect_text "Blocked on you"
+
+click 58 183
+wait_frames 6
+expect_text "Ready for review"
+
+click 59 215
+wait_frames 6
+expect_text "Starred"

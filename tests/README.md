@@ -13,9 +13,10 @@ scripts/run_tests.sh        # build + unit + e2e + perf + launch gate; PASS/FAIL
 or via make:
 
 ```sh
-make test        # unit + e2e + perf micro-bench + launch/RSS gate
+make test        # unit + e2e + scripted UI + perf micro-bench + launch/RSS gate
 make unit-e2e    # unit + e2e only (no perf)
 make e2e        # e2e only
+make uitest      # scripted UI tests only (tests/ui/*.e2e)
 make perf        # perf micro-bench + launch/RSS gate
 scripts/measure_launch.sh   # standalone launch/RSS gate (used by Phase P/X)
 ```
@@ -117,19 +118,19 @@ and restores it byte-for-byte on exit (trap), asserting an md5 match. Backend
 is forced to the zero-config mock (`HANABI_BACKEND=mock`) and runtime backend
 config is isolated (`HANABI_CONFIG=/tmp/none_$$`).
 
-**States captured:** `home_dark`, `home_light`, `transcript_dark`,
-`transcript_light`, `transcript_t6_dark` (different sub-agent panel),
-`hover_row_star_dark`, `hover_tab_dark`.
+**States captured (29):** the Home digest and every smart view (Blocked /
+Review / Starred / Archived), light and dark; the transcript on two different
+threads; the chat welcome screen; the folded sidebar rail; the settings sheet,
+new-task sheet and device-code login overlay; ten open tabs; the long-transcript
+fixture; every tool row expanded; split view; the hover states (row star, tab,
+message actions); the focused composer; and the transient states nobody sees for
+long enough to review by hand — skeleton, thread-loading, load-older, thinking,
+streaming.
 
-**States NOT capturable headlessly today** (the script prints these too, with
-reasons): the Blocked/Review/Starred **smart views** (active view is set by a
-sidebar *click*, not persisted in settings — only Home/Chat are reachable via
-`open_tabs`); **sidebar_folded** (`sidebarCollapsed` is toggle-only, not
-persisted); the **settings / composer overlays** (`showSettings`/`composerOpen`
-are keypress-toggled, never read from settings); and **transcript_empty** (the
-zero-config mock's sample sessions all have ≥1 message). Each would need a new
-persisted setting or a small test-only env knob (e.g. `HANABI_TEST_VIEW`,
-`HANABI_TEST_OVERLAY`) read once in `setup_app_state`.
+Add a state to the list in the script rather than running the app by hand. The
+knobs that make them reachable are `HANABI_VIEW`, `HANABI_TEST_OVERLAY`,
+`HANABI_AUTH_DEMO`, `HANABI_EXPAND`, `HANABI_BIG_TRANSCRIPT`, `HANABI_SPLIT`,
+the `*_DEMO` forcings, and the persisted `sidebar_collapsed` setting.
 
 ### Test-only hover hook (`src/test_hooks.h`)
 
@@ -152,3 +153,36 @@ branches:
 No `vendor/` file is modified; the hover hot-state machinery lives in vendored
 afterhours (which we don't patch), so the hook is applied in *our* render code
 at the point where we already branch on hover.
+
+## Scripted UI tests (`make uitest`, `tests/ui/*.e2e`)
+
+The checks above are headless *logic* tests: they call the shipped decision
+functions directly, with no window and no widget tree. That leaves the part
+users actually touch — does hovering this reveal that, does clicking here open
+the right thread — asserted by nobody.
+
+`make uitest` builds a SECOND binary of the whole app, `output/hanabi_uitest.exe`,
+with afterhours' e2e input hooks compiled in (`-DAFTER_HOURS_ENABLE_E2E_TESTING`,
+its own object dir, so the shipping build carries none of it). That binary takes
+`--e2e <script>`: it renders the real UI headlessly, injects synthetic mouse and
+keyboard into the real widget tree, and asserts against the text that actually
+rendered.
+
+A script is a plain list of commands — `click x y`, `mouse_move x y`,
+`scroll_wheel dx dy`, `type "…"`, `key ENTER`, `wait_frames n`,
+`expect_text "…"`, `expect_no_text "…"`, `screenshot path`. A leading
+`# settings: {…}` line chooses the settings.json the app starts from (open
+tabs, theme, window size); the default is Home, no tabs, dark.
+
+`scripts/run_ui_tests.sh` runs each script in its own process with a timeout, so
+a hang is attributed to the script that caused it. Same isolation contract as
+the screenshot harness: throwaway `HOME`, mock backend forced, runtime config
+pointed at a path that does not exist.
+
+**Write assertions that can fail.** A row title that is also in the sidebar is
+visible before and after the click that was supposed to open it — assert on
+something only the new state shows. Two sharp edges in the harness are worked
+around in `run_e2e` (see `src/main.cpp`) and written up in `afterhours_gaps.md`:
+the runner never folds command failures into its own verdict in single-script
+mode, and it declares itself finished in the same tick it dispatches the last
+command, so a trailing assertion is never observed.
