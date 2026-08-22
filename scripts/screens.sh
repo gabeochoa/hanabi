@@ -245,6 +245,10 @@ capture 27_streaming_dark     "$TABS_DARK"   HANABI_STREAM_DEMO=1
 # --- Composer focused (caret + focus ring).
 capture 28_composer_focus_dark "$TABS_DARK" HANABI_TEST_FOCUS_COMPOSER=1
 
+# --- Find in conversation, with matches highlighted.
+capture 29_find_dark  "$TABS_DARK"  HANABI_FIND_DEMO=ledger
+capture 30_find_light "$TABS_LIGHT" HANABI_FIND_DEMO=ledger
+
 echo
 echo "=== SUMMARY ==="
 for line in "${SUMMARY[@]}"; do echo "$line"; done

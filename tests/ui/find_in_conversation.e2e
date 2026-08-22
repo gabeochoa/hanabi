@@ -1,0 +1,34 @@
+# Cmd+F finds text inside the open thread and counts the matches.
+#
+# The sidebar's search finds THREADS; nothing found a line inside the one you
+# are reading. Opened through the state knob because the harness cannot press
+# a Cmd chord (afterhours_gaps.md #49); the buttons and the tally are driven
+# for real, by NAME rather than by coordinate so a layout change retargets the
+# click instead of quietly landing on empty space.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FIND_DEMO=ledger
+
+# "ledger" appears three times in this thread.
+expect_text "1 of 3"
+
+# Next advances, and wraps at the end.
+click_ui find_next
+wait_frames 6
+expect_text "2 of 3"
+click_ui find_next
+wait_frames 6
+expect_text "3 of 3"
+click_ui find_next
+wait_frames 6
+expect_text "1 of 3"
+
+# Previous goes the other way, wrapping backwards.
+click_ui find_prev
+wait_frames 6
+expect_text "3 of 3"
+
+# Closing puts the bar away.
+click_ui find_close
+wait_frames 8
+expect_no_text matches
