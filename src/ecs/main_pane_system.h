@@ -5,12 +5,14 @@
 // are digest lists over the thread set; Chat renders the active tab's
 // transcript as message bubbles.
 
+#include <chrono>
 #include <cstdlib>
 #include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "../test_hooks.h"
 #include "../util/format.h"
 #include "thread_model.h"
 #include "transcript_render_cache.h"
@@ -3146,7 +3148,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // messages (sync==None) add nothing. Mirrors render_bubble.
             const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
             return kTurnGapTop + 10.0f + mr.height + syncH + kUserPadV +
-                   kTurnGapBot;
+                   kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         }
         float textW = paneWidth - 34.0f;
         const auto& mr = measured(m, textW, isLive, index,
@@ -3159,7 +3161,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           : mr.height;
         float h = kTurnGapTop + 8.0f +
                   (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + bodyH +
-                  kTurnGapBot;
+                  kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         AppComponent* app = app_singleton();
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
@@ -3625,6 +3627,81 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         flush(8888);
     }
 
+    // ---- Per-message actions (hover) --------------------------------------
+    // afterhours has no text selection on read-only labels (see
+    // afterhours_gaps.md #36), so there is no way to drag across an answer and
+    // copy it. A per-message Copy is the affordance that replaces it: reserved
+    // in the layout on every turn, painted only while the pointer is over that
+    // turn, and confirmed in place for a moment after a click.
+    static constexpr float kMsgActionsH = 22.0f;
+    static constexpr float kMsgActionsGap = 2.0f;
+
+    // Which message last had Copy pressed, and when — so the button can read
+    // "Copied" for a beat instead of silently doing nothing visible.
+    static std::string& copied_key() {
+        static std::string k;
+        return k;
+    }
+    static std::chrono::steady_clock::time_point& copied_at() {
+        static std::chrono::steady_clock::time_point t{};
+        return t;
+    }
+    static bool recently_copied(const std::string& key) {
+        if (copied_key() != key) return false;
+        const auto age = std::chrono::steady_clock::now() - copied_at();
+        return age < std::chrono::milliseconds(1600);
+    }
+
+    void message_actions(UIContext<InputAction>& ctx, Entity& turn,
+                         int index, const std::string& key,
+                         const std::string& rawText, bool alignRight) {
+        // mouse_was_in_subtree answers "is the pointer on this turn or on
+        // anything inside it" from LAST frame's hit test — the tree being built
+        // right now hasn't been resolved yet. Without the subtree form, moving
+        // onto the Copy button would make the turn itself stop being hot and
+        // the button would vanish under the cursor.
+        const bool copied = recently_copied(key);
+        const bool show = copied || ctx.mouse_was_in_subtree(turn.id) ||
+                          hanabi::test_hooks::force_hover("msg:" + key);
+
+        auto bar = div(ctx, mk(turn, 8),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kMsgActionsH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(alignRight ? JustifyContent::FlexEnd
+                                                 : JustifyContent::FlexStart)
+                .with_margin(Margin{.top = pixels(kMsgActionsGap)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("msg_actions"));
+        if (!show) return;
+
+        auto btn = div(ctx, mk(bar.ent(), 1),
+            ComponentConfig{}
+                .with_label(copied ? "Copied" : "Copy")
+                .with_size(ComponentSize{pixels(56), pixels(18)})
+                .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_text_color(copied ? theme::status_active()
+                                               : theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.35f)
+                .with_debug_name("msg_copy_btn"));
+        btn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (btn.ent().get<afterhours::ui::HasClickListener>().down) {
+            afterhours::clipboard::set_text(rawText);
+            copied_key() = key;
+            copied_at() = std::chrono::steady_clock::now();
+        }
+        (void)index;
+    }
+
     // A conversational message (User / Assistant). Assistant = full-column
     // doc-feed turn (no bubble); User = compact right-aligned MUTED-GREY bubble.
     // Heights match bubble_height() exactly so virtualization spacers line up.
@@ -3672,16 +3749,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // The sync state is shown as a real ✓/✓✓ glyph in the bubble's
             // corner (a nested on_draw_fg child, now that gap #28 is fixed) —
             // NOT appended to the body text. See the sync_check child below.
-            auto row = div(ctx, mk(parent, 200 + index * 10),
+            auto uturn = div(ctx, mk(parent, 200 + index * 10),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_margin(Margin{.top = pixels(kTurnGapTop + 10.0f),
+                                        .right = pixels(0),
+                                        .bottom = pixels(kTurnGapBot),
+                                        .left = pixels(0)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("user_turn"));
+            // A turn is only hit-tested (and so only reports hover) once it
+            // carries a listener — see ResolveHitTarget::is_candidate. The
+            // listener does nothing; it exists to make the turn hoverable.
+            uturn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            uturn.ent().get<afterhours::HasColor>().skip_hover_override = true;
+            auto row = div(ctx, mk(uturn.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), children()})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_justify_content(JustifyContent::FlexEnd)
-                    .with_margin(Margin{.top = pixels(kTurnGapTop + 10.0f),
-                                        .right = pixels(0),
-                                        .bottom = pixels(kTurnGapBot),
-                                        .left = pixels(0)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("user_row"));
@@ -3732,6 +3823,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("sync_check"));
             }
             (void)hasSync;
+            message_actions(ctx, uturn.ent(), index,
+                            m.id.empty() ? ("msg" + std::to_string(index))
+                                         : m.id,
+                            m.text, /*alignRight=*/true);
             return;
         }
 
@@ -3760,6 +3855,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("asst_turn"));
+        // Hoverable only because of this listener (ResolveHitTarget skips
+        // anything without one); it deliberately does nothing.
+        turn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        turn.ent().get<afterhours::HasColor>().skip_hover_override = true;
 
         // Author row: colored name bound TIGHT above its body, subtle
         // right-aligned timestamp on the same row. Shown only on the FIRST
@@ -3874,6 +3974,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 else app->expandedMsgs.insert(mkey);
             }
         }
+        message_actions(ctx, turn.ent(), index, mkey, m.text,
+                        /*alignRight=*/false);
     }
 
     // A System message: a quiet, centered, muted caption — conversation
