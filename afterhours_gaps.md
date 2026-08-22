@@ -58,6 +58,24 @@ numbers are independent of the main series (both happen to reuse 8–12).
 **Watch-only**
 - #7 RAM knobs · #8 windowed launch cost is OS/graphics-init dominated (log-only)
 
+**Added 2026-08-22** (full entries at the end of the file)
+- #37 no text selection on read-only text — you cannot copy an answer *(blocks)*
+- #38 a container can't report hover unless it carries a click listener
+- #39 the e2e runner never fails a single-script run *(blocks, silently)*
+- #40 the e2e runner never observes the last command's result *(blocks)*
+- #41 the e2e harness has no worked example of a host loop
+- #42 the draw path re-measures every string every frame; `TextMeasureCache` is bypassed *(~21% of an idle frame)*
+- #43 component lookup goes through `dynamic_cast`, so type identity costs a `strcmp` *(~16%)*
+- #44 the imm builder copies `ComponentConfig` by value on every widget *(~7%)*
+
+**Resolved / corrected**
+- #29 (a hoverable child steals the parent row's hover fill) is **fixed** —
+  `ctx.mouse_was_in_subtree(id)` is exactly the primitive, verified against a
+  real pointer; hanabi's hand-rolled workaround is deleted.
+- #27's "~8.6ms idle-frame floor" was **mostly our own missing `-O2`**, not the
+  per-frame rebuild. See the perf section at the end. The design observation
+  stands; the number was wrong and we're sorry for the bad signal.
+
 The promote-these-upstream synthesis (grouped by theme, with proposed API
 shapes) is in sections A–H near the end.
 
@@ -1531,3 +1549,203 @@ NSText standard key bindings.
 
 - **Severity: makes it ugly** — nothing is broken, but a genuinely good piece of
   the library is sitting unused for want of a page of documentation.
+
+## Perf, re-measured 2026-08-22 — and a correction to #27
+
+**First, a retraction.** This file (#27) and hanabi's own notes have been
+carrying an "~8.6ms idle-frame floor" attributed to afterhours rebuilding the
+widget tree and re-solving layout every frame. That was mostly wrong, and the
+error was ours: hanabi's makefile had **no `-O` flag in the main build at all**.
+Only the perf micro-benchmark asked for `-O2`; the app, and the `.app` bundle
+built from the same objects, were `-O0`. Adding `-O2`:
+
+| screen | widgets | -O0 | -O2 |
+|---|---|---|---|
+| Home digest, idle | 315 | 5.45 ms | **0.95 ms** |
+| a short transcript | 343 | 6.25 ms | **1.14 ms** |
+| 120-message transcript (virtualized) | 460 | 9.08 ms | **1.64 ms** |
+
+Median of 240 frames, headless 1100x760, mock data, Apple Silicon. So the floor
+was 5-6x compiler flag, not architecture. **#27 stands as a design observation —
+there is still no dirty/skip layer, and every one of those frames is identical
+work on a screen where nothing changed — but it is no longer costing us
+anything we can feel, and nobody should re-prioritise it on our account.** Sorry
+for the bad signal.
+
+What follows is where the time goes *now*, at `-O2`, on an idle Home digest —
+`sample` at 1ms for 10s, 5,859 non-worker samples, frame median 0.95ms. The
+absolute numbers are small (a fifth of a millisecond each). They are here
+because they are pure repeated work with clean fixes, and because they scale
+with content: the same proportions on a bigger screen are a bigger bill.
+
+### #42 — The draw path re-measures every string from scratch, every frame
+
+- **What I was trying to build.** Nothing in particular — this is what an idle
+  screen costs. 315 widgets, no animation, no input, the same pixels as the
+  frame before.
+
+- **What happened.** Roughly a fifth of the frame is spent measuring text that
+  has not changed:
+
+  | | self |
+  |---|---|
+  | `stbtt_GetGlyphKernAdvance` | 11.5% |
+  | `fons__getGlyph` | 5.6% |
+  | `stbtt__GetGlyphClass` | 1.4% |
+  | `fons__getQuad` | 1.3% |
+  | `fonsDrawText` | 1.0% |
+  | | **~21%** |
+
+  The stack says why:
+
+  ```
+  RenderImm::render_me
+    -> draw_text_in_rect          (rendering.h)
+       -> position_text_ex        347 samples
+          -> measure_text(font, text, size, spacing)     <-- uncached
+             -> fonsTextBounds
+                -> fons__getQuad
+                   -> fons__tt_getGlyphKernAdvance
+                      -> stbtt_GetGlyphKernAdvance       <-- GPOS re-parse, per pair
+  ```
+
+  Two things are stacked here. `position_text_ex` measures the string to align
+  it in its rect — necessary information, but the answer is identical every
+  frame for an unchanged label. And underneath, `stbtt_GetGlyphKernAdvance`
+  walks the font's GPOS coverage tables for **every adjacent glyph pair**, with
+  no memo; `stbtt__GetCoverageIndex` and `ttUSHORT` between them were the two
+  hottest functions in the whole profile before optimisation.
+
+  The part that makes this an easy fix: **`ui::TextMeasureCache` already exists**
+  — LRU, generation-pruned, hashed on (text, font, size, spacing) — and is
+  already registered as a singleton in `utilities.h`. It appeared in a 10-second
+  profile exactly once. `rendering.h` calls the raw `measure_text` in about a
+  dozen places, including this one; only `measure_text_wrapped` takes the cache.
+  The cache is built and then not used on the path that needs it most.
+
+- **The workaround.** None available app-side — `position_text_ex` is inside the
+  renderer. hanabi memoizes at a much coarser grain (`transcript_render_cache.h`
+  caches measured message heights), which helps the app's own layout pass but
+  cannot touch what the renderer does when it draws.
+
+- **What the library could offer instead.** Two independent changes, either one
+  worth having:
+
+  1. **Route `rendering.h`'s measurements through the cache that exists.** The
+     singleton is reachable the same way `systems.h:580` already reaches it:
+
+     ```cpp
+     if (auto *cache = EntityHelper::get_singleton_cmp<ui::TextMeasureCache>())
+       size = cache->measure(text, font_name, font_size, spacing);
+     else
+       size = measure_text(font, text.c_str(), font_size, spacing);
+     ```
+
+     Best done once behind a `measure_cached(...)` helper in `rendering.h` and
+     applied to the dozen call sites, so no new call site can forget.
+
+  2. **Memoize the kern pair.** A `(glyph_a, glyph_b, size) -> advance` map in
+     the fontstash shim would collapse the GPOS re-parse for everyone, including
+     callers who legitimately miss the measure cache. A UI draws from a small
+     alphabet; the table saturates in the first frame.
+
+- **Severity: makes it slow** — ~0.2ms/frame here, and it is the largest single
+  item left in an idle frame. Not urgent for hanabi at 0.95ms/frame, but it is
+  paid on every frame of every app on the library, forever.
+
+### #43 — Component lookup goes through `dynamic_cast`, so type identity costs a `strcmp`
+
+- **What happened.** The second-largest cluster in the same profile is C++
+  runtime type machinery, and the single hottest non-font function is `strcmp`:
+
+  | | self |
+  |---|---|
+  | `_platform_strcmp` | 9.1% |
+  | `System<UIContext, FontManager>::for_each_derived` (two sites) | 4.5% |
+  | `std::type_info::operator==` | 1.7% |
+  | `dyn_cast_slow` | 1.1% |
+  | | **~16%** |
+
+  The chain, from the unoptimised profile where it is fully legible:
+
+  ```
+  run_systems_on_ui_entities
+    -> System<UIContext, FontManager>::for_each_derived
+       -> HasAllComponents<...>::has_all
+          -> Entity::has_child_of<UIContext>()            entity.h:84
+             -> child_of<UIContext, BaseComponent>(BaseComponent*)
+                -> __dynamic_cast
+                   -> dyn_cast_try_downcast
+                      -> __si_class_type_info::search_above_dst
+                         -> std::type_info::operator==
+                            -> strcmp                     <-- comparing type NAMES
+  ```
+
+  On Apple's libc++abi, `type_info::operator==` for types from the same image
+  can fall through to comparing the mangled name strings. So each system, for
+  each UI entity, for each required child component, does a `dynamic_cast` whose
+  inner loop is string comparison. Two call sites in this profile alone (256 and
+  259 samples) were ~9.4% of the main thread. It is O(entities x systems x
+  required-components) per frame and it grows with the app.
+
+- **The workaround.** None — this is inside `System::for_each_derived`.
+
+- **What the library could offer instead.** The type identity is already known
+  without asking the runtime. `Entity` carries a `std::bitset<128>` of component
+  ids and `components::get_type_id<T>()` gives a stable index — the same
+  mechanism `Entity::has<T>()` uses, which does not appear in the profile at
+  all. `has_child_of<T>()` could ask the same question:
+
+  ```cpp
+  template <typename T> bool has_child_of() const {
+    // instead of dynamic_cast'ing each component to T
+    for (const auto &c : children_components)
+      if (c && c->is_child_of(components::get_type_id<T>()))  // or a bitset test
+        return true;
+    return false;
+  }
+  ```
+
+  If the child relationship genuinely needs a runtime downcast, the cheap fix is
+  to **cache the answer per (entity, system)** — the set of components on a UI
+  entity is stable for the entity's life, and the imm layer reuses entities
+  across frames, so the cast result can be computed once and invalidated when a
+  component is added or removed.
+
+  A smaller, free win regardless: `__dynamic_cast` is much faster when the class
+  hierarchy is simple, and much slower when it has to search. If `child_of`
+  can be restructured so the common answer is "no" without entering libc++abi
+  at all, most of this disappears.
+
+  `docs/speed.md` already lists "remove virtual destructor / BaseComponent
+  inheritance" and the SoA/archetype work as HIGH-impact core items — this is a
+  measurement in support of that section, from a real app rather than a
+  microbenchmark, and it suggests the *type-identity* half is worth pulling out
+  as its own smaller change: the profile says `strcmp`, not cache misses.
+
+- **Severity: makes it slow.** ~0.15ms/frame here. Cheap to fix relative to the
+  rest of the speed.md list, and it scales with entity count, so it gets worse
+  exactly as an app gets more interesting.
+
+### #44 — The imm builder copies its config a lot
+
+- **What happened.** Smaller, but visible in the same profile and worth a line:
+
+  | | self |
+  |---|---|
+  | `ComponentConfig` copy ctor | 1.8% |
+  | `imm::mk(Entity&, int, source_location)` | 1.8% |
+  | `ComponentConfig` move ctor | 1.3% |
+  | `ComponentConfig::operator=(&&)` | 1.1% |
+  | `~ComponentConfig()` | 1.0% |
+  | | **~7%** |
+
+  `ComponentConfig` is passed by value through `div()` / `button()` into
+  `init_component` and `add_missing_components`, and it carries `std::string`s
+  (label, debug name) and `std::function`s (`on_draw_fg`), so each hop is a real
+  allocation-touching copy. A `const &` through the internal chain, or moving it
+  once at the entry point, should take most of this off — it is the one call
+  every widget in the tree makes.
+
+- **Severity: makes it slow** (mildly). Listed because it is a small, local
+  change on the hottest possible path.
