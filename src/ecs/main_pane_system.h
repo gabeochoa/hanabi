@@ -3088,17 +3088,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (canSend && app.openSession) {
             const int64_t tok = estimated_tokens(*app.openSession);
+            const int64_t window = app.settings.context_window_tokens;
             if (tok > 0) {
+                // With a real denominator this reads as a proportion; without
+                // one it is the thread's size and nothing more. No setting
+                // gates this — the bar appears when the data to draw it
+                // honestly exists.
+                const std::string label =
+                    window > 0
+                        ? (fmtutil::compact_count(tok) + " / " +
+                           fmtutil::compact_count(window) + " tokens")
+                        : ("~" + fmtutil::compact_count(tok) + " tokens");
                 div(ctx, mk(rightMeta.ent(), 2),
                     ComponentConfig{}
-                        .with_label("~" + fmtutil::compact_count(tok) +
-                                    " tokens")
+                        .with_label(label)
                         .with_size(ComponentSize{children(), pixels(16)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_faint())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Right)
                         .with_debug_name("composer_size"));
+                if (window > 0) {
+                    const float frac =
+                        std::min(1.0f, static_cast<float>(tok) /
+                                           static_cast<float>(window));
+                    div(ctx, mk(rightMeta.ent(), 3),
+                        ComponentConfig{}
+                            .with_size(ComponentSize{pixels(56), pixels(6)})
+                            .with_margin(Margin{.left = pixels(6)})
+                            .with_custom_background(theme::panel_bg_2())
+                            .with_roundness(0.5f)
+                            .with_on_draw_fg([frac](RectangleType rr) {
+                                float w = rr.width * frac;
+                                if (w < 2.0f) w = 2.0f;
+                                afterhours::draw_rectangle_rounded(
+                                    RectangleType{rr.x, rr.y, w, rr.height},
+                                    0.5f, 6,
+                                    theme::over(theme::accent(),
+                                                theme::panel_bg_2()));
+                            })
+                            .with_debug_name("composer_meter"));
+                }
             }
         }
     }

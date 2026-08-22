@@ -845,6 +845,14 @@ Result<UserSettings> HttpClient::get_settings() {
         s.asset_count = as_int(counts, cfg_.field_settings_assets);
         s.schedule_count = as_int(counts, cfg_.field_settings_schedules);
         s.skill_count = as_int(counts, cfg_.field_settings_skills);
+        // Looked for at the top level first (it is a property of the model,
+        // not of the account's counts) and then in the counts object, so
+        // either shape works.
+        s.context_window_tokens =
+            as_int(j, cfg_.field_settings_context_window);
+        if (s.context_window_tokens < 0)
+            s.context_window_tokens =
+                as_int(counts, cfg_.field_settings_context_window);
         return Result<UserSettings>::success(std::move(s));
     } catch (const std::exception& ex) {
         return Result<UserSettings>::failure(std::string("json parse error: ") +
