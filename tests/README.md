@@ -202,6 +202,16 @@ a hang is attributed to the script that caused it. Same isolation contract as
 the screenshot harness: throwaway `HOME`, mock backend forced, runtime config
 pointed at a path that does not exist.
 
+**The runner settles on CONTENT, not on a frame count.** It waits for the
+session list to leave Loading and — when a script asks for a thread
+(`HANABI_OPEN`) or restores one in its `# settings:` line — for that thread's
+transcript to actually have messages. This matters more than it sounds: the
+first version of the keyboard-scroll test counted 45 frames, which is plenty
+for the session list and not for a 120-message transcript fetched on a worker,
+so it scrolled a two-message pane and passed for entirely the wrong reason. If
+the settle finishes without a transcript it says so on stderr rather than
+letting the script fail three assertions later and blame the feature.
+
 **Two things the registry cannot see.** Text painted through `on_draw_fg`
 (the search field's placeholder, every drawn glyph) never reaches it, so
 assert on a real label nearby instead. And text scrolled out of the viewport is

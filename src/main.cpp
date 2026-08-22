@@ -1138,7 +1138,16 @@ static int run_e2e(const std::string& path, int w, int h) {
         ecs::AppComponent* app = q.empty()
                                      ? nullptr
                                      : &q[0].get().get<ecs::AppComponent>();
-        const bool wantsThread = std::getenv("HANABI_OPEN") != nullptr;
+        // A thread is expected whenever one was ASKED for (HANABI_OPEN) or
+        // RESTORED from the settings a script declares. Waiting only on the
+        // former is what "counts frames and hopes" looks like: the mock is
+        // fast enough that a restored tab is populated well inside 45 frames
+        // today, so no test was actually racing — but that is the backend's
+        // speed, not a property of the harness, and a slower fixture would
+        // turn every restored-tab script into a pass earned by nothing.
+        const bool wantsThread =
+            std::getenv("HANABI_OPEN") != nullptr ||
+            !Settings::get().get_active_tab().empty();
         for (int i = 0; i < 300; ++i) {
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
@@ -1151,6 +1160,30 @@ static int run_e2e(const std::string& path, int w, int h) {
                 (!app->openSession || app->openSession->messages.empty()))
                 continue;
             break;
+        }
+        // Say so rather than proceeding into a script that will fail three
+        // assertions in and blame the feature.
+        if (app != nullptr && wantsThread &&
+            (!app->openSession || app->openSession->messages.empty()))
+            fprintf(stderr,
+                    "e2e: WARNING settle finished with no transcript loaded; "
+                    "assertions about message content will not mean what they "
+                    "look like\n");
+    }
+
+    // What the settle loop actually achieved, so a script can be audited for
+    // whether it earned its pass or merely outran the loader. Diagnostic only.
+    if (std::getenv("HANABI_DBG_SETTLE")) {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        if (!q.empty()) {
+            const auto& a = q[0].get().get<ecs::AppComponent>();
+            fprintf(stderr,
+                    "[SETTLE] sessions=%zu listState=%d open=%s msgs=%zu\n",
+                    a.sessions.size(), static_cast<int>(a.listState),
+                    a.openSession ? a.openSession->summary.id.c_str() : "-",
+                    a.openSession ? a.openSession->messages.size() : 0u);
         }
     }
 
