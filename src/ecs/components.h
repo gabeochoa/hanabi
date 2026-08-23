@@ -232,6 +232,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // The set holds the message ids that are expanded; default folded.
     std::set<std::string> expandedMsgs;
 
+    // Transcript: which THINKING blocks the reader has opened. Reasoning is
+    // real content but it is not the answer, so it arrives folded and is
+    // keyed by message id (index as a fallback for an id-less message).
+    std::set<std::string> expandedThinking;
+
     // Home: which shelves are folded shut, by shelf KEY (not label). Seeded
     // from settings at startup and written back on every toggle, so a folded
     // shelf survives relaunch.

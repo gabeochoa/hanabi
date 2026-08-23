@@ -1381,6 +1381,35 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // THINKING FIXTURE: a reply whose reasoning arrives as its own block,
+        // marked the way the agentcloud adapter marks it (subtitle
+        // "thinking"). Seeded only under HANABI_THINKING_DEMO so the ordinary
+        // mock list is unchanged.
+        if (const char* tk = std::getenv("HANABI_THINKING_DEMO");
+            tk && *tk && std::string(tk) != "0") {
+            Session s;
+            s.summary = calm("rthink", "why the retry budget ran out",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "thinking fixture");
+            Message reasoning{"tk2", Role::Assistant,
+                              "The backoff doubles from 200ms and the budget "
+                              "is 5s, so the fifth attempt is already past it. "
+                              "Worth checking whether the ceiling is per-call "
+                              "or per-request before saying which.",
+                              hrs_ago(1), ""};
+            reasoning.subtitle = "thinking";
+            s.messages = {
+                {"tk1", Role::User, "why did the retry budget run out?",
+                 hrs_ago(2), ""},
+                reasoning,
+                {"tk3", Role::Assistant,
+                 "The budget is per-request, and exponential backoff spends it "
+                 "before the fifth attempt.",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
         // DATE FIXTURE: a thread worked across three calendar days, seeded
         // only under HANABI_DATES_DEMO so the ordinary mock list is unchanged.
         // Stamps are anchored to local NOON so a run just after midnight (or
