@@ -3,6 +3,7 @@
 
     python3 scripts/compare_screenshots.py [--baselines DIR] [--current DIR]
                                            [--declared FILE] [--lenient-new]
+                                           [--failures-dir DIR] [--json PATH]
 
 Every PNG in the baseline dir must have a same-named counterpart in the
 current dir and differ by no more than its threshold in the manifest
@@ -12,6 +13,12 @@ current dir and differ by no more than its threshold in the manifest
 stdin): every state the capture harness can produce. A declared state with no
 baseline is a hole in the suite -- nothing checks it -- so it fails the run
 unless the manifest's "unbaselined" map records why it is left out.
+
+A failing run leaves its evidence in --failures-dir (default test-failures/):
+the baseline, the fresh capture and a diff image per failure, plus --json's
+machine-readable summary. The fresh captures live under output/ and the next
+run wipes them, so a failure that is not written down cannot be looked at
+afterwards.
 
 Exit 0 = all within threshold and every state accounted for, 1 = at least one
 screen out of threshold, missing, or unbaselined, 2 = the comparison could not
@@ -27,6 +34,7 @@ import sys
 
 DEFAULT_BASELINES = os.path.join("docs", "screenshots", "baselines")
 DEFAULT_CURRENT = os.path.join("output", "screenshots", "current")
+DEFAULT_FAILURES = "test-failures"
 MANIFEST_NAME = "manifest.json"
 
 NO_BACKEND_MESSAGE = """\
@@ -50,6 +58,11 @@ class Backend:
         the two images are not comparable at all."""
         raise NotImplementedError
 
+    def write_diff(self, baseline, current, out_path):
+        """Write a picture of WHERE the two differ. Returns the path, or None
+        if this backend could not draw one."""
+        raise NotImplementedError
+
 
 class PillowBackend(Backend):
     name = "Pillow"
@@ -71,6 +84,27 @@ class PillowBackend(Backend):
             identical = histogram[0]
             total = a.size[0] * a.size[1]
         return (total - identical) / total
+
+    def write_diff(self, baseline, current, out_path):
+        # The baseline, dimmed, with every changed pixel painted red. A plain
+        # subtraction is unreadable on a dark UI — most real diffs are a few
+        # anti-aliased pixels on a near-black background, and they disappear.
+        with self.Image.open(baseline) as a, self.Image.open(current) as b:
+            a = a.convert("RGB")
+            b = b.convert("RGB")
+            if a.size != b.size:
+                return None
+            diff = self.ImageChops.difference(a, b)
+            bands = diff.split()
+            worst = bands[0]
+            for band in bands[1:]:
+                worst = self.ImageChops.lighter(worst, band)
+            mask = worst.point(lambda v: 255 if v > 0 else 0).convert("L")
+            faded = self.Image.blend(a, self.Image.new("RGB", a.size, (0, 0, 0)), 0.65)
+            marked = self.Image.new("RGB", a.size, (255, 40, 40))
+            faded.paste(marked, mask=mask)
+            faded.save(out_path)
+        return out_path
 
 
 class ImageMagickBackend(Backend):
@@ -98,6 +132,18 @@ class ImageMagickBackend(Backend):
             return "magick compare failed: {}".format(proc.stderr.strip())
         differing = float(proc.stderr.strip().split()[0])
         return differing / (a[0] * a[1])
+
+    def write_diff(self, baseline, current, out_path):
+        proc = subprocess.run(
+            [self.magick, "compare", "-highlight-color", "red",
+             baseline, current, out_path],
+            capture_output=True, text=True,
+        )
+        # `magick compare` exits 1 when the images differ, which is the case we
+        # are drawing; only a worse code means it failed to write anything.
+        if proc.returncode > 1 or not os.path.exists(out_path):
+            return None
+        return out_path
 
 
 def pick_backend():
@@ -153,6 +199,45 @@ def report_new(new, manifest_path, lenient):
         print("  (--lenient-new: reported, not failed)")
 
 
+def write_failure_artifacts(failures, failures_dir, backend):
+    """Everything needed to judge a failure after the run is gone: the two
+    frames and a picture of where they differ. The current frames live under
+    output/ and are wiped by the next capture, so they are COPIED here."""
+    os.makedirs(failures_dir, exist_ok=True)
+    for f in failures:
+        name = f["name"]
+        if f["current"] is None:
+            continue
+        f["baseline_copy"] = os.path.join(failures_dir, name + "-baseline.png")
+        f["current_copy"] = os.path.join(failures_dir, name + "-current.png")
+        shutil.copyfile(f["baseline"], f["baseline_copy"])
+        shutil.copyfile(f["current"], f["current_copy"])
+        drawn = backend.write_diff(f["baseline"], f["current"],
+                                   os.path.join(failures_dir, name + "-diff.png"))
+        f["diff_image"] = drawn
+    print("wrote {} for {} failing screen(s)".format(
+        failures_dir, sum(1 for f in failures if f["current"] is not None)))
+
+
+def write_json_summary(path, baselines, failures, new, excluded, backend):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    summary = {
+        "backend": backend.name,
+        "total": len(baselines),
+        "passed": len(baselines) - len(failures),
+        "failed": len(failures),
+        "unbaselined_new": new,
+        "unbaselined_recorded": sorted(excluded),
+        "failures": failures,
+    }
+    with open(path, "w") as fh:
+        json.dump(summary, fh, indent=2)
+        fh.write("\n")
+    print("wrote {}".format(path))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baselines", default=DEFAULT_BASELINES)
@@ -165,6 +250,14 @@ def main():
         "report unbaselined states without failing the run"))
     parser.add_argument("--print-new", action="store_true", help=(
         "print the unbaselined state names and exit; compares nothing"))
+    parser.add_argument("--failures-dir", default=DEFAULT_FAILURES, help=(
+        "where to write the artifacts for a failing run (default {})".format(
+            DEFAULT_FAILURES)))
+    parser.add_argument("--no-save-diffs", dest="save_diffs",
+                        action="store_false", help=(
+        "do not write the diff PNG and the copies of the two frames"))
+    parser.add_argument("--json", default=None, help=(
+        "write the run summary as JSON to this path"))
     args = parser.parse_args()
 
     manifest_path = args.manifest or os.path.join(args.baselines, MANIFEST_NAME)
@@ -214,18 +307,24 @@ def main():
         current_png = os.path.join(args.current, name + ".png")
         if not os.path.exists(current_png):
             print("  {:<24} MISSING   no capture in {}".format(name, args.current))
-            failures.append(name)
+            failures.append({"name": name, "reason": "missing capture",
+                             "threshold_pct": threshold, "diff_pct": None,
+                             "baseline": baseline_png, "current": None})
             continue
         result = backend.diff_fraction(baseline_png, current_png)
         if isinstance(result, str):
             print("  {:<24} FAIL      {}".format(name, result))
-            failures.append(name)
+            failures.append({"name": name, "reason": result,
+                             "threshold_pct": threshold, "diff_pct": None,
+                             "baseline": baseline_png, "current": current_png})
             continue
         pct = result * 100.0
         if pct > threshold:
             print("  {:<24} FAIL      {:.4f}% differs (threshold {:.4f}%)".format(
                 name, pct, threshold))
-            failures.append(name)
+            failures.append({"name": name, "reason": "over threshold",
+                             "threshold_pct": threshold, "diff_pct": pct,
+                             "baseline": baseline_png, "current": current_png})
         else:
             print("  {:<24} ok        {:.4f}% (threshold {:.4f}%)".format(
                 name, pct, threshold))
@@ -246,8 +345,13 @@ def main():
     if new:
         report_new(new, manifest_path, args.lenient_new)
 
+    if failures and args.save_diffs:
+        write_failure_artifacts(failures, args.failures_dir, backend)
+    if args.json:
+        write_json_summary(args.json, baselines, failures, new, excluded, backend)
+
     if failures:
-        print("FAILED: {}".format(", ".join(failures)), file=sys.stderr)
+        print("FAILED: {}".format(", ".join(f["name"] for f in failures)), file=sys.stderr)
         print("If the change is intentional: make update-baselines, then review "
               "the PNG diff before committing.", file=sys.stderr)
         return 1

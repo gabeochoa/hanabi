@@ -129,12 +129,30 @@ baseline would rot" are both legitimate, and both are worth reading.
 
 ## When validation fails
 
-1. Look at the reported diff percentage. A handful of pixels is usually a font
-   or layout shift; a large number is a real regression.
-2. Compare by eye: the fresh capture is in `output/screenshots/current/`, the
-   reference is here.
-3. If the change is intended, `make update-baselines` and commit the new PNGs
+A failing run writes `test-failures/` (gitignored) and everything you need is
+in it:
+
+```
+test-failures/
+  15_settings_dark-baseline.png   what is committed
+  15_settings_dark-current.png    what this build rendered
+  15_settings_dark-diff.png       the baseline dimmed, changed pixels in red
+  summary.json                    {passed, failed, total, failures: [...]}
+```
+
+The current frames are copied there on purpose: they live under `output/` and
+the next capture wipes them, so a failure you did not write down cannot be
+looked at afterwards.
+
+1. Open the diff image. A few red pixels on a glyph edge is a font or layout
+   shift; a red block is a real regression.
+2. If the change is intended, `make update-baselines` and commit the new PNGs
    with a reason. If it is not, fix the code — do not raise the threshold.
+3. If the screen turns out not to reproduce at all, it belongs in
+   `unbaselined` with the reason, not at a threshold wide enough to hide it.
+
+`make gate` runs this check together with `make test`; `make install-hooks`
+puts that gate on `git push`. Nothing else runs it — this repo has no CI.
 
 The comparison is `scripts/compare_screenshots.py`. It uses Pillow when the
 running python3 has it and ImageMagick's `magick compare` otherwise; with
