@@ -384,6 +384,8 @@ static void test_slash_parsing() {
     // Only /new can actually be carried out today.
     for (const auto& c : sl::all())
         CHECK(c.runnable == (c.name == "new"));
+}
+
 // --- the model menu -------------------------------------------------------
 static void test_model_menu() {
     std::printf("test_model_menu\n");
