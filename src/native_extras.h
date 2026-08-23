@@ -100,6 +100,28 @@ void native_openurl_install(void);
 // AppComponent::requestOpenTab to open + navigate to the thread.
 bool native_take_open_thread(char* out, int cap);
 
+// ---- 6. Native file picker (NSOpenPanel) -----------------------------------
+//
+// One modal ask: "which folder?". Blocks until the user answers — the frame
+// loop stops for as long as the panel is up, which is what a modal panel means
+// and what every native app does with one. Main thread only; NEVER call from
+// the headless path (nothing would be there to dismiss it).
+//
+// Directories, not files, because the one place hanabi has to ask is where the
+// owned Markdown export writes. The FILE half of this seam — the picker the
+// breakdown wants for the `file_upload` tool — is deliberately not here: a
+// picked file would have nowhere to go. hanabi's api::Client has no notion of
+// a tool asking for anything, and the backend's file answer is a durable
+// upload HANDLE (a file id the client mints by uploading first), not bytes, so
+// a picker wired to it today would hand back a file that could never arrive.
+// It goes in the day there is an upload path to give it.
+//
+// `prompt` is the panel's action-button text ("Choose"), or null for the
+// system default. Returns true and writes the chosen absolute path into `out`
+// (UTF-8, NUL-terminated, up to cap-1 bytes); returns false when the user
+// cancels, leaving `out` untouched.
+bool native_pick_directory(const char* prompt, char* out, int cap);
+
 // ---- 5. OS appearance (for the "System" theme choice) ----------------------
 
 // True when the OS is in Dark appearance (macOS: AppleInterfaceStyle == Dark).

@@ -330,9 +330,10 @@ std::string slugify(const std::string& s, const std::string& fallback) {
 }
 }  // namespace
 
-int export_all_markdown() {
+int export_all_markdown() { return export_all_markdown(export_dir()); }
+
+int export_all_markdown(const std::string& dst) {
     const std::string src = cache_dir();
-    const std::string dst = export_dir();
     if (src.empty() || dst.empty()) return 0;
     std::error_code ec;
     fs::create_directories(dst, ec);

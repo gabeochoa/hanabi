@@ -39,6 +39,7 @@ bool Settings::load_save_file() {
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
         font_choice_ = j.value("font", font_choice_);
+        export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
         cache_cap_bytes_ =
             j.value("cache_cap_bytes", cache_cap_bytes_);
@@ -103,6 +104,7 @@ void Settings::write_save_file() {
     j["active_tab"] = active_tab_;
     j["theme"] = theme_;
     j["font"] = font_choice_;
+    j["export_dir"] = export_dir_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
     j["cache_cap_bytes"] = cache_cap_bytes_;
     j["yap_level"] = yap_level_;
@@ -156,6 +158,13 @@ void Settings::set_font_choice(const std::string& font) {
     font_choice_ = font;
     // Persist immediately (mirrors set_theme) so the font choice survives
     // relaunch. Client-local only — never sent to the backend.
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_export_dir() const { return export_dir_; }
+void Settings::set_export_dir(const std::string& dir) {
+    if (dir == export_dir_) return;  // no change — skip the write
+    export_dir_ = dir;
     if (auto_save_enabled) write_save_file();
 }
 

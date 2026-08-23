@@ -48,6 +48,15 @@ struct Settings {
     const std::string& get_font_choice() const;
     void set_font_choice(const std::string& font);  // auto-persists
 
+    // ── Export destination (Settings -> Data -> Export) ─────────────────
+    // Where "Export all" writes the owned Markdown copies. Empty means the
+    // built-in default (api::disk_cache::export_dir(), ~/hanabi/threads);
+    // a chosen folder is remembered, because picking one every time is the
+    // kind of friction that stops people keeping their own copies.
+    // Auto-persists (mirrors set_theme). Client-local; never sent anywhere.
+    const std::string& get_export_dir() const;
+    void set_export_dir(const std::string& dir);  // auto-persists
+
     // Sidebar collapsed (thin icon rail) vs expanded (full 280px). Persisted so
     // a user who folds the sidebar and quits gets it folded on relaunch (the
     // toggle otherwise lived only in the in-memory LayoutComponent). Auto-persists.
@@ -173,6 +182,7 @@ struct Settings {
     std::string active_tab_;
     std::string theme_ = "dark";
     std::string font_choice_ = "default";
+    std::string export_dir_;  // empty = the built-in default
     bool sidebar_collapsed_ = false;
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;

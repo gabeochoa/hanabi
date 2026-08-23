@@ -1,0 +1,35 @@
+# The export destination is the user's to choose, and the export goes there.
+#
+# "Export all" used to write to ~/hanabi/threads and only there. The row now
+# names the chosen folder and offers "Choose…", which opens the native folder
+# picker (native_pick_directory / NSOpenPanel).
+#
+# WHAT THIS PROVES, AND WHAT IT CANNOT. A modal NSOpenPanel is not in the
+# widget tree: a script that clicked "Choose…" for real would stop against a
+# panel nothing can dismiss. So HANABI_PICK_DIR_TEST answers the ask with a
+# path, and everything the answer touches is exercised for real — the button,
+# the persistence, the row that reads it back, and the destination the export
+# actually writes to. The panel itself is verified by hand (see the theme
+# report); this is the same split the drop test makes.
+#
+# Opened through the state knob because the harness cannot press Cmd+,
+# (afterhours_gaps.md #49).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings HANABI_PICK_DIR_TEST=/tmp/hanabi-export-choice
+
+# The default destination, before anyone chooses anything.
+expect_text "Export threads to ~/hanabi/threads"
+
+click_ui settings_export_choose
+wait_frames 6
+
+# The row reads the chosen folder back — so the click reached Settings, and
+# Settings is what the row asks.
+expect_text "Export threads to /tmp/hanabi-export-choice"
+
+# And the export goes to the chosen folder, not the default: the count is
+# reported against the destination the row just named.
+click_ui settings_export_btn
+wait_frames 6
+expect_text "threads to /tmp/hanabi-export-choice"

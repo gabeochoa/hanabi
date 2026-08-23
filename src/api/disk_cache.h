@@ -59,6 +59,11 @@ std::optional<Session> load_transcript(const std::string& id);
 // the local cache (never the network). export_dir() returns the path used.
 std::string export_dir();
 int export_all_markdown();
+// Same, into a destination the USER chose (Settings -> Data -> Export ->
+// Choose…). The no-argument form is this one with export_dir(); the split
+// exists because a destination the user picked has to be honoured over the
+// default, and neither should have to know about the other.
+int export_all_markdown(const std::string& dst);
 
 // --- Local full-text search (local-first idea #3) -----------------------
 // content_matches(id, lowerQuery): true if the CACHED transcript for `id`
