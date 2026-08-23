@@ -62,6 +62,9 @@ inline afterhours::Color close_hover() {
 }
 inline afterhours::Color border() { return theme::border(); }
 inline afterhours::Color accent() { return theme::accent(); }
+// Measured off the reference: the tab's corner is 6px, not a fraction of its
+// height.
+inline constexpr float kTabCorner = 6.0f;
 }  // namespace tab_colors
 
 struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
@@ -104,25 +107,30 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("tab_strip"));
 
         float tabX = r.x;
-        float tabH = r.height;
-        // Chrome-style overflow ladder:
-        //   * maxWCap: a comfortable full width; a few tabs never stretch huge.
-        //   * minW:    the hard FLOOR. Tabs shrink to share the strip down to
-        //              here (still showing icon+ellipsized title+×); below this
-        //              they DON'T keep shrinking into illegibility — instead
-        //              the strip SCROLLS (scrollX) and tabs keep minW.
-        // (The old code used minW=90/cap=200 and simply stopped drawing past
-        //  the right edge, which is what made the many-tabs state look broken.)
+        // The tabs occupy the BOTTOM band of the strip; the band above them is
+        // left clear (frameless-window drag zone / traffic lights). The tab's
+        // bottom edge sits ON the strip's hairline so the hairline reads as the
+        // shelf the tabs stand on.
+        const float tabH = std::min(layout.tabStripTabHeight, r.height);
+        const float tabY = r.y + r.height - tabH - 1.0f;
+        // Reference geometry: a tab is a fixed 220 wide with a 4px gap, and the
+        // run starts 4px in from the pane's left edge. Tabs only shrink from
+        // there when too many are open to fit.
         const float minW = 40.0f;
-        const float maxWCap = 240.0f;
-        // A small gap BETWEEN tabs (not a hairline divider): with the rounded
-        // tops + distinct inactive fill, a gap reads cleaner than a rule and
-        // makes each tab an obviously separate object. The gap shows the strip
-        // background through it, so tabs float as discrete recessed wells.
-        const float gap = 3.0f;
-        // Right edge the tabs must never cross (the main-pane width). A tab or
-        // its × drawn past this would bleed off the window frame.
-        const float stripRight = r.x + r.width;
+        const float maxWCap = 220.0f;
+        const float gap = 4.0f;
+        // The strip's own left inset: the first tab does not touch the divider.
+        const float stripPadL = 4.0f;
+        // Room reserved at the right end for the new-tab (+) button, so a full
+        // strip of tabs never runs underneath it.
+        const float kNewTabW = 34.0f;
+        // Right edge the tabs must never cross.
+        const float stripRight = r.x + r.width - kNewTabW;
+        // Left edge of the tab run (the strip's inset).
+        const float runLeft = r.x + stripPadL;
+        // Chrome-style overflow ladder: tabs shrink to share the strip down to
+        // minW, and below that the strip SCROLLS (scrollX) instead of shrinking
+        // them into illegibility.
 
         // Cap total tab area so N tabs (plus the gaps between them) never
         // overflow the strip. If the tabs at their natural width would exceed
@@ -132,15 +140,18 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // This uniform width keeps the drag-reorder slot math (slotStride)
         // valid. All computed by the pure, unit-tested model.
         const size_t nTabs = strip.tabOrder.size();
+        // The width the tab run may use: the strip less its left inset and the
+        // + button's reserved slot.
+        const float runW = std::max(0.0f, r.width - stripPadL - kNewTabW);
         const float uniformW =
-            model::compute_tab_width(r.width, nTabs, minW, maxWCap, gap);
+            model::compute_tab_width(runW, nTabs, minW, maxWCap, gap);
 
         // The per-tab horizontal advance (a full slot: tab width + the gap).
         const float slotStride = uniformW + gap;
 
         // How far the strip can scroll (content beyond the visible strip).
         const float maxScroll =
-            model::compute_max_scroll(r.width, nTabs, uniformW, gap);
+            model::compute_max_scroll(runW, nTabs, uniformW, gap);
 
         // ---- Horizontal scroll input --------------------------------------
         // Chrome hscrolls the strip on horizontal wheel / shift+wheel when the
@@ -152,7 +163,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             bool shiftDown = afterhours::graphics::is_key_down(340) ||
                              afterhours::graphics::is_key_down(344);
             bool overStrip = afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, RectangleType{r.x, r.y, r.width, tabH});
+                ctx.mouse.pos, RectangleType{r.x, tabY, r.width, tabH});
             if ((overStrip || shiftDown) && maxScroll > 0.0f) {
                 float wheel = afterhours::graphics::get_mouse_wheel_move();
                 if (wheel != 0.0f) {
@@ -175,7 +186,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             strip.scrollX = model::clamp_scroll(strip.scrollX, maxScroll);
             if (activeIdx < strip.tabOrder.size())
                 strip.scrollX = model::scroll_to_show(
-                    activeIdx, strip.scrollX, r.width, uniformW, gap, nTabs);
+                    activeIdx, strip.scrollX, runW, uniformW, gap, nTabs);
         }
         // Every tab's non-drag left edge is shifted left by the scroll offset.
         const float scrollOff = strip.scrollX;
@@ -183,7 +194,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // layout is relative to baseX; the visible viewport is still [r.x,
         // stripRight]. When scrollOff==0 (everything fits) baseX==r.x, so the
         // no-overflow path is byte-identical to before.
-        const float baseX = r.x - scrollOff;
+        const float baseX = r.x + stripPadL - scrollOff;
 
         // ---- Drag-to-reorder input (manual hit-testing, mirrors the strip's
         // own is_mouse_inside checks). We only ever *record* intent here; the
@@ -200,7 +211,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         auto over_close = [&](float x, float tabW) {
             float closeW = 16.0f;
             float closeX = x + tabW - closeW - 5.0f;
-            float closeY = r.y + (tabH - closeW) * 0.5f;
+            float closeY = tabY + (tabH - closeW) * 0.5f;
             return afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{closeX, closeY, closeW, closeW});
         };
@@ -213,14 +224,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 float px = baseX + slotStride * static_cast<float>(i);
                 float w = uniformW;
                 // Skip slots entirely outside the visible viewport.
-                if (px + w <= r.x || px >= stripRight) continue;
+                if (px + w <= runLeft || px >= stripRight) continue;
                 // Clamp the visible hit rect to the viewport so a press in the
                 // sidebar/beyond-strip gutter doesn't count.
-                float hitX = std::max(px, r.x);
+                float hitX = std::max(px, runLeft);
                 float hitR = std::min(px + w, stripRight);
                 bool inside = afterhours::ui::is_mouse_inside(
                     ctx.mouse.pos,
-                    RectangleType{hitX, r.y, hitR - hitX, tabH});
+                    RectangleType{hitX, tabY, hitR - hitX, tabH});
                 if (inside && !over_close(px, w)) {
                     strip.dragCandidate = strip.tabOrder[i];
                     strip.dragFromIndex = i;
@@ -245,7 +256,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 float draggedLeftR =
                     (origCenter + (strip.dragCurX - strip.dragStartX)) -
                     uniformW * 0.5f;
-                draggedLeftR = std::clamp(draggedLeftR, r.x,
+                draggedLeftR = std::clamp(draggedLeftR, runLeft,
                                           stripRight - uniformW);
                 size_t to = model::compute_drop_index(
                     draggedLeftR + uniformW * 0.5f, baseX, slotStride, nTabs);
@@ -274,12 +285,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             for (size_t i = 0; i < nTabs; ++i) {
                 float px = baseX + slotStride * static_cast<float>(i);
                 float w = uniformW;
-                if (px + w <= r.x || px >= stripRight) continue;
-                float hitX = std::max(px, r.x);
+                if (px + w <= runLeft || px >= stripRight) continue;
+                float hitX = std::max(px, runLeft);
                 float hitR = std::min(px + w, stripRight);
                 if (afterhours::ui::is_mouse_inside(
                         ctx.mouse.pos,
-                        RectangleType{hitX, r.y, hitR - hitX, tabH})) {
+                        RectangleType{hitX, tabY, hitR - hitX, tabH})) {
                     strip.menuOpen = true;
                     strip.menuTabId = strip.tabOrder[i];
                     strip.menuX = ctx.mouse.pos.x;
@@ -298,12 +309,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             for (size_t i = 0; i < nTabs; ++i) {
                 float px = baseX + slotStride * static_cast<float>(i);
                 float w = uniformW;
-                if (px + w <= r.x || px >= stripRight) continue;
-                float hitX = std::max(px, r.x);
+                if (px + w <= runLeft || px >= stripRight) continue;
+                float hitX = std::max(px, runLeft);
                 float hitR = std::min(px + w, stripRight);
                 if (afterhours::ui::is_mouse_inside(
                         ctx.mouse.pos,
-                        RectangleType{hitX, r.y, hitR - hitX, tabH})) {
+                        RectangleType{hitX, tabY, hitR - hitX, tabH})) {
                     const afterhours::EntityID tabId = strip.tabOrder[i];
                     auto o = EntityHelper::getEntityForID(tabId);
                     const bool wasActive = o.valid() && o->has<ActiveTab>();
@@ -327,7 +338,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             float draggedCenter =
                 origCenter + (strip.dragCurX - strip.dragStartX);
             // Clamp so the dragged tab never leaves the VISIBLE strip.
-            float minLeft = r.x;
+            float minLeft = runLeft;
             float maxLeft = stripRight - uniformW;
             draggedLeft = draggedCenter - uniformW * 0.5f;
             draggedLeft = std::clamp(draggedLeft, minLeft, maxLeft);
@@ -389,7 +400,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // is already clamped fully inside the strip above, so it's never
             // skipped/clamped here.
             if (!isDragged) {
-                if (tabX + tabW <= r.x || tabX >= stripRight) continue;
+                if (tabX + tabW <= runLeft || tabX >= stripRight) continue;
                 if (tabX + tabW > stripRight) tabW = stripRight - tabX;
             }
 
@@ -400,7 +411,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             bool hovered = (!dragging &&
                             afterhours::ui::is_mouse_inside(
                                 ctx.mouse.pos,
-                                RectangleType{tabX, r.y, tabW, tabH})) ||
+                                RectangleType{tabX, tabY, tabW, tabH})) ||
                            isDragged ||
                            // Test-only: force one tab's hover branch (to
                            // capture the hovered-tab styling headlessly).
@@ -416,15 +427,19 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                         ? tab_colors::tab_text_act()
                                         : tab_colors::tab_text();
 
-            // At narrow (scrolled) widths, Chrome hides the × on inactive,
-            // non-hovered tabs so the (ellipsized) title keeps as much room as
-            // possible; the active/hovered tab always keeps a reachable ×.
-            const float kCloseShowMinW = 90.0f;
-            bool showClose = isActive || hovered || tabW >= kCloseShowMinW;
+            // The × appears on HOVER only. A row of tabs each carrying a
+            // permanent × reads as a toolbar of buttons; the reference shows a
+            // clean title on every tab, active one included, and the close
+            // affordance only under the cursor.
+            bool showClose = hovered;
+            // A pinned tab spends its left gutter on the pin, so the title
+            // starts further in. Both numbers are measured off the reference:
+            // pin at left+12, title at left+26 (left+12 when unpinned).
+            const float padL = tab.pinned ? 26.0f : 12.0f;
             // Ellipsize the title to the room the tab actually has: ~7px/char
             // at ROW size, minus left pad + (× reserve when shown).
             float rightReserve = showClose ? 26.0f : 8.0f;
-            float textRoom = tabW - 12.0f - rightReserve;
+            float textRoom = tabW - padL - rightReserve;
             size_t labelBudget = textRoom <= 0.0f
                                      ? 1
                                      : static_cast<size_t>(textRoom / 7.0f);
@@ -435,24 +450,32 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(tabW), pixels(tabH)})
                     .with_absolute_position()
-                    .with_translate(tabX, r.y)
+                    .with_translate(tabX, tabY)
                     .with_custom_background(bg)
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.left = pixels(12),
+                    .with_padding(Padding{.left = pixels(padL),
                                           .right = pixels(showClose ? 24 : 8)})
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.25f)
-                    // Round ALL FOUR corners with a modest radius (the safe
-                    // shape). The mixed top_round()/sharp-bottom path still
-                    // renders a jagged bracket artifact on inactive tabs even
-                    // with the gap #25 FILL fix — the outline/edge path glitches
-                    // on the sharp bottom corners. all_round() never hits the
-                    // degenerate branch (every radius > 0), so the tab reads as
-                    // a clean rounded chip. (Gabe screenshot: jagged tab corners.)
+                    // Round ALL FOUR corners. The mixed top_round()/sharp-bottom
+                    // path still renders a jagged bracket artifact on inactive
+                    // tabs even with the gap #25 FILL fix — the outline/edge
+                    // path glitches on the sharp bottom corners. all_round()
+                    // never hits the degenerate branch (every radius > 0), so
+                    // the tab reads as a clean rounded chip.
+                    .with_corner_radius(tab_colors::kTabCorner)
+                    // An inactive tab is the window colour, exactly like the
+                    // strip behind it: the 1px outline is the only thing that
+                    // says where it starts and ends.
+                    .with_border(isActive ? bg : tab_colors::border(),
+                                 pixels(1))
                     .with_render_layer(baseLayer)
-                    .with_debug_name("tab_" + tab.sessionId));
+                    // The ACTIVE tab carries a fixed name: "which tab is
+                    // current" is a thing tests need to assert, and the accent
+                    // bar they used to assert on is gone.
+                    .with_debug_name(isActive ? std::string("tab_active")
+                                              : ("tab_" + tab.sessionId)));
             // Label as a centered child whose height EQUALS the strip content
             // box (tabH), so the label's own vertical-centering lands the text
             // on the tab's true center instead of fontstash ascent/descent
@@ -469,42 +492,27 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_render_layer(baseLayer)
                     .with_debug_name("tab_label"));
-
-            // Active-tab cues (secondary to the fill delta):
-            //   1. a top accent bar (3px) — the classic "current tab" marker,
-            //      stronger and more tab-like than a thin bottom underline;
-            //   2. a bottom BRIDGE of the active fill drawn over the strip's
-            //      1px bottom hairline, so the active tab visually merges into
-            //      the content pane directly below it (no seam between them).
-            if (isActive) {
-                // Bridge: cover the strip's bottom border under this tab with
-                // the panel fill so tab + content read as one raised surface.
-                // (Skip the bridge while THIS tab is being dragged — it's
-                // lifted off the strip, so merging it with the content below
-                // would look wrong.)
-                if (!isDragged)
-                    div(ctx, mk(uiRoot, 925 + static_cast<int>(i)),
-                        ComponentConfig{}
-                            .with_size(ComponentSize{pixels(tabW), pixels(2)})
-                            .with_absolute_position()
-                            .with_translate(tabX, r.y + tabH - 1.0f)
-                            .with_custom_background(bg)
-                            .with_roundness(0.0f)
-                            .with_render_layer(baseLayer + 1)
-                            .with_debug_name("tab_bridge"));
-                // Top accent bar.
-                div(ctx, mk(uiRoot, 930 + static_cast<int>(i)),
+            // Pin glyph, DRAWN: the font silently drops a pushpin codepoint
+            // (gap #48), so it is a shape in the tab's left gutter.
+            if (tab.pinned)
+                div(ctx, mk(uiRoot, 960 + static_cast<int>(i)),
                     ComponentConfig{}
-                        .with_size(ComponentSize{pixels(tabW), pixels(3)})
+                        .with_label(" ")
+                        .with_size(ComponentSize{pixels(10), pixels(12)})
                         .with_absolute_position()
-                        .with_translate(tabX, r.y)
-                        .with_custom_background(tab_colors::accent())
-                        .with_rounded_corners(
-                            afterhours::ui::imm::RoundedCorners().all_round().get())
-                        .with_roundness(0.35f)
+                        .with_translate(tabX + 11.0f,
+                                        tabY + (tabH - 12.0f) * 0.5f)
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
                         .with_render_layer(baseLayer + 1)
-                        .with_debug_name("tab_accent_top"));
-            }
+                        .with_on_draw_fg([txt](RectangleType rc) {
+                            hanabi::glyph::pin(rc, txt);
+                        })
+                        .with_debug_name("tab_pin"));
+
+            // No accent bar and no bridge: the fill delta IS the
+            // active-tab cue (the reference has neither), and the strip's
+            // hairline runs unbroken under every tab.
 
             // Preview marker: a short bar in the tab's left gutter, over the
             // padding the label never uses, so saying "this one is temporary"
@@ -515,7 +523,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_size(ComponentSize{pixels(3),
                                                  pixels(tabH - 14.0f)})
                         .with_absolute_position()
-                        .with_translate(tabX + 4.0f, r.y + 7.0f)
+                        .with_translate(tabX + 4.0f, tabY + 7.0f)
                         .with_custom_background(tab_colors::tab_text())
                         .with_roundness(0.5f)
                         .with_render_layer(baseLayer + 1)
@@ -531,7 +539,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             if (showClose) {
             float closeW = 16.0f;
             float closeX = tabX + tabW - closeW - 5.0f;
-            float closeY = r.y + (tabH - closeW) * 0.5f;
+            float closeY = tabY + (tabH - closeW) * 0.5f;
             // Don't draw the × past the visible strip right edge.
             if (closeX + closeW <= stripRight) {
             bool closeHovered =
@@ -577,6 +585,37 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }  // showClose
         }
 
+        // ---- New-tab (+) at the far right of the strip --------------------
+        // Its own reserved slot (kNewTabW), so however many tabs are open the
+        // + is always in the same place. The glyph is a sprite blit, not a
+        // typed '+', for the same reason the pin is drawn.
+        {
+            const float plusD = 24.0f;
+            const float plusX = r.x + r.width - 17.0f - plusD * 0.5f;
+            const float plusY = tabY + (tabH - plusD) * 0.5f;
+            bool plusHovered = afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos, RectangleType{plusX, plusY, plusD, plusD});
+            auto plusBtn = button(ctx, mk(uiRoot, 968),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(plusD), pixels(plusD)})
+                    .with_absolute_position()
+                    .with_translate(plusX, plusY)
+                    .with_custom_background(plusHovered
+                                                ? tab_colors::tab_hover()
+                                                : tab_colors::strip_bg())
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(4.0f)
+                    .with_render_layer(7)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "plus", "+",
+                        plusHovered ? tab_colors::tab_text_act()
+                                    : tab_colors::tab_text(),
+                        15.0f))
+                    .with_debug_name("tab_new"));
+            if (plusBtn) app.composerOpen = true;
+        }
+
         // ---- Right-click context menu (render + act) ----------------------
         // A small overlay anchored at the right-click cursor with per-tab
         // actions. Drawn on a high render layer so it sits above the strip and
@@ -601,11 +640,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         struct Item {
             const char* label;
             int action;  // 0 = copy url, 1 = close others, 2 = open in split,
-                         // 3 = rename
+                         // 3 = rename, 4 = pin/unpin
         };
         std::vector<Item> items;
         if (app.client && app.client->supports_rename())
             items.push_back({"Rename\xe2\x80\xa6", 3});
+        items.push_back({tab.pinned ? "Unpin tab" : "Pin tab", 4});
         items.push_back({"Copy URL", 0});
         items.push_back({"Open in split", 2});
         items.push_back({"Close others", 1});
@@ -671,6 +711,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     // beside the active one. No-op if it's the active thread.
                     app.requestSplitOpen = keepId;
                     app.view = SmartView::Chat;
+                } else if (kItems[k].action == 4) {
+                    tabEntity.get<Tab>().pinned = !tab.pinned;
                 } else if (kItems[k].action == 3) {
                     app.renameOpen = true;
                     app.renameSessionId = keepId;
@@ -697,8 +739,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     // Open `id` in a tab: focus if already open, else create a new tab.
     // Delegates to the graphics-free, headlessly-tested model tab logic.
     static void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
-                                    const std::string& id, bool keep = true) {
-        model::open_session_in_tab(strip, app, id, keep);
+                                    const std::string& id, bool keep = true,
+                                    bool pinned = false) {
+        model::open_session_in_tab(strip, app, id, keep, pinned);
     }
 
     static void switch_to_tab(AppComponent& app, Entity& newTab) {
@@ -724,7 +767,12 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             if (strip && !app.restoreTabIds.empty()) {
                 for (const auto& id : app.restoreTabIds)
                     if (app.find_summary(id))
-                        TabBarSystem::open_session_in_tab(*strip, app, id);
+                        TabBarSystem::open_session_in_tab(
+                            *strip, app, id, /*keep=*/true,
+                            /*pinned=*/std::find(app.restorePinnedIds.begin(),
+                                                 app.restorePinnedIds.end(),
+                                                 id) !=
+                                app.restorePinnedIds.end());
                 // Focus the persisted active tab (falls back to last opened).
                 if (!app.restoreActiveId.empty() &&
                     app.find_summary(app.restoreActiveId)) {
@@ -739,6 +787,7 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
                 }
             }
             app.restoreTabIds.clear();
+            app.restorePinnedIds.clear();
         }
 
         if (app.requestOpenTab.empty()) return;

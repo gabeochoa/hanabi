@@ -3148,3 +3148,140 @@ background one, so `with_border_right` survives its own children (this is #63's
   state type so an app can move between them without rewriting its callers.
   The second is the honest one: the state IS the API here, and the library has
   two of them for one concept.
+### #68 — Nothing reports the height an element actually came out at, so every scrolling list keeps two copies of its own layout
+
+**What I wanted.** A virtualized transcript whose spacers are the size of the
+items they stand in for. The list needs an item's height BEFORE it builds the
+item (to place the spacers above and below the window), so `bubble_height()`
+computes it and the render walk then draws the same thing. The two are supposed
+to agree.
+
+**What I tried.** Making the drawn shape match a measured reference: a user
+bubble that hugs its text, an assistant bubble with its own padding. Every one
+of those numbers has to be added in two places — the measure and the draw —
+and I wanted to check that I had actually put it in both.
+
+**What happened.** There is no way to ask. Not from the app: an element's
+resolved rect exists (`UIComponent::rect()`) but only for the frame that has
+already been laid out, and nothing correlates it back to the item the measure
+pass sized. Not from a test either: `assert_ui` can assert a height you already
+know, which is the same guess the app made.
+
+So I wrote a probe (`src/ui/measure_probe.h`, `HANABI_PROBE_MEASURE=1`) that
+does the correlation by hand: the measure pass records `bubble_height(i)`
+against a key, the turn element is named with its index while the probe is on,
+and the next frame walks the UI collection and holds the resolved rect against
+the promise. On the mock threads it makes ~45 comparisons per rendered frame.
+
+Three things came out of it, and none were visible without it:
+
+1. The pair the repo already worried about — `rich_body_h` vs
+   `render_rich_body`'s walk — **agrees exactly**: 0 drifts.
+2. The pre-existing user-bubble arithmetic did not: the measure added a single
+   `kUserPadV = 14` where the draw padded `8 + 9 = 17`. **Every user message
+   measured 3px shorter than it drew**, on every thread, and had done for as
+   long as those two constants disagreed. Fixed by giving both passes the same
+   two constants.
+3. What is left is a **flat +1px per turn** — measured 79, drew 80; measured
+   107, drew 108 — that is not in the app's arithmetic at all. The parts sum to
+   59 and the engine resolves 60. Over a 100-message thread that is 100px of
+   scroll error.
+
+Then, to prove the probe was not vacuous, I broke the draw on purpose: `+1.0f`
+on the drawn segment height in `render_rich_body`. The probe went from 90
+drifts in 136 comparisons to 136 in 136, and the `richbody` key — silent until
+then — fired 46 times with exactly `+1.00`. Worth noting what did NOT change:
+the turn's resolved height stayed at 108. The line element carries an explicit
+`pixels(segH)`, segH grew by 1, and the element the engine produced did not,
+which says a wrapped label's height is decided by its text and the size you
+hand it is a hint.
+
+**The workaround, and its cost.** Two functions kept in step by hand, one
+constant at a time, with a comment on each saying "mirrors the other". This
+change added four such constants (`kBubblePadTop`, `kBubblePadBot`,
+`kBubbleCfgPadX`, `kAsstInsetR`) and two shared helpers (`asst_text_w`,
+`user_box`) whose only reason to exist is that both passes must not compute the
+number twice. ~90 lines of probe to find a 3px bug that had been shipping, and
+a 1px residual I cannot explain and did not paper over.
+
+**Severity: quiet, permanent, and it gets worse with list length.** Nothing
+fails. The transcript just scrolls slightly wrong, more so the longer the
+thread, and the next person to change a padding re-introduces it.
+
+**Minimal upstream fix.** Either half would do:
+(a) a `measure_only` pass — hand the library a ComponentConfig subtree and get
+back the height it WOULD resolve, so the app has one layout function instead of
+two; or
+(b) a resolved-height read-back keyed by the caller's own id
+(`ui::last_resolved_height(id)`), which at least turns a silent drift into
+something an assert can catch.
+
+### #69 — A wrapped label cannot size itself to its text, and it insets that text by an amount only the renderer knows
+
+**What I wanted.** The reference's user bubble hugs its message: the bubble is
+as wide as the longest wrapped line plus 13px of padding either side, and
+right-aligned. Two ordinary asks — shrink-to-fit, and a padding that means what
+it says.
+
+**What I tried.** `children()` on the bubble's width, with the label inside it.
+
+**What happened.** The label takes the width it is given and wraps into it;
+there is no content width to collapse onto, so `children()` gives the bubble
+whatever the label was already told to be. To get a hugging bubble the app has
+to do the text metrics itself: wrap at the maximum width with
+`ui::wrap_text`, measure every resulting line with the active font
+(`theme::text_px`), take the widest, and set the box from that — reimplementing
+the measurement the wrapper had just done internally and thrown away.
+
+The second half is worse because it is invisible. A label's text does not start
+at its rect's left edge: the wrap width is the rect less ~10px and the first
+glyph lands ~6px in. Neither number is documented or exposed. A tab padded 12px
+draws its title 18px in — measured off a screenshot, which is the only way to
+find out. So a measured 13px gap is coded as a 7px padding plus a named
+`kLabelInsetX = 6.0f` fudge, and every content-sized box has to add
+`2 * kLabelInsetX` back to the width it computed or the text re-wraps inside
+the box that was just sized to fit it.
+
+**The workaround, and its cost.** `user_box()` in `main_pane_system.h`: ~25
+lines to answer "how wide is this text", plus one magic constant in the
+geometry block. The constant is a guess to the pixel — right for this font at
+this size, and silently wrong for the reader who picks Atkinson Hyperlegible in
+settings.
+
+**Severity: a chat app cannot draw a chat bubble without it.** Any bubble,
+chip, tag or tooltip that hugs its content hits both halves.
+
+**Minimal upstream fix.** `ComponentSize{ content(), ... }` for a label — the
+wrapper already computes the line extents it needs — and expose the two inset
+constants (or, better, stop applying them and let padding be padding).
+
+### #70 — An entity created this frame cannot be found by id until the frame merges, so state has to be threaded through the creation call
+
+**What I wanted.** Restore the pinned tabs at launch: open each persisted tab,
+then mark the ones that were pinned.
+
+**What I tried.** The obvious loop — `open_session_in_tab()` for each id, then
+walk `strip.tabOrder`, resolve each id with
+`EntityHelper::getEntityForID`, and set `tab.pinned`.
+
+**What happened.** Nothing was pinned. No error, no invalid entity reported at
+a level the caller sees — the tabs opened, drew, and were simply not pinned. An
+entity created during a frame is not in the collection the id lookup searches
+until the merge at the end of it, so the loop resolved nothing and the `if
+(!o.valid()) continue;` swallowed all of it. It cost a full build cycle (~5
+minutes here) to even see that the flag was not arriving, because the symptom
+is a missing 10x12px glyph.
+
+**The workaround, and its cost.** `pinned` became a parameter of
+`model::open_session_in_tab()`. That works, and it means any future per-tab
+state set at restore time has to become another parameter of the same call
+rather than a line of ordinary code after it. The existing "focus the persisted
+active tab" loop right below has exactly the same shape and is presumably
+equally inert; it looks correct, so nobody has questioned it.
+
+**Severity: silent, and it looks like working code.** Create-then-configure is
+the natural shape and it fails by doing nothing.
+
+**Minimal upstream fix.** Have `getEntityForID` see the pending set too (it
+already knows about it — the temp-warning flag on `EntityQuery` exists for
+exactly this), or make a lookup that misses a just-created id say so.
