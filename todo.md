@@ -400,17 +400,50 @@ from hanabi's own source:
   numbers without ever triggering a refetch. That is the whole fix, if the
   payload carries a maximum.
 
-Open questions, under investigation (subagent, ~/w/grey):
-- [ ] Exact `context_usage` payload — field names and types.
-- [ ] Does it carry a **denominator** (model max context window), or only
-      tokens-used? Without a max there is still no honest percentage and the
-      plain figure stands.
-- [ ] Real tokenizer counts from the model API's usage fields, or an estimate?
-- [ ] Cadence + whether there is a throttle. It "fires constantly"; the meter
-      must not drag a re-render per token.
-- [ ] Any REST route returning current usage, so we can poll on open instead of
-      subscribing to a firehose.
-- [ ] Does usage reset on compaction, and is there a signal for that?
+### What the reference client does (verified in its source, 2026-08-22)
+
+**A denominator exists — but it is two numbers, not one.** The session state
+carries, on the greeting projection at attach:
+
+    tokens.context   = { budget = 800000; window = 1000000 }
+    tokens.occupancy = { tokens = 258937; basis = settled; stale = 0;
+                         anchor_seq = 1329894 }
+
+- `window` — the model's actual context window.
+- `budget` — what the session is allowed **before compaction**. Not the same
+  number, and in the example not even close: 800k against a 1M window.
+
+**Use `budget`, not `window`.** The reference client computes its fraction
+against the budget, on the reasoning that the budget is the thing with a
+consequence — hitting it triggers compaction. `window` is trivia; the user
+wants to know when their thread gets summarised out from under them. (A
+subagent recommended `window` and explicitly warned off `budget`; that is
+backwards, and the reference implementation is the counter-evidence.)
+
+- **Numerator:** `tokens.occupancy.tokens`.
+- **Counts are real**, from the provider's own usage fields (input, output,
+  cache_read, cache_creation) — not a chars/4 estimate.
+- **`cache_read` and `cache_creation` are subsets of `input`**, never added to
+  it. If we ever break the bar into segments, they nest inside input.
+- **`occupancy.stale`** (0/1) means the reading predates content the server has
+  not accounted for. Render it — a stale number presented as live is the same
+  dishonesty the 38% bar was.
+- **Usage accumulates across compaction**, it does not reset. `compaction_started`
+  and `compacted` bookend the summarisation if we want to show it.
+
+**Do not subscribe to the per-delta usage event.** It fires per model call
+delta with no server-side throttle, which is exactly why the current adapter
+filters it. Read the numbers off the state snapshot instead — it updates
+durably on each call settle. There is no REST route for usage; the state
+arrives on the existing stream.
+
+### Still open
+
+- [ ] **Does hanabi's CURRENT backend report a max?** The above is the
+      reference client's backend, which never uses the name `context_usage` —
+      that name is our current backend's, and the two are different protocols.
+      So the denominator is confirmed to exist *if we switch*; whether today's
+      backend has one is still unverified. Check before building anything.
 
 Then: restore the bar, keep the token figure beside it, and add a config key so
 the mock and any backend without a max degrade to the plain figure rather than
