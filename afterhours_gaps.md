@@ -2501,3 +2501,46 @@ should.
   say otherwise. The real damage is that the log is unusable as a signal, so an
   app tripping this learns nothing until someone reads 98 KB of warnings by
   accident.
+
+### #54 — `check_single_action_impl` takes an injected key reader, then ignores it for modifiers
+
+- **How I hit it.** `tests/unit/test_input_pipeline.cpp` is deliberately
+  backend-free: it hands `check_single_action_impl` its own `key_check` lambda
+  so a key mapping can be asserted with no graphics backend at all. That works,
+  the test passes — and it emits **72 lines of `[ERROR] @notimplemented
+  is_key_down`** doing it.
+
+- **Why.** The function accepts `KeyCheckFn key_check` and honours it for the
+  chord key (`input_system.h:939`). But its very first statement is
+
+  ```cpp
+  uint8_t current_mods = get_current_modifiers();   // :926
+  ```
+
+  and `get_current_modifiers()` (`:862`) calls the **static backend**
+  `is_key_down` eight times — both shifts, controls, alts and supers — with no
+  way to redirect it. With no backend registered those land on the stub that
+  logs an error. Nine assertions x eight modifier probes = exactly 72 lines.
+
+- **Why it matters beyond the noise.** The injection point is advertised but
+  incomplete: a caller can control what "is this key down" means for the chord
+  and *cannot* control it for the modifiers. So a backend-free test can assert
+  `Cmd+B` resolves — but never that it resolves **only while Cmd is held**,
+  which is the half of a chord worth testing. It is also why the errors cannot
+  be silenced app-side: there is no seam to silence.
+
+- **Severity: makes it ugly, and caps what a test can prove.** Nothing is
+  wrong on screen; the mapping resolves correctly in the real app because a
+  real backend is registered.
+
+- **Minimal upstream fix:** give `check_single_action_impl` the modifier source
+  too — either take a `ModifierFn` defaulting to `get_current_modifiers`, or
+  derive the modifiers from the `key_check` it was already handed, which needs
+  no new parameter and makes the injected reader mean one consistent thing:
+
+  ```cpp
+  // instead of get_current_modifiers()
+  uint8_t current_mods = modifiers_from(key_check);
+  ```
+
+  Then a chord test can hold Cmd, and the 72 lines go away as a side effect.
