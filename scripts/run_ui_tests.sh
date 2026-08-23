@@ -31,7 +31,9 @@ fi
 ISO_HOME="$(mktemp -d /tmp/hanabi_uitest_home.XXXXXX)"
 mkdir -p "$ISO_HOME/Library/Application Support/hanabi"
 cleanup() {
-    pkill -9 -f hanabi_uitest.exe >/dev/null 2>&1
+    # scoped to THIS worktree's binary: other checkouts run their suites on the
+    # same machine and a bare `pkill -f hanabi_uitest.exe` kills theirs
+    pkill -9 -f "^$EXE" >/dev/null 2>&1
     rm -rf "$ISO_HOME"
 }
 trap cleanup EXIT

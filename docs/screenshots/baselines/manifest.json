@@ -1,0 +1,18 @@
+{
+  "resolution": "1100x760",
+  "default_threshold_pct": 0.0,
+  "screens": {
+    "01_home_dark": {
+      "threshold_pct": 0.0,
+      "note": "Home digest, dark. Static layout; exact match expected."
+    },
+    "02_home_light": {
+      "threshold_pct": 0.0,
+      "note": "Home digest, light. Same layout as 01 in the light palette."
+    },
+    "03_transcript_dark": {
+      "threshold_pct": 0.0,
+      "note": "Transcript with three tabs open, dark. Exact match expected; the mock's ages are now-relative so the rendered '3h' stays '3h'."
+    }
+  }
+}

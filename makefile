@@ -516,3 +516,78 @@ uitest: $(UITEST_EXE) copy-resources
 uitest-build: $(UITEST_EXE) copy-resources
 
 .PHONY: uitest uitest-build
+
+# ==============================================================================
+# SCREENSHOT BASELINES  (docs/breakdown/screenshot-testing.md, chunks 1-3)
+# ==============================================================================
+
+SHOT_BASELINES := docs/screenshots/baselines
+SHOT_CURRENT := $(OUTPUT_DIR)/screenshots/current
+SHOT_DETERMINISM := $(OUTPUT_DIR)/screenshots/determinism
+
+# Which states to capture: by default exactly the ones that have a baseline, so
+# a three-baseline check renders three screens and not all 32. Override to add
+# one: make update-baselines SHOT_FILTER='^04_transcript_light$$'
+SHOT_FILTER = $(shell ls $(SHOT_BASELINES)/*.png 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.png$$//' | paste -sd'|' - | sed 's/^/^(/; s/$$/)$$/')
+
+# compare_screenshots.py prefers Pillow and falls back to ImageMagick; the
+# python3 first on PATH is not necessarily the one with Pillow installed.
+SHOT_PY = $(shell for p in python3 /usr/bin/python3 /opt/homebrew/bin/python3; do command -v $$p >/dev/null 2>&1 && $$p -c 'import PIL' >/dev/null 2>&1 && { echo $$p; break; }; done | head -1)
+SHOT_PYTHON = $(if $(SHOT_PY),$(SHOT_PY),python3)
+
+# Capture $(SHOT_FILTER) into $(1). Mock backend, isolated HOME and per-shot
+# timeout all come from scripts/screens.sh.
+define CAPTURE_SCREENS
+	@rm -rf $(1); mkdir -p $(1)
+	@HANABI_SCREENS_OUT=$(abspath $(1)) HANABI_SCREENS_FILTER='$(SHOT_FILTER)' \
+	    bash scripts/screens.sh
+endef
+
+# Chunk 1: the whole suite rests on this. Capture one screen twice and require
+# the two PNGs to be byte-identical.
+test-screenshot-determinism: $(MAIN_EXE) copy-resources
+	@echo "=== screenshot determinism: capturing 01_home_dark twice ==="
+	@rm -rf $(SHOT_DETERMINISM)
+	@mkdir -p $(SHOT_DETERMINISM)/a $(SHOT_DETERMINISM)/b
+	@HANABI_SCREENS_OUT=$(abspath $(SHOT_DETERMINISM))/a HANABI_SCREENS_FILTER='^01_home_dark$$' \
+	    bash scripts/screens.sh
+	@HANABI_SCREENS_OUT=$(abspath $(SHOT_DETERMINISM))/b HANABI_SCREENS_FILTER='^01_home_dark$$' \
+	    bash scripts/screens.sh
+	@A=$(SHOT_DETERMINISM)/a/01_home_dark.png; B=$(SHOT_DETERMINISM)/b/01_home_dark.png; \
+	for f in $$A $$B; do \
+	    [ -s "$$f" ] || { echo "FAIL: $$f missing or empty" >&2; exit 1; }; \
+	done; \
+	SA=$$(wc -c < $$A | tr -d ' '); SB=$$(wc -c < $$B | tr -d ' '); \
+	MA=$$(md5 -q $$A 2>/dev/null || md5sum $$A | cut -d' ' -f1); \
+	MB=$$(md5 -q $$B 2>/dev/null || md5sum $$B | cut -d' ' -f1); \
+	echo "  capture A: $$SA bytes  md5 $$MA"; \
+	echo "  capture B: $$SB bytes  md5 $$MB"; \
+	if [ "$$SA" = "$$SB" ] && [ "$$MA" = "$$MB" ]; then \
+	    echo "PASS: two captures of 01_home_dark are byte-identical"; \
+	else \
+	    echo "FAIL: captures differ — the render is not deterministic, so" >&2; \
+	    echo "      baselines cannot be trusted. Check for absolute-epoch mock" >&2; \
+	    echo "      seeding (src/api/mock_client.h) or an unfrozen animation." >&2; \
+	    exit 1; \
+	fi
+
+# Chunk 3: capture the baselined states and compare.
+validate-screenshots: $(MAIN_EXE) copy-resources
+	@echo "=== capturing current screens for comparison ==="
+	$(call CAPTURE_SCREENS,$(SHOT_CURRENT))
+	@echo
+	@$(SHOT_PYTHON) scripts/compare_screenshots.py \
+	    --baselines $(SHOT_BASELINES) --current $(SHOT_CURRENT)
+
+# Chunk 3: adopt the current render as the new truth, for an INTENTIONAL visual
+# change. Review `git diff --stat $(SHOT_BASELINES)` (and the PNGs) before
+# committing.
+update-baselines: $(MAIN_EXE) copy-resources
+	@echo "=== recapturing baselines ==="
+	$(call CAPTURE_SCREENS,$(SHOT_CURRENT))
+	@cp $(SHOT_CURRENT)/*.png $(SHOT_BASELINES)/
+	@echo
+	@git diff --stat $(SHOT_BASELINES) || true
+	@echo "Baselines updated. Review the PNGs before committing."
+
+.PHONY: test-screenshot-determinism validate-screenshots update-baselines

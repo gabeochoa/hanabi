@@ -58,6 +58,23 @@ OUTDIR="${HANABI_SCREENS_OUT:-/tmp/hanabi_screens}"
 SHOT_TIMEOUT="${HANABI_SHOT_TIMEOUT:-25}"   # seconds per capture
 EXPECT_DIM="1100 x 760"
 
+# HANABI_SCREENS_FILTER: extended regex; only matching state names are
+# captured. The baseline suite (make validate-screenshots) passes the names it
+# has baselines for so a three-screen check does not render all 32.
+FILTER="${HANABI_SCREENS_FILTER:-}"
+
+screen_selected() {
+    [ -z "$FILTER" ] && return 0
+    printf '%s\n' "$1" | grep -Eq "$FILTER"
+}
+
+# Stray-render cleanup is scoped to THIS worktree's binary path: several
+# checkouts capture on one machine at a time, and `pkill -f hanabi.exe` kills
+# the other worktrees' renders mid-capture.
+kill_own_renders() {
+    pkill -9 -f "^$EXE" >/dev/null 2>&1
+}
+
 if [ ! -x "$EXE" ]; then
     echo "ERROR: $EXE not found or not executable. Build first (make -j4)." >&2
     exit 2
@@ -85,8 +102,8 @@ fi
 ISO_HOME="$(mktemp -d /tmp/hanabi_iso_home.XXXXXX)"
 
 cleanup() {
-    # kill any stray render
-    pkill -9 -f hanabi.exe >/dev/null 2>&1
+    # kill any stray render started by THIS worktree
+    kill_own_renders
     # restore real settings byte-for-byte and assert md5 match
     if [ "$had_real" = "1" ]; then
         mkdir -p "$(dirname "$REAL_SETTINGS")"
@@ -128,6 +145,7 @@ write_settings() {
 capture() {
     local name="$1"; shift
     local json="$1"; shift
+    screen_selected "$name" || return 0
     local png="$OUTDIR/${name}.png"
     rm -f "$png"
     write_settings "$json"
@@ -150,7 +168,7 @@ capture() {
         echo "  TIMEOUT after ${SHOT_TIMEOUT}s"
     fi
     wait "$pid" 2>/dev/null
-    pkill -9 -f hanabi.exe >/dev/null 2>&1
+    kill_own_renders
 
     # verify
     local dim status
@@ -257,6 +275,10 @@ capture 32_new_messages_dark "$NOTABS_DARK" HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=
 
 echo
 echo "=== SUMMARY ==="
+if [ "${#SUMMARY[@]}" -eq 0 ]; then
+    echo "no states matched HANABI_SCREENS_FILTER='$FILTER'" >&2
+    exit 1
+fi
 for line in "${SUMMARY[@]}"; do echo "$line"; done
 
 if [ "$FAILED" -ne 0 ]; then
