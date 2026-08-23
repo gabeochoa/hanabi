@@ -4019,8 +4019,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // fact. It now says which model the next conversation will ask for
         // (Settings' defaultModelId, the same value the settings sheet's
         // Model row holds).
+        // The chips share a cluster: the row is SpaceBetween, so three direct
+        // children spread evenly and the effort chip drifts into the middle of
+        // the strip instead of sitting beside the model it qualifies.
+        auto leftMeta = div(ctx, mk(meta.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{children(), pixels(16)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_leftmeta"));
+
         const std::string currentModel = Settings::get().get_default_model();
-        auto modelChip = button(ctx, mk(meta.ent(), 1),
+        auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
             ComponentConfig{}
                 .with_label(hanabi::models::display_name(currentModel))
                 .with_size(ComponentSize{children(), pixels(16)})
@@ -4043,7 +4056,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The effort chip, right of the model: how hard the model is asked to
         // think on the work you start next.
         const std::string currentEffort = Settings::get().get_default_effort();
-        auto effortChip = button(ctx, mk(meta.ent(), 3),
+        auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
             ComponentConfig{}
                 .with_label("Effort: " +
                             hanabi::effort::display_name(currentEffort))
