@@ -38,6 +38,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         OpenSettings,
         OpenShortcuts,
         FindInThread,
+        SearchThreads,
         OpenThread,
     };
 
@@ -250,6 +251,8 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
             {"Settings", "Cmd ,", Act::OpenSettings, ""},
             {"Keyboard shortcuts", "Cmd /", Act::OpenShortcuts, ""},
             {"Find in this conversation", "Cmd F", Act::FindInThread, ""},
+            {"Search across your threads", "Cmd Shift F", Act::SearchThreads,
+             ""},
         };
         for (const auto& a : actions)
             if (contains_ci(a.label, q)) out.push_back(a);
@@ -275,6 +278,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
             case Act::OpenSettings: app.showSettings = true; break;
             case Act::OpenShortcuts: app.showShortcuts = true; break;
             case Act::FindInThread: app.findOpen = true; break;
+            case Act::SearchThreads: app.sessionSearchOpen = true; break;
             case Act::OpenThread: app.requestOpenTab = row.arg; break;
         }
         close(app);

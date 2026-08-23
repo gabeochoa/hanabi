@@ -40,6 +40,7 @@
 #include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
 #include "ecs/palette_system.h"
+#include "ecs/session_search_system.h"
 #include "ecs/arrow_system.h"
 #include "ecs/escape_system.h"
 #include "ecs/rename_modal_system.h"
@@ -326,6 +327,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
     sm.register_update_system(std::make_unique<ecs::PaletteSystem>());
+    sm.register_update_system(std::make_unique<ecs::SessionSearchSystem>());
     sm.register_update_system(std::make_unique<ecs::RenameModalSystem>());
     sm.register_update_system(std::make_unique<ecs::ToastSystem>());
     // Auth overlay draws on top of everything (login gates the app). No-op
@@ -816,6 +818,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "find") app->findOpen = true;
         else if (os == "palette") app->paletteOpen = true;
+        else if (os == "search") app->sessionSearchOpen = true;
     }
     // Screenshot affordance: HANABI_UNREAD_DEMO=<n> marks the open thread as
     // last read just before its Nth-from-last message, so the "new messages"
@@ -857,6 +860,17 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // photographed without a live drag. Render-only.
     if (const char* d = std::getenv("HANABI_SELECT_DEMO"); d && *d) {
         app->selectDemo = d;
+    }
+
+    // Screenshot affordance: HANABI_XSEARCH_DEMO=<text> opens the
+    // across-threads search with a query already typed, so its results, its
+    // snippets and — the point of the panel — the line admitting how much of
+    // your history it could actually read can be photographed and scripted.
+    // The chord that really opens it is Cmd+Shift+F, which no script can press
+    // (afterhours_gaps.md #49). Render-only; reads the local cache, no network.
+    if (const char* d = std::getenv("HANABI_XSEARCH_DEMO"); d && *d) {
+        app->sessionSearchOpen = true;
+        app->sessionSearchQuery = d;
     }
 
     // Screenshot affordance: HANABI_FIND_DEMO=<text> opens find-in-conversation

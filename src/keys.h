@@ -53,4 +53,11 @@ inline bool down(int key) { return afterhours::input::is_key_down(key); }
 // The Cmd modifier, either side.
 inline bool cmd_down() { return down(kLeftSuper) || down(kRightSuper); }
 
+// The Shift modifier, either side. Shift is what tells two chords on the same
+// key apart (Cmd+F finds in this thread, Cmd+Shift+F searches all of them), so
+// both sites have to read it the same way.
+inline bool shift_down() {
+    return down(ah::LEFT_SHIFT) || down(ah::RIGHT_SHIFT);
+}
+
 }  // namespace hanabi::keys

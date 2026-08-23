@@ -12,6 +12,7 @@
 #include <string>
 
 #include "../keys.h"
+#include "keyboard_focus.h"
 #include "ui_imports.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 
@@ -134,17 +135,6 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
-    // The text_input's inner field: the child that can actually take focus.
-    static afterhours::EntityID focusable_field(Entity& textInput) {
-        if (!textInput.has<afterhours::ui::UIComponent>()) return textInput.id;
-        for (auto childId : textInput.get<afterhours::ui::UIComponent>().children) {
-            auto opt = afterhours::ui::UICollectionHolder::getEntityForID(childId);
-            if (opt.valid() && opt->has<afterhours::ui::InFocusCluster>())
-                return childId;
-        }
-        return textInput.id;
-    }
-
     void render_actions(UIContext<InputAction>& ctx, Entity& parent,
                         AppComponent& app) {
         auto row = div(ctx, mk(parent, 4),

@@ -374,6 +374,13 @@ $(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp | $(TEST_DIR
 	@echo "Compiling test_input_pipeline..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
 
+# Cross-session search: what the index matches, and whether the sentence it
+# shows about its own coverage is true. Pure logic - no graphics, no disk, no
+# app state; the corpus is handed in.
+$(TEST_DIR)/test_session_index: tests/unit/test_session_index.cpp src/search/session_index.h | $(TEST_DIR)
+	@echo "Compiling test_session_index..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_session_index.cpp -o $@
+
 # Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
 # queue ordering/draining, newest-N windowing, settings read.
 $(TEST_DIR)/test_data: tests/unit/test_data.cpp $(API_SRCS) src/api/disk_cache.cpp | $(TEST_DIR)
@@ -421,7 +428,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $^ \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_session_index
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
