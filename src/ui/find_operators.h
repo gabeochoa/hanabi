@@ -15,11 +15,17 @@
 // Only rows the transcript can actually highlight are worth filtering, which
 // is why the vocabulary looks the way it does. `is:tool` and `is:thinking` are
 // deliberately absent: tool rows have no highlight path at all, and a thinking
-// block is not preserved as a row — the http adapter folds its text into the
-// assistant text run, so there is nothing to filter on. Either one would be an
-// operator that can only ever answer "no matches", which is exactly the kind
-// of lying tally the counting rule exists to prevent. They land in the hint
-// instead, which names the operators that do work.
+// block is excluded from find outright — reasoning is the model talking to
+// itself on the way to the answer, it arrives folded, and its body draws
+// through a path that paints no bands (main_pane_system.h, collect_matches and
+// paint_query_for skip it together). Either operator would be one that can
+// only ever answer "no matches", which is exactly the kind of lying tally the
+// counting rule exists to prevent. They land in the hint instead, which names
+// the operators that do work.
+//
+// (This used to say a thinking block "is not preserved as a row". That stopped
+// being true when reasoning became its own folded row; the operator is still
+// absent, for the reason above rather than that one.)
 // ---------------------------------------------------------------------------
 
 #include <cstddef>

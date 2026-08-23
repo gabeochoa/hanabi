@@ -2311,6 +2311,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // painted, it does not exist to the tally.
             if (m.role != api::Role::User && m.role != api::Role::Assistant)
                 continue;
+            // Reasoning is not the conversation. A thinking block is the
+            // model talking to itself on the way to the answer, it arrives
+            // folded, and its body is drawn by a path that carries no
+            // highlight — so a match in it could be counted and never shown.
+            // Skipped here AND in paint_query_for, which is what keeps the
+            // tally equal to the bands painted.
+            if (is_thinking(m)) continue;
             // An operator excludes the row from the tally and from the
             // painting through this one test, so the two cannot disagree.
             if (!find_ops::row_matches(s, i, q)) continue;
@@ -2339,6 +2346,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return std::string();
         const find_ops::Query q = live_query();
         if (q.invalid || q.text.empty()) return std::string();
+        const auto& msgs = app->openSession->messages;
+        // The other half of the rule above. A thinking block normally draws
+        // through render_thinking_block, which paints no bands at all — but a
+        // reasoning message that is still STREAMING renders as an ordinary
+        // bubble, and that path would paint. Answering "nothing" here means
+        // the two states agree with each other and with the tally.
+        if (static_cast<size_t>(index) < msgs.size() &&
+            is_thinking(msgs[static_cast<size_t>(index)]))
+            return std::string();
         if (!find_ops::row_matches(*app->openSession,
                                    static_cast<size_t>(index), q))
             return std::string();

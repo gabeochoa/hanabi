@@ -1,0 +1,36 @@
+# Find does not search the model's reasoning.
+#
+# A thinking block is the model talking to itself on the way to the answer. It
+# arrives folded, and the path that draws it paints no highlight bands at all —
+# so before this, a query that appeared in the reasoning was COUNTED and could
+# never be shown. That breaks find's load-bearing rule: the tally must equal
+# the number of bands actually painted
+# (tests/ui/find_counts_only_what_it_paints.e2e).
+#
+# "budget" appears three times in this thread — the question, the reasoning,
+# and the answer — and exactly two of them are conversation.
+#
+# HANABI_FIND_AUDIT=1 has the find bar report how many bands the previous frame
+# painted, which is the only way a script can hold the count to the painting
+# rather than to a second reading of the counting code.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_THINKING_DEMO=1 HANABI_OPEN=rthink HANABI_FIND_DEMO=budget HANABI_FIND_AUDIT=1
+
+expect_text "The budget is per-request"
+# The reasoning is there to be found, and is not found.
+expect_text "Thought for a moment"
+
+# Two matches, and the two bands that were painted for them.
+expect_text "1 of 2"
+expect_text "bands 2"
+
+# Open the reasoning: its text is now on screen, in full, with the query in it.
+click_ui thinking_head
+wait_frames 12
+expect_text "the budget is 5s"
+
+# Still two. Reading the reasoning does not add it to the search, and no third
+# band appeared behind the word now visible in it.
+expect_text "1 of 2"
+expect_text "bands 2"
