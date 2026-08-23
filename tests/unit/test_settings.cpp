@@ -177,6 +177,49 @@ static void test_effort_round_trips() {
     CHECK(ef::display_name("maximum") == "maximum");
 }
 
+// --- Send key: what each choice MEANS, and the settings round-trip --------
+// The meaning half is here rather than in a scripted UI test because the
+// injector cannot synthesise a Cmd chord at all (afterhours_gaps.md #49), so
+// "Cmd+Return sends" has no other place it can be asserted.
+static void test_send_key_round_trips() {
+    std::printf("test_send_key_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    // A fresh install sends on Return, which is what every chat app has
+    // trained people to expect.
+    CHECK(s.get_send_key() == hanabi::kSendKeyReturn);
+
+    s.set_send_key(hanabi::kSendKeyCmdReturn);
+    CHECK(s.get_send_key() == hanabi::kSendKeyCmdReturn);
+    // Reading the file back is the whole point: a choice that lives only in
+    // memory is gone on the next launch.
+    s.load_save_file();
+    CHECK(s.get_send_key() == hanabi::kSendKeyCmdReturn);
+
+    // A settings.json edited to something the app does not know falls back to
+    // Return rather than leaving the composer with no send key at all.
+    s.set_send_key("f13");
+    CHECK(s.get_send_key() == hanabi::kSendKeyReturn);
+
+    // Local-only: no confirmed backend field, so it must not ride the
+    // preference push.
+    s.clear_settings_dirty();
+    s.set_send_key(hanabi::kSendKeyCmdReturn);
+    CHECK(!s.is_settings_dirty());
+
+    // --- What the choice means, both ways round ---------------------------
+    using hanabi::enter_sends;
+    // Return: bare Return sends, and so does Cmd+Return — fingers trained on
+    // other apps reach for the chord, and refusing it would only look broken.
+    CHECK(enter_sends(hanabi::kSendKeyReturn, /*cmdHeld=*/false));
+    CHECK(enter_sends(hanabi::kSendKeyReturn, /*cmdHeld=*/true));
+    // Cmd+Return: the chord sends and bare Return does NOT. This is the arm a
+    // scripted UI test can only prove half of.
+    CHECK(enter_sends(hanabi::kSendKeyCmdReturn, /*cmdHeld=*/true));
+    CHECK(!enter_sends(hanabi::kSendKeyCmdReturn, /*cmdHeld=*/false));
+}
+
 // --- Quiet hours: the window, and the settings round-trip -----------------
 static void test_quiet_hours_window() {
     std::printf("test_quiet_hours_window\n");
@@ -269,6 +312,7 @@ int main() {
     test_settings_write_config_gate();
     test_shelf_fold_round_trips();
     test_effort_round_trips();
+    test_send_key_round_trips();
     test_quiet_hours_window();
     test_quiet_hours_persist();
     test_archive_overlay_round_trips();

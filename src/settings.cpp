@@ -52,6 +52,7 @@ bool Settings::load_save_file() {
         memory_backend_ = j.value("memory_backend", memory_backend_);
         default_model_ = j.value("default_model", default_model_);
         default_effort_ = j.value("default_effort", default_effort_);
+        set_send_key(j.value("send_key", send_key_));
         open_tabs_.clear();
         if (j.contains("open_tabs") && j["open_tabs"].is_array()) {
             for (const auto& e : j["open_tabs"])
@@ -114,6 +115,7 @@ void Settings::write_save_file() {
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
     j["default_effort"] = default_effort_;
+    j["send_key"] = send_key_;
     j["starred"] = starred_ids_;
     j["archived"] = archived_;
     j["muted"] = muted_ids_;
@@ -320,6 +322,19 @@ void Settings::set_default_model(const std::string& model) {
     if (model == default_model_) return;
     default_model_ = model;
     settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_send_key() const { return send_key_; }
+void Settings::set_send_key(const std::string& key) {
+    // Only the two tokens the app knows. A settings.json hand-edited to
+    // something else would otherwise leave the composer with no send key at
+    // all, which reads as a dead Return key with nothing to point at.
+    const std::string next =
+        (key == hanabi::kSendKeyCmdReturn) ? hanabi::kSendKeyCmdReturn
+                                           : hanabi::kSendKeyReturn;
+    if (next == send_key_) return;
+    send_key_ = next;
     if (auto_save_enabled) write_save_file();
 }
 

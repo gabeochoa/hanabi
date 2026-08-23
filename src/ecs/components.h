@@ -333,6 +333,12 @@ struct AppComponent : public afterhours::BaseComponent {
     // It parks the text here and the composer, which recomputes the mode every
     // frame, routes it exactly as the Send button does.
     std::string composerSubmit;
+    // Whether Cmd was held when that Enter landed. A FACT the listener
+    // observed, not a decision it took: whether the chord sends depends on the
+    // send-key setting, which the user can change between one Enter and the
+    // next, so only the per-frame router may read the setting (see
+    // hanabi::enter_sends in settings.h).
+    bool composerSubmitWithCmd = false;
     // The prompt currently being sent, for a "sending…" hint while in flight.
     std::string sendingPrompt;
 

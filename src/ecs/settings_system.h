@@ -138,7 +138,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
             (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
-            (kGroupH + ctrlRow * 4.0f) +          // Behavior: 4 rows
+            (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
             (kGroupH + ctrlRow) +                 // Notifications: Sound
             (kGroupH + ctrlRow);                  // Model: default model
         const float rightH =
@@ -283,6 +283,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
             render_timestamps_row(ctx, L, *app);
+            render_send_key_row(ctx, L, *app);
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
             render_quiet_hours_row(ctx, L, *app);
@@ -941,6 +942,24 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        "settings_timestamps",
                        [](int i) {
                            Settings::get().set_show_timestamps(i == 1);
+                       });
+    }
+
+    // Which key sends. Return by default; Cmd+Return for people who would
+    // rather Return stayed harmless. WIRED: persists locally (send_key), no
+    // sync — the backend payload has no field for it.
+    void render_send_key_row(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 138, "Send with", "settings_send_key_label");
+        const bool cmdReturn =
+            Settings::get().get_send_key() == hanabi::kSendKeyCmdReturn;
+        real_segmented(ctx, parent, 139, {"Return", "Cmd+Return"},
+                       cmdReturn ? 1 : 0, "settings_send_key",
+                       [](int i) {
+                           Settings::get().set_send_key(
+                               i == 1 ? hanabi::kSendKeyCmdReturn
+                                      : hanabi::kSendKeyReturn);
                        });
     }
 
