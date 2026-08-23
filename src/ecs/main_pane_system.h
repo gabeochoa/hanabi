@@ -20,6 +20,7 @@
 #include "../ui/find_highlight.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
+#include "../ui/slash_commands.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "ui_imports.h"
@@ -3102,10 +3103,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Enter parked its text here (see the listener at the bottom of this
         // function). Route it the same way the Send button does, with the mode
         // recomputed for THIS frame.
+        //
+        // A slash draft is held back instead: it is a command to this client,
+        // not a message to the agent, and it is carried out further down where
+        // the field entity exists (a completion has to be written back into
+        // it).
+        std::string slashSubmit;
         if (!app.composerSubmit.empty()) {
             const std::string text = std::move(app.composerSubmit);
             app.composerSubmit.clear();
-            if (canStream || canSend) {
+            if (hanabi::slash::is_command_text(text)) {
+                slashSubmit = text;
+            } else if (canStream || canSend) {
                 if (kickoff) app.requestKickoffPrompt = text;
                 else if (canStream) app.requestStreamPrompt = text;
                 else app.requestSendPrompt = text;
@@ -3296,6 +3305,140 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // SLASH COMMANDS. A draft that opens with "/" is addressed to this
+        // client, not to the agent: the menu below offers the vocabulary, and
+        // the router carries out what hanabi can actually do and says plainly
+        // what it cannot (src/ui/slash_commands.h has the reasoning per verb).
+        //
+        // Typing anything at all retires the last command's notice; it is a
+        // reply to one keystroke, not a state the strip should keep.
+        static std::string lastSlashDraft;
+        if (replyDraft != lastSlashDraft) app.slashNotice.clear();
+        // Putting the caret back in the composer. The focusable element is
+        // the text_input's inner FIELD, not the wrapper this call returns:
+        // focus set on the wrapper is dropped at end of frame, because only
+        // the field registers itself as focusable (afterhours_gaps.md #57).
+        // was_focused rides along so the widget does not read the return as a
+        // fresh focus and select-all — what follows is the argument, not a
+        // replacement for the verb.
+        const auto refocus_field = [&]() {
+            const auto& kids =
+                inputRes.ent().get<afterhours::ui::UIComponent>().children;
+            if (kids.empty()) return;
+            ctx.set_focus(kids[0]);
+            if (inputRes.ent()
+                    .has<afterhours::text_input::HasTextInputState>())
+                inputRes.ent()
+                    .get<afterhours::text_input::HasTextInputState>()
+                    .was_focused = true;
+        };
+
+        const std::vector<const hanabi::slash::Command*> slashRows =
+            hanabi::slash::filter(replyDraft);
+        bool slashOpen =
+            !slashRows.empty() && replyDraft != app.slashDismissedFor;
+        if (app.escape == EscapeIntent::CloseSlashMenu && slashOpen) {
+            app.slashDismissedFor = replyDraft;
+            slashOpen = false;
+            // Esc blurs the field too — afterhours' text_input does that
+            // itself, on its own read of the key, with no way to opt out
+            // (afterhours_gaps.md #57). The keystroke that put the menu away
+            // must not also take the caret out of the field.
+            refocus_field();
+        }
+        if (!slashOpen) app.slashMenuIndex = 0;
+        if (app.slashMenuIndex >= static_cast<int>(slashRows.size()))
+            app.slashMenuIndex = 0;
+        app.slashMenuOpen = slashOpen;
+
+        // Writing to the field's own state as well as the draft: the widget
+        // keeps its own storage, and a draft change alone leaves the visible
+        // text (and the caret) where it was.
+        const auto set_field = [&](const std::string& text) {
+            replyDraft = text;
+            if (!inputRes.ent()
+                     .has<afterhours::text_input::HasTextInputState>())
+                return;
+            auto& st =
+                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+            st.storage.clear();
+            st.storage.insert(0, text);
+            st.cursor_position = text.size();
+            st.clear_selection();
+        };
+
+        // Carry out a parsed command. Only /new has somewhere to go today; the
+        // rest report what is missing rather than reaching the agent as text.
+        // `typed` is put back in the field for anything that did not run, so
+        // a refused command leaves the words you wrote where you can edit
+        // them — Enter empties the field before this is reached.
+        const auto run_slash = [&](const hanabi::slash::Parsed& p,
+                                   const std::string& typed) {
+            const hanabi::slash::Command* cmd = hanabi::slash::find(p.verb);
+            if (cmd == nullptr) {
+                app.slashNotice = "/" + p.verb + " is not a command";
+                set_field(typed);
+                return;
+            }
+            if (!cmd->runnable) {
+                app.slashNotice =
+                    "/" + std::string(cmd->name) + " \xe2\x80\x94 " +
+                    std::string(cmd->unwired);
+                set_field(typed);
+                return;
+            }
+            if (cmd->name == "new") {
+                // The same new-conversation sheet Cmd+N raises.
+                app.composerOpen = true;
+                app.slashNotice.clear();
+                set_field("");
+            }
+        };
+
+        // Choosing a row: a verb that wants an argument completes into the
+        // field so it can be typed; one that does not runs immediately.
+        const auto choose_slash = [&](int index) {
+            if (index < 0 || index >= static_cast<int>(slashRows.size()))
+                return;
+            const hanabi::slash::Command& cmd = *slashRows[index];
+            if (cmd.arg.empty()) {
+                hanabi::slash::Parsed p;
+                p.matched = true;
+                p.verb = std::string(cmd.name);
+                p.known = true;
+                run_slash(p, hanabi::slash::completion(cmd));
+            } else {
+                set_field(hanabi::slash::completion(cmd));
+            }
+            app.slashDismissedFor = replyDraft;
+            app.slashMenuOpen = false;
+            slashOpen = false;
+            // A click landed focus on the row; typing the argument needs
+            // the field back.
+            refocus_field();
+        };
+
+        // Enter with the menu up takes the highlighted row; with it down (the
+        // draft has reached its argument) it runs what was typed.
+        if (!slashSubmit.empty()) {
+            if (slashOpen) choose_slash(app.slashMenuIndex);
+            else run_slash(hanabi::slash::parse(slashSubmit), slashSubmit);
+        }
+
+        // Up/Down belong to the menu while it is up — the history walk below
+        // stands down so one keystroke never does two things.
+        if (slashOpen && !slashRows.empty() &&
+            inputRes.ent().has<afterhours::text_input::HasTextInputState>() &&
+            inputRes.ent()
+                .get<afterhours::text_input::HasTextInputState>()
+                .is_focused) {
+            const int count = static_cast<int>(slashRows.size());
+            if (hanabi::keys::pressed(hanabi::keys::kUp))
+                app.slashMenuIndex = (app.slashMenuIndex + count - 1) % count;
+            if (hanabi::keys::pressed(hanabi::keys::kDown))
+                app.slashMenuIndex = (app.slashMenuIndex + 1) % count;
+        }
+
         // HISTORY WALK. Up recalls the previous sent message, Down steps back
         // toward the draft you were writing. Only while THIS field has focus:
         // unfocused, the same arrows scroll the transcript (which is why that
@@ -3311,10 +3454,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const size_t caret = std::min(st.cursor_position, typed.size());
             // A draft with line breaks in it wants Up/Down for the caret, so
             // the walk only claims the keystroke at the edges of the text.
-            const bool walkBack = st.is_focused &&
+            const bool walkBack = st.is_focused && !slashOpen &&
                                   hanabi::keys::pressed(hanabi::keys::kUp) &&
                                   caret_on_first_line(typed, caret);
-            const bool walkForward = st.is_focused &&
+            const bool walkForward = st.is_focused && !slashOpen &&
                                      hanabi::keys::pressed(hanabi::keys::kDown) &&
                                      caret_on_last_line(typed, caret);
             const auto recall = [&](const std::string& text) {
@@ -3421,22 +3564,87 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.25f)
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
-            // Kickoff (Home landing composer) starts a NEW session via
-            // create_session (LoaderSystem opens it as a tab). A normal composer
-            // routes through the STREAMING path when the backend supports it
-            // (the mock does), so the reply fills in token-by-token; otherwise
-            // fall back to the synchronous one-shot path (no regression). All
-            // are one-shot flags serviced by LoaderSystem; setting only one per
-            // turn keeps them mutually exclusive.
-            if (kickoff)
-                app.requestKickoffPrompt = replyDraft;
-            else if (canStream)
-                app.requestStreamPrompt = replyDraft;
-            else
-                app.requestSendPrompt = replyDraft;
-            remember_sent(replyDraft);
-            replyDraft.clear();
+            // A slash draft is a command, so the button carries it out rather
+            // than sending the words to the agent (the Enter path above does
+            // the same).
+            if (hanabi::slash::is_command_text(replyDraft)) {
+                const std::string typed = replyDraft;
+                if (slashOpen) choose_slash(app.slashMenuIndex);
+                else run_slash(hanabi::slash::parse(typed), typed);
+            } else {
+                // Kickoff (Home landing composer) starts a NEW session via
+                // create_session (LoaderSystem opens it as a tab). A normal
+                // composer routes through the STREAMING path when the backend
+                // supports it (the mock does), so the reply fills in
+                // token-by-token; otherwise fall back to the synchronous
+                // one-shot path (no regression). All are one-shot flags
+                // serviced by LoaderSystem; setting only one per turn keeps
+                // them mutually exclusive.
+                if (kickoff)
+                    app.requestKickoffPrompt = replyDraft;
+                else if (canStream)
+                    app.requestStreamPrompt = replyDraft;
+                else
+                    app.requestSendPrompt = replyDraft;
+                remember_sent(replyDraft);
+                replyDraft.clear();
+            }
         }
+
+        // The menu itself, drawn ABOVE the strip: the composer is pinned to
+        // the bottom of the window, so a dropdown "below the input" would be
+        // off-screen. A sibling of the composer bar under the same uiRoot
+        // parent, in the same screen coordinates, on a layer over it.
+        if (slashOpen && absX >= 0.0f && absY >= 0.0f) {
+            constexpr float kRowH = 22.0f;
+            const float menuH = kRowH * static_cast<float>(slashRows.size());
+            auto menu = div(ctx, mk(parent, 3100),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(inputW), pixels(menuH)})
+                    .with_absolute_position()
+                    .with_translate(absX + composerGutter,
+                                    absY - menuH - 6.0f)
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_roundness(0.25f)
+                    .with_render_layer(7)
+                    .with_debug_name("slash_menu"));
+            for (size_t i = 0; i < slashRows.size(); ++i) {
+                const hanabi::slash::Command& c = *slashRows[i];
+                std::string label = "/" + std::string(c.name);
+                if (!c.arg.empty()) label += " " + std::string(c.arg);
+                label += "   " + std::string(c.blurb);
+                // An unwired verb says so in the row, so the menu is not a
+                // list of promises.
+                if (!c.runnable)
+                    label += " \xc2\xb7 " + std::string(c.unwired);
+                const bool selected = static_cast<int>(i) ==
+                                      app.slashMenuIndex;
+                auto row = button(ctx, mk(menu.ent(), static_cast<int>(i)),
+                    ComponentConfig{}
+                        .with_label(label)
+                        .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                        .with_custom_background(selected
+                                                    ? theme::selected_bg()
+                                                    : theme::panel_bg_2())
+                        .with_custom_hover_bg(
+                            theme::hover_over(theme::panel_bg_2()))
+                        .with_custom_text_color(c.runnable
+                                                    ? theme::text_primary()
+                                                    : theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_padding(Padding{.left = pixels(10)})
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_roundness(0.0f)
+                        .with_render_layer(7)
+                        .with_debug_name("slash_item_" + std::to_string(i)));
+                if (row) choose_slash(static_cast<int>(i));
+            }
+        }
+        lastSlashDraft = replyDraft;
 
         // Meta row under the input: model selector chip (left) + a
         // context/cost meter (right) + the status caption — matches the Navi
@@ -3478,7 +3686,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_rightmeta"));
         std::string caption;
-        if (!canSend)
+        if (!app.slashNotice.empty())
+            caption = app.slashNotice;
+        else if (!canSend)
             caption =
                 "read-only \xe2\x80\x94 this backend doesn't support replies";
         else if (sending && queued > 0)
