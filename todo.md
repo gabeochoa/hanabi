@@ -683,17 +683,12 @@ dirs — 4 real groups, everything else ungrouped.
 A thread that is still fetching renders the empty-state welcome, which reads as
 "nothing here" rather than "not yet". Gate it on the load state instead.
 
-### [ ] Bump the afterhours pin — WAITING ON A PUSH
+### [x] Bump the afterhours pin — done, all three repos agree at `428047e`
 
-hanabi pins `dfd6e19`; afterhours has two commits past it (the placeholder
-repro example and a `todo.md` correction), plus one more sitting unpushed in
-`~/p/wm_afterhours/vendor/afterhours`. None of them touch code hanabi runs, so
-there is no hurry — but the pin cannot move until those are on the remote, or
-the submodule points at commits nobody else can fetch.
-
-Standing rule: **I do not push afterhours.** Too many projects vendor it.
-Changes go to Gabe; a crash is worth flagging immediately but still not
-pushing.
+Standing rule, unchanged: **afterhours is not mine to push.** Too many projects
+vendor it. Changes go to Gabe; a crash is worth flagging immediately but still
+not pushing. (The one push of `428047e` was an explicit one-off he authorised,
+to retract a wrong note of mine that was already public.)
 
 ### [ ] Cache the chat
 
