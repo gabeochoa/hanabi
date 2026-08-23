@@ -151,7 +151,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float rightH =
             (kGroupH + ctrlRowRight * 2.0f) +     // Custom colours: 2 swatch rows
             (kGroupH + (kRowNameFoot + kCacheRowH) + (kRowNameFoot + kLimitRowH) +
-             (kRowNameFoot + kCacheRowH)) +       // Data: cache/limit/export
+             (kRowNameFoot + kExportRowH)) +      // Data: cache/limit/export
             (kGroupH + kAdvancedH) +              // Advanced: coming-soon
             (kGroupH + kAccountRowH);             // Account: identity+signout
         const float contentH =
@@ -363,6 +363,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kRowNameFoot = kRowNameH + kRowNameGap;
     static constexpr float kThemeRowH = 30.0f;   // segmented control
     static constexpr float kCacheRowH = 28.0f;   // usage + clear button
+    // The export row is two lines, not one: the destination is a PATH now
+    // that the user can choose it, and a path plus two buttons does not fit
+    // across one 264px column without truncating the path to uselessness.
+    static constexpr float kExportRowH = 52.0f;  // destination line + buttons
     static constexpr float kLimitRowH = 30.0f;   // cache-limit segmented control
     // Account body: identity line (20) + gap + one sign-out coming-soon row.
     static constexpr float kAccountRowH = 62.0f; // identity/counts + sign-out
@@ -741,40 +745,85 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Data / export row (local-first idea #4): a "Data" section with the export
-    // destination on the left and an "Export all" button hugging the right edge
-    // (V8). Writes every cached transcript to ~/hanabi/threads/*.md — user-owned,
+    // destination on the left and, hugging the right edge, the two things you
+    // can do with it — choose where it goes, and send it there.
+    //
+    // Writes every cached transcript to <destination>/*.md — user-owned,
     // survives a backend sunset. A transient "· exported N" note confirms.
+    //
+    // The destination used to be ~/hanabi/threads and nothing else, which is a
+    // fine default and a poor only-option: the whole point of the export is
+    // that the copies are YOURS, and yours generally means "in the folder I
+    // keep things in". "Choose…" opens the native folder picker
+    // (native_pick_directory, NSOpenPanel) and the answer is remembered.
     void render_export_row(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app) {
         (void)app;
         row_name(ctx, parent, 60, "Export", "settings_data_label");
         auto row = div(ctx, mk(parent, 61),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kCacheRowH)})
-                .with_flex_direction(FlexDirection::Row)
+                .with_size(ComponentSize{percent(1.0f), pixels(kExportRowH)})
+                .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_export_row"));
 
         static int s_exported = -1;  // -1 = not yet; >=0 = last export count
-        std::string left = "Export threads to ~/hanabi/threads";
+        const std::string dest = export_destination();
+        std::string left = "Export threads to " + tilde(dest);
         if (s_exported >= 0)
-            left = "Exported " + std::to_string(s_exported) + " threads";
+            left = "Exported " + std::to_string(s_exported) + " threads to " +
+                   tilde(dest);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(left)
-                .with_size(ComponentSize{children(), pixels(20)})
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_export_usage"));
 
-        auto exp = button(ctx, mk(row.ent(), 2),
+        auto buttons = div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_export_buttons"));
+
+        auto choose = button(ctx, mk(buttons.ent(), 1),
+            ComponentConfig{}
+                .with_label("Choose\xe2\x80\xa6")
+                .with_size(ComponentSize{pixels(84), pixels(28)})
+                .with_margin(Margin{.right = pixels(8)})
+                .with_custom_background(theme::button_secondary())
+                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("settings_export_choose"));
+        if (choose) {
+            std::string picked;
+            if (ask_for_directory(&picked)) {
+                Settings::get().set_export_dir(picked);
+                s_exported = -1;  // a new destination has exported nothing yet
+            }
+        }
+
+        auto exp = button(ctx, mk(buttons.ent(), 2),
             ComponentConfig{}
                 .with_label("Export all")
                 .with_size(ComponentSize{pixels(104), pixels(28)})
@@ -789,9 +838,44 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.35f)
                 .with_debug_name("settings_export_btn"));
-        if (exp) {
-            s_exported = api::disk_cache::export_all_markdown();
+        if (exp) s_exported = api::disk_cache::export_all_markdown(dest);
+    }
+
+    // Where the export writes: the folder the user chose, or the built-in
+    // default when they never chose one.
+    static std::string export_destination() {
+        const std::string& chosen = Settings::get().get_export_dir();
+        return chosen.empty() ? api::disk_cache::export_dir() : chosen;
+    }
+
+    // A path as a person reads it: $HOME collapsed back to "~". The row is one
+    // line and an absolute path under a long home directory pushes the buttons
+    // off it.
+    static std::string tilde(const std::string& path) {
+        const char* home = std::getenv("HOME");
+        if (home == nullptr || *home == 0) return path;
+        const std::string h(home);
+        if (path.rfind(h, 0) != 0) return path;
+        return "~" + path.substr(h.size());
+    }
+
+    // Ask the user for a folder. Normally the native panel; when
+    // HANABI_PICK_DIR_TEST is set it answers with that path instead, because a
+    // modal NSOpenPanel is not in the widget tree and a scripted test that
+    // clicked "Choose…" for real would hang against a panel nothing can
+    // dismiss. Everything the answer touches — persistence, the row, where the
+    // export actually lands — is then exercised for real; only the panel
+    // itself stays manual.
+    static bool ask_for_directory(std::string* out) {
+        if (const char* forced = std::getenv("HANABI_PICK_DIR_TEST");
+            forced != nullptr && *forced != 0) {
+            *out = forced;
+            return true;
         }
+        char buf[1024];
+        if (!native_pick_directory("Choose", buf, sizeof(buf))) return false;
+        *out = buf;
+        return true;
     }
 
     // Cache-limit options (label, bytes). 0 == Unlimited (no eviction).

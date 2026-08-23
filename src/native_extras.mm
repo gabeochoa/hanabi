@@ -491,7 +491,7 @@ bool native_take_open_thread(char* out, int cap) {
 
 // ===========================================================================
 // 6. Image attachments — clipboard paste + file drop
-// ===========================================================================
+// ====================================================================
 //
 // Both halves answer with a PATH (see the contract in native_extras.h). The
 // C++ core never sees an NSImage, an NSPasteboard or an NSDraggingInfo.
@@ -700,6 +700,46 @@ bool native_take_clipboard_image(char* out, int cap) {
         std::strncpy(out, path.c_str(), static_cast<size_t>(cap - 1));
         out[cap - 1] = '\0';
         NSLog(@"native_extras: pasted image -> %s", path.c_str());
+        return true;
+    }
+}
+
+// ===========================================================================
+// 7. Native file picker (NSOpenPanel)
+// ===========================================================================
+//
+// Unlike everything above it, this one is not a latch the frame loop drains:
+// a picker is a QUESTION, asked at the moment of a click and answered before
+// the click is finished. runModal blocks the caller — the UI freezes behind
+// the panel, which is exactly what a modal sheet looks like everywhere else on
+// this OS — and the answer is returned, so no app state is touched from here.
+// The single-owner rule is kept: the caller writes what it learns.
+
+bool native_pick_directory(const char* prompt, char* out, int cap) {
+    if (out == nullptr || cap <= 0) return false;
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.canChooseDirectories = YES;
+        panel.canChooseFiles = NO;
+        panel.allowsMultipleSelection = NO;
+        // A destination the user is allowed to invent: exporting into a folder
+        // that does not exist yet is a reasonable thing to want.
+        panel.canCreateDirectories = YES;
+        if (prompt != nullptr && prompt[0] != '\0')
+            panel.prompt = [NSString stringWithUTF8String:prompt];
+
+        // A bare executable is not a foreground app until it says so; without
+        // this the panel can open behind the window it belongs to.
+        [NSApp activateIgnoringOtherApps:YES];
+
+        if ([panel runModal] != NSModalResponseOK) return false;
+        NSURL* url = [[panel URLs] firstObject];
+        if (url == nil) return false;
+        const char* path = [[url path] UTF8String];
+        if (path == nullptr || path[0] == '\0') return false;
+        std::strncpy(out, path, static_cast<size_t>(cap - 1));
+        out[cap - 1] = '\0';
+        NSLog(@"native_extras: export destination chosen -> %s", out);
         return true;
     }
 }

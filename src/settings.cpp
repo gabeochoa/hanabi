@@ -41,6 +41,7 @@ bool Settings::load_save_file() {
         font_choice_ = j.value("font", font_choice_);
         accent_choice_ = j.value("theme_accent", accent_choice_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
+        export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
         cache_cap_bytes_ =
             j.value("cache_cap_bytes", cache_cap_bytes_);
@@ -121,6 +122,7 @@ void Settings::write_save_file() {
     j["font"] = font_choice_;
     j["theme_accent"] = accent_choice_;
     j["theme_highlight"] = highlight_choice_;
+    j["export_dir"] = export_dir_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
     j["cache_cap_bytes"] = cache_cap_bytes_;
     j["yap_level"] = yap_level_;
@@ -196,6 +198,13 @@ const std::string& Settings::get_highlight_choice() const {
 void Settings::set_highlight_choice(const std::string& key) {
     if (key == highlight_choice_) return;
     highlight_choice_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_export_dir() const { return export_dir_; }
+void Settings::set_export_dir(const std::string& dir) {
+    if (dir == export_dir_) return;  // no change — skip the write
+    export_dir_ = dir;
     if (auto_save_enabled) write_save_file();
 }
 
