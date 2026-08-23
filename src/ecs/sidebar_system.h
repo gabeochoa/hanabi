@@ -23,6 +23,7 @@
 #include "../settings.h"
 #include "../util/format.h"
 #include "../ui/icons.h"
+#include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "thread_model.h"
 #include "../keys.h"
@@ -240,6 +241,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // sidebar folder â per Gabe. Sending a message to an archived thread
         // unarchives it, same as the backend behavior.)
 
+        // Test-only (HANABI_SNIPPET_AUDIT=1): the bands the previous frame's
+        // snippets actually painted. A script can read a label and never a
+        // band, so without this "the matched words are lit" is a claim no test
+        // can hold — and this number sitting next to find's own audit is what
+        // shows the two counts are separate (find_counts_only_what_it_paints
+        // .e2e is the rule those bands must not disturb). Absolutely
+        // positioned so the test build's extra label cannot push the sidebar's
+        // column past its own height, which is a layout warning every frame
+        // (gap #53) and a different render than the one being tested.
+        const int snippetBands = hanabi::snippet_highlight::take_band_count();
+        if (hanabi::test_hooks::snippet_audit())
+            div(ctx, mk(panel.ent(), 7),
+                ComponentConfig{}
+                    .with_label("snippet bands " + std::to_string(snippetBands))
+                    .with_size(ComponentSize{pixels(r.width - 20.0f),
+                                             pixels(14)})
+                    .with_absolute_position()
+                    .with_translate(10.0f, r.height - 18.0f)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(2)
+                    .with_debug_name("sb_snippet_audit"));
+
         // No-results empty state (only meaningful with a non-empty query).
         if (!q.empty() && shown == 0) {
             div(ctx, mk(scroll.ent(), 900),
@@ -398,6 +425,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // .with_size height). Used by V6's fill-the-viewport cap computation so
     // the headerless catch-all shows enough rows to fill the scroll area.
     static constexpr float kRowHeight = 24.0f;
+    // The snippet line a row grows while the list is being searched.
+    static constexpr float kSnippetH = 16.0f;
     // Per-row trailing relative-time column width ("2h" / "Jul 28"). Wide
     // enough for a short absolute date so old rows aren't clipped; kept small
     // so the title still gets most of the row.
@@ -1670,8 +1699,30 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         int i = 0;
         for (const auto* s : members) {
             if (i >= limit) break;
-            render_chat_row(ctx, parent, base + 1 + (++i), *s, app, archived,
-                            panelW);
+            const int rowId = base + 1 + (++i);
+            // While searching, a row carries the line it matched on, with the
+            // matched words lit. Without it the list says WHICH threads
+            // matched and never WHY, which for a content match is the whole
+            // answer. The row and its snippet go inside one wrapper so the
+            // snippet needs no id range of its own (the row ids are already
+            // dense, and a second series would collide with a long result
+            // list).
+            const std::string snip = snippet_for(*s, app, q);
+            if (snip.empty()) {
+                render_chat_row(ctx, parent, rowId, *s, app, archived, panelW);
+                continue;
+            }
+            auto wrap = div(ctx, mk(parent, rowId),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels(kRowHeight + kSnippetH)})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("sb_result"));
+            render_chat_row(ctx, wrap.ent(), 1, *s, app, archived, panelW);
+            render_snippet(ctx, wrap.ent(), snip, q, panelW);
         }
 
         // "Show N more…" expander (only when capped). Clicking adds the more-
@@ -1714,6 +1765,61 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
 
+
+    // ---- search snippets -------------------------------------------------
+    // The line a matching row matched ON. Preference order is "the sentence
+    // the user would recognise": a transcript we are already holding in memory
+    // beats the list's one-line preview. The DISK cache is not read here even
+    // though the filter matches against it — that is a file read per row per
+    // frame, and this runs inside the render loop; a row that matched on
+    // cached content it cannot afford to re-read falls back to its preview
+    // (see the REPORT).
+    std::string snippet_for(const api::SessionSummary& s, AppComponent& app,
+                            const std::string& q) {
+        if (q.empty()) return std::string();
+        if (const api::Session* held = app.transcriptCache.peek(s.id)) {
+            for (const auto& m : held->messages) {
+                if (m.role != api::Role::User &&
+                    m.role != api::Role::Assistant)
+                    continue;
+                const std::string sn =
+                    hanabi::snippet_highlight::extract(m.text, q);
+                if (!sn.empty()) return sn;
+            }
+        }
+        const std::string sn =
+            hanabi::snippet_highlight::extract(s.preview, q);
+        // A title match has nothing lit in it; the preview is still the most
+        // useful line to put under the title, so it renders plain.
+        return sn.empty() ? s.preview : sn;
+    }
+
+    // The snippet line itself. NO padding: the highlight bands are placed from
+    // the element's own rect plus the renderer's text margin (gap #51), so a
+    // padded element would put the text somewhere the bands are not. The
+    // indent is a margin, which moves the element and its text together.
+    void render_snippet(UIContext<InputAction>& ctx, Entity& parent,
+                        const std::string& text, const std::string& q,
+                        float panelW) {
+        const float indent = kRowLeftInset + kGlyphW;
+        float w = panelW - indent - 12.0f;
+        if (w < 40.0f) w = 40.0f;
+        div(ctx, mk(parent, 2),
+            ComponentConfig{}
+                .with_label(text)
+                .with_size(ComponentSize{pixels(w), pixels(kSnippetH)})
+                .with_margin(Margin{.left = pixels(indent)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_on_draw_bg([text, q](RectangleType r) {
+                    hanabi::snippet_highlight::draw(r, text, q,
+                                                    theme::type::SM);
+                })
+                .with_debug_name("sb_snippet"));
+    }
 
     // ---- high-signal chat row ----
     // `panelW` is the live sidebar width (LayoutComponent::sidebar.width).

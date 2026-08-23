@@ -1,0 +1,37 @@
+# A search result shows the line it matched on, with the words lit — and that
+# highlighting stays out of find's count.
+#
+# [APP-WORKAROUND] Painting behind a run of text means knowing where that run
+# landed on screen, and nothing in the library will say (afterhours_gaps.md
+# #51). The band positions are re-derived by redoing the renderer's own layout,
+# the same trick src/ui/find_highlight.h uses — and now literally the same
+# code, so there is one transcription of the renderer's constants rather than
+# two that rot apart.
+#
+# The counters, though, are two, and this script is why. The find tally is only
+# worth reading because it equals the bands find painted
+# (find_counts_only_what_it_paints.e2e). A band painted in the SIDEBAR is not
+# one of those, so it is counted separately: here both audits are on at once,
+# the sidebar paints one band and find still reports exactly its two.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FIND_DEMO=ledger HANABI_FIND_AUDIT=1 HANABI_SNIPPET_AUDIT=1
+
+# Before the sidebar is searched at all: find's tally and find's bands agree.
+expect_text "1 of 2"
+expect_text "bands 2"
+
+# Search the list. The row that matches now carries the line it matched on.
+click 140 58
+wait_frames 4
+type "flags"
+wait_frames 10
+expect_text "clean up dead feature flags"
+expect_text "scanning for stale flags"
+
+# One occurrence in that snippet, one band painted behind it.
+expect_text "snippet bands 1"
+
+# And find's own numbers are untouched by it — same tally, same bands.
+expect_text "1 of 2"
+expect_text "bands 2"

@@ -75,9 +75,10 @@ class TranscriptCache {
         map_.emplace(id, std::move(e));
     }
 
-    // Read a cached transcript WITHOUT touching recency. A reader that is not
-    // the user — the cross-session index walks every thread — must not
-    // reorder the LRU, or searching once would evict what you were reading.
+    // Read a cached transcript WITHOUT touching recency. Two readers are not
+    // the user — the cross-session index walks every thread, and the sidebar's
+    // snippets walk every matching row — and neither may reorder the LRU, or
+    // searching once would evict what you were reading.
     const api::Session* peek(const std::string& id) const {
         auto it = map_.find(id);
         return it == map_.end() ? nullptr : &it->second.session;

@@ -71,4 +71,18 @@ inline int find_step() {
     return n;
 }
 
+// HANABI_SNIPPET_AUDIT=1 makes the sidebar show how many highlight bands its
+// search snippets painted on the previous frame. Two reasons it exists: a
+// script can read a label and never a painted band, and find's tally must be
+// unaffected by these bands — asserting both numbers in one run is the only
+// way to hold that apart. Same contract as force_hover: read once, hard no-op
+// when unset.
+inline bool snippet_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_SNIPPET_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 }  // namespace hanabi::test_hooks

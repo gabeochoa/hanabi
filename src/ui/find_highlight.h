@@ -59,11 +59,21 @@ inline int take_band_count() {
     return n;
 }
 
-// Paint a band behind every occurrence of `query` in `text`, as that text is
-// laid out inside `rect` at `fontPx`. A no-op when the query is empty or the
-// font manager is not up yet.
-inline void draw(RectangleType rect, const std::string& text,
-                 const std::string& query, float fontPx) {
+// Paint a band in `band` behind every occurrence of `query` in `text`, as that
+// text is laid out inside `rect` at `fontPx`, and add each one to `tally`. A
+// no-op when the query is empty or the font manager is not up yet.
+//
+// The geometry lives here ONCE and takes its tally as a parameter, because a
+// second caller appeared (the sidebar's search snippets) and the two must not
+// share a counter: find's tally is asserted against the bands find painted
+// (tests/ui/find_counts_only_what_it_paints.e2e), and a band painted somewhere
+// else entirely landing in that count would break the one rule that makes the
+// tally worth reading. Copying the arithmetic instead would have been worse —
+// it is a transcription of the renderer's private constants (gap #51), and two
+// transcriptions rot independently.
+inline void paint_bands(RectangleType rect, const std::string& text,
+                        const std::string& query, float fontPx,
+                        theme::Color band, int& tally) {
     if (query.empty() || text.empty() || rect.width <= 0.0f) return;
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::FontManager>();
@@ -84,20 +94,27 @@ inline void draw(RectangleType rect, const std::string& text,
     const float blockH = lineH * static_cast<float>(lines.size());
     const float y0 = rect.y + std::max(0.0f, (rect.height - blockH) * 0.5f);
 
-    const theme::Color band = theme::over(theme::find_match(), theme::panel_bg());
     for (size_t i = 0; i < lines.size(); ++i) {
         const std::string& ln = lines[i];
         for (size_t off : occurrences(ln, query)) {
             const float x0 = rect.x + kTextMarginX + measure(ln.substr(0, off));
             const float w = measure(ln.substr(off, query.size()));
             if (w <= 0.0f) continue;
-            ++band_count();
+            ++tally;
             afterhours::draw_rectangle_rounded(
                 RectangleType{x0, y0 + lineH * static_cast<float>(i) + kVPad,
                               w, lineH - kVPad * 2.0f},
                 0.25f, 6, band);
         }
     }
+}
+
+// Find's own bands: the find colour, counted into find's tally.
+inline void draw(RectangleType rect, const std::string& text,
+                 const std::string& query, float fontPx) {
+    paint_bands(rect, text, query, fontPx,
+                theme::over(theme::find_match(), theme::panel_bg()),
+                band_count());
 }
 
 }  // namespace hanabi::find_highlight
