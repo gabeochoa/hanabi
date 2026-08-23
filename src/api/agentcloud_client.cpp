@@ -500,6 +500,20 @@ LiveFrame classify_live_frame(const std::string& msg_json) {
     const json& e = obj_at(root, "event");
     const std::string type = str_or(e, "type", "");
 
+    if (type == "block_delta") {
+        // The live increment. `delta` is a tagged union: "start" opens a block,
+        // "append" carries new text. Anything else is a shape this build does
+        // not know and must not guess at.
+        const json& d = obj_at(e, "delta");
+        const std::string which = str_or(d, "delta", "");
+        if (which == "start") {
+            lf.kind = LiveFrame::Kind::BlockStart;
+        } else if (which == "append") {
+            lf.kind = LiveFrame::Kind::TextAppend;
+            lf.payload = str_or(d, "text", "");
+        }
+        return lf;
+    }
     if (type == "block") {
         const json& b = obj_at(e, "block");
         const std::string kind = str_or(b, "kind", "");
@@ -747,16 +761,33 @@ void AgentcloudClient::run_turn(const std::string& session_id,
         const agentcloud::LiveFrame lf =
             agentcloud::classify_live_frame(msg.dump());
         switch (lf.kind) {
+            case agentcloud::LiveFrame::Kind::BlockStart:
+                // A fresh block: the per-block buffer restarts, but the
+                // assembled reply keeps everything before it.
+                emitted.clear();
+                break;
+            case agentcloud::LiveFrame::Kind::TextAppend:
+                if (!lf.payload.empty()) {
+                    sink.emit_delta(lf.payload);
+                    final.text += lf.payload;
+                    emitted += lf.payload;
+                }
+                break;
             case agentcloud::LiveFrame::Kind::Text: {
                 // The payload is the ACCUMULATED text at this key, installed
                 // whole -- so emit only the part the sink has not seen. A
                 // shorter payload means a different block started, not a
                 // rewind, so start the diff over from there.
+                // The whole block: either the settled durable copy of what we
+                // just streamed (diff is empty -- do NOT print it twice), or a
+                // partial handed to us by attaching mid-turn (diff is the lot).
                 const std::string d =
                     agentcloud::delta_from_accumulated(emitted, lf.payload);
-                if (!d.empty()) sink.emit_delta(d);
+                if (!d.empty()) {
+                    sink.emit_delta(d);
+                    final.text += d;
+                }
                 emitted = lf.payload;
-                final.text = lf.payload;
                 break;
             }
             case agentcloud::LiveFrame::Kind::Thinking:

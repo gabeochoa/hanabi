@@ -388,6 +388,41 @@ static void test_unknown_live_frames_are_ignored_not_fatal() {
               .kind == LF::Kind::Ignore);
 }
 
+
+static void test_block_delta_append_is_a_true_increment() {
+    // Learned from real traffic, not the docs: block_delta carries the NEW
+    // text, while a settled `block` carries the whole thing. Treating an
+    // append as accumulated (or the reverse) prints the reply twice.
+    const std::string start =
+        R"({"type":"frame","frame":"delta","seq":81,
+            "event":{"type":"block_delta","index":0,
+                     "delta":{"delta":"start","kind":{"kind":"text"}}}})";
+    CHECK(classify_live_frame(start).kind == LF::Kind::BlockStart);
+
+    const std::string app =
+        R"({"type":"frame","frame":"delta","seq":82,
+            "event":{"type":"block_delta","index":0,
+                     "delta":{"delta":"append","text":"\n2\n3"}}})";
+    CHECK(classify_live_frame(app).kind == LF::Kind::TextAppend);
+    CHECK(classify_live_frame(app).payload == "\n2\n3");
+
+    // An unknown delta shape must not be guessed at.
+    const std::string weird =
+        R"({"type":"frame","event":{"type":"block_delta",
+            "delta":{"delta":"rewrite","text":"x"}}})";
+    CHECK(classify_live_frame(weird).kind == LF::Kind::Ignore);
+}
+
+static void test_settled_block_does_not_reprint_streamed_text() {
+    // The end of a turn: appends streamed "1\n2\n3", then the durable block
+    // arrives carrying the same text whole. The diff must be empty, or the
+    // bubble shows the reply twice.
+    const std::string streamed = "1\n2\n3";
+    CHECK(delta_from_accumulated(streamed, "1\n2\n3") == "");
+    // ...but a tail the appends missed still gets through.
+    CHECK(delta_from_accumulated(streamed, "1\n2\n3\n4") == "\n4");
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -419,6 +454,8 @@ int main() {
     test_live_tool_call_and_finish();
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();
+    test_block_delta_append_is_a_true_increment();
+    test_settled_block_does_not_reprint_streamed_text();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

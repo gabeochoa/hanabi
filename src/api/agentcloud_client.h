@@ -105,16 +105,26 @@ std::vector<Message> parse_page_frames(const std::string& msg_json);
 
 // What one live frame means to a streaming reply.
 //
-// Live text does NOT arrive as append-ready chunks: the server sends the
-// ACCUMULATED value at a key and the client installs it whole (the C5 contract
-// -- attaching mid-turn hands you the whole partial). StreamSink wants
-// increments, so the caller keeps the last accumulated text and emits only the
-// tail. This returns the accumulated text so that diffing stays in one place.
+// Live text arrives BOTH ways, which is the trap. `block_delta{delta:"append"}`
+// is a true increment and must be emitted as-is. A `value` frame (what
+// attaching mid-turn hands you) and the settled `durable block` at the end
+// both carry the WHOLE block, so emitting those verbatim after streaming the
+// appends would print the reply twice. Kind says which, and the caller diffs
+// only the accumulated ones.
 struct LiveFrame {
-    enum class Kind { Ignore, Text, Thinking, ToolCall, Title, Finished };
+    enum class Kind {
+        Ignore,
+        BlockStart,   // a new block began; the per-block buffer resets
+        TextAppend,   // a TRUE append -- emit payload as-is
+        Text,         // the ACCUMULATED text at this key -- diff before emitting
+        Thinking,
+        ToolCall,
+        Title,
+        Finished,
+    };
     Kind kind = Kind::Ignore;
-    // For Text/Thinking: the ACCUMULATED text at this key, not a delta.
-    // For ToolCall/Title: a short label.
+    // TextAppend: the new text only. Text/Thinking: the whole block so far.
+    // ToolCall/Title: a short label.
     std::string payload;
 };
 
