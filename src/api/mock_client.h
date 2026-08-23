@@ -1297,6 +1297,38 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // MARKDOWN FIXTURE: one reply whose structure is carried by headings,
+        // seeded only under HANABI_MD_DEMO so the ordinary mock list is
+        // unchanged. Every level 1-4 appears once, plus a "#42" line that must
+        // stay body text.
+        if (const char* md = std::getenv("HANABI_MD_DEMO");
+            md && *md && std::string(md) != "0") {
+            Session s;
+            s.summary = calm("rmd", "structured findings with headings",
+                             hrs_ago(2), "active", ThreadState::Unknown,
+                             "headings fixture");
+            s.messages = {
+                {"md1", Role::User, "write up what you found, with sections",
+                 hrs_ago(3), ""},
+                {"md2", Role::Assistant,
+                 "# Release readiness\n"
+                 "The rollout is ready behind the flag.\n"
+                 "\n"
+                 "## Findings\n"
+                 "Three call sites re-parse the same payload per event.\n"
+                 "\n"
+                 "### Rollback plan\n"
+                 "Flip the flag; no migration to undo.\n"
+                 "\n"
+                 "#### Owner\n"
+                 "Checkout team holds the pager for this one.\n"
+                 "\n"
+                 "#42 is the follow-up ticket.",
+                 hrs_ago(2), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
         // PERF FIXTURE: a deliberately LONG transcript for frame-time
         // measurement + virtualization testing. Only seeded when
         // HANABI_BIG_TRANSCRIPT is set (a headless perf run), so it never

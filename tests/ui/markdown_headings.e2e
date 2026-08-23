@@ -1,0 +1,31 @@
+# A structured reply reads as sections, not as a line of hashes.
+#
+# "## Findings" used to render literally, hashes and all, in body type. Now the
+# hashes are gone and the text is drawn at its level's size in the accent
+# colour, so the shape of a long answer is visible at a glance.
+#
+# The two height assertions are the point of this script as much as the text
+# is: the row the renderer builds must be exactly as tall as rich_body_h said
+# it would be, or every virtualization spacer under this message drifts.
+#   md_h1 row = round(20   * 1.35) + 2*2 pad = 31
+#   md_h4 row = round(13.5 * 1.35) + 2*2 pad = 22
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# "##" is that word here: it is on screen only if a heading rendered raw.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MD_DEMO=1 HANABI_OPEN=rmd
+
+expect_text "Release readiness"
+expect_text "Findings"
+expect_text "Rollback plan"
+expect_text "Owner"
+
+expect_no_text ##
+
+assert_ui md_h1 h=31
+assert_ui md_h4 h=22
+
+# A hash with no space after it is a ticket number, not a heading: it keeps
+# its hash and stays in body type.
+expect_text "#42 is the follow-up"
