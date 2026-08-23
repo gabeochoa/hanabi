@@ -100,6 +100,15 @@ void native_openurl_install(void);
 // AppComponent::requestOpenTab to open + navigate to the thread.
 bool native_take_open_thread(char* out, int cap);
 
+// ---- 4b. Open a URL in the user's browser ----------------------------------
+
+// Hand `url` (UTF-8, http/https) to the system's default handler. Used by the
+// transcript when a work-tracker id is clicked. No-op on a null/empty string
+// or a scheme this does not recognise. NEVER call it from the headless
+// capture or the scripted-UI harness — a render with nobody in front of it has
+// no browser to give (hanabi::links::headless() gates that call site).
+void native_open_url(const char* url);
+
 // ---- 5. OS appearance (for the "System" theme choice) ----------------------
 
 // True when the OS is in Dark appearance (macOS: AppleInterfaceStyle == Dark).

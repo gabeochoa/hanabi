@@ -77,6 +77,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // web_base_url / env HANABI_WEB_BASE_URL). Empty => host-neutral
     // navi://session/<id>. Never used as an API endpoint.
     std::string webBaseUrl;
+    // Where a work-tracker id in a message points (from config
+    // tracker_base_url / env HANABI_TRACKER_BASE_URL). Empty => ids in the
+    // transcript are prose, not links.
+    std::string trackerBaseUrl;
 
     // Session list.
     std::vector<api::SessionSummary> sessions;

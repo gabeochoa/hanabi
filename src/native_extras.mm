@@ -487,3 +487,20 @@ bool native_take_open_thread(char* out, int cap) {
     out[cap - 1] = '\0';
     return true;
 }
+
+// Open a URL in whatever the user has set as their browser. Only http/https
+// are passed on: a message can say anything, and "file:///" or a custom
+// scheme reaching NSWorkspace from message text is a way to make the app do
+// something on behalf of whoever wrote the message.
+void native_open_url(const char* url) {
+    if (url == nullptr || *url == '\0') return;
+    NSString* s = [NSString stringWithUTF8String:url];
+    if (s == nil) return;
+    if (![s hasPrefix:@"http://"] && ![s hasPrefix:@"https://"]) {
+        NSLog(@"native_extras: refusing to open non-http URL");
+        return;
+    }
+    NSURL* u = [NSURL URLWithString:s];
+    if (u == nil) return;
+    [[NSWorkspace sharedWorkspace] openURL:u];
+}

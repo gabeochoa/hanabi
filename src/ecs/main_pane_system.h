@@ -19,6 +19,7 @@
 #include "thread_model.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
+#include "../ui/link_detect.h"
 #include "../ui/find_operators.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
@@ -2174,6 +2175,72 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // drag, and showing an I-beam. The listener is empty — an element with no
     // click or drag listener is never eligible to be the hot element
     // (gap #38), so it exists purely to make the pointer visible here.
+    // ---- Work-tracker ids -------------------------------------------------
+    // The ids this deployment can actually open. Empty whenever no tracker
+    // host is configured, which is what keeps an id prose instead of a link
+    // that goes nowhere (src/ui/link_detect.h says why).
+    static std::vector<hanabi::links::Link> links_in(const std::string& text) {
+        AppComponent* app = app_singleton();
+        if (app == nullptr || app->trackerBaseUrl.empty()) return {};
+        return hanabi::links::find(text);
+    }
+
+    // Recolour the spans covering each link so an id reads as one. The runs
+    // are split, never re-measured: the VISIBLE text is untouched, so wrap and
+    // height are exactly what the measure pass computed.
+    static void colour_links(InlineParse& ip,
+                             const std::vector<hanabi::links::Link>& links) {
+        if (links.empty() || ip.spans.empty()) return;
+        const theme::Color c = theme::link();
+        std::vector<afterhours::ui::TextSpan> out;
+        size_t at = 0;  // byte offset of this span's start within ip.visible
+        for (const auto& sp : ip.spans) {
+            size_t cut = 0;  // how much of this span is already emitted
+            for (const auto& l : links) {
+                if (l.off + l.len <= at + cut || l.off >= at + sp.text.size())
+                    continue;
+                const size_t b = l.off > at + cut ? l.off - at : cut;
+                const size_t e = std::min(l.off + l.len - at, sp.text.size());
+                if (b > cut)
+                    out.push_back(afterhours::ui::TextSpan{
+                        sp.text.substr(cut, b - cut), sp.color});
+                out.push_back(
+                    afterhours::ui::TextSpan{sp.text.substr(b, e - b), c});
+                cut = e;
+            }
+            if (cut < sp.text.size())
+                out.push_back(afterhours::ui::TextSpan{sp.text.substr(cut),
+                                                       sp.color});
+            at += sp.text.size();
+        }
+        ip.spans = std::move(out);
+    }
+
+    // A press on an id opens it. The hit test re-derives where the run landed
+    // (afterhours_gaps.md #51 — there is still no way to ask), and the pointer
+    // cursor over an id comes from the same answer.
+    static void link_hotspot(UIContext<InputAction>& ctx, Entity& el,
+                             const std::string& text,
+                             const std::vector<hanabi::links::Link>& links,
+                             float fontPx) {
+        if (links.empty() || !el.has<afterhours::ui::UIComponent>()) return;
+        const RectangleType r = el.get<afterhours::ui::UIComponent>().rect();
+        const std::string id = hanabi::links::hit(r, text, links, fontPx,
+                                                  ctx.mouse.pos.x,
+                                                  ctx.mouse.pos.y);
+        if (id.empty()) return;
+        if (el.has<afterhours::ui::HasCursor>())
+            el.get<afterhours::ui::HasCursor>().cursor =
+                afterhours::ui::CursorType::Pointer;
+        if (!ctx.mouse.just_pressed) return;
+        AppComponent* app = app_singleton();
+        if (app == nullptr) return;
+        hanabi::links::open(hanabi::links::url_for(app->trackerBaseUrl, id));
+        // The browser is another app, and on a headless render there is no
+        // browser at all — either way the transcript says what it just did.
+        app->raise_toast("Opened " + id, "", AppComponent::ToastUndo::None);
+    }
+
     static void selectable_text(UIContext<InputAction>& ctx, Entity& el,
                                 const std::string& text, float fontPx) {
         el.addComponentIfMissing<afterhours::ui::HasClickListener>(
@@ -5286,6 +5353,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("asst_gap"));
             } else {
                 flush(9000 + seg);
+                // Work-tracker ids in this line, coloured before the spans are
+                // handed over. Detection reads the VISIBLE text, the same
+                // string the measure pass wrapped, so a link can never change
+                // where a line breaks.
+                const std::vector<hanabi::links::Link> lnks =
+                    links_in(ip.visible);
+                colour_links(ip, lnks);
                 auto cfg = ComponentConfig{}
                         .with_label(ip.visible)
                         .with_styled_label(ip.spans)
@@ -5311,10 +5385,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             hanabi::find_highlight::draw(r, line, q,
                                                          theme::type::BODY);
                     });
+                // The underline goes OVER the glyphs' own row, so it is drawn
+                // in the foreground pass; the colour alone would leave an id
+                // looking like emphasis rather than a link.
+                if (!lnks.empty())
+                    cfg = cfg.with_on_draw_fg(
+                        [line = ip.visible, lnks](RectangleType r) {
+                            hanabi::links::draw_underlines(r, line, lnks,
+                                                           theme::type::BODY);
+                        });
                 auto lineEl = div(ctx, mk(parent, 100 + seg), cfg);
                 *idHolder = lineEl.ent().id;
                 selectable_text(ctx, lineEl.ent(), ip.visible,
                                 theme::type::BODY);
+                link_hotspot(ctx, lineEl.ent(), ip.visible, lnks,
+                             theme::type::BODY);
             }
             ++seg;
             if (nl == std::string::npos) break;

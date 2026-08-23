@@ -62,6 +62,7 @@ void load_config_file(Config& c) {
     str("api_base_url", c.base_url);
     str("base_url", c.base_url);  // accept either spelling
     str("web_base_url", c.web_base_url);
+    str("tracker_base_url", c.tracker_base_url);
     str("token", c.token);
     str("sessions_path", c.sessions_path);
     str("messages_path", c.messages_path);
@@ -159,6 +160,8 @@ Config Config::from_env() {
     // fall back to the shorter HANABI_BASE_URL for backward compatibility.
     c.base_url = env_or("HANABI_API_BASE_URL", env_or("HANABI_BASE_URL", c.base_url));
     c.web_base_url = env_or("HANABI_WEB_BASE_URL", c.web_base_url);
+    c.tracker_base_url =
+        env_or("HANABI_TRACKER_BASE_URL", c.tracker_base_url);
     c.token = env_or("HANABI_TOKEN", c.token);
     c.sessions_path = env_or("HANABI_SESSIONS_PATH", c.sessions_path);
     c.messages_path = env_or("HANABI_MESSAGES_PATH", c.messages_path);

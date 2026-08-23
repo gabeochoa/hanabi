@@ -54,6 +54,11 @@ struct Config {
     // scheme is used, so we hardcode no host anywhere. Set via config
     // web_base_url / env HANABI_WEB_BASE_URL to point at a real web UI origin.
     std::string web_base_url;
+    // Where a work-tracker id in a message points. Empty by default and no
+    // host is compiled in anywhere: with this unset a "D948120" in a reply
+    // stays plain prose rather than becoming a link that opens nothing. Set
+    // via config tracker_base_url / env HANABI_TRACKER_BASE_URL.
+    std::string tracker_base_url;
     std::string sessions_path = "/sessions";
     std::string messages_path = "/sessions/{id}/messages";
     // Chat/send endpoint. Defaults to "/chat" under the base_url's /api/v1
