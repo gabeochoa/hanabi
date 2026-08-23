@@ -43,6 +43,22 @@ inline constexpr float kVPad = 1.0f;  // trims the band off the line box
 
 using textscan::occurrences;
 
+// How many bands were painted since the last read. The tally the find bar
+// shows is only true if it equals this (see
+// tests/ui/find_counts_only_what_it_paints.e2e), and the scripted harness
+// cannot see pixels — a band is drawn, never registered as text. Counting
+// them here is the only way a test can hold the count and the painting to
+// each other rather than to two independent readings of the same code.
+inline int& band_count() {
+    static int n = 0;
+    return n;
+}
+inline int take_band_count() {
+    const int n = band_count();
+    band_count() = 0;
+    return n;
+}
+
 // Paint a band behind every occurrence of `query` in `text`, as that text is
 // laid out inside `rect` at `fontPx`. A no-op when the query is empty or the
 // font manager is not up yet.
@@ -75,6 +91,7 @@ inline void draw(RectangleType rect, const std::string& text,
             const float x0 = rect.x + kTextMarginX + measure(ln.substr(0, off));
             const float w = measure(ln.substr(off, query.size()));
             if (w <= 0.0f) continue;
+            ++band_count();
             afterhours::draw_rectangle_rounded(
                 RectangleType{x0, y0 + lineH * static_cast<float>(i) + kVPad,
                               w, lineH - kVPad * 2.0f},

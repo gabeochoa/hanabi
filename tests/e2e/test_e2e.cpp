@@ -30,6 +30,7 @@
 #include "../../src/ecs/tab_model.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../src/ecs/transcript_cache.h"
+#include "../../src/ui/find_operators.h"
 
 // afterhours UI layout engine (headless: no graphics backend linked — the
 // `none` backend's draw_* are no-ops, and autolayout is pure geometry). Used
@@ -927,6 +928,64 @@ static void test_sidebar_scroll_list_single_column() {
     CHECK(onScreenRows >= 12);
 }
 
+// ---------------------------------------------------------------------------
+// 20) Find operators: an operator only ever REMOVES rows from the search.
+//     Asserted against the mock's r1 thread, whose shape is the point — a user
+//     ask, then one assistant turn that runs tools and answers twice. The UI
+//     side of this (the tally equals the bands painted, even filtered) is
+//     tests/ui/find_operators.e2e; here is the meaning of each operator.
+// ---------------------------------------------------------------------------
+static size_t rows_kept(const api::Session& s, const std::string& query) {
+    const auto q = hanabi::find_ops::parse(query);
+    size_t kept = 0;
+    for (size_t i = 0; i < s.messages.size(); ++i)
+        if (hanabi::find_ops::row_matches(s, i, q)) ++kept;
+    return kept;
+}
+
+static void test_find_operators() {
+    std::printf("test_find_operators\n");
+    api::MockClient m;
+    auto r = m.get_session("r1");
+    CHECK(r.ok);
+    if (!r.ok) return;
+    const api::Session& s = r.value;
+
+    // The text part is what gets searched for; the operator never reaches it.
+    CHECK(hanabi::find_ops::parse("backoff has:tool").text == "backoff");
+    CHECK(hanabi::find_ops::parse("has:tool backoff").text == "backoff");
+    // A query with no operator is passed through untouched, spaces and all —
+    // "6 failures" is a real query in this suite.
+    CHECK(hanabi::find_ops::parse("6 failures").text == "6 failures");
+    // A colon that is not one of ours stays part of the search text.
+    CHECK(hanabi::find_ops::parse("http://x").text == "http://x");
+    CHECK(!hanabi::find_ops::parse("http://x").invalid);
+
+    // An operator we do not have is refused rather than searched for.
+    CHECK(hanabi::find_ops::parse("is:thinking").invalid);
+    CHECK(hanabi::find_ops::parse("has:banana").invalid);
+    CHECK(!hanabi::find_ops::parse("has:tool").invalid);
+
+    // Every row qualifies when nothing is asked of it.
+    CHECK(rows_kept(s, "backoff") == s.messages.size());
+
+    // r1 is one user ask followed by a single assistant turn (assistant, three
+    // tool rows, assistant). has:tool keeps the turn, drops the ask.
+    CHECK(rows_kept(s, "backoff has:tool") == s.messages.size() - 1);
+    CHECK(rows_kept(s, "backoff is:user") == 1);
+    CHECK(rows_kept(s, "backoff is:assistant") == 2);
+
+    // The tool rows in that turn completed, so the turn is state:completed and
+    // is not state:failed. An unknown status is not claimed as any state.
+    CHECK(rows_kept(s, "backoff state:completed") == s.messages.size() - 1);
+    CHECK(rows_kept(s, "backoff state:failed") == 0);
+    CHECK(rows_kept(s, "backoff state:running") == 0);
+
+    // Operators AND together, and no combination can add a row back.
+    CHECK(rows_kept(s, "backoff is:user has:tool") == 0);
+    CHECK(rows_kept(s, "backoff is:assistant has:tool") == 2);
+}
+
 int main() {
     std::printf("=== test_e2e ===\n");
     test_list_loads_sorted_and_has_samples();
@@ -947,6 +1006,7 @@ int main() {
     test_backend_agnostic_defaults();
     test_transcript_cache();
     test_sidebar_scroll_list_single_column();
+    test_find_operators();
 
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {

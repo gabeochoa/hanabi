@@ -1,0 +1,29 @@
+# An operator narrows the search, and the tally follows the paint.
+#
+# `has:tool` keeps only rows from a turn that ran a tool. In this thread the
+# word appears three times in paintable text: once in the user's opening ask,
+# and twice in the assistant turn that ran the tool rows. Filtering drops the
+# user one — so the count must drop with it, and so must the highlighting.
+#
+# That second half is the load-bearing part (find_counts_only_what_it_paints
+# .e2e): a filter that hid a row from the tally but still painted a band behind
+# it would be exactly the lie that test exists to prevent. The harness cannot
+# see a painted band — it is drawn, never registered as text — so
+# HANABI_FIND_AUDIT=1 has the find bar report how many bands the last frame
+# actually painted, and the script holds the two numbers against each other.
+#
+# Opened through the state knob because the harness cannot press a Cmd chord
+# (afterhours_gaps.md #49).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r1"],"active_tab":"r1","theme":"dark"}
+# env: HANABI_FIND_DEMO='backoff has:tool' HANABI_FIND_AUDIT=1
+
+expect_text "1 of 2"
+
+# Two counted, two painted.
+wait_frames 6
+expect_text "bands 2"
+
+# The filtered-out row is still on screen — it was excluded from the search,
+# not scrolled away — so "2" is the operator working, not the reader missing.
+expect_text "jittered backoff"

@@ -1,0 +1,19 @@
+# An operator we do not have says so, instead of quietly widening the search.
+#
+# `is:thinking` reads like it should work — puffin has it — but hanabi has no
+# thinking row to filter on: the http adapter folds a thinking block's text
+# into the assistant text run, so nothing distinguishes it once it is stored.
+# Treating an unknown operator as plain text would search for the literal
+# "is:thinking" and report a tally for a question nobody asked. The bar names
+# the operators that do exist instead, and finds nothing until the query is
+# one of them.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r1"],"active_tab":"r1","theme":"dark"}
+# env: HANABI_FIND_DEMO='backoff is:thinking' HANABI_FIND_AUDIT=1
+
+expect_text "Try: is:user, is:assistant, has:tool, state:failed"
+expect_text "no matches"
+
+# Nothing counted, so nothing painted.
+wait_frames 6
+expect_text "bands 0"

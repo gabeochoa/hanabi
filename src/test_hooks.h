@@ -44,4 +44,18 @@ inline bool force_hover(std::string_view name) {
     return !forced.empty() && forced == name;
 }
 
+// HANABI_FIND_AUDIT=1 makes the find bar show the number of highlight bands
+// the previous frame actually painted, next to its "N of M" tally. The two
+// must agree — that is find's counting rule — and a scripted test can read a
+// label but never a painted band, so without this the rule can only be argued
+// for, not asserted. Same contract as force_hover: read once, and a hard
+// no-op when unset.
+inline bool find_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_FIND_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 }  // namespace hanabi::test_hooks

@@ -18,6 +18,7 @@
 #include "thread_model.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
+#include "../ui/find_operators.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
@@ -30,6 +31,8 @@
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
 
 namespace ecs {
+
+namespace find_ops = hanabi::find_ops;
 
 struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -2182,9 +2185,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         size_t off = 0;
     };
     static std::vector<Match> collect_matches(const api::Session& s,
-                                              const std::string& q) {
+                                              const find_ops::Query& q) {
         std::vector<Match> out;
-        if (q.empty()) return out;
+        if (q.text.empty() || q.invalid) return out;
         for (size_t i = 0; i < s.messages.size(); ++i) {
             const auto& m = s.messages[i];
             // Tool rows and system captions are not highlighted, so they are
@@ -2192,18 +2195,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // painted, it does not exist to the tally.
             if (m.role != api::Role::User && m.role != api::Role::Assistant)
                 continue;
+            // An operator excludes the row from the tally and from the
+            // painting through this one test, so the two cannot disagree.
+            if (!find_ops::row_matches(s, i, q)) continue;
             const bool rich = (m.role != api::Role::User);
             for (const auto& line : paintable_lines(m, rich))
-                for (size_t off : find_all(line, q))
+                for (size_t off : find_all(line, q.text))
                     out.push_back(Match{static_cast<int>(i), off});
         }
         return out;
     }
 
+    // The query as it stands this frame, parsed. Cheap enough to redo per row
+    // (a handful of tokens) and that keeps the parse next to its use instead
+    // of in a cache that can go stale mid-frame.
+    static find_ops::Query live_query() {
+        AppComponent* app = app_singleton();
+        if (app == nullptr || !app->findOpen) return find_ops::Query{};
+        return find_ops::parse(app->findQuery);
+    }
+
+    // What find should paint inside message `index` — the query's text, or
+    // nothing at all when an operator has excluded that row.
+    static std::string paint_query_for(int index) {
+        AppComponent* app = app_singleton();
+        if (app == nullptr || !app->findOpen || !app->openSession)
+            return std::string();
+        const find_ops::Query q = live_query();
+        if (q.invalid || q.text.empty()) return std::string();
+        if (!find_ops::row_matches(*app->openSession,
+                                   static_cast<size_t>(index), q))
+            return std::string();
+        return q.text;
+    }
+
     // The find bar: an overlay pinned to the transcript's top-right, so it
     // never displaces the conversation under it.
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
-                  AppComponent& app, float paneW, int matchCount) {
+                  AppComponent& app, float paneW, int matchCount,
+                  const find_ops::Query& q) {
         // Content must FIT: afterhours has no flex-grow and warns (loudly, every
         // frame) when a NoWrap row's children exceed it. Sized from the parts:
         // pad 8+6, input 168, gap 6, tally 74, two 22px steppers, a 4px gap and
@@ -2255,8 +2285,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             tally = matchCount == 0
                         ? std::string("no matches")
                         : (std::to_string(app.findIndex + 1) + " of " +
-                           std::to_string(matchCount));
-        div(ctx, mk(bar.ent(), 2),
+                           std::to_string(matchCount));        div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
                 .with_label(tally)
                 .with_size(ComponentSize{pixels(74), pixels(16)})
@@ -2329,6 +2358,42 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.findOpen = false;
             app.findQuery.clear();
         }
+
+        // An operator we do not have would otherwise vanish into the plain
+        // text and quietly widen the search — the query would say one thing
+        // and the tally another. Say so instead, under the bar so the row's
+        // fixed width is untouched.
+        if (q.invalid)
+            div(ctx, mk(parent, 7501),
+                ComponentConfig{}
+                    .with_label(find_ops::kHint)
+                    .with_size(ComponentSize{pixels(kBarW), pixels(16)})
+                    .with_absolute_position()
+                    .with_translate(bx, 52.0f + kBarH + 4.0f)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_render_layer(9)
+                    .with_debug_name("find_hint"));
+
+        // Test-only (HANABI_FIND_AUDIT=1): the previous frame's painted bands,
+        // so a script can assert the tally against the highlighting instead of
+        // against a second reading of the same counting code.
+        const int bands = hanabi::find_highlight::take_band_count();
+        if (hanabi::test_hooks::find_audit())
+            div(ctx, mk(parent, 7502),
+                ComponentConfig{}
+                    .with_label("bands " + std::to_string(bands))
+                    .with_size(ComponentSize{pixels(kBarW), pixels(16)})
+                    .with_absolute_position()
+                    .with_translate(bx, 52.0f + kBarH + 22.0f)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_render_layer(9)
+                    .with_debug_name("find_audit"));
     }
 
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
@@ -2656,9 +2721,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // ---- Find in conversation: matches + scroll-to-match ---------------
         // Recomputed each frame from the query. Cheap (a substring scan of the
         // loaded window) and it keeps the count honest as a stream appends.
+        const find_ops::Query findQ =
+            app.findOpen ? find_ops::parse(app.findQuery) : find_ops::Query{};
         std::vector<Match> matches;
-        if (app.findOpen && !app.findQuery.empty()) {
-            matches = collect_matches(*app.openSession, app.findQuery);
+        if (app.findOpen && !findQ.text.empty()) {
+            matches = collect_matches(*app.openSession, findQ);
             if (app.findIndex >= static_cast<int>(matches.size()))
                 app.findIndex = 0;
         }
@@ -2848,7 +2915,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool atBottom = s_follow || nearEnd;
         // Find owns the scroll while it is open with a query: the bottom-pin
         // would drag the view back off the match the moment it landed.
-        const bool findDriving = app.findOpen && !app.findQuery.empty();
+        const bool findDriving = app.findOpen && !findQ.text.empty();
         const bool pinBottom =
             !findDriving && (wantOpenBottom || streamingHere || s_follow);
         if (pinBottom) scrollY = totalH;
@@ -3018,7 +3085,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.loadingOlder) {
             loading_older_pill(ctx, parent, paneW, 62.0f + 6.0f);
         }
-        if (app.findOpen) find_bar(ctx, parent, app, paneW, app.findCount);
+        if (app.findOpen)
+            find_bar(ctx, parent, app, paneW, app.findCount, findQ);
         hanabi::text_select::end_frame(ctx.mouse.just_pressed);
         // (Composer is rendered once at the pane level — not here.)
         (void)canReply;
@@ -4482,8 +4550,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // matches — they are real, and hiding them would make find useless on
         // exactly the long messages it is for — a live query unfolds any
         // message that contains one.
-        if (app && app->findOpen && !app->findQuery.empty() &&
-            message_has_match(m, app->findQuery))
+        // An operator that excludes this row excludes it here too: unfolding
+        // a message find will not highlight would open it for nothing.
+        if (app && app->findOpen &&
+            message_has_match(m, paint_query_for(index)))
             return false;
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
@@ -4907,12 +4977,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
                           const std::string& shown, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
-                          float bodyStartY = 0.0f) {
-        // The active find query, read here rather than threaded through every
-        // caller: this is the only place that paints message body text.
-        AppComponent* fapp = app_singleton();
-        const std::string findQuery =
-            (fapp && fapp->findOpen) ? fapp->findQuery : std::string();
+                          float bodyStartY = 0.0f,
+                          const std::string& findQuery = std::string()) {
+        // The find text arrives from the caller, which is the only level that
+        // knows WHICH message this body belongs to — and therefore whether an
+        // operator has excluded it from the search.
         const bool cull = winBot > winTop;
         size_t start = 0;
         int seg = 0;
@@ -5271,9 +5340,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // bubble and the (shorter) tool row different corners.
                     .with_corner_radius(theme::kChatCorner)
                     .with_debug_name("user_bubble"));
-            AppComponent* fapp = app_singleton();
-            const std::string uq =
-                (fapp && fapp->findOpen) ? fapp->findQuery : std::string();
+            const std::string uq = paint_query_for(index);
             auto ucfg = ComponentConfig{}
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
@@ -5414,7 +5481,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_thinking_indicator(ctx, turn.ent(), app);
         } else {
             render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
-                             bodyStartY);
+                             bodyStartY, paint_query_for(index));
         }
 
         // Inline image (agent surface): if the message carries a decodable
