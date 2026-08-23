@@ -59,6 +59,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     // durable source of truth; the loader re-applies it to
                     // freshly-fetched sessions on the next launch).
                     Settings::get().set_starred(s.id, s.starred);
+                    app->raise_toast(s.starred ? "Session starred"
+                                               : "Session unstarred",
+                                     s.id, AppComponent::ToastUndo::Star);
                     break;
                 }
             }
@@ -77,7 +80,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     Settings::get().set_archived(s.id, nowArchived);
                     app->raise_toast(nowArchived ? "Session archived"
                                                  : "Session unarchived",
-                                     s.id);
+                                     s.id, AppComponent::ToastUndo::Archive);
                     break;
                 }
             }
@@ -92,6 +95,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 if (s.id == app->requestToggleMute) {
                     s.muted = !s.muted;
                     Settings::get().set_muted(s.id, s.muted);
+                    app->raise_toast(s.muted ? "Session muted"
+                                             : "Session unmuted",
+                                     s.id, AppComponent::ToastUndo::Mute);
                     break;
                 }
             }
@@ -353,6 +359,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;
+                    break;
                 case Action::Mute:
                     app.requestToggleMute = targetId;
                     break;
