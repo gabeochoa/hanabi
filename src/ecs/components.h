@@ -216,6 +216,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // consumed by whichever system owns the summary mutation).
     std::string requestToggleStar;
 
+    // Request to flip a thread's machine-local archive overlay, set by the row
+    // menu and applied by the sidebar — the same one-writer arrangement the
+    // star toggle uses, so the sessions vector still has exactly one mutator.
+    std::string requestToggleArchive;
+
     // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
     // collapse into one "N tool calls" summary row (like the navi website); the
     // set holds the pile keys (first tool msg id) the user has expanded. Default
@@ -493,6 +498,26 @@ struct AppComponent : public afterhours::BaseComponent {
     void close_row_menu() {
         rowMenuOpen = false;
         rowMenuSessionId.clear();
+    }
+
+    // ==== Toast (a transient bar with one action) ==========================
+    // Archive raises one so the action can be taken back: filing a thread away
+    // is easy to do by accident, and the Archived view is not where the user is
+    // looking. Never persisted — a toast that outlived the launch that raised
+    // it would offer to undo something already forgotten.
+    static constexpr float kToastSeconds = 10.0f;
+    std::string toastMessage;
+    std::string toastUndoSessionId;  // empty = no Undo affordance
+    float toastSecondsLeft = 0.0f;
+    void raise_toast(std::string message, std::string undoSessionId) {
+        toastMessage = std::move(message);
+        toastUndoSessionId = std::move(undoSessionId);
+        toastSecondsLeft = kToastSeconds;
+    }
+    void dismiss_toast() {
+        toastMessage.clear();
+        toastUndoSessionId.clear();
+        toastSecondsLeft = 0.0f;
     }
 
     bool renameOpen = false;

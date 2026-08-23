@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,14 @@ struct Settings {
     bool is_starred(const std::string& id) const;
     void set_starred(const std::string& id, bool starred);  // auto-persists
 
+    // Per-session archive overlay. An id is present only once the user has
+    // said something about that thread here, so an absent id means "defer to
+    // whatever the backend reported" — see api::SessionSummary::archive_override
+    // for why this has to be able to say false as well as true. Machine-local:
+    // the per-viewer route that would sync it is not reachable from here.
+    std::optional<bool> get_archived(const std::string& id) const;
+    void set_archived(const std::string& id, bool archived);  // auto-persists
+
     // How far a thread had been READ, as the timestamp of its newest message
     // at the moment it was last open. Persisted so reopening a conversation
     // can say what arrived while you were away — without it, a thread that
@@ -147,6 +156,7 @@ struct Settings {
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
+    std::map<std::string, bool> archived_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
     // Preference slots (see getters). Defaults mirror the web defaults.

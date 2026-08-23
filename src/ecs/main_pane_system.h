@@ -1050,6 +1050,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (card.ent().get<afterhours::ui::HasClickListener>().down)
             app.requestOpenTab = s.id;
 
+        // The same context menu the sidebar row has, on the same state — a
+        // session's menu should follow the session, and an archived thread has
+        // no sidebar row left to right-click, so this is the only way back.
+        // SidebarSystem draws it; it runs before this one, so the menu appears
+        // on the next frame.
+        if (ctx.is_right_click(card.ent().id)) {
+            app.rowMenuOpen = true;
+            app.rowMenuSessionId = s.id;
+            app.rowMenuX = ctx.mouse.pos.x;
+            app.rowMenuY = ctx.mouse.pos.y;
+        }
+
         // Title row: name (grows) + tag chip pinned right, both vertically
         // centered. space-between pushes the chip to the trailing edge so it
         // sits consistently top-right rather than floating mid-card.
@@ -1297,7 +1309,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // card isn't shown twice.
         std::vector<const api::SessionSummary*> recent;
         for (const auto& s : app.sessions) {
-            if (s.state == api::ThreadState::Archived) continue;
+            if (ecs::model::is_archived(s)) continue;
             if (s.state == api::ThreadState::Attention ||
                 s.state == api::ThreadState::Running)
                 continue;

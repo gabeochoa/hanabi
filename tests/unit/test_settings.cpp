@@ -181,6 +181,33 @@ static void test_quiet_hours_persist() {
     CHECK(s.get_quiet_end_minutes() == 8 * 60);
 }
 
+// --- The archive overlay round-trips, and can say false as well as true ---
+static void test_archive_overlay_round_trips() {
+    std::printf("test_archive_overlay_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    // Nothing said about a thread yet: the caller is meant to fall back to
+    // whatever the backend reported, so the answer is "no opinion", not false.
+    CHECK(!s.get_archived("r4").has_value());
+
+    s.set_archived("r4", true);
+    CHECK(s.get_archived("r4").value_or(false));
+
+    // Reading the file back is the whole point: an archive that lives only in
+    // memory is gone on the next launch.
+    s.load_save_file();
+    CHECK(s.get_archived("r4").value_or(false));
+    CHECK(!s.get_archived("r5").has_value());
+
+    // A stored false is a real answer and must survive as one — it is what
+    // unarchiving a thread the backend itself calls archived comes down to.
+    s.set_archived("r4", false);
+    s.load_save_file();
+    CHECK(s.get_archived("r4").has_value());
+    CHECK(!s.get_archived("r4").value_or(true));
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -189,6 +216,7 @@ int main() {
     test_shelf_fold_round_trips();
     test_quiet_hours_window();
     test_quiet_hours_persist();
+    test_archive_overlay_round_trips();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

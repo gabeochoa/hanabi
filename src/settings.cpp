@@ -66,6 +66,11 @@ bool Settings::load_save_file() {
             for (const auto& e : j["starred"])
                 if (e.is_string()) starred_ids_.push_back(e.get<std::string>());
         }
+        archived_.clear();
+        if (j.contains("archived") && j["archived"].is_object()) {
+            for (const auto& [k, v] : j["archived"].items())
+                if (v.is_boolean()) archived_[k] = v.get<bool>();
+        }
         collapsed_shelves_.clear();
         if (j.contains("collapsed_shelves") &&
             j["collapsed_shelves"].is_array()) {
@@ -101,6 +106,7 @@ void Settings::write_save_file() {
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
     j["starred"] = starred_ids_;
+    j["archived"] = archived_;
     j["collapsed_shelves"] = collapsed_shelves_;
     j["last_read"] = last_read_;
     std::ofstream out(get_settings_path());
@@ -177,6 +183,18 @@ void Settings::set_starred(const std::string& id, bool starred) {
         return;  // no change — skip the write
     }
     // Persist immediately (mirrors set_theme) so a star survives relaunch.
+    if (auto_save_enabled) write_save_file();
+}
+
+std::optional<bool> Settings::get_archived(const std::string& id) const {
+    auto it = archived_.find(id);
+    if (it == archived_.end()) return std::nullopt;
+    return it->second;
+}
+void Settings::set_archived(const std::string& id, bool archived) {
+    auto it = archived_.find(id);
+    if (it != archived_.end() && it->second == archived) return;
+    archived_[id] = archived;
     if (auto_save_enabled) write_save_file();
 }
 
