@@ -63,6 +63,17 @@ EXPECT_DIM="1100 x 760"
 # has baselines for so a three-screen check does not render all 32.
 FILTER="${HANABI_SCREENS_FILTER:-}"
 
+# `--list` prints the name of every state declared below, one per line, and
+# exits without rendering anything. The baseline check needs it: validation
+# only RE-captures the states that already have a baseline, so a state added
+# here would otherwise never appear in a comparison and would go unnoticed
+# forever. Listing is how the suite learns a screen exists before it has a
+# baseline. It ignores HANABI_SCREENS_FILTER -- the point is the full set.
+LIST_ONLY=0
+[ "${1:-}" = "--list" ] && LIST_ONLY=1
+
+listing() { [ "$LIST_ONLY" = "1" ]; }
+
 screen_selected() {
     [ -z "$FILTER" ] && return 0
     printf '%s\n' "$1" | grep -Eq "$FILTER"
@@ -74,6 +85,11 @@ screen_selected() {
 kill_own_renders() {
     pkill -9 -f "^$EXE" >/dev/null 2>&1
 }
+
+# Everything below this point is capture scaffolding -- a built binary, an
+# output dir, the user's settings backed up, a throwaway HOME. `--list` needs
+# none of it and must not have the side effects, so it skips the lot.
+if ! listing; then
 
 if [ ! -x "$EXE" ]; then
     echo "ERROR: $EXE not found or not executable. Build first (make -j4)." >&2
@@ -128,6 +144,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+fi   # ! listing
+
 # --- results accounting -----------------------------------------------------
 FAILED=0
 declare -a SUMMARY
@@ -144,6 +162,7 @@ write_settings() {
 # EXTRA_ENV entries are KEY=VALUE strings exported only for this run.
 capture() {
     local name="$1"; shift
+    if listing; then printf '%s\n' "$name"; return 0; fi
     local json="$1"; shift
     screen_selected "$name" || return 0
     local png="$OUTDIR/${name}.png"
@@ -186,7 +205,7 @@ capture() {
     SUMMARY+=("$(printf '%-22s %-14s %s' "$name" "$status" "$png")")
 }
 
-echo "=== capturing into $OUTDIR (timeout ${SHOT_TIMEOUT}s/shot) ==="
+listing || echo "=== capturing into $OUTDIR (timeout ${SHOT_TIMEOUT}s/shot) ==="
 
 # ---------------------------------------------------------------------------
 # States. NN prefix keeps them ordered on disk for at-a-glance review.
@@ -272,6 +291,8 @@ capture 31_selection_dark "$TABS_DARK" 'HANABI_SELECT_DEMO=4,810 match to the ce
 
 # --- Reopening a thread that gained messages while you were away.
 capture 32_new_messages_dark "$NOTABS_DARK" HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_UNREAD_DEMO=4
+
+listing && exit 0
 
 echo
 echo "=== SUMMARY ==="

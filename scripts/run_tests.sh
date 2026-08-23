@@ -10,14 +10,17 @@
 # Exits non-zero on ANY failure.
 #
 # The app is only ever run via measure_launch.sh, which backgrounds it with a
-# hard timeout and a guaranteed `pkill -9 -f hanabi.exe` cleanup. This script
-# ALSO pkills on entry + exit so no stray hanabi.exe is ever left behind.
+# hard timeout and a scoped kill of its own binary. This script ALSO kills on
+# entry + exit so no stray render of THIS worktree is left behind. The kill is
+# matched against this worktree's exe path, not the name: several checkouts
+# test on one machine at a time, and a bare `pkill -f hanabi.exe` kills the
+# other worktrees' runs.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-cleanup() { pkill -9 -f hanabi.exe >/dev/null 2>&1 || true; }
+cleanup() { pkill -9 -f "^$ROOT/output/hanabi.exe" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup  # kill any pre-existing stray from a prior aborted run
 

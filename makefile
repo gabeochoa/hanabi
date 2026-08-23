@@ -532,22 +532,41 @@ uitest-build: $(UITEST_EXE) copy-resources
 SHOT_BASELINES := docs/screenshots/baselines
 SHOT_CURRENT := $(OUTPUT_DIR)/screenshots/current
 SHOT_DETERMINISM := $(OUTPUT_DIR)/screenshots/determinism
+SHOT_DECLARED := $(OUTPUT_DIR)/screenshots/declared.txt
+
+# The states that have a committed baseline.
+SHOT_BASELINED = $(shell ls $(SHOT_BASELINES)/*.png 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.png$$//')
+
+# Turn a list of state names into the extended regex screens.sh filters on.
+shot_filter_of = $(shell printf '%s\n' $(1) | grep -v '^$$' | sort -u | paste -sd'|' - | sed 's/^/^(/; s/$$/)$$/')
 
 # Which states to capture: by default exactly the ones that have a baseline, so
-# a three-baseline check renders three screens and not all 32. Override to add
+# a three-baseline check renders three screens and not all 35. Override to add
 # one: make update-baselines SHOT_FILTER='^04_transcript_light$$'
-SHOT_FILTER = $(shell ls $(SHOT_BASELINES)/*.png 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.png$$//' | paste -sd'|' - | sed 's/^/^(/; s/$$/)$$/')
+SHOT_FILTER = $(call shot_filter_of,$(SHOT_BASELINED))
+
+# States screens.sh can capture that have neither a baseline nor a recorded
+# reason in the manifest. update-baselines adopts them along with the rest, so
+# adding a state to screens.sh needs no hand-written filter.
+SHOT_NEW = $(shell bash scripts/screens.sh --list 2>/dev/null | \
+    $(SHOT_PYTHON) scripts/compare_screenshots.py --baselines $(SHOT_BASELINES) \
+        --declared - --print-new 2>/dev/null)
+SHOT_UPDATE_FILTER = $(call shot_filter_of,$(SHOT_BASELINED) $(SHOT_NEW))
+
+# An explicit SHOT_FILTER on the command line means "just these", so it wins
+# over the adopt-the-new-ones default.
+SHOT_FILTER_FOR_UPDATE = $(if $(filter command line,$(origin SHOT_FILTER)),$(SHOT_FILTER),$(SHOT_UPDATE_FILTER))
 
 # compare_screenshots.py prefers Pillow and falls back to ImageMagick; the
 # python3 first on PATH is not necessarily the one with Pillow installed.
 SHOT_PY = $(shell for p in python3 /usr/bin/python3 /opt/homebrew/bin/python3; do command -v $$p >/dev/null 2>&1 && $$p -c 'import PIL' >/dev/null 2>&1 && { echo $$p; break; }; done | head -1)
 SHOT_PYTHON = $(if $(SHOT_PY),$(SHOT_PY),python3)
 
-# Capture $(SHOT_FILTER) into $(1). Mock backend, isolated HOME and per-shot
-# timeout all come from scripts/screens.sh.
+# Capture the states matching $(2) into $(1). Mock backend, isolated HOME and
+# per-shot timeout all come from scripts/screens.sh.
 define CAPTURE_SCREENS
 	@rm -rf $(1); mkdir -p $(1)
-	@HANABI_SCREENS_OUT=$(abspath $(1)) HANABI_SCREENS_FILTER='$(SHOT_FILTER)' \
+	@HANABI_SCREENS_OUT=$(abspath $(1)) HANABI_SCREENS_FILTER='$(2)' \
 	    bash scripts/screens.sh
 endef
 
@@ -580,22 +599,29 @@ test-screenshot-determinism: $(MAIN_EXE) copy-resources
 	fi
 
 # Chunk 3: capture the baselined states and compare.
+# Chunk 4: --declared hands the comparison the full list of states the harness
+# can produce, so a screen that has no baseline is reported instead of simply
+# never being rendered (validation only recaptures what is already baselined).
 validate-screenshots: $(MAIN_EXE) copy-resources
 	@echo "=== capturing current screens for comparison ==="
-	$(call CAPTURE_SCREENS,$(SHOT_CURRENT))
+	$(call CAPTURE_SCREENS,$(SHOT_CURRENT),$(SHOT_FILTER))
+	@bash scripts/screens.sh --list > $(SHOT_DECLARED)
 	@echo
 	@$(SHOT_PYTHON) scripts/compare_screenshots.py \
-	    --baselines $(SHOT_BASELINES) --current $(SHOT_CURRENT)
+	    --baselines $(SHOT_BASELINES) --current $(SHOT_CURRENT) \
+	    --declared $(SHOT_DECLARED)
 
 # Chunk 3: adopt the current render as the new truth, for an INTENTIONAL visual
 # change. Review `git diff --stat $(SHOT_BASELINES)` (and the PNGs) before
-# committing.
+# committing. Captures the baselined states plus any that have no baseline yet,
+# so this is also how a newly added state gets adopted.
 update-baselines: $(MAIN_EXE) copy-resources
 	@echo "=== recapturing baselines ==="
-	$(call CAPTURE_SCREENS,$(SHOT_CURRENT))
+	$(call CAPTURE_SCREENS,$(SHOT_CURRENT),$(SHOT_FILTER_FOR_UPDATE))
 	@cp $(SHOT_CURRENT)/*.png $(SHOT_BASELINES)/
 	@echo
 	@git diff --stat $(SHOT_BASELINES) || true
+	@git status --short $(SHOT_BASELINES) | grep '^??' || true
 	@echo "Baselines updated. Review the PNGs before committing."
 
 .PHONY: test-screenshot-determinism validate-screenshots update-baselines
