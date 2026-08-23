@@ -28,12 +28,8 @@ expect_no_text "1 of 2"
 # The draft it used to take with it is still here.
 expect_text "draft that must survive"
 
-# Closing the bar drops the field's focus (a separate defect, noted in
-# todo.md), so click back in before the next key.
-click 646 674
-wait_frames 4
-
-# With nothing over it, Esc belongs to the composer again.
+# With nothing over it, Esc belongs to the composer again — and the caret is
+# still in the field, because closing the bar hands focus back.
 key ESCAPE
 wait_frames 8
 expect_no_text "draft that must survive"

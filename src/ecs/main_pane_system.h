@@ -81,6 +81,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app->findOpen && app->escape == EscapeIntent::CloseFind) {
             app->findOpen = false;
             app->findQuery.clear();
+            app->refocusComposer = true;
         }
         // Cmd+C copies selected transcript text. Checked before the composer
         // sees the key: with a selection up, Cmd+C means the selection.
@@ -2472,6 +2473,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (close) {
             app.findOpen = false;
             app.findQuery.clear();
+            app.refocusComposer = true;
         }
 
         // An operator we do not have would otherwise vanish into the plain
@@ -3682,6 +3684,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .get<afterhours::text_input::HasTextInputState>()
                     .was_focused = true;
         };
+
+        // The find bar just closed and took the caret with it (it owns a field
+        // of its own). Put it back where the user was typing.
+        if (app.refocusComposer) {
+            app.refocusComposer = false;
+            refocus_field();
+        }
 
         const std::vector<const hanabi::slash::Command*> slashRows =
             hanabi::slash::filter(replyDraft);

@@ -283,6 +283,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // A long thread is unsearchable without this: the sidebar's search finds
     // THREADS, and nothing finds a line inside the one you are reading.
     bool findOpen = false;
+    // One-shot: put the caret back in the composer next frame. The find bar
+    // owns a text field of its own, so closing it left focus on an element
+    // that no longer exists and the composer's own keys (Esc to clear, the
+    // history walk) did nothing until you clicked back in.
+    bool refocusComposer = false;
     // Resolved by EscapeSystem at the top of the frame; read by whichever site
     // owns that intent. Reset to None every frame.
     EscapeIntent escape = EscapeIntent::None;
