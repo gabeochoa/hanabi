@@ -699,6 +699,14 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         if (os == "settings") app->showSettings = true;
         else if (os == "composer") app->composerOpen = true;
         else if (os == "shortcuts") app->showShortcuts = true;
+        else if (os == "find") app->findOpen = true;
+    }
+    // Screenshot affordance: HANABI_FIND_DEMO=<text> opens find-in-conversation
+    // with a query already typed, so the match highlighting and the "N of M"
+    // tally can be photographed. Render-only; no network.
+    if (const char* d = std::getenv("HANABI_FIND_DEMO"); d && *d) {
+        app->findOpen = true;
+        app->findQuery = d;
     }
 
     // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache

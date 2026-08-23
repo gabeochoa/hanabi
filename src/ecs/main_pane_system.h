@@ -16,6 +16,7 @@
 #include "../util/format.h"
 #include "thread_model.h"
 #include "transcript_render_cache.h"
+#include "../ui/find_highlight.h"
 #include "../ui/inline_image.h"
 #include "../keys.h"
 #include "ui_imports.h"
@@ -60,6 +61,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Reserve the composer strip UNCONDITIONALLY so the input is always on
         // screen (render_composer disables it + shows a reason when the backend
         // can't send).
+        // Cmd+F opens find-in-conversation; Esc and Cmd+F close it. Only
+        // meaningful with a thread open, so it is a no-op elsewhere.
+        if (hanabi::keys::cmd_down() &&
+            hanabi::keys::pressed(hanabi::keys::kF)) {
+            app->findOpen = !app->findOpen;
+            if (!app->findOpen) app->findQuery.clear();
+        }
+        if (app->findOpen && hanabi::keys::pressed(hanabi::keys::kEscape)) {
+            app->findOpen = false;
+            app->findQuery.clear();
+        }
+
         layout->composerHeight = 92.0f;
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
@@ -1779,6 +1792,170 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.requestSplitClose = true;
     }
 
+    // ---------------- Find in conversation ---------------------------------
+    // Case-insensitive substring search over the open thread. Matching runs on
+    // the message text as stored; the highlight below re-searches each RENDERED
+    // line, so a match split across a markdown marker is counted here and not
+    // painted. Both are honest about the same text — see the note on
+    // highlight_ranges.
+    static bool ci_equal(char a, char b) {
+        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + 32);
+        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + 32);
+        return a == b;
+    }
+    // Every occurrence of `needle` in `hay`, by byte offset. Overlapping
+    // matches are not counted twice: the scan resumes past each hit.
+    static std::vector<size_t> find_all(const std::string& hay,
+                                        const std::string& needle) {
+        std::vector<size_t> out;
+        if (needle.empty() || hay.size() < needle.size()) return out;
+        for (size_t i = 0; i + needle.size() <= hay.size();) {
+            bool hit = true;
+            for (size_t j = 0; j < needle.size(); ++j)
+                if (!ci_equal(hay[i + j], needle[j])) { hit = false; break; }
+            if (hit) { out.push_back(i); i += needle.size(); }
+            else ++i;
+        }
+        return out;
+    }
+
+    // One match: which message, and where in it.
+    struct Match {
+        int msg = 0;
+        size_t off = 0;
+    };
+    static std::vector<Match> collect_matches(const api::Session& s,
+                                              const std::string& q) {
+        std::vector<Match> out;
+        if (q.empty()) return out;
+        for (size_t i = 0; i < s.messages.size(); ++i)
+            for (size_t off : find_all(s.messages[i].text, q))
+                out.push_back(Match{static_cast<int>(i), off});
+        return out;
+    }
+
+    // The find bar: an overlay pinned to the transcript's top-right, so it
+    // never displaces the conversation under it.
+    void find_bar(UIContext<InputAction>& ctx, Entity& parent,
+                  AppComponent& app, float paneW, int matchCount) {
+        constexpr float kBarW = 320.0f;
+        constexpr float kBarH = 34.0f;
+        const float bx = paneW - kBarW - 18.0f;
+        auto bar = div(ctx, mk(parent, 7500),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kBarW), pixels(kBarH)})
+                .with_absolute_position()
+                .with_translate(bx, 52.0f)
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(6), .left = pixels(8)})
+                .with_custom_background(theme::over(theme::panel_bg_2(),
+                                                    theme::panel_bg()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_roundness(0.25f)
+                .with_render_layer(9)
+                .with_debug_name("find_bar"));
+
+        ctx.theme.secondary = theme::over(theme::panel_bg_2(),
+                                          theme::panel_bg());
+        ctx.theme.surface = ctx.theme.secondary;
+        ctx.theme.font = theme::text_primary();
+        ctx.theme.focus = theme::accent();
+        afterhours::ui::imm::text_input(
+            ctx, mk(bar.ent(), 1), app.findQuery,
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(168), pixels(26)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(6), .right = pixels(4)})
+                .with_roundness(0.2f)
+                .with_render_layer(9)
+                .with_debug_name("find_input"));
+
+        // "3 of 12", or "no matches" once something has been typed.
+        std::string tally;
+        if (!app.findQuery.empty())
+            tally = matchCount == 0
+                        ? std::string("no matches")
+                        : (std::to_string(app.findIndex + 1) + " of " +
+                           std::to_string(matchCount));
+        div(ctx, mk(bar.ent(), 2),
+            ComponentConfig{}
+                .with_label(tally)
+                .with_size(ComponentSize{pixels(74), pixels(16)})
+                .with_margin(Margin{.left = pixels(6)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_render_layer(9)
+                .with_debug_name("find_tally"));
+
+        const bool navigable = matchCount > 0;
+        auto step = [&](int id, bool up) {
+            auto b = button(ctx, mk(bar.ent(), id),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(22), pixels(22)})
+                    .with_custom_background(theme::panel_bg())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.3f)
+                    .with_render_layer(9)
+                    .with_on_draw_fg([up, navigable](RectangleType r) {
+                        // A chevron, drawn rather than typed: the font has no
+                        // triangles (gap #48). Up = previous match.
+                        const theme::Color c = navigable
+                                                   ? theme::text_secondary()
+                                                   : theme::text_faint();
+                        const float cx = r.x + r.width * 0.5f;
+                        const float cy = r.y + r.height * 0.5f;
+                        const float h = 3.2f;
+                        if (up)
+                            afterhours::draw_triangle(
+                                afterhours::vec2{cx, cy - h},
+                                afterhours::vec2{cx + h, cy + h},
+                                afterhours::vec2{cx - h, cy + h}, c);
+                        else
+                            afterhours::draw_triangle(
+                                afterhours::vec2{cx - h, cy - h},
+                                afterhours::vec2{cx + h, cy - h},
+                                afterhours::vec2{cx, cy + h}, c);
+                    })
+                    .with_debug_name(up ? "find_prev" : "find_next"));
+            if (b && navigable) {
+                app.findIndex += up ? -1 : 1;
+                if (app.findIndex < 0) app.findIndex = matchCount - 1;
+                if (app.findIndex >= matchCount) app.findIndex = 0;
+                app.findScrollPending = true;
+            }
+        };
+        step(3, true);
+        step(4, false);
+
+        auto close = button(ctx, mk(bar.ent(), 5),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(22), pixels(22)})
+                .with_margin(Margin{.left = pixels(4)})
+                .with_custom_background(theme::panel_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.3f)
+                .with_render_layer(9)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "close", "\xc3\x97", theme::text_secondary(), 12.0f))
+                .with_debug_name("find_close"));
+        if (close) {
+            app.findOpen = false;
+            app.findQuery.clear();
+        }
+    }
+
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, float paneW, float paneH) {
         std::string title = "Select a thread";
@@ -2000,6 +2177,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // ---- Find in conversation: matches + scroll-to-match ---------------
+        // Recomputed each frame from the query. Cheap (a substring scan of the
+        // loaded window) and it keeps the count honest as a stream appends.
+        std::vector<Match> matches;
+        if (app.findOpen && !app.findQuery.empty()) {
+            matches = collect_matches(*app.openSession, app.findQuery);
+            if (app.findIndex >= static_cast<int>(matches.size()))
+                app.findIndex = 0;
+        }
+        app.findCount = static_cast<int>(matches.size());
+
         // ---- Virtualization: read last frame's scroll to skip off-screen. --
         float scrollY = 0.0f;
         float viewH = listH;
@@ -2043,6 +2231,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.anchorPending.empty() && scrollY <= viewH * 2.0f) {
             app.requestLoadOlder = true;
         }
+        // Jump the current match into view. The item list carries every
+        // message's measured height, so the y of the message holding the match
+        // is the sum of the heights before it; a third of a viewport of lead-in
+        // puts it comfortably inside the pane rather than flush at the top.
+        if (app.findScrollPending && !matches.empty() &&
+            scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const int target = matches[static_cast<size_t>(app.findIndex)].msg;
+            float y = subH;
+            for (const auto& it : items) {
+                if (it.lo == target ||
+                    (it.kind == Item::ToolPile && it.lo <= target &&
+                     target < it.hi))
+                    break;
+                y += it.height;
+            }
+            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            sv.scroll_offset.y = std::max(0.0f, y - viewH / 3.0f);
+            hanabi::set_scroll_target_y(sv, sv.scroll_offset.y);
+            sv.clamp_scroll();
+            scrollY = sv.scroll_offset.y;
+            app.findScrollPending = false;
+        }
+
         // ---- Open-at-bottom + stay-pinned model -----------------------
         // A conversation opens showing the NEWEST messages (bottom), like every
         // chat app. Then: if the user is AT the bottom, keep them pinned as new
@@ -2119,7 +2330,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Pin to bottom on a first-open, while streaming here, or whenever the
         // follow-latch is engaged (user hasn't scrolled up).
         const bool atBottom = s_follow || nearEnd;
-        const bool pinBottom = wantOpenBottom || streamingHere || s_follow;
+        // Find owns the scroll while it is open with a query: the bottom-pin
+        // would drag the view back off the match the moment it landed.
+        const bool findDriving = app.findOpen && !app.findQuery.empty();
+        const bool pinBottom =
+            !findDriving && (wantOpenBottom || streamingHere || s_follow);
         if (pinBottom) scrollY = totalH;
         // Build a virtualization window around the visible viewport. A fast
         // fling moves scroll_offset by MANY px between frames, and we read LAST
@@ -2261,6 +2476,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.loadingOlder) {
             loading_older_pill(ctx, parent, paneW, 62.0f + 6.0f);
         }
+        if (app.findOpen) find_bar(ctx, parent, app, paneW, app.findCount);
         // (Composer is rendered once at the pane level — not here.)
         (void)canReply;
     }
@@ -3526,6 +3742,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           const std::string& shown, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
                           float bodyStartY = 0.0f) {
+        // The active find query, read here rather than threaded through every
+        // caller: this is the only place that paints message body text.
+        AppComponent* fapp = app_singleton();
+        const std::string findQuery =
+            (fapp && fapp->findOpen) ? fapp->findQuery : std::string();
         const bool cull = winBot > winTop;
         const int perLine = wrap_perline(textW);
         size_t start = 0;
@@ -3641,8 +3862,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("asst_gap"));
             } else {
                 flush(9000 + seg);
-                div(ctx, mk(parent, 100 + seg),
-                    ComponentConfig{}
+                auto cfg = ComponentConfig{}
                         .with_label(ip.visible)
                         .with_styled_label(ip.spans)
                         .with_size(ComponentSize{percent(1.0f), pixels(segH)})
@@ -3652,7 +3872,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_text_overflow(TextOverflow::Wrap)
                         .with_alignment(TextAlignment::Left)
                         .with_roundness(0.0f)
-                        .with_debug_name("asst_line"));
+                        .with_debug_name("asst_line");
+                // Find highlight goes BEHIND the glyphs: on_draw_bg runs before
+                // the widget's own fill, and this element's fill is transparent.
+                if (!findQuery.empty()) {
+                    cfg = cfg.with_on_draw_bg(
+                        [line = ip.visible, q = findQuery](RectangleType r) {
+                            hanabi::find_highlight::draw(r, line, q,
+                                                         theme::type::BODY);
+                        });
+                }
+                div(ctx, mk(parent, 100 + seg), cfg);
             }
             ++seg;
             if (nl == std::string::npos) break;
@@ -3847,8 +4077,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(theme::roundness_for_px(
                         theme::kChatCorner, bubbleW, bodyH + 17.0f))
                     .with_debug_name("user_bubble"));
-            div(ctx, mk(bub.ent(), 2),
-                ComponentConfig{}
+            AppComponent* fapp = app_singleton();
+            const std::string uq =
+                (fapp && fapp->findOpen) ? fapp->findQuery : std::string();
+            auto ucfg = ComponentConfig{}
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
                     .with_transparent_bg()
@@ -3857,7 +4089,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_text_overflow(TextOverflow::Wrap)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("user_text"));
+                    .with_debug_name("user_text");
+            if (!uq.empty()) {
+                ucfg = ucfg.with_on_draw_bg(
+                    [t = userBody, q = uq](RectangleType r) {
+                        hanabi::find_highlight::draw(r, t, q,
+                                                     theme::type::BODY);
+                    });
+            }
+            div(ctx, mk(bub.ent(), 2), ucfg);
             // WhatsApp-style sync glyph in the bubble's bottom-right corner.
             // gap #28 (nested child of a custom-bg bubble + on_draw_fg didn't
             // fire) is now FIXED upstream (afterhours bump), so we render the

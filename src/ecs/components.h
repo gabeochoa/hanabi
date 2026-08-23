@@ -221,6 +221,17 @@ struct AppComponent : public afterhours::BaseComponent {
     // The keyboard-shortcut reference (Cmd+/). Every binding in this app is
     // otherwise invisible.
     bool showShortcuts = false;
+
+    // ==== Find in conversation (Cmd+F) ===================================
+    // A long thread is unsearchable without this: the sidebar's search finds
+    // THREADS, and nothing finds a line inside the one you are reading.
+    bool findOpen = false;
+    std::string findQuery;
+    int findIndex = 0;    // which match is current, 0-based
+    int findCount = 0;    // matches on the last rendered frame (for "3 of 12")
+    // Set when the current match changes; the transcript scrolls it into view
+    // on the next frame it lays out, then clears this.
+    bool findScrollPending = false;
     std::string themeChoice = "dark";
     bool composerOpen = false;
     std::string composerDraft;

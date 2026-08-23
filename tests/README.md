@@ -182,7 +182,16 @@ its own object dir, so the shipping build carries none of it). That binary takes
 keyboard into the real widget tree, and asserts against the text that actually
 rendered.
 
-A script is a plain list of commands — `click x y`, `mouse_move x y`,
+**Click by NAME, not by coordinate.** `click_ui <debug_name>` finds the element
+and clicks its centre, so a layout change retargets the click instead of quietly
+landing on empty space — which is a passing test that exercises nothing. Raw
+`click x y` is for hit-testing behaviour itself.
+
+**A leading `# env: KEY=VAL` line** adds environment for one script. Needed for
+any state a click cannot reach — an overlay whose only binding is a Cmd chord,
+which the injector cannot produce (`afterhours_gaps.md` #49).
+
+A script is a plain list of commands — `click_ui <name>`, `click x y`, `mouse_move x y`,
 `scroll_wheel dx dy`, `type "…"`, `key ENTER`, `wait_frames n`,
 `expect_text "…"`, `expect_no_text "…"`, `screenshot path`. A leading
 `# settings: {…}` line chooses the settings.json the app starts from (open

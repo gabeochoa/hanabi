@@ -2161,3 +2161,104 @@ with content: the same proportions on a bigger screen are a bigger bill.
 
 - **Severity: makes it ugly** (the workaround is small), but it cost an hour of
   believing the injector was broken.
+
+### #51 — No way to ask where a piece of text landed on screen
+
+- **What I was trying to build.** Find-in-conversation: type a word, and every
+  occurrence in the open thread gets a highlight band behind it. The band is
+  the whole feature — a count with no visible matches is a search that makes
+  you hunt.
+
+- **What I tried.** The app hands afterhours a label and a rect and afterhours
+  lays the text out — wraps it, positions the block, draws it. So the question
+  is: *for byte range [a,b) of the string I gave you, which rectangles did that
+  end up occupying?* I went looking for that on `ComponentConfig`, on
+  `UIComponent`, on the render info, anywhere:
+
+  ```cpp
+  // hoped for something like
+  auto rects = ui::text_rects_for(entity, Range{start, end});
+  ```
+
+  There is nothing. The layout that answers it happens inside
+  `draw_text_in_rect` and is discarded the moment the glyphs are drawn.
+
+- **What happened.** The only way to answer is to redo the layout the renderer
+  just did and hope the two agree. `src/ui/find_highlight.h`, ~70 lines:
+
+  ```cpp
+  const auto measure = [&](const std::string& s) {
+      return measure_text(font, s.c_str(), fontPx, 1.0f).x;
+  };
+  const auto lines = ui::detail::wrap_text_to_width(text, rect.width - 10.f,
+                                                    measure);
+  const float lineH  = measure_text(font, "Ag", fontPx, 1.0f).y;
+  const float blockH = lineH * lines.size();
+  const float y0     = rect.y + std::max(0.f, (rect.height - blockH) * 0.5f);
+  //  … then per line:  x = rect.x + 5 + measure(line.substr(0, off))
+  ```
+
+  It works — verified against a real capture: with the query at the start of a
+  line the band's left edge lands 3px before the first ink, which is the glyph
+  bearing, and the bands sit on the right lines. **Credit where due: it works
+  only because the wrapping primitive is public.** Calling
+  `ui::detail::wrap_text_to_width` with afterhours' own measure function means
+  the break decisions are identical by construction rather than by imitation —
+  had I re-implemented greedy wrapping, this would have drifted apart on the
+  first word longer than a line.
+
+  What is copied, though, is arithmetic, and every line of it is a private
+  detail of `rendering.h` (~655-700):
+
+  | copied | why |
+  |---|---|
+  | `rect.width - 10` | the soft-wrap inset |
+  | `measure("Ag").y` | the wrapped-line pitch |
+  | `rect.y + (rect.height - blockH)/2` | wrapped blocks are vertically centred |
+  | `rect.x + 5` | the left text margin |
+
+  Change any one of those upstream — a different inset, top-aligned wrapped
+  text, a padding-aware margin — and hanabi's highlights silently slide off the
+  words with nothing failing to build. It is the most fragile code in the app,
+  and it cannot be made less fragile from this side.
+
+- **What the library could offer instead.** The renderer already computes this;
+  it just throws it away. Two shapes, either would do:
+
+  1. **Ask afterwards.** Cache the laid-out lines on the entity when it draws
+     text (they are already computed), and expose:
+
+     ```cpp
+     // rects in screen space for a byte range of the element's label
+     [[nodiscard]] std::vector<RectangleType>
+     text_rects(const Entity&, size_t begin, size_t end);
+     ```
+
+     `text_selection.h` already has `selection_rects` doing exactly this
+     arithmetic — it needs the lines and the origin, and the renderer is the
+     only thing that knows them.
+
+  2. **Let the caller draw into the layout.** A hook that runs with the
+     resolved lines in hand:
+
+     ```cpp
+     .with_on_draw_text_background([](const TextLayout& layout) {
+         for (auto r : layout.rects_for(begin, end)) draw_rect(r, band);
+     })
+     ```
+
+     which also covers the other things apps want behind text — a spell-check
+     underline, a diff tint, an inline code pill (gap #22's real fix).
+
+  Either one turns 70 lines of copied constants into three, and makes
+  **selection (#37) mostly free** — selection is this plus a drag, and the two
+  should share one answer to "where did byte N land".
+
+  Smaller, and worth doing regardless: those four constants could be **named
+  and public** — `ui::text_metrics::kWrapInset`, `kTextMarginX`, and a
+  `line_height(font, size, spacing)` — so a caller that must reproduce the
+  layout at least breaks loudly when one changes, instead of silently.
+
+- **Severity: makes it ugly, and fragile.** The feature shipped and looks
+  right. It is one upstream layout tweak away from being wrong in a way no test
+  I can write here would catch.
