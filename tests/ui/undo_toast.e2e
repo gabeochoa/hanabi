@@ -1,0 +1,63 @@
+# Undo is offered for mute and star, not only for archive — and it undoes the
+# thing that was actually done.
+#
+# The bar already existed and archive already raised it, so what is under test
+# here is the other two actions and, more importantly, WHICH toggle the Undo
+# button re-runs. The bar used to hardcode unarchive, so a mute toast handed to
+# the same button would have filed the thread away instead of unmuting it; the
+# assertion that catches that is not "the toast said unmuted" but that the
+# thread is still in the ordinary list afterwards, which an archive would have
+# emptied.
+#
+# Rows are addressed by coordinate because the harness has no
+# `right_click_ui <name>` (afterhours_gaps.md #55); menu ITEMS and the toast's
+# own buttons are addressed by name, which is safe once they are on screen.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Draft release notes for 4.2"
+
+# ---- Mute raises a toast -------------------------------------------------
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+click_ui row_menu_mute
+wait_frames 6
+expect_text "Session muted"
+
+# The mark is on the row at rest, so the mute really landed and the toast is
+# not just wording.
+mouse_move 650 400
+wait_frames 8
+assert_ui row_muted hidden=false
+
+# ---- Undo takes back the MUTE, and nothing else --------------------------
+click_ui toast_undo
+wait_frames 8
+expect_text "Session unmuted"
+# Still in the ordinary list: the undo unmuted, it did not archive.
+expect_text "Draft release notes for 4.2"
+
+# The menu offers Mute again, which it only does for an unmuted thread — so
+# the durable flag went back too, not just the toast's wording.
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+expect_no_text Unmute
+click_ui row_menu_eater
+wait_frames 6
+
+# ---- Star raises one too -------------------------------------------------
+# The star only appears on the row under the pointer, so hovering the row is
+# what puts it on screen to be clicked.
+mouse_move 120 511
+wait_frames 6
+click_ui row_star
+wait_frames 8
+expect_text "Session starred"
+
+click_ui toast_undo
+wait_frames 8
+expect_text "Session unstarred"

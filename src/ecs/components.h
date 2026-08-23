@@ -576,18 +576,35 @@ struct AppComponent : public afterhours::BaseComponent {
     // is easy to do by accident, and the Archived view is not where the user is
     // looking. Never persisted — a toast that outlived the launch that raised
     // it would offer to undo something already forgotten.
+    //
+    // Star and mute raise one for the same reason from the other direction:
+    // both are one small click on a hovered row, neither moves the thread
+    // anywhere the eye would notice, and a mute in particular is invisible
+    // until the notification it swallowed never arrives.
+    //
+    // Which toggle Undo re-runs is carried HERE rather than inferred from the
+    // message text: the bar knew only how to unarchive, so a mute toast wired
+    // to the same button would have archived the thread instead of unmuting it.
+    enum class ToastUndo { None, Archive, Mute, Star };
     static constexpr float kToastSeconds = 10.0f;
     std::string toastMessage;
     std::string toastUndoSessionId;  // empty = no Undo affordance
+    ToastUndo toastUndoKind = ToastUndo::None;
     float toastSecondsLeft = 0.0f;
-    void raise_toast(std::string message, std::string undoSessionId) {
+    void raise_toast(std::string message, std::string undoSessionId,
+                     ToastUndo kind) {
         toastMessage = std::move(message);
         toastUndoSessionId = std::move(undoSessionId);
+        // An id with no action behind it would paint an Undo button that does
+        // nothing, so the two travel together or not at all.
+        toastUndoKind = toastUndoSessionId.empty() ? ToastUndo::None : kind;
+        if (toastUndoKind == ToastUndo::None) toastUndoSessionId.clear();
         toastSecondsLeft = kToastSeconds;
     }
     void dismiss_toast() {
         toastMessage.clear();
         toastUndoSessionId.clear();
+        toastUndoKind = ToastUndo::None;
         toastSecondsLeft = 0.0f;
     }
 

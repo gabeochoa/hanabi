@@ -3,11 +3,13 @@
 // The toast: one transient bar at the bottom of the window carrying a message
 // and, optionally, a single action.
 //
-// Archive is what raises it today. Filing a thread away is easy to do by
-// accident and the Archived view is not where the user is looking, so the
-// action has to be takeable back without going to find it. The bar counts
-// itself down and disappears; Undo re-runs the same toggle the menu ran, which
-// is why undoing an undo is simply archiving again.
+// Archive, star and mute are what raise it today. Each is easy to do by
+// accident and none of them announces itself where the user is looking —
+// archive files the thread into a view nobody is watching, and a mute is
+// invisible until the notification it swallowed never arrives — so the action
+// has to be takeable back without going to find it. The bar counts itself down
+// and disappears; Undo re-runs the toggle named by the toast's undo kind, which
+// is why undoing an undo is simply doing the thing again.
 
 #include <string>
 
@@ -84,7 +86,25 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.3f)
                     .with_debug_name("toast_undo"));
             if (undo) {
-                app->requestToggleArchive = app->toastUndoSessionId;
+                // Re-run the SAME toggle the action ran, chosen by the kind the
+                // toast carries — the bar used to know only how to unarchive,
+                // which would have archived a thread whose mute you undid.
+                // Every toggle writes Settings on its way through, so the undo
+                // restores the durable state as well as the on-screen one, and
+                // undoing an undo is simply doing the thing again.
+                switch (app->toastUndoKind) {
+                    case AppComponent::ToastUndo::Archive:
+                        app->requestToggleArchive = app->toastUndoSessionId;
+                        break;
+                    case AppComponent::ToastUndo::Mute:
+                        app->requestToggleMute = app->toastUndoSessionId;
+                        break;
+                    case AppComponent::ToastUndo::Star:
+                        app->requestToggleStar = app->toastUndoSessionId;
+                        break;
+                    case AppComponent::ToastUndo::None:
+                        break;
+                }
                 // The toggle raises its own toast next frame, saying what the
                 // undo did; leaving this one up would stack two.
                 app->dismiss_toast();
