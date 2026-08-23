@@ -247,6 +247,9 @@ static void setup_app_state() {
         }
     }
 
+    for (const auto& key : Settings::get().get_collapsed_shelves())
+        app.collapsedShelves.insert(key);
+
     // Layout singleton.
     auto& layoutEntity = EntityHelper::createEntity();
     auto& layoutComp = layoutEntity.addComponent<ecs::LayoutComponent>();
