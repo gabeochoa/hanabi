@@ -17,7 +17,13 @@ Total gaps to address: **4 real, 2 partial.** See below for details.
 - **Gap source claim**: Right-click a session → "Rename…" modal → send to server → durable echo updates display
 - **Hanabi verify**: Grep for "rename" found only `disk_cache.h` comments and `auto_archive_days` setting. No rename UI, no wire call.
 - **Backend support**: ✓ Available. The reference client's agentcloud-asks.md (§6) confirms `rename_v1` is announced on every attach. Wire shape: `{"cmd":"rename","title":"…"}` on the session subscription.
-- **Status**: **REAL GAP**
+- **Status**: **SHIPPED** (branch `feat/session-rename`). Two corrections to the
+  verification above, found by grepping before building: the live-frame
+  classifier ALREADY recognised `session_renamed` (it maps to a
+  `TitleUpdate` stream event during a turn — `agentcloud_client.cpp`), and the
+  tab strip ALREADY had a right-click context menu (`TabStripComponent::menuOpen`
+  and `render_tab_menu`), so 1a was an addition to an existing menu on the tab
+  side and new only on the sidebar side.
 
 ### 2. Session fork (/btw) ✓ Missing
 - **Gap source claim**: `/btw Why did X fail?` creates new session with title "BTW: Why did X fail?" and opens in new tab
@@ -71,6 +77,17 @@ The following sections describe the 4 real gaps + 2 partial gaps that can be bui
 ---
 
 ## Gap 1: Session Rename
+
+**Status: shipped.** `Client::rename_session` returns the title the SERVER
+settled on (agentcloud reads it off the durable `session_renamed` frame; the
+mock echoes a trimmed copy and refuses an empty or over-long one), the loader
+applies only that echo, and the modal stays up with the refusal when there is
+one. Sidebar row: right-click → "Rename…" (offered only when
+`supports_rename()`); tab: the same item on the existing tab menu. Proven by
+`tests/ui/session_rename.e2e` (rename + refusal) and the
+`fold_session_renamed` unit tests in `tests/unit/test_agentcloud.cpp`. Not
+verified against the real orchestrator — no credentials here, and a rename is
+a mutation.
 
 **What ships**: Right-click a session in the sidebar or tab to get a context menu with "Rename…". A modal dialog appears with the current title. User edits and presses Return. Title is sent to server via `{"cmd":"rename","title":"…"}`. Durable echo (`session_renamed` frame type) updates the sidebar row and tab title. Server validation refusal shows an error message in the modal (no local optimism — must wait for echo).
 
