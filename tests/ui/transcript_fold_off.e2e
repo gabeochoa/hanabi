@@ -1,0 +1,16 @@
+# A long message is folded, unless the reader said not to.
+#
+# 57 lines is well past the 40-line fold threshold, so this reply normally
+# arrives behind a "Show 17 more lines" button and its last line is not on
+# screen at all (transcript_fold_default.e2e asserts exactly that). With
+# folding turned off in Settings, the whole reply is there and no button is
+# offered — the end of it is what the thread opens on.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","fold_long_messages":false}
+# env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong
+
+expect_text "Signed off by the migration owner."
+expect_text "Step 55"
+expect_no_text Show

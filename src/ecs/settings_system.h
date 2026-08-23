@@ -138,10 +138,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
             (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
-            (kGroupH + ctrlRow * 4.0f) +          // Behavior: 4 rows
+            (kGroupH + ctrlRow * 3.0f) +          // Behavior: 3 rows
             (kGroupH + ctrlRow) +                 // Notifications: Sound
             (kGroupH + ctrlRow);                  // Model: default model
         const float rightH =
+            (kGroupH + ctrlRow * 4.0f) +          // Transcript: 4 rows
             (kGroupH + (kRowNameFoot + kCacheRowH) + (kRowNameFoot + kLimitRowH) +
              (kRowNameFoot + kCacheRowH)) +       // Data: cache/limit/export
             (kGroupH + kAdvancedH) +              // Advanced: coming-soon
@@ -282,7 +283,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_yap_row(ctx, L, *app);
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
-            render_timestamps_row(ctx, L, *app);
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
             render_quiet_hours_row(ctx, L, *app);
@@ -292,6 +292,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // RIGHT column: Data / Advanced / Account.
         {
             Entity& R = rightCol.ent();
+            group_label(ctx, R, 9, "Transcript", "settings_grp_transcript");
+            render_timestamps_row(ctx, R, *app);
+            render_date_dividers_row(ctx, R, *app);
+            render_reasoning_row(ctx, R, *app);
+            render_foldlong_row(ctx, R, *app);
             group_label(ctx, R, 5, "Data", "settings_grp_data");
             render_cache_row(ctx, R, *app);
             render_cache_limit_row(ctx, R, *app);
@@ -941,6 +946,49 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        "settings_timestamps",
                        [](int i) {
                            Settings::get().set_show_timestamps(i == 1);
+                       });
+    }
+
+    // Date dividers: the day row above the first message of a new calendar
+    // day. Off is not cosmetic — the row is dropped from the item list, so it
+    // is neither measured nor drawn.
+    void render_date_dividers_row(UIContext<InputAction>& ctx, Entity& parent,
+                                  AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 138, "Date dividers", "settings_dates_label");
+        const bool on = Settings::get().get_show_date_dividers();
+        real_segmented(ctx, parent, 139, {"Off", "On"}, on ? 1 : 0,
+                       "settings_dates",
+                       [](int i) {
+                           Settings::get().set_show_date_dividers(i == 1);
+                       });
+    }
+
+    // Reasoning blocks. Hidden drops the "Thought for a moment" rows from the
+    // transcript entirely; the answer they sit above is untouched.
+    void render_reasoning_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 140, "Reasoning", "settings_reasoning_label");
+        const bool on = Settings::get().get_show_reasoning();
+        real_segmented(ctx, parent, 141, {"Hidden", "Shown"}, on ? 1 : 0,
+                       "settings_reasoning",
+                       [](int i) {
+                           Settings::get().set_show_reasoning(i == 1);
+                       });
+    }
+
+    // Long messages: fold a very long one behind a "Show more" button, or
+    // render every one at full length.
+    void render_foldlong_row(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 142, "Long messages", "settings_foldlong_label");
+        const bool on = Settings::get().get_fold_long_messages();
+        real_segmented(ctx, parent, 143, {"Full", "Fold"}, on ? 1 : 0,
+                       "settings_foldlong",
+                       [](int i) {
+                           Settings::get().set_fold_long_messages(i == 1);
                        });
     }
 

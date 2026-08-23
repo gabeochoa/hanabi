@@ -1442,6 +1442,29 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // LONG-MESSAGE FIXTURE: one reply longer than the fold threshold
+        // (kFoldLines = 40 wrapped lines), so the fold affordance and the
+        // preference that governs it can be driven by a test. Seeded only
+        // under HANABI_LONGMSG_DEMO so the ordinary mock list is unchanged.
+        if (const char* lm = std::getenv("HANABI_LONGMSG_DEMO");
+            lm && *lm && std::string(lm) != "0") {
+            Session s;
+            s.summary = calm("rlong", "the migration checklist, in full",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "long-message fixture");
+            std::string body = "Every step, in order:\n";
+            for (int k = 1; k <= 55; ++k)
+                body += "Step " + std::to_string(k) +
+                        " of the migration checklist is done.\n";
+            body += "Signed off by the migration owner.";
+            s.messages = {
+                {"lm1", Role::User, "give me the whole checklist",
+                 hrs_ago(2), ""},
+                {"lm2", Role::Assistant, body, hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
         // PERF FIXTURE: a deliberately LONG transcript for frame-time
         // measurement + virtualization testing. Only seeded when
         // HANABI_BIG_TRANSCRIPT is set (a headless perf run), so it never

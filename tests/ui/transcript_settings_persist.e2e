@@ -1,0 +1,20 @@
+# A transcript preference is remembered, and honoured before the first frame.
+#
+# The switch in Settings is only half the feature: a reader who turned date
+# dividers off last week must not be handed them again on the next launch. The
+# settings file here is the one a previous session would have written, and the
+# thread is the three-day fixture that always shows dividers otherwise (see
+# transcript_date_dividers.e2e, which asserts exactly that from the default).
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","show_date_dividers":false}
+# env: HANABI_DATES_DEMO=1 HANABI_OPEN=rdates
+
+# The thread is here, in full.
+expect_text "how did the verification go?"
+expect_text "Clean"
+
+# The day rows are not.
+expect_no_text Yesterday
+expect_no_text Today

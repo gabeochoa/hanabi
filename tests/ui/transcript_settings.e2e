@@ -1,0 +1,36 @@
+# The transcript's own behaviour, controlled from Settings.
+#
+# Every control in this group gates something the transcript ALREADY does —
+# a pane of switches that turn nothing off is worse than no pane at all. The
+# reasoning row is driven for real here: the sheet is open OVER a thread that
+# has a reasoning block, so choosing Hidden has to make that block leave the
+# transcript behind it, not merely persist a flag.
+#
+# Opened through the state knob because the harness cannot press Cmd+,
+# (afterhours_gaps.md #49).
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# "Thought" is that word here: it is on screen only while the reasoning row is.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings HANABI_THINKING_DEMO=1 HANABI_OPEN=rthink
+
+expect_text "Transcript"
+expect_text "Date dividers"
+expect_text "Reasoning"
+expect_text "Long messages"
+
+# The thread behind the sheet has its reasoning row, folded as always.
+expect_text "Thought for a moment"
+
+click_ui settings_reasoning_0
+wait_frames 10
+expect_no_text Thought
+
+# The answer the reasoning sat above is untouched.
+expect_text "The budget is per-request"
+
+# And back: the row returns.
+click_ui settings_reasoning_1
+wait_frames 10
+expect_text "Thought for a moment"
