@@ -72,6 +72,45 @@ inline std::string clock_time(int64_t epoch) {
     return std::string(buf);
 }
 
+// Two stamps falling on the same LOCAL calendar day. Not (a - b) < 24h: two
+// messages eleven hours apart can be on either side of midnight, and the
+// reader thinks in days, not in elapsed seconds. DST is handled for free —
+// localtime_r does the arithmetic, we only compare the fields.
+inline bool same_local_day(int64_t a, int64_t b) {
+    const std::time_t ta = static_cast<std::time_t>(a);
+    const std::time_t tb = static_cast<std::time_t>(b);
+    std::tm x{}, y{};
+    if (localtime_r(&ta, &x) == nullptr || localtime_r(&tb, &y) == nullptr)
+        return a == b;
+    return x.tm_year == y.tm_year && x.tm_yday == y.tm_yday;
+}
+
+// The name of the day a stamp falls on, for a transcript date row:
+// "Today", "Yesterday", else "Monday, August 19" — with the year appended
+// once the date is in another year, since "August 19" alone is a different
+// day every year and the reader is being told WHICH one.
+inline std::string day_label(int64_t epoch, int64_t now) {
+    if (epoch <= 0) return "";
+    if (same_local_day(epoch, now)) return "Today";
+    if (same_local_day(epoch, now - kDaySecs)) return "Yesterday";
+    const std::time_t t = static_cast<std::time_t>(epoch);
+    std::tm tm{};
+    if (localtime_r(&t, &tm) == nullptr) return "";
+    char buf[64];
+    if (std::strftime(buf, sizeof(buf), "%A, %B", &tm) == 0) return "";
+    // The day number is appended rather than formatted (%d zero-pads and %e
+    // space-pads; a date row wants neither "August 09" nor "August  9").
+    std::string out = std::string(buf) + " " + std::to_string(tm.tm_mday);
+    std::tm nowTm{};
+    const std::time_t tnow = static_cast<std::time_t>(now);
+    if (localtime_r(&tnow, &nowTm) != nullptr && nowTm.tm_year != tm.tm_year)
+        out += ", " + std::to_string(1900 + tm.tm_year);
+    return out;
+}
+inline std::string day_label(int64_t epoch) {
+    return day_label(epoch, static_cast<int64_t>(std::time(nullptr)));
+}
+
 // A count as a short human figure: 940, 4.2k, 130k, 1.5M.
 //
 // One decimal below ten of a unit and none above it, at every magnitude. The

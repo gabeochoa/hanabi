@@ -1638,7 +1638,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // its measured height so we can (a) sum total content height and (b)
     // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
     struct Item {
-        enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider } kind;
+        enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider,
+                    DateDivider } kind;
         int lo = 0;
         int hi = 0;
         float height = 0.0f;
@@ -1918,6 +1919,105 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Right)
                 .with_roundness(0.0f)
                 .with_debug_name("new_divider_label"));
+    }
+
+    // ---------------- Date dividers ----------------------------------------
+    // Every row carries how long ago it was ("3h", "2d"), which answers
+    // "recently?" and never answers "which day?". A thread worked over a week
+    // reads as one undifferentiated column, and the moment a night passed
+    // mid-conversation is invisible.
+    //
+    // So a row naming the day is drawn above the first message of each new
+    // local calendar day. The day boundary is the rule rather than the
+    // breakdown's "more than four hours": this row says a DAY's name, and a
+    // gap rule would print "Tuesday, August 18" twice on a Tuesday and print
+    // nothing at all when a conversation ran past midnight.
+    //
+    // Nothing above the first message: a thread's opening line does not need
+    // to be told it is the first thing that happened.
+    static constexpr float kDateDividerH = 26.0f;
+
+    static bool starts_new_day(const api::Message& prev,
+                               const api::Message& curr) {
+        if (prev.created_at <= 0 || curr.created_at <= 0) return false;
+        return !fmtutil::same_local_day(prev.created_at, curr.created_at);
+    }
+
+    // The rule is DRAWN, not typed: Roboto has no Box Drawing block and a
+    // codepoint the font lacks paints nothing at all (afterhours_gaps.md #48).
+    // The label is a real text element for the same reason as in new_divider —
+    // drawn text never reaches the visible-text registry, so a divider painted
+    // wholesale would be invisible to every assertion about it.
+    static void date_divider(UIContext<InputAction>& ctx, Entity& parent,
+                             int id, int64_t at, float rowW) {
+        const std::string label = fmtutil::day_label(at);
+        if (label.empty()) {
+            // Unnameable day (a stamp the C library cannot convert). The row
+            // still takes its measured height — the item list already counted
+            // it, and a row that silently occupies nothing shifts every spacer
+            // below it.
+            div(ctx, mk(parent, 8700 + id),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels(kDateDividerH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("date_divider"));
+            return;
+        }
+        float lw = 90.0f;
+        if (auto* fm = afterhours::EntityHelper::get_singleton_cmp<
+                afterhours::ui::FontManager>())
+            lw = afterhours::measure_text(fm->get_active_font(), label.c_str(),
+                                          theme::type::SM, 1.0f)
+                     .x;
+        constexpr float kGap = 12.0f;
+
+        auto row = div(ctx, mk(parent, 8700 + id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kDateDividerH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("date_divider"));
+        // Explicit widths, never percent(1.0): a percent child in a NoWrap row
+        // resolves against the whole row and shoves its siblings out (gap #53).
+        // The label is centred, so each rule takes half of what it leaves.
+        float ruleW = (rowW - lw - 2.0f * kGap) * 0.5f;
+        if (ruleW < 8.0f) ruleW = 8.0f;
+        const auto rule = [&](int childId) {
+            div(ctx, mk(row.ent(), childId),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(ruleW),
+                                             pixels(kDateDividerH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([](RectangleType r) {
+                        const float cy = r.y + r.height * 0.5f;
+                        afterhours::draw_line_ex(
+                            afterhours::vec2{r.x, cy},
+                            afterhours::vec2{r.x + r.width, cy}, 1.0f,
+                            theme::border());
+                    })
+                    .with_debug_name("date_divider_rule"));
+        };
+        rule(1);
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(lw + 2.0f * kGap),
+                                         pixels(kDateDividerH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name("date_divider_label"));
+        rule(3);
     }
 
     static bool caret_on_first_line(const std::string& text, size_t caret) {
@@ -2436,6 +2536,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         {
             int i = 0;
             while (i < n) {
+                // The day row goes above whatever item starts this day —
+                // measured here, drawn from the same height below. A boundary
+                // INSIDE a tool pile is not marked: the pile is one visual
+                // unit, and splitting it to date it would be a worse read
+                // than a pile whose first tool carries the day.
+                if (i > 0 && starts_new_day(msgs[i - 1], msgs[i])) {
+                    Item d;
+                    d.kind = Item::DateDivider;
+                    d.lo = i;
+                    d.height = kDateDividerH;
+                    totalH += d.height;
+                    items.push_back(d);
+                }
                 if (i == firstUnread) {
                     Item d;
                     d.kind = Item::NewDivider;
@@ -2792,6 +2905,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Item::NewDivider:
                     new_divider(ctx, col, it.lo, it.hi, colW);
+                    break;
+                case Item::DateDivider:
+                    date_divider(ctx, col, it.lo, msgs[it.lo].created_at,
+                                 colW);
                     break;
             }
         }

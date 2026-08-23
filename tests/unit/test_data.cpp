@@ -258,6 +258,41 @@ static void test_clock_time() {
 
 // --- (6) find-in-conversation match scanning --------------------------------
 // The offsets the highlight paints from. Case-insensitive, non-overlapping.
+// --- (6) transcript date rows -----------------------------------------------
+// The divider asks two questions of a pair of stamps: are they the same local
+// day, and what is that day called. Both are pure, and both are wrong in ways
+// a screenshot cannot show — an hours-apart rule that straddles midnight, or a
+// zero-padded "August 09".
+static void test_day_boundaries_and_labels() {
+    std::printf("test_day_boundaries_and_labels\n");
+    // Local noon today, so every offset below stays inside the day it means.
+    const std::time_t now = std::time(nullptr);
+    std::tm tm{};
+    localtime_r(&now, &tm);
+    tm.tm_hour = 12; tm.tm_min = 0; tm.tm_sec = 0; tm.tm_isdst = -1;
+    const int64_t noon = static_cast<int64_t>(std::mktime(&tm));
+
+    CHECK(fmtutil::same_local_day(noon, noon + 3600));
+    CHECK(fmtutil::same_local_day(noon - 6 * 3600, noon + 6 * 3600));
+    // Eleven hours apart, but either side of midnight: a different day.
+    CHECK(!fmtutil::same_local_day(noon + 8 * 3600, noon + 19 * 3600));
+    CHECK(!fmtutil::same_local_day(noon, noon - 86400));
+
+    CHECK(fmtutil::day_label(noon, noon) == "Today");
+    CHECK(fmtutil::day_label(noon + 8 * 3600, noon) == "Today");
+    CHECK(fmtutil::day_label(noon - 86400, noon) == "Yesterday");
+    CHECK(fmtutil::day_label(0, noon).empty());   // unset stamp names no day
+
+    // Older than yesterday: a named day, no zero-padding, and the year only
+    // when it is not this one.
+    const std::string old = fmtutil::day_label(noon - 5 * 86400, noon);
+    CHECK(old != "Today" && old != "Yesterday");
+    CHECK(old.find(", ") != std::string::npos);   // "Monday, August 19"
+    CHECK(old.find(" 0") == std::string::npos);   // never "August 09"
+    const std::string lastYear = fmtutil::day_label(noon - 400 * 86400, noon);
+    CHECK(lastYear.find("20") != std::string::npos);  // carries its year
+}
+
 static void test_find_occurrences() {
     std::printf("test_find_occurrences\n");
     using textscan::occurrences;
@@ -296,6 +331,7 @@ int main() {
     test_settings_config_gate();
     test_compact_count();
     test_clock_time();
+    test_day_boundaries_and_labels();
     test_find_occurrences();
     if (g_failures == 0) {
         std::printf("OK\n");
