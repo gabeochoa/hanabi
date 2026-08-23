@@ -36,6 +36,21 @@ class AgentcloudClient : public Client {
     Result<Session> get_session(const std::string& id) override;
     Result<Session> get_session(const std::string& id, int limit) override;
 
+    // Sending is real; steering maps onto the same command with apply set to
+    // interrupt. Streaming is how this protocol natively delivers a reply, so
+    // the loader is pointed at that path rather than the blocking one.
+    bool supports_send() const override { return ready(); }
+    bool supports_steer() const override { return ready(); }
+    bool supports_stream() const override { return ready(); }
+
+    void send_message_streaming(const std::string& session_id,
+                                const std::string& prompt,
+                                const StreamSink& sink) override;
+    Result<Message> send_message(const std::string& session_id,
+                                 const std::string& prompt) override;
+    Result<Message> steer(const std::string& session_id,
+                          const std::string& prompt) override;
+
     std::string backend_label() const override;
 
     // True when the HANABI_AC_* environment names a reachable configuration.
@@ -48,6 +63,11 @@ class AgentcloudClient : public Client {
     std::string round_trip(const std::string& payload_json,
                            const std::string& expect_type,
                            std::string* error);
+
+    // attach, then input, then read the turn out as it arrives. `apply` is
+    // required on the wire -- there is no server-side default.
+    void run_turn(const std::string& session_id, const std::string& prompt,
+                  const std::string& apply, const StreamSink& sink);
 
     // attach + page on ONE socket: attach binds the principal for the
     // subscription and page inherits it, so splitting them would re-attach for
@@ -82,6 +102,31 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json);
 // contract is that the vocabulary grows, and one new variant must not take the
 // transcript down with it.
 std::vector<Message> parse_page_frames(const std::string& msg_json);
+
+// What one live frame means to a streaming reply.
+//
+// Live text does NOT arrive as append-ready chunks: the server sends the
+// ACCUMULATED value at a key and the client installs it whole (the C5 contract
+// -- attaching mid-turn hands you the whole partial). StreamSink wants
+// increments, so the caller keeps the last accumulated text and emits only the
+// tail. This returns the accumulated text so that diffing stays in one place.
+struct LiveFrame {
+    enum class Kind { Ignore, Text, Thinking, ToolCall, Title, Finished };
+    Kind kind = Kind::Ignore;
+    // For Text/Thinking: the ACCUMULATED text at this key, not a delta.
+    // For ToolCall/Title: a short label.
+    std::string payload;
+};
+
+// Classify one `{"type":"frame",...}` server message. Never throws; anything
+// unrecognised is Ignore, because the event vocabulary grows.
+LiveFrame classify_live_frame(const std::string& msg_json);
+
+// Accumulated live text -> the increment StreamSink wants. Exposed for the
+// test: getting this wrong duplicates or drops text in a live bubble, and it
+// is invisible until you watch a real reply arrive.
+std::string delta_from_accumulated(const std::string& emitted,
+                                   const std::string& accumulated);
 
 }  // namespace agentcloud
 

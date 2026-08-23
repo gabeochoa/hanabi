@@ -26,6 +26,9 @@ using api::agentcloud::percent_encode;
 using api::agentcloud::parse_sessions_reply;
 using api::agentcloud::parse_page_frames;
 using api::Role;
+using api::agentcloud::classify_live_frame;
+using api::agentcloud::delta_from_accumulated;
+using LF = api::agentcloud::LiveFrame;
 using api::ThreadState;
 using api::ThreadTag;
 
@@ -319,6 +322,72 @@ static void test_bad_page_input_is_empty_not_a_crash() {
               .empty());
 }
 
+
+// --- streaming a live turn --------------------------------------------------
+
+static void test_accumulated_text_becomes_an_increment() {
+    // The server sends the WHOLE text at a key each time, not the new part.
+    CHECK(delta_from_accumulated("", "Hel") == "Hel");
+    CHECK(delta_from_accumulated("Hel", "Hello") == "lo");
+    CHECK(delta_from_accumulated("Hello", "Hello") == "");
+}
+
+static void test_a_new_block_is_emitted_whole_not_diffed() {
+    // A payload that does not extend what we have is a DIFFERENT block, not a
+    // rewind. Emitting a suffix of unrelated text would corrupt the bubble.
+    CHECK(delta_from_accumulated("Hello there", "Goodbye") == "Goodbye");
+    // Shorter but not a prefix -- still a different block.
+    CHECK(delta_from_accumulated("Hello", "Hi") == "Hi");
+}
+
+static void test_live_text_and_thinking_are_told_apart() {
+    const std::string text =
+        R"({"type":"frame","frame":"value","seq":1,
+            "event":{"type":"block","block":{"kind":"text","text":"hi"}}})";
+    CHECK(classify_live_frame(text).kind == LF::Kind::Text);
+    CHECK(classify_live_frame(text).payload == "hi");
+
+    const std::string think =
+        R"({"type":"frame","frame":"value","seq":1,
+            "event":{"type":"block","block":{"kind":"thinking","text":"hmm"}}})";
+    CHECK(classify_live_frame(think).kind == LF::Kind::Thinking);
+}
+
+static void test_live_tool_call_and_finish() {
+    const std::string tool =
+        R"({"type":"frame","frame":"durable","seq":2,
+            "event":{"type":"tool_intent","tool":"bash","input":"{}"}})";
+    CHECK(classify_live_frame(tool).kind == LF::Kind::ToolCall);
+    CHECK(classify_live_frame(tool).payload == "bash");
+
+    const std::string fin =
+        R"({"type":"frame","frame":"durable","seq":3,
+            "event":{"type":"run_finished","outcome":{"outcome":"completed"}}})";
+    CHECK(classify_live_frame(fin).kind == LF::Kind::Finished);
+}
+
+static void test_retract_and_tool_use_show_nothing() {
+    // A retract says a live partial is gone -- there is nothing to render.
+    const std::string retract =
+        R"({"type":"frame","frame":"retract","key":{"x":1},
+            "event":{"type":"block","block":{"kind":"text","text":"gone"}}})";
+    CHECK(classify_live_frame(retract).kind == LF::Kind::Ignore);
+    // tool_use duplicates the tool_intent that follows it.
+    const std::string use =
+        R"({"type":"frame","frame":"value",
+            "event":{"type":"block","block":{"kind":"tool_use","tool":"bash"}}})";
+    CHECK(classify_live_frame(use).kind == LF::Kind::Ignore);
+}
+
+static void test_unknown_live_frames_are_ignored_not_fatal() {
+    CHECK(classify_live_frame("").kind == LF::Kind::Ignore);
+    CHECK(classify_live_frame("not json").kind == LF::Kind::Ignore);
+    CHECK(classify_live_frame(R"({"type":"frame"})").kind == LF::Kind::Ignore);
+    CHECK(classify_live_frame(
+              R"({"type":"frame","event":{"type":"invented_next_quarter"}})")
+              .kind == LF::Kind::Ignore);
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -344,6 +413,12 @@ int main() {
     test_tool_use_block_does_not_double_the_row();
     test_unknown_events_fold_as_nothing();
     test_bad_page_input_is_empty_not_a_crash();
+    test_accumulated_text_becomes_an_increment();
+    test_a_new_block_is_emitted_whole_not_diffed();
+    test_live_text_and_thinking_are_told_apart();
+    test_live_tool_call_and_finish();
+    test_retract_and_tool_use_show_nothing();
+    test_unknown_live_frames_are_ignored_not_fatal();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

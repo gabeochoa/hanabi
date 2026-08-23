@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <ctime>
 #include <limits>
 #include <vector>
 #include <mutex>
@@ -21,6 +22,11 @@ using json = nlohmann::json;
 // couple of round trips before that. Generous, but bounded: a hung socket must
 // not hang the loader thread forever.
 constexpr int kReplyTimeoutSecs = 30;
+
+// A turn is bounded by SILENCE, not by total time: tool rounds and model calls
+// legitimately take minutes, but a socket that has said nothing for this long
+// has stopped talking to us.
+constexpr int kTurnIdleTimeoutSecs = 120;
 
 // Collects one reply off the socket's private queue and hands it to the
 // waiting caller. The socket calls these from its own thread.
@@ -108,16 +114,33 @@ struct FrameQueue {
         }
         cv.notify_all();
     }
+    // Next queued message of ANY type, for reading a turn out frame by frame.
+    // Returns a discarded json when nothing arrives before `deadline`.
+    json wait_for_next(std::chrono::steady_clock::time_point deadline) {
+        std::unique_lock<std::mutex> lock(m);
+        for (;;) {
+            if (next_ < frames.size()) {
+                json root = json::parse(frames[next_++], nullptr, false);
+                if (root.is_discarded()) continue;
+                return obj_at(root, "msg");
+            }
+            if (closed) return json(json::value_t::discarded);
+            if (cv.wait_until(lock, deadline) == std::cv_status::timeout &&
+                next_ >= frames.size())
+                return json(json::value_t::discarded);
+        }
+    }
+    size_t next_ = 0;  // read cursor for wait_for_next
+
     // Next queued message whose msg.type == want, waiting up to timeout.
     // Returns the msg object, or a discarded json on timeout/close.
     json wait_for_type(const std::string& want, int timeout_secs) {
         std::unique_lock<std::mutex> lock(m);
-        size_t scanned = 0;
         const auto deadline =
             std::chrono::steady_clock::now() + std::chrono::seconds(timeout_secs);
         for (;;) {
-            while (scanned < frames.size()) {
-                json root = json::parse(frames[scanned++], nullptr, false);
+            while (next_ < frames.size()) {
+                json root = json::parse(frames[next_++], nullptr, false);
                 if (root.is_discarded()) continue;
                 const json& msg = obj_at(root, "msg");
                 const std::string t = str_or(msg, "type", "");
@@ -126,7 +149,7 @@ struct FrameQueue {
             }
             if (closed) return json(json::value_t::discarded);
             if (cv.wait_until(lock, deadline) == std::cv_status::timeout &&
-                scanned >= frames.size())
+                next_ >= frames.size())
                 return json(json::value_t::discarded);
         }
     }
@@ -450,6 +473,66 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
 
 }  // namespace agentcloud
 
+namespace agentcloud {
+
+std::string delta_from_accumulated(const std::string& emitted,
+                                   const std::string& accumulated) {
+    // Live text arrives ACCUMULATED and is installed whole. StreamSink wants
+    // increments, so emit only the tail that extends what the sink already
+    // has. A payload that is not an extension means a NEW block started (or
+    // the text was rewritten), so it is emitted in full rather than diffed --
+    // silently emitting a suffix of unrelated text would corrupt the bubble.
+    if (accumulated.size() > emitted.size() &&
+        accumulated.compare(0, emitted.size(), emitted) == 0)
+        return accumulated.substr(emitted.size());
+    if (accumulated == emitted) return "";
+    return accumulated;
+}
+
+LiveFrame classify_live_frame(const std::string& msg_json) {
+    LiveFrame lf;
+    json root = json::parse(msg_json, nullptr, false);
+    if (root.is_discarded() || !root.is_object()) return lf;
+    // A retract says a live partial is gone; there is nothing to show for it.
+    const std::string frame = str_or(root, "frame", "");
+    if (frame == "retract") return lf;
+
+    const json& e = obj_at(root, "event");
+    const std::string type = str_or(e, "type", "");
+
+    if (type == "block") {
+        const json& b = obj_at(e, "block");
+        const std::string kind = str_or(b, "kind", "");
+        if (kind == "text") {
+            lf.kind = LiveFrame::Kind::Text;
+            lf.payload = str_or(b, "text", "");
+        } else if (kind == "thinking") {
+            lf.kind = LiveFrame::Kind::Thinking;
+            lf.payload = str_or(b, "text", "");
+        }
+        // tool_use is the announcement of a call that tool_intent then makes;
+        // showing both would double the affordance, same as in the history fold.
+        return lf;
+    }
+    if (type == "tool_intent") {
+        lf.kind = LiveFrame::Kind::ToolCall;
+        lf.payload = str_or(e, "tool", "");
+        return lf;
+    }
+    if (type == "session_renamed") {
+        lf.kind = LiveFrame::Kind::Title;
+        lf.payload = str_or(e, "title", "");
+        return lf;
+    }
+    if (type == "run_finished") {
+        lf.kind = LiveFrame::Kind::Finished;
+        return lf;
+    }
+    return lf;
+}
+
+}  // namespace agentcloud
+
 std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
                                               Session* out,
                                               std::string* error) {
@@ -564,6 +647,176 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     // Only claim there is more when the server said so and we stopped asking.
     out->has_more_older = !done;
     return hello.dump();
+}
+
+void AgentcloudClient::run_turn(const std::string& session_id,
+                                const std::string& prompt,
+                                const std::string& apply,
+                                const StreamSink& sink) {
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) { sink.emit_error(auth_err); return; }
+
+    FrameQueue q;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) { sink.emit_error("could not parse " + url); return; }
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size())) {
+        sink.emit_error("socket closed before attach was sent");
+        return;
+    }
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) {
+        sink.emit_error("no hello for " + session_id + " (" + q.closed_reason + ")");
+        return;
+    }
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        sink.emit_error("attach refused: " +
+                        str_or(hello, "message", "(no message)"));
+        return;
+    }
+
+    // Post-attach commands inherit the principal bound at attach, so no auth
+    // here. `apply` is required: the wire has no default.
+    const json input_env = {
+        {"sub", 1},
+        {"payload", {{"cmd", "input"}, {"text", prompt}, {"apply", apply}}}};
+    const std::string input_wire = input_env.dump();
+    if (!ws_send_text(conn, input_wire.data(), input_wire.size())) {
+        sink.emit_error("socket closed before input was sent");
+        return;
+    }
+
+    // There is no ack. The durable user_input frame IS the acknowledgement,
+    // and the reply then arrives as live frames until run_finished.
+    //
+    // An agent turn can legitimately run for minutes -- tool rounds, model
+    // calls -- so the wait is bounded by SILENCE, not by total duration:
+    // as long as frames keep arriving we keep reading.
+    Message final;
+    final.role = Role::Assistant;
+    final.created_at = static_cast<int64_t>(std::time(nullptr));
+    std::string emitted;  // what the sink has already been told
+
+    const auto deadline_from_now = [] {
+        return std::chrono::steady_clock::now() +
+               std::chrono::seconds(kTurnIdleTimeoutSecs);
+    };
+    auto idle_deadline = deadline_from_now();
+
+    for (;;) {
+        const json msg = q.wait_for_next(idle_deadline);
+        if (msg.is_discarded()) {
+            if (q.closed) {
+                sink.emit_error("connection closed mid-turn: " + q.closed_reason);
+                return;
+            }
+            // Silence for the whole idle window. Hand back what did arrive
+            // rather than throwing the turn away -- a partial reply the user
+            // can read beats an error that discards it.
+            break;
+        }
+        idle_deadline = deadline_from_now();
+
+        if (str_or(msg, "type", "") == "error") {
+            sink.emit_error("server error: " +
+                            str_or(msg, "message", "(no message)"));
+            return;
+        }
+        if (str_or(msg, "type", "") != "frame") continue;
+
+        const agentcloud::LiveFrame lf =
+            agentcloud::classify_live_frame(msg.dump());
+        switch (lf.kind) {
+            case agentcloud::LiveFrame::Kind::Text: {
+                // The payload is the ACCUMULATED text at this key, installed
+                // whole -- so emit only the part the sink has not seen. A
+                // shorter payload means a different block started, not a
+                // rewind, so start the diff over from there.
+                const std::string d =
+                    agentcloud::delta_from_accumulated(emitted, lf.payload);
+                if (!d.empty()) sink.emit_delta(d);
+                emitted = lf.payload;
+                final.text = lf.payload;
+                break;
+            }
+            case agentcloud::LiveFrame::Kind::Thinking:
+                sink.emit_event({StreamEventKind::Thinking, lf.payload});
+                break;
+            case agentcloud::LiveFrame::Kind::ToolCall:
+                sink.emit_event({StreamEventKind::ToolCall, lf.payload});
+                break;
+            case agentcloud::LiveFrame::Kind::Title:
+                sink.emit_event({StreamEventKind::TitleUpdate, lf.payload});
+                break;
+            case agentcloud::LiveFrame::Kind::Finished:
+                sink.emit_done(final);
+                return;
+            case agentcloud::LiveFrame::Kind::Ignore:
+                break;
+        }
+    }
+    sink.emit_done(final);
+}
+
+void AgentcloudClient::send_message_streaming(const std::string& session_id,
+                                              const std::string& prompt,
+                                              const StreamSink& sink) {
+    // after_tool_round is the conventional apply: it lands the message at the
+    // next tool boundary rather than cutting the agent off mid-thought.
+    run_turn(session_id, prompt, "after_tool_round", sink);
+}
+
+Result<Message> AgentcloudClient::send_message(const std::string& session_id,
+                                               const std::string& prompt) {
+    // The blocking seam, for callers that have not moved to streaming. Same
+    // machinery; it simply waits for the turn to finish.
+    Result<Message> result = Result<Message>::failure("no reply");
+    StreamSink sink;
+    sink.on_done = [&](const Message& m) {
+        result = Result<Message>::success(m);
+    };
+    sink.on_error = [&](const std::string& e) {
+        result = Result<Message>::failure(e);
+    };
+    run_turn(session_id, prompt, "after_tool_round", sink);
+    return result;
+}
+
+Result<Message> AgentcloudClient::steer(const std::string& session_id,
+                                        const std::string& prompt) {
+    // Steering is not a different endpoint here -- it is the same input with
+    // apply set to interrupt, which is the server-side replacement for the
+    // whole queue/steer state machine the other backend needs.
+    Result<Message> result = Result<Message>::failure("no reply");
+    StreamSink sink;
+    sink.on_done = [&](const Message& m) {
+        result = Result<Message>::success(m);
+    };
+    sink.on_error = [&](const std::string& e) {
+        result = Result<Message>::failure(e);
+    };
+    run_turn(session_id, prompt, "interrupt", sink);
+    return result;
 }
 
 Result<Session> AgentcloudClient::get_session(const std::string& id) {
