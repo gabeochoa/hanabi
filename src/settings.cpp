@@ -39,6 +39,8 @@ bool Settings::load_save_file() {
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
         font_choice_ = j.value("font", font_choice_);
+        accent_choice_ = j.value("theme_accent", accent_choice_);
+        highlight_choice_ = j.value("theme_highlight", highlight_choice_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
         cache_cap_bytes_ =
             j.value("cache_cap_bytes", cache_cap_bytes_);
@@ -105,6 +107,8 @@ void Settings::write_save_file() {
     j["active_tab"] = active_tab_;
     j["theme"] = theme_;
     j["font"] = font_choice_;
+    j["theme_accent"] = accent_choice_;
+    j["theme_highlight"] = highlight_choice_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
     j["cache_cap_bytes"] = cache_cap_bytes_;
     j["yap_level"] = yap_level_;
@@ -160,6 +164,24 @@ void Settings::set_font_choice(const std::string& font) {
     font_choice_ = font;
     // Persist immediately (mirrors set_theme) so the font choice survives
     // relaunch. Client-local only — never sent to the backend.
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_accent_choice() const {
+    return accent_choice_;
+}
+void Settings::set_accent_choice(const std::string& key) {
+    if (key == accent_choice_) return;
+    accent_choice_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_highlight_choice() const {
+    return highlight_choice_;
+}
+void Settings::set_highlight_choice(const std::string& key) {
+    if (key == highlight_choice_) return;
+    highlight_choice_ = key;
     if (auto_save_enabled) write_save_file();
 }
 

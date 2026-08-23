@@ -74,6 +74,16 @@ struct Settings {
     const std::string& get_font_choice() const;
     void set_font_choice(const std::string& font);  // auto-persists
 
+    // Custom colours: which NAMED swatch the accent family and the find
+    // highlight use ("default" = the palette's own colour). A key, not a hex
+    // value — each swatch carries a dark and a light colour, so one choice
+    // stays readable on both palettes (src/ui/theme.h). Client-local like
+    // theme and font; the web preferences schema has no colour field.
+    const std::string& get_accent_choice() const;
+    void set_accent_choice(const std::string& key);  // auto-persists
+    const std::string& get_highlight_choice() const;
+    void set_highlight_choice(const std::string& key);  // auto-persists
+
     // Sidebar collapsed (thin icon rail) vs expanded (full 280px). Persisted so
     // a user who folds the sidebar and quits gets it folded on relaunch (the
     // toggle otherwise lived only in the in-memory LayoutComponent). Auto-persists.
@@ -215,6 +225,8 @@ struct Settings {
     std::string active_tab_;
     std::string theme_ = "dark";
     std::string font_choice_ = "default";
+    std::string accent_choice_ = "default";
+    std::string highlight_choice_ = "default";
     bool sidebar_collapsed_ = false;
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;

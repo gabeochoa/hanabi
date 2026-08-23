@@ -32,6 +32,8 @@
 //   Appearance · Rotate theme (Off/15m/30m/1h) — client-local; the interval
 //     persists, the palette it lands on does not (theme_rotation_system.h).
 //   Appearance · Font   (Default/Hyperlegible) — client-local (FontManager).
+//   Custom colours · Accent + Find highlight (named swatches) — client-local;
+//     layered over whichever palette is active (src/ui/theme.h).
 //   Behavior · Yap level (No yapping/A little/Full).
 //   Behavior · Auto-archive (Never/5/14/30 days).
 //   Behavior · Memory backend (Traditional/Hindsight).
@@ -55,6 +57,7 @@
 
 #include <array>
 #include <cstdio>
+#include <iterator>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -144,7 +147,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
             (kGroupH + ctrlRow * 2.0f) +          // Notifications: Sound + Quiet hours
             (kGroupH + ctrlRow);                  // Model: default model
+        const float ctrlRowRight = kRowNameFoot + kThemeRowH;
         const float rightH =
+            (kGroupH + ctrlRowRight * 2.0f) +     // Custom colours: 2 swatch rows
             (kGroupH + (kRowNameFoot + kCacheRowH) + (kRowNameFoot + kLimitRowH) +
              (kRowNameFoot + kCacheRowH)) +       // Data: cache/limit/export
             (kGroupH + kAdvancedH) +              // Advanced: coming-soon
@@ -297,6 +302,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // RIGHT column: Data / Advanced / Account.
         {
             Entity& R = rightCol.ent();
+            group_label(ctx, R, 9, "Custom colours", "settings_grp_colours");
+            render_accent_row(ctx, R, *app);
+            render_highlight_row(ctx, R, *app);
             group_label(ctx, R, 5, "Data", "settings_grp_data");
             render_cache_row(ctx, R, *app);
             render_cache_limit_row(ctx, R, *app);
@@ -1258,6 +1266,130 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // Picking a theme by hand buys a WHOLE interval of it, rather than
         // however many seconds were left on the rotation clock.
         theme_rotation::restart();
+    }
+
+    // ── Custom colours (the theme editor) ───────────────────────────────────
+    // Two NAMED tokens are editable — the accent family and the find highlight
+    // — each as a row of named swatches. What this is not is the colour-picker
+    // modal the breakdown sketched: afterhours has no colour-picker widget and
+    // no way to raise the macOS one, and a hex field would let one RGB apply to
+    // both palettes, which is how the light theme shipped muddy the first time.
+    // Each swatch instead carries its own dark and light colour (theme.h).
+    //
+    // The row name carries the chosen swatch, because the swatch row itself
+    // says which one is live only in colour — unreadable at a glance next to a
+    // full sheet of blue segments, and invisible to a test.
+    void render_accent_row(UIContext<InputAction>& ctx, Entity& parent,
+                           AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 160,
+                 "Accent   \xc2\xb7   " + swatch_label(theme::accent_choice(),
+                                                      theme::kAccentSwatches,
+                                                      std::size(theme::kAccentSwatches)),
+                 "settings_accent_label");
+        auto row = swatch_row(ctx, parent, 161, "settings_accent_row");
+        const float segW = swatch_seg_w(std::size(theme::kAccentSwatches) + 1);
+        swatch_btn(ctx, row.ent(), 1, "Default", theme::kDefaultChoice, segW,
+                   true, "settings_accent_", theme::accent_choice(),
+                   [](const std::string& k) { apply_accent(k); });
+        int id = 2;
+        for (const auto& sw : theme::kAccentSwatches) {
+            const bool last = (&sw == std::end(theme::kAccentSwatches) - 1);
+            swatch_btn(ctx, row.ent(), id++, sw.label, sw.key, segW, !last,
+                       "settings_accent_", theme::accent_choice(),
+                       [](const std::string& k) { apply_accent(k); });
+        }
+    }
+
+    void render_highlight_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 162,
+                 "Find highlight   \xc2\xb7   " +
+                     swatch_label(theme::highlight_choice(),
+                                  theme::kHighlightSwatches,
+                                  std::size(theme::kHighlightSwatches)),
+                 "settings_highlight_label");
+        auto row = swatch_row(ctx, parent, 163, "settings_highlight_row");
+        const float segW = swatch_seg_w(std::size(theme::kHighlightSwatches) + 1);
+        swatch_btn(ctx, row.ent(), 1, "Default", theme::kDefaultChoice, segW,
+                   true, "settings_highlight_", theme::highlight_choice(),
+                   [](const std::string& k) { apply_highlight(k); });
+        int id = 2;
+        for (const auto& sw : theme::kHighlightSwatches) {
+            const bool last = (&sw == std::end(theme::kHighlightSwatches) - 1);
+            swatch_btn(ctx, row.ent(), id++, sw.label, sw.key, segW, !last,
+                       "settings_highlight_", theme::highlight_choice(),
+                       [](const std::string& k) { apply_highlight(k); });
+        }
+    }
+
+    static std::string swatch_label(const std::string& key,
+                                    const theme::Swatch* list, size_t n) {
+        const theme::Swatch* sw = theme::find_swatch(list, n, key);
+        return sw ? sw->label : "Default";
+    }
+
+    afterhours::ui::imm::ElementResult swatch_row(
+        UIContext<InputAction>& ctx, Entity& parent, int id,
+        const std::string& dbg) {
+        return div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg));
+    }
+
+    float swatch_seg_w(size_t segments) const {
+        constexpr float kSegGap = 6.0f;
+        const float n = static_cast<float>(segments);
+        return (content_w() - kSegGap * (n - 1.0f)) / n;
+    }
+
+    // One swatch button. The chosen one is filled with the colour it selects
+    // (not the generic accent fill the other segmented controls use) so the row
+    // reads as a set of colours rather than a set of words.
+    template <typename Apply>
+    void swatch_btn(UIContext<InputAction>& ctx, Entity& parent, int id,
+                    const std::string& label, const std::string& key,
+                    float segW, bool trailingGap, const std::string& dbgPrefix,
+                    const std::string& current, Apply apply) {
+        const bool selected = (current == key);
+        auto btn = button(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
+                .with_custom_background(selected ? theme::button_primary()
+                                                 : theme::button_secondary())
+                .with_custom_hover_bg(selected ? theme::button_primary()
+                                               : theme::hover_bg())
+                .with_custom_text_color(selected ? theme::window_bg()
+                                                 : theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name(dbgPrefix + key));
+        if (btn) apply(key);
+    }
+
+    // Apply + persist a colour choice. theme::set_*_choice re-layers the token
+    // over the ACTIVE palette immediately, so the sheet retints this frame.
+    static void apply_accent(const std::string& key) {
+        theme::set_accent_choice(key);
+        Settings::get().set_accent_choice(key);  // auto-persists
+    }
+    static void apply_highlight(const std::string& key) {
+        theme::set_highlight_choice(key);
+        Settings::get().set_highlight_choice(key);  // auto-persists
     }
 
     void render_footnote(UIContext<InputAction>& ctx, Entity& parent,

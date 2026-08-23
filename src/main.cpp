@@ -105,6 +105,11 @@ static void setup_app_state() {
     // (gap #16 fixed via macos_is_dark_mode); "light"/"dark" are explicit;
     // anything else (or unset) defaults to dark.
     {
+        // The custom colour choices go on FIRST: set_mode re-layers them over
+        // the palette it loads, so the first frame is already the user's
+        // accent rather than the stock blue for a frame.
+        theme::set_accent_choice(Settings::get().get_accent_choice());
+        theme::set_highlight_choice(Settings::get().get_highlight_choice());
         const std::string& tc = Settings::get().get_theme();
         bool light = (tc == "light") ||
                      (tc == "system" && !hanabi::os_is_dark_mode());

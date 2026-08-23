@@ -14,6 +14,7 @@
 #include <afterhours/src/drawing_helpers.h>
 
 #include <bitset>
+#include <iterator>
 #include <string>
 
 namespace theme {
@@ -264,10 +265,116 @@ inline const Tokens kLight = {
 inline Mode g_mode = Mode::Dark;
 inline Tokens t = kDark;
 
+// ---------------------------------------------------------------------------
+// Custom colours — the user's edits to a small set of NAMED tokens, layered
+// over whichever palette is active.
+//
+// A token is edited by picking a named swatch, not by typing a hex value, and
+// every swatch carries TWO colours: one for dark, one for light. That is the
+// whole reason this is not a hex field. The shipped accent is already two
+// different blues — {90,128,255} on dark, the deeper {46,90,236} on light —
+// because one colour that reads well on a near-black pane is washed out on
+// white. Letting a single RGB win on both palettes is exactly how the light
+// theme shipped muddy the first time.
+//
+// Only tokens that DECORATE are editable: the accent family and the find
+// highlight. Surfaces and text are not on offer, so no choice here can leave a
+// pane without contrast.
+//
+// The edits live in this pair of choice keys rather than in a copy of the
+// Tokens struct, so a swatch added or corrected in a later build reaches
+// people who already made a choice, instead of freezing whatever hex their
+// settings file happened to capture.
+// ---------------------------------------------------------------------------
+struct Swatch {
+    const char* key;
+    const char* label;
+    Color dark;
+    Color light;
+};
+
+// Accent: buttons, the focus ring, links, the attention dot.
+inline constexpr Swatch kAccentSwatches[] = {
+    {"violet", "Violet", {166, 128, 255, 255}, {104, 58, 214, 255}},
+    {"green", "Green", {96, 200, 140, 255}, {22, 118, 72, 255}},
+    {"amber", "Amber", {235, 170, 66, 255}, {166, 102, 8, 255}},
+};
+
+// Find highlight: the band behind a find-in-conversation match. Warm by
+// default, and every alternative stays a BAND — the palette's own alpha is
+// kept, only the hue is replaced, so a match can never turn into a solid block
+// that hides the text under it.
+inline constexpr Swatch kHighlightSwatches[] = {
+    {"green", "Green", {120, 210, 140, 255}, {96, 200, 130, 255}},
+    {"pink", "Pink", {240, 130, 190, 255}, {240, 140, 190, 255}},
+    {"blue", "Blue", {110, 170, 255, 255}, {120, 175, 255, 255}},
+};
+
+// "default" is the absence of an edit rather than a swatch of its own: the
+// palette's own colour is left alone, so correcting a palette reaches everyone
+// who never chose anything.
+inline constexpr const char* kDefaultChoice = "default";
+
+inline std::string g_accent_choice = kDefaultChoice;
+inline std::string g_highlight_choice = kDefaultChoice;
+
+inline const Swatch* find_swatch(const Swatch* list, size_t n,
+                                 const std::string& key) {
+    for (size_t i = 0; i < n; ++i)
+        if (key == list[i].key) return &list[i];
+    // Unknown (a hand-edited settings file, or a swatch dropped in a later
+    // build) reads as no edit at all rather than as a crash or a black UI.
+    return nullptr;
+}
+
+inline const Swatch* accent_swatch() {
+    return find_swatch(kAccentSwatches, std::size(kAccentSwatches),
+                       g_accent_choice);
+}
+inline const Swatch* highlight_swatch() {
+    return find_swatch(kHighlightSwatches, std::size(kHighlightSwatches),
+                       g_highlight_choice);
+}
+
+// Replace a token's HUE and keep its own alpha: accent_soft is a 38/255 wash
+// and find_match a 90/255 band, and those alphas are what make them washes
+// rather than slabs.
+inline void set_hue(Color& dst, Color hue) {
+    dst = Color{hue.r, hue.g, hue.b, dst.a};
+}
+
+// Re-layer the custom colours over the freshly-loaded palette. Called by
+// set_mode, so a theme switch never drops someone's accent.
+inline void apply_custom() {
+    if (const Swatch* a = accent_swatch()) {
+        const Color ac = (g_mode == Mode::Light) ? a->light : a->dark;
+        set_hue(t.accent, ac);
+        set_hue(t.accent_soft, ac);
+        set_hue(t.button_primary, ac);
+        set_hue(t.focus_ring, ac);
+        set_hue(t.dot, ac);
+    }
+    if (const Swatch* h = highlight_swatch())
+        set_hue(t.find_match, (g_mode == Mode::Light) ? h->light : h->dark);
+}
+
 inline void set_mode(Mode m) {
     g_mode = m;
     t = (m == Mode::Light) ? kLight : kDark;
+    apply_custom();
 }
+
+inline void set_accent_choice(const std::string& key) {
+    g_accent_choice = key;
+    apply_custom();
+}
+inline void set_highlight_choice(const std::string& key) {
+    g_highlight_choice = key;
+    apply_custom();
+}
+inline const std::string& accent_choice() { return g_accent_choice; }
+inline const std::string& highlight_choice() { return g_highlight_choice; }
+
 inline Mode mode() { return g_mode; }
 inline void toggle_mode() {
     set_mode(g_mode == Mode::Dark ? Mode::Light : Mode::Dark);
