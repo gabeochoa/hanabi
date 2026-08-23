@@ -821,6 +821,72 @@ static void test_transcript_cache() {
 // scroll-adjusted Y lands inside the viewport have valid on-screen positions
 // (i.e. they'd be drawn), proving text renders when scrolled.
 // ---------------------------------------------------------------------------
+static void test_sidebar_row_manual_order() {
+    std::printf("-- sidebar manual row order (drag-to-reorder) --\n");
+
+    // Four threads in activity order, newest first — what the sidebar shows
+    // with nobody having arranged anything.
+    api::SessionSummary a, b, c, d;
+    a.id = "a"; b.id = "b"; c.id = "c"; d.id = "d";
+    std::vector<const api::SessionSummary*> rows{&a, &b, &c, &d};
+
+    // No manual order: activity order is left exactly as it was.
+    ecs::model::apply_row_order(rows, {});
+    CHECK(rows[0]->id == "a" && rows[3]->id == "d");
+
+    // A manual order is a PINNED PREFIX, not a re-sort: the named rows come
+    // first in the order given, and the rest keep flowing in activity order.
+    ecs::model::apply_row_order(rows, {"c", "a"});
+    CHECK(rows[0]->id == "c");
+    CHECK(rows[1]->id == "a");
+    CHECK(rows[2]->id == "b");
+    CHECK(rows[3]->id == "d");
+
+    // An order naming a thread that is no longer in this folder is not a
+    // problem — it simply pins nothing.
+    std::vector<const api::SessionSummary*> rows2{&a, &b};
+    ecs::model::apply_row_order(rows2, {"zzz", "b"});
+    CHECK(rows2[0]->id == "b");
+    CHECK(rows2[1]->id == "a");
+
+    // The drop slot is read off the rendered band's geometry: first row at
+    // y=100, 24px rows. Above the band clamps to the first slot, below to the
+    // last, and a cursor inside row 2's box lands on slot 2.
+    CHECK(ecs::model::compute_row_drop_index(100.0f, 100.0f, 24.0f, 5) == 0);
+    CHECK(ecs::model::compute_row_drop_index(60.0f, 100.0f, 24.0f, 5) == 0);
+    CHECK(ecs::model::compute_row_drop_index(155.0f, 100.0f, 24.0f, 5) == 2);
+    CHECK(ecs::model::compute_row_drop_index(9000.0f, 100.0f, 24.0f, 5) == 4);
+    // Degenerate inputs answer rather than divide by zero.
+    CHECK(ecs::model::compute_row_drop_index(50.0f, 100.0f, 0.0f, 5) == 0);
+    CHECK(ecs::model::compute_row_drop_index(50.0f, 100.0f, 24.0f, 1) == 0);
+
+    // A drop rewrites the prefix: move the last row to the front, to the
+    // middle, and onto itself.
+    const std::vector<std::string> vis{"a", "b", "c", "d"};
+    auto moved = ecs::model::reorder_rows(vis, "d", 0);
+    CHECK(moved.size() == 4);
+    CHECK(moved[0] == "d" && moved[1] == "a" && moved[2] == "b" &&
+          moved[3] == "c");
+    auto mid = ecs::model::reorder_rows(vis, "a", 2);
+    CHECK(mid[0] == "b" && mid[1] == "c" && mid[2] == "a" && mid[3] == "d");
+    auto same = ecs::model::reorder_rows(vis, "b", 1);
+    CHECK(same[0] == "a" && same[1] == "b" && same[2] == "c" &&
+          same[3] == "d");
+    // A row that is not one of these leaves the order alone.
+    auto untouched = ecs::model::reorder_rows(vis, "zzz", 0);
+    CHECK(untouched == vis);
+
+    // The persisted prefix is bounded: a folder with far more rows than the cap
+    // still writes at most kRowOrderMax ids, so a 2000-session folder costs the
+    // same to remember as a 20-session one.
+    std::vector<std::string> many;
+    for (int i = 0; i < 500; ++i) many.push_back("s" + std::to_string(i));
+    auto capped = ecs::model::reorder_rows(many, "s400", 0);
+    CHECK(capped.size() == ecs::model::kRowOrderMax);
+    CHECK(capped[0] == "s400");
+    CHECK(capped[1] == "s0");
+}
+
 static void test_sidebar_scroll_list_single_column() {
     std::printf("test_sidebar_scroll_list_single_column\n");
     using namespace afterhours;
@@ -1006,6 +1072,7 @@ int main() {
     test_backend_agnostic_defaults();
     test_transcript_cache();
     test_sidebar_scroll_list_single_column();
+    test_sidebar_row_manual_order();
     test_find_operators();
 
     std::printf("----------------------------------------\n");

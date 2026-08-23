@@ -2761,3 +2761,50 @@ should.
   float. It needs no platform code and no new backend surface: it is the
   existing popover, rect-fill and text-input machinery arranged into the one
   widget a themeable app cannot do without.
+### #59 — `assert_ui` cannot assert a property whose value contains a space
+
+- **How I hit it.** Drag-to-reorder is a claim about ORDER, and the only thing
+  that can carry it is position: after the drag, the row that was sixth has to
+  be the one at the top of the band. The obvious spelling is
+
+  ```
+  assert_ui row_title text="Draft release notes for 4.2"
+  ```
+
+  which addresses the first row by its debug name and asks what it says.
+
+- **What happened.** `assert_ui` is not in any of the runner's argument
+  categories (`runner.h` `coord_commands` / `single_arg_commands` / …), so it
+  falls through to the catch-all parser, which splits the rest of the line on
+  whitespace and never looks at quotes. The command therefore sees
+  `text="Draft`, `release`, `notes`, … — it reports
+  `text=""Draft" but got "Draft release notes for 4.2"`, and the two trailing
+  words are separate malformed assertions. Every other text-bearing command
+  (`expect_text`, `assert_ui_text`, `expect_input_text`) has an explicit branch
+  that calls `parse_quoted()`; `assert_ui` is the one that does not.
+
+- **The workaround.** Turn the assertion inside out and use `assert_ui_text`,
+  which DOES parse a quoted first argument: find the element by its LABEL and
+  assert its geometry.
+
+  ```
+  assert_ui_text "Draft release notes for 4.2" y=382
+  ```
+
+- **Cost of the workaround.** It only reads well when the label is unique and
+  the property is a number — which happens to be exactly this case, so the test
+  is arguably clearer for it. But the two commands are now addressed by
+  different keys (one by debug name, one by label) for no reason a reader can
+  see, and any assertion that genuinely needs BOTH — "the element named X says
+  Y" for a label with a space in it — cannot be written at all. A label is not
+  a stable handle the way a debug name is: it is the thing under test.
+
+- **Severity: makes it ugly.** Nothing is unreachable here, and the failure is
+  loud rather than silent, which is the saving grace: a malformed assertion
+  fails the script instead of passing vacuously.
+
+- **Minimal upstream fix.** Add `assert_ui` (and `assert_no_overflow`'s
+  siblings, if any grow arguments) to the runner's parse switch with the same
+  shape `assert_ui_text` already has: read the name, then `parse_quoted()` each
+  remaining `prop=value` so a quoted value survives. Two lines next to the
+  `assert_ui_text` branch.
