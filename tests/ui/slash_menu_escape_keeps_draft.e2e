@@ -1,0 +1,22 @@
+# Escape puts the slash menu away and keeps what you typed.
+#
+# The menu is a suggestion over the composer, not a mode: dismissing it must
+# leave the draft alone, and the draft is what Esc clears once no menu is up
+# (escape_system.h resolves one meaning per keystroke).
+#
+# Its own script, and no second click anywhere in it: clicking the field twice
+# within the real-time double-click window selects instead of focusing, which
+# is what made this assertion flaky when it lived in the longer slash script.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+click_ui composer_reply_input
+wait_frames 4
+type "/"
+wait_frames 8
+expect_text "start a new conversation"
+
+key ESCAPE
+wait_frames 8
+expect_no_text "start a new conversation"
+expect_input_text composer_reply_input "/"

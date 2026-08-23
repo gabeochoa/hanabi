@@ -5,6 +5,14 @@
 # the field itself holds, so asserting the word would pass on the typed text
 # alone with no menu on screen at all.
 #
+# The script never clicks the field twice in quick succession. Two clicks a few
+# frames apart are a DOUBLE click when the frames are fast, and that window is
+# real time — the first version of this test re-clicked to select the draft and
+# retype it, which passed only while the machine was loaded and failed on an
+# idle one. So the draft is grown by typing onto what is already there, and the
+# one place it has to be emptied uses the app's own Esc-to-clear. (select_all
+# is no help: the harness cannot hold Super, gap #49.)
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
 expect_text "Stars payout reconciliation"
@@ -18,19 +26,8 @@ wait_frames 8
 expect_text "start a new conversation"
 expect_text "compact the context now"
 
-# Escape puts the menu away and keeps the draft — it is not the field's clear.
-# It also blurs the field, which is afterhours' own behaviour on Escape
-# (afterhours_gaps.md #57), so the caret is clicked back afterwards.
-key ESCAPE
-wait_frames 8
-expect_no_text "start a new conversation"
-expect_input_text composer_reply_input "/"
-
-# Typing brings the menu back, and narrows it to one command. (Clicking a
-# field that already has text selects it, so the draft is retyped whole.)
-click_ui composer_reply_input
-wait_frames 4
-type "/mod"
+# Typing on narrows it to one command.
+type "mod"
 wait_frames 8
 expect_text "switch the model"
 expect_no_text "compact the context now"
@@ -50,10 +47,19 @@ wait_frames 20
 expect_text "no model picker yet"
 expect_input_text composer_reply_input "/model opus"
 
+# Esc putting the MENU away without clearing the draft has its own script
+# (slash_menu_escape_keeps_draft.e2e) — here the menu is already closed, so Esc
+# means the field's clear, which is what the /new phase needs.
+#
 # /new is the one verb with somewhere to go: it raises the new-conversation
-# sheet.
+# sheet. Esc on a focused field is the app's clear (escape_system.h resolves it
+# to the transcript once no menu is up); it blurs the field on the way out,
+# which is afterhours' own behaviour (gap #57), so the caret is clicked back —
+# and by then the field is empty, so what that click selects cannot matter.
+click_ui composer_reply_input
+wait_frames 4
 key ESCAPE
-wait_frames 8
+wait_frames 6
 click_ui composer_reply_input
 wait_frames 4
 type "/new"
