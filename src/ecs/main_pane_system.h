@@ -2369,6 +2369,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // with the settings sheet still open over the transcript.
     static bool show_times() { return Settings::get().get_show_timestamps(); }
 
+    // The other three transcript preferences, read the same way and for the
+    // same reason: each is answered per use so the sheet open over the
+    // transcript shows the change on the very next frame.
+    static bool show_date_dividers() {
+        return Settings::get().get_show_date_dividers();
+    }
+    static bool show_reasoning() {
+        return Settings::get().get_show_reasoning();
+    }
+    static bool fold_long_messages() {
+        return Settings::get().get_fold_long_messages();
+    }
+
     // One match: which message, and where in it.
     struct Match {
         int msg = 0;
@@ -2845,7 +2858,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // INSIDE a tool pile is not marked: the pile is one visual
                 // unit, and splitting it to date it would be a worse read
                 // than a pile whose first tool carries the day.
-                if (i > 0 && starts_new_day(msgs[i - 1], msgs[i])) {
+                if (show_date_dividers() && i > 0 &&
+                    starts_new_day(msgs[i - 1], msgs[i])) {
                     Item d;
                     d.kind = Item::DateDivider;
                     d.lo = i;
@@ -2903,6 +2917,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 if (is_thinking(m) &&
                     !(streamingHere && static_cast<size_t>(i) == liveIdx)) {
+                    // Reasoning off: the block is not measured and not built,
+                    // so it costs no height either — one skip keeps the item
+                    // list and the render in step.
+                    if (!show_reasoning()) {
+                        ++i;
+                        continue;
+                    }
                     Item it;
                     it.kind = Item::Thinking;
                     it.lo = i;
@@ -5048,6 +5069,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool is_folded(const api::Message& m, int index, int lineCount,
                    bool isLive) {
         if (isLive || lineCount <= kFoldLines) return false;
+        // Folding is a preference: a reader who would rather scroll than
+        // click can turn it off, and then nothing is ever hidden behind a
+        // button. Answered before the fold state so an off setting cannot
+        // leave a stale "Show more" measured into the height.
+        if (!fold_long_messages()) return false;
         AppComponent* app = app_singleton();
         // A folded message shows its first few lines, so a match below the
         // fold is counted and cannot be painted. Rather than exclude those
@@ -6004,7 +6030,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
         const bool expanded = app && app->expandedMsgs.count(mkey) != 0;
-        const bool folded = !isLive && lineCount > kFoldLines && !expanded;
+        // The SAME predicate the measure pass used (bubble_height ->
+        // is_folded), not a second copy of the rule: the two expressions had
+        // already drifted apart — is_folded unfolds a message find has a match
+        // in, and this copy did not, so a search made the drawn turn shorter
+        // than the height every spacer below it was placed from.
+        const bool folded = is_folded(m, index, lineCount, isLive);
         const std::string shown =
             folded ? first_n_lines(mr.body, textW, kFoldLines) : mr.body;
 

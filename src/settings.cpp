@@ -52,6 +52,11 @@ bool Settings::load_save_file() {
         theme_rotate_secs_ = j.value("theme_rotate_secs", theme_rotate_secs_);
         show_finished_subagents_ =
             j.value("show_finished_subagents", show_finished_subagents_);
+        show_date_dividers_ =
+            j.value("show_date_dividers", show_date_dividers_);
+        show_reasoning_ = j.value("show_reasoning", show_reasoning_);
+        fold_long_messages_ =
+            j.value("fold_long_messages", fold_long_messages_);
         quiet_start_minutes_ =
             j.value("quiet_start_minutes", quiet_start_minutes_);
         quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
@@ -136,6 +141,9 @@ void Settings::write_save_file() {
     j["show_timestamps"] = show_timestamps_;
     j["theme_rotate_secs"] = theme_rotate_secs_;
     j["show_finished_subagents"] = show_finished_subagents_;
+    j["show_date_dividers"] = show_date_dividers_;
+    j["show_reasoning"] = show_reasoning_;
+    j["fold_long_messages"] = fold_long_messages_;
     j["quiet_start_minutes"] = quiet_start_minutes_;
     j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
@@ -410,6 +418,27 @@ bool Settings::get_show_finished_subagents() const {
 void Settings::set_show_finished_subagents(bool on) {
     if (on == show_finished_subagents_) return;
     show_finished_subagents_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_show_date_dividers() const { return show_date_dividers_; }
+void Settings::set_show_date_dividers(bool on) {
+    if (on == show_date_dividers_) return;
+    show_date_dividers_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_show_reasoning() const { return show_reasoning_; }
+void Settings::set_show_reasoning(bool on) {
+    if (on == show_reasoning_) return;
+    show_reasoning_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_fold_long_messages() const { return fold_long_messages_; }
+void Settings::set_fold_long_messages(bool on) {
+    if (on == fold_long_messages_) return;
+    fold_long_messages_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

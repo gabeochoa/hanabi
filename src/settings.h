@@ -217,6 +217,24 @@ struct Settings {
     // off hides chips, never the fact that the work happened. Auto-persists.
     bool get_show_finished_subagents() const;
     void set_show_finished_subagents(bool on);  // auto-persists
+    // The day row above the first message of each new local calendar day.
+    // Default true. A reader who works one thread all day sees a divider that
+    // never tells them anything, so it is theirs to turn off.
+    bool get_show_date_dividers() const;
+    void set_show_date_dividers(bool on);  // auto-persists
+
+    // Render the model's reasoning blocks (the folded "Thought for a moment"
+    // rows) at all. Default true. Off drops them from the transcript
+    // entirely — reasoning is not the answer, and some readers want only the
+    // answer.
+    bool get_show_reasoning() const;
+    void set_show_reasoning(bool on);  // auto-persists
+
+    // Fold a very long message behind a "Show more" button. Default true.
+    // Off renders every message at full length: slower on a huge paste, but
+    // it is the reader's call whether the transcript may hide text from them.
+    bool get_fold_long_messages() const;
+    void set_fold_long_messages(bool on);  // auto-persists
 
     // Memory backend: "traditional" (default) or "hindsight".
     const std::string& get_memory_backend() const;
@@ -281,6 +299,9 @@ struct Settings {
     bool show_timestamps_ = true;
     int theme_rotate_secs_ = 0;
     bool show_finished_subagents_ = false;
+    bool show_date_dividers_ = true;
+    bool show_reasoning_ = true;
+    bool fold_long_messages_ = true;
     int quiet_start_minutes_ = 0;
     int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";

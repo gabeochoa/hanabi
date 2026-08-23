@@ -1,0 +1,23 @@
+# The control side of transcript_fold_off.e2e: left alone, folding is on.
+#
+# Same fixture, default settings. The reply is 57 lines, so it arrives cut at
+# the 40-line threshold with a button saying how much is behind it — and the
+# "off" script is then measured against a state that really does fold rather
+# than against nothing.
+#
+# The thread opens at its end, so what is asserted is what sits at the BOTTOM
+# of the viewport: text scrolled out of view is not registered.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong
+
+expect_text "Show 17 more lines"
+expect_no_text Signed
+
+# And the button opens it.
+click_ui asst_fold_btn
+wait_frames 12
+expect_text "Signed off by the migration owner."
+expect_text "Show less"
