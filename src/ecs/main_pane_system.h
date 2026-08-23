@@ -91,7 +91,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app->escape == EscapeIntent::ClearTranscript)
             hanabi::text_select::clear();
 
-        layout->composerHeight = 92.0f;
+        layout->composerHeight = 92.0f + attachments_h(*app);
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
@@ -3363,8 +3363,143 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    void render_composer(UIContext<InputAction>& ctx, Entity& parent,
-                         AppComponent& app, float paneW, float composerH,
+    // ---- Composer attachments (pasted / dropped images) -------------------
+    // Height of the chips block, and the ONE place the number comes from: the
+    // strip's total height is reserved a full system earlier (layout->
+    // composerHeight, set in for_each_with), so a block that measured itself
+    // differently from what it draws would leave the input hanging off the
+    // bottom of the strip.
+    static constexpr float kAttachChipH = 38.0f;
+    static constexpr float kAttachNoteH = 16.0f;
+    static float attachments_h(const AppComponent& app) {
+        if (app.composerAttachments.empty()) return 0.0f;
+        return kAttachChipH + kAttachNoteH + 6.0f;  // chips, note, gap under
+    }
+
+    // A chip per pasted/dropped image, and one line saying plainly that they
+    // are not going anywhere.
+    //
+    // WHY THE CHIP SAYS SO. hanabi cannot send an image on ANY backend it
+    // speaks today: api::Client's send seam is send_message(session_id,
+    // prompt) — two strings — and all three adapters take it at its word (the
+    // mock, the generic http adapter's {session_id, message} body, and the
+    // agentcloud adapter's `{"cmd":"input","text":…,"apply":…}` frame). The
+    // orchestrator itself is NOT the blocker: its HTTP message route accepts
+    // inline `attachments[]` (base64, five per message) and uploads them
+    // server-side, and its socket `input` command carries `files` — but those
+    // are file-id HANDLES a client can only get by uploading first, and that
+    // upload path is not something this client has. So the honest state is:
+    // take the image in, show it, and say it stays here. A chip that looked
+    // like an attachment and vanished on send would be the worst of the three
+    // options.
+    void render_attachments(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app) {
+        if (app.composerAttachments.empty()) return;
+
+        auto strip = div(ctx, mk(parent, 4),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(attachments_h(app))})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_attachments"));
+
+        auto chips = div(ctx, mk(strip.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kAttachChipH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_attach_chips"));
+
+        int removeAt = -1;
+        for (size_t i = 0; i < app.composerAttachments.size(); ++i) {
+            const auto& att = app.composerAttachments[i];
+            const std::string idx = std::to_string(i);
+
+            auto chip = div(ctx, mk(chips.ent(), static_cast<int>(i) + 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(196), pixels(30)})
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_padding(Padding{.right = pixels(4), .left = pixels(4)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_roundness(0.3f)
+                    .with_debug_name("attach_chip_" + idx));
+
+            // The thumbnail, drawn through the same decode cache the
+            // transcript's inline images use. A path that will not decode
+            // draws nothing rather than a broken box — the name beside it
+            // still says which file this is.
+            const std::string path = att.path;
+            div(ctx, mk(chip.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(22), pixels(22)})
+                    .with_margin(Margin{.right = pixels(6)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_bg([path](RectangleType r) {
+                        hanabi::inline_image::draw(path, r.x, r.y, r.width,
+                                                   r.height);
+                    })
+                    .with_debug_name("attach_thumb_" + idx));
+
+            div(ctx, mk(chip.ent(), 2),
+                ComponentConfig{}
+                    .with_label(att.name)
+                    .with_size(ComponentSize{pixels(140), pixels(20)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("attach_name_" + idx));
+
+            auto x = button(ctx, mk(chip.ent(), 3),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(20), pixels(20)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.3f)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "close", "\xc3\x97", theme::text_secondary(), 12.0f))
+                    .with_debug_name("attach_remove_" + idx));
+            if (x) removeAt = static_cast<int>(i);
+        }
+
+        div(ctx, mk(strip.ent(), 2),
+            ComponentConfig{}
+                .with_label("hanabi can't send images yet \xe2\x80\x94 these "
+                            "stay in the composer")
+                .with_size(ComponentSize{percent(1.0f), pixels(kAttachNoteH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("composer_attach_note"));
+
+        if (removeAt >= 0)
+            app.composerAttachments.erase(app.composerAttachments.begin() +
+                                          removeAt);
+    }
+
+    void render_composer(UIContext<InputAction>& ctx, Entity& parent,                         AppComponent& app, float paneW, float composerH,
                          bool kickoff = false, float absX = -1.0f,
                          float absY = -1.0f) {
         // KICKOFF mode: rendered on the Home landing screen (no thread open) so
@@ -3544,6 +3679,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.bottom = pixels(7)})
                 .with_roundness(0.0f)
                 .with_debug_name("composer_divider"));
+
+        render_attachments(ctx, bar.ent(), app);
 
         auto row = div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}

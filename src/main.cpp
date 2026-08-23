@@ -41,6 +41,7 @@
 #include "ecs/composer_system.h"
 #include "ecs/palette_system.h"
 #include "ecs/arrow_system.h"
+#include "ecs/attachment_intake_system.h"
 #include "ecs/escape_system.h"
 #include "ecs/rename_modal_system.h"
 #include "ecs/toast_system.h"
@@ -316,6 +317,9 @@ static void build_systems(afterhours::SystemManager& sm) {
     // Same for Up/Down, which the composer, the transcript and the lists all
     // want.
     sm.register_update_system(std::make_unique<ecs::ArrowSystem>());
+    // Pasted / dropped images become composer attachments here, before the UI
+    // systems: MainPaneSystem reserves the composer strip from that list.
+    sm.register_update_system(std::make_unique<ecs::AttachmentIntakeSystem>());
 
     // UI-creating systems (draw order: later on top).
     sm.register_update_system(std::make_unique<ecs::SidebarSystem>());
@@ -479,6 +483,13 @@ static void app_frame() {
             }
         }
     }
+
+    // The window has to exist before it can be a drag destination, and on the
+    // very first frame it may not — so this is asked every frame rather than
+    // once (it early-returns the moment it is installed). The drops it lets in
+    // are drained by AttachmentIntakeSystem, which runs in the scripted-UI
+    // loop as well as this one.
+    native_filedrop_install();
 
     float dt = afterhours::graphics::get_frame_time();
     afterhours::graphics::begin_drawing();

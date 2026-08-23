@@ -17,6 +17,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "native_extras.h"
 
@@ -486,4 +487,219 @@ bool native_take_open_thread(char* out, int cap) {
     std::strncpy(out, id.c_str(), static_cast<size_t>(cap - 1));
     out[cap - 1] = '\0';
     return true;
+}
+
+// ===========================================================================
+// 6. Image attachments — clipboard paste + file drop
+// ===========================================================================
+//
+// Both halves answer with a PATH (see the contract in native_extras.h). The
+// C++ core never sees an NSImage, an NSPasteboard or an NSDraggingInfo.
+//
+// WHY A CATEGORY ON MTKView, and not a window delegate or an overlay view.
+// sokol_app owns the window and its content view: it builds the sapp_desc
+// itself inside afterhours (backends/sokol/backend.h), which is vendored and
+// read-only, and it never sets desc.enable_dragndrop — so sokol's own
+// drag-and-drop is unreachable from here (afterhours_gaps.md #58). Of the ways
+// to get a drop into a window we do not own:
+//   * replacing the window's delegate would take sokol's resize/close
+//     callbacks away from it;
+//   * an overlay NSView registered for dragged types has to be hit-testable to
+//     be found as a drag destination, and a hit-testable view over the content
+//     view eats every mouse event the UI needs;
+//   * a category adding (never overriding) the NSDraggingDestination methods
+//     to the content view's class costs nothing else: MTKView does not
+//     implement them, this process has exactly one MTKView — sokol's — and the
+//     registration below is what actually turns the behaviour on.
+// The guard in native_filedrop_install() reports honestly if the content view
+// is ever not an MTKView, rather than silently accepting no drops.
+
+#import <MetalKit/MetalKit.h>
+
+// The image types a chip can show and a future send path could carry. Kept in
+// step with what the orchestrator's message route accepts today (png, jpeg,
+// gif, webp) so hanabi never takes in a file the backend would refuse.
+static bool hanabi_is_image_path(NSString* path) {
+    if (path == nil) return false;
+    NSString* ext = [[path pathExtension] lowercaseString];
+    return [ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] ||
+           [ext isEqualToString:@"jpeg"] || [ext isEqualToString:@"gif"] ||
+           [ext isEqualToString:@"webp"];
+}
+
+// ---- the pending-drop queue (AppKit writes, the frame loop drains) ---------
+static std::mutex g_drop_mu;
+static std::vector<std::string> g_pending_drops;  // guarded by g_drop_mu
+
+static void push_dropped_path(const std::string& path) {
+    if (path.empty()) return;
+    std::lock_guard<std::mutex> lk(g_drop_mu);
+    // A drop the frame loop has not drained yet is not thrown away, but a user
+    // who drags a folder of a hundred images should not be able to make this
+    // grow without bound: the composer caps what it will hold anyway.
+    if (g_pending_drops.size() >= 16) return;
+    g_pending_drops.push_back(path);
+}
+
+@interface MTKView (HanabiFileDrop) <NSDraggingDestination>
+@end
+
+@implementation MTKView (HanabiFileDrop)
+
+// Only say yes to a drag we would actually take, so the cursor shows the copy
+// badge over an image and the no-entry sign over anything else.
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+    NSArray<NSURL*>* urls = [[sender draggingPasteboard]
+        readObjectsForClasses:@[ [NSURL class] ]
+                      options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+    for (NSURL* u in urls)
+        if (hanabi_is_image_path([u path])) return NSDragOperationCopy;
+    return NSDragOperationNone;
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
+    (void)sender;
+    return YES;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+    NSArray<NSURL*>* urls = [[sender draggingPasteboard]
+        readObjectsForClasses:@[ [NSURL class] ]
+                      options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+    int taken = 0;
+    for (NSURL* u in urls) {
+        if (!hanabi_is_image_path([u path])) continue;
+        const char* p = [[u path] UTF8String];
+        if (p == nullptr) continue;
+        push_dropped_path(std::string(p));
+        ++taken;
+    }
+    if (taken > 0) NSLog(@"native_extras: file drop -> %d image(s)", taken);
+    return taken > 0;
+}
+
+@end
+
+void native_filedrop_install(void) {
+    static bool installed = false;
+    if (installed) return;
+    @autoreleasepool {
+        NSWindow* window = [NSApp mainWindow];
+        if (window == nil) window = [NSApp keyWindow];
+        if (window == nil)
+            for (NSWindow* w in [NSApp windows])
+                if ([w isVisible]) { window = w; break; }
+        if (window == nil) {
+            HLOG(@"native_extras: filedrop install deferred (no window yet)");
+            return;  // not installed — the caller retries next frame
+        }
+        NSView* view = [window contentView];
+        if (![view isKindOfClass:[MTKView class]]) {
+            NSLog(@"native_extras: filedrop NOT installed — content view is %@,"
+                  @" not MTKView; the drag methods live on MTKView",
+                  [view class]);
+            installed = true;  // retrying cannot help
+            return;
+        }
+        [view registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+        installed = true;
+        NSLog(@"native_extras: file-drop destination installed (image files)");
+    }
+}
+
+bool native_take_dropped_image(char* out, int cap) {
+    if (out == nullptr || cap <= 0) return false;
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lk(g_drop_mu);
+        if (g_pending_drops.empty()) return false;
+        path = g_pending_drops.front();
+        g_pending_drops.erase(g_pending_drops.begin());
+    }
+    std::strncpy(out, path.c_str(), static_cast<size_t>(cap - 1));
+    out[cap - 1] = '\0';
+    return true;
+}
+
+void native_simulate_file_drop(const char* path) {
+    if (path == nullptr || path[0] == '\0') return;
+    push_dropped_path(std::string(path));
+}
+
+// ---- clipboard ------------------------------------------------------------
+
+// Where a paste is read from. The general pasteboard in every real run; a
+// NAMED one when HANABI_PASTEBOARD_NAME is set, which is how this path gets
+// exercised by hand without writing over whatever the user has copied (the
+// scripted harness cannot press a Cmd chord — afterhours_gaps.md #49 — so a
+// paste test is a manual one, and a manual test must not cost the user their
+// clipboard).
+static NSPasteboard* hanabi_paste_source(void) {
+    const char* name = getenv("HANABI_PASTEBOARD_NAME");
+    if (name != nullptr && name[0] != '\0')
+        return [NSPasteboard pasteboardWithName:[NSString
+                                                    stringWithUTF8String:name]];
+    return [NSPasteboard generalPasteboard];
+}
+
+// Raw pasted pixels have no file behind them, so give them one: a PNG under
+// the temp dir, named uniquely so two pastes never collide. Returns "" if the
+// data cannot be turned into a PNG or cannot be written.
+static std::string write_temp_png(NSData* png) {
+    if (png == nil || [png length] == 0) return std::string();
+    NSString* dir = NSTemporaryDirectory();
+    NSString* name =
+        [NSString stringWithFormat:@"hanabi-paste-%@.png", [[NSUUID UUID] UUIDString]];
+    NSString* path = [dir stringByAppendingPathComponent:name];
+    NSError* err = nil;
+    if (![png writeToFile:path options:NSDataWritingAtomic error:&err]) {
+        NSLog(@"native_extras: could not write pasted image: %@", err);
+        return std::string();
+    }
+    const char* p = [path UTF8String];
+    return p != nullptr ? std::string(p) : std::string();
+}
+
+bool native_take_clipboard_image(char* out, int cap) {
+    if (out == nullptr || cap <= 0) return false;
+    @autoreleasepool {
+        NSPasteboard* pb = hanabi_paste_source();
+        if (pb == nil) return false;
+
+        // 1. An image FILE copied in Finder. It already lives somewhere; a
+        // temp copy would only be a second name for the same pixels.
+        NSArray<NSURL*>* urls = [pb
+            readObjectsForClasses:@[ [NSURL class] ]
+                          options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+        for (NSURL* u in urls) {
+            if (!hanabi_is_image_path([u path])) continue;
+            const char* p = [[u path] UTF8String];
+            if (p == nullptr) continue;
+            std::strncpy(out, p, static_cast<size_t>(cap - 1));
+            out[cap - 1] = '\0';
+            return true;
+        }
+
+        // 2. Raw image data — a screenshot (Cmd+Ctrl+Shift+4), an image copied
+        // from a browser. PNG if the pasteboard has it; otherwise anything
+        // NSImage can read is re-encoded, because the chip and every future
+        // send path want ONE format rather than whatever the source felt like.
+        NSData* png = [pb dataForType:NSPasteboardTypePNG];
+        if (png == nil) {
+            NSImage* img = [[NSImage alloc] initWithPasteboard:pb];
+            if (img == nil) return false;
+            NSData* tiff = [img TIFFRepresentation];
+            if (tiff == nil) return false;
+            NSBitmapImageRep* rep = [NSBitmapImageRep imageRepWithData:tiff];
+            if (rep == nil) return false;
+            png = [rep representationUsingType:NSBitmapImageFileTypePNG
+                                    properties:@{}];
+        }
+        const std::string path = write_temp_png(png);
+        if (path.empty()) return false;
+        std::strncpy(out, path.c_str(), static_cast<size_t>(cap - 1));
+        out[cap - 1] = '\0';
+        NSLog(@"native_extras: pasted image -> %s", path.c_str());
+        return true;
+    }
 }

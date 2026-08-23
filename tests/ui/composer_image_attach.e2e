@@ -1,0 +1,36 @@
+# An image dropped on the window becomes a chip in the composer — and the chip
+# says out loud that it is not going anywhere.
+#
+# hanabi has no send path that can carry an image (api::Client's send seam is
+# two strings, and every adapter takes it at its word), so the chip's job is to
+# hold the file and be honest about it. The note is asserted here because it is
+# the whole point of the feature: a chip without it would look like an
+# attachment and silently drop the file on Send.
+#
+# HANABI_DROP_TEST feeds the pending-drop queue the way AppKit does, so
+# everything below the drag is exercised: the frame-loop drain, the app state,
+# the chips row, the removal. The drag ITSELF is not in the widget tree and
+# cannot be — the harness has no way to produce one (and none to press Cmd+V
+# either, afterhours_gaps.md #49), so the AppKit half is verified by hand.
+#
+# The height assertion is the second point of this script: the strip's total
+# height is reserved by MainPaneSystem a system before the chips are drawn, so
+# a chips block that draws taller than attachments_h() said pushes the input
+# off the bottom of the composer.
+#   composer_attachments = chips 38 + note 16 + gap 6 = 60
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_DROP_TEST=resources/icons/icons.png
+
+expect_text "icons.png"
+expect_text "stay in the composer"
+
+assert_ui composer_attachments h=60
+assert_ui attach_chip_0 hidden=false
+
+# The way back out. Removing the last chip takes the whole block with it —
+# including the note, which has nothing left to be honest about.
+click_ui attach_remove_0
+wait_frames 6
+
+expect_no_text icons.png

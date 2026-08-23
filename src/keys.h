@@ -34,6 +34,7 @@ inline constexpr int kC = ah::C;
 inline constexpr int kF = ah::F;
 inline constexpr int kK = ah::K;
 inline constexpr int kN = ah::N;
+inline constexpr int kV = ah::V;
 inline constexpr int kW = ah::W;
 
 // Transcript navigation.
