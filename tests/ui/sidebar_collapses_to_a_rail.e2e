@@ -1,15 +1,17 @@
-# The header toggle folds the sidebar to an icon rail and back.
+# The panel toggle folds the sidebar to an icon rail and back.
 #
-# NOTE: assert on VIEWS, not on the search field's placeholder — the
-# placeholder is painted through on_draw_fg (afterhours has no native
-# placeholder, gap #29) and never reaches the visible-text registry.
+# NOTE: assert on VIEWS (the section header strip), not on the search field's
+# placeholder — the placeholder is painted through on_draw_fg (afterhours has
+# no native placeholder, gap #29) and never reaches the visible-text registry.
+# The toggle lives at the right edge of that strip now, not in a header row:
+# the sidebar's top band is bare window colour where the OS traffic lights sit.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "VIEWS"
-expect_text "oncall sweep finished"
+expect_text "Draft release notes for 4.2"
 
-click 259 21
+click 262 50
 wait_frames 25
 expect_no_text VIEWS
 

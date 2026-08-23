@@ -12,6 +12,7 @@ click 58 183
 wait_frames 6
 expect_text "Ready for review"
 
+# The star feature reads "Pinned" now — same flag, same settings key.
 click 59 215
 wait_frames 6
-expect_text "Starred"
+expect_text "Pinned"

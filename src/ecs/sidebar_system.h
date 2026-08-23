@@ -2,11 +2,15 @@
 
 // Renders the single collapsible sidebar.
 //
-//   Unfolded (full): header (brand + New task + Settings + collapse) → search
-//     → smart-view list with counts → folders → recent → a low-signal
-//     collapsed Archived section.
+//   Unfolded (full): a bare strip of window-drag space where the OS traffic
+//     lights sit → a "VIEWS" section header with a panel toggle at its right →
+//     six view rows on a 32px pitch → a rule → search + filter → one FLAT
+//     activity-ordered session list → a footer (version left, actions right).
 //   Folded (thin rail): icon-only smart views + a collapse/expand toggle in
 //     the header. A blocked-count badge sits on the rail.
+//
+// The unfolded geometry is measured off Puffin (~/w/vis/PUFFIN_SPEC.md) and the
+// numbers live in the kSb* constants below; change them there, not inline.
 //
 // Clicking a smart view swaps the main pane (SmartView). Clicking a thread row
 // requests that thread be opened in a tab (handled by TabBarSystem/Loader).
@@ -21,6 +25,7 @@
 
 #include "../test_hooks.h"
 #include "../settings.h"
+#include "../version.h"
 #include "../util/format.h"
 #include "../ui/icons.h"
 #include "../ui/snippet_highlight.h"
@@ -153,21 +158,31 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
-        if (!folded) render_search(ctx, panel.ent(), *app, r.x, r.y, r.width);
-        render_smart_views(ctx, panel.ent(), *app, folded, r.width);
 
         render_rail_divider(ctx, uiRoot, *layout);
 
         if (folded) {
+            render_smart_views(ctx, panel.ent(), *app, folded, r.width);
             // The rail has no rows of its own, but a digest card in the main
             // pane can have opened the menu, so it still gets a chance to draw.
             render_row_menu(ctx, uiRoot, *app);
             return;
         }
 
-        // Scrollable region: folders + recent + archived.
-        float used = kScrollTopOffset;
-        float scrollH = r.height - used;
+        // Unfolded: the measured Puffin order — traffic-light gap, VIEWS strip,
+        // view rows, rule, search, list, footer.
+        views_header(ctx, panel.ent(), *app, *layout, r.width);
+        const bool viewsOpen = app->collapsedFolders.count(kViewsKey) == 0;
+        if (viewsOpen) render_smart_views(ctx, panel.ent(), *app, folded, r.width);
+        section_rule(ctx, panel.ent());
+        render_search(ctx, panel.ent(), *app, r.x, r.y, r.width);
+        // The 4px the list is offset by, as a real child so the column keeps
+        // stacking (afterhours has no margin-collapse to lean on).
+        spacer(ctx, panel.ent(), 9, kSbListGap);
+
+        // Scrollable region: one flat, activity-ordered session list.
+        float used = scroll_top_offset(viewsOpen);
+        float scrollH = r.height - used - kSbFooterH;
         if (scrollH < 40.0f) scrollH = 40.0f;
         auto scroll = div(ctx, mk(panel.ent(), 5),
             preset::ScrollPanel()
@@ -197,75 +212,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // computed from the panel's live HasScrollView metrics.
         // (scrollbar now drawn by afterhours)
 
-        // "FOLDERS" section label + fold-all control (mirrors the mock's
-        // second section header, which carries a fold-all affordance). Emitted
-        // only when there ARE folders: a heading over nothing is a heading
-        // that lies, and it pushes every row of the flat list down by its own
-        // height (the mock fixture is entirely folderless).
-        // Live search filter: when the query is non-empty, folders only render
-        // matching rows and empty folders are hidden. Track whether ANY row
-        // survived so we can show a no-results empty state.
+        // "FOLDERS" is gone: Puffin's list is FLAT, so every non-archived
+        // session lands in one activity-ordered list (see the commit message —
+        // this is a real loss of grouping).
+
+        // Live search filter: when the query is non-empty, only matching rows
+        // render. Track whether ANY row survived so we can show a no-results
+        // empty state.
         const std::string q = lower(app->searchQuery);
         int shown = 0;
-        // Each folder is given a widely-spaced base id (1000 apart). The row
-        // ids inside a folder are base + 1 + rowIndex, so a folder can hold up
-        // to ~999 rows before it would collide with the next folder's base.
-        // A real backend routes ~everything through the Recent catch-all, so
-        // Recent alone can carry 100+ rows — the old 10/20/30/40/50 spacing
-        // (room for only ~9 rows each) overflowed into the next folder's id
-        // range and tripped afterhours' entity-id-conflict guard.
-        // REAL folders from the API: group by the distinct, non-empty folder
-        // values the backend actually returned (s.folder = the session's
-        // workspace). No hardcoded/fake folders — a folder appears only if a
-        // real session is filed under it. Sorted for stable ordering; each gets
-        // a widely-spaced id base (1000 apart) so its rows never collide with
-        // the next folder's id range.
-        std::vector<std::string> folders = distinct_folders(*app);
-        if (!folders.empty())
-            folders_section_head(ctx, scroll.ent(), 4, *app, r.width);
-        // Folders start COLLAPSED by default (Gabe: subthreads hidden until you
-        // open a folder). Seed every folder key into collapsedFolders ONCE, the
-        // first render that actually has folders; afterwards the user's own
-        // expand/collapse choices stand for the session.
-        if (!app->foldersDefaultCollapsedSeeded && !folders.empty()) {
-            for (const auto& fname : folders) app->collapsedFolders.insert(fname);
-            app->foldersDefaultCollapsedSeeded = true;
-        }
-        int fbase = 1000;
-        for (const auto& fname : folders) {
-            shown += render_folder(ctx, scroll.ent(), fbase,
-                                   display_folder_name(fname), fname,
-                                   *app, q, r.width);
-            fbase += 1000;
-        }
-        // Unfoldered sessions (folder=="" — ~all of them on the real backend
-        // today) render as a HEADERLESS flat list right below the real folders.
-        // No invented "Recent" folder — per Gabe, only real API folders get a
-        // header. (If the backend later files every session under a workspace,
-        // this list is simply empty and only real folders show.)
-        //
-        // V6: fill the available vertical space instead of always capping at a
-        // fixed ~12 rows (which left empty space below the "Show N more…"
-        // button in a tall window). The scroll viewport is scrollH px tall and
-        // each thread row is kRowHeight px. We want the list to reach the
-        // bottom of the visible area AND leave the "Show N more…" button
-        // VISIBLE at the bottom of the viewport — not pushed below the fold
-        // (M2: filling the FULL viewport hid the show-more). So the cap targets
-        // the viewport MINUS the space already taken by folders rendered above
-        // (shown-so-far, in rows) MINUS one row reserved for the show-more
-        // button itself. This keeps the panel filled without shoving the
-        // show-more off-screen. Never drops below kBucketCap.
+        // V6: fill the available vertical space instead of a fixed row cap.
+        // The scroll viewport is scrollH px tall and each row is kRowHeight px;
+        // the cap targets the viewport minus one row reserved for the
+        // "Show N more…" button so it stays visible instead of being pushed
+        // below the fold. Never drops below kBucketCap. THIS IS THE 2000-ROW
+        // GUARD: rendered rows are bounded by viewport height, not list size.
         int viewportRows = static_cast<int>(scrollH / kRowHeight);
-        int rowsUsedAbove = static_cast<int>(shown / kRowHeight);
-        int fillCap = viewportRows - rowsUsedAbove - 1;  // -1 = show-more row
+        int fillCap = viewportRows - 1;  // -1 = show-more row
         if (fillCap < kBucketCap) fillCap = kBucketCap;
         shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                *app, q, r.width, /*archived=*/false,
                                /*catchAll=*/true, /*headerless=*/true,
                                /*cap=*/fillCap);
-        // (Archived is now a smart VIEW in the Views section above, not a
-        // sidebar folder â per Gabe. Sending a message to an archived thread
-        // unarchives it, same as the backend behavior.)
+
+// (Archived is a smart VIEW in the Views section above, not a list
+        // section. Sending a message to an archived thread unarchives it,
+        // same as the backend behavior.)
 
         // Test-only (HANABI_SNIPPET_AUDIT=1): the bands the previous frame's
         // snippets actually painted. A script can read a label and never a
@@ -310,6 +282,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("sb_no_results"));
         }
 
+        render_footer(ctx, panel.ent(), *app, r);
         render_drop_line(ctx, uiRoot, *app, r, scrollH);
         render_row_menu(ctx, uiRoot, *app);
     }
@@ -325,7 +298,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                           AppComponent& app, const LayoutComponent::Rect& r,
                           float scrollH) {
         if (!app.rowDrag.live) return;
-        const float top = r.y + kScrollTopOffset;
+        const float top =
+            r.y + scroll_top_offset(app.collapsedFolders.count(kViewsKey) == 0);
         float y = std::clamp(app.rowDrag.lineY, top, top + scrollH - 2.0f);
         div(ctx, mk(uiRoot, 8890),
             ComponentConfig{}
@@ -457,16 +431,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (eater) app.close_row_menu();
     }
 
+    // ---- MEASURED Puffin sidebar geometry (PUFFIN_SPEC.md + ref/01_home.png)
+    // Every number here was read off the reference, not chosen. The unfolded
+    // column stacks in exactly this order, and the sum is the list's top edge:
+    //   kSbTitlebarH 36 | kSbStripH 28 | views 4 + 6*32 | rule 4 | search 32 |
+    //   kSbListGap 4  ->  list at y=300, first glyph centre y=316
+    static constexpr float kSbTitlebarH = 36.0f;  // OS traffic-light zone
+    static constexpr float kSbStripH = 28.0f;     // "VIEWS" header strip
+    static constexpr float kSbViewsTopPad = 4.0f;
+    static constexpr float kSbViewRowH = 32.0f;   // view row pitch
+    static constexpr int kSbViewRows = 6;
+    static constexpr float kSbRuleH = 4.0f;       // 3px gap + a 1px hairline
+    static constexpr float kSbSearchH = 32.0f;    // 6px gap + a 26px field
+    static constexpr float kSbFieldH = 26.0f;
+    static constexpr float kSbListGap = 4.0f;
+    static constexpr float kSbFooterH = 28.0f;    // 1px rule + the footer row
+    // One left inset for EVERY column in the sidebar: the strip's chevron, a
+    // view row's icon, a session row's glyph. Puffin puts all three at x=9.
+    static constexpr float kSbInset = 9.0f;
     // ---- shared count-column geometry (gap #18: afterhours has no flex-grow)
-    // The smart-view rows, folder headers, and time-group headers all show a
-    // right-aligned count. To land every count at the SAME right-edge x, we
-    // reserve one count-column width + one right inset consistently and size
-    // the preceding label column in PIXELS (label = panelW − left − reserved),
-    // so the count box always starts at the same x regardless of section. This
-    // is the best we can do without flex-grow, and it makes the three count
-    // families flush to a single edge.
+    // The view rows and the session rows both show a right-aligned count. To
+    // land every count at the SAME right-edge x, we reserve one count-column
+    // width + one right inset consistently and size the preceding label column
+    // in PIXELS (label = panelW − left − reserved), so the count box always
+    // starts at the same x regardless of section. This is the best we can do
+    // without flex-grow, and it makes the count families flush to one edge.
     static constexpr float kCountColW = 30.0f;   // count box width
-    static constexpr float kCountRightPad = 12.0f;  // inset from panel right
+    static constexpr float kCountRightPad = 9.0f;  // inset from panel right
     // Folded (rail) icon column: one left inset + one slot width shared by the
     // header collapse toggle AND every smart-view icon, so glyphs (which
     // draw_fg centers in their slot) line up on ONE flush-left vertical line.
@@ -481,30 +472,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // id slot so it never collides with a capped body row (base+1..base+12).
     static constexpr int kBucketCap = 12;
     static constexpr int kMoreRowIdOffset = 199;
-    // The fixed on-screen height of one chat row (see render_chat_row's
-    // .with_size height). Used by V6's fill-the-viewport cap computation so
-    // the headerless catch-all shows enough rows to fill the scroll area.
-    static constexpr float kRowHeight = 24.0f;
+    // The fixed on-screen height of one session row — the MEASURED Puffin
+    // pitch. Used by the fill-the-viewport cap so the list reaches the footer.
+    static constexpr float kRowHeight = 32.0f;
     // The snippet line a row grows while the list is being searched.
     static constexpr float kSnippetH = 16.0f;
-    // Per-row trailing relative-time column width ("2h" / "Jul 28"). Wide
-    // enough for a short absolute date so old rows aren't clipped; kept small
-    // so the title still gets most of the row.
-    static constexpr float kRowTimeColW = 46.0f;
-    // A thread row's left inset (padding-left) and its leading status-glyph
-    // slot width. The title text therefore starts at kRowLeftInset + kGlyphW
-    // from the row's left edge — the "Show N more…" expander matches that so
-    // its label aligns with the thread titles (V7), not the row edge.
-    // 16px = the VIEWS rows' icon left edge (container 8 + smart_item pad 8),
-    // so FOLDER rows line up with the VIEWS rows above them (M4).
-    static constexpr float kRowLeftInset = 16.0f;
-    static constexpr float kGlyphW = 12.0f;   // leading status glyph slot
-    // Where the scrollable list starts, measured down from the sidebar's top:
-    // header(40) + search(40) + VIEWS label(25) + views block(~162, now
-    // children()-sized). Keep in rough sync with the VIEWS block so the scroll
-    // region is sized right; a few px off just changes the scroll extent. The
-    // drop-zone line clamps against it too, so both agree on where the list is.
-    static constexpr float kScrollTopOffset = 40.0f + 40.0f + 25.0f + 162.0f;
+    // A session row's left inset and its leading status-glyph slot. Puffin puts
+    // the glyph's centre at x=15.5 and the title's first ink at x=28, so the
+    // slot is 13 wide from kSbInset and the title carries a 6px left pad.
+    static constexpr float kRowLeftInset = kSbInset;
+    static constexpr float kGlyphW = 13.0f;   // leading status glyph slot
+    static constexpr float kRowTitlePad = 6.0f;
+    // The collapsedFolders sentinel that folds the VIEWS section. Reusing that
+    // set keeps this out of AppComponent, which several systems share.
+    static constexpr const char* kViewsKey = "__views__";
+    // Sentinel for the search row's filter toggle: hide automated/cron rows.
+    static constexpr const char* kHideAutoKey = "__hide_automated__";
+    // Where the scrollable list starts, measured down from the sidebar's top.
+    // This is the SUM of the fixed column above it, so the drop-zone line, the
+    // scroll extent and the rendered rows can never disagree about where the
+    // list is — the previous hand-maintained constant drifted from the widgets.
+    static float scroll_top_offset(bool viewsOpen) {
+        return kSbTitlebarH + kSbStripH +
+               (viewsOpen ? kSbViewsTopPad +
+                                kSbViewRowH * static_cast<float>(kSbViewRows)
+                          : 0.0f) +
+               kSbRuleH + kSbSearchH + kSbListGap;
+    }
     // A count's LEFT edge (== its column start x) is the same for every
     // section: panelW − kCountRightPad − kCountColW. Given a section's own
     // left inset, the label column width is that start-x minus the left inset
@@ -822,159 +816,95 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                   t * 0.7f, c);
     }
 
-    // ---- header / title bar ----
-    // Layout intent (unfolded): a single row split into two anchored groups —
-    //   [ ✦ hanabi ]  ................dead space collapses here............  [ + ⚙ ‹ ]
-    // The brand block is left-aligned with proper padding; the three action
-    // icons are grouped in a right-anchored cluster with consistent spacing
-    // and equal 28x28 hit-boxes. JustifyContent::SpaceBetween pushes the two
-    // groups to the row's edges so there is no floating icon band in the
-    // middle (the old layout sized the brand at 62% and let the icons drift).
+    // ---- pointer-only activation ----
+    // afterhours fires a focused element's click listener on Enter as well as
+    // on a mouse click (systems.h: `has_focus(id) && pressed(WidgetPress)`),
+    // and there is no click-activation mode that means "mouse only". The
+    // window's initial focus lands on the first focusable element, which — now
+    // that the sidebar opens with its rows rather than a header of buttons — is
+    // the first view row. Enter would therefore switch the view out from under
+    // the very keystroke the main pane's list cursor uses to OPEN a row.
     //
-    // NOTE (traffic lights): hanabi runs in a standard NSWindow, so real macOS
-    // traffic-light dots live in the NATIVE title bar ABOVE this content view —
-    // we deliberately do NOT draw faux dots here (that would duplicate them).
-    // The brand keeps a comfortable left inset so it reads as an intentional
-    // wordmark rather than crowding the window's top-left control zone.
+    // Taking the rows out of the tab order instead (`with_skip_tabbing`) is
+    // worse: focus then lands on the search field, which silently swallows
+    // every keystroke and the arrow keys with it. So the rows stay focusable
+    // and the keystroke is filtered here. (FRICTION_LOG / gap #66.)
+    static bool pointer_click(UIContext<InputAction>& ctx, Entity& e) {
+        if (!e.get<afterhours::ui::HasClickListener>().down) return false;
+        // "Was the pointer on it" is the only reliable read: the listener can
+        // fire a frame after the key that caused it, so testing the Enter key
+        // here misses it.
+        return ctx.mouse_in_subtree(e.id) || ctx.mouse_was_in_subtree(e.id);
+    }
+
+    // ---- generic column spacer ----
+    // afterhours has no margin between column children and no way to say "the
+    // next child starts 4px lower", so every measured gap in the Puffin layout
+    // is an empty div that exists only to occupy height.
+    void spacer(UIContext<InputAction>& ctx, Entity& parent, int id, float h) {
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(h)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sb_spacer"));
+    }
+
+    // ---- the hairline under the views block ----
+    // Puffin puts a 1px rule at y=263, three px under the last view row.
+    void section_rule(UIContext<InputAction>& ctx, Entity& parent) {
+        auto wrap = div(ctx, mk(parent, 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbRuleH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(kSbRuleH - 1.0f)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sb_rule_wrap"));
+        div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(1)})
+                .with_custom_background(theme::divider())
+                .with_roundness(0.0f)
+                .with_debug_name("sb_rule"));
+    }
+
+    // ---- header / title bar ----
+    // UNFOLDED: there is no header. Puffin's sidebar opens with bare window
+    // colour where the OS traffic lights sit, and its first content is the
+    // VIEWS strip. hanabi runs in a standard NSWindow, so the real dots are
+    // drawn by the OS in that band — we reserve the height and draw nothing
+    // (faux dots would double them in the shipping app; they are simply absent
+    // from a headless capture, which is the one place they can't be matched).
+    //
+    // The three affordances the old brand row carried are not lost: the
+    // collapse toggle moves to the VIEWS strip's right edge, and New task +
+    // Settings move to the footer, where Puffin keeps its own icon cluster.
+    //
+    // FOLDED: unchanged — the thin rail keeps its single expand toggle.
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
                        LayoutComponent& layout, bool folded) {
+        if (!folded) {
+            spacer(ctx, parent, 1, kSbTitlebarH);
+            return;
+        }
         auto header = div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(40)})
-                .with_flex_direction(folded ? FlexDirection::Column
-                                            : FlexDirection::Row)
+                .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 // Folded rail: LEFT-align the collapse toggle (cross-axis =
                 // horizontal for a Column) so it sits at the same left inset as
                 // the smart-view icons below, forming one flush-left column.
-                // Unfolded: Center keeps the row's brand/actions vertically
-                // centered.
-                .with_align_items(folded ? AlignItems::FlexStart
-                                         : AlignItems::Center)
-                .with_justify_content(folded ? JustifyContent::FlexStart
-                                             : JustifyContent::SpaceBetween)
+                .with_align_items(AlignItems::FlexStart)
+                .with_justify_content(JustifyContent::FlexStart)
                 .with_padding(Padding{.top = pixels(7), .right = pixels(8),
                                       .bottom = pixels(5),
                                       .left = pixels(kRailIconInset)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_header"));
-
-        if (!folded) {
-            // Header content box (panelW − left pad kRailIconInset − right 8).
-            // The action cluster (+ / gear / collapse) is essential and fixed
-            // at kActionsW; the brand block takes whatever's left so the two
-            // never sum past the header and trip a NoWrap overflow (which would
-            // warn + run solve_violations every frame on a narrow sidebar /
-            // small window). At the tightest widths the wordmark is dropped and
-            // only the ✦ mark shows; and if even the mark + full action cluster
-            // won't fit (a sub-~120px sidebar / tiny window), the action
-            // cluster's own width is clamped to the remaining space so the
-            // header still never overflows (the icons right-justify within it).
-            const float kBrandMin = 18.0f;  // just the ✦ mark
-            float hdrContent = layout.sidebar.width - kRailIconInset - 8.0f;
-            if (hdrContent < kBrandMin + 8.0f) hdrContent = kBrandMin + 8.0f;
-            float actionsW = 92.0f;
-            if (actionsW > hdrContent - kBrandMin)
-                actionsW = hdrContent - kBrandMin;
-            if (actionsW < 8.0f) actionsW = 8.0f;
-            const float kActionsW = actionsW;
-            float brandW = hdrContent - kActionsW;
-            if (brandW < kBrandMin) brandW = kBrandMin;  // at least the mark
-            if (brandW > 96.0f) brandW = 96.0f;   // original cap
-            bool showWordmark = brandW >= 18.0f + 40.0f;  // mark + room for text
-            // --- brand block (left-anchored): ✦ mark + "hanabi" wordmark ---
-            // Fixed-width so SpaceBetween has real slack to distribute; the
-            // ✦ mark is a Lucide "sparkle" sprite (on_draw_fg), the wordmark
-            // is text. Sized to just hug its content so the right cluster
-            // anchors to the sidebar's right edge.
-            auto brand = div(ctx, mk(header.ent(), 1),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(brandW), pixels(26)})
-                    .with_flex_direction(FlexDirection::Row)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_align_items(AlignItems::Center)
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_debug_name("sb_brand"));
-            div(ctx, mk(brand.ent(), 1),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{pixels(18), pixels(22)})
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_on_draw_fg(hanabi::icons::draw_fg(
-                        "brand", "\xe2\x9c\xa6", theme::accent(), 15.0f,
-                        -1.0f))
-                    .with_debug_name("sb_brand_mark"));
-            if (showWordmark)
-            div(ctx, mk(brand.ent(), 2),
-                ComponentConfig{}
-                    .with_label("hanabi")
-                    .with_size(ComponentSize{pixels(brandW - 24.0f), pixels(24)})
-                    .with_padding(Padding{.left = pixels(6)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_primary())
-                    .with_font_size(FontSize::Medium)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("sb_brand_name"));
-
-            // --- action cluster (right-anchored): + / gear / collapse ---
-            // A NoWrap row that packs the three icons at the sidebar's right
-            // edge with an even gap. Each icon shares the SAME 28x28 hit-box
-            // (icon_btn_sprite) so they read as one consistent control group.
-            auto actions = div(ctx, mk(header.ent(), 2),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(kActionsW), pixels(28)})
-                    .with_flex_direction(FlexDirection::Row)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_align_items(AlignItems::Center)
-                    .with_justify_content(JustifyContent::FlexEnd)
-                    .with_gap(pixels(3))
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_debug_name("sb_actions"));
-
-            // New task → open the composer (Phase K composer system renders it).
-            // Icons are 28px + 3px gap; at very narrow header widths only as
-            // many as fit are shown (collapse is essential and kept last, then
-            // settings, then new) so the cluster never overflows its clamped
-            // width and churns solve_violations. At realistic widths (≥ ~140px
-            // sidebar) all three fit.
-            int iconsFit = static_cast<int>((kActionsW + 3.0f) / 31.0f);
-            if (iconsFit < 1) iconsFit = 1;
-            if (iconsFit > 3) iconsFit = 3;
-            if (iconsFit >= 3) {
-            auto newBtn = button(ctx, mk(actions.ent(), 1),
-                icon_btn_sprite("plus", "+").with_debug_name("sb_new"));
-            if (newBtn) {
-                if (auto* app = find_singleton<AppComponent>())
-                    app->composerOpen = true;
-            }
-            }
-
-            // Settings → open the settings overlay (Phase K settings system).
-            if (iconsFit >= 2) {
-            auto setBtn = button(ctx, mk(actions.ent(), 2),
-                icon_btn_sprite("gear", "\xe2\x9a\x99")
-                    .with_debug_name("sb_settings"));
-            if (setBtn) {
-                if (auto* app = find_singleton<AppComponent>())
-                    app->showSettings = true;
-            }
-            }
-
-            // Collapse toggle joins the cluster (unfolded state).
-            auto collapseBtn = button(ctx, mk(actions.ent(), 3),
-                icon_btn_sprite("sidebar_close", "\xc2\xab")
-                    .with_debug_name("sb_collapse"));
-            if (collapseBtn) {
-                layout.sidebarCollapsed = !layout.sidebarCollapsed;
-                Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
-            }
-            return;
-        }
 
         // Folded rail: a single expand toggle in the header column.
         auto collapseBtn = button(ctx, mk(header.ent(), 4),
@@ -983,6 +913,161 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
             Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
+        }
+    }
+
+    // ---- VIEWS section header strip ----
+    // Measured: a 28px band filled a shade above the sidebar (#22222D), a
+    // chevron at x=9, the word VIEWS at x=22, and a panel-toggle icon whose
+    // glyph sits at x=255..270. The strip is the ONE filled surface in the
+    // sidebar's chrome; everything else is the window colour.
+    //
+    // Clicking the strip folds the view rows away. That state lives in
+    // collapsedFolders under a sentinel key rather than a new AppComponent
+    // field: several systems share that component and adding to it is a
+    // cross-owner change for what is one boolean.
+    void views_header(UIContext<InputAction>& ctx, Entity& parent,
+                      AppComponent& app, LayoutComponent& layout,
+                      float panelW) {
+        const bool collapsed = app.collapsedFolders.count(kViewsKey) > 0;
+        auto strip = div(ctx, mk(parent, 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbStripH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(6),
+                                      .left = pixels(kSbInset)})
+                .with_custom_background(theme::section_header_bg())
+                .with_custom_hover_bg(theme::hover_over(
+                    theme::section_header_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                // Clickable but NOT a keyboard-focus stop: afterhours parks
+                // initial focus on the first focusable element and paints its
+                // focus ring at rest, so whatever sits first in the sidebar
+                // wears a blue box in every screenshot (FRICTION_LOG).
+                .with_skip_tabbing(true)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_views_head"));
+        strip.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (pointer_click(ctx, strip.ent())) {
+            if (collapsed) app.collapsedFolders.erase(kViewsKey);
+            else app.collapsedFolders.insert(kViewsKey);
+        }
+
+        const theme::Color tint = theme::text_faint();
+        div(ctx, mk(strip.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(13), pixels(18)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg([collapsed, tint](RectangleType rect) {
+                    draw_chevron(rect, collapsed, tint);
+                })
+                .with_debug_name("sb_views_chevron"));
+        // Fixed pixel width (gap #18: no flex-grow) so the toggle that follows
+        // lands on the measured right edge instead of packing mid-strip.
+        float labelW = panelW - kSbInset - 6.0f - 13.0f - 24.0f;
+        if (labelW < 20.0f) labelW = 20.0f;
+        div(ctx, mk(strip.ent(), 2),
+            ComponentConfig{}
+                .with_label("VIEWS")
+                .with_size(ComponentSize{pixels(labelW), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(tint)
+                .with_font_size(theme::type::LABEL)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_views_label"));
+        // Panel toggle: the collapse affordance the removed brand row carried.
+        auto collapseBtn = button(ctx, mk(strip.ent(), 3),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(24), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(
+                    theme::section_header_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_skip_tabbing(true)
+                .with_roundness(0.3f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "sidebar_close", "\xc2\xab", tint, 15.0f))
+                .with_debug_name("sb_collapse"));
+        if (collapseBtn) {
+            layout.sidebarCollapsed = !layout.sidebarCollapsed;
+            Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
+        }
+    }
+
+    // ---- footer ----
+    // Version string left, three small actions right, over a 1px rule. Drawn
+    // ABSOLUTELY at the sidebar's bottom rather than as the column's last
+    // child: the scroll panel above it is sized in pixels, and a flow child
+    // after it would be pushed off the bottom by a single px of rounding.
+    void render_footer(UIContext<InputAction>& ctx, Entity& parent,
+                       AppComponent& app, const LayoutComponent::Rect& r) {
+        const float top = r.height - kSbFooterH;
+        div(ctx, mk(parent, 11),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(r.width), pixels(1)})
+                .with_absolute_position()
+                .with_translate(0.0f, top)
+                .with_custom_background(theme::divider())
+                .with_roundness(0.0f)
+                .with_render_layer(2)
+                .with_debug_name("sb_footer_rule"));
+        div(ctx, mk(parent, 12),
+            ComponentConfig{}
+                .with_label(std::string("v") + hanabi::kVersion)
+                .with_size(ComponentSize{pixels(90), pixels(kSbFooterH - 1.0f)})
+                .with_absolute_position()
+                .with_translate(10.0f, top + 1.0f)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_render_layer(2)
+                .with_debug_name("sb_version"));
+
+        // Three 24px actions, centred on the measured x = 210 / 234 / 258.
+        struct FootBtn {
+            const char* icon;
+            const char* fallback;
+            const char* name;
+            int id;
+        };
+        const FootBtn btns[3] = {
+            {"plus", "+", "sb_new", 13},
+            {"search", "\xf0\x9f\x94\x8d", "sb_palette", 14},
+            {"gear", "\xe2\x9a\x99", "sb_settings_footer", 15},
+        };
+        for (int k = 0; k < 3; ++k) {
+            const float cx = r.width - 70.0f + 24.0f * static_cast<float>(k);
+            auto hit = button(ctx, mk(parent, btns[k].id),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(22), pixels(22)})
+                    .with_absolute_position()
+                    .with_translate(cx - 11.0f, top + 3.0f)
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_skip_tabbing(true)
+                    .with_roundness(0.3f)
+                    .with_render_layer(2)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        btns[k].icon, btns[k].fallback, theme::text_faint(),
+                        13.0f))
+                    .with_debug_name(btns[k].name));
+            if (!hit) continue;
+            if (k == 0) app.composerOpen = true;
+            else if (k == 1) app.paletteOpen = true;
+            else app.showSettings = true;
         }
     }
 
@@ -1049,26 +1134,30 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- search (unfolded only) ----
-    // `panelW` is the live sidebar width (LayoutComponent::sidebar.width). The
-    // search text field shares a NoWrap row with fixed-width siblings (a 18px
-    // magnifier slot, and an 18px clear-× slot when a query is present).
+    // Measured: the field is x=9..248 (240 wide, 26 tall) at y=270..295, with a
+    // filter icon OUTSIDE it whose glyph sits at x=260..273. The field is an
+    // OUTLINE on the window colour, not a filled pill — Puffin fills almost
+    // nothing (see PUFFIN_SPEC).
+    //
     // afterhours has NO flex-grow (afterhours_gaps.md #18): a percent(1.0f)
     // child means 100% of the PARENT width, so a percent text field next to
-    // fixed siblings overflows the row every frame. So we size the text field
-    // in PIXELS = the field's inner content width minus those reserved slots.
+    // fixed siblings overflows the row every frame. Every column here is
+    // therefore sized in PIXELS off panelW.
     void render_search(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, float panelX, float panelY,
                        float panelW) {
         // Wrap in a full-width padded row so the search field itself never
         // extends past the sidebar (margins on a percent(1.0) child overflow).
-        auto wrap = div(ctx, mk(parent, 2),
+        auto wrap = div(ctx, mk(parent, 4),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(40)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbSearchH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(4), .right = pixels(10),
-                                      .bottom = pixels(6), .left = pixels(10)})
+                .with_padding(Padding{.top = pixels(kSbSearchH - kSbFieldH),
+                                      .right = pixels(4),
+                                      .bottom = pixels(0),
+                                      .left = pixels(kSbInset)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_wrap"));
@@ -1094,27 +1183,36 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             s_searchInputId !=
                 std::numeric_limits<afterhours::EntityID>::max() &&
             ctx.has_focus(s_searchInputId);
-        // Fill lifts on hover; border is the accent focus-ring when focused and
-        // OTHERWISE THE FILL'S OWN COLOUR, which is how you say "no border" to
-        // a config that has already declared one. The reference draws the
-        // search field as a bare fill with no ring at rest, and afterhours has
-        // no with_no_border() / conditional-property escape on the builder
-        // chain; a transparent border colour is not an option either, because
-        // the rect fill cannot alpha-blend (gap #13) and would render it as an
-        // opaque black outline.
+        // Fill: MEASURED off the reference at (36,36,48) — a step above the
+        // window colour, i.e. this one IS a filled control. (The composer's
+        // input and chips are outlines on the window colour; the sidebar's
+        // search field is not. Sampled at ref/01_home.png y=272, x=9..248.)
+        //
+        // Border: the accent focus-ring when focused, and OTHERWISE THE FILL'S
+        // OWN COLOUR, which is how you say "no border" to a config that has
+        // already declared one. The reference has no ring at rest, and
+        // afterhours has no with_no_border() / conditional-property escape on
+        // the builder chain; a transparent border colour is not an option
+        // either, because the rect fill cannot alpha-blend (gap #13) and would
+        // render it as an opaque black outline.
         theme::Color fieldFill =
             searchHot ? theme::hover_over(theme::panel_bg_2())
                       : theme::panel_bg_2();
         theme::Color fieldBorder =
             searchFocused ? theme::focus_ring() : fieldFill;
+        // Field width in pixels: the wrap's content box minus the filter
+        // button that follows it (gap #18 again — the field cannot simply
+        // take "the rest").
+        float fieldW = panelW - kSbInset - 4.0f - 28.0f;
+        if (fieldW < 60.0f) fieldW = 60.0f;
         auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                .with_size(ComponentSize{pixels(fieldW), pixels(kSbFieldH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(5), .right = pixels(8),
-                                      .bottom = pixels(5), .left = pixels(8)})
+                .with_padding(Padding{.top = pixels(3), .right = pixels(6),
+                                      .bottom = pixels(3), .left = pixels(4)})
                 .with_custom_background(fieldFill)
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_border(fieldBorder,
@@ -1147,7 +1245,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // so a narrow sidebar never yields a negative/zero width.
         bool hasQuery = !app.searchQuery.empty();
         const float kSearchSlot = 20.0f;  // per fixed sibling (icon / clear-×)
-        float searchInner = panelW - 36.0f;             // field content box
+        float searchInner = fieldW - 10.0f;             // field content box
         float searchTextW = searchInner - kSearchSlot;  // minus magnifier slot
         if (hasQuery) searchTextW -= kSearchSlot;        // minus clear-× slot
         // Clamp so the text field never exceeds the pill's inner box (else the
@@ -1167,9 +1265,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                // Native placeholder. This used to be an absolutely-positioned
-                // overlay that derived the field's screen origin from the panel
-                // geometry by hand, because text_input had no hint of its own.
                 .with_placeholder("Search conversations")
                 .with_debug_name("sb_search_text"));
         s_searchInputId = searchRes.ent().id;
@@ -1198,173 +1293,80 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (clr) app.searchQuery.clear();
         }
 
-    }
-
-    // ---- section label (mock .sb-section-label: 10.5px uppercase faint,
-    // padding 10/14/5) ----
-    void section_label(UIContext<InputAction>& ctx, Entity& parent, int id,
-                       const std::string& text) {
-        div(ctx, mk(parent, id),
-            ComponentConfig{}
-                .with_label(text)
-                .with_size(ComponentSize{percent(1.0f), pixels(25)})
-                .with_padding(Padding{.top = pixels(10), .right = pixels(14),
-                                      .bottom = pixels(5), .left = pixels(14)})
-                // A FILLED strip, not a transparent label: on the reference the
-                // section header is its own surface (#22222D) spanning the full
-                // rail width, which is what makes the rows below read as a
-                // grouped list rather than as free-floating text.
-                .with_custom_background(theme::section_header_bg())
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::LABEL)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("sb_section_label"));
-    }
-
-    // ---- FOLDERS section header: label + fold-all control ----
-    // The mock's Folders section header carries a fold-all affordance that
-    // collapses/expands EVERY folder at once. Clicking it toggles
-    // app.foldAllFolders and applies that state to every folder key, so all
-    // folders snap open or closed together.
-    void folders_section_head(UIContext<InputAction>& ctx, Entity& parent,
-                              int base, AppComponent& app, float panelW) {
-        auto head = div(ctx, mk(parent, base),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(28)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                // SpaceBetween pins the label left and the fold-all button hard
-                // to the RIGHT edge (afterhours has no flex-grow — gap #18 — so
-                // a percent-width label left the button parked mid-row instead
-                // of flush-right). Right inset = kCountRightPad so the fold-all
-                // icon lands on the SAME right edge as the thread-row counts
-                // (and clears the temp scroll bar, which sits ~8px in).
-                .with_justify_content(JustifyContent::SpaceBetween)
-                // Right inset clears the temporary scroll indicator (which sits
-                // ~8px in from the panel's right edge) so the fold-all glyph is
-                // never clipped by / overlapping the scrollbar corner.
-                .with_padding(Padding{.top = pixels(6),
-                                      .right = pixels(12),
-                                      .bottom = pixels(4), .left = pixels(14)})
-                .with_custom_background(theme::section_header_bg())
-                .with_roundness(0.0f)
-                .with_debug_name("sb_folders_head"));
-
-        // FOLDERS label: intrinsic-ish fixed width so SpaceBetween pushes the
-        // fold-all button to the far right edge. Clamp it so label + button +
-        // pads never exceed the header content box on a narrow sidebar (else
-        // the NoWrap head overflows every frame → warn + solve_violations
-        // churn). Content = panelW − left 14 − right 4.
-        float headContent = panelW - 14.0f - 4.0f;
-        float foldLabelW = headContent - 28.0f;  // minus the fold-all button
-        if (foldLabelW > 64.0f) foldLabelW = 64.0f;
-        if (foldLabelW < 16.0f) foldLabelW = 16.0f;
-        div(ctx, mk(head.ent(), 1),
-            ComponentConfig{}
-                .with_label("FOLDERS")
-                .with_size(ComponentSize{pixels(foldLabelW), pixels(16)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::LABEL)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("sb_folders_label"));
-
-        // Fold-all button (chevrons-down-up sprite). Its tint brightens when
-        // all folders are currently folded, echoing the mock's active state.
-        // Wider tap target (28px) so it's easy to hit, a clearer hover surface
-        // (panel_bg_2 wash reads as a real button, not just a tint), and a
-        // smaller right inset than the row counts so it sits closer to the edge.
-        theme::Color foldTint =
-            app.foldAllFolders ? theme::text_secondary() : theme::text_faint();
-        auto foldBtn = button(ctx, mk(head.ent(), 2),
+        // Filter toggle, OUTSIDE the field at the sidebar's right edge (Puffin
+        // puts its glyph at x=260..273). hanabi has no filter model, so this
+        // drives the one filter the list already implies: automated / cron rows
+        // are drawn as quiet metadata, and this hides them outright. The state
+        // rides the collapsedFolders sentinel set for the same reason the VIEWS
+        // fold does — AppComponent is shared and this is one boolean.
+        const bool hidingAuto = app.collapsedFolders.count(kHideAutoKey) > 0;
+        auto filt = button(ctx, mk(wrap.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(24), pixels(20)})
-                .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.35f)
-                // Crisp custom double-chevron (the Lucide chevrons-down-up
-                // sprite rasterized poorly at ~15px and read as a broken glyph).
-                // Two chevrons meeting in the middle = the standard "collapse
-                // all" affordance: top points UP, bottom points DOWN when
-                // folders are expanded (i.e. "click to collapse"); it flips to
-                // point apart when everything is already folded.
-                .with_on_draw_fg([foldTint, allFolded = app.foldAllFolders]
+                .with_skip_tabbing(true)
+                .with_roundness(0.3f)
+                .with_on_draw_fg([tint = hidingAuto ? theme::accent()
+                                                    : theme::text_faint()]
                                  (RectangleType r) {
-                    // Two stacked solid triangles (draw_triangle — crisp, no
-                    // rounded-cap blobbing like draw_line_ex gave at this size).
+                    // Three shortening rules with a knob on each — the standard
+                    // "filter / sliders" mark. The atlas has no such sprite and
+                    // is generated elsewhere, so it is drawn here.
                     const float cx = r.x + r.width * 0.5f;
                     const float cy = r.y + r.height * 0.5f;
-                    const float s = 3.4f;   // triangle half-width
-                    const float hh = 3.0f;  // triangle half-height
-                    const float off = 3.4f; // vertical offset of each triangle
-                    using afterhours::vec2;
-                    if (!allFolded) {
-                        // Expanded -> "collapse": top triangle points UP,
-                        // bottom points DOWN (apexes away from center).
-                        float ty = cy - off;
-                        afterhours::draw_triangle(vec2{cx - s, ty + hh},
-                            vec2{cx + s, ty + hh}, vec2{cx, ty - hh}, foldTint);
-                        float by = cy + off;
-                        afterhours::draw_triangle(vec2{cx - s, by - hh},
-                            vec2{cx + s, by - hh}, vec2{cx, by + hh}, foldTint);
-                    } else {
-                        // All folded -> "expand": top points DOWN, bottom UP
-                        // (apexes toward center).
-                        float ty = cy - off;
-                        afterhours::draw_triangle(vec2{cx - s, ty - hh},
-                            vec2{cx + s, ty - hh}, vec2{cx, ty + hh}, foldTint);
-                        float by = cy + off;
-                        afterhours::draw_triangle(vec2{cx - s, by + hh},
-                            vec2{cx + s, by + hh}, vec2{cx, by - hh}, foldTint);
+                    const float w[3] = {6.5f, 5.0f, 3.5f};
+                    for (int i = 0; i < 3; ++i) {
+                        const float y = cy - 4.0f + 4.0f * static_cast<float>(i);
+                        afterhours::draw_line_ex(
+                            afterhours::vec2{cx - w[i], y},
+                            afterhours::vec2{cx + w[i], y}, 1.3f, tint);
                     }
                 })
-                .with_debug_name("sb_fold_all"));
-        if (foldBtn) {
-            app.foldAllFolders = !app.foldAllFolders;
-            // Fold/unfold every REAL folder in lockstep. Folders are DYNAMIC
-            // (derived from distinct_folders — the actual folder values on the
-            // sessions), so build the key set from those, using the SAME key
-            // render_folder collapses on (the raw folder value). The Recent
-            // catch-all is a HEADERLESS flat list with no header to collapse,
-            // so it's skipped. (The old hardcoded stars/oncall/experiments +
-            // __t_*__ time-bucket + __archived__ keys are obsolete — folders
-            // are dynamic, Recent is headerless, and Archived is a smart VIEW.)
-            if (app.foldAllFolders) {
-                for (const auto& k : distinct_folders(app))
-                    app.collapsedFolders.insert(k);
-            } else {
-                app.collapsedFolders.clear();
-            }
+                .with_debug_name("sb_search_filter"));
+        if (filt) {
+            if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
+            else app.collapsedFolders.insert(kHideAutoKey);
         }
     }
 
     // ---- smart views ----
+    // Puffin's order, measured: Home, Settings, Blocked, Review, Pinned,
+    // Archived, on a 32px pitch starting at y=68. "Settings" is not a view —
+    // it opens the settings sheet, which is where the removed brand row's gear
+    // went. "Pinned" is the star feature renamed: same flag, same settings key.
+    // The view row that reads as selected. hanabi flips app.view to Chat when a
+    // thread is open, which leaves the sidebar with NO selection at all — the
+    // reference keeps the list you came from lit while its thread is on screen,
+    // so the sidebar always says where you are. Sidebar-local: the app's view
+    // state is untouched, this only decides which row draws lit.
+    SmartView lit_view(const AppComponent& app) {
+        if (app.view != SmartView::Chat) lastListView_ = app.view;
+        return lastListView_;
+    }
+    SmartView lastListView_ = SmartView::Home;
+
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, bool folded, float panelW) {
-        // "VIEWS" section label (unfolded only, per the mock).
-        if (!folded) section_label(ctx, parent, 25, "VIEWS");
-
+        const SmartView lit = lit_view(app);
         auto container = div(ctx, mk(parent, 3),
             ComponentConfig{}
-                // Height fits the 5 rows exactly (children()) — a fixed 178px
-                // was taller than the rows (~160px), leaving dead space that
-                // opened a large gap before the FOLDERS section (M3).
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 // Folded rail: left inset == the header toggle's, so the icon
-                // column is flush-left in one vertical line. Unfolded: the
-                // original 8px inset the label/count geometry is tuned around.
-                .with_padding(Padding{.top = pixels(0), .right = pixels(4),
-                                      .bottom = pixels(2),
+                // column is flush-left in one vertical line. Unfolded: rows are
+                // FULL-BLEED (Puffin's selected row runs edge to edge), so the
+                // inset lives on the row's own padding, not here.
+                .with_padding(Padding{.top = pixels(folded ? 0.0f
+                                                           : kSbViewsTopPad),
+                                      .right = pixels(folded ? 4.0f : 0.0f),
+                                      .bottom = pixels(0),
                                       .left = pixels(folded ? kRailIconInset
-                                                            : 8.0f)})
+                                                            : 0.0f)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("smart_views"));
@@ -1380,28 +1382,85 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // and unread. Home itself is a digest, not a filter, so this is the
         // one view whose number is a sum rather than a membership count.
         smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
-                   SmartView::Home, blocked + review, app, folded, panelW);
-        smart_item(ctx, container.ent(), 2, "blocked", "\xe2\x9b\x94",
-                   "Blocked", SmartView::Blocked, blocked, app, folded, panelW);
-        smart_item(ctx, container.ent(), 3, "review", "\xe2\x9c\x93", "Review",
-                   SmartView::Review, review, app, folded, panelW);
-        smart_item(ctx, container.ent(), 4, "star", "\xe2\x98\x85", "Starred",
-                   SmartView::Starred, starred, app, folded, panelW);
+                   SmartView::Home, -1, app, folded, panelW, lit);
+        // Settings sits between Home and Blocked in Puffin. It is a sheet, not
+        // a view, so it carries no count and never reads as selected.
+        if (!folded)
+            settings_item(ctx, container.ent(), 2, app, panelW);
+        smart_item(ctx, container.ent(), 3, "blocked", "\xe2\x9b\x94",
+                   "Blocked", SmartView::Blocked, blocked, app, folded, panelW,
+                   lit);
+        smart_item(ctx, container.ent(), 4, "review", "\xe2\x9c\x93", "Review",
+                   SmartView::Review, review, app, folded, panelW, lit);
+        smart_item(ctx, container.ent(), 5, "star", "\xe2\x98\x85", "Pinned",
+                   SmartView::Starred, starred, app, folded, panelW, lit);
         // "archive" now has a real Lucide sprite in the atlas; \xe2\x96\xa4 stays as fallback.
-        smart_item(ctx, container.ent(), 5, "archive", "\xe2\x96\xa4",
+        smart_item(ctx, container.ent(), 6, "archive", "\xe2\x96\xa4",
                    "Archived", SmartView::Archived, archived, app, folded,
-                   panelW);
+                   panelW, lit);
+    }
+
+    // A view-shaped row that opens the Settings sheet. Same geometry as
+    // smart_item so the six rows keep one pitch and one icon column; it keeps
+    // the sb_settings name the old header gear had, so anything addressing
+    // that control still reaches it.
+    void settings_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
+                       AppComponent& app, float panelW) {
+        auto row = div(ctx, mk(parent, 100 + idx),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbViewRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(4),
+                                      .right = pixels(kCountRightPad),
+                                      .bottom = pixels(5),
+                                      .left = pixels(kSbInset)})
+                .with_custom_background(theme::sidebar_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_settings"));
+        row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (pointer_click(ctx, row.ent())) app.showSettings = true;
+        const theme::Color txt = theme::text_secondary();
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(16), pixels(22)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "gear", "\xe2\x9a\x99", txt, 16.0f, -1.0f))
+                .with_debug_name("sv_icon"));
+        float labelW = panelW - kSbInset - kCountRightPad - 16.0f - 12.0f;
+        if (labelW < 20.0f) labelW = 20.0f;
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label("Settings")
+                .with_size(ComponentSize{pixels(labelW), pixels(22)})
+                .with_padding(Padding{.left = pixels(12)})
+                .with_transparent_bg()
+                .with_custom_text_color(txt)
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("sv_label"));
     }
 
     void smart_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
                     const std::string& icon_name,
                     const std::string& fallback_glyph,
                     const std::string& label, SmartView view, int count,
-                    AppComponent& app, bool folded, float panelW) {
-        bool active = app.view == view;
+                    AppComponent& app, bool folded, float panelW,
+                    SmartView lit) {
+        bool active = lit == view;
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(30)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(folded ? 30.0f
+                                                       : kSbViewRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -1409,15 +1468,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // already sets the icon column's left edge, and the icon slot
                 // (kRailIconSlot, == the header toggle box) makes the centered
                 // glyph land on the same vertical line as the toggle above.
-                // Right pad == kCountRightPad so the smart-view count's right
-                // edge lands on the SAME column as the folder-header + thread-
-                // row counts (was 8 vs 12 — a 4px cross-section count misalign).
+                // Unfolded: kSbInset is the ONE left inset the whole sidebar
+                // shares, and kCountRightPad puts every count on one right edge.
                 .with_padding(Padding{.top = pixels(4),
                                       .right = pixels(kCountRightPad),
-                                      .bottom = pixels(4),
-                                      .left = pixels(folded ? 0.0f : 8.0f)})
-                .with_margin(Margin{.top = pixels(1), .right = pixels(0),
-                                    .bottom = pixels(1), .left = pixels(0)})
+                                      .bottom = pixels(folded ? 4.0f : 5.0f),
+                                      .left = pixels(folded ? 0.0f
+                                                            : kSbInset)})
+                .with_margin(Margin{.top = pixels(folded ? 1.0f : 0.0f),
+                                    .right = pixels(0),
+                                    .bottom = pixels(folded ? 1.0f : 0.0f),
+                                    .left = pixels(0)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::sidebar_bg())
                 // A SELECTED item does not react to hover (no double state):
@@ -1427,12 +1488,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                              : theme::hover_over(
                                                    theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(0.3f)
+                // Puffin's selected row is a full-bleed rectangle, edge to
+                // edge, with square corners.
+                .with_roundness(folded ? 0.3f : 0.0f)
                 .with_debug_name("smart_item"));
 
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
-        if (row.ent().get<afterhours::ui::HasClickListener>().down) {
+        if (pointer_click(ctx, row.ent())) {
             app.view = view;
         }
 
@@ -1471,7 +1534,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{
-                    pixels(folded ? kRailIconSlot : 18.0f), pixels(22)})
+                    pixels(folded ? kRailIconSlot : 16.0f), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_on_draw_fg([iconDraw, useAttentionIcon, attnColor, iconPx,
@@ -1494,10 +1557,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Label column: explicit pixel width so the count box that follows is
         // pushed flush to the row's right edge (afterhours has no flex-grow, so
         // a percent label would leave the count packed mid-row, not aligned).
-        // Row content = panelW − container pad (l8 + r4) − row pad (l8 + r8)
-        //             = panelW − 28. label = content − icon(18) − count(kCol).
-        // With the count box right edge == panelW − kCountRightPad, the smart
-        // counts line up with the folder / time-group counts.
+        // Row content = panelW − row pad (kSbInset + kCountRightPad).
+        // label = content − icon(16) − count(kCountColW). Puffin puts the label
+        // ink at x=37: kSbInset 9 + icon 16 + a 12px pad on the label = 37.
         //
         // No-overflow (defect: layout-warn spam): if icon+label+count exceed
         // the row content the NoWrap row overflows every frame (warn +
@@ -1505,17 +1567,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // clamp the label into an overflow; the label then takes the full
         // remaining width. Uses a small label floor so we only keep the count
         // while it genuinely fits.
-        const float kSvContent = panelW - 28.0f;
+        const float kSvContent = panelW - kSbInset - kCountRightPad;
         const float kSvLabelMin = 30.0f;
         bool svShowCount =
-            count > 0 && (kSvContent - 18.0f - kSvLabelMin) >= kCountColW;
-        float svLabelW = kSvContent - 18.0f - (svShowCount ? kCountColW : 0.0f);
+            count > 0 && (kSvContent - 16.0f - kSvLabelMin) >= kCountColW;
+        float svLabelW = kSvContent - 16.0f - (svShowCount ? kCountColW : 0.0f);
         if (svLabelW < 16.0f) svLabelW = 16.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(label)
                 .with_size(ComponentSize{pixels(svLabelW), pixels(22)})
-                .with_padding(Padding{.left = pixels(10)})
+                .with_padding(Padding{.left = pixels(12)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
                 .with_font_size(theme::type::BODY)
@@ -1559,41 +1621,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return is_named_folder(s.folder) ? s.folder : std::string("recent");
     }
 
-    // Title-case a folder key for display ("stars"->"Stars",
-    // "whole foods"->"Whole Foods"). The raw key is still used for matching;
-    // this only affects the header label. A folder that already has caps
-    // (a real workspace name) is shown as-is except for a lowercase leading
-    // char, so "Whole foods" stays "Whole foods".
-    static std::string display_folder_name(const std::string& key) {
-        if (key.empty()) return key;
-        // If it already contains an uppercase letter, treat it as a real name
-        // and only capitalize the first char.
-        bool hasUpper = false;
-        for (char c : key) if (c >= 'A' && c <= 'Z') { hasUpper = true; break; }
-        std::string out = key;
-        if (hasUpper) {
-            if (out[0] >= 'a' && out[0] <= 'z') out[0] = out[0] - 32;
-            return out;
-        }
-        // All-lowercase key: Title Case each word (shared ASCII helper, 1c).
-        return fmtutil::ascii_title(std::move(out));
-    }
-
-    // Distinct non-empty folder names present across the loaded sessions
-    // (excluding archived-only), sorted for stable display order. These are
-    // the REAL folders the backend returned — no hardcoded set.
-    static std::vector<std::string> distinct_folders(const AppComponent& app) {
-        std::vector<std::string> out;
-        for (const auto& s : app.sessions) {
-            if (s.state == api::ThreadState::Archived) continue;
-            if (!is_named_folder(s.folder)) continue;
-            if (std::find(out.begin(), out.end(), s.folder) == out.end())
-                out.push_back(s.folder);
-        }
-        std::sort(out.begin(), out.end());
-        return out;
-    }
-
     // ---- folder group ----
     // Renders a collapsible folder. Returns the number of chat rows actually
     // rendered (used by the caller to drive the search no-results state).
@@ -1607,6 +1634,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                       bool archived = false, bool catchAll = false,
                       bool headerless = false, int cap = kBucketCap) {
         // Collect member threads, honoring the live search filter.
+        const bool hideAutomated = app.collapsedFolders.count(kHideAutoKey) > 0;
         std::vector<const api::SessionSummary*> members;
         for (const auto& s : app.sessions) {
             bool match;
@@ -1626,6 +1654,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // what was SAID in them, not just their title — using only the
             // local transcript cache (instant, offline). Content is only
             // checked when there's a query and the title didn't already match.
+            // The search row's filter toggle: hide automated / cron rows.
+            if (match && hideAutomated && is_automated(s.title)) continue;
             if (match &&
                 (title_matches(s.title, q) ||
                  (!q.empty() && api::disk_cache::content_matches(s.id, q))))
@@ -1934,8 +1964,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     // the thread titles so it reads as part of the same list.
                     .with_padding(Padding{.top = pixels(2), .right = pixels(8),
                                           .bottom = pixels(2),
-                                          .left = pixels(kRowLeftInset +
-                                                         kGlyphW)})
+                                          .left = pixels(kRowLeftInset + kGlyphW +
+                                                         kRowTitlePad)})
                     .with_custom_background(theme::sidebar_bg())
                     .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                     .with_custom_text_color(theme::text_faint())
@@ -1990,7 +2020,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_snippet(UIContext<InputAction>& ctx, Entity& parent,
                         const std::string& text, const std::string& q,
                         float panelW) {
-        const float indent = kRowLeftInset + kGlyphW;
+        const float indent = kRowLeftInset + kGlyphW + kRowTitlePad;
         float w = panelW - indent - 12.0f;
         if (w < 40.0f) w = 40.0f;
         div(ctx, mk(parent, 2),
@@ -2038,18 +2068,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // identical no matter which of {row, star} currently owns hot.
         // A selected row always wins; an unhovered unselected row stays plain.
 
-        // Denser rows: 24px tall with tight vertical padding, so more threads
-        // fit — matching the mock's compact sidebar feel. Rows are indented
-        // (left pad) to sit under their folder header, mirroring the mock's
-        // indented .folder-body (padding-left 14 + margin-left 13).
+        // Row height is the MEASURED Puffin pitch (kRowHeight = 32). Full
+        // bleed, square corners: Puffin's selected row runs edge to edge.
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(2), .right = pixels(8),
-                                      .bottom = pixels(2),
+                .with_padding(Padding{.top = pixels(6),
+                                      .right = pixels(kCountRightPad),
+                                      .bottom = pixels(6),
                                       .left = pixels(kRowLeftInset)})
                 .with_custom_background(selected ? theme::selected_bg()
                                                  : theme::sidebar_bg())
@@ -2064,7 +2093,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // release test — a press-activated row would have opened the
                 // thread before the drag it was starting could be seen.
                 .with_click_activation(ClickActivationMode::Release)
-                .with_roundness(0.3f)
+                .with_roundness(0.0f)
                 .with_debug_name("chat_row"));
 
         // Bake the hover wash into the row's BASE fill whenever the pointer is
@@ -2088,7 +2117,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // AND open the thread (the star appeared "not working" because the
         // thread opened over it). Capture the row-click now, but only actually
         // open below IF the star wasn't the thing clicked this frame.
-        bool rowClicked = row.ent().get<afterhours::ui::HasClickListener>().down;
+        bool rowClicked = pointer_click(ctx, row.ent());
         bool starClicked = false;
 
         // Status glyph slot: a small transparent box whose foreground draw
@@ -2096,7 +2125,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(12), pixels(20)})
+                .with_size(ComponentSize{pixels(kGlyphW), pixels(20)})
                 .with_transparent_bg()
                 .with_font_size(FontSize::Small)
                 .with_roundness(0.0f)
@@ -2128,90 +2157,59 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (app.rowDrag.live && app.rowDrag.sessionId == s.id)
             titleColor = theme::text_faint();
 
-        // Title height matches the row's content box (row 24 − top/bottom
-        // pad 2 = 20) so the label's own vertical-centering lands the text on
+        // Title height matches the row's content box (row 32 − top/bottom
+        // pad 6 = 20) so the label's own vertical-centering lands the text on
         // the row's true center — otherwise a child shorter than the content
         // box lets fontstash's ascent/descent asymmetry push the glyphs low,
         // and the (full-row) highlight bg looks off-center against the text.
         //
         // Width is in PIXELS, not percent(1.0): afterhours has no flex-grow
-        // (afterhours_gaps.md #18), so a percent(1.0f) title in this NoWrap
-        // row means 100% of the row and would overflow past the glyph + time +
-        // star siblings every frame. The row content box = panelW − row pad
-        // (left 22 + right 8) = panelW − 30. Columns, in order:
-        //   glyph slot   12px  (leading status indicator — always drawn)
-        //   title        (flex-ish, sized in px — takes the remaining width)
-        //   time slot    kRowTimeColW (trailing relative-time)
-        //   star slot    18px  (RIGHTMOST — right-aligned per Gabe; renders on
-        //                       hover / when starred, but ALWAYS reserved so
-        //                       the row doesn't reflow on hover)
+        // (afterhours_gaps.md #18), so a percent(1.0f) title in this NoWrap row
+        // means 100% of the row and would overflow past its siblings.
+        // Columns, in order:
+        //   glyph slot   kGlyphW  (leading status indicator — always drawn)
+        //   title        (sized in px — takes the remaining width)
+        //   star slot    18px     (RIGHTMOST; drawn on hover or when pinned,
+        //                          but ALWAYS reserved so the row does not
+        //                          reflow under the pointer)
         //
-        // WIDTH MATH / no-overflow (defect: layout-warn spam + solve_violations
-        // churn). The columns are fixed-px in a NoWrap row, so if
-        // glyph+title+star+time ever exceeds the row content box the row
+        // NO TIMESTAMP. Puffin's rows carry no time at all, so the column is
+        // gone — see the commit message for what that costs the reader.
+        //
+        // WIDTH MATH / no-overflow (defect: layout-warn spam +
+        // solve_violations churn). The columns are fixed-px in a NoWrap row,
+        // so if glyph+title+star ever exceeds the row content box the row
         // overflows EVERY frame — afterhours logs a wrap/overflow warning AND
         // runs solve_violations (up to 10 iters) trying to resolve it, a real
-        // per-frame drag. This hit hard at narrow widths and all through the
-        // collapse tween (280→52 sweeps every intermediate width). So instead
-        // of a fixed reserve + a title floor that can exceed the box, we FIT
-        // the columns to the box: keep the title at a sane minimum and DROP the
-        // optional trailing columns (time first, then star) when they wouldn't
-        // fit, rather than overflow. Below the floor even without them, the
-        // title simply shrinks (it can't overflow — it's the only flex column).
-        const float kRowPad = kRowLeftInset + 8.0f;  // row left + right 8
+        // per-frame drag. This hit hard through the collapse tween (280->52
+        // sweeps every intermediate width). So instead of a fixed reserve plus
+        // a title floor that can exceed the box, we FIT the columns to the box:
+        // keep the title at a sane minimum and DROP the optional trailing
+        // columns when they would not fit, rather than overflow.
+        const float kRowPad = kRowLeftInset + kCountRightPad;
         const float kStarW = 18.0f;       // trailing star slot
         const float kBellW = 18.0f;       // trailing mute slot, left of the star
         const float kTitleMin = 40.0f;    // title floor before dropping columns
         float rowContent = panelW - kRowPad;
         if (rowContent < kGlyphW + 10.0f) rowContent = kGlyphW + 10.0f;
-        // The trailing time column is sized to the ACTUAL rendered width of this
-        // row's label (not a fixed 46px box). A fixed right-aligned box put the
-        // label flush to the row's right edge but left the STAR — which sits to
-        // the label's left — pinned to the box's LEFT edge, ~24px of dead gap
-        // between the star and "now" (Gabe: "star is still not in the right
-        // spot"). Measuring the label means the star hugs the text. The title
-        // flex column absorbs the slack, so every timestamp still right-aligns
-        // to the same edge. Capped at kRowTimeColW so a long date can't blow the
-        // layout; a tiny pad keeps the star glyph off the digits.
-        const int64_t nowSecsPre = static_cast<int64_t>(std::time(nullptr));
-        const std::string ageLabelPre = row_time_label(s.updated_at, nowSecsPre);
-        float timeW = ageLabelPre.empty()
-                          ? 0.0f
-                          : theme::text_px(ageLabelPre, theme::type::SM) + 2.0f;
-        if (timeW > kRowTimeColW) timeW = kRowTimeColW;
-        // Greedily reserve trailing columns only while the title can still hold
-        // its floor. Time is the first to go, then the star (matches "drop the
-        // least essential column at narrow widths"). The DROP decision uses the
-        // max column width (kRowTimeColW) so it's conservative; the actual
-        // reserve uses the measured timeW so the title fills the freed space.
-        bool showTime = !ageLabelPre.empty() &&
-                        (rowContent - kGlyphW - kTitleMin) >= kRowTimeColW;
-        bool showStar =
-            (rowContent - kGlyphW - kTitleMin -
-             (showTime ? kRowTimeColW : 0.0f)) >= kStarW;
+        bool showStar = (rowContent - kGlyphW - kTitleMin) >= kStarW;
         // The mute mark is claimed ONLY by a thread that is actually muted.
         // Reserving it on every row the way the star slot is reserved would tax
         // ~18px off every title in the list for an affordance almost no row
-        // uses — three characters of every name, permanently. Muting is on the
-        // row's context menu instead, so nothing appears on hover and no row
-        // reflows; a muted row pays for its own mark. Last in the chain, so it
-        // is also the first column dropped when the sidebar narrows.
+        // uses. Muting is on the row's context menu instead, so nothing appears
+        // on hover and no row reflows; a muted row pays for its own mark.
         bool showBell =
             s.muted && (rowContent - kGlyphW - kTitleMin -
-                        (showTime ? kRowTimeColW : 0.0f) -
                         (showStar ? kStarW : 0.0f)) >= kBellW;
-        float reserved = kGlyphW + (showTime ? timeW : 0.0f) +
-                         (showStar ? kStarW : 0.0f) +
+        float reserved = kGlyphW + (showStar ? kStarW : 0.0f) +
                          (showBell ? kBellW : 0.0f);
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
         // Ellipsize to the title column's width. At ROW size (12.5px) an avg
-        // proportional glyph is ~6.0px; budget at /6.1 (was /6.6, which
-        // under-counted ~8% and clipped titles a couple chars early even though
-        // the column had room). The label widget also hard-clips at its pixel
-        // width, so a hair-generous char budget just lets the text use the full
-        // column instead of ellipsizing before it needs to.
-        size_t titleChars = static_cast<size_t>(rowTitleW / 6.1f);
+        // proportional glyph is ~6.0px; budget at /6.1. The label widget also
+        // hard-clips at its pixel width, so a hair-generous char budget just
+        // lets the text use the full column instead of ellipsizing early.
+        size_t titleChars = static_cast<size_t>((rowTitleW - kRowTitlePad) / 6.1f);
         if (titleChars < 4) titleChars = 4;
         if (titleChars > 48) titleChars = 48;
         div(ctx, mk(row.ent(), 2),
@@ -2219,6 +2217,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(fmtutil::ellipsize(strip_parked_prefix(s.title),
                                                titleChars))
                 .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
+                .with_padding(Padding{.left = pixels(kRowTitlePad)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(theme::type::ROW)
@@ -2336,25 +2335,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("row_star_slot"));
         }
-
-        // Trailing relative-time column LAST → the RIGHTMOST column ("2h","3d",
-        // "Jul 28"), right-aligned, with the star immediately to its left (M5).
-        // Column sized to the MEASURED label width (timeW) so the star hugs the
-        // text instead of a fixed box's left edge. Dropped at very narrow widths
-        // (showTime).
-        const int64_t nowSecs = static_cast<int64_t>(std::time(nullptr));
-        std::string ageLabel = row_time_label(s.updated_at, nowSecs);
-        if (showTime)
-        div(ctx, mk(row.ent(), 4),
-            ComponentConfig{}
-                .with_label(ageLabel)
-                .with_size(ComponentSize{pixels(timeW), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("row_time"));
 
         // Right-click opens the row's context menu at the cursor. Always
         // offered now: Archive is machine-local, so the menu has an item to

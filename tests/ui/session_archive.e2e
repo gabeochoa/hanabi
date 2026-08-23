@@ -13,45 +13,45 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "oncall sweep finished"
+expect_text "Draft release notes for 4.2"
 
-mouse_move 120 567
+mouse_move 120 475
 wait_frames 3
-right_click 120 567
+right_click 120 475
 wait_frames 4
 
 click_ui row_menu_archive
 wait_frames 8
 
-expect_no_text oncall
+expect_no_text Draft
 expect_text "Session archived"
 
 # Undo returns it to the list it left.
 click_ui toast_undo
 wait_frames 8
-expect_text "oncall sweep finished"
+expect_text "Draft release notes for 4.2"
 expect_text "Session unarchived"
 
 # Archive it again and go looking for it under Archived, which is where the
 # menu said it went. (The toast's own wording is lowercase, so clicking the
 # smart view by text cannot land on the toast instead.)
-mouse_move 120 567
+mouse_move 120 475
 wait_frames 3
-right_click 120 567
+right_click 120 475
 wait_frames 4
 click_ui row_menu_archive
 wait_frames 8
-expect_no_text oncall
+expect_no_text Draft
 
 click_text Archived
 wait_frames 8
-expect_text "oncall sweep finished"
+expect_text "Draft release notes for 4.2"
 
 # An archived thread has no sidebar row left to right-click, so its card in
 # this view carries the same menu — and that menu offers the way back.
-mouse_move 650 139
+mouse_move 650 110
 wait_frames 3
-right_click 650 139
+right_click 650 110
 wait_frames 6
 expect_text "Unarchive"
 click_ui row_menu_archive

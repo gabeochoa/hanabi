@@ -63,11 +63,15 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         float mainH = contentH - tabH - compH;
         if (mainH < 0) mainH = 0;
 
-        layout.sidebar = {0, 0, sidebarW, contentH};
+        layout.sidebar = {0, 0, sidebarW, h};
         layout.tabStrip = {mainX, 0, mainW, tabH};
         layout.main = {mainX, tabH, mainW, mainH};
         layout.composer = {mainX, tabH + mainH, mainW, compH};
-        layout.statusBar = {0, contentH, w, barH};
+        // The status bar spans the MAIN pane only. Puffin's sidebar owns its
+        // own bottom strip (version + actions) and runs to the window's floor,
+        // so a full-width bar would paint over it. The main pane's geometry is
+        // unchanged: it was already sized against contentH.
+        layout.statusBar = {mainX, contentH, mainW, barH};
     }
 };
 

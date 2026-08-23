@@ -7,9 +7,9 @@
 # offered — the end of it is what the thread opens on.
 #
 # NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
-# "lines" is that word: the fold button reads "Show 17 more lines", and a bare
-# "Show" would also catch the SIDEBAR's own "Show N more…" expander, which is
-# a different control in a different pane.
+# The word is `lines`, not `Show`: the sidebar's own "Show N more…" expander is
+# on screen now that the thread list is one flat list capped to the viewport,
+# and a bare `Show` matches that instead of the fold button this test is about.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","fold_long_messages":false}
 # env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong

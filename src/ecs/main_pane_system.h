@@ -202,7 +202,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               /*singleState=*/true);
                 break;
             case SmartView::Starred:
-                render_digest(ctx, content.ent(), *app, "Starred", r.width,
+                render_digest(ctx, content.ent(), *app, "Pinned", r.width,
                               contentH, ecs::model::in_starred_view,
                               "No starred conversations. Star a thread to pin "
                               "it here.");
