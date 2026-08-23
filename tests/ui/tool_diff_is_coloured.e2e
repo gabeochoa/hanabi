@@ -20,7 +20,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_OPEN=r1
 
-expect_text "Tidy up the retry backoff"
+expect_text "auto-stars"
 
 # The edit call sits in a PILE with the calls around it, and the pile is what
 # the reader clicks — one head, addressed by its label, since every tool head

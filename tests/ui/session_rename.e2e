@@ -8,17 +8,17 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Draft release notes for 4.2"
+expect_text "oncall sweep finished"
 
 # Open the thread first, so the rename has a tab caption to reach as well.
-click 120 511
+click 120 567
 wait_frames 8
 expect_text "Pulled the 62 landed changes"
 
 # Secondary click on the same row: the context menu opens at the cursor.
-mouse_move 120 511
+mouse_move 120 567
 wait_frames 3
-right_click 120 511
+right_click 120 567
 wait_frames 4
 expect_text "Rename"
 
@@ -33,14 +33,14 @@ key ENTER
 wait_frames 30
 
 expect_text "Ship notes"
-expect_no_text Draft
+expect_no_text oncall
 
 # A refusal is shown in the modal and nothing local changes: the server has the
 # last word on the title, so an empty one comes back rejected and the row keeps
 # the name it already had.
-mouse_move 120 511
+mouse_move 120 567
 wait_frames 3
-right_click 120 511
+right_click 120 567
 wait_frames 4
 click_ui row_menu_rename
 wait_frames 4

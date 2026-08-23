@@ -24,10 +24,10 @@ expect_text "bands 2"
 # Search the list. The row that matches now carries the line it matched on.
 click 140 58
 wait_frames 4
-type "flags"
+type "workers"
 wait_frames 10
-expect_text "clean up dead feature flags"
-expect_text "scanning for stale flags"
+expect_text "two workers still out"
+expect_text "1 of 3 workers has reported"
 
 # One occurrence in that snippet, one band painted behind it.
 expect_text "snippet bands 1"

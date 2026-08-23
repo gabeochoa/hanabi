@@ -7,10 +7,13 @@
 # offered — the end of it is what the thread opens on.
 #
 # NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# "lines" is that word: the fold button reads "Show 17 more lines", and a bare
+# "Show" would also catch the SIDEBAR's own "Show N more…" expander, which is
+# a different control in a different pane.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","fold_long_messages":false}
 # env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong
 
 expect_text "Signed off by the migration owner."
 expect_text "Step 55"
-expect_no_text Show
+expect_no_text lines

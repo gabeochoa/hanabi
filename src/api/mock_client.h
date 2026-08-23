@@ -3,24 +3,19 @@
 // Deterministic, offline sample data source. This is the default backend so
 // the app is fully functional with no configuration and no network.
 //
-// The seed has two intentional cohorts:
+// The seed is a PORT of the reference client's own catalog fixture, row for
+// row: the same twenty conversations, the same words, in the same activity
+// order, so a side-by-side comparison of the two apps measures design and not
+// wording. Anything that reads as a difference between the two lists is a
+// real difference.
 //
-//   1. A small set of RICH demo threads (t1..t14) with folders, blocked /
-//      review / done states, and sub-agents. These tell the ideal-UX story:
-//      what the app looks like when the backend reports the full high-signal
-//      model. Smart views, folders, and the digest all have real states to
-//      render from these.
+// Every row is folderless, unstarred and unarchived, because the reference
+// list is one flat activity-ordered column with no grouping. The states are
+// chosen so the smart views land on the reference's own counts:
+// Blocked 6 (the tag), Review 3 (state==Ready), Home 9 (their sum).
 //
-//   2. A larger REALISTIC cohort (r1..r20) shaped like what a live backend
-//      actually returns: NO folder, NO explicit state (state=Unknown), a
-//      plain active/archived status, mostly-calm rows, freeform titles (some
-//      plain, some with "[P]" prefixes or "on you"/"DONE"/D-number markers),
-//      and updatedAt values spread across Today / This Week / weeks-and-
-//      months-ago. This is the cohort that proves the UI degrades gracefully
-//      on real-shaped data instead of only looking good on a tidy mock.
-//
-// Timestamps are now-based (time(nullptr) - N) so the sidebar time buckets
-// (Today / This Week / Earlier) always populate whenever the app is run.
+// Timestamps are now-based (time(nullptr) - N) so the ages the rows show are
+// the same on every run.
 // The screenshot baseline suite (docs/screenshots/baselines/) depends on this:
 // datum and display are measured from the same moving now, so every rendered
 // age ("3h") is constant — reseeding with absolute epochs rots every
@@ -500,15 +495,167 @@ class MockClient : public Client {
         return s;
     }
 
+    // Minutes before now, in the same moving frame as hrs_ago/days_ago. The
+    // catalog is seeded in minutes because the rows it mirrors are, and the
+    // relative ages ("6m", "5h") have to stay constant across runs.
+    static int64_t mins_ago(double m) {
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        return now - static_cast<int64_t>(m * 60.0 + 0.5);
+    }
+
+    // A catalog row, in the shape the reference fixture states one: id, the
+    // text the sidebar shows, an age in minutes, and the state/tag pair the
+    // glyph and the smart views read. No folder, never starred, never
+    // archived — the reference list is one flat activity-ordered column.
+    static SessionSummary pf(std::string id, std::string title,
+                             double minutesAgo, std::string status,
+                             ThreadState state, ThreadTag tag,
+                             std::string preview) {
+        SessionSummary s;
+        s.id = std::move(id);
+        s.title = std::move(title);
+        s.updated_at = mins_ago(minutesAgo);
+        s.status = std::move(status);
+        s.state = state;
+        s.tag = tag;
+        s.folder = "";
+        s.starred = false;
+        s.preview = std::move(preview);
+        return s;
+    }
+
     static std::vector<Session> seed() {
         std::vector<Session> v;
 
-        // --- Attention: waiting on you / done (dot + bold) ---
+        // --- running ---
         {
             Session s;
-            s.summary = sum("t1", "Multi-tier pricing rollout", 0, "active",
-                            ThreadState::Attention, ThreadTag::Blocked,
-                            "stars", true, "waiting on you \xc2\xb7 8m");
+            s.summary = pf("r5", "profiling the disk", 0, "active",
+                           ThreadState::Running, ThreadTag::None,
+                           "walking the tree by size");
+            s.messages = {
+                {"m1", Role::User,
+                 "the build box is at 96% disk. work out what is eating it.",
+                 mins_ago(9), ""},
+                {"m2", Role::Assistant,
+                 "Profiling the disk now, biggest directories first. Nothing "
+                 "to decide yet - I'll come back with the top ten and what is "
+                 "safe to drop.",
+                 mins_ago(6), ""},
+                {"m3", Role::Tool,
+                 "du -sh /* | sort -h \xe2\x86\x92 in progress", mins_ago(1),
+                 "shell"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("r6", "two workers still out", 2, "active",
+                           ThreadState::Running, ThreadTag::None,
+                           "1 of 3 workers has reported");
+            s.messages = {
+                {"m1", Role::User,
+                 "find feature flags that have been at 100% for 90+ days and "
+                 "list the ones safe to remove",
+                 mins_ago(20), ""},
+                {"m2", Role::Assistant,
+                 "Registry scan is done - 412 flags enumerated. Two workers "
+                 "are still resolving call sites for the 90-day set. Running "
+                 "quietly until they land.",
+                 mins_ago(2), ""},
+            };
+            s.sub_agents = {
+                {"r6s1", "Call-site trace", SubAgentState::Running,
+                 "resolving usages for the 90-day set"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("t9", "kicker-tick", 3, "active",
+                           ThreadState::Running, ThreadTag::None,
+                           "draining the queue");
+            s.messages = {
+                {"m1", Role::System,
+                 "Recurring: kick the pending queue every ten minutes.",
+                 mins_ago(13), ""},
+                {"m2", Role::Assistant,
+                 "Kicked 41 pending items. Draining what came back; nothing "
+                 "for you yet.",
+                 mins_ago(3), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("t7", "coordinating 3 shard workers", 6, "active",
+                           ThreadState::Running, ThreadTag::None,
+                           "1 of 3 shards landed");
+            s.messages = {
+                {"m1", Role::System,
+                 "Task: migrate the quota shards, one worker per shard.",
+                 mins_ago(40), ""},
+                {"m2", Role::Assistant,
+                 "Three workers out, one per shard. Legacy tenants are done; "
+                 "the active-tenant shard is mid-copy and the canary cohort "
+                 "is waiting on an approval before it touches anything.",
+                 mins_ago(6), ""},
+            };
+            s.sub_agents = {
+                {"t7s1", "shard 1/3 \xe2\x80\x94 legacy tenants",
+                 SubAgentState::Done, "copied and verified"},
+                {"t7s2", "shard 2/3 \xe2\x80\x94 active tenants",
+                 SubAgentState::Running, "at row 812k"},
+                {"t7s3", "shard 3/3 \xe2\x80\x94 canary cohort",
+                 SubAgentState::Blocked,
+                 "needs approval before touching the canary cohort"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("t8", "triaging row 212", 6.1, "active",
+                           ThreadState::Running, ThreadTag::None,
+                           "reading the row's history");
+            s.messages = {
+                {"m1", Role::System,
+                 "Continuous triage: pick up the oldest untriaged row and work "
+                 "out who owns it.",
+                 mins_ago(24), ""},
+                {"m2", Role::Assistant,
+                 "Row 212 is the one with no owner and two conflicting "
+                 "repro reports. Reading its history before I route it.",
+                 mins_ago(6), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("t6", "SKU backfill \xe2\x80\x94 my name for it", 8,
+                           "active", ThreadState::Running, ThreadTag::None,
+                           "sweeping 412 rows for missing SKUs");
+            s.messages = {
+                {"m1", Role::System,
+                 "Task: backfill the entitlement table for legacy "
+                 "subscribers.",
+                 mins_ago(120), ""},
+                {"m2", Role::Assistant,
+                 "Backfill in progress - 61% through 2.1M rows. No action "
+                 "needed; I'll surface it when done or if I hit a snag.",
+                 mins_ago(8), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
+        // --- waiting on you ---
+        {
+            Session s;
+            s.summary = pf("t1",
+                           "stickers broke \xe2\x80\x94 concluded, D113637134 "
+                           "on you",
+                           11, "active", ThreadState::Attention,
+                           ThreadTag::Blocked,
+                           "needs a decision before landing");
             s.messages = {
                 {"m1", Role::System,
                  "Task: land the multi-tier pricing config once CI is green.",
@@ -520,19 +667,41 @@ class MockClient : public Client {
                 {"m3", Role::Tool,
                  "shadow_compare \xe2\x86\x92 4,812 accounts \xc2\xb7 max "
                  "delta 0.3% \xc2\xb7 within tolerance",
-                 hrs_ago(1), "shell"},
+                 hrs_ago(1), ""},
                 {"m4", Role::Assistant,
                  "All CI green, shadow matched. Nothing else is blocking. I "
                  "need your approval to land.",
-                 hrs_ago(0) - 720, ""},
+                 mins_ago(11), ""},
             };
             v.push_back(std::move(s));
         }
         {
             Session s;
-            s.summary = sum("t2", "Stars payout reconciliation", 0, "active",
-                            ThreadState::Attention, ThreadTag::Blocked,
-                            "stars", false, "waiting on you \xc2\xb7 22m");
+            s.summary = pf("r7", "two shards died", 12, "active",
+                           ThreadState::Attention, ThreadTag::Blocked,
+                           "the run failed, two shards lost");
+            s.messages = {
+                {"m1", Role::System,
+                 "Task: fan the reindex out over eight shards and report.",
+                 hrs_ago(2), ""},
+                {"m2", Role::Assistant,
+                 "Six shards finished clean. Two died partway with the same "
+                 "OOM and did not retry, so the reindex is incomplete. I have "
+                 "the logs; I can rerun just those two on a bigger worker, or "
+                 "you can look first.",
+                 mins_ago(12), ""},
+            };
+            s.sub_agents = {
+                {"r7s1", "the shard that died", SubAgentState::Blocked,
+                 "OOM at 4.1GB, no retry"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("t2", "needs a decision before it can go on", 14,
+                           "active", ThreadState::Attention,
+                           ThreadTag::Blocked, "two accounts do not reconcile");
             s.messages = {
                 {"m1", Role::System,
                  "Task: reconcile this cycle's Stars payouts against the "
@@ -562,55 +731,9 @@ class MockClient : public Client {
         }
         {
             Session s;
-            s.summary = sum("t3", "Creator welcome QP copy", 1, "active",
-                            ThreadState::Attention, ThreadTag::Done, "stars",
-                            false, "done \xc2\xb7 1h");
-            s.messages = {
-                {"m1", Role::System,
-                 "Task: draft welcome QP copy for new Stars creators. 3 "
-                 "variants, brand-voice compliant.",
-                 hrs_ago(2), ""},
-                {"m2", Role::Assistant,
-                 "Three variants, all passing the brand-voice check:\n"
-                 "  A (warmest): Welcome - your fans can now support you "
-                 "directly. Let's set up Stars.\n"
-                 "  B (clearest): Stars are on. Turn on receiving to start "
-                 "earning from your fans.\n"
-                 "  C (shortest): You're in. Set up Stars.",
-                 hrs_ago(1), ""},
-                {"m3", Role::Assistant,
-                 "B scored highest on clarity; A is warmest. Which ships "
-                 "Monday?",
-                 hrs_ago(1), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = sum("t11", "Churn query (Q3 cohort)", 0, "active",
-                            ThreadState::Attention, ThreadTag::Done, "stars",
-                            true, "done \xc2\xb7 12m");
-            s.messages = {
-                {"m1", Role::System,
-                 "Task: pull 90-day churn for the Q3 subscriber cohort.",
-                 hrs_ago(1), ""},
-                {"m2", Role::Tool,
-                 "query returned 41,208 rows \xc2\xb7 exported to results.csv",
-                 hrs_ago(0) - 840, "sql"},
-                {"m3", Role::Assistant,
-                 "Done - 90-day churn came in at 6.2%, down 0.8pt from Q2. "
-                 "Results attached; want a breakdown by tier?",
-                 hrs_ago(0) - 720, ""},
-            };
-            v.push_back(std::move(s));
-        }
-
-        // --- Ready for review (agent-verified) ---
-        {
-            Session s;
-            s.summary = sum("t4", "Tier upgrade flow", 0, "active",
-                            ThreadState::Ready, ThreadTag::Review,
-                            "experiments", false, "ready for review \xc2\xb7 30m");
+            s.summary = pf("t4", "finished, and wants you to read it", 16,
+                           "active", ThreadState::Ready, ThreadTag::Review,
+                           "wrote the report, ready for a look");
             s.messages = {
                 {"m1", Role::System,
                  "Task: implement in-app upgrade from Tier 1 -> Tier 2 with "
@@ -634,10 +757,8 @@ class MockClient : public Client {
                 {"m4", Role::Assistant,
                  "Deployed to staging. Test link is ready - subscribe at Tier "
                  "1, upgrade to Tier 2, and confirm the proration line.",
-                 hrs_ago(0) - 1800, ""},
+                 mins_ago(16), ""},
             };
-            // Give the single tool call captured output so it's expandable
-            // (click to reveal) in the transcript — mirrors a real tool_result.
             for (auto& mm : s.messages) {
                 if (mm.id == "m3") {
                     mm.tool_result =
@@ -651,186 +772,37 @@ class MockClient : public Client {
                     mm.tool_duration_ms = 26000;
                 }
             }
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = sum("t5", "Payout worker race fix", 2, "active",
-                            ThreadState::Ready, ThreadTag::Review, "oncall",
-                            true, "ready for review \xc2\xb7 2h");
-            s.messages = {
-                {"m1", Role::System,
-                 "Task: root-cause and fix intermittent double-writes in the "
-                 "payout worker.",
-                 hrs_ago(6), ""},
-                {"m2", Role::Assistant,
-                 "Root cause: two workers could claim the same payout row "
-                 "between the read and the lock. Fixed with a conditional "
-                 "update guard.",
-                 hrs_ago(3), ""},
-                {"m3", Role::Tool,
-                 "stress_run(500) \xe2\x86\x92 0 double writes \xc2\xb7 CI "
-                 "green",
-                 hrs_ago(2), "shell"},
-                {"m4", Role::Assistant,
-                 "Confident it's fixed. Ready for you to verify on the test "
-                 "tenant.",
-                 hrs_ago(2), ""},
-            };
-            v.push_back(std::move(s));
-        }
-
-        // --- Self-running (dimmed, calm — no dot, no bold) ---
-        {
-            Session s;
-            s.summary = sum("t6", "Backfill entitlement table", 0, "active",
-                            ThreadState::Running, ThreadTag::None,
-                            "experiments", false, "self-running \xc2\xb7 61%");
-            s.messages = {
-                {"m1", Role::System,
-                 "Task: backfill the entitlement table for legacy "
-                 "subscribers.",
-                 hrs_ago(2), ""},
-                {"m2", Role::Assistant,
-                 "Backfill in progress - 61% through 2.1M rows. No action "
-                 "needed; I'll surface it when done or if I hit a snag.",
-                 hrs_ago(0) - 300, ""},
-            };
             s.sub_agents = {
-                {"t6s1", "Chunk 1\xe2\x80\x93""500k", SubAgentState::Done,
-                 "500k rows written"},
-                {"t6s2", "Chunk 500k\xe2\x80\x93""1M", SubAgentState::Running,
-                 "at row 812k"},
-                {"t6s3", "Row validator", SubAgentState::Running,
-                 "checksums matching so far"},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = sum("t7", "Tier schema migration", 0, "active",
-                            ThreadState::Running, ThreadTag::None,
-                            "experiments", false, "self-running \xc2\xb7 tests");
-            s.messages = {
-                {"m1", Role::Assistant,
-                 "Running the migration test suite before applying. Quiet "
-                 "until there's something to decide.",
-                 hrs_ago(0) - 540, ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = sum("t8", "Nightwatch: D948213", 0, "active",
-                            ThreadState::Running, ThreadTag::None, "oncall",
-                            false, "self-running \xc2\xb7 landing");
-            s.messages = {
-                {"m1", Role::Assistant,
-                 "CI green on all signals. Landing the diff now - will report "
-                 "the SHA when it's in.",
-                 hrs_ago(0) - 240, ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = sum("t9", "Weekly metrics digest", 0, "active",
-                            ThreadState::Running, ThreadTag::None, "oncall",
-                            false, "self-running");
-            s.messages = {
-                {"m1", Role::Assistant,
-                 "Assembling the weekly subs metrics digest. Nothing for you "
-                 "yet.",
-                 hrs_ago(0) - 60, ""},
+                {"t4s1", "wrote the report", SubAgentState::Done,
+                 "18 tests, all green"},
             };
             v.push_back(std::move(s));
         }
 
-        // --- Parked / muted (greyed, never nudges) ---
+        // --- settled, and the long tail ---
         {
             Session s;
-            s.summary = sum("t10", "Old A/B: paywall color", 500, "idle",
-                            ThreadState::Parked, ThreadTag::None,
-                            "experiments", false, "parked");
+            s.summary = pf("r8", "quota migration, week 3", 24, "active",
+                           ThreadState::Unknown, ThreadTag::None,
+                           "week 3 of 6, on schedule");
             s.messages = {
-                {"m1", Role::System,
-                 "Muted. Experiment concluded - kept for reference.",
-                 hrs_ago(504), ""},
+                {"m1", Role::User,
+                 "where is the quota migration up to?", mins_ago(40), ""},
                 {"m2", Role::Assistant,
-                 "Result was flat. Parked this thread; it won't ask for "
-                 "anything.",
-                 hrs_ago(504), ""},
+                 "Week three of six. Two of the five tenant classes are fully "
+                 "on the new quota service, the third is shadowing, and the "
+                 "last two are scheduled for weeks five and six. Nothing has "
+                 "needed a rollback.",
+                 mins_ago(24), ""},
             };
             v.push_back(std::move(s));
         }
         {
             Session s;
-            s.summary = sum("t12", "Docs: onboarding runbook", 168, "idle",
-                            ThreadState::Parked, ThreadTag::None, "recent",
-                            false, "parked");
-            s.messages = {
-                {"m1", Role::Assistant,
-                 "Muted reference thread. No attention needed.", hrs_ago(168),
-                 ""},
-            };
-            v.push_back(std::move(s));
-        }
-
-        // --- Archived (low-signal, greyed) ---
-        {
-            Session s;
-            s.summary = sum("t13", "Legacy gifting migration", 1440,
-                            "archived", ThreadState::Archived, ThreadTag::None,
-                            "", false, "archived \xc2\xb7 2mo");
-            s.messages = {
-                {"m1", Role::System,
-                 "Task: migrate legacy gifting rows to the new ledger.",
-                 hrs_ago(1440), ""},
-                {"m2", Role::Assistant,
-                 "Migration completed and reconciled. Archiving - nothing "
-                 "left to do here.",
-                 hrs_ago(1440), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = sum("t14", "2024 pricing experiment writeup", 3600,
-                            "archived", ThreadState::Archived, ThreadTag::None,
-                            "", false, "archived \xc2\xb7 5mo");
-            s.messages = {
-                {"m1", Role::Assistant,
-                 "Final writeup shipped. Archived for reference.",
-                 hrs_ago(3600), ""},
-            };
-            v.push_back(std::move(s));
-        }
-
-        // ------------------------------------------------------------------
-        // REALISTIC COHORT (r1..r20)
-        //
-        // Shaped like a live backend dump: folder="" (no folder), no explicit
-        // state (Unknown), no tag (None), not starred — just a plain
-        // active/archived status and an updatedAt. A handful are "Running"
-        // (the isProcessing-equivalent: dimmed, quiet, never nudges). Titles
-        // are freeform the way real ones are — some plain, some with a "[P]"
-        // prefix, some carrying "on you" / "DONE" / a D-number marker — but
-        // the STRUCTURED fields stay neutral, exactly like real rows that
-        // carry no high-signal model. Timestamps fan out across Today / This
-        // Week / weeks-and-months-ago so every sidebar time bucket populates.
-        //
-        // NOTE on isPinned: real rows can be pinned, but the e2e suite asserts
-        // an exact starred count over the whole mock (the 3 rich threads), so
-        // this cohort intentionally leaves starred=false to avoid breaking it.
-        // The Running state stands in for isProcessing. (See report / caveats.)
-        // ------------------------------------------------------------------
-
-        // -- Today (hours ago) --
-        {
-            Session s;
-            s.summary = calm("r1", "[P] Tidy up the retry backoff in the sync worker",
-                             hrs_ago(1), "active", ThreadState::Unknown,
-                             "looked at the jittered backoff, one edge case left");
+            s.summary = pf("r1", "auto-stars \xe2\x80\x94 stars decision on you",
+                           42, "active", ThreadState::Attention,
+                           ThreadTag::Blocked,
+                           "looked at the jittered backoff, one edge case left");
             s.messages = {
                 {"m1", Role::User,
                  "the sync worker retries too aggressively when the upstream "
@@ -860,15 +832,10 @@ class MockClient : public Client {
                  "| 2 | 800ms | \xc2\xb1 200ms |\n"
                  "| 3 | 3.2s | \xc2\xb1 800ms |\n"
                  "| 4+ | 30s cap | full |\n",
-                 hrs_ago(1), ""},
+                 mins_ago(42), ""},
             };
-            // Real node on the tool calls so the collapsed pile header reads
-            // "[cli:aspen] cmd" (demonstrates tool_node prefix; renderer shows
-            // nothing when this is empty, so no fabricated node elsewhere).
             for (auto& mm : s.messages)
                 if (mm.role == Role::Tool) mm.tool_node = "cli:aspen";
-            // Sample captured output + status + duration so expanding a tool
-            // reveals real DETAILS (Gabe: "we are missing tool details").
             for (auto& mm : s.messages) {
                 if (mm.role != Role::Tool) continue;
                 if (mm.id == "m3") {
@@ -894,98 +861,10 @@ class MockClient : public Client {
         }
         {
             Session s;
-            s.summary = calm("r2", "investigate flaky checkout integration test",
-                             hrs_ago(3), "active", ThreadState::Unknown,
-                             "reproduced locally, looks like a fixture race");
-            s.messages = {
-                {"m1", Role::User,
-                 "checkout_flow_test fails ~1 in 20 on CI. can you figure out "
-                 "why?",
-                 hrs_ago(4), ""},
-                {"m2", Role::Assistant,
-                 "Pulled the last 40 CI runs \xe2\x80\x94 **6 failures**, all on the same "
-                 "assertion (`cart.total` off by one line item). Smells like a "
-                 "fixture setup race in `seed_cart()`. Running it in a tight "
-                 "loop locally.",
-                 hrs_ago(4), ""},
-                {"m3", Role::Tool,
-                 "for i in $(seq 1 50); do run checkout_flow_test; done \xe2\x86\x92 "
-                 "3/50 failed",
-                 hrs_ago(3), "shell"},
-                {"m4", Role::Assistant,
-                 "Reproduced. The seed fixture and the test both write to the "
-                 "cart before a barrier; the test occasionally reads mid-write. "
-                 "I'll add an explicit await on fixture-ready. Writing the fix.",
-                 hrs_ago(3), ""},
-            };
-            // Seed a sync state on the user messages (gap #28 probe + demoes the
-            // local-first WhatsApp-style sync indicator).
-            for (auto& mm : s.messages)
-                if (mm.role == Role::User) mm.sync = api::SyncState::Synced;
-            v.push_back(std::move(s));
-        }
-        // Two AUTOMATED (scheduled/cron) rows: titles shaped like a live
-        // backend's recurring jobs ("Schedule: ..." / "*-tick") so the sidebar
-        // renders them muted with the "automated" (repeat) atlas glyph in the
-        // status slot instead of a peer conversation dot.
-        {
-            Session s;
-            s.summary = calm("r2b", "Schedule: nightly dependency audit",
-                             hrs_ago(2), "active", ThreadState::Unknown,
-                             "ran 02:00 \xc2\xb7 no new advisories");
-            s.messages = {
-                {"m1", Role::System,
-                 "Scheduled job: audit dependencies for known advisories, "
-                 "nightly at 02:00.",
-                 hrs_ago(2), ""},
-                {"m2", Role::Assistant,
-                 "Scanned 214 dependencies against the advisory DB. No new "
-                 "advisories since the last run. Nothing to do.",
-                 hrs_ago(2), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r2c", "metrics-digest-tick",
-                             hrs_ago(5), "active", ThreadState::Unknown,
-                             "posted the 9am digest \xc2\xb7 3 deltas");
-            s.messages = {
-                {"m1", Role::System,
-                 "Recurring: compile the morning metrics digest and post it.",
-                 hrs_ago(5), ""},
-                {"m2", Role::Assistant,
-                 "Compiled the digest: DAU +1.8%, p95 latency flat, 3 metrics "
-                 "moved beyond threshold. Posted to the team channel.",
-                 hrs_ago(5), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r3", "on you: pick the icon set for the settings redesign",
-                             hrs_ago(4), "active", ThreadState::Unknown,
-                             "narrowed to 2 options, need a call");
-            s.messages = {
-                {"m1", Role::User,
-                 "we need a consistent icon set for the settings panel. "
-                 "outline or filled?",
-                 hrs_ago(5), ""},
-                {"m2", Role::Assistant,
-                 "I mocked both against the current panel. Outline reads "
-                 "cleaner at 16px and matches the toolbar; filled has more "
-                 "presence but fights the text weight. My lean is outline. "
-                 "It's your call before I wire the whole set \xe2\x80\x94 which do you "
-                 "want?",
-                 hrs_ago(4), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r4", "Draft release notes for 4.2", hrs_ago(6),
-                             "active", ThreadState::Unknown,
-                             "first pass done, grouped by area");
+            s.summary = pf("r4", "oncall sweep finished \xe2\x80\x94 3 rows need "
+                                 "a look",
+                           51, "active", ThreadState::Ready, ThreadTag::Review,
+                           "first pass done, grouped by area");
             s.messages = {
                 {"m1", Role::User, "draft release notes for the 4.2 cut",
                  hrs_ago(7), ""},
@@ -994,361 +873,158 @@ class MockClient : public Client {
                  "Performance (9), Bug fixes (31), New (7), Internal (15). "
                  "First draft is written \xe2\x80\x94 want it terser, or is this the "
                  "right level of detail?",
-                 hrs_ago(6), ""},
+                 mins_ago(51), ""},
             };
             v.push_back(std::move(s));
         }
         {
             Session s;
-            s.summary = calm("r5", "why is the dashboard p95 latency up",
-                             hrs_ago(8), "active", ThreadState::Running,
-                             "pulling traces");
+            s.summary = pf("t5", "watchdog clean for 6h", 96, "active",
+                           ThreadState::Ready, ThreadTag::Review,
+                           "six hours clean, nothing to do");
             s.messages = {
-                {"m1", Role::User,
-                 "dashboard p95 jumped from 240ms to 900ms overnight. dig in.",
-                 hrs_ago(9), ""},
-                {"m2", Role::Assistant,
-                 "On it. Pulling the trace sample for the regressed window and "
-                 "diffing against yesterday. I'll surface the top offender when "
-                 "the sample lands \xe2\x80\x94 no action needed yet.",
+                {"m1", Role::System,
+                 "Watchdog: poll the dev CLI every five minutes and report a "
+                 "sustained failure.",
                  hrs_ago(8), ""},
-                {"m3", Role::Tool,
-                 "fetch traces window=6h sample=2000 \xe2\x86\x92 in progress",
-                 hrs_ago(8) + 120, "shell"},
+                {"m2", Role::Assistant,
+                 "Six hours of polling, every probe green. No restarts, no "
+                 "timeouts, no degraded window. There is nothing to fix here - "
+                 "read it and close it.",
+                 mins_ago(96), ""},
             };
             v.push_back(std::move(s));
         }
         {
             Session s;
-            s.summary = calm("r6", "clean up dead feature flags", hrs_ago(11),
-                             "active", ThreadState::Running,
-                             "scanning for stale flags");
+            s.summary = pf("t3", "style guide written", 140, "idle",
+                           ThreadState::Unknown, ThreadTag::Done,
+                           "three variants, brand-voice clean");
             s.messages = {
-                {"m1", Role::User,
-                 "find feature flags that have been at 100% for 90+ days and "
-                 "list the ones safe to remove",
-                 hrs_ago(12), ""},
+                {"m1", Role::System,
+                 "Task: draft welcome QP copy for new Stars creators. 3 "
+                 "variants, brand-voice compliant.",
+                 hrs_ago(4), ""},
                 {"m2", Role::Assistant,
-                 "Scanning the flag registry against rollout history now. I'll "
-                 "come back with a list plus the call sites for each \xe2\x80\x94 "
-                 "running quietly until then.",
-                 hrs_ago(11), ""},
-            };
-            s.sub_agents = {
-                {"r6s1", "Registry scan", SubAgentState::Done,
-                 "412 flags enumerated"},
-                {"r6s2", "Call-site trace", SubAgentState::Running,
-                 "resolving usages for the 90-day set"},
-            };
-            v.push_back(std::move(s));
-        }
-
-        // -- This week (days ago) --
-        {
-            Session s;
-            s.summary = calm("r7", "[P] Migrate the auth middleware off the deprecated API",
-                             days_ago(1), "active", ThreadState::Unknown,
-                             "PR up, one reviewer nit left");
-            s.messages = {
-                {"m1", Role::User,
-                 "the old session API is deprecated end of quarter. move the "
-                 "auth middleware to the new one.",
-                 days_ago(1) - 3600, ""},
-                {"m2", Role::Assistant,
-                 "Swapped all 14 call sites to the new session client, kept "
-                 "the old shim behind a flag for one release so we can roll "
-                 "back. Tests pass. PR is up.",
-                 days_ago(1) - 1800, ""},
-                {"m3", Role::Tool,
-                 "run auth suite \xe2\x86\x92 138 passed, 0 failed", days_ago(1) - 1200,
-                 "shell"},
-                {"m4", Role::User, "looks good, one nit on the shim comment",
-                 days_ago(1), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r8", "Add pagination to the events endpoint",
-                             days_ago(2), "active", ThreadState::Unknown,
-                             "DONE \xc2\xb7 cursor-based, shipped");
-            s.messages = {
-                {"m1", Role::User,
-                 "the /events endpoint returns everything and times out for "
-                 "big accounts. add pagination.",
-                 days_ago(2) - 7200, ""},
-                {"m2", Role::Assistant,
-                 "Added cursor-based pagination (opaque cursor, default page "
-                 "100, max 500) and kept the old unpaginated behavior behind a "
-                 "one-release deprecation header. Docs updated.",
-                 days_ago(2) - 3600, ""},
+                 "Three variants, all passing the brand-voice check:\n"
+                 "  A (warmest): Welcome - your fans can now support you "
+                 "directly. Let's set up Stars.\n"
+                 "  B (clearest): Stars are on. Turn on receiving to start "
+                 "earning from your fans.\n"
+                 "  C (shortest): You're in. Set up Stars.",
+                 hrs_ago(3), ""},
                 {"m3", Role::Assistant,
-                 "Shipped. Big-account fetch went from a 30s timeout to ~180ms "
-                 "per page. Marking this done.",
-                 days_ago(2), ""},
+                 "Wrote the style guide up from those three. B scored highest "
+                 "on clarity; A is warmest. Done here.",
+                 mins_ago(140), ""},
             };
             v.push_back(std::move(s));
         }
         {
             Session s;
-            s.summary = calm("r9", "look into the memory growth in the ingest service",
-                             days_ago(3), "active", ThreadState::Unknown,
-                             "heap dump analyzed, found the leak");
+            s.summary = pf("r2", "import failed twice", 200, "active",
+                           ThreadState::Attention, ThreadTag::Blocked,
+                           "reproduced locally, looks like a fixture race");
             s.messages = {
                 {"m1", Role::User,
-                 "ingest service RSS climbs ~2GB/day and only OOM-restarts "
-                 "reset it. leak?",
-                 days_ago(3) - 5400, ""},
+                 "checkout_flow_test fails ~1 in 20 on CI. can you figure out "
+                 "why?",
+                 hrs_ago(6), ""},
                 {"m2", Role::Assistant,
-                 "Grabbed a heap dump at hour 6 and hour 18 and diffed them. "
-                 "The growth is almost entirely one structure, so here's the "
-                 "full breakdown:\n\n"
-                 "1. ParserCache holds 1.7GB of the 1.9GB total delta.\n"
-                 "2. It's keyed by the FULL request payload (not a hash), so "
-                 "every unique body is a distinct entry.\n"
-                 "3. There is no eviction path at all \xe2\x80\x94 entries are "
-                 "inserted on parse and never removed.\n"
-                 "4. Ingest sees ~40k unique payloads/hour, so the map grows "
-                 "unbounded until the OOM killer resets the process.\n\n"
-                 "Contributing factors I ruled OUT:\n"
-                 "- Not the connection pool (steady at 64 sockets).\n"
-                 "- Not the metrics buffer (flushes every 10s, flat).\n"
-                 "- Not goroutine/thread leak (count is stable at ~120).\n"
-                 "- Not fragmentation (RSS tracks live-heap closely in the "
-                 "dump).\n\n"
-                 "The fix I'm applying:\n"
-                 "a. Replace the unbounded map with an LRU capped at 50k "
-                 "entries (~120MB at the observed avg entry size).\n"
-                 "b. Key by a 16-byte content hash instead of the full payload "
-                 "\xe2\x80\x94 drops per-entry overhead ~8x.\n"
-                 "c. Add a metric (parser_cache.entries + .evictions) so we "
-                 "can alert if it ever saturates again.\n"
-                 "d. Backfill a regression test that parses 200k unique "
-                 "payloads and asserts the cache stays bounded.\n\n"
-                 "Expected result: steady-state RSS drops from ~climbing-2GB/day "
-                 "to a flat ~400MB. Rolling it behind a flag so we can shadow "
-                 "it for a day before making it the default.",
-                 days_ago(3) - 1800, ""},
+                 "Pulled the last 40 CI runs \xe2\x80\x94 **6 failures**, all on the same "
+                 "assertion (`cart.total` off by one line item). Smells like a "
+                 "fixture setup race in `seed_cart()`. Running it in a tight "
+                 "loop locally.",
+                 hrs_ago(5), ""},
                 {"m3", Role::Tool,
-                 "heap diff \xe2\x86\x92 ParserCache 1.7GB / 1.9GB total growth",
-                 days_ago(3), "shell"},
+                 "for i in $(seq 1 50); do run checkout_flow_test; done \xe2\x86\x92 "
+                 "3/50 failed",
+                 hrs_ago(4), "shell"},
+                {"m4", Role::Assistant,
+                 "Reproduced. The seed fixture and the test both write to the "
+                 "cart before a barrier; the test occasionally reads mid-write. "
+                 "The import failed twice on the way through. I'll add an "
+                 "explicit await on fixture-ready \xe2\x80\x94 say go and I'll write it.",
+                 mins_ago(200), ""},
             };
+            for (auto& mm : s.messages)
+                if (mm.role == Role::User) mm.sync = api::SyncState::Synced;
             v.push_back(std::move(s));
         }
         {
             Session s;
-            s.summary = calm("r10", "review D551840 for me", days_ago(3),
-                             "active", ThreadState::Unknown,
-                             "read the diff, left 3 comments");
+            s.summary = pf("r10", "Navi PRs: oak + juno", 260, "idle",
+                           ThreadState::Unknown, ThreadTag::None,
+                           "read the diff, left 3 comments");
             s.messages = {
-                {"m1", Role::User, "can you review D551840 before I stamp it",
-                 days_ago(3) - 2400, ""},
+                {"m1", Role::User, "can you review the oak and juno PRs before I stamp them",
+                 hrs_ago(6), ""},
                 {"m2", Role::Assistant,
                  "Read all 240 lines. Logic is sound. Three things worth a "
                  "comment: the new retry has no jitter (thundering herd), one "
                  "error path swallows the cause, and the test only covers the "
                  "happy path. None are blockers \xe2\x80\x94 want me to draft the "
                  "comments?",
-                 days_ago(3), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r11", "prototype the bulk-export button", days_ago(4),
-                             "active", ThreadState::Unknown,
-                             "clickable prototype, needs backend");
-            s.messages = {
-                {"m1", Role::User,
-                 "users keep asking to export their whole history as CSV. "
-                 "prototype the UI so we can test the flow.",
-                 days_ago(4) - 6000, ""},
-                {"m2", Role::Assistant,
-                 "Built a clickable prototype: an Export button that opens a "
-                 "range picker, shows a progress toast, and drops a signed "
-                 "download link when ready. The generation is stubbed for now. "
-                 "Ready for you to click through.",
-                 days_ago(4), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r12", "Update the onboarding checklist copy",
-                             days_ago(5), "active", ThreadState::Unknown,
-                             "rewrote 6 steps, tone check passed");
-            s.messages = {
-                {"m1", Role::User,
-                 "the onboarding checklist reads like a legal doc. make it "
-                 "friendlier without losing the steps.",
-                 days_ago(5) - 1800, ""},
-                {"m2", Role::Assistant,
-                 "Rewrote all six steps in a warmer, second-person voice and "
-                 "cut the average step from 34 words to 16. Meaning is "
-                 "unchanged. Before/after is in the thread.",
-                 days_ago(5), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r13", "[P] wire up the new empty-state illustration",
-                             days_ago(6), "active", ThreadState::Unknown,
-                             "asset in, positioned, dark-mode variant left");
-            s.messages = {
-                {"m1", Role::User,
-                 "design dropped the new empty-state art. wire it into the "
-                 "list view when there are zero items.",
-                 days_ago(6) - 3600, ""},
-                {"m2", Role::Assistant,
-                 "Imported the asset, added the empty state with the "
-                 "illustration centered above the copy and CTA. Light mode is "
-                 "done. Need the dark-mode variant of the art before I finish "
-                 "\xe2\x80\x94 is there one, or should I tint the existing one?",
-                 days_ago(6), ""},
-            };
-            v.push_back(std::move(s));
-        }
-
-        // -- Earlier (weeks and months ago) --
-        {
-            Session s;
-            s.summary = calm("r14", "spike: is it worth caching the config layer",
-                             days_ago(12), "active", ThreadState::Unknown,
-                             "wrote up findings, marginal win");
-            s.messages = {
-                {"m1", Role::User,
-                 "config reads show up hot in profiles. worth adding a cache?",
-                 days_ago(12) - 3600, ""},
-                {"m2", Role::Assistant,
-                 "Benchmarked it. Config reads are 4% of request time but the "
-                 "values change often enough that a cache buys ~1.5% at the "
-                 "cost of invalidation complexity. My rec: not worth it yet; "
-                 "revisit if reads grow. Wrote up the numbers.",
-                 days_ago(12), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r15", "fix the timezone bug in the scheduler",
-                             days_ago(18), "active", ThreadState::Unknown,
-                             "DONE \xc2\xb7 was assuming server-local time");
-            s.messages = {
-                {"m1", Role::User,
-                 "recurring jobs fire an hour off for some users after DST. "
-                 "fix it.",
-                 days_ago(18) - 5400, ""},
-                {"m2", Role::Assistant,
-                 "The scheduler stored wall-clock times and re-derived the run "
-                 "instant in server-local time, so DST shifts drifted it. "
-                 "Switched to storing the user's IANA zone + local time and "
-                 "computing the UTC instant per-fire. Added DST-boundary tests.",
-                 days_ago(18), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r16", "draft the incident writeup for last week's outage",
-                             days_ago(21), "active", ThreadState::Unknown,
-                             "timeline + 3 action items drafted");
-            s.messages = {
-                {"m1", Role::User,
-                 "we need a blameless writeup for the 40-min outage. draft it "
-                 "from the timeline in the channel.",
-                 days_ago(21) - 3600, ""},
-                {"m2", Role::Assistant,
-                 "Drafted: root cause (a bad config push dropped the connection "
-                 "pool to 1), a minute-by-minute timeline, and three action "
-                 "items (staged config rollout, pool floor alarm, faster "
-                 "rollback). Kept it blameless. Ready for your review.",
-                 days_ago(21), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r17", "Refactor the notification templating",
-                             days_ago(34), "archived", ThreadState::Archived,
-                             "archived \xc2\xb7 landed last month");
-            s.messages = {
-                {"m1", Role::User,
-                 "the notification templates are copy-pasted across 5 channels. "
-                 "consolidate.",
-                 days_ago(34) - 7200, ""},
-                {"m2", Role::Assistant,
-                 "Pulled the shared structure into one template engine with "
-                 "per-channel overrides. Deleted ~600 lines of duplication. "
-                 "Landed and verified across all five channels. Archiving.",
-                 days_ago(34), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r18", "one-off: pull the top 50 slow queries",
-                             days_ago(47), "archived", ThreadState::Archived,
-                             "archived \xc2\xb7 report delivered");
-            s.messages = {
-                {"m1", Role::User,
-                 "give me the 50 slowest queries from the last week with call "
-                 "counts",
-                 days_ago(47) - 1800, ""},
-                {"m2", Role::Tool,
-                 "query slow_log order by total_time desc limit 50 \xe2\x86\x92 50 rows",
-                 days_ago(47) - 900, "sql"},
-                {"m3", Role::Assistant,
-                 "Report delivered. The top 3 alone account for 38% of DB "
-                 "time; all three are missing the same composite index. Noted "
-                 "in the thread. Nothing else needed \xe2\x80\x94 archiving.",
-                 days_ago(47), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r19", "old spike: evaluate the graph library swap",
-                             days_ago(72), "archived", ThreadState::Archived,
-                             "archived \xc2\xb7 decided against");
-            s.messages = {
-                {"m1", Role::Assistant,
-                 "Evaluated the alternative graph lib. It's faster on huge "
-                 "graphs but our graphs are small and the migration cost is "
-                 "high. Recommended staying put. Archiving for reference.",
-                 days_ago(72), ""},
-            };
-            v.push_back(std::move(s));
-        }
-        {
-            Session s;
-            s.summary = calm("r20", "[P] investigate customer-reported data mismatch",
-                             days_ago(96), "archived", ThreadState::Archived,
-                             "archived \xc2\xb7 root-caused + fixed");
-            s.messages = {
-                {"m1", Role::User,
-                 "a customer says their totals don't match between the app and "
-                 "the export. can you reproduce?",
-                 days_ago(96) - 9000, ""},
-                {"m2", Role::Assistant,
-                 "Reproduced with their account shape. The export summed "
-                 "pre-refund amounts while the app summed post-refund. Aligned "
-                 "the export to post-refund and backfilled the affected "
-                 "exports. Confirmed with the customer's numbers.",
-                 days_ago(96) - 3600, ""},
-                {"m3", Role::Tool,
-                 "verify export totals vs app for acct sample \xe2\x86\x92 match",
-                 days_ago(96), "shell"},
+                 mins_ago(260), ""},
             };
             s.sub_agents = {
-                {"r20s1", "Repro on sample account", SubAgentState::Done,
-                 "mismatch reproduced"},
-                {"r20s2", "Backfill affected exports", SubAgentState::Done,
-                 "1,204 exports corrected"},
+                {"r10s1", "verify oak", SubAgentState::Done, "clean"},
             };
             v.push_back(std::move(s));
         }
-
+        {
+            Session s;
+            s.summary = pf("r9", "row 133 banyan diff gate", 300, "active",
+                           ThreadState::Attention, ThreadTag::Blocked,
+                           "the gate failed, nothing landed");
+            s.messages = {
+                {"m1", Role::System,
+                 "Task: take row 133 through the diff gate.",
+                 hrs_ago(7), ""},
+                {"m2", Role::Assistant,
+                 "The gate refused it: the diff touches a generated file that "
+                 "is not regenerated in the same change, so the check can "
+                 "never go green as written. Nothing landed. This one needs a "
+                 "call before I redo it.",
+                 mins_ago(300), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("t10", "parent \xe2\x80\x94 nothing to report", 300.5,
+                           "idle", ThreadState::Unknown, ThreadTag::None,
+                           "concluded, kept for reference");
+            s.messages = {
+                {"m1", Role::System,
+                 "Experiment concluded - kept for reference.", hrs_ago(9), ""},
+                {"m2", Role::Assistant,
+                 "Result was flat. The helper I spawned finished long ago and "
+                 "agreed. Nothing to report.",
+                 mins_ago(300), ""},
+            };
+            s.sub_agents = {
+                {"t10s1", "done long ago", SubAgentState::Done,
+                 "agreed with the read"},
+            };
+            v.push_back(std::move(s));
+        }
+        {
+            Session s;
+            s.summary = pf("r11", "PSC daily post generator", 420, "idle",
+                           ThreadState::Unknown, ThreadTag::None,
+                           "posted this morning, no deltas");
+            s.messages = {
+                {"m1", Role::System,
+                 "Recurring: assemble the daily post and put it up.",
+                 hrs_ago(9), ""},
+                {"m2", Role::Assistant,
+                 "Assembled and posted. Nothing moved beyond threshold, so the "
+                 "post is the short form today.",
+                 mins_ago(420), ""},
+            };
+            v.push_back(std::move(s));
+        }
         // MARKDOWN FIXTURE: one reply whose structure is carried by headings,
         // seeded only under HANABI_MD_DEMO so the ordinary mock list is
         // unchanged. Every level 1-4 appears once, plus a "#42" line that must

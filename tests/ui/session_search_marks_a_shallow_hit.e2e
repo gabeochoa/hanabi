@@ -1,6 +1,6 @@
 # A result we only read the outside of says so on its own row.
 #
-# "payout" is in two threads: the one whose transcript is in memory, and one
+# "decision" is in two threads: the one whose transcript is in memory, and one
 # that has never been opened on this machine — for that one the search saw a
 # title and a preview and nothing else. Both are worth showing; only one of
 # them is evidence that the word appears in the conversation, and a list that
@@ -10,10 +10,10 @@
 # (afterhours_gaps.md #49).
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_XSEARCH_DEMO=payout
+# env: HANABI_XSEARCH_DEMO=decision
 
 # The thread we hold in full: no qualifier on the row.
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision before it can go on"
 
 # The thread we do not: marked, on the row itself.
-expect_text "Payout worker race fix  (title and preview only)"
+expect_text "auto-stars — stars decision on you  (title and preview only)"

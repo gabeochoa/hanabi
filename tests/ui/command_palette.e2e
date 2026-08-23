@@ -18,10 +18,10 @@ expect_text "Keyboard shortcuts"
 # Typing filters to matching threads as well as actions.
 click_ui palette_input
 wait_frames 4
-type "payout"
+type "decision before"
 wait_frames 8
 expect_no_text "Show or hide the sidebar"
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision"
 
 # Return opens what is selected — the thread, in its own tab.
 key ENTER
