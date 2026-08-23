@@ -720,8 +720,45 @@ static void request_test_opens(ecs::AppComponent* app) {
         app->requestSplitOpen = sid;
 }
 
+// HANABI_THINK_DEMO=1 forces the live "thinking" indicator (pulsing dot +
+// Thinking… + timer) into the open thread so it can be captured and scripted.
+//
+// Idempotent ON PURPOSE, and that is the whole fix: the loader finishes its
+// async transcript fetch during the settle frames and REPLACES openSession,
+// which used to drop the injected live message and take the indicator with it
+// — the 26_thinking_dark screenshot has been photographing a thread with no
+// indicator in it. Re-applying after the settle is what makes the knob honest,
+// so it must be safe to call twice.
+static void apply_stream_demo(ecs::AppComponent* app) {
+    if (app == nullptr || !app->openSession) return;
+    const char* th = std::getenv("HANABI_THINK_DEMO");
+    if (!(th && *th && std::string(th) != "0")) return;
+
+    auto& msgs = app->openSession->messages;
+    if (msgs.empty() || msgs.back().id != "__thinking_demo__") {
+        api::Message live;
+        live.role = api::Role::Assistant;
+        live.id = "__thinking_demo__";
+        live.text = "";
+        msgs.push_back(live);
+    }
+    app->streamActive = true;
+    app->streamSessionId = app->openSession->summary.id;
+    app->streamMsgIndex = msgs.size() - 1;
+    app->selectedId = app->openSession->summary.id;
+    app->streamPhase = ecs::AppComponent::StreamPhase::Thinking;
+    // Without this the loader finds a stream with no chunks left and finishes
+    // it on the next tick, one frame after the knob runs.
+    app->streamDemoHold = true;
+    // Re-stamped on every application so the timer reads the same 32s however
+    // many times this runs — a drifting number would rot every baseline.
+    app->streamStartedAt = static_cast<int64_t>(std::time(nullptr)) - 32;
+    app->view = ecs::SmartView::Chat;
+}
+
 static void apply_test_knobs(ecs::AppComponent* app) {
     if (app == nullptr) return;
+    apply_stream_demo(app);
     // Screenshot affordance: HANABI_VIEW=blocked|review|starred|home forces
     // the landing smart-view so a headless capture can photograph any view
     // (including an empty one) without a click. Set AFTER the wait loop so a
@@ -966,26 +1003,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 graphics::end_frame();
             }
         }
-        // Screenshot affordance: HANABI_THINK_DEMO=1 forces the live "thinking"
-        // indicator (pulsing dot + Thinking… + timer) so it can be captured
-        // headlessly. Appends a live empty assistant message to the open thread
-        // and sets streamPhase=Thinking with a start time a few seconds back.
-        if (const char* th = std::getenv("HANABI_THINK_DEMO");
-            th && *th && std::string(th) != "0" && appForWait->openSession) {
-            api::Message live;
-            live.role = api::Role::Assistant;
-            live.id = "__thinking_demo__";
-            live.text = "";
-            appForWait->openSession->messages.push_back(live);
-            appForWait->streamActive = true;
-            appForWait->streamSessionId = appForWait->openSession->summary.id;
-            appForWait->streamMsgIndex =
-                appForWait->openSession->messages.size() - 1;
-            appForWait->selectedId = appForWait->openSession->summary.id;
-            appForWait->streamPhase = ecs::AppComponent::StreamPhase::Thinking;
-            appForWait->streamStartedAt =
-                static_cast<int64_t>(std::time(nullptr)) - 32;  // "32s"
-            appForWait->view = ecs::SmartView::Chat;
+        apply_stream_demo(appForWait);
+        if (std::getenv("HANABI_THINK_DEMO")) {
             for (int p = 0; p < 4; ++p) {
                 graphics::begin_frame();
                 graphics::clear_background(theme::window_bg());
@@ -1042,6 +1061,18 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                      .gen();
         if (!q.empty()) {
             auto& app = q[0].get().get<ecs::AppComponent>();
+            // The settle frames are exactly when the loader replaces the open
+            // session, so anything injected before them is gone by now. Put it
+            // back and give it frames to lay out.
+            apply_stream_demo(&app);
+            if (std::getenv("HANABI_THINK_DEMO")) {
+                for (int p = 0; p < 6; ++p) {
+                    graphics::begin_frame();
+                    graphics::clear_background(theme::window_bg());
+                    sm.run(1.0f / 60.0f);
+                    graphics::end_frame();
+                }
+            }
             log_info("Headless capture: {} sessions, listState={}",
                      app.sessions.size(), (int)app.listState);
         }
@@ -1268,6 +1299,16 @@ static int run_e2e(const std::string& path, int w, int h) {
     int frames = 0;
     while (!runner.is_finished() && frames++ < kMaxFrames) {
         t::test_input::reset_frame();
+        // The loader owns openSession and replaces it whenever a fetch lands,
+        // which takes any injected demo state with it. A demo state has to be
+        // re-asserted, not set once — this is a no-op unless its knob is set.
+        if (std::getenv("HANABI_THINK_DEMO")) {
+            auto q = EntityQuery({.force_merge = true})
+                         .whereHasComponent<ecs::AppComponent>()
+                         .gen();
+            if (!q.empty())
+                apply_stream_demo(&q[0].get().get<ecs::AppComponent>());
+        }
         runner.tick(kDt);
         graphics::begin_frame();
         graphics::clear_background(theme::window_bg());

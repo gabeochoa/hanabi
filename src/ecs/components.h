@@ -357,6 +357,12 @@ struct AppComponent : public afterhours::BaseComponent {
     // live "thinking" indicator can show an elapsed timer ("Thinking… · 32s").
     // 0 = not started. Set when a stream/steer kicks off; cleared on Done/Idle.
     int64_t streamStartedAt = 0;
+    // Test-only: hold the live turn in whatever phase it was put in, instead
+    // of letting the loader complete it. A demo stream has no chunks, so the
+    // loader declares it Done on the very next tick -- which is why the
+    // "thinking" state was unphotographable and unscriptable for months. Set
+    // only by the headless knob in main.cpp; false in every real run.
+    bool streamDemoHold = false;
     std::string streamBuffer;          // the in-progress assistant text so far.
     std::vector<std::string> streamQueue;  // remaining ordered text chunks.
     size_t streamCursor = 0;           // index of the next chunk to drain.
