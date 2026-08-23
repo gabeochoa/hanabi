@@ -38,6 +38,7 @@
 #include "ecs/components.h"
 #include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
+#include "ecs/arrow_system.h"
 #include "ecs/escape_system.h"
 #include "ecs/rename_modal_system.h"
 #include "ecs/layout_system.h"
@@ -309,6 +310,9 @@ static void build_systems(afterhours::SystemManager& sm) {
 
     // Resolve Esc before anything reads it, so one keystroke means one thing.
     sm.register_update_system(std::make_unique<ecs::EscapeSystem>());
+    // Same for Up/Down, which the composer, the transcript and the lists all
+    // want.
+    sm.register_update_system(std::make_unique<ecs::ArrowSystem>());
 
     // UI-creating systems (draw order: later on top).
     sm.register_update_system(std::make_unique<ecs::SidebarSystem>());

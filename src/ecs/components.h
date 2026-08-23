@@ -56,6 +56,17 @@ enum class EscapeIntent {
     ClearTranscript,
 };
 
+// What Up/Down mean on THIS frame. Read once by ArrowSystem (arrow_system.h)
+// and resolved by what owns the keyboard, so one keystroke moves one thing:
+// the caret/history in a focused field, the transcript's scroll, or a list's
+// selection. None = nothing may move (an overlay is up, or no arrow).
+enum class ArrowIntent {
+    None,
+    TextField,
+    Transcript,
+    List,
+};
+
 // Singleton: owns the API client and the whole app's data + view state.
 struct AppComponent : public afterhours::BaseComponent {
     std::unique_ptr<api::Client> client;
@@ -257,6 +268,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // Resolved by EscapeSystem at the top of the frame; read by whichever site
     // owns that intent. Reset to None every frame.
     EscapeIntent escape = EscapeIntent::None;
+    // This frame's arrow intent + its direction (-1 up, +1 down, 0 none).
+    ArrowIntent arrow = ArrowIntent::None;
+    int arrowDelta = 0;
+    // The list row the keyboard is on (a session id), for the digest lists in
+    // Home and the smart views. Empty = no cursor; the first arrow press puts
+    // one on the nearest end of the list.
+    std::string listCursorId;
     std::string findQuery;
     int findIndex = 0;    // which match is current, 0-based
     int findCount = 0;    // matches on the last rendered frame (for "3 of 12")
@@ -660,5 +678,12 @@ struct TabStripComponent : public afterhours::BaseComponent {
         menuTabId = std::numeric_limits<afterhours::EntityID>::max();
     }
 };
+
+// Is a modal sheet covering the app? Keyboard navigation behind one moves
+// something the reader cannot see, so every key owner asks this first.
+inline bool overlay_up(const AppComponent& app) {
+    return app.renameOpen || app.composerOpen || app.showShortcuts ||
+           app.showSettings || app.showAuth;
+}
 
 }  // namespace ecs

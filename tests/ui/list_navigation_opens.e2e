@@ -1,0 +1,27 @@
+# Return opens the row the cursor is on, and the cursor stops at the end.
+#
+# Three Downs on a two-row list: the second lands on the last row and the
+# third has nowhere to go. Clamping, not wrapping — a list whose end you can
+# see should not teleport you back to the top. Return then opens THAT row,
+# which is asserted through text only its transcript has, so the assertion
+# fails if the cursor was on the other row.
+#
+# The view is switched by coordinate because every smart view shares one
+# debug name (see smart_view_switch.e2e, same click).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click 60 151
+wait_frames 6
+expect_text "Blocked on you"
+
+key DOWN
+wait_frames 6
+key DOWN
+wait_frames 6
+key DOWN
+wait_frames 6
+
+key ENTER
+wait_frames 60
+expect_text "land the multi-tier pricing config"
