@@ -24,6 +24,8 @@ static int g_failures = 0;
 using api::agentcloud::auth_config_from_env;
 using api::agentcloud::percent_encode;
 using api::agentcloud::parse_sessions_reply;
+using api::agentcloud::parse_page_frames;
+using api::Role;
 using api::ThreadState;
 using api::ThreadTag;
 
@@ -200,6 +202,123 @@ static void test_per_session_scratch_workspace_is_not_a_folder() {
     CHECK(out[1].folder == "/tmp");  // a real directory still groups
 }
 
+
+// --- the keyed fold ---------------------------------------------------------
+// Shapes copied from a live `page` reply. The wire carries EVENTS, not
+// messages: a tool row is assembled from up to three frames arriving apart.
+
+static void test_user_and_assistant_text_become_messages() {
+    const std::string reply = R"({"type":"page","done":true,"frames":[
+      {"seq":1,"created_at_unix_ms":1700000000000,
+       "event":{"type":"user_input","text":"hello"}},
+      {"seq":2,"created_at_unix_ms":1700000002000,
+       "event":{"type":"block","block":{"kind":"text","text":"hi back"}}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 2);
+    CHECK(out[0].role == Role::User);
+    CHECK(out[0].text == "hello");
+    // Milliseconds on the wire, seconds in Message.
+    CHECK(out[0].created_at == 1700000000);
+    CHECK(out[1].role == Role::Assistant);
+    CHECK(out[1].text == "hi back");
+}
+
+static void test_thinking_is_marked_not_presented_as_speech() {
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":1,"event":{"type":"block","block":{"kind":"thinking","text":"hmm"}}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].subtitle == "thinking");
+}
+
+static void test_tool_result_folds_back_into_its_intent() {
+    // The result names the intent's SEQ and arrives later; it must complete
+    // that row rather than append one of its own.
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":10,"created_at_unix_ms":1700000000000,
+       "event":{"type":"tool_intent","tool":"bash",
+                "input":"{\"command\":\"ls -l\"}"}},
+      {"seq":11,"event":{"type":"tool_node_selected","intent":10,
+                         "node_id":"host.example"}},
+      {"seq":12,"created_at_unix_ms":1700000003000,
+       "event":{"type":"tool_result","intent":10,
+                "outcome":{"outcome":"success",
+                           "content":{"text":"total 0"}}}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);              // three frames, ONE row
+    CHECK(out[0].role == Role::Tool);
+    CHECK(out[0].subtitle == "bash");
+    // The command, not {"command":"ls -l"}.
+    CHECK(out[0].text == "ls -l");
+    CHECK(out[0].tool_status == "completed");
+    CHECK(out[0].tool_result == "total 0");
+    CHECK(out[0].tool_node == "host.example");
+    CHECK(out[0].tool_duration_ms == 3000);
+}
+
+static void test_failed_tool_reports_failed() {
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":10,"event":{"type":"tool_intent","tool":"bash","input":"{}"}},
+      {"seq":11,"event":{"type":"tool_result","intent":10,
+                         "outcome":{"outcome":"error"}}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].tool_status == "failed");
+}
+
+static void test_result_for_an_offpage_intent_is_dropped() {
+    // Paging backwards splits turns: a result whose intent is older than this
+    // page has no row to complete, and must not invent one.
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":11,"event":{"type":"tool_result","intent":999,
+                         "outcome":{"outcome":"success"}}}
+    ]})";
+    CHECK(parse_page_frames(reply).empty());
+}
+
+static void test_tool_use_block_does_not_double_the_row() {
+    // The model ANNOUNCES a call as a block and the call itself arrives as
+    // tool_intent with the same call_id. Rendering both doubles every tool row.
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":1,"event":{"type":"block","block":{"kind":"tool_use",
+        "call_id":"c1","tool":"bash","input":"{}"}}},
+      {"seq":2,"event":{"type":"tool_intent","call_id":"c1","tool":"bash",
+        "input":"{\"command\":\"true\"}"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].role == Role::Tool);
+}
+
+static void test_unknown_events_fold_as_nothing() {
+    // The server says the vocabulary grows. A new variant must not throw and
+    // must not render as a blank row.
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":1,"event":{"type":"run_started"}},
+      {"seq":2,"event":{"type":"model_call_settled"}},
+      {"seq":3,"event":{"type":"something_invented_next_quarter","x":1}},
+      {"seq":4,"event":{"type":"user_input","text":"still here"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].text == "still here");
+}
+
+static void test_bad_page_input_is_empty_not_a_crash() {
+    CHECK(parse_page_frames("").empty());
+    CHECK(parse_page_frames("not json").empty());
+    CHECK(parse_page_frames(R"({"type":"page"})").empty());
+    CHECK(parse_page_frames(R"({"type":"page","frames":{}})").empty());
+    // Empty text must not become an empty bubble.
+    CHECK(parse_page_frames(
+              R"({"type":"page","frames":[{"seq":1,"event":{"type":"user_input","text":""}}]})")
+              .empty());
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -217,6 +336,14 @@ int main() {
     test_unreadable_input_is_empty_not_a_crash();
     test_workspace_becomes_the_folder();
     test_per_session_scratch_workspace_is_not_a_folder();
+    test_user_and_assistant_text_become_messages();
+    test_thinking_is_marked_not_presented_as_speech();
+    test_tool_result_folds_back_into_its_intent();
+    test_failed_tool_reports_failed();
+    test_result_for_an_offpage_intent_is_dropped();
+    test_tool_use_block_does_not_double_the_row();
+    test_unknown_events_fold_as_nothing();
+    test_bad_page_input_is_empty_not_a_crash();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

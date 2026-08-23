@@ -33,10 +33,8 @@ class AgentcloudClient : public Client {
 
     Result<std::vector<SessionSummary>> list_sessions() override;
 
-    // Needs attach + the keyed fold. Not this slice; returns unsupported
-    // rather than an empty session, so a caller cannot mistake "not built" for
-    // "this conversation is empty".
     Result<Session> get_session(const std::string& id) override;
+    Result<Session> get_session(const std::string& id, int limit) override;
 
     std::string backend_label() const override;
 
@@ -45,11 +43,17 @@ class AgentcloudClient : public Client {
     [[nodiscard]] bool ready() const { return auth_.config().configured(); }
 
    private:
-    // One request/reply over a short-lived socket. Returns the decoded `msg`
-    // object as raw JSON text, or empty with *error set.
+    // One request/reply over a short-lived socket on the control channel.
+    // Returns the decoded `msg` object as raw JSON text, or empty with *error.
     std::string round_trip(const std::string& payload_json,
                            const std::string& expect_type,
                            std::string* error);
+
+    // attach + page on ONE socket: attach binds the principal for the
+    // subscription and page inherits it, so splitting them would re-attach for
+    // nothing. Fills `out` and returns the hello `msg` JSON, or empty + *error.
+    std::string attach_and_page(const std::string& id, int limit, Session* out,
+                                std::string* error);
 
     agentcloud::TokenCache auth_;
 };
@@ -65,6 +69,19 @@ namespace agentcloud {
 //
 // Returns empty for anything it cannot read; never throws.
 std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json);
+
+// A `page` reply's frames -> transcript messages, oldest first.
+//
+// This is the keyed fold, and the reason it is not a message list: the wire
+// carries EVENTS, and a turn is assembled from several of them. An assistant
+// paragraph is a `block{kind:text}`; a tool call is a `tool_intent` whose
+// result arrives later as a separate `tool_result` naming the intent's seq.
+// So tool rows are completed retroactively rather than parsed in place.
+//
+// Unknown event types fold as nothing and never throw -- the server's own
+// contract is that the vocabulary grows, and one new variant must not take the
+// transcript down with it.
+std::vector<Message> parse_page_frames(const std::string& msg_json);
 
 }  // namespace agentcloud
 
