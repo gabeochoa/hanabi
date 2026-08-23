@@ -23,6 +23,7 @@
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
 #include "../ui/link_detect.h"
+#include "../ui/minimap.h"
 #include "../ui/find_operators.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
@@ -1867,6 +1868,132 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         bool showAuthor = true;
     };
 
+    // ---- Minimap rail -----------------------------------------------------
+    // One slot per ITEM — the list the transcript measured and virtualized
+    // from, handed in rather than rebuilt, so the rail and the transcript can
+    // never disagree about what is in the thread or in which order (see
+    // src/ui/minimap.h).
+    //
+    // The slots are real elements, not a painted strip with arithmetic behind
+    // it: a click then lands on the item it is drawn over, and the jump uses
+    // that item's OWN measured top instead of a fraction of the rail. Each
+    // slot draws its own mark in on_draw_fg.
+    void minimap_rail(UIContext<InputAction>& ctx, Entity& parent,
+                      Entity& scrollEnt, const std::vector<Item>& items,
+                      const std::vector<api::Message>& msgs, float subH,
+                      float paneW, float railTopY, float listH, float totalH,
+                      float viewH, float scrollY, bool& follow) {
+        if (items.empty() ||
+            !hanabi::minimap::worth_showing(totalH, viewH) ||
+            !scrollEnt.has<afterhours::ui::HasScrollView>())
+            return;
+        const float railH = listH - 12.0f;
+        if (railH < 40.0f) return;
+        const float railX = paneW - hanabi::minimap::kRailW -
+                            hanabi::minimap::kRailInset;
+        const float railY = railTopY + 6.0f;
+
+        auto rail = div(ctx, mk(parent, 7400),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(hanabi::minimap::kRailW),
+                                         pixels(railH)})
+                .with_absolute_position()
+                .with_translate(railX, railY)
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_render_layer(8)
+                .with_on_draw_bg([](RectangleType r) {
+                    afterhours::draw_rectangle_rounded(r, 0.5f, 6,
+                                                       theme::panel_bg_2());
+                })
+                .with_debug_name("minimap_rail"));
+
+        // Wider marks while the pointer is on the rail: the strip is thin
+        // enough to be easy to miss, and a rail that answers the cursor is how
+        // the reader learns it is a control at all.
+        const bool hot = ctx.mouse_was_in_subtree(rail.ent().id);
+
+        // The rail is the whole CONTENT, and the content starts with the
+        // sub-agent rollup rather than with items[0]. Without its share of the
+        // rail every mark below would sit high by that much, and the further
+        // down the thread the more of a lie the mark's position tells.
+        const float leadH = hanabi::minimap::slot_h(subH, totalH, railH);
+        if (leadH > 0.0f)
+            div(ctx, mk(rail.ent(), 900),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(leadH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("minimap_lead"));
+
+        float top = subH;  // content-y of the first item, as pass 2 walks it
+        for (size_t i = 0; i < items.size(); ++i) {
+            const Item& it = items[i];
+            const float itemTop = top;
+            top += it.height;
+            const float h =
+                hanabi::minimap::slot_h(it.height, totalH, railH);
+            if (h <= 0.0f) continue;
+            hanabi::minimap::Mark mark = hanabi::minimap::Mark::Note;
+            switch (it.kind) {
+                case Item::ToolPile:
+                case Item::ToolBlock:
+                    mark = hanabi::minimap::Mark::Machinery;
+                    break;
+                case Item::Spawn: mark = hanabi::minimap::Mark::Notice; break;
+                case Item::Bubble:
+                    mark = (it.lo < static_cast<int>(msgs.size()) &&
+                            msgs[static_cast<size_t>(it.lo)].role ==
+                                api::Role::User)
+                               ? hanabi::minimap::Mark::Ask
+                               : hanabi::minimap::Mark::Reply;
+                    break;
+                default: mark = hanabi::minimap::Mark::Note; break;
+            }
+            auto slot = button(ctx, mk(rail.ent(), static_cast<int>(i) + 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(h)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([mark, hot](RectangleType r) {
+                        hanabi::minimap::draw_mark(r, mark, hot);
+                    })
+                    .with_debug_name("minimap_mark_" + std::to_string(i)));
+            if (slot) {
+                auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
+                const float want = std::max(0.0f, itemTop - 12.0f);
+                sv.scroll_offset.y = want;
+                hanabi::set_scroll_target_y(sv, want);
+                sv.clamp_scroll();
+                // Going somewhere is leaving the bottom, the same as scrolling
+                // up by hand: without this the follow-latch drags the view
+                // straight back to the newest message.
+                follow = false;
+            }
+        }
+
+        // Where the viewport is, drawn LAST: the render buffer takes a
+        // parent's own foreground before its children, so a scrubber painted
+        // by the rail itself would sit under every mark.
+        div(ctx, mk(rail.ent(), 950),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(hanabi::minimap::kRailW),
+                                         pixels(railH)})
+                .with_absolute_position()
+                .with_translate(0.0f, 0.0f)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg([scrollY, viewH, totalH](RectangleType r) {
+                    hanabi::minimap::draw_scrubber(r, scrollY, viewH, totalH);
+                })
+                .with_debug_name("minimap_scrubber"));
+    }
+
     static ecs::model::TranscriptRenderCache& render_cache() {
         static ecs::model::TranscriptRenderCache c;
         return c;
@@ -3371,6 +3498,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.scrollBottomPending == curId) {
             app.scrollBottomPending.clear();
         }
+
+        // The rail. Rendered after the pin above so a click on it wins the
+        // frame it happens in, exactly as the jump-to-bottom button does.
+        minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
+                     kHeaderH, listH, totalH, viewH, scrollY, s_follow);
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to
         // the bottom-right of the transcript pane, shown only when the user is

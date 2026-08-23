@@ -2943,3 +2943,43 @@ should.
   full label once, then draw each run at the offset its byte range has in that
   measurement. That is the same trick `find_highlight.h` performs from outside
   to place a band, so the geometry is known to be available.
+
+---
+
+### #63 — A container cannot draw over its own children
+
+**What I was building.** The minimap rail (`src/ui/minimap.h`): a thin strip of
+per-item marks with a scrubber over them saying where the viewport currently
+sits. The rail is one element; each mark is a child of it, so a click lands on
+the item it is drawn over. The scrubber belongs to the rail — it is about the
+whole strip, not about any one mark.
+
+**What I tried.** Drew the scrubber from the rail's own `on_draw_fg`, which is
+documented as "custom draw (on top): enqueued after all of the widget's own
+primitives".
+
+**What happened.** It disappeared under the marks. "On top" means on top of
+that widget's OWN fill, label and image — the render collector enqueues a
+parent's `fg` and only then descends into its children
+(`plugins/ui/rendering.h`, `collect()`), so every child draws over the
+foreground of the container that holds it. There is one draw order and no way
+to ask for a pass after the subtree.
+
+**The workaround, and its cost.** An extra absolutely-positioned child, added
+LAST, the same size as the rail, whose only job is to run the draw the parent
+wanted to run: `minimap_scrubber` in `main_pane_system.h`. It works, and it
+costs an entity per overlay plus a comment explaining why the code does not say
+what it means. The real cost is that the ordering is now implicit in the order
+the children happen to be built — a child appended after it (a future mark
+type, a hover label) silently paints over the scrubber again, and nothing
+fails.
+
+**Severity: a papercut with a reliable workaround.** Any widget that wants a
+frame, a focus ring, an overlay or a selection band over a subtree it owns hits
+this. Every one of them can add a trailing absolute child.
+
+**Minimal upstream fix.** An `on_draw_over` callback on `HasOnDraw` enqueued by
+`collect()` AFTER the child loop, so a container can paint over the subtree it
+owns without owning an extra entity to do it. The buffer already carries
+per-entity custom draws; this is one more insertion point in the walk that is
+already there.
