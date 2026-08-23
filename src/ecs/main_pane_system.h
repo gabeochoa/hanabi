@@ -4133,7 +4133,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("composer_rightmeta"));
 
         const std::string currentModel = Settings::get().get_default_model();
-        auto modelChip = button(ctx, mk(rightMeta.ent(), 1),
+        auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
             ComponentConfig{}
                 .with_label(hanabi::models::display_name(currentModel))
                 .with_size(ComponentSize{children(), pixels(18)})
@@ -4157,7 +4157,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The effort chip, right of the model: how hard the model is asked to
         // think on the work you start next.
         const std::string currentEffort = Settings::get().get_default_effort();
-        auto effortChip = button(ctx, mk(rightMeta.ent(), 2),
+        auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
             ComponentConfig{}
                 .with_label("Effort: " +
                             hanabi::effort::display_name(currentEffort))
@@ -4238,34 +4238,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                   : "Enter";
             caption = std::string(key) + (steerMode ? " to steer" : " to send");
         }
-        if (!caption.empty()) {
-            div(ctx, mk(leftMeta.ent(), 11),
-                ComponentConfig{}
-                    .with_label(caption)
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.right = pixels(10)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_debug_name("composer_status"));
-        }
-        // A live selection says how much is on the clipboard's doorstep. It
-        // also confirms the selection exists at all: the band is drawn behind
-        // text and easy to miss on a short run.
-        if (const std::string sel = hanabi::text_select::selected_text();
-            !sel.empty()) {
-            div(ctx, mk(leftMeta.ent(), 14),
-                ComponentConfig{}
-                    .with_label(std::to_string(sel.size()) + " selected")
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.right = pixels(10)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_debug_name("composer_selected"));
-        }
         // Conversation size against the budget that will compact it. The
         // numerator is the provider's own count when the backend reports one
         // and a chars/4 estimate otherwise, and only the estimate wears a "~".
@@ -4325,6 +4297,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // The status caption rides at the end of the left cluster: what is
+        // happening, or which key sends. Puffin has no equivalent — its strip
+        // is meter and pills only — but the key hint is the fix for "HOW DO I
+        // SEND A MESSAGE" and a scripted test asserts it.
+        if (!caption.empty()) {
+            div(ctx, mk(leftMeta.ent(), 11),
+                ComponentConfig{}
+                    .with_label(caption)
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("composer_status"));
+        }
+        // A live selection says how much is on the clipboard's doorstep. It
+        // also confirms the selection exists at all: the band is drawn behind
+        // text and easy to miss on a short run.
+        if (const std::string sel = hanabi::text_select::selected_text();
+            !sel.empty()) {
+            div(ctx, mk(leftMeta.ent(), 14),
+                ComponentConfig{}
+                    .with_label(std::to_string(sel.size()) + " selected")
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("composer_selected"));
+        }
+
         render_attachments(ctx, bar.ent(), app);
 
         auto row = div(ctx, mk(bar.ent(), 2),
@@ -4360,7 +4365,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(inputW), pixels(kInputH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(JustifyContent::Center)
+                .with_justify_content(JustifyContent::FlexStart)
                 .with_margin(Margin{.right = pixels(kSendGap)})
                 // An OUTLINE on the strip colour, not a filled pill: Puffin's
                 // input interior is the window colour and only the 1px border
@@ -4390,11 +4395,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const char* placeholder = kickoff ? "Start a new conversation\xe2\x80\xa6"
                                   : phSteer ? "Steer the running agent\xe2\x80\xa6"
                                             : "Message hanabi\xe2\x80\xa6";
+        // The FIELD inside the box is 29px, not the box's 45. Not a style
+        // choice: text_input derives its inner padding from the field height
+        // (pad_w = h*0.35) and overwrites whatever with_padding the caller
+        // passed, so the only way to ask for Puffin's 10px text inset is to
+        // pick the height that yields it — 10/0.35 = 28.6. The box still reads
+        // as 45px tall because the wrap owns the border and centres the field
+        // inside it. See afterhours_gaps.md #65.
+        constexpr float kFieldH = 29.0f;
         auto inputRes = afterhours::ui::imm::text_input(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
                 .with_placeholder(placeholder)
-                .with_size(ComponentSize{percent(1.0f), pixels(kInputH)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::BODY)

@@ -3028,3 +3028,123 @@ extend, so ordering is declared once instead of rediscovered per call site;
 (b) a border mode that draws with the parent's foreground pass rather than its
 background one, so `with_border_right` survives its own children (this is #63's
 `on_draw_over` by another name — one fix would serve both).
+
+### #65 — `text_input`'s inner padding is derived from field HEIGHT and cannot be overridden
+
+- **What I was trying to build.** Puffin's composer input: a 45px-tall outlined
+  box whose placeholder starts **10px** in from the left border.
+
+- **What I tried.**
+
+  ```cpp
+  text_input(ctx, mk(wrap, 1), draft,
+      ComponentConfig{}
+          .with_size(ComponentSize{percent(1.f), pixels(45)})
+          .with_font_size(theme::type::BODY)          // honoured — see below
+          .with_padding(Padding{.left = pixels(10), .right = pixels(10)}));
+  ```
+
+- **What happened.** The text landed **17px** in, not 10. `with_padding` is not
+  merely ignored — it is *overwritten*. `text_input/component.h` recomputes the
+  field's padding from the field's own height every frame and calls
+  `set_desired_padding`, unconditionally:
+
+  ```cpp
+  float pad_h = field_h * 0.125f;
+  float pad_w = field_h * 0.35f;
+  field_cmp.set_desired_padding(Padding{...pad_h..., ...pad_w...});
+  ```
+
+  At 45px that is a forced 15.75px horizontal inset and a 5.6px vertical one.
+  There is no config flag beside it — unlike the font size, which the same block
+  now DOES let you win (`config.font_size_explicitly_set ? config.font_size :
+  pixels(field_h * 0.5f)`). Half of gap #17 has been fixed upstream; this half
+  has not, and the fix makes the remaining half more visible, because a caller
+  who has just successfully set a 13px font on a 45px field naturally expects
+  the padding beside it to take too.
+
+- **App-code workaround (used).** Work backwards from the constant: the inset I
+  want is 10px, `pad_w` is `h * 0.35`, so the FIELD must be 29px tall — and the
+  45px box comes from the WRAPPER, which owns the border and the corner radius
+  and holds the shorter field inside it. Two coupled magic numbers with a
+  comment explaining why one of them is not the number in the design:
+
+  ```cpp
+  constexpr float kInputH = 45.0f;   // the box the user sees
+  constexpr float kFieldH = 29.0f;   // 10px inset / 0.35 — NOT a design number
+  ```
+
+  Cost: 2px still wrong (12 measured vs Puffin's 10, the rest is border AA), one
+  derived constant that will silently drift if the 0.35 ever changes, and a
+  wrapper div that exists only to hold a border the field could have drawn.
+
+- **Minimal upstream help.** Give padding the treatment font size already got:
+  honour an explicitly-set `with_padding` and fall back to the height-derived
+  value only when unset. One `if`, symmetric with the line above it.
+
+- **Severity: makes it ugly**, and it is a papercut with leverage — every field
+  in the app inherits an inset it did not choose from a height it chose for a
+  different reason.
+
+### #66 — A placeholder is a string, so a hint the font cannot draw cannot be drawn
+
+- **What I was trying to build.** Puffin's composer placeholder, verbatim:
+  `Message Agentcloud… (↵)`. The return arrow is the whole point of the hint —
+  it says which key sends without spending a sentence on it.
+
+- **What happened.** Roboto has no U+21B5 and a missing codepoint paints
+  NOTHING (gap #48), so the placeholder renders as `Message Agentcloud… ()`.
+  The established fix for that in this codebase is to draw the mark as vectors
+  (`hanabi::glyph::chevron`, and now `arrow_up`) — but a placeholder cannot be
+  drawn. `with_placeholder(std::string)` hands the widget a string; the widget
+  owns the layout, the wrap, the ellipsis and the x-offset, and it never tells
+  the caller where it put any of it. There is no per-run styling, no inline
+  icon, and no "placeholder rect" to hang an `on_draw_fg` on. The only escape is
+  the one gap #17 already documents for the sidebar search: abandon the
+  widget's placeholder entirely and re-implement it as an absolutely-positioned
+  overlay whose origin you derive by hand from the panel geometry — which means
+  re-deriving the very inset that #65 above will not let you set.
+
+- **Cost.** The hint is dropped. hanabi's placeholder is
+  `Message hanabi…` and the key that sends is named in words
+  ("Enter to send") in the meter row, which is where it already was. That is a
+  worse design than Puffin's and it is the library's choice, not hanabi's.
+
+- **Class: IMPOSSIBLE** as specified. Two things would each fix it: a glyph
+  fallback chain across the loaded faces (JetBrains Mono covers ⏎ — this is
+  gap #48's fourth ask and would make the plain string just work), or a
+  placeholder that accepts styled runs the way the transcript's spans do.
+
+### #67 — Multi-line is a different widget, not a mode, so the switch is a rewrite
+
+- **What I was trying to build.** Puffin's composer is a multi-line input: the
+  box is 45px for one line and grows as you type, and the first line sits at the
+  TOP of the box rather than centred in it.
+
+- **What happened.** afterhours ships exactly the widget for this —
+  `text_area`, with `with_auto_grow()`, `with_max_lines()`, `with_word_wrap()`
+  and even `with_submit_on_enter()`, which is the chat-composer Enter semantic
+  spelled out by name. It is not reachable from a `text_input`: there is no
+  `with_multiline(true)`. They are separate widgets over separate state
+  components (`HasTextInputState` vs `HasTextAreaState`), so the switch is not a
+  config change but a rewrite of every integration point that touches the
+  field's state. In this composer that is: the Enter submit listener
+  (`HasTextInputListener`, whose scar is documented in `render_composer`), the
+  history walk (reads `st.storage` / `st.cursor_position`), `set_field`, the
+  Escape-to-clear path, `refocus_field`'s reach into the widget's first child,
+  and the `expect_input_text` test hook. Six call sites, four of them load-
+  bearing for tests that exist because they each caught a real bug.
+
+- **Cost.** Not attempted inside this task's scope. The composer stays a
+  single-line `text_input` inside a 45px box that LOOKS like Puffin's — the
+  visible cost is one line of typing where Puffin takes several, plus the
+  vertical placement: a centred single-line field puts its text 25.5px into the
+  box where Puffin's top-aligned first line sits at 14.5px, an 11px error that
+  was fixed here by top-aligning the short field inside the tall wrapper rather
+  than by being multi-line.
+
+- **Minimal upstream help.** Either `text_input` gains a multiline mode that
+  keeps `HasTextInputState` as its public state, or the two widgets share one
+  state type so an app can move between them without rewriting its callers.
+  The second is the honest one: the state IS the API here, and the library has
+  two of them for one concept.
