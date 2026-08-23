@@ -1874,6 +1874,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("new_divider_label"));
     }
 
+    static bool caret_on_first_line(const std::string& text, size_t caret) {
+        const size_t firstBreak = text.find('\n');
+        return firstBreak == std::string::npos || firstBreak >= caret;
+    }
+
+    static bool caret_on_last_line(const std::string& text, size_t caret) {
+        return text.find('\n', caret) == std::string::npos;
+    }
+
     // Is any text field holding the keyboard? While one is, the reading keys
     // belong to it: Home and End move the caret, and space is a character.
     static bool any_text_field_focused() {
@@ -2848,6 +2857,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                        : std::string());
         std::string& replyDraft = replyDrafts[draftKey];
 
+        // This composer's sent-message history (Up/Down walk, below). Keyed the
+        // same way the draft is, so the two never disagree about which thread
+        // they belong to.
+        AppComponent::ComposerHistory& history = app.composerHistory[draftKey];
+        const auto remember_sent = [&history](const std::string& text) {
+            history.sent.push_back(text);
+            history.walkIndex = 0;
+            history.stashedDraft.clear();
+        };
+
         // Consume a welcome-screen suggestion-chip seed into the new-task draft
         // (once). Applies to the new-task composers (kickoff Home composer or
         // the empty-key overlay) so it never overwrites a real thread's
@@ -2914,6 +2933,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (kickoff) app.requestKickoffPrompt = text;
                 else if (canStream) app.requestStreamPrompt = text;
                 else app.requestSendPrompt = text;
+                remember_sent(text);
             }
             replyDraft.clear();
         }
@@ -3101,6 +3121,49 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // HISTORY WALK. Up recalls the previous sent message, Down steps back
+        // toward the draft you were writing. Only while THIS field has focus:
+        // unfocused, the same arrows scroll the transcript (which is why that
+        // block upstream skips itself when a text field is focused).
+        //
+        // The arrows are not bound to any InputAction (preload.cpp), and the
+        // text_input widget itself does nothing with them, so nothing upstream
+        // has already eaten the keystroke.
+        if (inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
+            auto& st =
+                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+            const std::string typed = st.text();
+            const size_t caret = std::min(st.cursor_position, typed.size());
+            // A draft with line breaks in it wants Up/Down for the caret, so
+            // the walk only claims the keystroke at the edges of the text.
+            const bool walkBack = st.is_focused &&
+                                  hanabi::keys::pressed(hanabi::keys::kUp) &&
+                                  caret_on_first_line(typed, caret);
+            const bool walkForward = st.is_focused &&
+                                     hanabi::keys::pressed(hanabi::keys::kDown) &&
+                                     caret_on_last_line(typed, caret);
+            const auto recall = [&](const std::string& text) {
+                st.storage.clear();
+                st.storage.insert(0, text);
+                st.cursor_position = text.size();
+                st.clear_selection();
+                replyDraft = text;
+            };
+            const bool atOldest = history.walkIndex >= history.sent.size();
+            const bool atDraft = history.walkIndex == 0;
+            if (walkBack && !atOldest) {
+                if (atDraft) history.stashedDraft = typed;
+                history.walkIndex++;
+                recall(history.sent[history.sent.size() - history.walkIndex]);
+            } else if (walkForward && !atDraft) {
+                history.walkIndex--;
+                recall(history.walkIndex == 0
+                           ? history.stashedDraft
+                           : history.sent[history.sent.size() -
+                                          history.walkIndex]);
+            }
+        }
+
         // ENTER-TO-SEND. afterhours' text_input fires on_submit on Enter
         // (WidgetPress == ENTER, preload.cpp) IF the entity carries a
         // HasTextInputListener — the imm wrapper doesn't attach one, so a naked
@@ -3196,6 +3259,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.requestStreamPrompt = replyDraft;
             else
                 app.requestSendPrompt = replyDraft;
+            remember_sent(replyDraft);
             replyDraft.clear();
         }
 

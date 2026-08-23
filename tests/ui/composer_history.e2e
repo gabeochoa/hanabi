@@ -1,0 +1,66 @@
+# Up/Down in the composer walk the messages this thread has already sent.
+#
+# Asserted with expect_input_text, not expect_text: every message sent here is
+# also painted in the transcript, so "the words msg2 are on screen" is true
+# from the moment it is sent and would pass against no implementation at all.
+# expect_input_text reads the field's own state, which is the thing under test.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Stars payout reconciliation"
+
+click_ui composer_reply_input
+wait_frames 4
+type "msg1"
+wait_frames 4
+key ENTER
+wait_frames 40
+
+click_ui composer_reply_input
+wait_frames 4
+type "msg2"
+wait_frames 4
+key ENTER
+wait_frames 40
+
+# The field is empty again after the second send.
+expect_input_text composer_reply_input ""
+
+click_ui composer_reply_input
+wait_frames 4
+
+key UP
+wait_frames 6
+expect_input_text composer_reply_input "msg2"
+
+key UP
+wait_frames 6
+expect_input_text composer_reply_input "msg1"
+
+# At the start of history Up is a no-op rather than clearing the field.
+key UP
+wait_frames 6
+expect_input_text composer_reply_input "msg1"
+
+key DOWN
+wait_frames 6
+expect_input_text composer_reply_input "msg2"
+
+# One more Down returns the empty draft the walk started from.
+key DOWN
+wait_frames 6
+expect_input_text composer_reply_input ""
+
+# Editing does not freeze the walk: recall a message, change it, and Up still
+# steps to the one before it.
+key UP
+wait_frames 6
+type "!"
+wait_frames 6
+expect_input_text composer_reply_input "msg2!"
+
+key UP
+wait_frames 6
+expect_input_text composer_reply_input "msg1"
+
+wait_frames 10

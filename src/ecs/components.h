@@ -264,6 +264,23 @@ struct AppComponent : public afterhours::BaseComponent {
     // The prompt currently being sent, for a "sending…" hint while in flight.
     std::string sendingPrompt;
 
+    // Composer history walk (Up/Down in the composer). Keyed exactly the way
+    // the per-thread draft is — session id, or "__kickoff__" for the Home
+    // composer — so thread A's Up never recalls thread B's messages. In
+    // memory only: it dies with the process, which is the deliberate
+    // simplification in docs/breakdown/composer.md.
+    struct ComposerHistory {
+        // Sent messages, oldest first.
+        std::vector<std::string> sent;
+        // Steps BACK from the live draft: 0 is the draft, 1 the newest sent
+        // message, sent.size() the oldest.
+        size_t walkIndex = 0;
+        // What was in the field when the walk started, so Down past the newest
+        // entry gives the half-typed message back rather than an empty field.
+        std::string stashedDraft;
+    };
+    std::map<std::string, ComposerHistory> composerHistory;
+
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;
     bool kickoffPending = false;
