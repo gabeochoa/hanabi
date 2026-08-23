@@ -618,3 +618,67 @@ wins) instead of four systems racing to read the same key.
 `4.2k` but `1M` for 1,500,000 — a decimal below 10 in thousands, never in
 millions. If the context meter lands with a 1M window, every reading from 1.0M
 to 1.9M renders as `1M`.
+
+---
+
+## AGENTCLOUD — next up (2026-08-22)
+
+Landed: transport + auth, `list_sessions`, transcripts via attach/page/fold.
+`make run` defaults to it. Sending is NOT done — the composer correctly says
+read-only.
+
+### [ ] Sending (`input`) — designed, not built
+
+`{"sub":1,"payload":{"cmd":"input","text":…,"apply":…}}`, apply ∈
+`after_tool_round` (conventional) / `end_of_turn` / `interrupt`.
+
+**There is no ack.** The durable `user_input` frame arriving on the
+subscription IS the acknowledgement. That matters for which seam we implement:
+`send_message` returns the ASSISTANT reply and `loader_system` appends it
+(`app.openSession->messages.push_back(r.value)`), so a synchronous
+implementation would have to block for an entire agent turn — minutes.
+
+So implement **`send_message_streaming`** instead and set `supports_stream()`:
+the protocol is natively a stream of blocks, the StreamSink already models
+delta/event/done/error, and the loader prefers that path. `apply: "interrupt"`
+is the natural mapping for `steer()`.
+
+### [ ] Spaces — BLOCKED, and worth knowing why
+
+Chosen as the replacement for folder grouping. Then measured, and it cannot
+work yet:
+
+- The viewer's Spaces read WORKS. GraphQL POST to the web app host (NOT the
+  orchestrator — different service, different deployment, and a different CAT
+  verifier), `Cookie: intern_cat_token=…`, body `{"query_text": …}`. Verified:
+  HTTP 200, **8 real Spaces** (agentcloud, meta, powertools, psc, relay, stars,
+  subs, Ranking Visual Simulator). Response nests under `result.data`, not the
+  usual top-level `data`. `emoji` is null on 7 of the 8.
+- **Every one of those 8 Spaces returns ZERO sessions.** Queried each with
+  `xfb_agentcloud_session_list_for_viewer`; all 8 came back `0 sessions,
+  next_cursor=null`.
+- And the roster cannot supply the link either: the fleet/list row carries no
+  space and no container at all — confirmed against 2066 live rows, the field
+  set is fixed and has neither. The reference client says the same in as many
+  words, and that grouping the roster by Space "can only show the viewer's
+  slice of one".
+
+So wiring it today buys 8 empty headings and files none of the 2066 sessions.
+**Revisit when sessions actually carry a Space.** Worth having anyway when it
+lands: the catalog row carries `created_at` / `latest_activity_at`, the real
+timestamps the orchestrator's session list does not have.
+
+Meanwhile the sidebar still groups by `workspace` minus the per-session scratch
+dirs — 4 real groups, everything else ungrouped.
+
+### [ ] Don't show the welcome screen while loading
+
+A thread that is still fetching renders the empty-state welcome, which reads as
+"nothing here" rather than "not yet". Gate it on the load state instead.
+
+### [ ] Cache the chat
+
+Transcripts refetch on every open; a 20-page walk is 10k frames. hanabi already
+has `api/disk_cache` for transcripts — check whether it is being used on the
+agentcloud path at all, and reuse the reference client's on-disk shape if it
+saves work.
