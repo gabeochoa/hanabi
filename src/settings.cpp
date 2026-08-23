@@ -50,6 +50,7 @@ bool Settings::load_save_file() {
         quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
         memory_backend_ = j.value("memory_backend", memory_backend_);
         default_model_ = j.value("default_model", default_model_);
+        default_effort_ = j.value("default_effort", default_effort_);
         open_tabs_.clear();
         if (j.contains("open_tabs") && j["open_tabs"].is_array()) {
             for (const auto& e : j["open_tabs"])
@@ -100,6 +101,7 @@ void Settings::write_save_file() {
     j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
+    j["default_effort"] = default_effort_;
     j["starred"] = starred_ids_;
     j["collapsed_shelves"] = collapsed_shelves_;
     j["last_read"] = last_read_;
@@ -267,6 +269,18 @@ void Settings::set_default_model(const std::string& model) {
     if (model == default_model_) return;
     default_model_ = model;
     settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_default_effort() const {
+    return default_effort_;
+}
+void Settings::set_default_effort(const std::string& effort) {
+    if (effort == default_effort_) return;
+    default_effort_ = effort;
+    // Deliberately NOT marking the sync dirty: nothing in the pushed payload
+    // carries effort yet (src/ui/effort_menu.h), so flagging it would send a
+    // preference push that says nothing new.
     if (auto_save_enabled) write_save_file();
 }
 

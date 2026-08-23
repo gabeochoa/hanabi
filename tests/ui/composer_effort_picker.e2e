@@ -1,0 +1,44 @@
+# The composer's effort chip opens a picker, and the level chosen there is
+# what the chip then says.
+#
+# The strip used to name a level in a fixed label — "Opus 4.8 (xhigh)" —
+# whatever the app was set to. "XHigh" is now something only the picker can put
+# on screen, so the assertion cannot pass on the old placeholder.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Stars payout reconciliation"
+
+# The ladder's own default, until someone picks otherwise.
+expect_text "Effort: High"
+expect_no_text "Opus 4.8 (xhigh)"
+
+click_ui composer_effort
+wait_frames 8
+
+# Every level the server parses, each saying what it is for.
+expect_text "as much as the model serves"
+expect_text "quickest, least thinking"
+
+click_ui effort_row_3
+wait_frames 10
+
+# The popover is gone and the chip carries the choice.
+expect_no_text "as much as the model serves"
+expect_text "Effort: XHigh"
+
+# Not a one-way trip: the ladder goes back down.
+click_ui composer_effort
+wait_frames 8
+click_ui effort_row_0
+wait_frames 10
+expect_text "Effort: Low"
+
+# Escape puts the picker away without choosing anything.
+click_ui composer_effort
+wait_frames 8
+expect_text "middle of the ladder"
+key ESCAPE
+wait_frames 8
+expect_no_text "middle of the ladder"
+expect_text "Effort: Low"

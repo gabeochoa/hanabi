@@ -52,6 +52,7 @@ enum class EscapeIntent {
     CloseFind,
     CloseSlashMenu,
     CloseModelPicker,
+    CloseEffortPicker,
     ClearTranscript,
 };
 
@@ -323,6 +324,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // models and a click, with no request in flight behind it (choosing
     // writes the default-model preference the settings sheet also writes).
     bool modelPopoverOpen = false;
+    // The composer strip's effort picker. One flag: the popover is a list of
+    // levels and a click, with nothing in flight behind it.
+    bool effortPopoverOpen = false;
 
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;

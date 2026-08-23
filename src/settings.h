@@ -123,6 +123,13 @@ struct Settings {
     const std::string& get_default_model() const;
     void set_default_model(const std::string& model);  // auto-persists + dirty
 
+    // Effort level for new work: one of the server's own tokens (low, medium,
+    // high, xhigh, max — src/ui/effort_menu.h). Local-only: it is NOT in the
+    // backend preference payload, because hanabi has no confirmed field for
+    // it. Persists across restarts like every other preference here.
+    const std::string& get_default_effort() const;
+    void set_default_effort(const std::string& effort);  // auto-persists
+
     // ── Backend-sync bookkeeping. Any preference change flips settings_dirty_;
     // the loader debounces + pushes to the backend (best-effort) via
     // ApiClient::update_settings, then clears the flag. Purely in-memory (NOT
@@ -157,6 +164,7 @@ struct Settings {
     int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";
     std::string default_model_ = "default";
+    std::string default_effort_ = "high";
     // In-memory only: set on any preference change, cleared by the loader
     // after a successful (or best-effort) backend push.
     bool settings_dirty_ = false;
