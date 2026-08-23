@@ -271,6 +271,9 @@ bool contains_any(const std::string& hay,
 // heuristics — no endpoint, product, or company string is hardcoded.
 //
 // Signals, in priority order:
+//   0. SERVER-REPORTED attention state (cfg.field_attention_state), when the
+//      backend sends one. See derive_state() below — a real field always beats
+//      a title guess, so it is checked before every heuristic.
 //   1. Running   — isProcessing==true OR subSessionStatus=="running": the
 //                  agent is actively working. Quiet, count-only signal.
 //   2. Attention/Blocked ("waiting on you") — the STRONGEST real signal is the
@@ -285,7 +288,7 @@ bool contains_any(const std::string& hay,
 //      would flood the digest; only an explicit title marker counts.
 //   4. Archived  — status=="archived": retired, low-signal.
 //   5. otherwise — calm/Unknown: shows in Recent, never nudges.
-void derive_state(SessionSummary& s, const json& e) {
+void derive_state_heuristic(SessionSummary& s, const json& e) {
     const bool processing = as_bool(e, "isProcessing");
     const std::string sub = as_string(e, "subSessionStatus");
     const std::string t = to_lower(s.title);
@@ -429,6 +432,47 @@ void dump_transcript(const json& arr, const Config& cfg, size_t limit) {
 }
 
 }  // namespace
+
+// --- Attention state: server field first, heuristics second -----------------
+// docs/api-parity.md Gap 1 promised exactly this shape: "If a backend later
+// adds a real `state` field, the adapter reads it when PRESENT (optional,
+// config-driven field name) and falls back to the derive rules when ABSENT."
+// par-msl/navi#4091 added one (`attentionState`: needs_user | running | done),
+// answering ask #2 in API_ASKS_FOR_NAVI.md, so wire it up.
+//
+// WHY "done" IS NOT MAPPED. That API derives its state from cheap signals and
+// uses `done` as the DEFAULT row — every idle, settled, paused or archived
+// session reports `done`, not just one that finished since you last looked.
+// hanabi's Attention/Done is a NUDGE ("this wrapped up, go look"). Mapping the
+// two 1:1 would put every calm thread in the Review digest and make the digest
+// useless. So `done` — like an absent field, or any value we do not recognise
+// — means "the server knows of no reason to nudge you", and we fall through to
+// the existing title/status heuristics, which can still legitimately surface a
+// "[P]"-parked thread or a resolved-sounding title. The server signal only ever
+// ADDS certainty; it never silences a local one.
+//
+// The two actionable values ARE trusted outright: they are server-known facts
+// (an active workflow lock; a failed sub-agent or an explicitly blocked thread
+// goal) that no title guess can beat.
+void derive_state(SessionSummary& s, const json& e, const Config& cfg) {
+    const std::string reported =
+        to_lower(as_string(e, cfg.field_attention_state));
+
+    if (!reported.empty()) {
+        if (reported == to_lower(cfg.field_attention_running)) {
+            s.state = ThreadState::Running;
+            return;
+        }
+        if (reported == to_lower(cfg.field_attention_needs_user)) {
+            s.state = ThreadState::Attention;
+            s.tag = ThreadTag::Blocked;
+            return;
+        }
+        // Anything else (including "done"): fall through — see note above.
+    }
+
+    derive_state_heuristic(s, e);
+}
 
 // --- Tool-call block splitting ----------------------------------------------
 // Real assistant messages are a SEQUENCE of interleaved blocks
@@ -778,13 +822,15 @@ Result<std::vector<SessionSummary>> HttpClient::list_sessions() {    auto raw = 
             // rows; a backend PR to populate it is in flight. This wiring means
             // real folders appear automatically once the field is populated.)
             s.folder = as_string(e, "workspace");
-            // Derive hanabi's high-signal attention model (state/tag) from the
-            // generic real primitives so real sessions get meaningful triage
-            // instead of all landing Unknown. See derive_state() for the full
-            // heuristic set — all title-text + generic-field, nothing about any
-            // specific endpoint is assumed, and a signal-less backend degrades
-            // to an all-calm list.
-            if (e.is_object()) derive_state(s, e);
+            // Derive hanabi's high-signal attention model (state/tag). Prefers
+            // the backend's own attentionState field when it sends one, and
+            // otherwise falls back to the generic title-text + primitive
+            // heuristics, so real sessions get meaningful triage instead of
+            // all landing Unknown. See derive_state() for the precedence and
+            // for why a "settled" value is not treated as a nudge. Nothing
+            // about any specific endpoint is assumed, and a signal-less
+            // backend still degrades to an all-calm list.
+            if (e.is_object()) derive_state(s, e, cfg_);
             out.push_back(std::move(s));
         }
     } catch (const std::exception& ex) {

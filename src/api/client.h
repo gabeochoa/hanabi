@@ -131,6 +131,21 @@ struct Config {
     std::string field_text = "text";
     std::string field_created_at = "created_at";
 
+    // OPTIONAL server-side attention state (docs/api-parity.md Gap 1). When a
+    // backend reports a first-class triage state on the session object, the
+    // adapter TRUSTS it instead of guessing from title text. Absent => the
+    // client-side heuristics in derive_state() still apply, unchanged.
+    //
+    // Only the two ACTIONABLE values are named here. A backend's "settled /
+    // nothing-known" value (navi calls it "done") is deliberately NOT mapped:
+    // it is that API's DEFAULT row for every idle session, so treating it as
+    // hanabi's Done ("finished since you looked") would flood the Review
+    // digest with every calm thread. An unrecognised value falls through to
+    // the heuristics, which is the correct conservative behaviour.
+    std::string field_attention_state = "attentionState";
+    std::string field_attention_needs_user = "needs_user";
+    std::string field_attention_running = "running";
+
     // Some backends put message content in a BLOCKS array (e.g. a transcript
     // where each message has blocks:[{type:"text",content:"..."}]) rather than
     // a flat text field. When field_blocks names a present array, the adapter

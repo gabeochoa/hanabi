@@ -78,6 +78,9 @@ void load_config_file(Config& c) {
     str("field_role", c.field_role);
     str("field_text", c.field_text);
     str("field_created_at", c.field_created_at);
+    str("field_attention_state", c.field_attention_state);
+    str("field_attention_needs_user", c.field_attention_needs_user);
+    str("field_attention_running", c.field_attention_running);
     str("field_blocks", c.field_blocks);
     str("field_block_type", c.field_block_type);
     str("field_block_content", c.field_block_content);
