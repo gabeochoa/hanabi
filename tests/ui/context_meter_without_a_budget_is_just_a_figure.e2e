@@ -1,0 +1,9 @@
+# A backend that counts tokens but reports no compaction budget gets the
+# figure and nothing else. This is the degradation that keeps the meter honest:
+# no budget, no bar, and no invented denominator to fill one against.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_CONTEXT_USAGE=258937
+
+expect_text "258k tokens"
+expect_no_text "258k /"

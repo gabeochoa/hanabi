@@ -275,9 +275,21 @@ struct Config {
     std::string field_settings_schedules = "schedules";
     std::string field_settings_skills = "authoredSkills";
     // The model's context window, if the backend reports one. Read from the
-    // settings payload alongside the counts; the composer draws a proportion
-    // bar only when it arrives (see UserSettings::context_window_tokens).
+    // settings payload alongside the counts and shown on the settings screen;
+    // the context meter measures against the compaction budget instead
+    // (context_budget_tokens below).
     std::string field_settings_context_window = "contextWindowTokens";
+
+    // --- Context meter denominator ----------------------------------------
+    // The compaction budget, in tokens, for a backend that does not report one
+    // per session. agentcloud sends it on every attach (hello.state.tokens) and
+    // that always wins; this is the declared fallback for everything else.
+    //
+    // ZERO by default and there is no built-in number, which is the point: the
+    // mock and any backend without a budget draw no bar at all and show the
+    // plain token figure. A meter filled from a constant measures nothing.
+    //   HANABI_CONTEXT_BUDGET_TOKENS / config key context_budget_tokens
+    int64_t context_budget_tokens = 0;
 
     // --- Device-code auth (Phase AUTH) ------------------------------------
     // The REAL navi-CLI device-code flow. NOTHING here names any real HOST:

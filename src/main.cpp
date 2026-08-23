@@ -134,6 +134,7 @@ static void setup_app_state() {
     app.client = api::make_client(cfg);
     app.backend_label = app.client ? app.client->backend_label() : "none";
     app.webBaseUrl = cfg.web_base_url;  // "Copy URL" base (host-neutral if empty)
+    app.configuredContextBudget = cfg.context_budget_tokens;
     // Scope the on-disk cache to THIS backend (keyed by base_url) so two
     // different real servers never read each other's stale sessions. Mock never
     // caches (the loader gates writes on backend_label=="http"), so only the
@@ -734,15 +735,21 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         }
     }
 
-    // Screenshot affordance: HANABI_CONTEXT_WINDOW=<tokens> stands in for a
-    // backend that reports a context window, so the composer's proportion bar
-    // — which is drawn ONLY when a real denominator exists — can be captured
-    // and tested. Nothing this repo talks to reports one; this is not a
-    // setting, and there is deliberately no config key for it (a capability is
-    // the program's to determine, not the user's to declare).
-    if (const char* w = std::getenv("HANABI_CONTEXT_WINDOW"); w && *w) {
-        app->settings.context_window_tokens = std::atoll(w);
-        app->settings.ok = true;
+    // Screenshot affordance: HANABI_CONTEXT_USAGE=<used>[,stale] stands in for
+    // the token accounting agentcloud sends on attach, so the composer's
+    // proportion bar and its stale marker can be captured and tested against
+    // the mock. The DENOMINATOR is not here — that is the real config key
+    // (HANABI_CONTEXT_BUDGET_TOKENS); this supplies only the counted numerator
+    // a mock session has no way to know.
+    if (const char* u = std::getenv("HANABI_CONTEXT_USAGE"); u && *u) {
+        if (app->openSession) {
+            const std::string spec(u);
+            const size_t comma = spec.find(',');
+            app->openSession->context.used_tokens =
+                std::atoll(spec.substr(0, comma).c_str());
+            app->openSession->context.stale =
+                comma != std::string::npos && spec.substr(comma + 1) == "stale";
+        }
     }
 
     // Screenshot affordance: HANABI_SELECT_DEMO=<text> pre-selects a run of

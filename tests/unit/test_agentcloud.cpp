@@ -423,6 +423,66 @@ static void test_settled_block_does_not_reprint_streamed_text() {
     CHECK(delta_from_accumulated(streamed, "1\n2\n3\n4") == "\n4");
 }
 
+// --- the context meter's numbers --------------------------------------------
+// Shape copied from a live attach greeting. The denominator decision lives
+// here: budget, never window.
+
+static void test_attach_greeting_carries_budget_and_occupancy() {
+    const std::string hello = R"({"type":"hello","state":{"title":"t",
+      "tokens":{"context":{"budget":800000,"window":1000000},
+                "occupancy":{"tokens":258937,"basis":"settled","stale":0,
+                             "anchor_seq":1329894}}}})";
+    const auto u = api::agentcloud::parse_context_usage(hello);
+    CHECK(u.used_tokens == 258937);
+    // 800k, not the 1M window: the budget is what triggers compaction.
+    CHECK(u.budget_tokens == 800000);
+    CHECK(!u.stale);
+    CHECK(u.counted());
+    CHECK(u.has_denominator());
+}
+
+static void test_stale_occupancy_is_reported_not_swallowed() {
+    const std::string as_int = R"({"state":{"tokens":{
+      "context":{"budget":100},"occupancy":{"tokens":5,"stale":1}}}})";
+    CHECK(api::agentcloud::parse_context_usage(as_int).stale);
+    // The wire says 0/1 today; a server that switches to a real boolean must
+    // not silently start reading as fresh.
+    const std::string as_bool = R"({"state":{"tokens":{
+      "context":{"budget":100},"occupancy":{"tokens":5,"stale":true}}}})";
+    CHECK(api::agentcloud::parse_context_usage(as_bool).stale);
+}
+
+static void test_no_tokens_bag_means_no_meter() {
+    const std::string hello = R"({"type":"hello","state":{"title":"t"}})";
+    const auto u = api::agentcloud::parse_context_usage(hello);
+    CHECK(!u.counted());
+    CHECK(!u.has_denominator());
+    CHECK(!u.stale);
+}
+
+static void test_occupancy_without_a_budget_still_counts() {
+    // A count with no budget is a real figure and must survive; it just draws
+    // no bar.
+    const std::string hello =
+        R"({"state":{"tokens":{"occupancy":{"tokens":4200}}}})";
+    const auto u = api::agentcloud::parse_context_usage(hello);
+    CHECK(u.counted());
+    CHECK(u.used_tokens == 4200);
+    CHECK(!u.has_denominator());
+}
+
+static void test_unreadable_greeting_is_empty_not_a_crash() {
+    CHECK(!api::agentcloud::parse_context_usage("{not json").counted());
+    CHECK(!api::agentcloud::parse_context_usage("").has_denominator());
+    const std::string nulls =
+        R"({"state":{"tokens":{"context":{"budget":null},
+                               "occupancy":{"tokens":null,"stale":null}}}})";
+    const auto u = api::agentcloud::parse_context_usage(nulls);
+    CHECK(!u.counted());
+    CHECK(!u.has_denominator());
+    CHECK(!u.stale);
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -456,6 +516,11 @@ int main() {
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();
     test_settled_block_does_not_reprint_streamed_text();
+    test_attach_greeting_carries_budget_and_occupancy();
+    test_stale_occupancy_is_reported_not_swallowed();
+    test_no_tokens_bag_means_no_meter();
+    test_occupancy_without_a_budget_still_counts();
+    test_unreadable_greeting_is_empty_not_a_crash();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

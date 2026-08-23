@@ -1,0 +1,9 @@
+# A token count the server has not caught up with is marked, not hidden. A
+# stale number presented as live is the same dishonesty the hardcoded 38% bar
+# was — it just has a decimal point on it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_CONTEXT_USAGE=258937,stale HANABI_CONTEXT_BUDGET_TOKENS=800000
+
+expect_text "258k / 800k tokens"
+expect_text "stale"

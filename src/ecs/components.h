@@ -467,6 +467,11 @@ struct AppComponent : public afterhours::BaseComponent {
     bool requestSettings = false;  // one-shot: set to trigger a fetch
     std::future<api::Result<api::UserSettings>> settingsFuture;
     bool settingsPending = false;
+
+    // The declared compaction budget (api::Config::context_budget_tokens), for
+    // a backend that reports none per session. Zero = undeclared, so the
+    // composer shows a plain token figure instead of a bar.
+    int64_t configuredContextBudget = 0;
 };
 
 // Layout rectangles recomputed each frame from the window size.

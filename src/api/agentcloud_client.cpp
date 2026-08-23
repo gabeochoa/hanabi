@@ -234,6 +234,30 @@ void apply_state(const json& s, SessionSummary& out) {
     }
 }
 
+// hello.state.tokens -> ContextUsage.
+//
+//   tokens.context   = { budget, window }
+//   tokens.occupancy = { tokens, basis, stale, anchor_seq }
+//
+// budget is the denominator: it is what triggers compaction, and compaction is
+// the consequence the reader cares about. window is read past deliberately.
+//
+// stale arrives as 0/1 on this wire but is a boolean in spirit, so both
+// spellings are accepted rather than one of them silently reading as "fresh".
+ContextUsage context_usage_from_state(const json& state) {
+    ContextUsage out;
+    const json& tokens = obj_at(state, "tokens");
+    if (tokens.empty()) return out;
+
+    out.budget_tokens = int_or(obj_at(tokens, "context"), "budget", -1);
+
+    const json& occupancy = obj_at(tokens, "occupancy");
+    out.used_tokens = int_or(occupancy, "tokens", -1);
+    out.stale = bool_or(occupancy, "stale", false) ||
+                int_or(occupancy, "stale", 0) != 0;
+    return out;
+}
+
 }  // namespace
 
 AgentcloudClient::AgentcloudClient(agentcloud::AuthConfig cfg)
@@ -366,6 +390,12 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
         out.push_back(std::move(sum));
     }
     return out;
+}
+
+ContextUsage parse_context_usage(const std::string& hello_json) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) return {};
+    return context_usage_from_state(obj_at(hello, "state"));
 }
 
 }  // namespace agentcloud
@@ -601,6 +631,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     const std::string title = str_or(state, "title", "");
     if (!title.empty()) out->summary.title = title;
     apply_state(state, out->summary);
+    out->context = context_usage_from_state(state);
 
     // Page BACKWARD from the newest until the server says done.
     //
