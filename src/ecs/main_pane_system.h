@@ -19,6 +19,7 @@
 #include "thread_model.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
+#include "../ui/find_nav.h"
 #include "../ui/find_operators.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
@@ -82,6 +83,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app->findOpen = false;
             app->findQuery.clear();
             app->refocusComposer = true;
+        }
+        // Cmd+G steps to the next match, Cmd+Shift+G to the previous — the
+        // same move the find bar's chevrons make, through the same find_nav
+        // step, so the chord and the buttons cannot land on different matches.
+        // Only while the bar is open: with it closed there is no tally for a
+        // step to mean anything against.
+        //
+        // findCount is the count the LAST rendered frame painted. That is the
+        // only count that exists at the top of a frame, and it is the honest
+        // one to step over: it is the number of bands currently on screen.
+        if (app->findOpen) {
+            const hanabi::find_nav::Step step = hanabi::find_nav::chord(
+                hanabi::keys::cmd_down(), hanabi::keys::shift_down(),
+                hanabi::keys::pressed(hanabi::keys::kG));
+            apply_find_step(*app, step);
+        }
+        // Test-only (HANABI_FIND_STEP=<±n>): the harness cannot press a Cmd
+        // chord (afterhours_gaps.md #49), so this feeds the same step the
+        // chord feeds, |n| times, on the first frame that has a tally to move
+        // over. Everything below the two key reads is then under test.
+        if (app->findOpen && !findStepApplied_) {
+            const int n = hanabi::test_hooks::find_step();
+            if (n != 0 && app->findCount > 0) {
+                const hanabi::find_nav::Step s =
+                    n < 0 ? hanabi::find_nav::Step::Prev
+                          : hanabi::find_nav::Step::Next;
+                for (int i = 0; i < (n < 0 ? -n : n); ++i)
+                    apply_find_step(*app, s);
+                findStepApplied_ = true;
+            }
         }
         // Cmd+C copies selected transcript text. Checked before the composer
         // sees the key: with a selection up, Cmd+C means the selection.
@@ -1055,6 +1086,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     float listCursorH_ = 0.0f;
     bool listScrollPending_ = false;
     static constexpr float kListTopPad = 6.0f;  // the scroll panel's own pad
+
+    // One-shot: HANABI_FIND_STEP is a stand-in for a keypress, so it fires
+    // once and not every frame.
+    bool findStepApplied_ = false;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -2345,6 +2380,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return q.text;
     }
 
+    // Move the current match one step and ask the transcript to scroll it into
+    // view. The Cmd+G chord and the find bar's chevrons both come through
+    // here, so they cannot drift onto different matches.
+    static void apply_find_step(AppComponent& app, hanabi::find_nav::Step s) {
+        if (s == hanabi::find_nav::Step::None || app.findCount <= 0) return;
+        app.findIndex =
+            hanabi::find_nav::advance(app.findIndex, app.findCount, s);
+        app.findScrollPending = true;
+    }
+
     // The find bar: an overlay pinned to the transcript's top-right, so it
     // never displaces the conversation under it.
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
@@ -2447,10 +2492,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     })
                     .with_debug_name(up ? "find_prev" : "find_next"));
             if (b && navigable) {
-                app.findIndex += up ? -1 : 1;
-                if (app.findIndex < 0) app.findIndex = matchCount - 1;
-                if (app.findIndex >= matchCount) app.findIndex = 0;
-                app.findScrollPending = true;
+                apply_find_step(app, up ? hanabi::find_nav::Step::Prev
+                                        : hanabi::find_nav::Step::Next);
             }
         };
         step(3, true);

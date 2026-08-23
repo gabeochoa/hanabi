@@ -42,6 +42,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         {"Page Up/Dn", "Move a screenful"},
         {"Up  Down", "Move a few lines"},
         {"Cmd F", "Find in this conversation"},
+        {"Cmd G", "Next match, Shift for the one before"},  // main_pane_system.h
         {"Cmd C", "Copy the selected text"},
         {"", "Window"},
         {"Cmd B", "Show or hide the sidebar"},      // sidebar_system.h

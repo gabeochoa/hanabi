@@ -1,0 +1,32 @@
+# Cmd+G steps to the next find match, and the tally follows it.
+#
+# The chord itself cannot be pressed from a script: parse_key_combo maps CMD+
+# onto Control and the Super flag it parses is never held
+# (afterhours_gaps.md #49). HANABI_FIND_STEP feeds the SAME find_nav step the
+# chord feeds, once the first rendered frame has a tally to move over — so
+# everything under the two key reads is driven here, and only those reads are
+# left to the shortcuts sheet to describe.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FIND_DEMO=ledger HANABI_FIND_STEP=1 HANABI_FIND_AUDIT=1
+
+# "ledger" is paintable twice in this thread (find_in_conversation.e2e), so a
+# find bar that has not stepped reads "1 of 2". One step in and it is the
+# second match that is current.
+expect_text "2 of 2"
+
+# And the rule that makes the tally mean anything: it equals the number of
+# bands actually painted. Stepping moves WHICH match is current; it must not
+# add or drop a highlight (find_counts_only_what_it_paints.e2e).
+expect_text "bands 2"
+
+# The chevrons go through the same step, so they still agree with the chord:
+# one more forward wraps back to the first match.
+click_ui find_next
+wait_frames 6
+expect_text "1 of 2"
+expect_text "bands 2"
+
+click_ui find_prev
+wait_frames 6
+expect_text "2 of 2"
