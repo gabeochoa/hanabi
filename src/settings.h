@@ -138,6 +138,14 @@ struct Settings {
     bool get_show_timestamps() const;
     void set_show_timestamps(bool on);  // auto-persists
 
+    // Rotate the theme automatically every N seconds; 0 (the default) is off.
+    // ONE number rather than an enabled flag plus an interval, so "off" can
+    // never disagree with "every 15 minutes". Seconds, though the sheet only
+    // offers minute presets: the presets can change without migrating anyone's
+    // settings, and a test can rotate in a second.
+    int get_theme_rotate_secs() const;
+    void set_theme_rotate_secs(int secs);  // auto-persists
+
     // Memory backend: "traditional" (default) or "hindsight".
     const std::string& get_memory_backend() const;
     void set_memory_backend(const std::string& backend);  // auto-persists + dirty
@@ -186,6 +194,7 @@ struct Settings {
     int auto_archive_days_ = 5;
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
+    int theme_rotate_secs_ = 0;
     int quiet_start_minutes_ = 0;
     int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";

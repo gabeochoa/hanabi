@@ -51,6 +51,7 @@
 #include "ecs/shortcuts_system.h"
 #include "ecs/status_bar_system.h"
 #include "ecs/tab_bar_system.h"
+#include "ecs/theme_rotation_system.h"
 #include "ui/theme.h"
 
 // A no-op render system so begin/clear happen in app_frame.
@@ -309,6 +310,11 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
     sm.register_update_system(std::make_unique<ecs::LoaderSystem>());
     sm.register_update_system(std::make_unique<ecs::LayoutSystem>());
+
+    // Ahead of every UI-creating system: a rotation lands the new palette
+    // before this frame's widgets read their colours, so a flip is never half
+    // a frame old.
+    sm.register_update_system(std::make_unique<ecs::ThemeRotationSystem>());
 
     // Resolve Esc before anything reads it, so one keystroke means one thing.
     sm.register_update_system(std::make_unique<ecs::EscapeSystem>());
