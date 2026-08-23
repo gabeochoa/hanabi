@@ -15,6 +15,7 @@
 #include "../test_hooks.h"
 #include "../util/format.h"
 #include "../util/textscan.h"
+#include "keyboard_focus.h"
 #include "thread_model.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
@@ -100,6 +101,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("main_content"));
 
         const float contentH = r.height;  // views size against the pane height
+
+        // ---- The list's keyboard cursor -----------------------------------
+        // Moved over the rows the PREVIOUS frame drew. That order is the one
+        // the reader is looking at — sections, folds and caps already applied
+        // — so it cannot disagree with the screen the way a second copy of the
+        // ordering rules eventually would.
+        listRowsPrev_ = listRows_;
+        listRows_.clear();
+        listCursorY_ = -1.0f;
+        listCursorH_ = 0.0f;
+        listY_ = kListTopPad;
+        if (move_list_cursor(*app)) {
+            // The list has the keyboard now. afterhours keeps the last
+            // clicked widget focused, and a focused button answers Enter —
+            // so without this, Enter on a list row also re-fires whatever
+            // was clicked to get here (the smart view in the sidebar, which
+            // promptly switched back to the list).
+            ctx.set_focus(ctx.ROOT);
+        }
+        // Enter opens the row the cursor is on. It cannot collide with the
+        // composer's Enter: that one is the text field's own on_submit and
+        // only fires while the field has focus, which is exactly when the
+        // arrows were never ours either.
+        if (!app->listCursorId.empty() && app->view != SmartView::Chat &&
+            !any_text_field_focused() && !overlay_up(*app) &&
+            hanabi::keys::pressed(hanabi::keys::kEnter))
+            app->requestOpenTab = app->listCursorId;
 
         switch (app->view) {
             case SmartView::Chat:
@@ -598,6 +626,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float cardW = wrap_width(paneW);
         for (const auto* s : rows)
             digest_card(ctx, wrap, ++i, *s, app, false, cardW, singleState);
+        scroll_cursor_into_view(scroll.ent(), listH);
     }
 
     // Collapse internal runs of whitespace to single spaces and trim ends, so
@@ -1007,6 +1036,70 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Renders one digest card. `emphasizeMeta` gives the subtitle/metadata a
     // bit more weight/contrast — used for the actionable "waiting on you"
     // rows so the most-actionable signal reads stronger than passive ones.
+    // ---- Keyboard cursor over a digest list --------------------------------
+    // The rows of the list drawn last frame, in draw order, and a running
+    // content-y for the one being drawn now. Every element that takes vertical
+    // space in a list adds its own extent as it renders (list_extent), so the
+    // cursor's y is a sum of what actually got drawn rather than a mirror of
+    // the layout kept in a second place.
+    std::vector<std::string> listRows_, listRowsPrev_;
+    float listY_ = 0.0f;
+    float listCursorY_ = -1.0f;
+    float listCursorH_ = 0.0f;
+    bool listScrollPending_ = false;
+    static constexpr float kListTopPad = 6.0f;  // the scroll panel's own pad
+
+    void list_extent(float h) { listY_ += h; }
+
+    // True when this frame's arrow press moved the cursor.
+    bool move_list_cursor(AppComponent& app) {
+        const std::vector<std::string>& rows = listRowsPrev_;
+        // A cursor whose row is gone — the view switched, a filter changed, a
+        // section folded — is dropped rather than carried onto a list that
+        // never had it.
+        const auto at = std::find(rows.begin(), rows.end(), app.listCursorId);
+        if (!app.listCursorId.empty() && at == rows.end())
+            app.listCursorId.clear();
+        if (app.arrow != ArrowIntent::List || rows.empty()) return false;
+
+        size_t idx = 0;
+        if (app.listCursorId.empty()) {
+            // The first press lands on the near end, so Down enters the list
+            // from the top and Up from the bottom.
+            idx = (app.arrowDelta > 0) ? 0 : rows.size() - 1;
+        } else {
+            const size_t cur = static_cast<size_t>(at - rows.begin());
+            // Clamped, not wrapped: jumping from the last row back to the
+            // first reads as a bug in a list whose end you can see.
+            idx = (app.arrowDelta > 0) ? std::min(cur + 1, rows.size() - 1)
+                                       : (cur == 0 ? 0 : cur - 1);
+        }
+        app.listCursorId = rows[idx];
+        listScrollPending_ = true;
+        return true;
+    }
+
+    // Bring the cursor row into the viewport. Called after the list is built,
+    // so the extents it reads are this frame's.
+    void scroll_cursor_into_view(Entity& scrollEnt, float listH) {
+        if (!listScrollPending_) return;
+        listScrollPending_ = false;
+        if (listCursorY_ < 0.0f) return;
+        if (!scrollEnt.has<afterhours::ui::HasScrollView>()) return;
+        auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
+        const float viewH =
+            (sv.viewport_size.y > 1.0f) ? sv.viewport_size.y : listH;
+        const float top = listCursorY_;
+        const float bot = listCursorY_ + listCursorH_;
+        float off = sv.scroll_offset.y;
+        if (top < off) off = top;
+        else if (bot > off + viewH) off = bot - viewH;
+        else return;
+        sv.scroll_offset.y = off;
+        hanabi::set_scroll_target_y(sv, off);
+        sv.clamp_scroll();
+    }
+
     void digest_card(UIContext<InputAction>& ctx, Entity& parent, int id,
                      const api::SessionSummary& s, AppComponent& app,
                      bool emphasizeMeta = false, float cardWidthPx = 0.0f,
@@ -1030,17 +1123,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             (subLine.size() <= 6 && subLine.find("\xc2\xb7") == std::string::npos);
         const float cardH = sparseSub ? 34.0f : 52.0f;
 
+        // Every card in every list comes through here, so this is where the
+        // keyboard cursor is both drawn and counted: the order below IS the
+        // order on screen. The cursor row wears the hover surface plus an
+        // accent border — a keyboard hover, reading like the mouse one.
+        const bool onCursor = !app.listCursorId.empty() && s.id == app.listCursorId;
+        constexpr float kCardMarginTop = 3.0f;
+        constexpr float kCardMarginBot = 5.0f;
+        listRows_.push_back(s.id);
+        if (onCursor) {
+            listCursorY_ = listY_;
+            listCursorH_ = kCardMarginTop + cardH + kCardMarginBot;
+        }
+        list_extent(kCardMarginTop + cardH + kCardMarginBot);
+
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(cardH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(3), .right = pixels(0),
-                                    .bottom = pixels(5), .left = pixels(0)})
+                .with_margin(Margin{.top = pixels(kCardMarginTop),
+                                    .right = pixels(0),
+                                    .bottom = pixels(kCardMarginBot),
+                                    .left = pixels(0)})
                 .with_padding(Padding{.top = pixels(7), .right = pixels(16),
                                       .bottom = pixels(7), .left = pixels(16)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_background(onCursor
+                                            ? theme::hover_over(theme::panel_bg_2())
+                                            : theme::panel_bg_2())
+                .with_border(onCursor ? theme::accent() : theme::border(),
+                             pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(theme::layout::ROUNDNESS_BOX)
@@ -1308,6 +1420,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                       return a->updated_at > b->updated_at;
                   });
         if (!anyAttention) {
+            list_extent(2.0f + 30.0f + 6.0f);
             div(ctx, mk(wrap, 800),
                 preset::EmptyStateText("You're all caught up.")
                     .with_size(ComponentSize{percent(1.0f), pixels(30)})
@@ -1327,6 +1440,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     digest_card(ctx, wrap, ++shown, *recent[k], app, false,
                                 cardW);
         }
+        scroll_cursor_into_view(scroll.ent(), listH);
     }
 
     static std::string upper(std::string s) {
@@ -1341,11 +1455,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Clicking one folds its shelf. Returns true when the shelf is folded, so
     // the caller skips its cards. The chevron is DRAWN, not typed: the font has
     // no triangles (gap #48) and a missing codepoint paints nothing at all.
-    static bool section_label(UIContext<InputAction>& ctx, Entity& parent,
+    bool section_label(UIContext<InputAction>& ctx, Entity& parent,
                               int id, const std::string& text, bool first,
                               theme::Color color, AppComponent& app,
                               const std::string& shelfKey) {
         const bool collapsed = app.collapsedShelves.count(shelfKey) != 0;
+        list_extent((first ? 4.0f : 20.0f) + 20.0f + 6.0f);
 
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
@@ -1936,18 +2051,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // Is any text field holding the keyboard? While one is, the reading keys
     // belong to it: Home and End move the caret, and space is a character.
-    static bool any_text_field_focused() {
-        for (const auto& e :
-             afterhours::ui::UICollectionHolder::get().collection
-                 .get_entities()) {
-            if (!e) continue;
-            if (!e->has<afterhours::text_input::HasTextInputState>()) continue;
-            if (e->get<afterhours::text_input::HasTextInputState>().is_focused)
-                return true;
-        }
-        return false;
-    }
-
     // Make one text element selectable: hit-testable, tracked for press and
     // drag, and showing an I-beam. The listener is empty — an element with no
     // click or drag listener is never eligible to be the hot element
@@ -2680,8 +2783,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             bool jumpTop = false, jumpEnd = false;
             if (hanabi::keys::pressed(hanabi::keys::kPageUp)) delta -= page;
             if (hanabi::keys::pressed(hanabi::keys::kPageDown)) delta += page;
-            if (hanabi::keys::pressed(hanabi::keys::kUp)) delta -= step;
-            if (hanabi::keys::pressed(hanabi::keys::kDown)) delta += step;
+            // Up/Down come from the one owner (arrow_system.h) — the same
+            // press also means "walk the composer history" and "move the list
+            // cursor", and only one of those may happen per keystroke.
+            if (app.arrow == ArrowIntent::Transcript)
+                delta += step * static_cast<float>(app.arrowDelta);
             if (hanabi::keys::pressed(hanabi::keys::kHome)) jumpTop = true;
             if (hanabi::keys::pressed(hanabi::keys::kEnd)) jumpEnd = true;
 
@@ -3186,11 +3292,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const size_t caret = std::min(st.cursor_position, typed.size());
             // A draft with line breaks in it wants Up/Down for the caret, so
             // the walk only claims the keystroke at the edges of the text.
-            const bool walkBack = st.is_focused &&
-                                  hanabi::keys::pressed(hanabi::keys::kUp) &&
+            const bool mine = st.is_focused && app.arrow == ArrowIntent::TextField;
+            const bool walkBack = mine && app.arrowDelta < 0 &&
                                   caret_on_first_line(typed, caret);
-            const bool walkForward = st.is_focused &&
-                                     hanabi::keys::pressed(hanabi::keys::kDown) &&
+            const bool walkForward = mine && app.arrowDelta > 0 &&
                                      caret_on_last_line(typed, caret);
             const auto recall = [&](const std::string& text) {
                 st.storage.clear();

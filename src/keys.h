@@ -43,6 +43,9 @@ inline constexpr int kEnd = ah::END;
 inline constexpr int kUp = ah::UP;
 inline constexpr int kDown = ah::DOWN;
 
+// Opens the row a list's keyboard cursor is on.
+inline constexpr int kEnter = ah::ENTER;
+
 inline bool pressed(int key) { return afterhours::input::is_key_pressed(key); }
 inline bool down(int key) { return afterhours::input::is_key_down(key); }
 

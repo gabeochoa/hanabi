@@ -1,0 +1,80 @@
+# Arrow keys walk the Home list, and the list follows the cursor down.
+#
+# The cursor itself is a colour — an accent border on the row it is on — and
+# the harness cannot see colour. What it CAN see is which text is on screen,
+# because a widget scrolled out of the viewport is never registered: so the
+# assertion is a card far enough down Home that it starts off-screen, and is
+# on-screen once the cursor has walked to it. That is the cursor and the
+# scroll-into-view in one reading.
+#
+# The phrase is a card's own sub-line rather than a thread title: every title
+# here is also a sidebar row, which is visible the whole time and would pass
+# against no implementation at all.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Home"
+expect_no_text "wrote up findings, marginal win"
+
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 3
+key DOWN
+wait_frames 20
+
+expect_text "wrote up findings, marginal win"
