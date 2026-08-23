@@ -127,7 +127,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::apply_scroll_prefs(scroll.ent());
         // TEMPORARY scroll indicator (afterhours gap #26): thin overlay bar
         // computed from the panel's live HasScrollView metrics.
-        hanabi::attach_scroll_indicator(scroll.ent());
+        // (scrollbar now drawn by afterhours)
 
         // "FOLDERS" section label + fold-all control (mirrors the mock's
         // second section header, which carries a fold-all affordance).

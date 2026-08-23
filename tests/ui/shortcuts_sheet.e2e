@@ -5,8 +5,6 @@
 # (afterhours_gaps.md #49). So the sheet is opened through the same knob the
 # screenshot harness uses, and the Esc path is what gets driven here.
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
-#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_TEST_OVERLAY=shortcuts
 
@@ -18,4 +16,8 @@ expect_text "Jump to the start or the newest"
 
 key ESCAPE
 wait_frames 8
-expect_no_text Keyboard
+# A whole phrase, not the bare word "Keyboard": expect_no_text was left out
+# of the quoted-argument chain upstream, so it used to compare against the
+# literal `"Keyboard shortcuts"` INCLUDING the quotes and could never fail.
+# Fixed in afterhours 2d6f23d.
+expect_no_text "Keyboard shortcuts"

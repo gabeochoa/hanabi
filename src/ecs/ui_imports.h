@@ -6,7 +6,6 @@
 #include "../input_mapping.h"
 #include "../rl.h"
 #include "../ui/presets.h"
-#include "../ui/scrollbar.h"
 #include "../ui/theme.h"
 #include "../util/scroll_prefs.h"
 #include "../ui_context.h"

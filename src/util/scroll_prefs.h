@@ -37,32 +37,21 @@ extern "C" bool macos_natural_scroll(void);
 
 namespace hanabi {
 
-// Compile-time detection: does this afterhours build have the smooth-scroll
-// fields (scroll_target / scroll_smoothing, from vendor_patches/30-smooth-eased-
-// scrolling.patch)? Pinned edfe234 does NOT, so all smooth-scroll code below is
-// SFINAE-gated to a hard no-op there — hanabi still compiles against the pinned
-// submodule. Once Gabe lands the patch + bumps the pointer, these activate with
-// zero call-site changes. (Same "compile against pinned" invariant as the other
-// vendor patches, but this one needs new FIELDS, hence the detection.)
-template <typename SV, typename = void>
-struct has_smooth_scroll : std::false_type {};
-template <typename SV>
-struct has_smooth_scroll<SV, std::void_t<decltype(std::declval<SV>().scroll_target)>>
-    : std::true_type {};
-
-// Set scroll_smoothing on a scroll view IF the field exists (else no-op).
-template <typename SV>
-inline void set_scroll_smoothing(SV& sv, float f) {
-    if constexpr (has_smooth_scroll<SV>::value) sv.scroll_smoothing = f;
+// Smooth-scroll helpers. These were SFINAE-gated on whether the vendored
+// afterhours had scroll_target/scroll_smoothing at all, because the old pin did
+// not and hanabi had to compile against both. It does now, so the detection is
+// gone and these are plain writes -- kept as named helpers only so the
+// programmatic-scroll call sites keep reading as intent.
+inline void set_scroll_smoothing(afterhours::ui::HasScrollView& sv, float f) {
+    sv.scroll_smoothing = f;
 }
-// Keep scroll_target in sync with a programmatic scroll_offset write (else no-op).
-template <typename SV>
-inline void sync_scroll_target(SV& sv) {
-    if constexpr (has_smooth_scroll<SV>::value) sv.scroll_target = sv.scroll_offset;
+// A programmatic offset write (jump-to-bottom, a scrollbar drag) must move the
+// TARGET too, or the ease immediately glides back to where the wheel left it.
+inline void sync_scroll_target(afterhours::ui::HasScrollView& sv) {
+    sv.scroll_target = sv.scroll_offset;
 }
-template <typename SV>
-inline void set_scroll_target_y(SV& sv, float y) {
-    if constexpr (has_smooth_scroll<SV>::value) sv.scroll_target.y = y;
+inline void set_scroll_target_y(afterhours::ui::HasScrollView& sv, float y) {
+    sv.scroll_target.y = y;
 }
 
 // Decide whether scroll views should invert their offset sign so the app

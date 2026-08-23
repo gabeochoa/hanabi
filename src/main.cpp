@@ -37,7 +37,6 @@
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
 #include "ecs/main_pane_system.h"
-#include "ecs/scroll_ease_system.h"
 #include "ecs/sidebar_system.h"
 #include "ecs/settings_system.h"
 #include "ecs/shortcuts_system.h"
@@ -308,7 +307,6 @@ static void build_systems(afterhours::SystemManager& sm) {
     // if the vendor smooth-scroll patch is present). No-op with
     // HANABI_SCROLL_SMOOTH=1. Safe with the transcript follow-latch (a pin to
     // the end is detected as a snap, not eased).
-    sm.register_render_system(std::make_unique<ecs::ScrollEaseSystem>());
     ui_imm::registerUIRenderSystems(sm);
 }
 
@@ -1233,26 +1231,16 @@ static int run_e2e(const std::string& path, int w, int h) {
     const bool ranOut = !runner.is_finished();
     if (ranOut) fprintf(stderr, "e2e: hit the %d-frame ceiling\n", kMaxFrames);
 
-    // Drain. The runner marks itself finished in the same tick that dispatches
-    // the LAST command, so that command's outcome is never observed — and a
-    // trailing assertion is the normal way to end a script. Pump past the
-    // command timeout (MAX_FRAMES) so it resolves or fails for real.
-    for (int i = 0; i < 40; ++i) {
-        t::test_input::reset_frame();
-        graphics::begin_frame();
-        graphics::clear_background(theme::window_bg());
-        sm.run(kDt);
-        graphics::end_frame();
-    }
-
-    // And read the verdict off the handlers' own counter rather than
-    // runner.has_failed(): in single-script mode the runner never folds the
-    // command error count into its result, so it reports success no matter
-    // what the assertions did.
-    const int errors = t::get_command_error_count();
+    // No drain loop, and no reading the handlers' counter behind the runner's
+    // back. Both were working around afterhours bugs that are now fixed: the
+    // runner used to declare itself finished in the same tick it dispatched the
+    // LAST command (so a trailing assertion was never observed), and in
+    // single-script mode it never folded the command error count into
+    // has_failed() (so a failing script still exited 0). Upstream 92666b7 fixed
+    // both, with the same shape hanabi had worked around here. The 40 extra
+    // frames per script were pure suite latency once that landed.
     runner.print_results();
-    if (errors) fprintf(stderr, "e2e: %d failed command(s)\n", errors);
-    const bool failed = errors > 0 || runner.has_failed() || ranOut;
+    const bool failed = runner.has_failed() || ranOut;
     graphics::shutdown();
     std::fflush(nullptr);
     return failed ? 1 : 0;
