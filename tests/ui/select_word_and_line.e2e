@@ -1,0 +1,25 @@
+# Double-click takes a word, triple-click takes the line.
+#
+# The band itself is a drawn rectangle and invisible to a text assertion, so
+# the composer's "N selected" readout is what makes the selection observable —
+# which is also why it exists: a short highlight behind text is easy to miss.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_no_text selected
+
+# Inside "ledger" on the first account line: six characters.
+double_click 415 483
+wait_frames 6
+expect_text "6 selected"
+
+# The whole line is much longer than one word.
+triple_click 415 483
+wait_frames 6
+expect_no_text "6 selected"
+expect_text "61 selected"
+
+# A press on empty space drops it.
+click 700 300
+wait_frames 6
+expect_no_text selected

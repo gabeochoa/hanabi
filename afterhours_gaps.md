@@ -2262,3 +2262,89 @@ with content: the same proportions on a bigger screen are a bigger bill.
 - **Severity: makes it ugly, and fragile.** The feature shipped and looks
   right. It is one upstream layout tweak away from being wrong in a way no test
   I can write here would catch.
+
+## #37 revisited — I built the selection, here is what it cost
+
+Gap #37 above asks for text selection on read-only text. Rather than leave it
+as a request, hanabi now has a working app-side implementation
+(`src/ui/text_select.h`, ~230 lines), so the ask can be concrete about what a
+library version would save. **It works**: drag across a message and the run
+highlights, character-snapped, across soft-wrapped lines; Cmd+C copies exactly
+the dragged bytes; a press elsewhere drops it. Verified against real captures —
+a drag from x=343 to x=430 paints a band at x=340..427, snapped to the
+character boundaries either side.
+
+What it took, in the order the problems arrived:
+
+1. **Reproducing the layout** (gap #51). Same as the find highlight: call
+   `ui::detail::wrap_text_to_width` with afterhours' own measure function so
+   the breaks agree, then copy the wrap inset, the line pitch, the vertical
+   centring and the left margin out of `rendering.h`. ~40 lines, four constants
+   that can silently change upstream.
+
+2. **Point → byte offset.** `text_selection::byte_offset_at` exists and is
+   exactly right, but it takes `std::vector<detail::TextRunLine>` and the
+   wrapping I can reach returns `std::vector<std::string>` — so its 20 lines
+   are re-written here against plain strings. Two functions that should be one.
+
+3. **Wrapped offsets do not index the source.** `joined_text()` warns about
+   this and it bites immediately: a soft wrap CONSUMES the space it broke at,
+   so an offset into the joined lines is one byte short per break, and a
+   selection dragged past a line end copies text shifted left by the number of
+   lines crossed. The fix is to walk the source string finding each wrapped
+   line in turn and skipping the whitespace between — ~20 lines whose only job
+   is to undo an information loss the wrapper could have avoided by returning
+   each line's source offset.
+
+4. **Hit-testing had to be hand-rolled.** The context's hot element is resolved
+   by a system that has not seen this frame's tree when the transcript is
+   building it, so on the frame the button goes down every element reports last
+   frame's answer — and a press that arrives with the pointer already in place
+   (exactly what a synthetic drag does, and what a fast real one does too) is
+   missed. So the element hit-tests the pointer against its own rect. That in
+   turn needs the rect, which is last frame's, which is fine only because text
+   does not move between frames.
+
+**What a library version would look like**, given all of the above already
+exists inside the renderer:
+
+```cpp
+.with_selectable_text()                       // opt in, default off
+
+// after the frame resolves
+[[nodiscard]] std::string  UIContext::selected_text() const;
+[[nodiscard]] bool         UIContext::has_selection() const;
+```
+
+with the press/drag handled where hot is already known, the rects taken from
+the layout the renderer just did (#51), and the offsets indexing the ORIGINAL
+string. The app side then goes from 230 lines to one call, and — the part that
+matters — stops depending on four private constants and one documented
+information loss.
+
+Two things I would add to the original ask, having built it:
+
+- **Double-click a word, triple-click a line** — now built here too, and it
+  needed one more thing worth naming: **the pointer state carries no click
+  count.** `MousePointerState` has `pos`, `left_down`, `just_pressed`,
+  `just_released`, `press_pos`, `press_moved` — everything except how many
+  presses this one is. So the app keeps its own last-press time and position and
+  re-derives the run (400ms, 4px), which is a rule the toolkit should own: every
+  widget that wants a double-click will otherwise pick its own thresholds and
+  they will not match each other. A `click_count` on the pointer state is a
+  handful of lines where it is already tracking `press_pos`, and the e2e
+  `double_click`/`triple_click` commands — which are simply two and three
+  presses — would then mean the same thing to every app.
+  The text-input spec in this file already wants both (§4), and one
+  implementation serves both widgets.
+- **`joined_text` should come with offsets.** Whatever the selection API ends
+  up being, a wrapped line wants to carry where it started in the source. Every
+  caller that maps a screen position back to real bytes needs it, and every one
+  of them will otherwise write the same 20-line reconstruction — badly, because
+  the failure is a quiet off-by-N that only shows up on wrapped text.
+
+Still deliberately NOT built, and still the library's call: **selection across
+elements**. Dragging from one message into the next needs a document order over
+the widget tree, which is a real design question and a much bigger one than
+this. Within an element covers grabbing a value, a path, or a sentence, which is
+the thing people actually do.

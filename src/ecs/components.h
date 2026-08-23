@@ -232,6 +232,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set when the current match changes; the transcript scrolls it into view
     // on the next frame it lays out, then clears this.
     bool findScrollPending = false;
+
+    // Test/screenshot only: a run of text to pre-select in the transcript, so
+    // the selection band can be captured without a live drag. Empty normally.
+    std::string selectDemo;
     std::string themeChoice = "dark";
     bool composerOpen = false;
     std::string composerDraft;

@@ -14,9 +14,11 @@
 
 #include "../test_hooks.h"
 #include "../util/format.h"
+#include "../util/textscan.h"
 #include "thread_model.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
+#include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../keys.h"
 #include "ui_imports.h"
@@ -72,6 +74,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app->findOpen = false;
             app->findQuery.clear();
         }
+        // Cmd+C copies selected transcript text. Checked before the composer
+        // sees the key: with a selection up, Cmd+C means the selection.
+        if (hanabi::keys::cmd_down() &&
+            hanabi::keys::pressed(hanabi::keys::kC))
+            hanabi::text_select::copy();
+        if (hanabi::keys::pressed(hanabi::keys::kEscape))
+            hanabi::text_select::clear();
 
         layout->composerHeight = 92.0f;
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
@@ -1792,31 +1801,52 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.requestSplitClose = true;
     }
 
+    // Make one text element selectable: hit-testable, tracked for press and
+    // drag, and showing an I-beam. The listener is empty — an element with no
+    // click or drag listener is never eligible to be the hot element
+    // (gap #38), so it exists purely to make the pointer visible here.
+    static void selectable_text(UIContext<InputAction>& ctx, Entity& el,
+                                const std::string& text, float fontPx) {
+        el.addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (el.has<afterhours::HasColor>())
+            el.get<afterhours::HasColor>().skip_hover_override = true;
+        el.addComponentIfMissing<afterhours::ui::HasCursor>(
+            afterhours::ui::CursorType::Text);
+        if (!el.has<afterhours::ui::UIComponent>()) return;
+        const auto& cmp = el.get<afterhours::ui::UIComponent>();
+        const RectangleType r = cmp.rect();
+        hanabi::text_select::update(el.id, r, text, fontPx, ctx.mouse.pos.x,
+                                    ctx.mouse.pos.y, ctx.mouse.left_down,
+                                    ctx.mouse.just_pressed);
+        // Test/screenshot only: adopt a pre-selected run the first time the
+        // element that contains it renders. No-op unless HANABI_SELECT_DEMO is
+        // set (see apply_test_knobs).
+        AppComponent* sapp = app_singleton();
+        if (sapp && !sapp->selectDemo.empty()) {
+            const size_t at = text.find(sapp->selectDemo);
+            if (at != std::string::npos) {
+                auto& st = hanabi::text_select::state();
+                st.owner = el.id;
+                st.text = text;
+                st.fontPx = fontPx;
+                st.anchor = at;
+                st.cursor = at + sapp->selectDemo.size();
+                st.dragging = false;
+                sapp->selectDemo.clear();
+            }
+        }
+    }
+
     // ---------------- Find in conversation ---------------------------------
     // Case-insensitive substring search over the open thread. Matching runs on
     // the message text as stored; the highlight below re-searches each RENDERED
     // line, so a match split across a markdown marker is counted here and not
     // painted. Both are honest about the same text — see the note on
     // highlight_ranges.
-    static bool ci_equal(char a, char b) {
-        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + 32);
-        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + 32);
-        return a == b;
-    }
-    // Every occurrence of `needle` in `hay`, by byte offset. Overlapping
-    // matches are not counted twice: the scan resumes past each hit.
     static std::vector<size_t> find_all(const std::string& hay,
                                         const std::string& needle) {
-        std::vector<size_t> out;
-        if (needle.empty() || hay.size() < needle.size()) return out;
-        for (size_t i = 0; i + needle.size() <= hay.size();) {
-            bool hit = true;
-            for (size_t j = 0; j < needle.size(); ++j)
-                if (!ci_equal(hay[i + j], needle[j])) { hit = false; break; }
-            if (hit) { out.push_back(i); i += needle.size(); }
-            else ++i;
-        }
-        return out;
+        return textscan::occurrences(hay, needle);
     }
 
     // One match: which message, and where in it.
@@ -2094,6 +2124,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (colW < 120.0f) colW = 120.0f;
         Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, colW);
 
+        hanabi::text_select::begin_frame();
         render_cache().reset_for_thread(app.openSession->summary.id);
 
         // Measured here, RENDERED further down: the rollup is the first thing
@@ -2477,6 +2508,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             loading_older_pill(ctx, parent, paneW, 62.0f + 6.0f);
         }
         if (app.findOpen) find_bar(ctx, parent, app, paneW, app.findCount);
+        hanabi::text_select::end_frame(ctx.mouse.just_pressed);
         // (Composer is rendered once at the pane level — not here.)
         (void)canReply;
     }
@@ -2957,6 +2989,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the user nothing. A bar needs a denominator and no backend here
         // supplies a context window, so the bar is gone and what is left is a
         // real number: the open thread's own size, measured from its text.
+        // A live selection says how much is on the clipboard's doorstep. It
+        // also confirms the selection exists at all: the band is drawn behind
+        // text and easy to miss on a short run.
+        if (const std::string sel = hanabi::text_select::selected_text();
+            !sel.empty()) {
+            div(ctx, mk(rightMeta.ent(), 4),
+                ComponentConfig{}
+                    .with_label(std::to_string(sel.size()) + " selected")
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.right = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Right)
+                    .with_debug_name("composer_selected"));
+        }
         if (canSend && app.openSession) {
             const int64_t tok = estimated_tokens(*app.openSession);
             if (tok > 0) {
@@ -3873,16 +3921,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_roundness(0.0f)
                         .with_debug_name("asst_line");
-                // Find highlight goes BEHIND the glyphs: on_draw_bg runs before
-                // the widget's own fill, and this element's fill is transparent.
-                if (!findQuery.empty()) {
-                    cfg = cfg.with_on_draw_bg(
-                        [line = ip.visible, q = findQuery](RectangleType r) {
+                // Both bands go BEHIND the glyphs: on_draw_bg runs before the
+                // widget's own fill, and this element's fill is transparent.
+                // The element's id is not known until it exists, so the draw
+                // captures it by reference through a small holder.
+                auto idHolder = std::make_shared<afterhours::EntityID>(-1);
+                cfg = cfg.with_on_draw_bg(
+                    [line = ip.visible, q = findQuery, idHolder](
+                        RectangleType r) {
+                        hanabi::text_select::draw(*idHolder, r, line,
+                                                  theme::type::BODY);
+                        if (!q.empty())
                             hanabi::find_highlight::draw(r, line, q,
                                                          theme::type::BODY);
-                        });
-                }
-                div(ctx, mk(parent, 100 + seg), cfg);
+                    });
+                auto lineEl = div(ctx, mk(parent, 100 + seg), cfg);
+                *idHolder = lineEl.ent().id;
+                selectable_text(ctx, lineEl.ent(), ip.visible,
+                                theme::type::BODY);
             }
             ++seg;
             if (nl == std::string::npos) break;
@@ -4090,14 +4146,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text");
-            if (!uq.empty()) {
-                ucfg = ucfg.with_on_draw_bg(
-                    [t = userBody, q = uq](RectangleType r) {
+            auto uidHolder = std::make_shared<afterhours::EntityID>(-1);
+            ucfg = ucfg.with_on_draw_bg(
+                [t = userBody, q = uq, uidHolder](RectangleType r) {
+                    hanabi::text_select::draw(*uidHolder, r, t,
+                                              theme::type::BODY);
+                    if (!q.empty())
                         hanabi::find_highlight::draw(r, t, q,
                                                      theme::type::BODY);
-                    });
-            }
-            div(ctx, mk(bub.ent(), 2), ucfg);
+                });
+            auto uEl = div(ctx, mk(bub.ent(), 2), ucfg);
+            *uidHolder = uEl.ent().id;
+            selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY);
             // WhatsApp-style sync glyph in the bubble's bottom-right corner.
             // gap #28 (nested child of a custom-bg bubble + on_draw_fg didn't
             // fire) is now FIXED upstream (afterhours bump), so we render the

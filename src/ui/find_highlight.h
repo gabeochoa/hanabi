@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../../vendor/afterhours/src/plugins/ui/text_selection.h"
+#include "../util/textscan.h"
 #include "theme.h"
 
 namespace hanabi::find_highlight {
@@ -40,24 +41,7 @@ inline constexpr float kWrapInset = 10.0f;  // rect.width - this = wrap width
 inline constexpr float kTextMarginX = 5.0f;
 inline constexpr float kVPad = 1.0f;  // trims the band off the line box
 
-// Case-insensitive byte offsets of every occurrence of `needle` in `hay`.
-// Non-overlapping: the scan resumes past each hit, so "aa" in "aaa" is one.
-inline std::vector<size_t> occurrences(const std::string& hay,
-                                       const std::string& needle) {
-    std::vector<size_t> out;
-    if (needle.empty() || hay.size() < needle.size()) return out;
-    const auto lower = [](char c) {
-        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
-    };
-    for (size_t i = 0; i + needle.size() <= hay.size();) {
-        bool hit = true;
-        for (size_t j = 0; j < needle.size(); ++j)
-            if (lower(hay[i + j]) != lower(needle[j])) { hit = false; break; }
-        if (hit) { out.push_back(i); i += needle.size(); }
-        else ++i;
-    }
-    return out;
-}
+using textscan::occurrences;
 
 // Paint a band behind every occurrence of `query` in `text`, as that text is
 // laid out inside `rect` at `fontPx`. A no-op when the query is empty or the

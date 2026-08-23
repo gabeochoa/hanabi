@@ -1,0 +1,29 @@
+# Dragging across a message selects the text under the pointer, and pressing
+# elsewhere drops the selection.
+#
+# afterhours has no selection on read-only text (afterhours_gaps.md #37), so
+# this is the app's own: the band, the offsets and the copy are all computed
+# here. The band itself is a drawn rectangle, invisible to a text assertion —
+# it is verified by pixel probe in scripts (see the PR), and what this script
+# guards is that dragging over the transcript does not disturb it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Reconciled 4,812 accounts"
+
+mouse_down 343 483
+wait_frames 3
+mouse_move 430 483
+wait_frames 3
+mouse_up
+wait_frames 4
+
+# The drag must not have scrolled the thread away or eaten the click that opens
+# a thread: the transcript is still here and still the same one.
+expect_text "Reconciled 4,812 accounts"
+expect_text "Stars payout reconciliation"
+
+# A press on empty space below the text drops it without side effects.
+click 700 300
+wait_frames 4
+expect_text "Reconciled 4,812 accounts"
