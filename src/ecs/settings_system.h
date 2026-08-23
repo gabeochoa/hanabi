@@ -64,6 +64,7 @@
 #include "../version.h"
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
+#include "../ui/model_menu.h"
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -980,24 +981,48 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ── Model group ────────────────────────────────────────────────────────
-    // Default model. WIRED locally: a small set of choices persisted as
-    // defaultModelId + synced. "Server default" leaves the backend to pick;
-    // the named choices express a client preference the server can honor.
+    // Default model. Persisted as defaultModelId + synced, exactly as before;
+    // what changed is who chooses it. This row used to be three segments
+    // reading "Server default / Fast / Reasoning" — a vocabulary no server
+    // serves. The real menu is the deployment's own (src/ui/model_menu.h),
+    // which is nine entries and does not fit a segmented control, so the
+    // choosing moved to the composer's model chip and this row reports what
+    // is set. Same value, one owner.
     void render_model_row(UIContext<InputAction>& ctx, Entity& parent,
                           AppComponent& app) {
         (void)app;
         row_name(ctx, parent, 140, "Default model", "settings_model_label");
-        static const char* kModels[] = {"default", "fast", "reasoning"};
-        const std::string cur = Settings::get().get_default_model();
-        int selIdx = 0;
-        for (int i = 0; i < 3; ++i)
-            if (cur == kModels[i]) selIdx = i;
-        real_segmented(ctx, parent, 141,
-                       {"Server default", "Fast", "Reasoning"}, selIdx,
-                       "settings_model",
-                       [](int i) {
-                           Settings::get().set_default_model(kModels[i]);
-                       });
+        auto row = div(ctx, mk(parent, 141),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_model_row"));
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(hanabi::models::display_name(
+                    Settings::get().get_default_model()))
+                .with_size(ComponentSize{children(), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_model_value"));
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label("pick it from the composer's model chip")
+                .with_size(ComponentSize{children(), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_model_hint"));
     }
 
     // ── Advanced group ─────────────────────────────────────────────────────

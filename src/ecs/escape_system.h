@@ -13,7 +13,7 @@
 // what is on top: the rename modal draws over the modal composer, which draws
 // over the shortcuts sheet, which
 // draws over settings, which draws over the find bar, which sits over the
-// transcript. The auth overlay is deliberately absent — login gates the app
+// composer's model picker, which sits over the transcript. The auth overlay is deliberately absent — login gates the app
 // and Esc must not dismiss it.
 //
 // Registered ahead of every consumer, so the intent is already resolved by the
@@ -44,6 +44,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseSettings;
         else if (app->findOpen)
             app->escape = EscapeIntent::CloseFind;
+        else if (app->modelPopoverOpen)
+            app->escape = EscapeIntent::CloseModelPicker;
         else
             app->escape = EscapeIntent::ClearTranscript;
     }

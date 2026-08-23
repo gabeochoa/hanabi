@@ -22,6 +22,7 @@
 #include "../../src/ecs/components.h"
 #include "../../src/util/format.h"
 #include "../../src/util/textscan.h"
+#include "../../src/ui/model_menu.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -286,6 +287,30 @@ static void test_find_occurrences() {
     }
 }
 
+// --- the model menu -------------------------------------------------------
+static void test_model_menu() {
+    std::printf("test_model_menu\n");
+    namespace mm = hanabi::models;
+
+    // The stored default is the first entry, so a fresh install has a real
+    // answer rather than an id off the menu.
+    CHECK(mm::all().front().id == "default");
+    CHECK(mm::display_name("default") == "Server default");
+
+    // Ids are the gateway's own spelling — the tidier "muse-spark-1.2" is a
+    // 404, so the suffix has to survive.
+    CHECK(mm::index_of("muse-spark-1.2-internal") < mm::all().size());
+    CHECK(mm::index_of("muse-spark-1.2") == mm::all().size());
+
+    CHECK(mm::display_name("claude-sonnet-5") == "Sonnet 5");
+    // An id the curated menu does not carry shows as itself: family routing
+    // takes ids this list does not, and a later build may have written one.
+    CHECK(mm::display_name("claude-opus-9") == "claude-opus-9");
+    // The retired "fast"/"reasoning" tokens were never served by anything;
+    // they now read as themselves rather than posing as a real model.
+    CHECK(mm::index_of("fast") == mm::all().size());
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -297,6 +322,7 @@ int main() {
     test_compact_count();
     test_clock_time();
     test_find_occurrences();
+    test_model_menu();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

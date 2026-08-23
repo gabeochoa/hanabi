@@ -1,0 +1,37 @@
+# The composer's model chip opens a picker, and the model chosen there is what
+# the chip then says.
+#
+# The chip used to be a fixed label reading "Opus 4.8 (xhigh)" whatever the app
+# was set to, so the assertion is a model NAME that only the picker can put
+# there: nothing else in the UI says "Sonnet 5".
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Stars payout reconciliation"
+
+# Nothing is picked yet, so the chip reports the server's own choice.
+expect_text "Server default"
+expect_no_text "Sonnet 5"
+
+click_ui composer_model
+wait_frames 8
+
+# The picker lists the models this deployment serves.
+expect_text "Opus 5"
+expect_text "Sonnet 5"
+expect_text "GPT-5.5"
+
+click_ui model_row_4
+wait_frames 10
+
+# The popover is gone and the chip carries the choice.
+expect_no_text "GPT-5.5"
+expect_text "Sonnet 5"
+
+# It is a real preference, not a one-way trip: pick the server's default back.
+click_ui composer_model
+wait_frames 8
+click_ui model_row_0
+wait_frames 10
+expect_text "Server default"
+expect_no_text "Sonnet 5"
