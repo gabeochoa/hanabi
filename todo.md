@@ -439,11 +439,16 @@ arrives on the existing stream.
 
 ### Still open
 
-- [ ] **Does hanabi's CURRENT backend report a max?** The above is the
-      reference client's backend, which never uses the name `context_usage` —
-      that name is our current backend's, and the two are different protocols.
-      So the denominator is confirmed to exist *if we switch*; whether today's
-      backend has one is still unverified. Check before building anything.
+- [ ] **Now unblocked — build it.** We are on agentcloud, and `hello.state`
+      carries `tokens` directly (seen live on every attach). Denominator is
+      `tokens.context.budget`, NOT `window`: the budget is what triggers
+      compaction, which is the thing with a consequence. Numerator is
+      `tokens.occupancy.tokens`. Render `occupancy.stale` rather than hiding
+      it. `cache_read`/`cache_creation` nest inside `input`, never add to it.
+      (The old caveat here — "is this the backend we are actually on?" — is
+      settled: we switched. `make run` is agentcloud, so `hello.state.tokens`
+      is the live shape, and the `context_usage` event named elsewhere in this
+      file belongs to the backend we left.)
 
 Then: restore the bar, keep the token figure beside it, and add a config key so
 the mock and any backend without a max degrade to the plain figure rather than
@@ -547,7 +552,7 @@ held hostage by review of the big change. Stacking compounds this — nothing in
 Reviewed, nothing blocking. Four things to come back to. **All deferred — do
 not fix as part of #3.**
 
-### [ ] 1. `src/keys.h` reimplements a function afterhours already has
+### [x] 1. `src/keys.h` reimplements a function afterhours already has — DONE (`c807bd1`)
 
 The new shim is:
 
@@ -574,7 +579,7 @@ instead of a parallel one. (Same fix already applied in floatinghotel for the
 same gap.) Still an improvement over the five sites of bare `343`/`347` it
 replaced — this is one rung further, not a correction.
 
-### [ ] 2. Gap #47 is fixed upstream and is weakening our own test
+### [x] 2. Gap #47 is fixed upstream and is weakening our own test — DONE (`c807bd1`)
 
 `tests/ui/shortcuts_sheet.e2e` carries `# NOTE: expect_no_text takes a BARE
 single word — see afterhours_gaps.md #47` and settles for
@@ -623,25 +628,27 @@ to 1.9M renders as `1M`.
 
 ## AGENTCLOUD — next up (2026-08-22)
 
-Landed: transport + auth, `list_sessions`, transcripts via attach/page/fold.
-`make run` defaults to it. Sending is NOT done — the composer correctly says
-read-only.
+Landed: transport + auth, `list_sessions`, transcripts via attach/page/fold,
+and **sending**. `make run` defaults to agentcloud. The composer is live — the
+read-only caption is gone for this backend.
 
-### [ ] Sending (`input`) — designed, not built
+### [x] Sending (`input`) — done (`6e19b24`, streaming fixed in `5680962`)
 
-`{"sub":1,"payload":{"cmd":"input","text":…,"apply":…}}`, apply ∈
-`after_tool_round` (conventional) / `end_of_turn` / `interrupt`.
+Implemented as `send_message_streaming` + `supports_send/steer/stream`, because
+this protocol has **no ack**: the durable `user_input` frame IS the
+acknowledgement, and `loader_system` appends `send_message`'s return value as
+the assistant reply, so a blocking version would sit through a whole agent
+turn. `steer()` is the same `input` with `apply: "interrupt"` — no second
+endpoint.
 
-**There is no ack.** The durable `user_input` frame arriving on the
-subscription IS the acknowledgement. That matters for which seam we implement:
-`send_message` returns the ASSISTANT reply and `loader_system` appends it
-(`app.openSession->messages.push_back(r.value)`), so a synchronous
-implementation would have to block for an entire agent turn — minutes.
-
-So implement **`send_message_streaming`** instead and set `supports_stream()`:
-the protocol is natively a stream of blocks, the StreamSink already models
-delta/event/done/error, and the loader prefers that path. `apply: "interrupt"`
-is the natural mapping for `steer()`.
+The part that needed a live test to get right: live text arrives BOTH ways.
+`block_delta{delta:"append"}` is a true increment; a `value` frame and the
+settled `durable block` at the end each carry the WHOLE block. The first
+version read only the settled block, so a 65-character reply arrived as one
+delta at the end — correct output, no streaming, and no fixture could catch it
+because the fixtures encoded the same wrong assumption as the code. Verified
+against production: 7 deltas for that reply, concatenated deltas reconstruct
+the final text exactly.
 
 ### [ ] Spaces — BLOCKED, and worth knowing why
 
@@ -675,6 +682,18 @@ dirs — 4 real groups, everything else ungrouped.
 
 A thread that is still fetching renders the empty-state welcome, which reads as
 "nothing here" rather than "not yet". Gate it on the load state instead.
+
+### [ ] Bump the afterhours pin — WAITING ON A PUSH
+
+hanabi pins `dfd6e19`; afterhours has two commits past it (the placeholder
+repro example and a `todo.md` correction), plus one more sitting unpushed in
+`~/p/wm_afterhours/vendor/afterhours`. None of them touch code hanabi runs, so
+there is no hurry — but the pin cannot move until those are on the remote, or
+the submodule points at commits nobody else can fetch.
+
+Standing rule: **I do not push afterhours.** Too many projects vendor it.
+Changes go to Gabe; a crash is worth flagging immediately but still not
+pushing.
 
 ### [ ] Cache the chat
 
