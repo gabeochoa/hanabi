@@ -46,6 +46,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     static void apply_local_overlays(std::vector<api::SessionSummary>& out) {
         for (auto& s : out) {
             if (Settings::get().is_starred(s.id)) s.starred = true;
+            if (Settings::get().is_muted(s.id)) s.muted = true;
             s.archive_override = Settings::get().get_archived(s.id);
         }
     }

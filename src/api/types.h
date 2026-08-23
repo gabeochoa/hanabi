@@ -143,6 +143,10 @@ struct SessionSummary {
     // is — and it has to be able to say NOT archived about a thread the
     // backend reports archived, or Unarchive could never mean anything.
     std::optional<bool> archive_override;
+    // Silenced on THIS machine: the thread still changes state and still shows
+    // it in the list, it just never raises a notification. Deliberately not
+    // synced — which machine you want quiet on is a property of the machine.
+    bool muted = false;
 };
 
 // A sub-agent (child worker) running under a session. Visualized ONLY in the

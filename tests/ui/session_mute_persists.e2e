@@ -1,0 +1,9 @@
+# A mute survives the launch that made it: this app starts with r4 already
+# silenced, and its row shows the mute at rest, with nothing hovered.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","muted":["r4"]}
+
+mouse_move 650 400
+wait_frames 12
+expect_text "Draft release notes for 4.2"
+assert_ui row_muted hidden=false

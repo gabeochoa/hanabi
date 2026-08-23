@@ -92,6 +92,11 @@ struct Settings {
     // the per-viewer route that would sync it is not reachable from here.
     std::optional<bool> get_archived(const std::string& id) const;
     void set_archived(const std::string& id, bool archived);  // auto-persists
+    // Muted session ids. Machine-local by design (see SessionSummary::muted),
+    // so this is the only place the state lives — there is no server copy to
+    // reconcile against, and an id that no longer exists simply never matches.
+    bool is_muted(const std::string& id) const;
+    void set_muted(const std::string& id, bool muted);  // auto-persists
 
     // How far a thread had been READ, as the timestamp of its newest message
     // at the moment it was last open. Persisted so reopening a conversation
@@ -173,6 +178,7 @@ struct Settings {
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
     std::map<std::string, bool> archived_;
+    std::vector<std::string> muted_ids_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
     // Preference slots (see getters). Defaults mirror the web defaults.

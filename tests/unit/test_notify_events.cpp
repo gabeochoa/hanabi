@@ -4,6 +4,7 @@
 // that says "the count would not have moved" is a notification the user never
 // got. Pure logic — no clock, no AppKit, no session type.
 #include <cstdio>
+#include <set>
 #include <string>
 
 #include "../../src/util/notify_events.h"
@@ -25,6 +26,7 @@ using hanabi::notify::transitions;
 using Row = std::pair<std::string, Activity>;
 using Rows = std::vector<Row>;
 using Titles = std::map<std::string, std::string>;
+using Muted = std::set<std::string>;
 
 static const Titles kTitles = {{"a", "Pricing rollout"},
                                {"b", "Churn query"},
@@ -105,6 +107,48 @@ static void test_a_missing_title_is_empty_not_a_crash() {
     if (ev.size() == 1) CHECK(ev[0].title.empty());
 }
 
+static void test_a_muted_thread_says_nothing() {
+    std::printf("test_a_muted_thread_says_nothing\n");
+    const auto before =
+        snapshot({{"a", Activity::Other}, {"b", Activity::Other}});
+    const Rows cur = {{"a", Activity::Blocked}, {"b", Activity::Blocked}};
+
+    // Unmuted, this is two banners.
+    CHECK(transitions(before, cur, kTitles).size() == 2);
+
+    // Muting one silences that one and only that one — muting a thread is not
+    // a do-not-disturb switch for the whole app.
+    const auto ev = transitions(before, cur, kTitles, Muted{"a"});
+    CHECK(ev.size() == 1);
+    if (ev.size() == 1) CHECK(ev[0].id == "b");
+
+    CHECK(transitions(before, cur, kTitles, Muted{"a", "b"}).empty());
+}
+
+static void test_unmuting_does_not_replay_what_was_missed() {
+    std::printf("test_unmuting_does_not_replay_what_was_missed\n");
+    // A thread blocks while muted: silent, but the caller still records it.
+    const auto before = snapshot({{"a", Activity::Other}});
+    const Rows blockedNow = {{"a", Activity::Blocked}};
+    CHECK(transitions(before, blockedNow, kTitles, Muted{"a"}).empty());
+
+    // Unmute on the next refresh, with the thread still blocked. Nothing has
+    // changed since the snapshot, so there is nothing to announce — the banner
+    // would be about something that happened while the user asked for quiet.
+    const auto after = snapshot(blockedNow);
+    CHECK(transitions(after, blockedNow, kTitles).empty());
+}
+
+static void test_muting_an_unknown_thread_is_harmless() {
+    std::printf("test_muting_an_unknown_thread_is_harmless\n");
+    // The mute set outlives the threads in it (it is persisted by id), so it
+    // routinely names threads this refresh has never heard of.
+    const auto before = snapshot({{"a", Activity::Other}});
+    const auto ev =
+        transitions(before, {{"a", Activity::Blocked}}, kTitles, Muted{"gone"});
+    CHECK(ev.size() == 1);
+}
+
 int main() {
     std::printf("=== test_notify_events ===\n");
     test_first_sight_is_never_news();
@@ -114,6 +158,9 @@ int main() {
     test_standing_still_says_nothing();
     test_a_vanished_thread_is_not_an_event();
     test_a_missing_title_is_empty_not_a_crash();
+    test_a_muted_thread_says_nothing();
+    test_unmuting_does_not_replay_what_was_missed();
+    test_muting_an_unknown_thread_is_harmless();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

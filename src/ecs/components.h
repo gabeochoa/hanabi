@@ -234,6 +234,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // menu and applied by the sidebar — the same one-writer arrangement the
     // star toggle uses, so the sessions vector still has exactly one mutator.
     std::string requestToggleArchive;
+    // Request to silence (or un-silence) a thread on this machine. Same
+    // one-writer arrangement as the star: the sidebar owns the sessions vector.
+    std::string requestToggleMute;
 
     // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
     // collapse into one "N tool calls" summary row (like the navi website); the
