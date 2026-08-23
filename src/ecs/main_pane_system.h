@@ -2052,6 +2052,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 start = p;
                 continue;
             }
+            // A heading is painted — with its own find band — so what it
+            // paints, the text without the hashes, is what may be counted.
+            if (md_heading_level(line) > 0) {
+                out.push_back(md_heading_text(line));
+                if (nl == std::string::npos) break;
+                start = nl + 1;
+                continue;
+            }
             if (!line.empty()) out.push_back(md_to_spans(line).visible);
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -3536,19 +3544,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Real wrapped lines for `text` at `widthPx`, via afterhours' own wrapper.
-    static std::vector<std::string> wrapped_lines(const std::string& text,
-                                                  float widthPx) {
+    // `fontPx` is a parameter because a run set larger than the body — a
+    // markdown heading — breaks at a different word than the same string at
+    // body size, and measuring it at BODY would under-count its lines.
+    static std::vector<std::string> wrapped_lines(
+        const std::string& text, float widthPx,
+        float fontPx = theme::type::BODY) {
         return afterhours::ui::wrap_text(text, text_wrap_width(widthPx),
                                          afterhours::ui::UIComponent::DEFAULT_FONT,
-                                         theme::type::BODY);
+                                         fontPx);
     }
 
     // Estimated WRAPPED line count of `text` at `widthPx`. Used to decide
     // whether a body is long enough to fold.
-    static int count_lines(const std::string& text, float widthPx) {
+    static int count_lines(const std::string& text, float widthPx,
+                           float fontPx = theme::type::BODY) {
         // wrap_text honours hard newlines itself, so a blank line still counts
         // as a line the way the old hand-rolled split did.
-        const int lines = static_cast<int>(wrapped_lines(text, widthPx).size());
+        const int lines =
+            static_cast<int>(wrapped_lines(text, widthPx, fontPx).size());
         return lines < 1 ? 1 : lines;
     }
 
@@ -3746,6 +3760,77 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                divider + kTableVMargin;
     }
 
+    // ---- Markdown headings (H1-H4) --------------------------------------
+    // An assistant that structures a long answer writes "## Findings", and the
+    // transcript printed the hashes as if they were prose. Detection + geometry
+    // live here so the measure pass (rich_body_h) and the draw (render_rich_body)
+    // read the SAME numbers: a heading is taller than the body line it replaces,
+    // and a height only one of them knows about desyncs every virtualization
+    // spacer below it.
+    //
+    // ATX only ("## Text"), 1-4 hashes, at column 0, with a space after them.
+    // Level 5 and 6 stay body text: four sizes already reach body size, and a
+    // fifth step would be a heading nobody can see is one. Returns 0 for
+    // "not a heading".
+    static int md_heading_level(const std::string& line) {
+        size_t i = 0;
+        while (i < line.size() && line[i] == '#') ++i;
+        if (i == 0 || i > 4) return 0;
+        if (i >= line.size() || line[i] != ' ') return 0;
+        if (line.find_first_not_of(' ', i) == std::string::npos) return 0;
+        return static_cast<int>(i);
+    }
+    // The heading's own text: hashes, the space after them, and a closing run
+    // of hashes ("## Text ##") removed. Inline markers are resolved the same
+    // way a body line's are, so "## **Done**" is not drawn with its asterisks.
+    static std::string md_heading_text(const std::string& line) {
+        size_t b = line.find_first_not_of('#');
+        if (b == std::string::npos) return "";
+        b = line.find_first_not_of(' ', b);
+        if (b == std::string::npos) return "";
+        size_t e = line.find_last_not_of(" \t");
+        while (e > b && line[e] == '#') --e;
+        while (e > b && (line[e] == ' ' || line[e] == '\t')) --e;
+        return md_visible(line.substr(b, e - b + 1));
+    }
+    // The heading type scale. Not theme::type tokens: those are named for the
+    // places they came from (a smart-view h1, a spotlight input), and a scale
+    // needs its four steps to be chosen against each other — each step has to
+    // be far enough from the next to read as a level, and H4 has to stay
+    // clearly above BODY (13) so the smallest heading is still a heading.
+    static constexpr float kHeadingFont[4] = {20.0f, 17.0f, 15.0f, 13.5f};
+    static float heading_font(int level) {
+        if (level < 1) level = 1;
+        if (level > 4) level = 4;
+        return kHeadingFont[level - 1];
+    }
+    // Line pitch as arithmetic on the font size rather than a font measurement:
+    // measure and render must agree even on the first frame, before the font
+    // context exists, and a measured pitch would answer differently then.
+    static float heading_line_h(int level) {
+        return std::round(heading_font(level) * 1.35f);
+    }
+    // Space above a heading, drawn as its own leading gap. More above than
+    // below so the heading binds to the section it opens instead of floating
+    // between two of them.
+    static constexpr float kHeadingGapTop = 8.0f;
+    static constexpr float kHeadingPadV = 2.0f;  // inside the text row
+    // Total height of a heading segment: the leading gap plus the text row.
+    // The ONE place either path gets this number.
+    static float heading_seg_h(int level, int lines) {
+        if (lines < 1) lines = 1;
+        return kHeadingGapTop + static_cast<float>(lines) *
+                                    heading_line_h(level) +
+               2.0f * kHeadingPadV;
+    }
+    // Measured height of the heading on `line` when wrapped to `textW`.
+    static float heading_seg_h_for(const std::string& line, float textW) {
+        const int level = md_heading_level(line);
+        const std::string text = md_heading_text(line);
+        return heading_seg_h(level,
+                             count_lines(text, textW, heading_font(level)));
+    }
+
     // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
     // method's per-segment layout exactly (blank line = half pitch, else
     // segLines*pitch) so virtualization spacers line up with what renders.
@@ -3784,6 +3869,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 h += code_block_h(codeLines);
                 start = p;
+                continue;
+            }
+            // ---- Heading: one segment, taller than a body line -------------
+            if (md_heading_level(line) > 0) {
+                h += heading_seg_h_for(line, textW);
+                if (nl == std::string::npos) break;
+                start = nl + 1;
                 continue;
             }
             // VISIBLE length (markers removed) so inline **bold**/`code`/_em_
@@ -4244,6 +4336,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("thinking_timer"));
     }
 
+    // Draw one markdown heading: a leading gap, then the text row at its
+    // level's size in the accent colour. Height comes from heading_seg_h_for
+    // — the same call the measure pass makes — and is split between the two
+    // elements here, so what this builds occupies exactly what was measured.
+    void render_heading(UIContext<InputAction>& ctx, Entity& parent, int seg,
+                        int level, const std::string& text, float blockH,
+                        const std::string& findQuery) {
+        div(ctx, mk(parent, 20000 + seg),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(kHeadingGapTop)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("md_heading_gap"));
+        const float fontPx = heading_font(level);
+        const float rowH = blockH - kHeadingGapTop;
+        auto cfg = ComponentConfig{}
+                       .with_label(text)
+                       .with_size(ComponentSize{percent(1.0f), pixels(rowH)})
+                       .with_transparent_bg()
+                       .with_custom_text_color(theme::accent())
+                       .with_font_size(fontPx)
+                       .with_text_overflow(TextOverflow::Wrap)
+                       .with_alignment(TextAlignment::Left)
+                       .with_roundness(0.0f)
+                       .with_debug_name("md_h" + std::to_string(level));
+        // Same two bands a body line gets, at the heading's font size: a
+        // heading the reader can see but not select, or that find skips over,
+        // is a hole in features that already work everywhere else.
+        auto idHolder = std::make_shared<afterhours::EntityID>(-1);
+        cfg = cfg.with_on_draw_bg(
+            [text, q = findQuery, idHolder, fontPx](RectangleType r) {
+                hanabi::text_select::draw(*idHolder, r, text, fontPx);
+                if (!q.empty())
+                    hanabi::find_highlight::draw(r, text, q, fontPx);
+            });
+        auto el = div(ctx, mk(parent, 100 + seg), cfg);
+        *idHolder = el.ent().id;
+        selectable_text(ctx, el.ent(), text, fontPx);
+    }
+
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
                           const std::string& shown, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
@@ -4331,6 +4464,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 ++seg;
                 start = p;
+                continue;
+            }
+
+            // ---- Heading: ONE atomic segment (leading gap + text row) ------
+            if (const int level = md_heading_level(line); level > 0) {
+                const float blockH = heading_seg_h_for(line, textW);
+                const float segTop = y;
+                const float segBot = y + blockH;
+                y = segBot;
+                const bool visible =
+                    !cull || (segBot >= winTop && segTop <= winBot);
+                if (!visible) {
+                    pending += blockH;
+                } else {
+                    flush(9000 + seg);
+                    render_heading(ctx, parent, seg, level,
+                                   md_heading_text(line), blockH, findQuery);
+                }
+                ++seg;
+                if (nl == std::string::npos) break;
+                start = nl + 1;
                 continue;
             }
 
