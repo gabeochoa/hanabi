@@ -75,6 +75,14 @@ class TranscriptCache {
         map_.emplace(id, std::move(e));
     }
 
+    // Read a cached transcript WITHOUT touching recency. The sidebar's search
+    // snippets walk every matching row; a reader that is not the user must not
+    // reorder the LRU, or filtering the list would evict what you were reading.
+    const api::Session* peek(const std::string& id) const {
+        auto it = map_.find(id);
+        return it == map_.end() ? nullptr : &it->second.session;
+    }
+
     // Mark an already-cached thread most-recently-used WITHOUT fetching (e.g.
     // re-focusing an open tab). No-op on a miss. Keeps "last 5 interacted with"
     // accurate on every interaction, not just fresh opens.
