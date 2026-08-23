@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "../../src/settings.h"
+#include "../../src/util/quiet_hours.h"
 #include "../../src/api/mock_client.h"  // pulls in client.h (Config + Client)
 
 static int g_failures = 0;
@@ -143,12 +144,51 @@ static void test_shelf_fold_round_trips() {
     CHECK(!s.is_shelf_collapsed("waiting"));
 }
 
+// --- Quiet hours: the window, and the settings round-trip -----------------
+static void test_quiet_hours_window() {
+    std::printf("test_quiet_hours_window\n");
+    using hanabi::quiet::in_window;
+
+    // A daytime window, both ends on the same day.
+    CHECK(in_window(13 * 60, 9 * 60, 17 * 60));
+    CHECK(!in_window(8 * 60, 9 * 60, 17 * 60));
+    // Half-open: quiet AT the start, noisy again AT the end.
+    CHECK(in_window(9 * 60, 9 * 60, 17 * 60));
+    CHECK(!in_window(17 * 60, 9 * 60, 17 * 60));
+
+    // The one that matters: 10pm-8am crosses midnight.
+    CHECK(in_window(22 * 60, 22 * 60, 8 * 60));
+    CHECK(in_window(23 * 60 + 59, 22 * 60, 8 * 60));
+    CHECK(in_window(0, 22 * 60, 8 * 60));
+    CHECK(in_window(3 * 60, 22 * 60, 8 * 60));
+    CHECK(!in_window(8 * 60, 22 * 60, 8 * 60));
+    CHECK(!in_window(12 * 60, 22 * 60, 8 * 60));
+
+    // Equal ends mean no window at all, never an all-day silence.
+    CHECK(!in_window(8 * 60, 8 * 60, 8 * 60));
+    CHECK(!in_window(0, 0, 0));
+}
+
+static void test_quiet_hours_persist() {
+    std::printf("test_quiet_hours_persist\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    CHECK(s.get_quiet_start_minutes() == s.get_quiet_end_minutes());  // off
+    s.set_quiet_window(22 * 60, 8 * 60);
+    s.load_save_file();
+    CHECK(s.get_quiet_start_minutes() == 22 * 60);
+    CHECK(s.get_quiet_end_minutes() == 8 * 60);
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
     test_mock_settings_write();
     test_settings_write_config_gate();
     test_shelf_fold_round_trips();
+    test_quiet_hours_window();
+    test_quiet_hours_persist();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

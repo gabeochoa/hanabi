@@ -45,6 +45,9 @@ bool Settings::load_save_file() {
         yap_level_ = j.value("yap_level", yap_level_);
         auto_archive_days_ = j.value("auto_archive_days", auto_archive_days_);
         notification_sound_ = j.value("notification_sound", notification_sound_);
+        quiet_start_minutes_ =
+            j.value("quiet_start_minutes", quiet_start_minutes_);
+        quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
         memory_backend_ = j.value("memory_backend", memory_backend_);
         default_model_ = j.value("default_model", default_model_);
         open_tabs_.clear();
@@ -93,6 +96,8 @@ void Settings::write_save_file() {
     j["yap_level"] = yap_level_;
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
+    j["quiet_start_minutes"] = quiet_start_minutes_;
+    j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
     j["starred"] = starred_ids_;
@@ -229,6 +234,17 @@ void Settings::set_auto_archive_days(int days) {
 }
 
 bool Settings::get_notification_sound() const { return notification_sound_; }
+int Settings::get_quiet_start_minutes() const { return quiet_start_minutes_; }
+int Settings::get_quiet_end_minutes() const { return quiet_end_minutes_; }
+void Settings::set_quiet_window(int startMinutes, int endMinutes) {
+    if (startMinutes == quiet_start_minutes_ &&
+        endMinutes == quiet_end_minutes_)
+        return;
+    quiet_start_minutes_ = startMinutes;
+    quiet_end_minutes_ = endMinutes;
+    settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
 void Settings::set_notification_sound(bool on) {
     if (on == notification_sound_) return;
     notification_sound_ = on;

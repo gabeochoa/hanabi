@@ -60,6 +60,14 @@ struct Settings {
     bool is_shelf_collapsed(const std::string& key) const;
     void set_shelf_collapsed(const std::string& key, bool collapsed);
 
+    // Quiet hours: minutes since local midnight, half-open [start, end).
+    // Equal ends mean "no quiet window" (see util/quiet_hours.h). Persisted as
+    // minutes rather than a preset index so a real time picker can replace the
+    // presets without migrating anyone's settings. Auto-persists.
+    int get_quiet_start_minutes() const;
+    int get_quiet_end_minutes() const;
+    void set_quiet_window(int startMinutes, int endMinutes);
+
     // Disk-cache size cap in BYTES. 0 == Unlimited (no eviction). Default 1 GB.
     // The settings modal offers 100 MB / 1 GB / 10 GB / Unlimited; the disk
     // cache trims the oldest data to stay under this after a transcript save
@@ -145,6 +153,8 @@ struct Settings {
     int yap_level_ = 2;
     int auto_archive_days_ = 5;
     bool notification_sound_ = true;
+    int quiet_start_minutes_ = 0;
+    int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";
     std::string default_model_ = "default";
     // In-memory only: set on any preference change, cleared by the loader

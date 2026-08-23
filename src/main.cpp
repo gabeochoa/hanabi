@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -22,6 +23,7 @@
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
+#include "util/quiet_hours.h"
 #include "version.h"
 #include "ui_context.h"
 
@@ -68,6 +70,20 @@ static int64_t now_epoch_seconds() {
     return std::chrono::duration_cast<std::chrono::seconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+// Is the wall clock inside the user's quiet window right now? The window
+// itself is pure and tested (util/quiet_hours.h); reading the local clock is
+// the part that cannot be, so it is kept to these four lines.
+static bool in_quiet_hours_now() {
+    const int start = Settings::get().get_quiet_start_minutes();
+    const int end = Settings::get().get_quiet_end_minutes();
+    if (start == end) return false;
+    const std::time_t t = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&t, &local);
+    return hanabi::quiet::in_window(local.tm_hour * 60 + local.tm_min, start,
+                                    end);
 }
 
 // Build the app's entities + state (client, layout, restored session).
@@ -576,13 +592,18 @@ static void app_frame() {
             // regardless). First observation (lastBlocked < 0) primes the
             // baseline WITHOUT notifying, so launching into an already-blocked
             // state is silent.
+            //
+            // Quiet hours suppress the banner but NOT the tracking below: the
+            // count still advances, so waking to a quiet-hours increase does
+            // not fire a stale notification for something that happened at 3am.
             static int lastBlockedNotified = -1;
             static double lastNotifyAt = -1.0;
             constexpr double kNotifyMinGapSecs = 30.0;
             // Only an INCREASE past a primed baseline notifies; prime, decrease,
             // and equal all just track the count (writing it unconditionally at
             // the end is behavior-identical — ponytail: dup branch bodies).
-            if (lastBlockedNotified >= 0 && blocked > lastBlockedNotified) {
+            if (lastBlockedNotified >= 0 && blocked > lastBlockedNotified &&
+                !in_quiet_hours_now()) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||

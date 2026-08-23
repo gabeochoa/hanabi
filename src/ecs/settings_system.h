@@ -51,6 +51,7 @@
 // Owns this file only. The gear button that would toggle showSettings lives in
 // sidebar_system.h (owned by another agent); Cmd+, opens/closes this overlay.
 
+#include <array>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -282,6 +283,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_memory_backend_row(ctx, L, *app);
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
+            render_quiet_hours_row(ctx, L, *app);
             group_label(ctx, L, 6, "Model", "settings_grp_model");
             render_model_row(ctx, L, *app);
         }
@@ -938,6 +940,42 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        "settings_notif",
                        [](int i) {
                            Settings::get().set_notification_sound(i == 1);
+                       });
+    }
+
+    // Quiet hours: a window when nothing may fire. Presets rather than a time
+    // picker — the UI has no clock control, and a wrong custom window silences
+    // you without telling you. Stored as minutes so a real picker can replace
+    // these without migrating anyone's settings.
+    struct QuietPreset {
+        const char* label;
+        int start;
+        int end;
+    };
+    static constexpr std::array<QuietPreset, 4> kQuietPresets{{
+        {"Off", 0, 0},
+        {"10pm-8am", 22 * 60, 8 * 60},
+        {"11pm-7am", 23 * 60, 7 * 60},
+        {"6pm-9am", 18 * 60, 9 * 60},
+    }};
+
+    void render_quiet_hours_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 132, "Quiet hours", "settings_quiet_label");
+        const int start = Settings::get().get_quiet_start_minutes();
+        const int end = Settings::get().get_quiet_end_minutes();
+        int selIdx = 0;
+        for (size_t i = 0; i < kQuietPresets.size(); ++i)
+            if (kQuietPresets[i].start == start && kQuietPresets[i].end == end)
+                selIdx = static_cast<int>(i);
+        real_segmented(ctx, parent, 133,
+                       {kQuietPresets[0].label, kQuietPresets[1].label,
+                        kQuietPresets[2].label, kQuietPresets[3].label},
+                       selIdx, "settings_quiet", [](int i) {
+                           Settings::get().set_quiet_window(
+                               kQuietPresets[static_cast<size_t>(i)].start,
+                               kQuietPresets[static_cast<size_t>(i)].end);
                        });
     }
 

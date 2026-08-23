@@ -1,0 +1,17 @@
+# Settings offers a quiet window, and it is reachable without scrolling.
+#
+# What this can prove is that the control is there and rendered. Whether a
+# banner is actually suppressed at 3am is a wall-clock behaviour the scripted
+# harness cannot reach — the window logic and its persistence are covered by
+# tests/unit/test_settings.cpp (test_quiet_hours_window, _persist), and the
+# banner itself is manual.
+#
+# Opened through the state knob because the harness cannot press Cmd+,
+# (afterhours_gaps.md #49).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings
+
+expect_text "Notifications"
+expect_text "Quiet hours"
+expect_text "10pm-8am"
