@@ -203,6 +203,72 @@ int main() {
         unsetenv("HANABI_CACHE_DIR");
     }
 
+    // ---------------------------------------------------------------------
+    // (3) Component lookup: dynamic_cast vs the type-id bitset.
+    //
+    // A profile of an idle frame put ~16% of the main thread in C++ runtime
+    // type machinery, with strcmp the hottest non-font function. The chain is
+    // System::for_each_derived -> HasAllComponents -> Entity::has_child_of<T>
+    // -> child_of<T> -> dynamic_cast -> type_info::operator== -> strcmp: on
+    // Apple's libc++abi, comparing two type_infos from the same image can fall
+    // through to comparing their mangled NAMES.
+    //
+    // has_child_of walks the whole componentArray (max_num_components slots)
+    // and dynamic_casts each one, so the cost is per (entity x system x
+    // required component), every frame. Entity::has<T>() answers the same
+    // question through a bitset and never appears in the profile at all.
+    //
+    // This times the two against each other on a realistic entity, so the gap
+    // has a number attached rather than a percentage of a flame graph.
+    // Reported for afterhours (gap #43); not gated, since it measures the
+    // library rather than hanabi.
+    {
+        struct BenchA : afterhours::BaseComponent {};
+        struct BenchB : afterhours::BaseComponent {};
+        struct BenchC : afterhours::BaseComponent {};
+        struct Absent : afterhours::BaseComponent {};
+
+        auto& e = afterhours::EntityHelper::createEntity();
+        e.addComponent<BenchA>();
+        e.addComponent<BenchB>();
+        e.addComponent<BenchC>();
+
+        constexpr int kIters = 200000;
+        volatile size_t sink = 0;
+
+        // The path the system runner actually takes.
+        auto t0 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < kIters; ++i) {
+            sink += e.has_child_of<BenchA>() ? 1u : 0u;
+            sink += e.has_child_of<Absent>() ? 1u : 0u;
+        }
+        auto t1 = std::chrono::high_resolution_clock::now();
+
+        // The same question, asked of the bitset.
+        for (int i = 0; i < kIters; ++i) {
+            sink += e.has<BenchA>() ? 1u : 0u;
+            sink += e.has<Absent>() ? 1u : 0u;
+        }
+        auto t2 = std::chrono::high_resolution_clock::now();
+
+        const double castNs =
+            std::chrono::duration<double, std::nano>(t1 - t0).count() /
+            (kIters * 2.0);
+        const double bitsNs =
+            std::chrono::duration<double, std::nano>(t2 - t1).count() /
+            (kIters * 2.0);
+
+        std::printf("----------------------------------------\n");
+        std::printf("=== afterhours #43: component lookup ===\n");
+        std::printf("  has_child_of<T> (dynamic_cast): %8.1f ns/call\n", castNs);
+        std::printf("  has<T>          (bitset):       %8.1f ns/call\n", bitsNs);
+        if (bitsNs > 0.0)
+            std::printf("  ratio:                          %8.0fx\n",
+                        castNs / bitsNs);
+        std::printf("  (a present component and an absent one, averaged)\n");
+        std::printf("  (sink=%zu)\n", static_cast<size_t>(sink));
+    }
+
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {
         std::printf("OK\n");

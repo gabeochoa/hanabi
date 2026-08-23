@@ -701,6 +701,17 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "find") app->findOpen = true;
     }
+    // Screenshot affordance: HANABI_CONTEXT_WINDOW=<tokens> stands in for a
+    // backend that reports a context window, so the composer's proportion bar
+    // — which is drawn ONLY when a real denominator exists — can be captured
+    // and tested. Nothing this repo talks to reports one; this is not a
+    // setting, and there is deliberately no config key for it (a capability is
+    // the program's to determine, not the user's to declare).
+    if (const char* w = std::getenv("HANABI_CONTEXT_WINDOW"); w && *w) {
+        app->settings.context_window_tokens = std::atoll(w);
+        app->settings.ok = true;
+    }
+
     // Screenshot affordance: HANABI_SELECT_DEMO=<text> pre-selects a run of
     // the open thread's first assistant message, so the selection band can be
     // photographed without a live drag. Render-only.

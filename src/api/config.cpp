@@ -112,6 +112,7 @@ void load_config_file(Config& c) {
     str("field_settings_assets", c.field_settings_assets);
     str("field_settings_schedules", c.field_settings_schedules);
     str("field_settings_skills", c.field_settings_skills);
+    str("field_settings_context_window", c.field_settings_context_window);
     // Device-code auth (Phase AUTH). All optional; empty endpoint paths keep
     // auth OFF.
     str("auth_device_path", c.auth_device_path);

@@ -186,6 +186,15 @@ struct UserSettings {
     int64_t asset_count = -1;     // counts.assets
     int64_t schedule_count = -1;  // counts.schedules
     int64_t skill_count = -1;     // counts.authoredSkills
+    // The model's context window, in tokens, when the backend reports one.
+    // Left at -1 by every adapter here, because nothing this repo talks to
+    // reports it — and that is the whole point of the field: the composer
+    // shows the thread's size as a plain figure, and draws a proportion bar
+    // ONLY when a real denominator exists. Populate this from a backend that
+    // supplies one and the bar appears; there is deliberately no setting for
+    // it, because a capability is something the program can determine and not
+    // something a user should have to declare.
+    int64_t context_window_tokens = -1;
     // Raw JSON of the settings response, verbatim, for the settings screen to
     // show / debug the exact backend payload without re-fetching.
     std::string raw_json;

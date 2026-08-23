@@ -1849,6 +1849,69 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return textscan::occurrences(hay, needle);
     }
 
+    // ---- What find can actually paint --------------------------------------
+    //
+    // The count and the highlight must agree. The highlight is drawn per
+    // RENDERED line — the string the renderer hands to draw_text_in_rect after
+    // markdown normalization and inline-marker parsing — while the obvious
+    // thing to count is the message's stored text. Those are different
+    // strings: "**ledger**" stores ten characters and paints six, so a naive
+    // scan finds matches that can never be highlighted, and the tally says 3
+    // where the reader can see 2. A count that disagrees with the highlighting
+    // is worse than a lower count, so counting is done over exactly the
+    // strings that get painted, and nothing else is counted.
+    //
+    // Deliberately NOT included, because none of them are highlighted:
+    // markdown tables and fenced code blocks (their own render paths), tool
+    // rows, and the sub-agent chips. A match inside a code block is real and
+    // this will not find it — that is a gap in the feature, not a lie about
+    // it, and it is noted in the PR.
+    static std::vector<std::string> paintable_lines(const api::Message& m,
+                                                    bool rich) {
+        std::vector<std::string> out;
+        const std::string body = strip_inline_md(redact_secrets(m.text));
+        if (!rich) {
+            // The user path renders one plain label, markers stripped.
+            out.push_back(strip_inline_markers(body));
+            return out;
+        }
+        // The assistant path mirrors render_rich_body's walk exactly: skip the
+        // atomic blocks it hands to other renderers, and emit the visible text
+        // of every ordinary line.
+        size_t start = 0;
+        while (start <= body.size()) {
+            const size_t nl = body.find('\n', start);
+            const size_t end = (nl == std::string::npos) ? body.size() : nl;
+            const std::string line = body.substr(start, end - start);
+
+            if (is_table_start(body, start)) {
+                std::vector<std::vector<std::string>> rows;
+                start = scan_table(body, start, &rows);
+                continue;
+            }
+            if (is_code_fence(line)) {
+                size_t p = (nl == std::string::npos) ? body.size() : nl + 1;
+                while (p <= body.size()) {
+                    const size_t n2 = body.find('\n', p);
+                    const size_t e2 = (n2 == std::string::npos) ? body.size()
+                                                                : n2;
+                    if (is_code_fence(body.substr(p, e2 - p))) {
+                        p = (n2 == std::string::npos) ? body.size() : n2 + 1;
+                        break;
+                    }
+                    if (n2 == std::string::npos) { p = body.size() + 1; break; }
+                    p = n2 + 1;
+                }
+                start = p;
+                continue;
+            }
+            if (!line.empty()) out.push_back(md_to_spans(line).visible);
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return out;
+    }
+
     // One match: which message, and where in it.
     struct Match {
         int msg = 0;
@@ -1858,9 +1921,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                               const std::string& q) {
         std::vector<Match> out;
         if (q.empty()) return out;
-        for (size_t i = 0; i < s.messages.size(); ++i)
-            for (size_t off : find_all(s.messages[i].text, q))
-                out.push_back(Match{static_cast<int>(i), off});
+        for (size_t i = 0; i < s.messages.size(); ++i) {
+            const auto& m = s.messages[i];
+            // Tool rows and system captions are not highlighted, so they are
+            // not counted. Same rule as everything else here: if it cannot be
+            // painted, it does not exist to the tally.
+            if (m.role != api::Role::User && m.role != api::Role::Assistant)
+                continue;
+            const bool rich = (m.role != api::Role::User);
+            for (const auto& line : paintable_lines(m, rich))
+                for (size_t off : find_all(line, q))
+                    out.push_back(Match{static_cast<int>(i), off});
+        }
         return out;
     }
 
@@ -1868,7 +1940,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // never displaces the conversation under it.
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
                   AppComponent& app, float paneW, int matchCount) {
-        constexpr float kBarW = 320.0f;
+        // Content must FIT: afterhours has no flex-grow and warns (loudly, every
+        // frame) when a NoWrap row's children exceed it. Sized from the parts:
+        // pad 8+6, input 168, gap 6, tally 74, two 22px steppers, a 4px gap and
+        // a 22px close.
+        constexpr float kBarW = 8.0f + 168.0f + 6.0f + 74.0f + 22.0f + 22.0f +
+                                4.0f + 22.0f + 6.0f;
         constexpr float kBarH = 34.0f;
         const float bx = paneW - kBarW - 18.0f;
         auto bar = div(ctx, mk(parent, 7500),
@@ -1892,6 +1969,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.surface = ctx.theme.secondary;
         ctx.theme.font = theme::text_primary();
         ctx.theme.focus = theme::accent();
+        // No padding on the field: text_input's own inner element is sized to
+        // the element's OUTER width, so any padding here makes the child wider
+        // than the content box it sits in and afterhours warns every frame
+        // (and warns is the good case — it also re-solves the layout). The
+        // inset comes from the bar's padding instead.
         afterhours::ui::imm::text_input(
             ctx, mk(bar.ent(), 1), app.findQuery,
             ComponentConfig{}
@@ -1899,7 +1981,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(6), .right = pixels(4)})
                 .with_roundness(0.2f)
                 .with_render_layer(9)
                 .with_debug_name("find_input"));
@@ -3007,17 +3088,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (canSend && app.openSession) {
             const int64_t tok = estimated_tokens(*app.openSession);
+            const int64_t window = app.settings.context_window_tokens;
             if (tok > 0) {
+                // With a real denominator this reads as a proportion; without
+                // one it is the thread's size and nothing more. No setting
+                // gates this — the bar appears when the data to draw it
+                // honestly exists.
+                const std::string label =
+                    window > 0
+                        ? (fmtutil::compact_count(tok) + " / " +
+                           fmtutil::compact_count(window) + " tokens")
+                        : ("~" + fmtutil::compact_count(tok) + " tokens");
                 div(ctx, mk(rightMeta.ent(), 2),
                     ComponentConfig{}
-                        .with_label("~" + fmtutil::compact_count(tok) +
-                                    " tokens")
+                        .with_label(label)
                         .with_size(ComponentSize{children(), pixels(16)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_faint())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Right)
                         .with_debug_name("composer_size"));
+                if (window > 0) {
+                    const float frac =
+                        std::min(1.0f, static_cast<float>(tok) /
+                                           static_cast<float>(window));
+                    div(ctx, mk(rightMeta.ent(), 3),
+                        ComponentConfig{}
+                            .with_size(ComponentSize{pixels(56), pixels(6)})
+                            .with_margin(Margin{.left = pixels(6)})
+                            .with_custom_background(theme::panel_bg_2())
+                            .with_roundness(0.5f)
+                            .with_on_draw_fg([frac](RectangleType rr) {
+                                float w = rr.width * frac;
+                                if (w < 2.0f) w = 2.0f;
+                                afterhours::draw_rectangle_rounded(
+                                    RectangleType{rr.x, rr.y, w, rr.height},
+                                    0.5f, 6,
+                                    theme::over(theme::accent(),
+                                                theme::panel_bg_2()));
+                            })
+                            .with_debug_name("composer_meter"));
+                }
             }
         }
     }
@@ -3418,9 +3529,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                    bool isLive) {
         if (isLive || lineCount <= kFoldLines) return false;
         AppComponent* app = app_singleton();
+        // A folded message shows its first few lines, so a match below the
+        // fold is counted and cannot be painted. Rather than exclude those
+        // matches — they are real, and hiding them would make find useless on
+        // exactly the long messages it is for — a live query unfolds any
+        // message that contains one.
+        if (app && app->findOpen && !app->findQuery.empty() &&
+            message_has_match(m, app->findQuery))
+            return false;
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
         return !(app && app->expandedMsgs.count(mkey) != 0);
+    }
+
+    static bool message_has_match(const api::Message& m,
+                                  const std::string& q) {
+        if (q.empty()) return false;
+        if (m.role != api::Role::User && m.role != api::Role::Assistant)
+            return false;
+        for (const auto& line : paintable_lines(m, m.role != api::Role::User))
+            if (!textscan::occurrences(line, q).empty()) return true;
+        return false;
     }
 
     // ---- Item height functions (mirror the render layout exactly) ----------

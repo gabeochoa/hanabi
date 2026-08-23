@@ -1,0 +1,13 @@
+# The composer draws a proportion bar only when a backend reports a context
+# window. Without one it shows the thread's size and nothing more.
+#
+# It used to draw a bar filled to a hardcoded 38% — a meter that moved for
+# nobody and implied a fraction of something. There is no setting for this:
+# the bar appears when the data to draw it honestly exists.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_CONTEXT_WINDOW=4000
+
+# A denominator arrived, so it reads as a proportion.
+expect_text "/ 4k tokens"
+expect_no_text "~"

@@ -259,6 +259,10 @@ struct Config {
     std::string field_settings_assets = "assets";
     std::string field_settings_schedules = "schedules";
     std::string field_settings_skills = "authoredSkills";
+    // The model's context window, if the backend reports one. Read from the
+    // settings payload alongside the counts; the composer draws a proportion
+    // bar only when it arrives (see UserSettings::context_window_tokens).
+    std::string field_settings_context_window = "contextWindowTokens";
 
     // --- Device-code auth (Phase AUTH) ------------------------------------
     // The REAL navi-CLI device-code flow. NOTHING here names any real HOST:

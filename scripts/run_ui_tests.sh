@@ -58,11 +58,18 @@ for s in "${SCRIPTS[@]}"; do
     [ -n "$cfg" ] || cfg='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
     printf '%s\n' "$cfg" > "$ISO_HOME/Library/Application Support/hanabi/settings.json"
 
-    # A leading "# env: KEY=VAL KEY=VAL" line adds environment for this script.
-    # Needed for any state a click cannot reach — an overlay whose only binding
-    # is a Cmd chord, for instance, which the injector cannot produce
-    # (afterhours_gaps.md #49).
-    read -r -a extra_env <<<"$(sed -nE 's/^# env:[[:space:]]*//p' "$s" | head -1)"
+    # A leading "# env: KEY=VAL KEY='two words'" line adds environment for this
+    # script. Needed for any state a click cannot reach — an overlay whose only
+    # binding is a Cmd chord, for instance, which the injector cannot produce
+    # (afterhours_gaps.md #49). Values may be single-quoted to hold spaces;
+    # parsed with `xargs` rather than word-splitting so they survive.
+    env_line="$(sed -nE 's/^# env:[[:space:]]*//p' "$s" | head -1)"
+    extra_env=()
+    if [ -n "$env_line" ]; then
+        while IFS= read -r kv; do
+            [ -n "$kv" ] && extra_env+=("$kv")
+        done < <(printf '%s' "$env_line" | xargs -n1 2>/dev/null)
+    fi
 
     ( env HOME="$ISO_HOME" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock \
         "${extra_env[@]}" "$EXE" --e2e "$s" >"$log" 2>&1 ) &

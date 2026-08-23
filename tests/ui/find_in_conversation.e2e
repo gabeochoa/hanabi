@@ -9,24 +9,24 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_FIND_DEMO=ledger
 
-# "ledger" appears three times in this thread.
-expect_text "1 of 3"
+# "ledger" is paintable twice in this thread. It occurs a third time in the
+# System caption at the top, which has no highlight path — so it is not
+# counted. The tally equals the number of bands on screen, always; that is the
+# whole rule (see find_counts_only_what_it_paints.e2e).
+expect_text "1 of 2"
 
 # Next advances, and wraps at the end.
 click_ui find_next
 wait_frames 6
-expect_text "2 of 3"
+expect_text "2 of 2"
 click_ui find_next
 wait_frames 6
-expect_text "3 of 3"
-click_ui find_next
-wait_frames 6
-expect_text "1 of 3"
+expect_text "1 of 2"
 
 # Previous goes the other way, wrapping backwards.
 click_ui find_prev
 wait_frames 6
-expect_text "3 of 3"
+expect_text "2 of 2"
 
 # Closing puts the bar away.
 click_ui find_close
