@@ -397,23 +397,19 @@ inline float text_px(const std::string& s, float px) {
     return text_px(s.c_str(), px);
 }
 
-// afterhours renders a rounded rect with radius = min(w,h) * 0.5 * roundness,
-// so the SAME `roundness` yields DIFFERENT pixel corners on elements of
-// different size (a short 28px tool row vs a tall message bubble). To make two
-// surfaces share the SAME visual corner, compute the roundness that yields a
-// target pixel radius for each element's own min dimension. Clamped to [0,1].
-// kChatCorner is the one shared corner radius for chat surfaces (user prompt
-// bubble + tool-call card) so they always match (Gabe: "corners of my prompt
-// must match the tool call").
-constexpr float kChatCorner = 5.0f;   // px — subtle, modern, NOT a stadium
-inline float roundness_for_px(float target_px, float w, float h) {
-    float m = (w < h ? w : h);
-    if (m <= 1.0f) return 0.0f;
-    float r = target_px / (0.5f * m);
-    if (r < 0.0f) r = 0.0f;
-    if (r > 1.0f) r = 1.0f;
-    return r;
-}
+// The one shared corner radius for chat surfaces (user prompt bubble + tool
+// card) so they always match -- Gabe: "corners of my prompt must match the tool
+// call". A pixel value, handed straight to with_corner_radius.
+//
+// This used to need a roundness_for_px() helper, because with_roundness takes a
+// FRACTION of the short side: the same fraction gives a different corner on a
+// 28px tool row than on a tall bubble, so matching them meant computing a
+// fraction per element from its own dimensions -- dimensions the caller had to
+// know, and sometimes guessed (one site passed `bodyH + 17.0f`). afterhours
+// takes pixels directly now and resolves against the real rect, so the helper
+// and the guessing are gone.
+constexpr float kChatCorner = 5.0f;   // px -- subtle, modern, NOT a stadium
+
 }  // namespace theme
 
 // Layout constants referenced by the design-system presets.

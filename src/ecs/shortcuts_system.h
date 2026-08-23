@@ -138,7 +138,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(kPadH),
                                       .bottom = pixels(kPadV),
                                       .left = pixels(kPadH)})
-                .with_roundness(theme::roundness_for_px(8.0f, pw, ph))
+                .with_corner_radius(8.0f)
                 .with_render_layer(11)
                 .with_debug_name("shortcuts_panel"));
 

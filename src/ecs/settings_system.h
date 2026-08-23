@@ -211,7 +211,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 // on the settings container, similar to the buttons"). afterhours
                 // radius = min(w,h)*0.5*roundness, so on a 600px panel a fixed
                 // 0.35 was a huge sweep — derive a ~8px pixel radius instead.
-                .with_roundness(theme::roundness_for_px(8.0f, pw, ph))
+                .with_corner_radius(8.0f)
                 .with_render_layer(11)
                 .with_debug_name("settings_panel"));
 

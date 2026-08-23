@@ -1792,7 +1792,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(theme::roundness_for_px(5.0f, 24.0f, 24.0f))
+                .with_corner_radius(5.0f)
                 .with_render_layer(4)
                 .with_debug_name("split_close"));
         closeBtn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
@@ -4468,8 +4468,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // target theme::kChatCorner). afterhours radius =
                     // min(w,h)*0.5*roundness, so a fixed roundness gave the
                     // bubble and the (shorter) tool row different corners.
-                    .with_roundness(theme::roundness_for_px(
-                        theme::kChatCorner, bubbleW, bodyH + 17.0f))
+                    .with_corner_radius(theme::kChatCorner)
                     .with_debug_name("user_bubble"));
             AppComponent* fapp = app_singleton();
             const std::string uq =
@@ -4982,8 +4981,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // (both target theme::kChatCorner). 0.42 here made a much rounder
                 // corner than the bubble's — Gabe: "why did you round the corners
                 // so much" + "corners of my prompt must match the tool call".
-                .with_roundness(theme::roundness_for_px(theme::kChatCorner, rowW,
-                                                        kToolRowH))
+                .with_corner_radius(theme::kChatCorner)
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
@@ -5213,7 +5211,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
-                .with_roundness(theme::roundness_for_px(4.0f, rowW, 40.0f))
+                .with_corner_radius(4.0f)
                 .with_debug_name("sub_out"));
         // Split tool_result into lines; render the first kSubOutLines.
         size_t ls = 0;
@@ -5281,8 +5279,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(
                     theme::over(theme::accent_soft(), theme::panel_bg()))
                 .with_border(theme::accent(), pixels(1.0f))
-                .with_roundness(theme::roundness_for_px(theme::kChatCorner, rowW,
-                                                        kSpawnCardH))
+                .with_corner_radius(theme::kChatCorner)
                 .with_debug_name("spawn_card"));
 
         // Sparkle icon (sub-agent). Uses the same sprite as the brand mark.
