@@ -3397,14 +3397,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // wrapped text rendered bottom-aligned inside a tall empty box (a big gap
     // above every assistant turn). Keeping all three helpers on one model so
     // box height, line count, and truncation stay consistent.
-    // Calibrated CONSERVATIVELY (over-estimate) because afterhours word-wraps
-    // on spaces (rendering.h wrap_text_to_width): the tail of each line is
-    // wasted, so real chars/line is LOWER than width/advance. Under-counting
-    // lines made fixed-height text boxes CLIP and the scroll range fall
-    // short (couldn't scroll to the bottom). 7.6px/glyph + 16px pitch
-    // over-estimates slightly (tiny extra gap) but NEVER clips. The proper
-    // fix is to measure via afterhours measure_text (gap #26/wishlist A).
-    static constexpr float kGlyphW = 7.6f;   // avg px per glyph @ BODY 13px
+    // Line counting used to divide by a fudged average glyph width, calibrated
+    // to over-estimate so a box never clipped. Two things were wrong with it:
+    // it guessed where afterhours would break a line, and the constant was
+    // tuned for ONE font while hanabi lets the reader pick another.
+    //
+    // afterhours exposes its own wrapper now (ui::wrap_text), so the count is
+    // measured with the same function and the same font the renderer draws
+    // with -- they agree by construction rather than by calibration.
     static constexpr float kLinePitch = 16.0f;  // px per wrapped line
     // Blank-line (paragraph / list-item gap) height. This is the vertical space
     // between paragraphs and numbered-list items in an assistant turn. Was
@@ -3413,25 +3413,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // as a clear paragraph break without the big gap. ONE constant so the
     // measure + render paths can never drift.
     static constexpr float kBlankPitch = 5.0f;
-    static int wrap_perline(float widthPx) {
-        int p = static_cast<int>((widthPx - 10.0f) / kGlyphW);
-        return p < 8 ? 8 : p;
+    // The width afterhours actually wraps within: the label rect less the
+    // horizontal inset the renderer applies. (Not wrap_width() above -- that
+    // one is the pane's width, a different question.)
+    static float text_wrap_width(float widthPx) {
+        const float w = widthPx - 10.0f;
+        return w < 24.0f ? 24.0f : w;
+    }
+
+    // Real wrapped lines for `text` at `widthPx`, via afterhours' own wrapper.
+    static std::vector<std::string> wrapped_lines(const std::string& text,
+                                                  float widthPx) {
+        return afterhours::ui::wrap_text(text, text_wrap_width(widthPx),
+                                         afterhours::ui::UIComponent::DEFAULT_FONT,
+                                         theme::type::BODY);
     }
 
     // Estimated WRAPPED line count of `text` at `widthPx`. Used to decide
     // whether a body is long enough to fold.
     static int count_lines(const std::string& text, float widthPx) {
-        int perLine = wrap_perline(widthPx);
-        int lines = 0;
-        size_t start = 0;
-        while (start <= text.size()) {
-            size_t nl = text.find('\n', start);
-            size_t end = (nl == std::string::npos) ? text.size() : nl;
-            int len = static_cast<int>(end - start);
-            lines += (len <= 0) ? 1 : (len + perLine - 1) / perLine;
-            if (nl == std::string::npos) break;
-            start = nl + 1;
-        }
+        // wrap_text honours hard newlines itself, so a blank line still counts
+        // as a line the way the old hand-rolled split did.
+        const int lines = static_cast<int>(wrapped_lines(text, widthPx).size());
         return lines < 1 ? 1 : lines;
     }
 
@@ -3441,7 +3444,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // doesn't build thousands of glyph quads (RAM) or dominate the pane.
     static std::string first_n_lines(const std::string& text, float widthPx,
                                      int maxLines) {
-        int perLine = wrap_perline(widthPx);
         std::string out;
         int used = 0;
         size_t start = 0;
@@ -3449,16 +3451,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             size_t nl = text.find('\n', start);
             size_t end = (nl == std::string::npos) ? text.size() : nl;
             std::string seg = text.substr(start, end - start);
-            // account for wrapping of a long segment
-            int segLines =
-                seg.empty() ? 1
-                            : (static_cast<int>(seg.size()) + perLine - 1) /
-                                  perLine;
+            // Real wrapped extent of this segment, not a length/width guess.
+            int segLines = seg.empty() ? 1 : count_lines(seg, widthPx);
             if (used + segLines > maxLines) {
                 int allow = maxLines - used;
-                size_t chars = static_cast<size_t>(allow) *
-                               static_cast<size_t>(perLine);
-                if (chars < seg.size()) seg = seg.substr(0, chars);
+                // Keep the first `allow` measured lines of this segment rather
+                // than guessing a character count for them.
+                const std::vector<std::string> wl = wrapped_lines(seg, widthPx);
+                if (static_cast<int>(wl.size()) > allow) {
+                    std::string cut;
+                    for (int i = 0; i < allow; ++i) {
+                        if (i) cut += " ";
+                        cut += wl[static_cast<size_t>(i)];
+                    }
+                    seg = cut;
+                }
                 out += seg;
                 used = maxLines;
                 break;
@@ -3629,7 +3636,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // method's per-segment layout exactly (blank line = half pitch, else
     // segLines*pitch) so virtualization spacers line up with what renders.
     static float rich_body_h(const std::string& body, float textW) {
-        const int perLine = wrap_perline(textW);
         float h = 0.0f;
         size_t start = 0;
         while (start <= body.size()) {
@@ -3669,13 +3675,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // VISIBLE length (markers removed) so inline **bold**/`code`/_em_
             // don't inflate the wrapped line count — must match render, which
             // wraps the same visible text (md_to_spans).
-            int len = static_cast<int>(md_visible(line).size());
-            if (len <= 0) {
+            const std::string vis = md_visible(line);
+            if (vis.empty()) {
                 h += kBlankPitch;
             } else {
-                int segLines = (len + perLine - 1) / perLine;
-                if (segLines < 1) segLines = 1;
-                h += static_cast<float>(segLines) * kLinePitch;
+                // Measured, not divided: must mirror render_rich_body below.
+                h += static_cast<float>(count_lines(vis, textW)) * kLinePitch;
             }
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -3683,15 +3688,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return h;
     }
 
-    // Renderer-accurate height for a SINGLE wrapped box (user bubble / tool):
-    // afterhours wraps on spaces only and treats "\n" as a char, so a single
-    // box's rendered line count ignores newlines. Approximate that.
+    // Renderer-accurate height for a SINGLE wrapped box (user bubble / tool).
+    //
+    // This used to say afterhours "wraps on spaces only and treats \n as a
+    // char", and counted length/perLine accordingly. That stopped being true:
+    // the wrapper honours hard newlines now, so a three-line message measured
+    // as one line and the bubble clipped. Measuring with the wrapper itself
+    // cannot drift from it again.
     static float flat_body_h(const std::string& body, float textW) {
-        const int perLine = wrap_perline(textW);
-        int len = static_cast<int>(body.size());
-        int lines = (len + perLine - 1) / perLine;
-        if (lines < 1) lines = 1;
-        return static_cast<float>(lines) * kLinePitch + 2.0f * kBodyPad;
+        return static_cast<float>(count_lines(body, textW)) * kLinePitch +
+               2.0f * kBodyPad;
     }
 
     // Memoized display body + measured height for a message, keyed by
@@ -4134,7 +4140,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string findQuery =
             (fapp && fapp->findOpen) ? fapp->findQuery : std::string();
         const bool cull = winBot > winTop;
-        const int perLine = wrap_perline(textW);
         size_t start = 0;
         int seg = 0;
         float y = bodyStartY;         // running content-y of this segment's top
@@ -4225,9 +4230,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (blank) {
                 segH = kBlankPitch;
             } else {
-                segLines = (static_cast<int>(ip.visible.size()) + perLine - 1) /
-                           perLine;
-                if (segLines < 1) segLines = 1;
+                // Mirrors rich_body_h's measure exactly -- same function,
+                // same width, so the spacers cannot drift from the render.
+                segLines = count_lines(ip.visible, textW);
                 segH = static_cast<float>(segLines) * kLinePitch;
             }
             const float segTop = y;
