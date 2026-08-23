@@ -144,7 +144,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
             (kGroupH + ctrlRow * 3.0f) +          // Appearance: Theme + Rotate + Font
-            (kGroupH + ctrlRow * 6.0f) +          // Behavior: 6 rows
+            (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
             (kGroupH + ctrlRow * 2.0f) +          // Notifications: Sound + Quiet hours
             (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
             (kGroupH + ctrlRow * 3.0f) +          // Behavior: 3 rows
@@ -295,7 +295,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_yap_row(ctx, L, *app);
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
-            render_timestamps_row(ctx, L, *app);
             render_send_key_row(ctx, L, *app);
             render_subagents_row(ctx, L, *app);
 
@@ -311,7 +310,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             group_label(ctx, R, 9, "Custom colours", "settings_grp_colours");
             render_accent_row(ctx, R, *app);
             render_highlight_row(ctx, R, *app);
-            group_label(ctx, R, 9, "Transcript", "settings_grp_transcript");
+            group_label(ctx, R, 10, "Transcript", "settings_grp_transcript");
             render_timestamps_row(ctx, R, *app);
             render_date_dividers_row(ctx, R, *app);
             render_reasoning_row(ctx, R, *app);
@@ -339,7 +338,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // (segmented-control gutters etc.) derives from content_w() so they can't
     // drift. Widened from 360 → 600 so the whole section set fits WITHOUT
     // vertical scrolling on a normal window (Task 1).
-    static constexpr float kPanelW = 600.0f;    // panel width (single source)
+    static constexpr float kPanelW = 720.0f;    // panel width (single source)
     static constexpr float kPadH = 24.0f;       // panel left/right padding
     // Usable content width inside the panel (both horizontal pads removed).
     // Usable content width for controls in the CURRENTLY-rendering column.
@@ -350,8 +349,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     float content_w() const {
         return active_col_w_ > 0.0f ? active_col_w_ : full_content_w();
     }
-    // Full inside-panel width (both horizontal pads removed).
-    static constexpr float full_content_w() { return kPanelW - kPadH * 2.0f; }
+    // Full inside-panel width: both horizontal pads, and the scrollbar the
+    // sheet grows when its content outruns the window. Without that reserve
+    // the right column's last segment sits under the bar -- which is exactly
+    // how "Amber", "Shown" and "Export all" came to be shaved.
+    static constexpr float kScrollbarW = 14.0f;
+    static constexpr float full_content_w() {
+        return kPanelW - kPadH * 2.0f - kScrollbarW;
+    }
     // Column geometry: two equal columns split from full_content_w() with a
     // gutter between them.
     static constexpr float kColGap = 24.0f;

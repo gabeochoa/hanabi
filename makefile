@@ -296,12 +296,15 @@ mock-server:
 # TESTS  (unit + headless e2e + perf regression gates)
 # ==============================================================================
 
-# -MD -MP writes a .d beside each test binary listing every header it read, and
-# the -include below feeds those back in. Without it a test target depends only
-# on its .cpp: change a HEADER the test exercises -- which is where most of the
-# logic under test lives -- and make re-runs the previous binary and reports a
-# green that predates the change. That has already produced one false result.
-TEST_CXXFLAGS := $(CXXSTD) -g -O0 -Wall -Wextra -MMD -MP \
+# Every test target depends on every header (TEST_HDRS below). Without it a
+# test depends only on its .cpp: change a HEADER the test exercises -- which is
+# where most of the logic under test lives -- and make re-runs the previous
+# binary and reports a green that predates the change. That has already
+# produced one false result. Rebuilding all twelve on any header change costs
+# seconds; a false green costs a lot more. (-MMD would be tighter but several
+# of these targets compile multiple sources into one binary, which clang
+# refuses to pair with -o.)
+TEST_CXXFLAGS := $(CXXSTD) -g -O0 -Wall -Wextra \
     -Wno-deprecated-literal-operator -Wno-sign-conversion
 # Perf benchmark wants optimizations on (measures the real hot path).
 PERF_CXXFLAGS := $(CXXSTD) -O2 -Wall -Wextra \
@@ -312,8 +315,8 @@ TEST_DIR := $(OUTPUT_DIR)/tests
 $(TEST_DIR):
 	@mkdir -p $(TEST_DIR)
 
-# The header dependencies -MMD wrote on the last build (see TEST_CXXFLAGS).
--include $(wildcard $(TEST_DIR)/*.d)
+# See the note on TEST_CXXFLAGS: every test re-links when any header moves.
+TEST_HDRS := $(wildcard src/*.h src/*/*.h src/*/*/*.h)
 
 # Everything make_client() can construct has to link wherever config.cpp does,
 # so this is one list rather than nine. Adding a backend means editing here and
@@ -324,47 +327,47 @@ API_SRCS := src/api/config.cpp src/api/http_client.cpp \
             src/ws_socket.mm
 API_LINK := -fobjc-arc -framework Foundation -framework CFNetwork
 
-$(TEST_DIR)/test_api: tests/unit/test_api.cpp $(API_SRCS) | $(TEST_DIR)
+$(TEST_DIR)/test_api: tests/unit/test_api.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_api..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Device-code auth state machine (Phase AUTH). Pure logic against a FAKE
 # transport — no graphics, no network. auth.cpp + config.cpp are the only app
 # sources it needs.
-$(TEST_DIR)/test_auth: tests/unit/test_auth.cpp src/api/auth.cpp $(API_SRCS) | $(TEST_DIR)
+$(TEST_DIR)/test_auth: tests/unit/test_auth.cpp src/api/auth.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_auth..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Sending (Phase SEND): kickoff (create_session) + reply (send_message) driven
 # directly against the MockClient. Pure logic — no graphics, no network. Only
 # config.cpp is needed alongside the header-only mock client.
-$(TEST_DIR)/test_send: tests/unit/test_send.cpp $(API_SRCS) | $(TEST_DIR)
+$(TEST_DIR)/test_send: tests/unit/test_send.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_send..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Streaming (Phase STREAM): mock delivers a reply as ordered chunks that
 # reassemble across per-frame ticks + the pure SSE parser against fixture text.
 # Pure logic — NO graphics, NO network, NO timers. config.cpp + http_client.cpp
 # supply Config + the parse_sse_chunk parser alongside the header-only mock.
-$(TEST_DIR)/test_stream: tests/unit/test_stream.cpp $(API_SRCS) | $(TEST_DIR)
+$(TEST_DIR)/test_stream: tests/unit/test_stream.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_stream..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Tool-call block splitting + memory-light newest-N + live SSE event parsing
 # (LIVE phase). Pure logic — NO graphics, NO network, NO timers. Exercises the
 # adapter's split_message_blocks + parse_events_frame (from http_client.cpp)
 # and the MockClient windowed get_session(id, N) contract.
-$(TEST_DIR)/test_tools: tests/unit/test_tools.cpp $(API_SRCS) | $(TEST_DIR)
+$(TEST_DIR)/test_tools: tests/unit/test_tools.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_tools..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Composer text-input key handling (gap #31): the macOS sokol backend emits a
 # CHAR event for backspace (U+007F); hanabi's is_typable_char filter must reject
 # control codes so they aren't typed into the field. Pure logic — drives the
 # real afterhours text_input state + insert_char with the exact macOS codepoints.
-$(TEST_DIR)/test_textinput: tests/unit/test_textinput.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_textinput: tests/unit/test_textinput.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_textinput..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
 
 # Input action mapping (root cause of Enter-not-send / Backspace-not-delete):
 # guards that hanabi's key mapping resolves BACKSPACE->TextBackspace and
@@ -374,43 +377,43 @@ $(TEST_DIR)/test_textinput: tests/unit/test_textinput.cpp | $(TEST_DIR)
 # AppKit, no session type; the interesting cases (first sight, a swap that
 # leaves the count unchanged, a vanished thread) are the ones a wall-clock
 # test cannot reach.
-$(TEST_DIR)/test_notify_events: tests/unit/test_notify_events.cpp src/util/notify_events.h | $(TEST_DIR)
+$(TEST_DIR)/test_notify_events: tests/unit/test_notify_events.cpp src/util/notify_events.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_notify_events..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_notify_events.cpp -o $@
 
-$(TEST_DIR)/test_diff: tests/unit/test_diff.cpp src/util/diff.h | $(TEST_DIR)
+$(TEST_DIR)/test_diff: tests/unit/test_diff.cpp src/util/diff.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_diff..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_diff.cpp -o $@
 
-$(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_input_pipeline..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
 
 # What the Cmd+G chord means and where a step lands. The chord cannot be
 # pressed from a script (gap #49), so the table it resolves through is the only
 # part of the binding a test can hold. Pure logic — no graphics, no app state.
-$(TEST_DIR)/test_find_nav: tests/unit/test_find_nav.cpp src/ui/find_nav.h | $(TEST_DIR)
+$(TEST_DIR)/test_find_nav: tests/unit/test_find_nav.cpp src/ui/find_nav.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_find_nav..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_find_nav.cpp -o $@
 
 # Cross-session search: what the index matches, and whether the sentence it
 # shows about its own coverage is true. Pure logic - no graphics, no disk, no
 # app state; the corpus is handed in.
-$(TEST_DIR)/test_session_index: tests/unit/test_session_index.cpp src/search/session_index.h | $(TEST_DIR)
+$(TEST_DIR)/test_session_index: tests/unit/test_session_index.cpp src/search/session_index.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_session_index..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_session_index.cpp -o $@
 
 # Cutting a search match down to a sidebar row. Pure string arithmetic - the
 # painting that goes with it needs a font manager and is asserted on screen.
-$(TEST_DIR)/test_snippet_text: tests/unit/test_snippet_text.cpp src/ui/snippet_text.h | $(TEST_DIR)
+$(TEST_DIR)/test_snippet_text: tests/unit/test_snippet_text.cpp src/ui/snippet_text.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_snippet_text..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_snippet_text.cpp -o $@
 
 # Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
 # queue ordering/draining, newest-N windowing, settings read.
-$(TEST_DIR)/test_data: tests/unit/test_data.cpp $(API_SRCS) src/api/disk_cache.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_data: tests/unit/test_data.cpp $(API_SRCS) src/api/disk_cache.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_data..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Settings rework (wt/settings): each wired preference control changes the
 # persisted Settings value + marks the sync-dirty flag; the mock's settings
@@ -418,20 +421,20 @@ $(TEST_DIR)/test_data: tests/unit/test_data.cpp $(API_SRCS) src/api/disk_cache.c
 # + OFF by default. Pure logic — no graphics, no network. settings.cpp supplies
 # the persistence slots; config.cpp + http_client.cpp supply Config + the
 # header-only mock client.
-$(TEST_DIR)/test_settings: tests/unit/test_settings.cpp src/settings.cpp $(API_SRCS) vendor/afterhours/src/plugins/files.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_settings: tests/unit/test_settings.cpp src/settings.cpp $(API_SRCS) vendor/afterhours/src/plugins/files.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_settings..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
 $(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_e2e..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 
 # Headless perf micro-benchmark: in-process thread-switch latency (built -O2).
-$(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp src/api/disk_cache.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp src/api/disk_cache.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_perf..."
-	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(PERF_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
 
 # Read-only REAL-backend smoke: list_sessions + get_session against the ACTUAL
 # configured http backend (no mutations). Compiled WITH the TLS flags so it can
@@ -439,18 +442,18 @@ $(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp src/api/disk_cache.cpp | $(TEST_D
 # the pre-push "does it work with real data?" check — NOT part of the default
 # offline `make test` (it hits the network). Uses CXXFLAGS (which carry
 # -DHANABI_ENABLE_TLS + OpenSSL paths only when HANABI_TLS=1).
-$(TEST_DIR)/test_real: tests/e2e/test_real.cpp $(API_SRCS) | $(TEST_DIR)
+$(TEST_DIR)/test_real: tests/e2e/test_real.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_real..."
-	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) $(API_LINK) -o $@
+	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(LDFLAGS) $(API_LINK) -o $@
 
 # agentcloud transport slice: query encoding (an unescaped colon in the
 # verifier is an opaque HTTP 400) and the env gate that keeps the mock the
 # zero-config default. No network.
-$(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_auth.cpp src/api/agentcloud_client.cpp src/ws_socket.mm | $(TEST_DIR)
+$(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_auth.cpp src/api/agentcloud_client.cpp src/ws_socket.mm $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_agentcloud..."
 	# Foundation/CFNetwork are for ws_socket.mm, which comes along with the
 	# client TU. The tests never open a socket -- parse_sessions_reply is pure.
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $^ \
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
 UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff
