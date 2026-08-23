@@ -1,0 +1,26 @@
+# Turning timestamps off takes the time off the transcript rows, and leaves
+# the rows themselves alone.
+#
+# The stamp rides INSIDE the caption's own label ("…batch runs.   ·   5h"), so
+# the assertion is the whole phrase: a bare "5h" is also every sidebar row's
+# age and would pass whatever this setting did. The second assertion is the
+# other half — the caption is still there, so the row was re-rendered without
+# its time rather than dropped.
+#
+# Driven through the real Settings sheet (the gear, not a state knob): the
+# preference is only worth having if the control writes it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "batch runs.   ·   5h"
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Timestamps"
+click_ui settings_timestamps_0
+wait_frames 8
+click_ui settings_close
+wait_frames 10
+
+expect_no_text "batch runs.   ·   5h"
+expect_text "batch runs."

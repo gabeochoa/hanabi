@@ -138,7 +138,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
             (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
-            (kGroupH + ctrlRow * 3.0f) +          // Behavior: 3 rows
+            (kGroupH + ctrlRow * 4.0f) +          // Behavior: 4 rows
             (kGroupH + ctrlRow) +                 // Notifications: Sound
             (kGroupH + ctrlRow);                  // Model: default model
         const float rightH =
@@ -282,6 +282,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_yap_row(ctx, L, *app);
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
+            render_timestamps_row(ctx, L, *app);
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
             render_quiet_hours_row(ctx, L, *app);
@@ -926,6 +927,20 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        [](int i) {
                            Settings::get().set_memory_backend(
                                i == 1 ? "hindsight" : "traditional");
+                       });
+    }
+
+    // Timestamps on transcript rows: Off / On. Local to this machine, so it
+    // persists without going near the sync-dirty flag.
+    void render_timestamps_row(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 136, "Timestamps", "settings_timestamps_label");
+        const bool on = Settings::get().get_show_timestamps();
+        real_segmented(ctx, parent, 137, {"Off", "On"}, on ? 1 : 0,
+                       "settings_timestamps",
+                       [](int i) {
+                           Settings::get().set_show_timestamps(i == 1);
                        });
     }
 

@@ -2170,6 +2170,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    // Times on transcript rows are a preference: a reader who knows when the
+    // conversation happened is only being crowded by four more stamps. Read
+    // per use rather than cached — the toggle takes effect on the next frame,
+    // with the settings sheet still open over the transcript.
+    static bool show_times() { return Settings::get().get_show_timestamps(); }
+
     // One match: which message, and where in it.
     struct Match {
         int msg = 0;
@@ -2352,7 +2358,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // if anyone wants it, rides in the tab title instead (see tab_bar).
             std::string sub;
             const std::string age =
-                fmtutil::relative_time(app.openSession->summary.updated_at);
+                show_times()
+                    ? fmtutil::relative_time(app.openSession->summary.updated_at)
+                    : std::string();
             if (!age.empty())
                 sub = age;
             // Local-first read state (idea #1): when a cached/stale copy is
@@ -5131,7 +5139,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // On a user bubble the row runs right-to-left, so the time is emitted
         // FIRST to end up left of the button; on an assistant turn it trails.
-        const std::string stamp = fmtutil::clock_time(sentAt);
+        const std::string stamp =
+            show_times() ? fmtutil::clock_time(sentAt) : std::string();
         auto time_chip = [&](int id) {
             if (stamp.empty()) return;
             div(ctx, mk(bar.ent(), id),
@@ -5357,8 +5366,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // role marker needed. We keep only a faint, right-aligned timestamp on
         // the first message of a turn so exchanges still have a time anchor
         // (and, if present, the run subtitle) — no colored name.
+        // "streaming…" survives the timestamps preference: it says the turn
+        // is still arriving, which is state, not a stamp.
         std::string ts = isLive ? std::string("streaming\xe2\x80\xa6")
-                                : fmtutil::relative_time(m.created_at);
+                                : (show_times()
+                                       ? fmtutil::relative_time(m.created_at)
+                                       : std::string());
         if (!m.subtitle.empty())
             ts = m.subtitle + (ts.empty() ? "" : ("  \xc2\xb7  " + ts));
         auto arow = div(ctx, mk(turn.ent(), 1),
@@ -5466,7 +5479,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_meta_line(UIContext<InputAction>& ctx, Entity& parent,
                           int index, const api::Message& m) {
         std::string txt = m.text;
-        std::string age = fmtutil::relative_time(m.created_at);
+        std::string age =
+            show_times() ? fmtutil::relative_time(m.created_at) : std::string();
         if (!age.empty() && !txt.empty()) txt += "   \xc2\xb7   " + age;
         div(ctx, mk(parent, 200 + index * 10),
             ComponentConfig{}
