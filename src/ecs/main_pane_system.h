@@ -3026,9 +3026,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
         ctx.theme.focus = theme::accent();
+        // What the empty field says it is for. text_input renders this itself
+        // now; it used to be an absolutely-positioned on_draw_fg child laid
+        // over the field, because the widget had no placeholder of its own.
+        const bool phSteer = !kickoff && app.should_steer_open();
+        const char* placeholder = kickoff ? "Start a new conversation\xe2\x80\xa6"
+                                  : phSteer ? "Steer the running agent\xe2\x80\xa6"
+                                            : "Message hanabi\xe2\x80\xa6";
         auto inputRes = afterhours::ui::imm::text_input(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
+                .with_placeholder(placeholder)
                 .with_size(ComponentSize{percent(1.0f), pixels(34)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
@@ -3132,31 +3140,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 });
         }
 
-        // Placeholder (text_input has no native placeholder — gap #29): overlay
-        // faint hint text ON TOP of the empty field via an absolutely-positioned
-        // on_draw_fg child (same proven pattern as the sidebar search), so it's
-        // clearly an input at rest. Replaced by real glyphs the moment you type.
-        if (replyDraft.empty()) {
-            const bool steer = !kickoff && app.should_steer_open();
-            const char* ph = kickoff ? "Start a new conversation\xe2\x80\xa6"
-                             : steer  ? "Steer the running agent\xe2\x80\xa6"
-                                      : "Message hanabi\xe2\x80\xa6";
-            div(ctx, mk(inputWrap.ent(), 2),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{percent(1.0f), pixels(34)})
-                    .with_absolute_position()
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_render_layer(3)
-                    .with_on_draw_fg([ph](RectangleType rect) {
-                        const float px = theme::type::BODY;
-                        const float ty = rect.y + rect.height * 0.5f - px * 0.5f;
-                        afterhours::draw_text(ph, rect.x + 12.0f, ty, px,
-                                              theme::text_faint());
-                    })
-                    .with_debug_name("composer_placeholder"));
-        }
 
         // Send affordance. Enabled (primary-styled, clickable) when the backend
         // supports replies and the draft has text; otherwise disabled-styled.

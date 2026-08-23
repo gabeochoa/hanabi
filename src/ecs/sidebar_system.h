@@ -868,6 +868,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
+                // Native placeholder. This used to be an absolutely-positioned
+                // overlay that derived the field's screen origin from the panel
+                // geometry by hand, because text_input had no hint of its own.
+                .with_placeholder("Search conversations")
                 .with_debug_name("sb_search_text"));
         s_searchInputId = searchRes.ent().id;
 
@@ -895,39 +899,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (clr) app.searchQuery.clear();
         }
 
-        // Placeholder (defect 13): afterhours' text_input has no native
-        // placeholder AND it forces an opaque Secondary fill over its own rect
-        // (gap #17), so a placeholder painted *behind* the input is covered.
-        // We instead overlay a faint "Search conversations" ON TOP of the empty
-        // input via an absolutely-positioned child (out of flex flow, so it
-        // never shifts the field) whose on_draw_fg paints the hint text. Only
-        // rendered while the query is empty; the moment the user types, the
-        // real glyphs replace it. The field origin is derived from the sidebar
-        // panel geometry: panel(panelX,panelY) → header 40 → search wrap
-        // (top pad 4) → field (left pad 8 + magnifier slot 18). See the search
-        // layout notes above for the reserved slots.
-        if (app.searchQuery.empty()) {
-            const float phX = panelX + 10.0f + 8.0f + 18.0f + 4.0f;  // text start
-            const float phY = panelY + 40.0f + 4.0f;                 // field top
-            const float phW = panelW - (phX - panelX) - 12.0f;
-            div(ctx, mk(parent, 9),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{pixels(phW > 20.0f ? phW : 20.0f),
-                                             pixels(30)})
-                    .with_absolute_position()
-                    .with_translate(phX, phY)
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_render_layer(3)
-                    .with_on_draw_fg([](RectangleType rect) {
-                        const float px = theme::type::ROW;
-                        const float ty = rect.y + rect.height * 0.5f - px * 0.5f;
-                        afterhours::draw_text("Search conversations", rect.x, ty,
-                                              px, theme::text_faint());
-                    })
-                    .with_debug_name("sb_search_placeholder"));
-        }
     }
 
     // ---- section label (mock .sb-section-label: 10.5px uppercase faint,
