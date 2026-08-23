@@ -296,7 +296,12 @@ mock-server:
 # TESTS  (unit + headless e2e + perf regression gates)
 # ==============================================================================
 
-TEST_CXXFLAGS := $(CXXSTD) -g -O0 -Wall -Wextra \
+# -MD -MP writes a .d beside each test binary listing every header it read, and
+# the -include below feeds those back in. Without it a test target depends only
+# on its .cpp: change a HEADER the test exercises -- which is where most of the
+# logic under test lives -- and make re-runs the previous binary and reports a
+# green that predates the change. That has already produced one false result.
+TEST_CXXFLAGS := $(CXXSTD) -g -O0 -Wall -Wextra -MMD -MP \
     -Wno-deprecated-literal-operator -Wno-sign-conversion
 # Perf benchmark wants optimizations on (measures the real hot path).
 PERF_CXXFLAGS := $(CXXSTD) -O2 -Wall -Wextra \
@@ -306,6 +311,9 @@ TEST_DIR := $(OUTPUT_DIR)/tests
 
 $(TEST_DIR):
 	@mkdir -p $(TEST_DIR)
+
+# The header dependencies -MMD wrote on the last build (see TEST_CXXFLAGS).
+-include $(wildcard $(TEST_DIR)/*.d)
 
 # Everything make_client() can construct has to link wherever config.cpp does,
 # so this is one list rather than nine. Adding a backend means editing here and

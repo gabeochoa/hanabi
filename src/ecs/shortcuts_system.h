@@ -13,10 +13,12 @@
 // somewhere else. Dismissed with Cmd+/ again, Esc, or a click outside.
 // ---------------------------------------------------------------------------
 
+#include <algorithm>
 #include <array>
 #include <string_view>
 
 #include "../keys.h"
+#include "../util/scroll_prefs.h"
 #include "../ui/icons.h"
 #include "ui_imports.h"
 
@@ -31,7 +33,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
 
     // The shortcuts this app actually binds. Each entry names the file that
     // owns the binding, so a shortcut that moves cannot quietly go stale here.
-    static constexpr std::array<Row, 23> kRows{{
+    static constexpr std::array<Row, 24> kRows{{
         {"", "Conversations"},
         {"Cmd N", "Start a new task"},              // composer_system.h
         {"Cmd W", "Close the current tab"},         // tab_bar_system.h
@@ -58,7 +60,8 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         {"Hover a message", "Copy it, and see when it was sent"},
     }};
 
-    static constexpr float kPanelW = 460.0f;
+    static constexpr float kPanelW = 820.0f;
+    static constexpr float kColGap = 28.0f;
     static constexpr float kPadH = 24.0f;
     static constexpr float kPadV = 20.0f;
     static constexpr float kHeaderH = 34.0f;
@@ -69,6 +72,34 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
     // Must count the section headings' top margin too — the panel is sized
     // from this, and 8px missed per heading is a clipped last row.
     static constexpr float kSectionGap = 8.0f;
+    // Where the list splits into two columns: the section boundary nearest to
+    // half the total height, so a heading never ends up alone at the foot of
+    // the left column with its rows in the right one.
+    static size_t split_index() {
+        const float half = content_height() * 0.5f;
+        float h = 0.0f;
+        size_t best = kRows.size();
+        float bestGap = 1e9f;
+        for (size_t i = 0; i < kRows.size(); ++i) {
+            if (kRows[i].keys.empty() && i > 0) {
+                const float gap = std::abs(h - half);
+                if (gap < bestGap) {
+                    bestGap = gap;
+                    best = i;
+                }
+            }
+            h += kRows[i].keys.empty() ? (kSectionH + kSectionGap) : kRowH;
+        }
+        return best;
+    }
+
+    static float column_height(size_t from, size_t to) {
+        float h = 0.0f;
+        for (size_t i = from; i < to && i < kRows.size(); ++i)
+            h += kRows[i].keys.empty() ? (kSectionH + kSectionGap) : kRowH;
+        return h;
+    }
+
     static float content_height() {
         float h = 0.0f;
         for (const auto& r : kRows)
@@ -101,7 +132,18 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
             static_cast<float>(afterhours::graphics::get_screen_height());
 
         const float pw = kPanelW;
-        const float ph = kPadV * 2.0f + kHeaderH + content_height();
+        // The list only grows -- every feature that binds a key adds a row --
+        // so the sheet is capped at what the window can hold and the rows
+        // scroll inside it. Without the cap the last sections rendered past
+        // the panel's own bottom edge, off the sheet entirely.
+        // Two columns: the list only grows -- every feature that binds a key
+        // adds a row -- and a single column ran off the bottom of the sheet.
+        // A reference you have to scroll is a reference you stop reading.
+        const size_t split = split_index();
+        const float tallest = std::max(column_height(0, split),
+                                       column_height(split, kRows.size()));
+        const float wanted = kPadV * 2.0f + kHeaderH + tallest;
+        const float ph = std::min(wanted, sh - 80.0f);
         const float px = (sw - pw) * 0.5f;
         const float py = (sh - ph) * 0.5f;
 
@@ -148,17 +190,48 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
 
         render_header(ctx, panel.ent(), *app);
 
+        auto cols = div(ctx, mk(panel.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(ph - kPadV * 2.0f - kHeaderH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_render_layer(11)
+                .with_debug_name("shortcuts_cols"));
+
+        const float colW = (kPanelW - 2.0f * kPadH - kColGap) * 0.5f;
+        const auto column = [&](int id, float leftMargin) {
+            return div(ctx, mk(cols.ent(), id),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(colW), percent(1.0f)})
+                    .with_margin(Margin{.left = pixels(leftMargin)})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(11)
+                    .with_debug_name("shortcuts_col"));
+        };
+        auto left = column(1, 0.0f);
+        auto right = column(2, kColGap);
+
         int id = 100;
-        for (const auto& r : kRows) {
+        for (size_t i = 0; i < kRows.size(); ++i) {
+            Entity& into = (i < split) ? left.ent() : right.ent();
+            const auto& r = kRows[i];
             if (r.keys.empty())
-                section(ctx, panel.ent(), id++, r.what);
+                section(ctx, into, id++, r.what);
             else
-                shortcut_row(ctx, panel.ent(), id++, r.keys, r.what);
+                shortcut_row(ctx, into, id++, r.keys, r.what);
         }
     }
 
   private:
-    static float content_w() { return kPanelW - 2.0f * kPadH; }
+    static float content_w() {
+        return (kPanelW - 2.0f * kPadH - kColGap) * 0.5f;
+    }
 
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app) {
