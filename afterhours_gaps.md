@@ -2544,3 +2544,73 @@ should.
   ```
 
   Then a chord test can hold Cmd, and the 72 lines go away as a side effect.
+
+### #55 — `text_input` blurs itself on Escape, and focus can only be given back to a child you were not handed
+
+- **How I hit it.** The composer's slash-command menu (`/new`, `/model`, …)
+  needs Escape to mean "put the menu away" while the caret stays in the field —
+  the next keystroke is the rest of the message. Escape does close the menu,
+  and the draft survives; the caret does not.
+
+- **Why.** `text_input`'s own key handling ends with
+
+  ```cpp
+  // ui/text_input/component.h:718
+  if (ctx.pressed(InputAction::MenuBack)) {
+    state.clear_selection();
+    ctx.set_focus(ctx.FAKE);
+  }
+  ```
+
+  unconditionally, with no config flag and no listener hook to veto it. The
+  widget has already run by the time an app system sees the same keystroke, so
+  the app is always answering a blur that has happened.
+
+- **What I tried, in order.**
+  1. `ctx.set_focus(inputRes.ent().id)` right after the widget, in the same
+     frame. No effect. The id `imm::text_input` returns is the WRAPPER; the
+     focusable element is the inner field it creates as a child, and
+     `EndUIContextManager` resets `focus_id` to `ROOT` at end of frame unless
+     that exact id is in `focused_ids` — which `HandleTabbing` fills with the
+     field, never the wrapper. So the assignment is silently discarded one
+     system later.
+  2. `ctx.try_to_grab(id)` before `set_focus` to get the wrapper into
+     `focused_ids`. Focus then held for exactly as many frames as I kept
+     re-asserting it and dropped the frame I stopped — the wrapper is not what
+     the tab pass re-grabs, so nothing sustains it.
+  3. Holding the re-focus for three frames with a countdown, because the
+     scripted Escape stays down for two. Same ending, plus a frame counter in
+     app state that exists only to fight the widget.
+  4. **What shipped:** reach into the widget's internals from the app —
+
+     ```cpp
+     const auto& kids = inputRes.ent().get<afterhours::ui::UIComponent>().children;
+     ctx.set_focus(kids[0]);   // the field, by position
+     st.was_focused = true;    // else the widget reads it as a fresh focus
+     ```
+
+     `was_focused` is the second half: a field that gains focus without a mouse
+     press selects all its text (`component.h:246`), so without it the next
+     character typed replaces the whole draft instead of appending to it.
+
+- **Cost of the workaround.** The app now depends on two things the widget
+  never promised: that child 0 of a `text_input` is the focusable field, and
+  that `HasTextInputState::was_focused` may be written from outside. Both are
+  a refactor away from breaking silently — the failure mode is a caret that
+  quietly stops taking keystrokes, which no assertion outside a scripted UI
+  test would catch.
+
+- **Severity: caps what an app can build.** Any composer-anchored affordance —
+  a slash menu, an @-mention list, an inline autocomplete — needs Escape to
+  dismiss ITS thing without dismissing the field, and needs to hand focus back
+  after a click on one of its rows. Neither is expressible today.
+
+- **Minimal upstream fix**, either half of which would have been enough:
+  1. `ComponentConfig::with_escape_blurs(false)` (or a `HasTextInputListener`
+     `on_escape` that can return "handled"), so the app decides what Escape
+     means while its own overlay is up.
+  2. Return the field's id alongside the wrapper's — `ElementResult` already
+     carries an entity, so a `focus_target()` accessor (or making
+     `ctx.set_focus(wrapper)` forward to the field) would make "put the caret
+     back" a one-liner that cannot rot: today the only way to say it is to
+     index into the widget's children.

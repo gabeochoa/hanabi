@@ -49,6 +49,7 @@ enum class EscapeIntent {
     CloseShortcuts,
     CloseSettings,
     CloseFind,
+    CloseSlashMenu,
     ClearTranscript,
 };
 
@@ -302,6 +303,20 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string stashedDraft;
     };
     std::map<std::string, ComposerHistory> composerHistory;
+
+    // Slash-command menu (the dropdown a "/" draft raises over the composer).
+    // Its open state lives on the app rather than in the composer's own
+    // locals because Esc has exactly one owner, and that owner has to rank
+    // this menu against every other dismissable thing (escape_system.h).
+    bool slashMenuOpen = false;
+    int slashMenuIndex = 0;
+    // The draft Esc dismissed the menu for. The menu stays shut until the
+    // draft changes, so Esc is not undone by the very next frame re-deriving
+    // "this text starts with a slash".
+    std::string slashDismissedFor;
+    // What the router said about the last command it was handed — shown in
+    // the composer strip. Cleared when the field is typed in again.
+    std::string slashNotice;
 
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;

@@ -1,0 +1,63 @@
+# Typing "/" in the composer raises the command menu, and a slash command is
+# carried out by the client instead of being sent to the agent as text.
+#
+# The rows are asserted by their blurbs, not by the verb: "/model" is also what
+# the field itself holds, so asserting the word would pass on the typed text
+# alone with no menu on screen at all.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Stars payout reconciliation"
+
+click_ui composer_reply_input
+wait_frames 4
+
+# A bare slash offers the whole vocabulary.
+type "/"
+wait_frames 8
+expect_text "start a new conversation"
+expect_text "compact the context now"
+
+# Escape puts the menu away and keeps the draft — it is not the field's clear.
+# It also blurs the field, which is afterhours' own behaviour on Escape
+# (afterhours_gaps.md #55), so the caret is clicked back afterwards.
+key ESCAPE
+wait_frames 8
+expect_no_text "start a new conversation"
+expect_input_text composer_reply_input "/"
+
+# Typing brings the menu back, and narrows it to one command. (Clicking a
+# field that already has text selects it, so the draft is retyped whole.)
+click_ui composer_reply_input
+wait_frames 4
+type "/mod"
+wait_frames 8
+expect_text "switch the model"
+expect_no_text "compact the context now"
+
+# Clicking a row that takes an argument completes the verb into the field and
+# leaves the caret there, so the argument can be typed straight away.
+click_ui slash_item_0
+wait_frames 8
+type "opus"
+wait_frames 8
+expect_input_text composer_reply_input "/model opus"
+
+# Return runs it. There is no model picker in this client yet, so the strip
+# says so — and the words never reach the agent as a message.
+key ENTER
+wait_frames 20
+expect_text "no model picker yet"
+expect_input_text composer_reply_input "/model opus"
+
+# /new is the one verb with somewhere to go: it raises the new-conversation
+# sheet.
+key ESCAPE
+wait_frames 8
+click_ui composer_reply_input
+wait_frames 4
+type "/new"
+wait_frames 8
+key ENTER
+wait_frames 20
+expect_text "Describe the task"

@@ -22,6 +22,7 @@
 #include "../../src/ecs/components.h"
 #include "../../src/util/format.h"
 #include "../../src/util/textscan.h"
+#include "../../src/ui/slash_commands.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -286,6 +287,69 @@ static void test_find_occurrences() {
     }
 }
 
+// --- slash-command parsing ------------------------------------------------
+static void test_slash_parsing() {
+    std::printf("test_slash_parsing\n");
+    namespace sl = hanabi::slash;
+
+    // A verb and its argument, verbatim after the space.
+    {
+        auto p = sl::parse("/btw Why did it refuse?");
+        CHECK(p.matched);
+        CHECK(p.known);
+        CHECK(p.verb == "btw");
+        CHECK(p.args == "Why did it refuse?");
+    }
+    // A verb with the space typed but nothing after it.
+    {
+        auto p = sl::parse("/btw ");
+        CHECK(p.matched);
+        CHECK(p.verb == "btw");
+        CHECK(p.args.empty());
+    }
+    // A slash and a space is a sentence, not a command.
+    {
+        auto p = sl::parse("/ btw");
+        CHECK(!p.matched);
+    }
+    // The slash has to be first: a message that mentions a path is not one.
+    CHECK(!sl::parse("see /etc/hosts").matched);
+    CHECK(!sl::is_command_text("see /etc/hosts"));
+    // A bare slash is a command in progress with no verb yet.
+    {
+        auto p = sl::parse("/");
+        CHECK(p.matched);
+        CHECK(p.verb.empty());
+        CHECK(!p.known);
+    }
+    // Case does not decide whether a verb is recognized.
+    CHECK(sl::parse("/COMPACT").known);
+    // A verb this client does not have is parsed but not known.
+    CHECK(!sl::parse("/autocompact").known);
+
+    // The menu offers everything for a bare slash, narrows on the prefix, and
+    // has nothing to say once the argument has started.
+    CHECK(sl::filter("/").size() == sl::all().size());
+    {
+        auto rows = sl::filter("/mod");
+        CHECK(rows.size() == 1);
+        if (rows.size() == 1) CHECK(rows[0]->name == "model");
+    }
+    CHECK(sl::filter("/zzz").empty());
+    CHECK(sl::filter("/model gpt").empty());
+
+    // Completing a verb that wants an argument leaves room to type it.
+    CHECK(sl::completion(*sl::find("model")) == "/model ");
+    CHECK(sl::completion(*sl::find("new")) == "/new");
+
+    // /rename is deliberately absent while rename_v1's request flag is being
+    // built elsewhere: it must not turn into a second wire call.
+    CHECK(sl::find("rename") == nullptr);
+    // Only /new can actually be carried out today.
+    for (const auto& c : sl::all())
+        CHECK(c.runnable == (c.name == "new"));
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -297,6 +361,7 @@ int main() {
     test_compact_count();
     test_clock_time();
     test_find_occurrences();
+    test_slash_parsing();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

@@ -12,8 +12,8 @@
 // So the key is read exactly once, here, and resolved into a single intent by
 // what is on top: the modal composer draws over the shortcuts sheet, which
 // draws over settings, which draws over the find bar, which sits over the
-// transcript. The auth overlay is deliberately absent — login gates the app
-// and Esc must not dismiss it.
+// slash-command menu, which sits over the transcript. The auth overlay is
+// deliberately absent — login gates the app and Esc must not dismiss it.
 //
 // Registered ahead of every consumer, so the intent is already resolved by the
 // time a UI system reads it.
@@ -41,6 +41,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseSettings;
         else if (app->findOpen)
             app->escape = EscapeIntent::CloseFind;
+        else if (app->slashMenuOpen)
+            app->escape = EscapeIntent::CloseSlashMenu;
         else
             app->escape = EscapeIntent::ClearTranscript;
     }
