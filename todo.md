@@ -600,7 +600,22 @@ discovering bindings is uncovered. Honestly flagged in the script.
 Nothing to do app-side until #49 is fixed in afterhours. Parked deliberately;
 when #49 lands, replace the env knob with a real `key CMD+SLASH`.
 
-### [ ] 4. Under the injector, only the FIRST system to poll a key sees it
+### [x] 4. Esc had four owners — FIXED (`fix/esc-one-owner`)
+
+**The premise below is stale and the conclusion was still right.** At pin
+`428047e` the injector is explicitly multi-reader: `consume_press` keeps a
+press readable for the whole frame and decrements in `reset_frame`, so there
+is no test/prod divergence. What there WAS, in both builds, is four systems
+acting on one keystroke — dismissing the find bar also dropped the transcript
+selection and wiped the composer draft. `src/ecs/escape_system.h` reads the key
+once and resolves it by what is on top (rename modal > modal composer >
+shortcuts > settings > find > transcript; auth is deliberately absent, login
+gates the app). Two agents confirmed the multi-reader behaviour independently.
+
+Found on the way: closing the find bar drops the composer's focus, so the next
+Esc does nothing until you click back in. Small, separate, still open.
+
+### [x] 4 (original text). Under the injector, only the FIRST system to poll a key sees it
 
 `test_input::is_key_pressed` opens with `input_injector::consume_press(key)`.
 Production's `graphics::is_key_pressed` does not consume. We now have four Esc
@@ -617,7 +632,7 @@ a test that passes on one path and not the other is the bad kind of green.
 **Fix direction:** one place decides what Esc means this frame (highest overlay
 wins) instead of four systems racing to read the same key.
 
-### [ ] Minor: `compact_count` loses precision exactly where it matters
+### [x] Minor: `compact_count` loses precision exactly where it matters — DONE (`74ddf95`)
 
 `4.2k` but `1M` for 1,500,000 — a decimal below 10 in thousands, never in
 millions. If the context meter lands with a 1M window, every reading from 1.0M
@@ -790,20 +805,21 @@ wrong:
 
 ## Ship-first (no dependencies, confirmed missing)
 
-- [ ] **Screenshot harness MVP** — chunks 1-3 of `screenshot-testing.md`. Makes
+- [x] **Screenshot harness MVP** — chunks 1-3 (`feat/screenshot-baselines`). Makes
       every later UI change verifiable, and is the thing that turns afterhours
       shortcomings from anecdote into a countable list.
-- [ ] Session rename (~80) `[APP]` — `session-lifecycle.md` owns it. Backend verb is
+- [x] Session rename (~80) `[APP]` — `feat/session-rename`. Backend verb is
       advertised on attach.
-- [ ] Composer history walk, Up/Down (~90) — `composer.md` owns it.
+- [x] Composer history walk, Up/Down (~90) — `feat/composer-history-walk`.
 - [ ] Muted sessions, bell toggle (~60) — machine-local, no backend needed.
-- [ ] Home shelf collapse/expand (~50) `[APP]`.
+- [x] Home shelf collapse/expand (~50) `[APP]` — `feat/home-shelf-collapse`.
 
 ## Screenshot testing — `screenshot-testing.md`
 
-- [ ] 1. Repeat-capture determinism test
-- [ ] 2. Baseline directory + first three screens
-- [ ] 3. Comparison script + `make validate-screenshots`
+- [x] 1. Repeat-capture determinism test — `make test-screenshot-determinism`
+- [x] 2. Baseline directory + first three screens — `docs/screenshots/baselines/`
+- [x] 3. Comparison script + `make validate-screenshots` (Pillow, ImageMagick
+      fallback, per-screen thresholds in `manifest.json`)
 - [ ] 4. Unbaselined-screen handling
 - [ ] 5. Full baseline set
 - [ ] 6. CI gate
@@ -817,24 +833,31 @@ backend serves live production data.
 
 ## Session lifecycle — `session-lifecycle.md`
 
-- [ ] Session rename (~80) `[APP]`
+- [x] Session rename (~80) `[APP]` — shipped, with the row context menu the
+      rest of this section hangs off
 - [ ] Session fork, `/btw` (~70) `[APP]`
 - [ ] Session archive — partial; state exists, UI does not (~60) `[APP]`
 - [ ] Session pin / star (~50) `[APP]`
 - [ ] Session mute (~40) `[APP]`
-- [ ] Sub-agent status panel — partial (~80) `[APP]`
+- [ ] Sub-agent status panel — partial (~80) `[APP]`. The transcript rollup is
+      built (`render_sub_agent_panel`); what is missing is the sidebar toggle
 - [ ] ~~Delete session~~ **BLOCKED** — no server verb exists
 
 ## Composer — `composer.md`
 
-- [ ] History walk, Up/Down (~90) `[APP]`
+- [x] History walk, Up/Down (~90) `[APP]`
 - [ ] Slash command menu: `/new` `/model` `/effort` `/rename` `/btw` `/compact` `[APP]`
 - [ ] Model picker popover `[APP]`
 - [ ] Effort level picker `[APP]`
 - [ ] Undo toast for archive/pin/mute `[APP]` — there is a toast plugin
 - [ ] Skills chip `[APP]`
-- [ ] Streaming animation, working dots `[APP]` — *filed as built, is not;
-      nothing renders one*
+- [x] Streaming animation, working dots `[APP]` — **the correction was itself
+      wrong.** `render_thinking_indicator` (pulsing dot + Thinking… + elapsed
+      timer) has been there for months; what was broken was the demo knob, so
+      nobody could see it — the loader replaced the injected session during the
+      settle frames, and a chunkless stream was declared Done on the next tick.
+      Fixed and covered in `fix/thinking-demo-capture`. Grep before you build:
+      this one got past two agents by inspection of the docs, not the code.
 
 Token meter: the bar exists but only draws with a configured context window,
 which nothing sets. Real denominator is queued separately above — do not
@@ -842,15 +865,19 @@ re-plan it here.
 
 ## Transcript — `transcript.md`
 
-- [ ] 1. Date dividers `[APP]`
+- [x] 1. Date dividers `[APP]` — `feat/transcript-date-dividers`. Local-day
+      boundary, not the doc's four-hour gap (a gap rule prints twice in one day
+      and nothing across midnight)
 - [ ] 2. Thinking disclosure, collapsible `[APP]`
 - [ ] 3. Fold defaults for tool rows `[APP]`
-- [ ] 4. Message delivery status rows `[APP]`
+- [x] 4. Message delivery status rows `[APP]` — ALREADY BUILT: `api::SyncState`
+      per message + `draw_sync_check` in the transcript. False gap
 - [ ] 5. Syntax highlighting in code blocks `[APP]` — fenced blocks are their
       own rows, so per-line colour works. INLINE mono inside a paragraph does
       not: `TextSpan` carries colour and weight but no per-run font.
-- [ ] 6. Markdown H1-H4 `[APP]`
-- [ ] 7. Streaming animation, pulsing dots `[APP]`
+- [x] 6. Markdown H1-H4 `[APP]` — `feat/markdown-headings`
+- [x] 7. Streaming animation, pulsing dots `[APP]` — see the composer entry:
+      built all along, the demo knob was what was broken
 - [ ] 8. Link auto-detection for work-tracker ids `[APP-WORKAROUND]` — needs
       to know where a byte range landed on screen, which the library will not
       tell you (no `text_rects_for`). Same trick `find_highlight.h` already
@@ -867,17 +894,21 @@ multi-line bubble.
 
 ## Sidebar & tabs — `sidebar-tabs.md`
 
-- [ ] Home shelf collapse/expand (~50) `[APP]`
+- [x] Home shelf collapse/expand (~50) `[APP]`
 - [ ] Muted sessions bell (~60) `[APP]`
 - [ ] Sub-agent visibility toggle `[APP]`
 - [ ] Sidebar row drag-reorder (~110) `[APP]` — `HasDragListener` exists
 - [ ] Search snippet highlighting in rows `[APP-WORKAROUND]` — same no-text-rects problem as #8
-- [ ] Tab drag-reorder (~90) `[APP]`
-- [ ] Tab context menu: copy URL, close others, close all (~50) `[APP]` — right-click and context_menu both exist
+- [x] Tab drag-reorder (~90) `[APP]` — ALREADY BUILT: `model::reorder_tab`,
+      driven from the drag in `tab_bar_system.h`. False gap
+- [x] Tab context menu: copy URL, close others (~50) `[APP]` — ALREADY BUILT:
+      the menu, the real clipboard write and `model::close_others` are all in
+      `tab_bar_system.h`. Only "close all" is genuinely missing. Mostly a false gap
 - [ ] Tab preview mode (~65) `[APP]`
 - [ ] ~~Space grouping~~ **BLOCKED** — sessions carry no Space; evidence above
 - [ ] ~~Folder collapse-all~~ **BLOCKED** — depends on Space grouping
-- [ ] Tab scrollbar / overflow `[APP]` — **NOT blocked after all.** I checked:
+- [x] Tab scrollbar / overflow `[APP]` — ALREADY BUILT (Chrome-style overflow
+      merged in `0ac0779`, per this file's own log). **NOT blocked after all.** I checked:
       `HasScrollView` has `horizontal_enabled`, so the library already does
       horizontal scrolling. Earlier note was wrong.
 - [ ] ~~Window restoration~~ **BLOCKED** — needs multi-window architecture
@@ -886,14 +917,15 @@ Anything touching the sidebar must say how it behaves at 2000+ sessions.
 
 ## Search, settings, shortcuts — `search-settings-shortcuts.md`
 
-- [ ] Find operators: `is:thinking`, `has:tool`, `state:` (small) `[APP]`
+- [ ] Find operators: `is:thinking`, `has:tool`, `state:` (small) `[APP]` — in flight
 - [ ] Session search across threads, Cmd+Shift+F (medium) — needs a corpus;
       say whether it is a local index over the disk cache or a server verb
 - [ ] Command palette, Cmd+K (~250) `[APP]` `[TEST-BLOCKED]`
 - [ ] Snippet highlighting in sidebar search (small) `[APP-WORKAROUND]`
 - [ ] Send-key configuration, Return vs Cmd+Return (small) `[APP]` `[TEST-BLOCKED]`
-- [ ] Show/hide timestamps (small) `[APP]`
-- [ ] Typeface picker (small) `[APP]` — LIMITED: the library can load a font by
+- [ ] Show/hide timestamps (small) `[APP]` — in flight
+- [x] Typeface picker (small) `[APP]` — ALREADY BUILT: Settings → App font
+      (Standard / Hyperlegible), wired and persisted. LIMITED as predicted: the library can load a font by
       path but cannot enumerate system fonts, so this can only offer the fonts
       we bundle. Shipping a fixed list is fine; "pick any system font" is not
       reachable and should not be promised.
@@ -905,7 +937,7 @@ Anything touching the sidebar must say how it behaves at 2000+ sessions.
       chord against it)
 - [ ] Keyboard shortcut recorder in Settings (medium) `[APP]` `[TEST-BLOCKED]`
 - [ ] Composer keyboard shortcuts (small) `[APP]` `[TEST-BLOCKED]`
-- [ ] Navigation shortcuts, arrows in lists (small) `[APP]`
+- [ ] Navigation shortcuts, arrows in lists (small) `[APP]` — in flight
 - [ ] Find next/prev, Cmd+G (small) `[APP]` `[TEST-BLOCKED]`
 
 **Cmd chords cannot be scripted.** The harness maps `CMD+` onto Control and
@@ -916,9 +948,15 @@ to change.
 
 ## Native, notifications, attachments — `native-notifications-attachments.md`
 
-- [ ] Expanded notification types: run finished, approval needed, input
+- [x] Expanded notification types — `feat/notification-kinds`: per-thread
+      transitions (blocked / finished) replace the blocked-COUNT rule, which
+      stayed silent whenever one thread unblocked as another blocked. Approval
+      needed / input requested are not distinguishable in our model yet.
+- [ ] ~~Expanded notification types~~ superseded by the line above: run finished, approval needed, input
       requested (~80) `[APP]` — native seam already exists in `native_extras.mm`
-- [ ] Quiet hours (~50) `[APP]`
+- [x] Quiet hours (~50) `[APP]` — `feat/quiet-hours`. Presets, not a picker:
+      there is no clock control, and the window logic (which crosses midnight)
+      is a tested pure function
 - [ ] System menu bar: File / Edit / View `[APP]` — Obj-C++, not the UI library
 - [ ] Image paste and drop in composer `[APP]` — an Obj-C++ job behind the
       existing `extern "C"` seam, NOT a UI-library one. Clipboard images and
@@ -933,3 +971,58 @@ notifications, menu-bar extra, Spotlight seam, deep-link handler.
 Most of this is unreachable by the scripted harness — notifications, menu-bar
 items and file pickers are not in the widget tree. Where the honest answer is
 "manual", the breakdown says so rather than inventing a gate.
+
+---
+
+# SESSION 2026-08-23 — worked the backlog on aspen
+
+A fresh clone of hanabi now lives at `~/p/hanabi` on aspen (it was only on
+juniper before), submodule initialised, `make test` green.
+
+Everything below is on `main` AND on its own branch, both pushed. One theme per
+branch, per the standing directive; each has a test that was checked to FAIL
+against a build without it, because a test that cannot fail is not evidence.
+
+| theme | branch | what it is |
+|---|---|---|
+| Context meter | `feat/context-meter-denominator` | real tokens over `tokens.context.budget`, stale marked, no constant anywhere |
+| Session rename | `feat/session-rename` | right-click → Rename…, durable echo, no local optimism |
+| Composer history | `feat/composer-history-walk` | Up/Down walk that thread's sent messages |
+| Screenshot baselines | `feat/screenshot-baselines` | determinism target, three baselines, `make validate-screenshots` |
+| Esc has one owner | `fix/esc-one-owner` | one keystroke dismisses one thing |
+| Home shelf folding | `feat/home-shelf-collapse` | click a heading to fold a shelf; survives relaunch |
+| Quiet hours | `feat/quiet-hours` | no banner inside the window; the midnight-crossing logic is a tested pure function |
+| Notification kinds | `feat/notification-kinds` | per-thread transitions instead of a count; "a run finished" |
+| Markdown headings | `feat/markdown-headings` | H1–H4, measure and draw proven in step over 452 renders |
+| Date dividers | `feat/transcript-date-dividers` | a row per calendar day |
+| Thinking indicator | `fix/thinking-demo-capture` | it existed; the demo knob was broken so nobody could see it |
+
+## Five backlog items were already built — grep before you build
+
+The parity doc warned a third of its claims were false. Verified against the
+source today: **message delivery status rows** (`api::SyncState` +
+`draw_sync_check`), **tab drag-reorder** (`model::reorder_tab`), **tab context
+menu** copy-URL and close-others (only "close all" is missing), **tab
+overflow** (merged in `0ac0779`, this file's own log says so), and the
+**typeface picker** (Settings → App font). The **streaming dots** entry was
+worse than a false gap: the doc had been *corrected* from "built" to "not
+built" by an agent who read the docs instead of the code.
+
+## Found while working — small, real, still open
+
+- Closing the find bar drops the composer's focus; the next Esc does nothing
+  until you click back into the field.
+- `scripts/review_shots.sh` still ends in a machine-wide `pkill -f hanabi.exe`,
+  which kills other worktrees' captures. The three scripts on the gate path
+  were scoped to their own binary; this one was not on that path.
+- The thinking capture (`26_thinking_dark`) is deliberately NOT a baseline: its
+  timer is stamped at a fixed 32s, but the reading can still flip to 33 if a
+  run straddles a second boundary. Baseline it only with a frozen clock.
+- afterhours gaps filed today: **#55** no `right_click_ui <name>` (context-menu
+  tests are coordinate-keyed and retarget silently when a layout moves) and
+  **#56** a freshly built `text_input` cannot be focused programmatically.
+
+## Still in flight when this was written
+
+Slash commands + model/effort pickers; find operators + timestamps + list
+navigation; archive UI + pin + mute. Each on its own branch, unmerged.
