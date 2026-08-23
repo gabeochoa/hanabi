@@ -451,12 +451,78 @@ a fake fill. Do NOT reintroduce a constant.
 
 ## COME BACK TO: evaluate the agentcloud backend (2026-08-22)
 
-Gabe asked whether hanabi should move to the **agentcloud** backend that
-puffin/grey use. Subagent investigating ~/w/puffin and ~/w/grey: auth model,
-session/message endpoints and shapes, streaming vocabulary, tool-call blocks,
-context-usage reporting, and how much is reachable by changing `Config` field
-mappings alone versus new adapter code. Decide after that report — it likely
-subsumes the context-meter question above.
+Gabe asked whether hanabi should move to the backend the reference client uses.
+Investigated 2026-08-22. **Verdict: it is a rewrite of `src/api/`, not a config
+change. Worth doing on its own merits; not worth doing for the context meter.**
+
+### Why no part of it is config-reachable
+
+Our adapter's whole design — `Config` with `base_url` + path strings + JSON
+field-name mappings — assumes REST endpoints returning arrays, plus a separate
+SSE stream. That backend is **one WebSocket speaking a keyed-fold subscription
+protocol**. Every row in the mapping table is a transport mismatch, not a
+key-name mismatch:
+
+| ours | theirs |
+|---|---|
+| `GET /sessions` → array | `list` command on a control channel |
+| `GET /sessions/{id}/messages` | `attach` on a second subscription, then `page` backward from a cursor |
+| `POST` kickoff/reply | `create` on control, then `input` on the attached sub |
+| `SSE /sessions/{id}/events` | frames on the same socket — not a second connection |
+| Bearer token, device-code flow | short-lived token minted from a local daemon |
+
+So `events_path`, `sessions_path`, `messages_path`, `chat_path`, the auth
+paths, and most `field_*` mappings simply stop existing. The `Client` interface
+survives; `http_client.cpp` does not.
+
+### The real work, in order of difficulty
+
+1. **Keyed fold.** Their transcript is not a message list — it is state folded
+   from four frame kinds (durable / value / delta / retract) onto keys. We
+   append messages. This is the part that is genuinely new, and it is the part
+   most likely to be underestimated.
+2. **WebSocket transport** with reconnect, replacing REST + SSE.
+3. **Auth**: mint a short-lived token at startup, cache it, re-mint on an auth
+   failure. No stored secret and no account UI — sign-in becomes invisible.
+   Nothing like our device-code flow survives.
+4. **Backward paging** from a boundary cursor instead of offset GETs.
+
+### What we would gain
+
+- **Real tool-call structure.** Tool intent and result arrive as structured
+  frames with name, inputs, output, status and timestamps. The RENDER WIRING
+  section above still owes "replace HASHED tool_duration/tool_count/status with
+  REAL fields" — this deletes that item rather than completing it.
+- **The context meter, honestly** — see the section above, including per-child
+  subagent spend.
+- Send has no synchronous ack: the durable echo frame IS the acknowledgement.
+  Cleaner than our optimistic-message + 30s-server-lag dance.
+
+### What we would lose or inherit
+
+- Session list is **poll-only** — a live-push frame is defined on the wire and
+  never sent. Our sidebar freshness story changes.
+- No delete verb, no server-side full-text search, no attachments.
+- If the local daemon is offline we cannot mint a token, and there is no
+  graceful degradation. We would inherit that.
+
+### Confidence
+
+- **Single-source.** `~/w/puffin` is a dangling symlink into a checkout that is
+  not present (0 files), so only the one reference client was actually read.
+  Anything attributed to "puffin" is unverified.
+- The effort guess that came back was ~600 lines / 2-3 weeks. Treat as an order
+  of magnitude, not an estimate — the keyed fold is the unknown.
+- Frame-ordering guarantees and the error taxonomy are not documented in the
+  source that was read. Both want a staging connection before committing.
+
+### Decision
+
+Do not switch for the context meter. If today's backend reports a maximum we
+get the honest bar for a few lines; if it does not, the plain token figure is
+still the honest answer. Switch only if we want the tool-call fidelity and the
+protocol on their own merits — and if we do, land it as a series of small PRs
+behind the existing `Client` interface, not one branch.
 
 ---
 
