@@ -48,8 +48,13 @@ inline bool in_review_view(const api::SessionSummary& s) {
 inline bool in_starred_view(const api::SessionSummary& s) {
     return s.starred;
 }
+// Archived-ness as the whole app should ask it: the user's machine-local
+// overlay when they have expressed one, the backend's own state otherwise.
+inline bool is_archived(const api::SessionSummary& s) {
+    return s.archive_override.value_or(s.state == api::ThreadState::Archived);
+}
 inline bool in_archived_view(const api::SessionSummary& s) {
-    return s.state == api::ThreadState::Archived;
+    return is_archived(s);
 }
 
 }  // namespace ecs::model

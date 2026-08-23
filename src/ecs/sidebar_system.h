@@ -65,6 +65,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->requestToggleStar.clear();
         }
 
+        // Apply a pending archive toggle, in the same single-writer spot and
+        // for the same reason: the Archived count and every view's membership
+        // must agree on the very next render. The overlay is what moves, not
+        // the backend's own state, so a later list fetch cannot undo it.
+        if (!app->requestToggleArchive.empty()) {
+            for (auto& s : app->sessions) {
+                if (s.id == app->requestToggleArchive) {
+                    const bool nowArchived = !model::is_archived(s);
+                    s.archive_override = nowArchived;
+                    Settings::get().set_archived(s.id, nowArchived);
+                    app->raise_toast(nowArchived ? "Session archived"
+                                                 : "Session unarchived",
+                                     s.id);
+                    break;
+                }
+            }
+            app->requestToggleArchive.clear();
+        }
+
         // Cmd+B toggles the sidebar.
         bool cmdDown = hanabi::keys::cmd_down();
         if (cmdDown && hanabi::keys::pressed(hanabi::keys::kB)) {
@@ -93,8 +112,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         render_smart_views(ctx, panel.ent(), *app, folded, r.width);
 
         if (folded) {
-            // The rail has no rows for a row menu to belong to.
-            app->close_row_menu();
+            // The rail has no rows of its own, but a digest card in the main
+            // pane can have opened the menu, so it still gets a chance to draw.
+            render_row_menu(ctx, uiRoot, *app);
             return;
         }
 
@@ -222,8 +242,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
   private:
     // ---- right-click menu on a thread row ----
-    // Anchored at the cursor, above everything. Its one action today is
-    // Rename…, which is offered only when the backend actually has the verb.
+    // Anchored at the cursor, above everything. Rename… is offered only when
+    // the backend actually has the verb; Archive is machine-local, so it is
+    // always there.
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
@@ -233,9 +254,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
+        enum class Action { Rename, Archive };
+        struct Item {
+            const char* label;
+            const char* name;
+            Action action;
+        };
+        std::vector<Item> items;
+        if (app.client && app.client->supports_rename())
+            items.push_back({"Rename\xe2\x80\xa6", "row_menu_rename",
+                             Action::Rename});
+        items.push_back({model::is_archived(*target) ? "Unarchive" : "Archive",
+                         "row_menu_archive", Action::Archive});
+
         const float menuW = 150.0f;
         const float itemH = 26.0f;
-        const float menuH = itemH;
+        const float menuH = itemH * static_cast<float>(items.size());
         float mx = app.rowMenuX;
         float my = app.rowMenuY;
         if (mx + menuW > ctx.screen_width) mx = ctx.screen_width - menuW;
@@ -273,29 +307,37 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(kMenuLayer)
                 .with_debug_name("row_menu"));
 
-        auto rename = button(ctx, mk(uiRoot, 8901),
-            ComponentConfig{}
-                .with_label("Rename\xe2\x80\xa6")
-                .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
-                .with_absolute_position()
-                .with_translate(mx, my)
-                .with_custom_background(theme::panel_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::ROW)
-                .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(10)})
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(kMenuLayer + 1)
-                .with_debug_name("row_menu_rename"));
-
-        if (rename) {
-            app.renameOpen = true;
-            app.renameSessionId = target->id;
-            app.renameDraft = target->title;
-            app.renameError.clear();
-            app.renameSubmit = false;
+        const std::string targetId = target->id;
+        for (size_t k = 0; k < items.size(); ++k) {
+            auto hit = button(ctx, mk(uiRoot, 8901 + static_cast<int>(k)),
+                ComponentConfig{}
+                    .with_label(items[k].label)
+                    .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
+                    .with_absolute_position()
+                    .with_translate(mx, my + itemH * static_cast<float>(k))
+                    .with_custom_background(theme::panel_bg())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::ROW)
+                    .with_alignment(TextAlignment::Left)
+                    .with_padding(Padding{.left = pixels(10)})
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_render_layer(kMenuLayer + 1)
+                    .with_debug_name(items[k].name));
+            if (!hit) continue;
+            switch (items[k].action) {
+                case Action::Rename:
+                    app.renameOpen = true;
+                    app.renameSessionId = targetId;
+                    app.renameDraft = target->title;
+                    app.renameError.clear();
+                    app.renameSubmit = false;
+                    break;
+                case Action::Archive:
+                    app.requestToggleArchive = targetId;
+                    break;
+            }
             app.close_row_menu();
             return;
         }
@@ -1157,7 +1199,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         for (const auto& s : app.sessions) {
             if (s.state == api::ThreadState::Ready) ++review;
             if (s.starred) ++starred;
-            if (s.state == api::ThreadState::Archived) ++archived;
+            if (model::is_archived(s)) ++archived;
         }
 
         smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
@@ -1385,16 +1427,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         for (const auto& s : app.sessions) {
             bool match;
             if (archived) {
-                match = (s.state == api::ThreadState::Archived);
+                match = model::is_archived(s);
             } else if (catchAll) {
                 // Recent = its own key OR any unfoldered/unknown-folder session
                 // that isn't archived. Named-folder sessions are excluded so a
                 // session shows in exactly one place.
-                match = (s.state != api::ThreadState::Archived) &&
+                match = !model::is_archived(s) &&
                         (s.folder == key || !is_named_folder(s.folder));
             } else {
-                match = (s.folder == key &&
-                         s.state != api::ThreadState::Archived);
+                match = (s.folder == key && !model::is_archived(s));
             }
             // Match on TITLE or, failing that, on cached CONVERSATION CONTENT
             // (local-first idea #3): the sidebar search now finds threads by
@@ -1925,10 +1966,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("row_time"));
 
-        // Right-click opens the row's context menu at the cursor. Offered only
-        // when the backend has the rename verb, since Rename… is its only item.
-        if (ctx.is_right_click(row.ent().id) && app.client &&
-            app.client->supports_rename()) {
+        // Right-click opens the row's context menu at the cursor. Always
+        // offered now: Archive is machine-local, so the menu has an item to
+        // show even against a backend with no rename verb.
+        if (ctx.is_right_click(row.ent().id)) {
             app.rowMenuOpen = true;
             app.rowMenuSessionId = s.id;
             app.rowMenuX = ctx.mouse.pos.x;

@@ -8,6 +8,7 @@
 // these plain structs. The rest of the app only ever sees these.
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -136,6 +137,12 @@ struct SessionSummary {
     std::string folder;
     // User-pinned to the top / Starred view.
     bool starred = false;
+    // Machine-local archive overlay; unset means "whatever `state` says".
+    // The per-viewer route that would carry archive to the server is not
+    // reachable from this client, so the local answer is the only one there
+    // is — and it has to be able to say NOT archived about a thread the
+    // backend reports archived, or Unarchive could never mean anything.
+    std::optional<bool> archive_override;
 };
 
 // A sub-agent (child worker) running under a session. Visualized ONLY in the

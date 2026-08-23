@@ -1,0 +1,13 @@
+# An archive survives the launch that made it: this app starts with r4 already
+# filed away in its settings, and the thread is in the Archived view rather
+# than the sidebar before anything has been clicked.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","archived":{"r4":true}}
+
+wait_frames 12
+expect_text "why is the dashboard p95 latency up"
+expect_no_text Draft
+
+click_text Archived
+wait_frames 8
+expect_text "Draft release notes for 4.2"

@@ -38,6 +38,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         return app.backend_label != "mock";
     }
 
+    // Lay the user's machine-local per-session state back over a freshly
+    // fetched (or cached) list. Settings is the durable source of truth for
+    // both: a backend seeds its own starred flags on every list fetch and
+    // knows nothing at all about this client's archive overlay, so without
+    // this a star or an archive flipped in a prior launch is simply lost.
+    static void apply_local_overlays(std::vector<api::SessionSummary>& out) {
+        for (auto& s : out) {
+            if (Settings::get().is_starred(s.id)) s.starred = true;
+            s.archive_override = Settings::get().get_archived(s.id);
+        }
+    }
+
     // Persist a freshly-fetched transcript AND enforce the user's cache cap.
     // Trimming right after a save is the natural "cache grew" trigger; the cap
     // comes from Settings (0 = Unlimited => trim_to_cap is a no-op). Archived +
@@ -164,8 +176,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                       : std::nullopt;
                     cached && !cached->empty()) {
                     app.sessions = std::move(*cached);
-                    for (auto& s : app.sessions)
-                        if (Settings::get().is_starred(s.id)) s.starred = true;
+                    apply_local_overlays(app.sessions);
                     app.listState = LoadState::Loaded;  // show stale now
                     // sessions is provably non-empty here (loaded from a
                     // !cached->empty() cache), so no re-check needed.
@@ -186,13 +197,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.listPending = false;
                 if (r.ok) {
                     app.sessions = std::move(r.value);
-                    // Re-apply the user's persisted stars over whatever the
-                    // backend reported (Settings is the durable source of truth
-                    // for starring — Phase I). Without this, a star flipped in a
-                    // prior launch would be lost because the mock/backend seeds
-                    // its own starred flags fresh each list fetch.
-                    for (auto& s : app.sessions)
-                        if (Settings::get().is_starred(s.id)) s.starred = true;
+                    apply_local_overlays(app.sessions);
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
                     // Persist the fresh list for the next launch's instant paint.
