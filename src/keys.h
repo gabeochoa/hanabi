@@ -32,6 +32,7 @@ inline constexpr int kSlash = ah::SLASH;
 inline constexpr int kB = ah::B;
 inline constexpr int kC = ah::C;
 inline constexpr int kF = ah::F;
+inline constexpr int kK = ah::K;
 inline constexpr int kN = ah::N;
 inline constexpr int kW = ah::W;
 

@@ -45,6 +45,7 @@ enum class SmartView {
 // the intent instead of the key.
 enum class EscapeIntent {
     None,
+    ClosePalette,
     CloseRename,
     CloseComposer,
     CloseShortcuts,
@@ -62,6 +63,7 @@ enum class EscapeIntent {
 // selection. None = nothing may move (an overlay is up, or no arrow).
 enum class ArrowIntent {
     None,
+    Palette,
     TextField,
     Transcript,
     List,
@@ -268,6 +270,14 @@ struct AppComponent : public afterhours::BaseComponent {
     // The keyboard-shortcut reference (Cmd+/). Every binding in this app is
     // otherwise invisible.
     bool showShortcuts = false;
+
+    // The command palette (Cmd+K): a query and a cursor over the rows it
+    // ranks. Its state lives here rather than in the system's own locals
+    // because Esc and the arrows each have exactly one owner, and both have
+    // to rank the palette against everything else that is open.
+    bool paletteOpen = false;
+    std::string paletteQuery;
+    int paletteIndex = 0;
 
     // ==== Find in conversation (Cmd+F) ===================================
     // A long thread is unsearchable without this: the sidebar's search finds

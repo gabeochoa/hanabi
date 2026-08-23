@@ -1,0 +1,31 @@
+# Cmd+K searches everything the app can do, and every thread you have.
+#
+# Each binding in this app is invisible until you already know it — that is
+# what the shortcuts sheet is for, and the sheet only helps if you think to
+# open it. The palette is the other half: type the thing instead.
+#
+# Opened through the state knob because the harness cannot press a Cmd chord
+# (afterhours_gaps.md #49); the filtering, the selection and the activation
+# are all driven for real.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=palette
+
+# It opens on the actions, with their chords beside them.
+expect_text "Show or hide the sidebar"
+expect_text "Keyboard shortcuts"
+
+# Typing filters to matching threads as well as actions.
+click_ui palette_input
+wait_frames 4
+type "payout"
+wait_frames 8
+expect_no_text "Show or hide the sidebar"
+expect_text "Stars payout reconciliation"
+
+# Return opens what is selected — the thread, in its own tab.
+key ENTER
+wait_frames 30
+expect_text "Reconciled 4,812 accounts"
+# And the palette is gone.
+expect_no_text "Keyboard shortcuts"

@@ -39,6 +39,7 @@
 #include "ecs/components.h"
 #include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
+#include "ecs/palette_system.h"
 #include "ecs/arrow_system.h"
 #include "ecs/escape_system.h"
 #include "ecs/rename_modal_system.h"
@@ -324,6 +325,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
+    sm.register_update_system(std::make_unique<ecs::PaletteSystem>());
     sm.register_update_system(std::make_unique<ecs::RenameModalSystem>());
     sm.register_update_system(std::make_unique<ecs::ToastSystem>());
     // Auth overlay draws on top of everything (login gates the app). No-op
@@ -795,8 +797,8 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         }
     }
 
-    // Screenshot affordance: HANABI_TEST_OVERLAY=settings|composer opens an
-    // overlay that is otherwise keypress-only (Cmd+, / Cmd+N), so the
+    // Screenshot affordance: HANABI_TEST_OVERLAY=settings|composer|shortcuts|
+    // find|palette opens an overlay that is otherwise keypress-only, so the
     // settings sheet + new-task composer can be photographed headlessly.
     // Mirrors HANABI_VIEW; ignored when unset; no network, render-only.
     if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
@@ -805,6 +807,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "composer") app->composerOpen = true;
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "find") app->findOpen = true;
+        else if (os == "palette") app->paletteOpen = true;
     }
     // Screenshot affordance: HANABI_UNREAD_DEMO=<n> marks the open thread as
     // last read just before its Nth-from-last message, so the "new messages"

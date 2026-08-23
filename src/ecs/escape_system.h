@@ -35,7 +35,9 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
         app->escape = EscapeIntent::None;
         if (!hanabi::keys::pressed(hanabi::keys::kEscape)) return;
 
-        if (app->renameOpen && !app->renamePending)
+        if (app->paletteOpen)
+            app->escape = EscapeIntent::ClosePalette;
+        else if (app->renameOpen && !app->renamePending)
             app->escape = EscapeIntent::CloseRename;
         else if (app->composerOpen)
             app->escape = EscapeIntent::CloseComposer;

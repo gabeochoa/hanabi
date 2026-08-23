@@ -42,7 +42,11 @@ struct ArrowSystem : afterhours::System<UIContext<InputAction>> {
         if (up == down) return;
         app->arrowDelta = down ? 1 : -1;
 
-        if (any_text_field_focused())
+        // The palette's own field is focused while it is up, but Up/Down there
+        // mean "move the selection", so it outranks the text field.
+        if (app->paletteOpen)
+            app->arrow = ArrowIntent::Palette;
+        else if (any_text_field_focused())
             app->arrow = ArrowIntent::TextField;
         else if (app->renameOpen || app->composerOpen || app->showShortcuts ||
                  app->showSettings || app->showAuth)
