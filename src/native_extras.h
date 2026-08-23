@@ -172,6 +172,14 @@ void native_simulate_file_drop(const char* path);
 // (UTF-8, NUL-terminated, up to cap-1 bytes); returns false when the user
 // cancels, leaving `out` untouched.
 bool native_pick_directory(const char* prompt, char* out, int cap);
+// ---- 4b. Open a URL in the user's browser ----------------------------------
+
+// Hand `url` (UTF-8, http/https) to the system's default handler. Used by the
+// transcript when a work-tracker id is clicked. No-op on a null/empty string
+// or a scheme this does not recognise. NEVER call it from the headless
+// capture or the scripted-UI harness — a render with nobody in front of it has
+// no browser to give (hanabi::links::headless() gates that call site).
+void native_open_url(const char* url);
 
 // ---- 5. OS appearance (for the "System" theme choice) ----------------------
 

@@ -1,0 +1,19 @@
+# With no tracker configured, an id is prose — and stays prose.
+#
+# Same thread and the same point as tracker_links.e2e, with the tracker host
+# unset (the default: no host is compiled into this client anywhere). Pressing
+# the id must do nothing at all. A link that opens nothing is worse than the
+# text it replaced, so the absence here is the feature.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+
+expect_text "Built the config diff"
+
+mouse_move 456 492
+wait_frames 4
+click 456 492
+wait_frames 10
+expect_no_text Opened
+expect_text "Built the config diff"

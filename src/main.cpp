@@ -30,6 +30,7 @@
 #include "util/quiet_hours.h"
 #include "version.h"
 #include "ui_context.h"
+#include "ui/link_detect.h"
 
 #include "../vendor/afterhours/src/ecs.h"
 
@@ -167,6 +168,7 @@ static void setup_app_state() {
     app.client = api::make_client(cfg);
     app.backend_label = app.client ? app.client->backend_label() : "none";
     app.webBaseUrl = cfg.web_base_url;  // "Copy URL" base (host-neutral if empty)
+    app.trackerBaseUrl = cfg.tracker_base_url;  // empty => ids stay prose
     app.configuredContextBudget = cfg.context_budget_tokens;
     // Scope the on-disk cache to THIS backend (keyed by base_url) so two
     // different real servers never read each other's stale sessions. Mock never
@@ -961,6 +963,9 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     // one frame and rendered in a later one cannot straddle a second boundary
     // and photograph a different number (see util/capture_clock.h).
     capture_clock::freeze();
+    // A capture has nobody in front of it, so a clicked link must not reach a
+    // browser (see src/ui/link_detect.h).
+    hanabi::links::headless() = true;
 
     // NOTE on hi-DPI: the WINDOWED app already runs high_dpi=true, so the real
     // window is crisp on Retina. This HEADLESS capture path, however, renders
@@ -1239,6 +1244,10 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
 static int run_e2e(const std::string& path, int w, int h) {
     using namespace afterhours;
     namespace t = afterhours::testing;
+
+    // Same reason as the capture path: a scripted click on a tracker id must
+    // stay inside this process.
+    hanabi::links::headless() = true;
 
     graphics::Config gcfg{};
     gcfg.display = graphics::DisplayMode::Headless;
