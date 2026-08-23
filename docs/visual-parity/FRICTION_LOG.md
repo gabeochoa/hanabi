@@ -463,3 +463,126 @@ geometry rather than drawing them freehand.
 - **Class** — `TEDIOUS`
 - **Gap filed?** — no; #51/#55 already say it. The new part is the price: a
   layout change costs a screenshot-measuring session per pinned test.
+
+---
+
+## Content / mock fixture — porting the reference catalog row for row
+
+Nothing in this section is an afterhours finding. They are all findings about
+`api::SessionSummary`, the row model every sidebar row is drawn from: the
+reference client states things about a conversation that hanabi's model has no
+field for, so the port had to leave them unsaid. That is worth writing down
+precisely because the other four areas are being judged against a list whose
+words now match — anything still different in the list is one of these.
+
+### 1. The row has no child count, so the reference's right-hand column cannot exist
+
+- **What I wanted** — six of the twenty reference rows carry a sub-agent count
+  on the right: `1` on four of them and `1/3` on one (one of three shard
+  workers still running).
+- **What happened** — `api::SessionSummary` has no children field at all.
+  `Session::sub_agents` exists, but it hangs off the FULL transcript, which the
+  sidebar never fetches, and `types.h` says out loud that sub-agents are
+  "Visualized ONLY in the transcript sub-agent panel (never the sidebar)". So
+  the count is not merely unstyled, it is unreachable from a list row. The
+  `1/3` form is a second thing again: it is *running of total*, which needs
+  per-child state, not a number.
+- **Cost** — left unmatched, deliberately. I did seed the sub-agents onto the
+  Session objects so the data is as faithful as the model allows, but six rows
+  will read as missing a column until the row model can carry one. Adding a
+  count to the fixture some other way would have been a fake field.
+- **Class** — `IMPOSSIBLE` (hanabi model)
+- **Gap filed?** — no; this is hanabi's own model, not the library's.
+
+### 2. "It is running" and "it says it is working" are one state
+
+- **What I wanted** — the reference draws four rows with a running glyph
+  (a live process) and two with a filled dot (the agent's own testimony that it
+  is working). Sampled: `(115,192,162)` and `(151,190,250)` — two families.
+- **What happened** — `ThreadState` has exactly one `Running`. Both kinds of
+  row are honestly `Running` and both get the same ring, so six rows collapse
+  to one glyph where the reference has two.
+- **Cost** — two rows visibly wrong; no honest way to split them.
+- **Class** — `IMPOSSIBLE` (hanabi model)
+
+### 3. There is no failure state, so failures land in Blocked
+
+- **What I wanted** — three reference rows are failures: two red ✕ (a run that
+  died) and one red ● (an outcome that failed), all `(212,88,93)`.
+- **What happened** — neither `ThreadState` nor `ThreadTag` has a failure
+  member. The nearest honest thing is `Blocked` — those rows do want you — and
+  `Blocked` draws a red triangle, which is at least the right colour family.
+- **Cost** — Blocked reaches the reference's count of 6 by a different route
+  than the reference does (3 blocked + 3 failed, versus the reference's own
+  mix). The number matches; the reasoning behind it does not. Anyone reading
+  hanabi's Blocked view is being shown three failures filed as blockers.
+- **Class** — `WORKAROUND` (hanabi model)
+
+### 4. "Automated" is guessed from the title string, and a fixture cannot opt out
+
+- **What I wanted** — the row `kicker-tick` drawn as a running row, which is
+  what the reference does, because the reference is TOLD the state.
+- **What happened** — `SidebarSystem::is_automated()` matches a `-tick` suffix
+  or a `Schedule:` prefix on the TITLE and swaps in a faint repeat glyph plus a
+  dimmed title. The row is `ThreadState::Running` in the fixture and still
+  renders as a muted cron job, because the heuristic outranks the state. The
+  only way for a fixture to opt out is to rename the row — which is exactly
+  what a content port may not do.
+- **Cost** — one of twenty rows has the wrong glyph and the wrong text weight,
+  and it is unfixable from the fixture.
+- **Class** — `FOOTGUN` (hanabi model: no `kind`/`automated` field, so a
+  display decision is taken from a string)
+
+### 5. Settled and done look different here and identical there
+
+- **What I wanted** — the reference draws its idle rows and its done row with
+  the same `(140,140,164)` 8px dot.
+- **What happened** — hanabi draws `ThreadTag::Done` as an 8px slate dot and an
+  untagged calm row as a 2.4px faint one. Both readings are defensible; they
+  are just not the same reading, so four rows differ from their neighbours in a
+  way the reference's do not.
+- **Class** — `TEDIOUS` (a real difference, not a defect)
+
+### 6. The reference's fixture has no pinned, archived, parked or foldered row
+
+- **What happened** — the reference's row builder has no field for any of the
+  four. Porting it therefore empties hanabi's Starred and Archived views and
+  removes the only mock coverage of `Parked` and of folders. Four unit
+  assertions that asserted "the mock exercises these" had to move onto
+  constructed summaries.
+- **Cost** — the demo app no longer shows a starred or archived thread until
+  the user makes one. That is faithful to the reference and a real loss to the
+  fixture; both are true.
+- **Class** — `TEDIOUS`
+
+### 7. A "FOLDERS" heading rendered over zero folders
+
+- **What happened** — the sidebar emitted its FOLDERS section header
+  unconditionally. The reference's fixture is entirely folderless, so the port
+  left a heading with nothing under it, pushing every row of the list down by
+  28px. One-line guard (`if (!folders.empty())`).
+- **Worth knowing for whoever owns sidebar geometry**: removing it moved the
+  whole list band UP 28px, so the list now starts at y=267 instead of 295
+  against the reference's first row at 315. The comparison's `search` region
+  reads 45.6% instead of 11.7% purely because of that shift — that band holds
+  Puffin's search box and hanabi's list rows either way, so the number is
+  measuring which rows happen to sit there, not a design difference.
+- **Class** — `FOOTGUN` (hanabi's own sidebar)
+
+### 8. The list barely scrolls once there are no folders
+
+- **What happened** — the headerless catch-all caps itself at roughly one
+  viewport of rows and puts the rest behind "Show N more…", so with a flat
+  20-row list in a 760px window it renders 18 rows and there is nothing to
+  scroll past. The scroll regression test that exercised this used to work only
+  because collapsed folder headers added height the cap does not count.
+- **Cost** — that test now has to click the expander before it can scroll.
+- **Class** — `FOOTGUN` (hanabi's own sidebar)
+
+### 9. The reference's attention glyph is not amber
+
+- Three of us were briefed that the `!` rows are "amber". Sampled off the
+  frozen reference at every one of the six rows, the glyph is `(159,201,255)`
+  — a light blue, a shade brighter than the working dot's `(151,190,250)`.
+  The only amber-adjacent thing in that column is nothing at all. Recorded so
+  nobody spends an afternoon making a red triangle orange.
