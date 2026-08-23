@@ -677,10 +677,12 @@ timestamps the orchestrator's session list does not have.
 Meanwhile the sidebar still groups by `workspace` minus the per-session scratch
 dirs — 4 real groups, everything else ungrouped.
 
-### [ ] Don't show the welcome screen while loading
+### [x] Don't show the welcome screen while loading — DONE (`567dcfa`)
 
-A thread that is still fetching renders the empty-state welcome, which reads as
-"nothing here" rather than "not yet". Gate it on the load state instead.
+The spinner it now shows already existed for thread SWITCHES; it was simply
+unreachable, because the `!openSession` branch returned first. Gated on
+`selectedId` as well as load state, to cover the frames before the loader
+flips `transcriptState`.
 
 ### [x] Bump the afterhours pin — done, all three repos agree at `428047e`
 
@@ -689,16 +691,60 @@ vendor it. Changes go to Gabe; a crash is worth flagging immediately but still
 not pushing. (The one push of `428047e` was an explicit one-off he authorised,
 to retract a wrong note of mine that was already public.)
 
-### [ ] Cache the chat
+### [x] Cache the chat — DONE (`9f6996d`)
 
-Transcripts refetch on every open; a 20-page walk is 10k frames. hanabi already
-has `api/disk_cache` for transcripts — check whether it is being used on the
-agentcloud path at all, and reuse the reference client's on-disk shape if it
-saves work.
+The machinery was all there; `disk_cache_enabled` was gated on
+`backend_label == "http"`, so on agentcloud it was simply never reached. Now
+"any backend that is not the mock".
+
+Turning it on exposed a latent bug worth more than the speedup: `has_more_older`
+was not serialized, so a cached transcript round-tripped as "this is the whole
+thread". Agentcloud transcripts are windowed almost by definition — 11 cached
+of 2200 in the one I measured — so every cached thread would have quietly lost
+its "load older" and looked like it just ended.
 
 ---
 
 # PUFFIN PARITY BACKLOG (2026-08-23)
+
+> # ⛔ NO AFTERHOURS CHANGES. NONE. NOT EVEN LOCAL ONES.
+>
+> **`vendor/afterhours` is read-only. Do not edit it — not to push, not to
+> commit, not even to try something.** Two separate reasons, both sufficient:
+>
+> 1. Roughly twenty projects vendor this library. A change that looks local
+>    lands in all of them on their next bump.
+> 2. **A dirty submodule working tree makes pulling updates a mess.** Even an
+>    uncommitted experiment there turns the next `git pull` into a conflict to
+>    untangle. Leave it pristine.
+>
+> **The workflow when the library is in your way:**
+>
+> 1. Write the gap into `afterhours_gaps.md` — what you tried, what happened,
+>    the workaround and its cost, and the smallest upstream change that would
+>    fix it. That file is the channel; it is how every library fix this year
+>    started.
+> 2. Then solve it **in hanabi**, however inelegantly. A workaround in our code
+>    is always the right answer over a patch in theirs.
+> 3. Hand the gap to Gabe. He decides whether the library changes; nobody else
+>    does, and nobody else touches that directory.
+>
+> Every item below is tagged for this:
+>
+> - **`[APP]`** — buildable entirely in hanabi. This is almost everything.
+> - **`[APP-WORKAROUND]`** — buildable, but only by working around a library
+>   limitation. The workaround is named. Expect it to be uglier than it should
+>   be, and do it anyway.
+> - **`[NEEDS-AFTERHOURS]`** — **cannot be built without changing the library.
+>   DO NOT START THESE.** Write the gap into `afterhours_gaps.md` and hand it to
+>   Gabe. He decides whether the library changes; nobody else does.
+> - **`[TEST-BLOCKED]`** — the feature is buildable, but the scripted harness
+>   cannot drive it because of a library limitation. Build it, and say plainly
+>   in the PR how it was verified instead.
+>
+> A crash or data-loss bug in the library is still worth flagging IMMEDIATELY —
+> that judgement was right once already today. Flagging is not pushing.
+
 
 Every item from `docs/breakdown/` in one list. Each breakdown doc has the UX
 flow, the files, and how the thing gets proven — this is the index, not the
@@ -710,16 +756,49 @@ agent's check and were caught on review; both had hedged their wording.
 
 Sizes are the estimating agent's, not measured. Treat as order-of-magnitude.
 
+## Library limitations this backlog runs into
+
+Every one is ALREADY written up in `afterhours_gaps.md`. **None of them is a
+licence to edit the library.** They are here so that when an item feels
+unreasonably hard, you can see it was expected and read what the workaround is.
+
+| gap | what the library will not do | which items it touches |
+|---|---|---|
+| **#51** | Tell you where a byte range landed on screen | link auto-detection, sidebar snippet highlighting. Both use the same re-derive-the-wrap trick `find_highlight.h` already does. |
+| **#49** | Hold the Super modifier, so no Cmd chord is scriptable | every `[TEST-BLOCKED]` item. Build them; verify by forcing state with a `# env:` line and say so in the PR. |
+| **#50** | Route `graphics::is_key_*` through the e2e injector | already worked around in `src/keys.h` by using the input plugin instead. Keep doing that. |
+| **#35** | Enumerate installed system fonts | typeface picker can only offer bundled fonts. Do not promise "pick any font". |
+| **#22 follow-up** | Per-run FONT in a styled span (colour and weight only) | inline monospace inside a wrapping paragraph. Fenced code blocks are fine — they are their own rows. |
+
+If you hit a NEW one: write it into `afterhours_gaps.md` in the same shape as
+the entries above — what you tried, what happened, the workaround and its cost,
+and the smallest upstream change that would fix it. Then work around it in
+hanabi. Do not touch `vendor/afterhours`, not even locally.
+
+### Things I checked that turned out NOT to be library gaps
+
+Worth recording, because two of them were written down as blockers and were
+wrong:
+
+- **Horizontal scrolling exists** — `HasScrollView::horizontal_enabled`. The tab
+  overflow item is buildable today.
+- **A multiline `text_area` exists** — separate from `text_input`. A growing
+  composer does not need a library change.
+- **Drag support exists** — `HasDragListener`. Row and tab reordering are ours
+  to build.
+- **Right-click and context menus exist** — the tab context menu is ours.
+- **A toast plugin exists** — the undo toast is ours.
+
 ## Ship-first (no dependencies, confirmed missing)
 
 - [ ] **Screenshot harness MVP** — chunks 1-3 of `screenshot-testing.md`. Makes
       every later UI change verifiable, and is the thing that turns afterhours
       shortcomings from anecdote into a countable list.
-- [ ] Session rename (~80) — `session-lifecycle.md` owns it. Backend verb is
+- [ ] Session rename (~80) `[APP]` — `session-lifecycle.md` owns it. Backend verb is
       advertised on attach.
 - [ ] Composer history walk, Up/Down (~90) — `composer.md` owns it.
 - [ ] Muted sessions, bell toggle (~60) — machine-local, no backend needed.
-- [ ] Home shelf collapse/expand (~50).
+- [ ] Home shelf collapse/expand (~50) `[APP]`.
 
 ## Screenshot testing — `screenshot-testing.md`
 
@@ -739,24 +818,24 @@ backend serves live production data.
 
 ## Session lifecycle — `session-lifecycle.md`
 
-- [ ] Session rename (~80)
-- [ ] Session fork, `/btw` (~70)
-- [ ] Session archive — partial; state exists, UI does not (~60)
-- [ ] Session pin / star (~50)
-- [ ] Session mute (~40)
-- [ ] Sub-agent status panel — partial (~80)
+- [ ] Session rename (~80) `[APP]`
+- [ ] Session fork, `/btw` (~70) `[APP]`
+- [ ] Session archive — partial; state exists, UI does not (~60) `[APP]`
+- [ ] Session pin / star (~50) `[APP]`
+- [ ] Session mute (~40) `[APP]`
+- [ ] Sub-agent status panel — partial (~80) `[APP]`
 - [ ] ~~Delete session~~ **BLOCKED** — no server verb exists
 
 ## Composer — `composer.md`
 
-- [ ] History walk, Up/Down (~90)
-- [ ] Slash command menu: `/new` `/model` `/effort` `/rename` `/btw` `/compact`
-- [ ] Model picker popover
-- [ ] Effort level picker
-- [ ] Undo toast for archive/pin/mute
-- [ ] Skills chip
-- [ ] Streaming animation, working dots — *filed as built, is not; nothing
-      renders one*
+- [ ] History walk, Up/Down (~90) `[APP]`
+- [ ] Slash command menu: `/new` `/model` `/effort` `/rename` `/btw` `/compact` `[APP]`
+- [ ] Model picker popover `[APP]`
+- [ ] Effort level picker `[APP]`
+- [ ] Undo toast for archive/pin/mute `[APP]` — there is a toast plugin
+- [ ] Skills chip `[APP]`
+- [ ] Streaming animation, working dots `[APP]` — *filed as built, is not;
+      nothing renders one*
 
 Token meter: the bar exists but only draws with a configured context window,
 which nothing sets. Real denominator is queued separately above — do not
@@ -764,17 +843,23 @@ re-plan it here.
 
 ## Transcript — `transcript.md`
 
-- [ ] 1. Date dividers
-- [ ] 2. Thinking disclosure, collapsible
-- [ ] 3. Fold defaults for tool rows
-- [ ] 4. Message delivery status rows
-- [ ] 5. Syntax highlighting in code blocks
-- [ ] 6. Markdown H1-H4
-- [ ] 7. Streaming animation, pulsing dots
-- [ ] 8. Link auto-detection for work-tracker ids
-- [ ] 9. Exclude thinking rows from find
-- [ ] 10. Minimap navigator
-- [ ] 11. Transcript behaviour settings
+- [ ] 1. Date dividers `[APP]`
+- [ ] 2. Thinking disclosure, collapsible `[APP]`
+- [ ] 3. Fold defaults for tool rows `[APP]`
+- [ ] 4. Message delivery status rows `[APP]`
+- [ ] 5. Syntax highlighting in code blocks `[APP]` — fenced blocks are their
+      own rows, so per-line colour works. INLINE mono inside a paragraph does
+      not: `TextSpan` carries colour and weight but no per-run font.
+- [ ] 6. Markdown H1-H4 `[APP]`
+- [ ] 7. Streaming animation, pulsing dots `[APP]`
+- [ ] 8. Link auto-detection for work-tracker ids `[APP-WORKAROUND]` — needs
+      to know where a byte range landed on screen, which the library will not
+      tell you (no `text_rects_for`). Same trick `find_highlight.h` already
+      uses: re-derive the wrap with the library's own wrapper. Fragile, and
+      already written down as a gap.
+- [ ] 9. Exclude thinking rows from find `[APP]`
+- [ ] 10. Minimap navigator `[APP]` — a custom-drawn rail via `on_draw_fg`
+- [ ] 11. Transcript behaviour settings `[APP]`
 
 **Any layout change here must keep `rich_body_h` and `render_rich_body` in
 step** — they measure and draw the same thing, and drift desyncs the
@@ -783,41 +868,46 @@ multi-line bubble.
 
 ## Sidebar & tabs — `sidebar-tabs.md`
 
-- [ ] Home shelf collapse/expand (~50)
-- [ ] Muted sessions bell (~60)
-- [ ] Sub-agent visibility toggle
-- [ ] Sidebar row drag-reorder (~110)
-- [ ] Search snippet highlighting in rows
-- [ ] Tab drag-reorder (~90)
-- [ ] Tab context menu: copy URL, close others, close all (~50)
-- [ ] Tab preview mode (~65)
+- [ ] Home shelf collapse/expand (~50) `[APP]`
+- [ ] Muted sessions bell (~60) `[APP]`
+- [ ] Sub-agent visibility toggle `[APP]`
+- [ ] Sidebar row drag-reorder (~110) `[APP]` — `HasDragListener` exists
+- [ ] Search snippet highlighting in rows `[APP-WORKAROUND]` — same no-text-rects problem as #8
+- [ ] Tab drag-reorder (~90) `[APP]`
+- [ ] Tab context menu: copy URL, close others, close all (~50) `[APP]` — right-click and context_menu both exist
+- [ ] Tab preview mode (~65) `[APP]`
 - [ ] ~~Space grouping~~ **BLOCKED** — sessions carry no Space; evidence above
 - [ ] ~~Folder collapse-all~~ **BLOCKED** — depends on Space grouping
-- [ ] ~~Tab scrollbar~~ **BLOCKED** — needs horizontal scroll in the UI library
+- [ ] Tab scrollbar / overflow `[APP]` — **NOT blocked after all.** I checked:
+      `HasScrollView` has `horizontal_enabled`, so the library already does
+      horizontal scrolling. Earlier note was wrong.
 - [ ] ~~Window restoration~~ **BLOCKED** — needs multi-window architecture
 
 Anything touching the sidebar must say how it behaves at 2000+ sessions.
 
 ## Search, settings, shortcuts — `search-settings-shortcuts.md`
 
-- [ ] Find operators: `is:thinking`, `has:tool`, `state:` (small)
+- [ ] Find operators: `is:thinking`, `has:tool`, `state:` (small) `[APP]`
 - [ ] Session search across threads, Cmd+Shift+F (medium) — needs a corpus;
       say whether it is a local index over the disk cache or a server verb
-- [ ] Command palette, Cmd+K (~250)
-- [ ] Snippet highlighting in sidebar search (small)
-- [ ] Send-key configuration, Return vs Cmd+Return (small)
-- [ ] Show/hide timestamps (small)
-- [ ] Typeface picker (small)
-- [ ] Text weight picker (small)
-- [ ] Theme picker with rotation (medium)
-- [ ] Custom theme editor (medium)
+- [ ] Command palette, Cmd+K (~250) `[APP]` `[TEST-BLOCKED]`
+- [ ] Snippet highlighting in sidebar search (small) `[APP-WORKAROUND]`
+- [ ] Send-key configuration, Return vs Cmd+Return (small) `[APP]` `[TEST-BLOCKED]`
+- [ ] Show/hide timestamps (small) `[APP]`
+- [ ] Typeface picker (small) `[APP]` — LIMITED: the library can load a font by
+      path but cannot enumerate system fonts, so this can only offer the fonts
+      we bundle. Shipping a fixed list is fine; "pick any system font" is not
+      reachable and should not be promised.
+- [ ] Text weight picker (small) `[APP]` — `with_font_weight` exists; needs bold font assets, which is a licensing call
+- [ ] Theme picker with rotation (medium) `[APP]`
+- [ ] Custom theme editor (medium) `[APP]`
 - [ ] Second global hotkey for the palette (**small** — the focus-gated Carbon
       mechanism already exists in `native_extras.mm`; this registers one more
       chord against it)
-- [ ] Keyboard shortcut recorder in Settings (medium)
-- [ ] Composer keyboard shortcuts (small)
-- [ ] Navigation shortcuts, arrows in lists (small)
-- [ ] Find next/prev, Cmd+G (small)
+- [ ] Keyboard shortcut recorder in Settings (medium) `[APP]` `[TEST-BLOCKED]`
+- [ ] Composer keyboard shortcuts (small) `[APP]` `[TEST-BLOCKED]`
+- [ ] Navigation shortcuts, arrows in lists (small) `[APP]`
+- [ ] Find next/prev, Cmd+G (small) `[APP]` `[TEST-BLOCKED]`
 
 **Cmd chords cannot be scripted.** The harness maps `CMD+` onto Control and
 never holds Super, so every item above that is a Cmd chord needs its test to
@@ -828,12 +918,15 @@ to change.
 ## Native, notifications, attachments — `native-notifications-attachments.md`
 
 - [ ] Expanded notification types: run finished, approval needed, input
-      requested (~80)
-- [ ] Quiet hours (~50)
-- [ ] System menu bar: File / Edit / View
-- [ ] Image paste and drop in composer
-- [ ] File picker for the upload tool
-- [ ] Diff rendering for the edit tool
+      requested (~80) `[APP]` — native seam already exists in `native_extras.mm`
+- [ ] Quiet hours (~50) `[APP]`
+- [ ] System menu bar: File / Edit / View `[APP]` — Obj-C++, not the UI library
+- [ ] Image paste and drop in composer `[APP]` — an Obj-C++ job behind the
+      existing `extern "C"` seam, NOT a UI-library one. Clipboard images and
+      file drops come from AppKit. Sending them is a separate question: the
+      wire has fields, our client does not use them.
+- [ ] File picker for the upload tool `[APP]` — NSOpenPanel via the `.mm` seam
+- [ ] Diff rendering for the edit tool `[APP]` — coloured per-line rows
 
 Already built, do not rebuild: global hotkey (focus-gated), native
 notifications, menu-bar extra, Spotlight seam, deep-link handler.
