@@ -46,6 +46,8 @@ struct ArrowSystem : afterhours::System<UIContext<InputAction>> {
         // mean "move the selection", so it outranks the text field.
         if (app->paletteOpen)
             app->arrow = ArrowIntent::Palette;
+        else if (app->sessionSearchOpen)
+            app->arrow = ArrowIntent::SessionSearch;
         else if (any_text_field_focused())
             app->arrow = ArrowIntent::TextField;
         else if (app->renameOpen || app->composerOpen || app->showShortcuts ||

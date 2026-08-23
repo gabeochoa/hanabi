@@ -37,6 +37,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
 
         if (app->paletteOpen)
             app->escape = EscapeIntent::ClosePalette;
+        else if (app->sessionSearchOpen)
+            app->escape = EscapeIntent::CloseSessionSearch;
         else if (app->renameOpen && !app->renamePending)
             app->escape = EscapeIntent::CloseRename;
         else if (app->composerOpen)

@@ -74,7 +74,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // can't send).
         // Cmd+F opens find-in-conversation; Esc and Cmd+F close it. Only
         // meaningful with a thread open, so it is a no-op elsewhere.
-        if (hanabi::keys::cmd_down() &&
+        // Shift excluded: Cmd+Shift+F is search-across-threads
+        // (session_search_system.h), and without this it would open the find
+        // bar on the way past.
+        if (hanabi::keys::cmd_down() && !hanabi::keys::shift_down() &&
             hanabi::keys::pressed(hanabi::keys::kF)) {
             app->findOpen = !app->findOpen;
             if (!app->findOpen) app->findQuery.clear();

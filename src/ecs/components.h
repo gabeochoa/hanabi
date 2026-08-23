@@ -46,6 +46,7 @@ enum class SmartView {
 enum class EscapeIntent {
     None,
     ClosePalette,
+    CloseSessionSearch,
     CloseRename,
     CloseComposer,
     CloseShortcuts,
@@ -64,6 +65,7 @@ enum class EscapeIntent {
 enum class ArrowIntent {
     None,
     Palette,
+    SessionSearch,
     TextField,
     Transcript,
     List,
@@ -278,6 +280,13 @@ struct AppComponent : public afterhours::BaseComponent {
     bool paletteOpen = false;
     std::string paletteQuery;
     int paletteIndex = 0;
+
+    // Search across threads (Cmd+Shift+F). Same shape as the palette, over a
+    // different corpus: the sessions' titles and previews plus whatever
+    // transcripts this machine holds (session_search_system.h).
+    bool sessionSearchOpen = false;
+    std::string sessionSearchQuery;
+    int sessionSearchIndex = 0;
 
     // ==== Find in conversation (Cmd+F) ===================================
     // A long thread is unsearchable without this: the sidebar's search finds
