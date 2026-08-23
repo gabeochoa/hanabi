@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
+#include "util/notify_events.h"
 #include "util/quiet_hours.h"
 #include "version.h"
 #include "ui_context.h"
@@ -554,12 +556,8 @@ static void app_frame() {
             }
 
             int blocked = 0;
-            const api::SessionSummary* newlyBlocked = nullptr;
             for (const auto& s : app.sessions)
-                if (s.tag == api::ThreadTag::Blocked) {
-                    ++blocked;
-                    if (newlyBlocked == nullptr) newlyBlocked = &s;
-                }
+                if (s.tag == api::ThreadTag::Blocked) ++blocked;
             menubar_set_blocked(blocked);
 
             // Phase G extra: donate threads to Spotlight (CoreSpotlight). Only
@@ -584,53 +582,65 @@ static void app_frame() {
                 }
             }
 
-            // Phase G extra: post a native notification when the blocked-on-you
-            // count NEWLY INCREASES (a thread just started needing the user).
-            // Debounced: fires only on a strict increase vs the last observed
-            // count, and rate-limited to at most once per kNotifyMinGapSecs so
-            // a burst of updates can't spam. Windowed path only — app_frame is
-            // never reached by run_headless_screenshot, so a --screenshot run
-            // never posts a notification (and NSUserNotification never prompts
-            // regardless). First observation (lastBlocked < 0) primes the
-            // baseline WITHOUT notifying, so launching into an already-blocked
-            // state is silent.
+            // Phase G extra: post a native notification when a thread's state
+            // CHANGES to something worth interrupting for — it blocked on you,
+            // or it finished. Per-thread, not per-count: the old count rule
+            // stayed silent when one thread unblocked as another blocked, which
+            // is exactly the busy afternoon you most want telling about.
             //
-            // Quiet hours suppress the banner but NOT the tracking below: the
-            // count still advances, so waking to a quiet-hours increase does
-            // not fire a stale notification for something that happened at 3am.
-            static int lastBlockedNotified = -1;
+            // A thread seen for the first time never notifies, so launching
+            // into a blocked inbox is silent and a list refresh that returns a
+            // week-old thread does not read as news. Rate-limited to one banner
+            // per kNotifyMinGapSecs; blocked outranks finished when both happen
+            // in the same refresh. Windowed path only — run_headless_screenshot
+            // never reaches app_frame, so a --screenshot run never posts one.
+            //
+            // Quiet hours suppress the BANNER but not the tracking: the
+            // snapshot still advances, so the morning does not open with a
+            // notification about something that happened at 3am.
+            static hanabi::notify::Snapshot lastSeen;
             static double lastNotifyAt = -1.0;
             constexpr double kNotifyMinGapSecs = 30.0;
-            // Only an INCREASE past a primed baseline notifies; prime, decrease,
-            // and equal all just track the count (writing it unconditionally at
-            // the end is behavior-identical — ponytail: dup branch bodies).
-            if (lastBlockedNotified >= 0 && blocked > lastBlockedNotified &&
-                !in_quiet_hours_now()) {
+
+            std::vector<std::pair<std::string, hanabi::notify::Activity>> now;
+            std::map<std::string, std::string> titles;
+            now.reserve(app.sessions.size());
+            for (const auto& s : app.sessions) {
+                if (s.id.empty()) continue;
+                auto activity = hanabi::notify::Activity::Other;
+                if (s.tag == api::ThreadTag::Blocked)
+                    activity = hanabi::notify::Activity::Blocked;
+                else if (s.tag == api::ThreadTag::Done)
+                    activity = hanabi::notify::Activity::Finished;
+                now.emplace_back(s.id, activity);
+                titles[s.id] = s.title;
+            }
+
+            const auto events =
+                hanabi::notify::transitions(lastSeen, now, titles);
+            if (!events.empty() && !in_quiet_hours_now()) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||
                     nowSec - lastNotifyAt >= kNotifyMinGapSecs) {
-                    char title[64];
-                    std::snprintf(title, sizeof(title),
-                                  blocked == 1 ? "%d thread needs you"
-                                               : "%d threads need you",
-                                  blocked);
-                    const char* body =
-                        (newlyBlocked && !newlyBlocked->title.empty())
-                            ? newlyBlocked->title.c_str()
-                            : "";
-                    // Carry the newly-blocked thread's id so CLICKING the
-                    // notification opens that thread (native_extras routes it
-                    // through the same open-thread slot the deep-link uses).
-                    const char* tid =
-                        (newlyBlocked && !newlyBlocked->id.empty())
-                            ? newlyBlocked->id.c_str()
-                            : "";
-                    native_notify(title, body, tid);
+                    const hanabi::notify::Event* pick = &events.front();
+                    for (const auto& e : events)
+                        if (e.kind == hanabi::notify::Event::Kind::Blocked) {
+                            pick = &e;
+                            break;
+                        }
+                    const bool isBlocked =
+                        pick->kind == hanabi::notify::Event::Kind::Blocked;
+                    // Carry the thread's id so CLICKING the notification opens
+                    // it (native_extras routes it through the same open-thread
+                    // slot the deep-link uses).
+                    native_notify(isBlocked ? "A thread needs you"
+                                            : "A run finished",
+                                  pick->title.c_str(), pick->id.c_str());
                     lastNotifyAt = nowSec;
                 }
             }
-            lastBlockedNotified = blocked;
+            lastSeen = hanabi::notify::snapshot(now);
         }
     }
 }

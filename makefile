@@ -362,6 +362,14 @@ $(TEST_DIR)/test_textinput: tests/unit/test_textinput.cpp | $(TEST_DIR)
 # guards that hanabi's key mapping resolves BACKSPACE->TextBackspace and
 # ENTER->WidgetPress (and SPACE binds to no action) via the SAME resolution
 # impl the InputSystem runs. Backend-free (custom key-check stub).
+# Which thread-state changes deserve a banner. Pure logic — no clock, no
+# AppKit, no session type; the interesting cases (first sight, a swap that
+# leaves the count unchanged, a vanished thread) are the ones a wall-clock
+# test cannot reach.
+$(TEST_DIR)/test_notify_events: tests/unit/test_notify_events.cpp src/util/notify_events.h | $(TEST_DIR)
+	@echo "Compiling test_notify_events..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_notify_events.cpp -o $@
+
 $(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp | $(TEST_DIR)
 	@echo "Compiling test_input_pipeline..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
@@ -413,7 +421,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $^ \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
