@@ -4,13 +4,15 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Draft release notes for 4.2"
-expect_text "clean up dead feature flags"
+# The second row is one whose Home card is below the fold, so what this
+# watches disappear is the sidebar row and not a card the filter never touched.
+expect_text "profiling the disk"
+expect_text "quota migration, week 3"
 
 click 140 58
 wait_frames 4
-type "release"
+type "disk"
 wait_frames 8
 
-expect_text "Draft release notes for 4.2"
-expect_no_text flags
+expect_text "profiling the disk"
+expect_no_text quota

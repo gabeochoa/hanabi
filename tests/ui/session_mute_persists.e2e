@@ -5,5 +5,5 @@
 
 mouse_move 650 400
 wait_frames 12
-expect_text "Draft release notes for 4.2"
+expect_text "oncall sweep finished"
 assert_ui row_muted hidden=false

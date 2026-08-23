@@ -6,8 +6,9 @@
 # harness uses for every other Cmd-only surface.
 #
 # What is asserted here is the honesty of the answer, not the plumbing. The
-# corpus is what this machine holds: one transcript is in memory (the restored
-# tab) and the other thirty-five threads are a title and a preview. A panel
+# corpus is what this machine holds: two transcripts are in memory (the
+# restored tab, and the newest thread, which the loader opens on its own) and
+# the other eighteen threads are a title and a preview. A panel
 # that showed "1 result" without saying that would be reporting "you said this
 # once" when it means "this is the one place we could look".
 #
@@ -15,15 +16,15 @@
 # env: HANABI_XSEARCH_DEMO=ledger
 
 # The hit, by thread title...
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision"
 # ...and the line of the conversation it was found in, which is the part that
 # makes a cross-thread result usable at all.
 expect_text "acct 8842 - ledger"
 
 # The admission, with real numbers in it.
-expect_text "Full text for 1 of 36 threads; the rest by title and preview only"
+expect_text "Full text for 2 of 20 threads; the rest by title and preview only"
 
 # Escape puts the panel away.
 key ESCAPE
 wait_frames 10
-expect_no_text "Full text for 1 of 36 threads"
+expect_no_text "Full text for 2 of 20 threads"

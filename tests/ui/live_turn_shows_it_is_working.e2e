@@ -13,4 +13,4 @@ expect_text "Thinking"
 # The timer is stamped at a fixed 32s so the reading cannot drift between runs.
 expect_text "32s"
 # The thread it belongs to is still the one on screen.
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision"

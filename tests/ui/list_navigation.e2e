@@ -14,7 +14,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "Home"
-expect_no_text "wrote up findings, marginal win"
+expect_no_text "posted this morning, no deltas"
 
 key DOWN
 wait_frames 3
@@ -77,4 +77,4 @@ wait_frames 3
 key DOWN
 wait_frames 20
 
-expect_text "wrote up findings, marginal win"
+expect_text "posted this morning, no deltas"

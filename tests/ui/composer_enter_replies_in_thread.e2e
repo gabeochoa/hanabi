@@ -7,7 +7,7 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision"
 
 click 646 674
 wait_frames 4
@@ -17,6 +17,6 @@ key ENTER
 wait_frames 40
 
 # Still the same thread: its title, and its existing content, are both present.
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision"
 expect_text "Reconciled 4,812 accounts"
 expect_text "enter should reply here"

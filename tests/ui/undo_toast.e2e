@@ -15,12 +15,12 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Draft release notes for 4.2"
+expect_text "oncall sweep finished"
 
 # ---- Mute raises a toast -------------------------------------------------
-mouse_move 120 511
+mouse_move 120 567
 wait_frames 3
-right_click 120 511
+right_click 120 567
 wait_frames 4
 click_ui row_menu_mute
 wait_frames 6
@@ -37,13 +37,13 @@ click_ui toast_undo
 wait_frames 8
 expect_text "Session unmuted"
 # Still in the ordinary list: the undo unmuted, it did not archive.
-expect_text "Draft release notes for 4.2"
+expect_text "oncall sweep finished"
 
 # The menu offers Mute again, which it only does for an unmuted thread — so
 # the durable flag went back too, not just the toast's wording.
-mouse_move 120 511
+mouse_move 120 567
 wait_frames 3
-right_click 120 511
+right_click 120 567
 wait_frames 4
 expect_no_text Unmute
 click_ui row_menu_eater
@@ -52,7 +52,7 @@ wait_frames 6
 # ---- Star raises one too -------------------------------------------------
 # The star only appears on the row under the pointer, so hovering the row is
 # what puts it on screen to be clicked.
-mouse_move 120 511
+mouse_move 120 567
 wait_frames 6
 click_ui row_star
 wait_frames 8

@@ -21,7 +21,7 @@ wait_frames 4
 # The drag must not have scrolled the thread away or eaten the click that opens
 # a thread: the transcript is still here and still the same one.
 expect_text "Reconciled 4,812 accounts"
-expect_text "Stars payout reconciliation"
+expect_text "needs a decision"
 
 # A press on empty space below the text drops it without side effects.
 click 700 300

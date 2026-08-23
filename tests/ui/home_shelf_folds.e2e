@@ -5,21 +5,23 @@
 # settings so it survives a relaunch.
 #
 # The chevron is drawn, not typed (the font has no triangles, gap #48), so it
-# is invisible to a text assertion — what is asserted here is the cards.
+# is invisible to a text assertion — what is asserted here is a card's own
+# SUB-LINE: every card title is also a sidebar row, which stays on screen
+# whatever the shelf does, so a title would pass against no implementation.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Multi-tier pricing rollout"
+expect_text "needs a decision before landing"
 
 # The first heading is WAITING ON YOU.
 click_ui home_section
 wait_frames 8
 
 # Its cards are gone...
-expect_no_text "Multi-tier pricing rollout"
+expect_no_text "needs a decision before landing"
 # ...and the heading itself stays, so the shelf can be brought back.
 expect_text "WAITING ON YOU"
 
 click_ui home_section
 wait_frames 8
-expect_text "Multi-tier pricing rollout"
+expect_text "needs a decision before landing"

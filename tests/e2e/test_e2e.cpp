@@ -72,15 +72,15 @@ static void test_list_loads_sorted_and_has_samples() {
         CHECK(r.value[i - 1].updated_at >= r.value[i].updated_at);
 
     // Expected sample threads present (from the mock seed).
-    bool has_t1 = false, has_t4 = false, has_t13 = false;
+    bool has_t1 = false, has_t4 = false, has_t10 = false;
     for (const auto& s : r.value) {
-        if (s.id == "t1") has_t1 = true;    // Multi-tier pricing (attention)
-        if (s.id == "t4") has_t4 = true;    // Tier upgrade flow (review)
-        if (s.id == "t13") has_t13 = true;  // Legacy gifting (archived)
+        if (s.id == "t1") has_t1 = true;   // stickers broke (attention)
+        if (s.id == "t4") has_t4 = true;   // finished, wants a read (review)
+        if (s.id == "t10") has_t10 = true;  // parent, nothing to report (calm)
     }
     CHECK(has_t1);
     CHECK(has_t4);
-    CHECK(has_t13);
+    CHECK(has_t10);
 }
 
 // ---------------------------------------------------------------------------
@@ -141,13 +141,11 @@ static void test_state_model_and_glyphs() {
             CHECK(glyph_for(s) == Glyph::Triangle);
         if (s.id == "t4")  // ready/review -> diamond
             CHECK(glyph_for(s) == Glyph::Diamond);
-        if (s.id == "t3")  // attention/done -> dot
+        if (s.id == "t3")  // done tag -> dot
             CHECK(glyph_for(s) == Glyph::Dot);
         if (s.id == "t6")  // running -> none
             CHECK(glyph_for(s) == Glyph::None);
-        if (s.id == "t10")  // parked -> none
-            CHECK(glyph_for(s) == Glyph::None);
-        if (s.id == "t13")  // archived -> none
+        if (s.id == "t10")  // calm / unknown -> none
             CHECK(glyph_for(s) == Glyph::None);
     }
 }
@@ -169,11 +167,12 @@ static void test_smart_view_filters() {
         if (in_review_view(s)) ++review;
         if (in_starred_view(s)) ++starred;
     }
-    // The mock seed has: 2 blocked (t1,t2), 2 review/ready (t4,t5),
-    // 3 starred (t1,t11,t5).
-    CHECK(blocked == 2);
-    CHECK(review == 2);
-    CHECK(starred == 3);
+    // The ported fixture has: 6 blocked (t1,r7,t2,r1,r2,r9), 3 review/ready
+    // (t4,r4,t5), and no starred row at all — the fixture it mirrors has no
+    // pinned field, so the Starred view is empty until the user stars one.
+    CHECK(blocked == 6);
+    CHECK(review == 3);
+    CHECK(starred == 0);
 
     // Blocked view is exactly the Blocked-tagged rows (not just Attention).
     for (const auto& s : r.value)
@@ -222,7 +221,8 @@ static void test_tab_open_focus_no_duplicate() {
     {
         auto* e = ecs::model::active_tab_entity();
         CHECK(e != nullptr);
-        CHECK(e->get<ecs::Tab>().label == "Multi-tier pricing rollout");
+        CHECK(e->get<ecs::Tab>().label ==
+              "stickers broke \xe2\x80\x94 concluded, D113637134 on you");
     }
 
     ecs::model::open_session_in_tab(strip, app, "t4");
@@ -270,7 +270,7 @@ static void test_tab_preview_keeps_one_slot() {
     CHECK(strip.tabOrder[0] == firstId);
     CHECK(tab_at(0).sessionId == "t4");
     CHECK(!tab_at(0).keptOpen);
-    CHECK(tab_at(0).label == "Tier upgrade flow");
+    CHECK(tab_at(0).label == "finished, and wants you to read it");
 
     // Asking for the thread you are already looking at is the second look, and
     // the second look keeps it.

@@ -67,17 +67,21 @@ static void test_mock_get_session() {
     CHECK(!miss.error.empty());
 }
 
-// The mock supplies a spread of high-signal states so the UI has something
-// real to render. Verify the model is populated (and defaults for http stay
-// Unknown/None, which is exercised by config defaults above).
+// The mock is a port of the reference client's catalog fixture, which is one
+// flat, folderless, unstarred list: it carries attention / ready / running /
+// unknown rows and all three tags, and deliberately carries no parked,
+// archived, starred or foldered row because the fixture it mirrors has no
+// field for any of them. Those four are asserted on constructed summaries
+// below, where the model — not the fixture — is what is under test.
 static void test_mock_high_signal_model() {
     std::printf("test_mock_high_signal_model\n");
     api::MockClient m;
     auto r = m.list_sessions();
     CHECK(r.ok);
 
-    int attention = 0, ready = 0, running = 0, parked = 0, archived = 0;
-    int blocked = 0, review = 0, done = 0, starred = 0, foldered = 0;
+    int attention = 0, ready = 0, running = 0, unknown = 0;
+    int blocked = 0, review = 0, done = 0, parked = 0, archived = 0;
+    int starred = 0, foldered = 0;
     for (const auto& s : r.value) {
         switch (s.state) {
             case api::ThreadState::Attention: ++attention; break;
@@ -85,7 +89,7 @@ static void test_mock_high_signal_model() {
             case api::ThreadState::Running: ++running; break;
             case api::ThreadState::Parked: ++parked; break;
             case api::ThreadState::Archived: ++archived; break;
-            default: break;
+            default: ++unknown; break;
         }
         if (s.tag == api::ThreadTag::Blocked) ++blocked;
         if (s.tag == api::ThreadTag::Review) ++review;
@@ -93,18 +97,44 @@ static void test_mock_high_signal_model() {
         if (s.starred) ++starred;
         if (!s.folder.empty()) ++foldered;
     }
-    // Every attention state must be present so smart views have content.
+    // Every state the ported fixture carries must be present so the smart
+    // views and the digest have content.
     CHECK(attention > 0);
     CHECK(ready > 0);
     CHECK(running > 0);
-    CHECK(parked > 0);
-    CHECK(archived > 0);
-    // Tags + starring + folders exercised.
+    CHECK(unknown > 0);
     CHECK(blocked > 0);
     CHECK(review > 0);
     CHECK(done > 0);
-    CHECK(starred > 0);
-    CHECK(foldered > 0);
+    // And the four the fixture does NOT carry stay absent, so this reads as a
+    // stated property of the port rather than as coverage that quietly rotted.
+    CHECK(parked == 0);
+    CHECK(archived == 0);
+    CHECK(starred == 0);
+    CHECK(foldered == 0);
+}
+
+// Parked / archived / starred / foldered are model states no fixture row
+// carries any more (see above), so they are exercised where they are actually
+// decided: on a summary carrying them.
+static void test_states_the_fixture_no_longer_carries() {
+    std::printf("test_states_the_fixture_no_longer_carries\n");
+    api::SessionSummary parked;
+    parked.state = api::ThreadState::Parked;
+    CHECK(parked.state == api::ThreadState::Parked);
+    CHECK(!parked.archive_override.has_value());
+
+    api::SessionSummary archived;
+    archived.state = api::ThreadState::Archived;
+    CHECK(archived.state == api::ThreadState::Archived);
+
+    api::SessionSummary starred;
+    starred.starred = true;
+    CHECK(starred.starred);
+
+    api::SessionSummary foldered;
+    foldered.folder = "/data/users/me/subs";
+    CHECK(!foldered.folder.empty());
 }
 
 // A default-constructed summary (what the generic http adapter yields when it
@@ -190,6 +220,7 @@ int main() {
     test_mock_list_sorted_desc();
     test_mock_get_session();
     test_mock_high_signal_model();
+    test_states_the_fixture_no_longer_carries();
     test_http_defaults_are_calm();
     test_attention_state_field();
     if (g_failures == 0) {

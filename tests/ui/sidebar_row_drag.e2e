@@ -7,8 +7,8 @@
 # resetting the order puts the activity list back.
 #
 # Positions are the assertion, because "the row moved" is a claim about order
-# and nothing else can carry it: the rendered band starts at y=382 and every row
-# is 24px tall, so slot 0 is y=382 and slot 5 is y=502.
+# and nothing else can carry it: the rendered band starts at y=270 and every row
+# is 24px tall, so slot 0 is y=270 and slot 5 is y=390.
 #
 # Rows are addressed by coordinate because the harness has no
 # `right_click_ui <name>` (afterhours_gaps.md #55) and no way to name one row of
@@ -20,11 +20,11 @@
 # to move sitting six rows down.
 mouse_move 650 400
 wait_frames 10
-assert_ui_text "Tidy up the retry backoff in the s…" y=382
-assert_ui_text "Draft release notes for 4.2" y=502
+assert_ui_text "profiling the disk" y=270
+assert_ui_text "SKU backfill — my name for it" y=390
 
 # Nothing has been arranged yet, so there is no order to reset.
-right_click 120 386
+right_click 120 271
 wait_frames 4
 expect_text "Archive"
 expect_no_text "Reset order"
@@ -33,13 +33,13 @@ wait_frames 4
 
 # Press the sixth row and carry it to the top. The drop line is what says the
 # app has understood this as a drag rather than a click.
-mouse_down 140 511
+mouse_down 140 399
 wait_frames 2
-mouse_move 140 470
+mouse_move 140 375
 wait_frames 2
-mouse_move 140 420
+mouse_move 140 315
 wait_frames 2
-mouse_move 140 386
+mouse_move 140 271
 wait_frames 3
 assert_ui row_drop_line hidden=false
 mouse_up
@@ -47,20 +47,21 @@ wait_frames 8
 
 # It landed, the row it displaced is one slot lower, and it stays put with the
 # pointer off the sidebar entirely. The thread was never opened on the way past:
-# a press that becomes a drag is not a click.
+# a press that becomes a drag is not a click. ("61%" is in that thread's
+# transcript and nowhere else, so it is the reading that says it never opened.)
 mouse_move 650 400
 wait_frames 8
-assert_ui_text "Draft release notes for 4.2" y=382
-assert_ui_text "Tidy up the retry backoff in the s…" y=406
-expect_no_text "Pulled the 62 landed changes"
+assert_ui_text "SKU backfill — my name for it" y=270
+assert_ui_text "profiling the disk" y=294
+expect_no_text 61%
 
 # The folder now reads as hand-arranged, and saying so undoes it.
-right_click 120 386
+right_click 120 271
 wait_frames 4
 expect_text "Reset order"
 click_ui row_menu_reset_order
 wait_frames 8
 mouse_move 650 400
 wait_frames 6
-assert_ui_text "Tidy up the retry backoff in the s…" y=382
-assert_ui_text "Draft release notes for 4.2" y=502
+assert_ui_text "profiling the disk" y=270
+assert_ui_text "SKU backfill — my name for it" y=390

@@ -196,9 +196,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
 
         // "FOLDERS" section label + fold-all control (mirrors the mock's
-        // second section header, which carries a fold-all affordance).
-        folders_section_head(ctx, scroll.ent(), 4, *app, r.width);
-
+        // second section header, which carries a fold-all affordance). Emitted
+        // only when there ARE folders: a heading over nothing is a heading
+        // that lies, and it pushes every row of the flat list down by its own
+        // height (the mock fixture is entirely folderless).
         // Live search filter: when the query is non-empty, folders only render
         // matching rows and empty folders are hidden. Track whether ANY row
         // survived so we can show a no-results empty state.
@@ -218,6 +219,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // a widely-spaced id base (1000 apart) so its rows never collide with
         // the next folder's id range.
         std::vector<std::string> folders = distinct_folders(*app);
+        if (!folders.empty())
+            folders_section_head(ctx, scroll.ent(), 4, *app, r.width);
         // Folders start COLLAPSED by default (Gabe: subthreads hidden until you
         // open a folder). Seed every folder key into collapsedFolders ONCE, the
         // first render that actually has folders; afterwards the user's own
@@ -1334,8 +1337,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (model::is_archived(s)) ++archived;
         }
 
+        // Home's count is what is WAITING: the blocked rows plus the ones done
+        // and unread. Home itself is a digest, not a filter, so this is the
+        // one view whose number is a sum rather than a membership count.
         smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
-                   SmartView::Home, -1, app, folded, panelW);
+                   SmartView::Home, blocked + review, app, folded, panelW);
         smart_item(ctx, container.ent(), 2, "blocked", "\xe2\x9b\x94",
                    "Blocked", SmartView::Blocked, blocked, app, folded, panelW);
         smart_item(ctx, container.ent(), 3, "review", "\xe2\x9c\x93", "Review",
