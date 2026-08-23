@@ -752,7 +752,7 @@ struct LayoutComponent : public afterhours::BaseComponent {
 
     float tabStripHeight = 38.0f;
     float statusBarHeight = 26.0f;
-    float composerHeight = 92.0f;  // chat input strip height (0 hides it)
+    float composerHeight = 98.0f;  // chat input strip height (0 hides it)
 };
 
 // ---- Tab components (VS Code-style closable content tabs) ----

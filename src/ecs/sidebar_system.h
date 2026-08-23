@@ -156,6 +156,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!folded) render_search(ctx, panel.ent(), *app, r.x, r.y, r.width);
         render_smart_views(ctx, panel.ent(), *app, folded, r.width);
 
+        render_rail_divider(ctx, uiRoot, *layout);
+
         if (folded) {
             // The rail has no rows of its own, but a digest card in the main
             // pane can have opened the menu, so it still gets a chance to draw.
@@ -984,6 +986,34 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // The single hairline parting the sidebar from the main pane.
+    //
+    // On the reference it is ONE pixel at x=279 running the full window height
+    // — over the tab strip above and over the footer below, not just beside the
+    // list — and it is the LAST column of the 280-wide sidebar rather than a
+    // column carved out between the two panes (the main pane still starts at
+    // x=280). afterhours has no border-right that can outlive its own panel's
+    // clip rect, and LayoutComponent's rects are consumed by four systems, so a
+    // 1px-wide absolutely-positioned div on its own render layer is the way to
+    // get one continuous rule instead of three segments that have to agree.
+    void render_rail_divider(UIContext<InputAction>& ctx, Entity& uiRoot,
+                             LayoutComponent& layout) {
+        const float h =
+            static_cast<float>(afterhours::graphics::get_screen_height());
+        const float x = layout.sidebar.x + layout.sidebar.width - 1.0f;
+        div(ctx, mk(uiRoot, 1900),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(1), pixels(h)})
+                .with_absolute_position()
+                .with_translate(x, 0.0f)
+                .with_custom_background(theme::divider())
+                .with_roundness(0.0f)
+                // Above the status bar (5) and the tab strip (6) so the rule is
+                // unbroken top to bottom; below the row menu (kMenuLayer).
+                .with_render_layer(7)
+                .with_debug_name("sidebar_rail_divider"));
+    }
+
     static ComponentConfig icon_btn(const std::string& label) {
         return ComponentConfig{}
             .with_label(label)
@@ -1064,14 +1094,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             s_searchInputId !=
                 std::numeric_limits<afterhours::EntityID>::max() &&
             ctx.has_focus(s_searchInputId);
-        // Fill lifts on hover; border is the accent focus-ring when focused,
-        // a hairline otherwise (so the field always reads as an input, and
-        // clearly as the ACTIVE input while typing).
+        // Fill lifts on hover; border is the accent focus-ring when focused and
+        // OTHERWISE THE FILL'S OWN COLOUR, which is how you say "no border" to
+        // a config that has already declared one. The reference draws the
+        // search field as a bare fill with no ring at rest, and afterhours has
+        // no with_no_border() / conditional-property escape on the builder
+        // chain; a transparent border colour is not an option either, because
+        // the rect fill cannot alpha-blend (gap #13) and would render it as an
+        // opaque black outline.
         theme::Color fieldFill =
             searchHot ? theme::hover_over(theme::panel_bg_2())
                       : theme::panel_bg_2();
         theme::Color fieldBorder =
-            searchFocused ? theme::focus_ring() : theme::border();
+            searchFocused ? theme::focus_ring() : fieldFill;
         auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(30)})
@@ -1175,7 +1210,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(25)})
                 .with_padding(Padding{.top = pixels(10), .right = pixels(14),
                                       .bottom = pixels(5), .left = pixels(14)})
-                .with_transparent_bg()
+                // A FILLED strip, not a transparent label: on the reference the
+                // section header is its own surface (#22222D) spanning the full
+                // rail width, which is what makes the rows below read as a
+                // grouped list rather than as free-floating text.
+                .with_custom_background(theme::section_header_bg())
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::LABEL)
                 .with_alignment(TextAlignment::Left)
@@ -1209,7 +1248,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6),
                                       .right = pixels(12),
                                       .bottom = pixels(4), .left = pixels(14)})
-                .with_transparent_bg()
+                .with_custom_background(theme::section_header_bg())
                 .with_roundness(0.0f)
                 .with_debug_name("sb_folders_head"));
 

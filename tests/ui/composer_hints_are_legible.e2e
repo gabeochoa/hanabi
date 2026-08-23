@@ -1,16 +1,36 @@
-# The composer's keyboard hint and Send label must be TEXT the UI font can
-# actually draw. Roboto has no arrows: the hint used to be "<return-arrow> send"
-# and the button "Send  <up-arrow>", and both arrows rendered as nothing at all
-# — leaving a bare lowercase "send" floating next to the context meter and a
+# The composer's keyboard hint must be TEXT the UI font can actually draw.
+# Roboto has no arrows: the hint used to be "<return-arrow> send" and the Send
+# button "Send  <up-arrow>", and both arrows rendered as nothing at all —
+# leaving a bare lowercase "send" floating next to the context meter and a
 # button with a trailing gap. A missing codepoint draws no tofu, so neither was
 # visible in review. afterhours_gaps.md #48.
 #
+# CHANGED (composer visual parity): the Send button is no longer a labelled
+# rectangle. Puffin's is a 19px circle with an up-arrow and no word on it, so
+# hanabi's idle Send is that too, and the arrow is DRAWN as vectors
+# (hanabi::glyph::arrow_up) — which is gap #48's own prescription, not a
+# regression of it. The old `expect_text "Send"` asserted the shape that
+# changed, so it is replaced by an assertion on the button itself: present, and
+# 19x19, which no rectangular button can satisfy. That the arrow inside it is
+# actually painted cannot be scripted at all — assert_ui reads x/y/w/h/hidden/
+# text and never a pixel (afterhours_gaps.md #61) — so the arrow is covered by
+# the visual comparison against the Puffin reference instead.
+#
+# The two states that CANNOT fit in a circle keep their words: "Steer" when the
+# agent is running, and "…" in flight. Those are asserted elsewhere.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
-expect_text "Send"
+assert_ui composer_send w=19
+assert_ui composer_send h=19
+assert_ui composer_send hidden=false
 
 click 646 674
 wait_frames 4
 type "hint check"
 wait_frames 6
 expect_text "Enter to send"
+
+# Still a circle once there is something to send: the enabled state changes the
+# fill, not the shape.
+assert_ui composer_send w=19
