@@ -53,6 +53,13 @@ struct Settings {
     bool get_sidebar_collapsed() const;
     void set_sidebar_collapsed(bool collapsed);  // auto-persists
 
+    // Which Home shelves ("Waiting on you", "Recent", ...) are folded shut.
+    // Keyed by a stable shelf key, not by the visible label, so renaming a
+    // heading cannot silently unfold everyone's Home. Auto-persists.
+    const std::vector<std::string>& get_collapsed_shelves() const;
+    bool is_shelf_collapsed(const std::string& key) const;
+    void set_shelf_collapsed(const std::string& key, bool collapsed);
+
     // Disk-cache size cap in BYTES. 0 == Unlimited (no eviction). Default 1 GB.
     // The settings modal offers 100 MB / 1 GB / 10 GB / Unlimited; the disk
     // cache trims the oldest data to stay under this after a transcript save
@@ -132,6 +139,7 @@ struct Settings {
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
+    std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;

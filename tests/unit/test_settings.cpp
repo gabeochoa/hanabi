@@ -122,11 +122,33 @@ static void test_settings_write_config_gate() {
     CHECK(c.settings_write_ready());
 }
 
+// --- Home shelf folds survive a reload ------------------------------------
+static void test_shelf_fold_round_trips() {
+    std::printf("test_shelf_fold_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    CHECK(!s.is_shelf_collapsed("waiting"));
+    s.set_shelf_collapsed("waiting", true);
+    CHECK(s.is_shelf_collapsed("waiting"));
+
+    // Reading the file back is the whole point: a fold that lives only in
+    // memory is gone on the next launch.
+    s.load_save_file();
+    CHECK(s.is_shelf_collapsed("waiting"));
+    CHECK(!s.is_shelf_collapsed("recent"));
+
+    s.set_shelf_collapsed("waiting", false);
+    s.load_save_file();
+    CHECK(!s.is_shelf_collapsed("waiting"));
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
     test_mock_settings_write();
     test_settings_write_config_gate();
+    test_shelf_fold_round_trips();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

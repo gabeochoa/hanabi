@@ -228,6 +228,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // The set holds the message ids that are expanded; default folded.
     std::set<std::string> expandedMsgs;
 
+    // Home: which shelves are folded shut, by shelf KEY (not label). Seeded
+    // from settings at startup and written back on every toggle, so a folded
+    // shelf survives relaunch.
+    std::set<std::string> collapsedShelves;
+
     // Phase K (settings/composer): settings overlay visibility + the theme
     // currently selected in the panel ("dark"/"light"/"system"); composer
     // open state + its draft text for kicking off a new task.

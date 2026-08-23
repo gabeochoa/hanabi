@@ -63,6 +63,13 @@ bool Settings::load_save_file() {
             for (const auto& e : j["starred"])
                 if (e.is_string()) starred_ids_.push_back(e.get<std::string>());
         }
+        collapsed_shelves_.clear();
+        if (j.contains("collapsed_shelves") &&
+            j["collapsed_shelves"].is_array()) {
+            for (const auto& e : j["collapsed_shelves"])
+                if (e.is_string())
+                    collapsed_shelves_.push_back(e.get<std::string>());
+        }
     } catch (...) {
         return false;
     }
@@ -89,6 +96,7 @@ void Settings::write_save_file() {
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
     j["starred"] = starred_ids_;
+    j["collapsed_shelves"] = collapsed_shelves_;
     j["last_read"] = last_read_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
@@ -164,6 +172,28 @@ void Settings::set_starred(const std::string& id, bool starred) {
         return;  // no change — skip the write
     }
     // Persist immediately (mirrors set_theme) so a star survives relaunch.
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::vector<std::string>& Settings::get_collapsed_shelves() const {
+    return collapsed_shelves_;
+}
+bool Settings::is_shelf_collapsed(const std::string& key) const {
+    for (const auto& s : collapsed_shelves_)
+        if (s == key) return true;
+    return false;
+}
+void Settings::set_shelf_collapsed(const std::string& key, bool collapsed) {
+    auto it = std::find(collapsed_shelves_.begin(), collapsed_shelves_.end(),
+                        key);
+    const bool present = (it != collapsed_shelves_.end());
+    if (collapsed && !present) {
+        collapsed_shelves_.push_back(key);
+    } else if (!collapsed && present) {
+        collapsed_shelves_.erase(it);
+    } else {
+        return;
+    }
     if (auto_save_enabled) write_save_file();
 }
 

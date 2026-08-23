@@ -21,6 +21,7 @@
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../keys.h"
+#include "../settings.h"
 #include "ui_imports.h"
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -1247,36 +1248,40 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int shown = 0;
         bool first = true;  // tracks the first rendered section (tighter top).
         if (!waiting.empty()) {
-            section_label(ctx, wrap, 1,
-                          "Waiting on you \xc2\xb7 " +
-                              std::to_string(waiting.size()),
-                          first, theme::status_blocked());
+            const bool folded = section_label(
+                ctx, wrap, 1,
+                "Waiting on you \xc2\xb7 " + std::to_string(waiting.size()),
+                first, theme::status_blocked(), app, "waiting");
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
-            for (const auto* s : waiting)
-                digest_card(ctx, wrap, ++shown, *s, app, true, cardW, true);
+            if (!folded)
+                for (const auto* s : waiting)
+                    digest_card(ctx, wrap, ++shown, *s, app, true, cardW, true);
         }
         if (!finished.empty()) {
-            section_label(ctx, wrap, 900,
-                          "Finished since you looked \xc2\xb7 " +
-                              std::to_string(finished.size()),
-                          first, theme::tag_done_fg());
+            const bool folded = section_label(
+                ctx, wrap, 900,
+                "Finished since you looked \xc2\xb7 " +
+                    std::to_string(finished.size()),
+                first, theme::tag_done_fg(), app, "finished");
             first = false;
-            for (const auto* s : finished)
-                digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
+            if (!folded)
+                for (const auto* s : finished)
+                    digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
         }
         // Self-running work: a real section with real cards (title + relative
         // age), headed "SELF-RUNNING (N)" like the mock. Rendering the actual
         // running threads (not a lone caption) kills the old orphaned-caption
         // void (defect #14) — the count now sits ON a populated section.
         if (!selfRunning.empty()) {
-            section_label(ctx, wrap, 1800,
-                          "Self-running \xc2\xb7 " +
-                              std::to_string(selfRunning.size()),
-                          first, theme::status_review());
+            const bool folded = section_label(
+                ctx, wrap, 1800,
+                "Self-running \xc2\xb7 " + std::to_string(selfRunning.size()),
+                first, theme::status_review(), app, "self_running");
             first = false;
-            for (const auto* s : selfRunning)
-                digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
+            if (!folded)
+                for (const auto* s : selfRunning)
+                    digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
         }
 
         // Recent / all conversations. A calm backend (e.g. the generic http
@@ -1313,10 +1318,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("home_caught_up"));
         }
         if (!recent.empty()) {
-            section_label(ctx, wrap, 2600, "Recent", first);
+            const bool folded = section_label(ctx, wrap, 2600, "Recent", first,
+                                              theme::text_faint(), app,
+                                              "recent");
             constexpr size_t kMaxRecent = 20;
-            for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
-                digest_card(ctx, wrap, ++shown, *recent[k], app, false, cardW);
+            if (!folded)
+                for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
+                    digest_card(ctx, wrap, ++shown, *recent[k], app, false,
+                                cardW);
         }
     }
 
@@ -1328,24 +1337,61 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // so it reads as a quiet grouping label vs the larger primary-color card
     // titles beneath it. `first` drops the leading margin so the top section
     // doesn't push a gap under the h1.
-    static void section_label(UIContext<InputAction>& ctx, Entity& parent,
-                              int id, const std::string& text,
-                              bool first = false,
-                              theme::Color color = theme::text_faint()) {
-        div(ctx, mk(parent, id),
+    //
+    // Clicking one folds its shelf. Returns true when the shelf is folded, so
+    // the caller skips its cards. The chevron is DRAWN, not typed: the font has
+    // no triangles (gap #48) and a missing codepoint paints nothing at all.
+    static bool section_label(UIContext<InputAction>& ctx, Entity& parent,
+                              int id, const std::string& text, bool first,
+                              theme::Color color, AppComponent& app,
+                              const std::string& shelfKey) {
+        const bool collapsed = app.collapsedShelves.count(shelfKey) != 0;
+
+        auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_label(upper(text))
                 .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
                 .with_margin(Margin{.top = pixels(first ? 4 : 20),
                                     .right = pixels(0), .bottom = pixels(6),
                                     .left = pixels(0)})
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("home_section"));
+
+        row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (row.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (collapsed) app.collapsedShelves.erase(shelfKey);
+            else app.collapsedShelves.insert(shelfKey);
+            Settings::get().set_shelf_collapsed(shelfKey, !collapsed);
+        }
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(14), pixels(18)})
+                .with_transparent_bg()
+                .with_on_draw_fg([collapsed, color](RectangleType r) {
+                    hanabi::glyph::chevron(r, collapsed, color, 3.2f);
+                })
+                .with_debug_name("home_section_chev"));
+
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(upper(text))
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(color)
                 .with_font_size(theme::type::LABEL)
                 .with_letter_spacing(1.0f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("home_section"));
+                .with_debug_name("home_section_text"));
+
+        return collapsed;
     }
 
     // ---------------- Sub-agent panel (transcript-only) --------------------
