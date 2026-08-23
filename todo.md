@@ -539,3 +539,82 @@ Rule of thumb: if the description needs a "Fixed" section AND an "Added"
 section, that is two PRs. Land the small independent win first so it is not
 held hostage by review of the big change. Stacking compounds this — nothing in
 #3..#7 could land until #2 did.
+
+---
+
+## REVIEW FINDINGS: PR #3 (feat/transcript-honesty) — 2026-08-22
+
+Reviewed, nothing blocking. Four things to come back to. **All deferred — do
+not fix as part of #3.**
+
+### [ ] 1. `src/keys.h` reimplements a function afterhours already has
+
+The new shim is:
+
+```cpp
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    return afterhours::testing::platform_input::is_key_pressed(key);
+#else
+    return afterhours::graphics::is_key_pressed(key);
+#endif
+```
+
+`afterhours::input::is_key_pressed` is that exact `#ifdef`, already written —
+`vendor/afterhours/src/plugins/input_system.h:636`. And `platform_test_input.h`
+says so in its own header: *"This replaces the need for per-project
+backend-specific wrappers."*
+
+The eight key codes are a second copy too: `afterhours::keys::LEFT_SUPER = 343`
+and friends already live in `vendor/afterhours/src/core/key_codes.h:98`. Two
+copies of the same numbers can drift.
+
+**Fix:** call `afterhours::input::*` with `afterhours::keys::*` names. The
+`#ifdef` disappears and the shipping build runs the SAME path as the test build
+instead of a parallel one. (Same fix already applied in floatinghotel for the
+same gap.) Still an improvement over the five sites of bare `343`/`347` it
+replaced — this is one rung further, not a correction.
+
+### [ ] 2. Gap #47 is fixed upstream and is weakening our own test
+
+`tests/ui/shortcuts_sheet.e2e` carries `# NOTE: expect_no_text takes a BARE
+single word — see afterhours_gaps.md #47` and settles for
+`expect_no_text Keyboard`.
+
+At afterhours HEAD `expect_no_text` is in the `parse_quoted()` chain
+(`runner.h:163`). On a bumped pin that assertion becomes
+`expect_no_text "Keyboard shortcuts"` — a real assertion instead of a one-word
+proxy — and the caveat comment comes out.
+
+That is **all three** of #39/#40/#47 fixed upstream. Bump, then tighten.
+
+### [ ] 3. The shortcuts test cannot test the shortcut — PARKED
+
+It opens the sheet with `HANABI_TEST_OVERLAY=shortcuts` because Cmd+/ is
+unscriptable (#49), so the headline binding of a feature whose whole purpose is
+discovering bindings is uncovered. Honestly flagged in the script.
+
+Nothing to do app-side until #49 is fixed in afterhours. Parked deliberately;
+when #49 lands, replace the env knob with a real `key CMD+SLASH`.
+
+### [ ] 4. Under the injector, only the FIRST system to poll a key sees it
+
+`test_input::is_key_pressed` opens with `input_injector::consume_press(key)`.
+Production's `graphics::is_key_pressed` does not consume. We now have four Esc
+readers, and `MainPaneSystem` (registered `main.cpp:289`) runs before
+`SettingsSystem` (292), `ShortcutsSystem` (293) and `ComposerSystem` (294):
+
+> Focus the reply field, Cmd+`,`, Esc → in the uitest binary MainPane clears
+> the draft and settings stays OPEN; in the shipping binary settings closes.
+
+Each reader is guarded by its own overlay flag so the window is narrow, but
+routing these reads through the injector is what introduces the divergence, and
+a test that passes on one path and not the other is the bad kind of green.
+
+**Fix direction:** one place decides what Esc means this frame (highest overlay
+wins) instead of four systems racing to read the same key.
+
+### [ ] Minor: `compact_count` loses precision exactly where it matters
+
+`4.2k` but `1M` for 1,500,000 — a decimal below 10 in thousands, never in
+millions. If the context meter lands with a 1M window, every reading from 1.0M
+to 1.9M renders as `1M`.
