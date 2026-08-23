@@ -58,4 +58,17 @@ inline bool find_audit() {
     return on;
 }
 
+// HANABI_FIND_STEP=<±n> steps the find bar's current match n times (negative
+// = backwards) on the first frame that has matches, standing in for the Cmd+G
+// chord a script cannot press (afterhours_gaps.md #49). It feeds the same
+// find_nav step the chord feeds — only the two key reads are left uncovered.
+// Same contract as force_hover: read once, and a hard no-op when unset.
+inline int find_step() {
+    static const int n = [] {
+        const char* v = std::getenv("HANABI_FIND_STEP");
+        return (v != nullptr && *v != '\0') ? std::atoi(v) : 0;
+    }();
+    return n;
+}
+
 }  // namespace hanabi::test_hooks

@@ -32,6 +32,7 @@ inline constexpr int kSlash = ah::SLASH;
 inline constexpr int kB = ah::B;
 inline constexpr int kC = ah::C;
 inline constexpr int kF = ah::F;
+inline constexpr int kG = ah::G;
 inline constexpr int kK = ah::K;
 inline constexpr int kN = ah::N;
 inline constexpr int kW = ah::W;
@@ -52,5 +53,11 @@ inline bool down(int key) { return afterhours::input::is_key_down(key); }
 
 // The Cmd modifier, either side.
 inline bool cmd_down() { return down(kLeftSuper) || down(kRightSuper); }
+
+// The Shift modifier, either side. Shift turns a chord around (Cmd+Shift+G is
+// Cmd+G backwards), so a chord site needs to read it the same way it reads Cmd.
+inline bool shift_down() {
+    return down(ah::LEFT_SHIFT) || down(ah::RIGHT_SHIFT);
+}
 
 }  // namespace hanabi::keys
