@@ -262,6 +262,26 @@ static void test_mute_round_trips() {
     CHECK(!s.is_muted("r4"));
 }
 
+static void test_finished_subagents_round_trips() {
+    std::printf("test_finished_subagents_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    // Off by default: a thread that spawned a dozen helpers should open showing
+    // the ones still working, not the ten that are done.
+    CHECK(!s.get_show_finished_subagents());
+
+    s.set_show_finished_subagents(true);
+    CHECK(s.get_show_finished_subagents());
+    // It is a standing preference, so it has to survive the launch that set it.
+    s.load_save_file();
+    CHECK(s.get_show_finished_subagents());
+
+    s.set_show_finished_subagents(false);
+    s.load_save_file();
+    CHECK(!s.get_show_finished_subagents());
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -273,6 +293,7 @@ int main() {
     test_quiet_hours_persist();
     test_archive_overlay_round_trips();
     test_mute_round_trips();
+    test_finished_subagents_round_trips();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

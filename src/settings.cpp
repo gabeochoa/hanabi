@@ -46,6 +46,8 @@ bool Settings::load_save_file() {
         auto_archive_days_ = j.value("auto_archive_days", auto_archive_days_);
         notification_sound_ = j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
+        show_finished_subagents_ =
+            j.value("show_finished_subagents", show_finished_subagents_);
         quiet_start_minutes_ =
             j.value("quiet_start_minutes", quiet_start_minutes_);
         quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
@@ -109,6 +111,7 @@ void Settings::write_save_file() {
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
+    j["show_finished_subagents"] = show_finished_subagents_;
     j["quiet_start_minutes"] = quiet_start_minutes_;
     j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
@@ -302,6 +305,15 @@ bool Settings::get_show_timestamps() const { return show_timestamps_; }
 void Settings::set_show_timestamps(bool on) {
     if (on == show_timestamps_) return;
     show_timestamps_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_show_finished_subagents() const {
+    return show_finished_subagents_;
+}
+void Settings::set_show_finished_subagents(bool on) {
+    if (on == show_finished_subagents_) return;
+    show_finished_subagents_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

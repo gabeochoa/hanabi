@@ -138,7 +138,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
             (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
-            (kGroupH + ctrlRow * 4.0f) +          // Behavior: 4 rows
+            (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
             (kGroupH + ctrlRow) +                 // Notifications: Sound
             (kGroupH + ctrlRow);                  // Model: default model
         const float rightH =
@@ -283,6 +283,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
             render_timestamps_row(ctx, L, *app);
+            render_subagents_row(ctx, L, *app);
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
             render_quiet_hours_row(ctx, L, *app);
@@ -941,6 +942,23 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        "settings_timestamps",
                        [](int i) {
                            Settings::get().set_show_timestamps(i == 1);
+                       });
+    }
+
+    // Sub-agent chips in the transcript rollup: hide the finished ones, or
+    // list them all. Global, and local-only — how much of a thread's helper
+    // work this machine wants to read is not a preference another device wants
+    // pushed onto it.
+    void render_subagents_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 138, "Finished sub-agents",
+                 "settings_subagents_label");
+        const bool on = Settings::get().get_show_finished_subagents();
+        real_segmented(ctx, parent, 139, {"Hide", "Show"}, on ? 1 : 0,
+                       "settings_subagents",
+                       [](int i) {
+                           Settings::get().set_show_finished_subagents(i == 1);
                        });
     }
 
