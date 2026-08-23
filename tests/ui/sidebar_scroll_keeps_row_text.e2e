@@ -2,9 +2,18 @@
 # stop drawing their titles past a certain offset — the rows stayed clickable
 # and went blank.
 #
+# The list renders at most a viewport's worth of rows and offers the rest
+# behind "Show N more…" (that cap is what keeps a 2000-session list cheap), and
+# rows are 32px tall now, so at this window size the capped list FITS and there
+# is nothing to scroll. Expanding it first is what gives the scroll something
+# to move — which is also the state the regression appeared in.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "Tidy up the retry backoff in the s"
+
+click_ui sb_show_more
+wait_frames 6
 
 mouse_move 140 600
 scroll_wheel 0 -6

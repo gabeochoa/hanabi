@@ -16,9 +16,9 @@
 
 expect_text "Draft release notes for 4.2"
 
-mouse_move 120 511
+mouse_move 120 475
 wait_frames 3
-right_click 120 511
+right_click 120 475
 wait_frames 4
 click_ui row_menu_mute
 wait_frames 6
@@ -29,18 +29,18 @@ wait_frames 8
 assert_ui row_muted hidden=false
 
 # The menu now offers the way back, which it only does for a muted thread.
-mouse_move 120 511
+mouse_move 120 475
 wait_frames 3
-right_click 120 511
+right_click 120 475
 wait_frames 4
 expect_text "Unmute"
 click_ui row_menu_mute
 wait_frames 8
 
 # Unmuted: the mark is gone, so the row is offering Mute again.
-mouse_move 120 511
+mouse_move 120 475
 wait_frames 3
-right_click 120 511
+right_click 120 475
 wait_frames 4
 expect_no_text Unmute
 click_ui row_menu_mute
@@ -55,8 +55,8 @@ click_ui row_muted
 wait_frames 8
 expect_no_text "Pulled the 62 landed changes"
 
-mouse_move 120 511
+mouse_move 120 475
 wait_frames 3
-right_click 120 511
+right_click 120 475
 wait_frames 4
 expect_no_text Unmute

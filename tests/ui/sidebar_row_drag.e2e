@@ -1,14 +1,16 @@
-# Drag a sidebar row into a new place in its folder.
+# Drag a sidebar row into a new place in the list.
 #
 # The list is sorted by ACTIVITY, so a manual order is not a re-sort — it is a
-# pinned prefix. This script says that out loud in three steps: the folder has
+# pinned prefix. This script says that out loud in three steps: the list has
 # no manual order to begin with (its row menu offers nothing to reset), a drag
 # puts a row at the top and the rows it passed shuffle down one slot, and
 # resetting the order puts the activity list back.
 #
 # Positions are the assertion, because "the row moved" is a claim about order
-# and nothing else can carry it: the rendered band starts at y=382 and every row
-# is 24px tall, so slot 0 is y=382 and slot 5 is y=502.
+# and nothing else can carry it: the rendered band starts at y=300 and every row
+# is 32px tall (the measured Puffin pitch), so slot 0's row is y=300 and slot
+# 5's is y=460. assert_ui_text matches the row's LABEL, which sits 6px into the
+# row's padding — hence 306 and 466.
 #
 # Rows are addressed by coordinate because the harness has no
 # `right_click_ui <name>` (afterhours_gaps.md #55) and no way to name one row of
@@ -20,11 +22,11 @@
 # to move sitting six rows down.
 mouse_move 650 400
 wait_frames 10
-assert_ui_text "Tidy up the retry backoff in the s…" y=382
-assert_ui_text "Draft release notes for 4.2" y=502
+assert_ui_text "Tidy up the retry backoff in the sy…" y=306
+assert_ui_text "Draft release notes for 4.2" y=466
 
 # Nothing has been arranged yet, so there is no order to reset.
-right_click 120 386
+right_click 120 310
 wait_frames 4
 expect_text "Archive"
 expect_no_text "Reset order"
@@ -33,13 +35,13 @@ wait_frames 4
 
 # Press the sixth row and carry it to the top. The drop line is what says the
 # app has understood this as a drag rather than a click.
-mouse_down 140 511
+mouse_down 140 475
 wait_frames 2
-mouse_move 140 470
+mouse_move 140 430
 wait_frames 2
-mouse_move 140 420
+mouse_move 140 370
 wait_frames 2
-mouse_move 140 386
+mouse_move 140 310
 wait_frames 3
 assert_ui row_drop_line hidden=false
 mouse_up
@@ -50,17 +52,17 @@ wait_frames 8
 # a press that becomes a drag is not a click.
 mouse_move 650 400
 wait_frames 8
-assert_ui_text "Draft release notes for 4.2" y=382
-assert_ui_text "Tidy up the retry backoff in the s…" y=406
+assert_ui_text "Draft release notes for 4.2" y=306
+assert_ui_text "Tidy up the retry backoff in the sy…" y=338
 expect_no_text "Pulled the 62 landed changes"
 
-# The folder now reads as hand-arranged, and saying so undoes it.
-right_click 120 386
+# The list now reads as hand-arranged, and saying so undoes it.
+right_click 120 310
 wait_frames 4
 expect_text "Reset order"
 click_ui row_menu_reset_order
 wait_frames 8
 mouse_move 650 400
 wait_frames 6
-assert_ui_text "Tidy up the retry backoff in the s…" y=382
-assert_ui_text "Draft release notes for 4.2" y=502
+assert_ui_text "Tidy up the retry backoff in the sy…" y=306
+assert_ui_text "Draft release notes for 4.2" y=466

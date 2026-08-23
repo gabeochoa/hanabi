@@ -13,7 +13,7 @@ expect_text "Home"
 expect_no_text Pulled
 
 # "Draft release notes for 4.2" sits in the sidebar list.
-click 120 511
+click 120 475
 wait_frames 8
 expect_text "Pulled the 62 landed changes"
 

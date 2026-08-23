@@ -3028,3 +3028,120 @@ extend, so ordering is declared once instead of rediscovered per call site;
 (b) a border mode that draws with the parent's foreground pass rather than its
 background one, so `with_border_right` survives its own children (this is #63's
 `on_draw_over` by another name — one fix would serve both).
+
+### #65
+
+**Grid snapping quantizes child POSITIONS to a unit derived from the window
+height, so a measured pixel pitch is only honoured at some window sizes.**
+
+**What the design asks for.** Puffin's sidebar rows sit on a 32px pitch — the
+view rows and the session rows both, measured off the reference window. hanabi's
+rows are `pixels(32)` tall, stacked in a `FlexDirection::Column` with
+`FlexWrap::NoWrap` and no gap. There is exactly one number in the design and one
+number in the code, and they are the same number.
+
+**What actually renders.** 32px apart at a 760px-tall window. **30px apart at a
+949px-tall one.** Same binary, same sidebar width, same rows.
+
+`snap_to_8pt_grid` (autolayout.h) derives its unit from the window HEIGHT:
+
+```
+grid_unit = max(1, round(4.0 * screen_height / 720))
+```
+
+which is 4 at 760px (`round(4.22)`) and **5 at 949px** (`round(5.27)`). Child
+positions are then snapped to it, and — crucially — the column's running offset
+is snapped after every child:
+
+```
+float next_y = offy + cy + gap;
+if (enable_grid_snapping) next_y = snap_to_8pt_grid(next_y, Axis::Y);
+offy = next_y;
+```
+
+so the error does not cancel: 32 → 30, 62 → 60, 92 → 90. Every row is 2px
+early, and by the 18th row the list is **36px** out of place.
+
+**Why the obvious escapes do not work.**
+
+1. **`skip_grid_snap` exists but is only consulted for SIZE.**
+   `compute_relative_positions` guards the size snap with
+   `if (enable_grid_snapping && !widget.skip_grid_snap)`, and then the position
+   snap 300 lines later is guarded by `if (enable_grid_snapping)` alone. A
+   widget cannot opt its own placement out.
+2. **Pixel sizes are already exempt, which makes the behaviour surprising.** The
+   size path documents "when a developer specifies pixels(150), they expect
+   exactly 150px" — and then places that 150px box on a 5px grid. The stated
+   principle is right; it just is not applied to the axis that matters for a
+   list.
+3. **Absolute positioning is not a general answer.** It works for one-off chrome
+   (the footer here) but a scrolling list of 2000 rows cannot hand-place its
+   children without reimplementing the column.
+4. **Choosing a pitch that IS a multiple of the grid unit is not stable.** The
+   unit changes with the window height, so the "correct" pitch would have to
+   change as the user resizes — which is the same as having no fixed pitch.
+
+**The workaround, and its cost.** There is only one lever inside the app:
+`UIStylingDefaults::get().set_grid_snapping(false)` in `preload.cpp`, which is
+global. It moves every panel in the window by up to 5px, so it is not a change a
+single component can make while four other components are being matched in
+parallel. This sidebar therefore ships with the drift: **correct at 760px tall
+(the window the whole test suite uses), 2px-per-row short at 949px (the window
+the reference was shot at).**
+
+**Severity: any measured design, at most window sizes.** This is not a sidebar
+problem. Grid snapping is on for the whole app, so every hardcoded pixel
+geometry in hanabi — tab heights, composer insets, row pitches — is a
+suggestion that the layout rounds to a unit the designer never chose and cannot
+see. The taller the window, the coarser the rounding.
+
+**Minimal upstream fix.** Honour `skip_grid_snap` in the position path too — one
+condition, and a widget that says "place me exactly" gets placed exactly.
+Better: snap the child's FINAL position from an unsnapped accumulator (the code
+already distinguishes the two and snaps both), so a column of N children drifts
+by at most one unit total rather than one unit per child.
+
+---
+
+### #66
+
+**A focus ring is painted at rest, on whatever happens to be first, with no
+"focus-visible" notion — so deleting a button moves a blue box onto a design
+element.**
+
+**What the design asks for.** The reference sidebar has no focus ring in it.
+Nothing has been clicked and nothing has been tabbed to, so nothing is ringed —
+the desktop convention, and the same convention as `:focus-visible` on the web.
+
+**What happens.** `visual_focus_id` is assigned unconditionally from `focus_id`
+(systems.h), and `focus_ring_for` paints a ring whenever
+`context.visual_focus_id == entity.id`. Focus lands on the first focusable
+element at startup, before any input, so exactly one element in the window is
+always ringed. Before this change that was the sidebar header's `+` button,
+where it read as an intentional highlight. Deleting the header — a pure design
+change with no focus intent in it — moved the ring onto the VIEWS header strip,
+a 280px-wide blue box across the top of the sidebar.
+
+**Why the obvious escapes do not work.**
+
+- **`with_skip_tabbing(true)` relocates the ring, it does not remove it.** Taking
+  the strip out of the tab order put the ring on the first view row instead —
+  a full-width row of the design, now outlined in accent blue at rest.
+- **A clickable div is a focus stop.** Any element that takes
+  `HasClickListener` joins the focus order, so a list of 18 rows is 18 focus
+  stops; there is no "mouse target, not a tab stop" (skip_tabbing is the closest
+  and, per above, only shifts the problem one element along).
+- **`theme.focus_ring_thickness = 0` removes the ring EVERYWHERE**, including
+  after a real Tab press, which is an accessibility regression rather than a
+  fix.
+
+**The workaround, and its cost.** `with_skip_tabbing(true)` on the four sidebar
+chrome controls, which pushes the ring onto a view row where it is at least
+row-shaped. ~600 pixels that no geometry work can remove, and the ring will move
+again the next time someone deletes or reorders a control.
+
+**Minimal upstream fix.** A focus-visible rule: track whether focus was last
+moved by the KEYBOARD, and paint the ring only then (`focus_source` is already
+carried on the context — `FocusSource::Pointer` vs `Explicit` — so the
+information exists and is thrown away at the ring). Failing that, an app-level
+"no ring until first keyboard focus" switch.
