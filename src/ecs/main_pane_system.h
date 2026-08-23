@@ -21,6 +21,7 @@
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
+#include "../ui/model_menu.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "ui_imports.h"
@@ -3011,6 +3012,70 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // app.openSession->messages) and clears the local draft. When the backend
     // can't reply (an unconfigured http backend), the button stays disabled-
     // styled with an honest caption instead of faking it.
+    // The model picker: a popover over the composer strip listing the models
+    // this deployment serves (src/ui/model_menu.h says where the list comes
+    // from), with the current one marked. Choosing writes the default-model
+    // preference and nothing else — there is no in-flight state to show a
+    // spinner for, because there is no per-session model verb in this client
+    // to wait on. The settings sheet's Model row reads and writes the same
+    // value, so the two can never disagree.
+    void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app, Entity& anchorEnt,
+                              const std::string& currentModel) {
+        constexpr float kRowH = 24.0f;
+        constexpr float kPopW = 210.0f;
+        const auto& models = hanabi::models::all();
+        const float popH =
+            kRowH * static_cast<float>(models.size()) + 8.0f;
+        const RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, mk(parent, 3200), anchor, app.modelPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
+                .with_roundness(0.25f)
+                .with_render_layer(7)
+                .with_debug_name("model_popover"));
+        if (!pop) return;
+        for (size_t i = 0; i < models.size(); ++i) {
+            const auto& m = models[i];
+            const bool selected = m.id == currentModel;
+            auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
+                ComponentConfig{}
+                    .with_label(std::string(m.name))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_custom_background(selected ? theme::selected_bg()
+                                                     : theme::panel_bg_2())
+                    .with_custom_hover_bg(
+                        theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(selected ? theme::text_primary()
+                                                     : theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_padding(Padding{.left = pixels(26)})
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_render_layer(8)
+                    .with_on_draw_fg([selected](RectangleType r) {
+                        // The mark is drawn, not typed: Roboto has no
+                        // geometric shapes and would paint nothing (gap #48).
+                        hanabi::glyph::radio(
+                            RectangleType{r.x + 8.0f, r.y, 12.0f, r.height},
+                            selected, selected ? theme::accent()
+                                               : theme::text_faint());
+                    })
+                    .with_debug_name("model_row_" + std::to_string(i)));
+            if (row) {
+                Settings::get().set_default_model(std::string(m.id));
+                app.modelPopoverOpen = false;
+            }
+        }
+    }
+
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH,
                          bool kickoff = false, float absX = -1.0f,
@@ -3660,10 +3725,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("composer_meta"));
-        // Left: model selector chip.
-        div(ctx, mk(meta.ent(), 1),
+        // Left: the model chip, which opens the picker. It used to read
+        // "Opus 4.8 (xhigh)" whatever the app was set to — a label, not a
+        // fact. It now says which model the next conversation will ask for
+        // (Settings' defaultModelId, the same value the settings sheet's
+        // Model row holds).
+        const std::string currentModel = Settings::get().get_default_model();
+        auto modelChip = button(ctx, mk(meta.ent(), 1),
             ComponentConfig{}
-                .with_label("Opus 4.8 (xhigh)")
+                .with_label(hanabi::models::display_name(currentModel))
                 .with_size(ComponentSize{children(), pixels(16)})
                 .with_padding(Padding{.top = pixels(1), .right = pixels(8),
                                       .bottom = pixels(1), .left = pixels(8)})
@@ -3673,8 +3743,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_alignment(TextAlignment::Left)
+                .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.5f)
                 .with_debug_name("composer_model"));
+        if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
+        if (app.escape == EscapeIntent::CloseModelPicker)
+            app.modelPopoverOpen = false;
+        render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
         // Right cluster: status caption + context/cost meter.
         auto rightMeta = div(ctx, mk(meta.ent(), 2),
             ComponentConfig{}

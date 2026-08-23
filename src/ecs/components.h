@@ -51,6 +51,7 @@ enum class EscapeIntent {
     CloseSettings,
     CloseFind,
     CloseSlashMenu,
+    CloseModelPicker,
     ClearTranscript,
 };
 
@@ -318,6 +319,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // What the router said about the last command it was handed — shown in
     // the composer strip. Cleared when the field is typed in again.
     std::string slashNotice;
+    // The composer strip's model picker. One flag: the popover is a list of
+    // models and a click, with no request in flight behind it (choosing
+    // writes the default-model preference the settings sheet also writes).
+    bool modelPopoverOpen = false;
 
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;

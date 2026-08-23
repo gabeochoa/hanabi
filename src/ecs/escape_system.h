@@ -15,6 +15,8 @@
 // draws over settings, which draws over the find bar, which sits over the
 // slash-command menu, which sits over the transcript. The auth overlay is
 // deliberately absent — login gates the app and Esc must not dismiss it.
+// composer's model picker, which sits over the transcript. The auth overlay is deliberately absent — login gates the app
+// and Esc must not dismiss it.
 //
 // Registered ahead of every consumer, so the intent is already resolved by the
 // time a UI system reads it.
@@ -46,6 +48,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseFind;
         else if (app->slashMenuOpen)
             app->escape = EscapeIntent::CloseSlashMenu;
+        else if (app->modelPopoverOpen)
+            app->escape = EscapeIntent::CloseModelPicker;
         else
             app->escape = EscapeIntent::ClearTranscript;
     }
