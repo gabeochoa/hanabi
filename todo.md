@@ -656,11 +656,10 @@ Chosen as the replacement for folder grouping. Then measured, and it cannot
 work yet:
 
 - The viewer's Spaces read WORKS. GraphQL POST to the web app host (NOT the
-  orchestrator — different service, different deployment, and a different CAT
-  verifier), `Cookie: intern_cat_token=…`, body `{"query_text": …}`. Verified:
-  HTTP 200, **8 real Spaces** (agentcloud, meta, powertools, psc, relay, stars,
-  subs, Ranking Visual Simulator). Response nests under `result.data`, not the
-  usual top-level `data`. `emoji` is null on 7 of the 8.
+  orchestrator — different service, different deployment, and a different
+  credential verifier), the token as a cookie, body `{"query_text": …}`.
+  Verified: HTTP 200, **8 real Spaces** returned. Response nests under
+  `result.data`, not the usual top-level `data`. `emoji` is null on 7 of the 8.
 - **Every one of those 8 Spaces returns ZERO sessions.** Queried each with
   `xfb_agentcloud_session_list_for_viewer`; all 8 came back `0 sessions,
   next_cursor=null`.
@@ -696,3 +695,149 @@ Transcripts refetch on every open; a 20-page walk is 10k frames. hanabi already
 has `api/disk_cache` for transcripts — check whether it is being used on the
 agentcloud path at all, and reuse the reference client's on-disk shape if it
 saves work.
+
+---
+
+# PUFFIN PARITY BACKLOG (2026-08-23)
+
+Every item from `docs/breakdown/` in one list. Each breakdown doc has the UX
+flow, the files, and how the thing gets proven — this is the index, not the
+spec. Read the doc before starting.
+
+**78 claims were examined and 22 were already shipped**, so this list is the
+survivors. Still: **grep before you build.** Two false gaps got past their own
+agent's check and were caught on review; both had hedged their wording.
+
+Sizes are the estimating agent's, not measured. Treat as order-of-magnitude.
+
+## Ship-first (no dependencies, confirmed missing)
+
+- [ ] **Screenshot harness MVP** — chunks 1-3 of `screenshot-testing.md`. Makes
+      every later UI change verifiable, and is the thing that turns afterhours
+      shortcomings from anecdote into a countable list.
+- [ ] Session rename (~80) — `session-lifecycle.md` owns it. Backend verb is
+      advertised on attach.
+- [ ] Composer history walk, Up/Down (~90) — `composer.md` owns it.
+- [ ] Muted sessions, bell toggle (~60) — machine-local, no backend needed.
+- [ ] Home shelf collapse/expand (~50).
+
+## Screenshot testing — `screenshot-testing.md`
+
+- [ ] 1. Repeat-capture determinism test
+- [ ] 2. Baseline directory + first three screens
+- [ ] 3. Comparison script + `make validate-screenshots`
+- [ ] 4. Unbaselined-screen handling
+- [ ] 5. Full baseline set
+- [ ] 6. CI gate
+- [ ] 7. Diff artifacts on failure (post-MVP)
+
+Determinism is already proven: two captures are byte-identical. It holds
+because the mock seeds timestamps as `time(nullptr) - N`, so the difference
+stays constant — **reseed the mock with absolute epochs and every time-showing
+baseline rots within a day.** Baselines must come from the mock; the real
+backend serves live production data.
+
+## Session lifecycle — `session-lifecycle.md`
+
+- [ ] Session rename (~80)
+- [ ] Session fork, `/btw` (~70)
+- [ ] Session archive — partial; state exists, UI does not (~60)
+- [ ] Session pin / star (~50)
+- [ ] Session mute (~40)
+- [ ] Sub-agent status panel — partial (~80)
+- [ ] ~~Delete session~~ **BLOCKED** — no server verb exists
+
+## Composer — `composer.md`
+
+- [ ] History walk, Up/Down (~90)
+- [ ] Slash command menu: `/new` `/model` `/effort` `/rename` `/btw` `/compact`
+- [ ] Model picker popover
+- [ ] Effort level picker
+- [ ] Undo toast for archive/pin/mute
+- [ ] Skills chip
+- [ ] Streaming animation, working dots — *filed as built, is not; nothing
+      renders one*
+
+Token meter: the bar exists but only draws with a configured context window,
+which nothing sets. Real denominator is queued separately above — do not
+re-plan it here.
+
+## Transcript — `transcript.md`
+
+- [ ] 1. Date dividers
+- [ ] 2. Thinking disclosure, collapsible
+- [ ] 3. Fold defaults for tool rows
+- [ ] 4. Message delivery status rows
+- [ ] 5. Syntax highlighting in code blocks
+- [ ] 6. Markdown H1-H4
+- [ ] 7. Streaming animation, pulsing dots
+- [ ] 8. Link auto-detection for work-tracker ids
+- [ ] 9. Exclude thinking rows from find
+- [ ] 10. Minimap navigator
+- [ ] 11. Transcript behaviour settings
+
+**Any layout change here must keep `rich_body_h` and `render_rich_body` in
+step** — they measure and draw the same thing, and drift desyncs the
+virtualization spacers. A recent change here silently mis-sized every
+multi-line bubble.
+
+## Sidebar & tabs — `sidebar-tabs.md`
+
+- [ ] Home shelf collapse/expand (~50)
+- [ ] Muted sessions bell (~60)
+- [ ] Sub-agent visibility toggle
+- [ ] Sidebar row drag-reorder (~110)
+- [ ] Search snippet highlighting in rows
+- [ ] Tab drag-reorder (~90)
+- [ ] Tab context menu: copy URL, close others, close all (~50)
+- [ ] Tab preview mode (~65)
+- [ ] ~~Space grouping~~ **BLOCKED** — sessions carry no Space; evidence above
+- [ ] ~~Folder collapse-all~~ **BLOCKED** — depends on Space grouping
+- [ ] ~~Tab scrollbar~~ **BLOCKED** — needs horizontal scroll in the UI library
+- [ ] ~~Window restoration~~ **BLOCKED** — needs multi-window architecture
+
+Anything touching the sidebar must say how it behaves at 2000+ sessions.
+
+## Search, settings, shortcuts — `search-settings-shortcuts.md`
+
+- [ ] Find operators: `is:thinking`, `has:tool`, `state:` (small)
+- [ ] Session search across threads, Cmd+Shift+F (medium) — needs a corpus;
+      say whether it is a local index over the disk cache or a server verb
+- [ ] Command palette, Cmd+K (~250)
+- [ ] Snippet highlighting in sidebar search (small)
+- [ ] Send-key configuration, Return vs Cmd+Return (small)
+- [ ] Show/hide timestamps (small)
+- [ ] Typeface picker (small)
+- [ ] Text weight picker (small)
+- [ ] Theme picker with rotation (medium)
+- [ ] Custom theme editor (medium)
+- [ ] Second global hotkey for the palette (**small** — the focus-gated Carbon
+      mechanism already exists in `native_extras.mm`; this registers one more
+      chord against it)
+- [ ] Keyboard shortcut recorder in Settings (medium)
+- [ ] Composer keyboard shortcuts (small)
+- [ ] Navigation shortcuts, arrows in lists (small)
+- [ ] Find next/prev, Cmd+G (small)
+
+**Cmd chords cannot be scripted.** The harness maps `CMD+` onto Control and
+never holds Super, so every item above that is a Cmd chord needs its test to
+drive state via a `# env:` line instead of the keystroke. Fixing it upstream is
+`HandleKeyCommand` ignoring the parsed Super flag — the UI library is not ours
+to change.
+
+## Native, notifications, attachments — `native-notifications-attachments.md`
+
+- [ ] Expanded notification types: run finished, approval needed, input
+      requested (~80)
+- [ ] Quiet hours (~50)
+- [ ] System menu bar: File / Edit / View
+- [ ] Image paste and drop in composer
+- [ ] File picker for the upload tool
+- [ ] Diff rendering for the edit tool
+
+Already built, do not rebuild: global hotkey (focus-gated), native
+notifications, menu-bar extra, Spotlight seam, deep-link handler.
+
+Most of this is unreachable by the scripted harness — notifications, menu-bar
+items and file pickers are not in the widget tree. Where the honest answer is
+"manual", the breakdown says so rather than inventing a gate.
