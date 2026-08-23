@@ -85,6 +85,16 @@ bool Settings::load_save_file() {
                 if (e.is_string())
                     collapsed_shelves_.push_back(e.get<std::string>());
         }
+        row_order_.clear();
+        if (j.contains("row_order") && j["row_order"].is_object()) {
+            for (const auto& [k, v] : j["row_order"].items()) {
+                if (!v.is_array()) continue;
+                std::vector<std::string> ids;
+                for (const auto& e : v)
+                    if (e.is_string()) ids.push_back(e.get<std::string>());
+                if (!ids.empty()) row_order_[k] = std::move(ids);
+            }
+        }
     } catch (...) {
         return false;
     }
@@ -118,6 +128,7 @@ void Settings::write_save_file() {
     j["archived"] = archived_;
     j["muted"] = muted_ids_;
     j["collapsed_shelves"] = collapsed_shelves_;
+    j["row_order"] = row_order_;
     j["last_read"] = last_read_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
@@ -222,6 +233,30 @@ void Settings::set_muted(const std::string& id, bool muted) {
         muted_ids_.erase(it);
     } else {
         return;  // no change — skip the write
+    }
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::vector<std::string>& Settings::get_row_order(
+    const std::string& folder) const {
+    static const std::vector<std::string> kNone;
+    auto it = row_order_.find(folder);
+    return it == row_order_.end() ? kNone : it->second;
+}
+const std::map<std::string, std::vector<std::string>>&
+Settings::get_all_row_order() const {
+    return row_order_;
+}
+void Settings::set_row_order(const std::string& folder,
+                             std::vector<std::string> ids) {
+    if (ids.empty()) {
+        // An empty order is the absence of one, not an empty list: keeping the
+        // key would leave "this folder is hand-arranged" true forever.
+        if (row_order_.erase(folder) == 0) return;
+    } else {
+        auto it = row_order_.find(folder);
+        if (it != row_order_.end() && it->second == ids) return;
+        row_order_[folder] = std::move(ids);
     }
     if (auto_save_enabled) write_save_file();
 }

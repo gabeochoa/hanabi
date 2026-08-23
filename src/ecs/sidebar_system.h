@@ -98,6 +98,30 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->requestToggleMute.clear();
         }
 
+        // Seed the manual row order from the durable copy, once. After this the
+        // in-memory map is the live one and every drop writes through, so the
+        // settings file and the screen never disagree.
+        if (!app->rowOrderSeeded) {
+            app->rowOrder = Settings::get().get_all_row_order();
+            app->rowOrderSeeded = true;
+        }
+
+        // Forget a folder's manual order (row menu -> "Reset order"): the rows
+        // fall back to activity order on the very next render.
+        if (!app->requestResetRowOrder.empty()) {
+            app->rowOrder.erase(app->requestResetRowOrder);
+            Settings::get().set_row_order(app->requestResetRowOrder, {});
+            app->requestResetRowOrder.clear();
+        }
+
+        // A press that never passed the drag threshold was a click. Drop the
+        // candidate once the button is up so nothing later reads it as a drag —
+        // but not on the release frame itself, which is when render_group
+        // resolves a real drop.
+        if (!ctx.mouse.left_down && !ctx.mouse.just_released &&
+            !app->rowDrag.sessionId.empty())
+            app->rowDrag = AppComponent::RowDrag{};
+
         // Cmd+B toggles the sidebar.
         bool cmdDown = hanabi::keys::cmd_down();
         if (cmdDown && hanabi::keys::pressed(hanabi::keys::kB)) {
@@ -133,10 +157,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // Scrollable region: folders + recent + archived.
-        // header(40) + search(40) + VIEWS label(25) + views block(~162, now
-        // children()-sized). Keep in rough sync with the VIEWS block so the
-        // scroll region is sized right; a few px off just changes scroll extent.
-        float used = 40.0f + 40.0f + 25.0f + 162.0f;
+        float used = kScrollTopOffset;
         float scrollH = r.height - used;
         if (scrollH < 40.0f) scrollH = 40.0f;
         auto scroll = div(ctx, mk(panel.ent(), 5),
@@ -251,10 +272,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("sb_no_results"));
         }
 
+        render_drop_line(ctx, uiRoot, *app, r, scrollH);
         render_row_menu(ctx, uiRoot, *app);
     }
 
   private:
+    // ---- drop-zone line (drag-to-reorder) ----
+    // One absolutely-positioned hairline for the WHOLE list, drawn only while a
+    // drag is live — not a per-row affordance. Its y was computed from the
+    // dragged group's rendered band (render_group), so the line the user sees
+    // and the slot the drop uses are the same number. Clamped to the scroll
+    // viewport so a drag past the last row cannot paint over the chrome.
+    void render_drop_line(UIContext<InputAction>& ctx, Entity& uiRoot,
+                          AppComponent& app, const LayoutComponent::Rect& r,
+                          float scrollH) {
+        if (!app.rowDrag.live) return;
+        const float top = r.y + kScrollTopOffset;
+        float y = std::clamp(app.rowDrag.lineY, top, top + scrollH - 2.0f);
+        div(ctx, mk(uiRoot, 8890),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(r.width - kRowLeftInset - 8.0f),
+                                         pixels(2)})
+                .with_absolute_position()
+                .with_translate(r.x + kRowLeftInset, y)
+                .with_custom_background(theme::accent())
+                .with_roundness(0.0f)
+                .with_render_layer(20)
+                .with_debug_name("row_drop_line"));
+    }
+
     // ---- right-click menu on a thread row ----
     // Anchored at the cursor, above everything. Rename… is offered only when
     // the backend actually has the verb; Archive and Mute are machine-local,
@@ -269,7 +315,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        enum class Action { Rename, Archive, Mute };
+        enum class Action { Rename, Archive, Mute, ResetOrder };
         struct Item {
             const char* label;
             const char* name;
@@ -283,6 +329,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                          "row_menu_archive", Action::Archive});
         items.push_back({target->muted ? "Unmute" : "Mute", "row_menu_mute",
                          Action::Mute});
+        // Only for a folder that has actually been hand-arranged: on every
+        // other row this would be an item that undoes nothing.
+        const std::string orderKey = group_key_for(*target);
+        if (app.rowOrder.count(orderKey) != 0)
+            items.push_back({"Reset order", "row_menu_reset_order",
+                             Action::ResetOrder});
 
         const float menuW = 150.0f;
         const float itemH = 26.0f;
@@ -353,8 +405,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;
+                    break;
                 case Action::Mute:
                     app.requestToggleMute = targetId;
+                    break;
+                case Action::ResetOrder:
+                    app.requestResetRowOrder = orderKey;
                     break;
             }
             app.close_row_menu();
@@ -403,6 +459,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // so FOLDER rows line up with the VIEWS rows above them (M4).
     static constexpr float kRowLeftInset = 16.0f;
     static constexpr float kGlyphW = 12.0f;   // leading status glyph slot
+    // Where the scrollable list starts, measured down from the sidebar's top:
+    // header(40) + search(40) + VIEWS label(25) + views block(~162, now
+    // children()-sized). Keep in rough sync with the VIEWS block so the scroll
+    // region is sized right; a few px off just changes the scroll extent. The
+    // drop-zone line clamps against it too, so both agree on where the list is.
+    static constexpr float kScrollTopOffset = 40.0f + 40.0f + 25.0f + 162.0f;
     // A count's LEFT edge (== its column start x) is the same for every
     // section: panelW − kCountRightPad − kCountColW. Given a section's own
     // left inset, the label column width is that start-x minus the left inset
@@ -1410,6 +1472,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return !folder.empty() && folder != "recent";
     }
 
+    // Which rendered GROUP a session belongs to — the key its manual row order
+    // is filed under. A named folder is its own group; everything else lands in
+    // the headerless catch-all, which renders under the "recent" key.
+    static std::string group_key_for(const api::SessionSummary& s) {
+        return is_named_folder(s.folder) ? s.folder : std::string("recent");
+    }
+
     // Title-case a folder key for display ("stars"->"Stars",
     // "whole foods"->"Whole Foods"). The raw key is still used for matching;
     // this only affects the header label. A folder that already has caps
@@ -1496,6 +1565,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                          const api::SessionSummary* b) {
                           return a->updated_at > b->updated_at;
                       });
+        }
+        // The rows the user has hand-arranged rise to the top of the group in
+        // the order they were left in; everything else keeps the activity order
+        // just established. A folder with no manual order is untouched here.
+        {
+            auto it = app.rowOrder.find(key);
+            if (it != app.rowOrder.end())
+                model::apply_row_order(members, it->second);
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
                             panelW, archived, headerless, cap);
@@ -1661,10 +1738,76 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             (expandedMore || total <= cap) ? total : cap;
 
         int i = 0;
+        // ---- drag-to-reorder over the RENDERED band ----------------------
+        // The rows below are contiguous and all kRowHeight tall, so one y (the
+        // first row's) plus the count is the whole geometry the gesture needs:
+        // the drop slot is a subtraction, not a hit test per row. That is what
+        // keeps a drag the same cost in a folder holding thousands of rows as
+        // in one holding ten — nothing off-screen is consulted, because nothing
+        // off-screen is rendered.
+        auto& drag = app.rowDrag;
+        const bool dragIsHere = drag.live && drag.folderKey == key;
+        float bandY = 0.0f;
+        bool haveBand = false;
+        std::vector<std::string> renderedIds;
+        renderedIds.reserve(static_cast<size_t>(limit));
+
         for (const auto* s : members) {
             if (i >= limit) break;
-            render_chat_row(ctx, parent, base + 1 + (++i), *s, app, archived,
-                            panelW);
+            const int slot = i;
+            afterhours::EntityID rowId =
+                render_chat_row(ctx, parent, base + 1 + (++i), *s, app,
+                                archived, panelW);
+            renderedIds.push_back(s->id);
+            if (!haveBand) {
+                auto opt = EntityHelper::getEntityForID(rowId);
+                if (opt.valid() &&
+                    opt->has<afterhours::ui::UIComponent>()) {
+                    bandY = opt->get<afterhours::ui::UIComponent>().rect().y;
+                    haveBand = true;
+                }
+            }
+            // A row is being HELD when it owns `active` with the button down —
+            // afterhours keeps active on the pressed element once the cursor
+            // leaves it, which is exactly what a drag needs. Rows past the
+            // pinned-prefix cap are not draggable: their new place could not be
+            // recorded, and a gesture that silently does nothing is worse than
+            // one that never starts.
+            if (ctx.mouse.left_down && ctx.is_active(rowId) &&
+                static_cast<size_t>(slot) < model::kRowOrderMax) {
+                if (drag.sessionId != s->id) {
+                    drag = AppComponent::RowDrag{};
+                    drag.sessionId = s->id;
+                    drag.folderKey = key;
+                    drag.fromIndex = static_cast<size_t>(slot);
+                }
+                // afterhours has already decided this press moved far enough to
+                // stop being a click (MousePointerState::press_moved), and it
+                // withholds the row's click on the same test — so a drag never
+                // also opens the thread and nothing here has to suppress it.
+                if (ctx.mouse.press_moved) drag.live = true;
+            }
+        }
+
+        if (drag.folderKey == key && !drag.sessionId.empty() && haveBand &&
+            !renderedIds.empty()) {
+            drag.visibleIds = renderedIds;
+            drag.dropIndex = model::compute_row_drop_index(
+                ctx.mouse.pos.y, bandY, kRowHeight, renderedIds.size());
+            // The line sits on the leading edge of the slot being dropped into,
+            // which is where the row will actually come to rest.
+            drag.lineY = bandY + kRowHeight * static_cast<float>(drag.dropIndex);
+        }
+
+        // Drop. The manual order is sidebar-owned state (not the shared
+        // sessions vector), so it is applied right here rather than parked as a
+        // request: the geometry that decided the slot is only in hand now.
+        if (ctx.mouse.just_released && dragIsHere && !drag.visibleIds.empty()) {
+            auto next = model::reorder_rows(drag.visibleIds, drag.sessionId,
+                                            drag.dropIndex);
+            app.rowOrder[key] = next;
+            Settings::get().set_row_order(key, std::move(next));
+            drag = AppComponent::RowDrag{};
         }
 
         // "Show N more…" expander (only when capped). Clicking adds the more-
@@ -1710,9 +1853,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- high-signal chat row ----
     // `panelW` is the live sidebar width (LayoutComponent::sidebar.width).
-    void render_chat_row(UIContext<InputAction>& ctx, Entity& parent, int id,
-                         const api::SessionSummary& s, AppComponent& app,
-                         bool archived, float panelW) {
+    // Returns the row entity's id so the caller can read its laid-out rect and
+    // its press state for drag-to-reorder.
+    afterhours::EntityID render_chat_row(UIContext<InputAction>& ctx,
+                                         Entity& parent, int id,
+                                         const api::SessionSummary& s,
+                                         AppComponent& app, bool archived,
+                                         float panelW) {
         bool attn = is_attention(s.state);
         bool selected = app.selectedId == s.id;
         // Defect #5: cron / scheduled rows are visually de-emphasized (not
@@ -1753,6 +1900,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                                : theme::hover_over(
                                                      theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
+                // Open on RELEASE, not press. afterhours withholds a click
+                // whose press moved past the drag threshold, but only on the
+                // release test — a press-activated row would have opened the
+                // thread before the drag it was starting could be seen.
+                .with_click_activation(ClickActivationMode::Release)
                 .with_roundness(0.3f)
                 .with_debug_name("chat_row"));
 
@@ -1812,6 +1964,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // faint title — so real conversations stand out even inside a bucket.
         // (Applied last so it de-emphasizes regardless of the state above.)
         if (automated) titleColor = theme::text_faint();
+        // The row being dragged reads as lifted off the list — faint, the way a
+        // semi-transparent row would, so the eye follows the drop line instead.
+        if (app.rowDrag.live && app.rowDrag.sessionId == s.id)
+            titleColor = theme::text_faint();
 
         // Title height matches the row's content box (row 24 − top/bottom
         // pad 2 = 20) so the label's own vertical-centering lands the text on
@@ -2058,6 +2214,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (rowClicked && !starClicked && !bellClicked) {
             app.requestOpenTab = s.id;
         }
+        return row.ent().id;
     }
 };
 

@@ -98,6 +98,19 @@ struct Settings {
     bool is_muted(const std::string& id) const;
     void set_muted(const std::string& id, bool muted);  // auto-persists
 
+    // Manual sidebar row order, per folder key: the ids the user has arranged,
+    // in the order they left them (see ecs::model::apply_row_order for what a
+    // manual order means). Machine-local like mute — it says how THIS list
+    // should read here, and no server field carries it. The caller bounds each
+    // list at ecs::model::kRowOrderMax, so this never grows with the session
+    // count. Auto-persists.
+    const std::vector<std::string>& get_row_order(
+        const std::string& folder) const;
+    const std::map<std::string, std::vector<std::string>>& get_all_row_order()
+        const;
+    void set_row_order(const std::string& folder,
+                       std::vector<std::string> ids);  // auto-persists
+
     // How far a thread had been READ, as the timestamp of its newest message
     // at the moment it was last open. Persisted so reopening a conversation
     // can say what arrived while you were away — without it, a thread that
@@ -179,6 +192,7 @@ struct Settings {
     std::vector<std::string> starred_ids_;
     std::map<std::string, bool> archived_;
     std::vector<std::string> muted_ids_;
+    std::map<std::string, std::vector<std::string>> row_order_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
     // Preference slots (see getters). Defaults mirror the web defaults.

@@ -238,6 +238,34 @@ struct AppComponent : public afterhours::BaseComponent {
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;
 
+    // ==== Sidebar manual row order (drag-to-reorder) ======================
+    // Folder key -> that folder's PINNED PREFIX of session ids. What the order
+    // MEANS, and why it is not a re-sort, is written up on
+    // ecs::model::apply_row_order. Seeded from Settings on the first render and
+    // written straight back on every drop, so it is machine-local and durable
+    // in the same way mute and star are.
+    std::map<std::string, std::vector<std::string>> rowOrder;
+    bool rowOrderSeeded = false;
+    // One-shot: forget a folder's manual order (the row menu's "Reset order").
+    std::string requestResetRowOrder;
+
+    // The row drag in flight. Written only by the sidebar.
+    struct RowDrag {
+        std::string sessionId;   // empty == nothing is being dragged
+        std::string folderKey;   // a drag never leaves its own folder
+        size_t fromIndex = 0;    // where the row sits in the rendered band
+        size_t dropIndex = 0;    // where it would land, recomputed each frame
+        // Screen y of the drop line, taken from the rendered band's geometry
+        // so the line the user sees and the slot they get are one number.
+        float lineY = 0.0f;
+        bool live = false;       // past the press-drag threshold
+        // The group's rows in rendered order, captured while they render; the
+        // drop rewrites this list rather than re-deriving it. Bounded by the
+        // group's render cap, not by the folder's size.
+        std::vector<std::string> visibleIds;
+    };
+    RowDrag rowDrag;
+
     // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
     // collapse into one "N tool calls" summary row (like the navi website); the
     // set holds the pile keys (first tool msg id) the user has expanded. Default
