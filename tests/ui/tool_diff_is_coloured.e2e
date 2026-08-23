@@ -1,0 +1,44 @@
+# An edit tool's patch reads as a patch: the changed lines are coloured.
+#
+# The expanded output used to be one flat grey, where "-" and "+" were the only
+# thing telling the code that WAS there from the code that IS. Now every row is
+# classified (src/util/diff.h) and drawn in its own colour.
+#
+# The harness cannot assert a colour — assert_ui knows x/y/w/h/hidden/text and
+# nothing else — so each row is NAMED by what it was read as, and reaching
+# tool_out_add_2 IS the assertion that the line was read as an addition. The
+# classification itself is pinned properly in tests/unit/test_diff.cpp,
+# including the ordinary tool output that must NOT be painted.
+#
+# The height assertion is the other half of the point. The panel's height comes
+# from tool_out_height() and its rows come from render_tool_block(); both now
+# read the same vector (tool_out_lines), and this is what says so out loud:
+#   4 rows x (kLinePitch 16 - 2) + 12 panel pad = 68
+# A row that drew and a row that was measured are the same row, or this number
+# is wrong and every virtualization spacer below this message has moved.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_OPEN=r1
+
+expect_text "Tidy up the retry backoff"
+
+# The edit call sits in a PILE with the calls around it, and the pile is what
+# the reader clicks — one head, addressed by its label, since every tool head
+# shares a debug name.
+click_text "tool calls"
+wait_frames 6
+
+# The patch, read line by line. These names exist only because the classifier
+# ran: reaching sub_out_add_2 IS the assertion that the line was read as an
+# addition.
+assert_ui sub_out_hunk_0 hidden=false
+assert_ui sub_out_del_1 hidden=false
+assert_ui sub_out_add_2 hidden=false
+assert_ui sub_out_add_3 hidden=false
+
+# The grep call in the same pile is not a diff, and none of its lines may be
+# coloured as one — plain output keeps the plain name.
+assert_ui sub_out_line_0 hidden=false
+
+# Measured == drawn: the panel is 4 rows at (kLinePitch 16 - 2) + 8 + 4 pad.
+assert_ui sub_out h=68
