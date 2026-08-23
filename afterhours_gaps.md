@@ -2983,3 +2983,48 @@ this. Every one of them can add a trailing absolute child.
 owns without owning an extra entity to do it. The buffer already carries
 per-entity custom draws; this is one more insertion point in the walk that is
 already there.
+
+---
+
+### #64 — no window-level chrome: a rule that spans panels cannot belong to any of them
+
+**What the design asks for.** Puffin parts its sidebar from its main pane with
+ONE hairline: a single pixel at x=279, colour `#2A2A39`, running the entire
+window height — over the tab strip above it and over the footer below it, and
+over the selected row it crosses. Not three segments that agree; one rule.
+
+**Why no border can do it.** `with_border_right` exists and is the obvious
+answer, and it fails twice over.
+
+1. **A border is clipped to its own panel's rect.** hanabi's frame is four
+   absolutely-positioned panels — sidebar, tab strip, main, status bar — and
+   they do not tile the window: the sidebar's height is `contentH = h - barH`,
+   because the status bar spans the FULL width underneath it. A border on the
+   sidebar therefore stops ~24px short of the bottom, and no panel exists whose
+   rect is the thing the rule needs to run along.
+2. **A parent's border is painted under its own children** — the same ordering
+   #63 documents: `collect()` enqueues a parent's primitives and only then
+   descends. Every sidebar row is full-width, so the selected row would erase
+   the border wherever it crosses. (Puffin's rule draws OVER its selected row.)
+
+**The workaround, and its cost.** A fifth floating entity that belongs to no
+panel: a 1px-wide, window-height, absolutely-positioned div parented to the UI
+root (`render_rail_divider`, `sidebar_system.h`). 27 lines including the
+explanation. The expensive part is not the lines, it is the **render layer**:
+the div has to sit above the status bar and the tab strip and below the row
+menu, and the only way to learn those numbers is to grep four unrelated systems
+for `with_render_layer` and pick an unused integer (7) by hand. Layers are bare
+ints with no registry and no names, so this is a global ordering decision made
+locally, and nothing detects a future collision.
+
+**Severity: works, but every piece of window chrome pays it.** Anything that is
+"of the frame" rather than "of a panel" — a rail divider, a drag-resize handle,
+a window-wide focus ring, a drop-target outline — needs its own orphan entity
+and its own hand-picked layer.
+
+**Minimal upstream fix.** Two independent things, either of which helps:
+(a) named render layers, or at minimum a `Layer::Chrome`-style enum the app can
+extend, so ordering is declared once instead of rediscovered per call site;
+(b) a border mode that draws with the parent's foreground pass rather than its
+background one, so `with_border_right` survives its own children (this is #63's
+`on_draw_over` by another name — one fix would serve both).

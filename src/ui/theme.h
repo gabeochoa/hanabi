@@ -34,6 +34,14 @@ struct Tokens {
     Color panel_bg_2;  // search field, tab hover surfaces
     Color border;
     Color border_soft;
+    // The sidebar's section-header strip (VIEWS / FOLDERS). A named surface
+    // rather than a reuse of panel_bg_2, because the strip and the search field
+    // are measurably different colours on the reference.
+    Color section_header_bg;
+    // The single hairline parting the sidebar from the main pane. Distinct from
+    // `border`: the vertical rail divider is measurably darker than the
+    // horizontal rules the rest of the app draws with border.
+    Color divider;
 
     // Text
     Color text_primary;
@@ -101,22 +109,34 @@ struct Tokens {
 
 // -------- Dark palette (anchor / default) --------
 //
-// ELEVATION SYSTEM (dark). Surfaces read as a subtle 3-step stack so the eye
-// can parse structure without harsh contrast (this is a pro tool, not a
-// high-contrast theme). Each step is a distinct, measurable value:
-//   L0 base    (window_bg)  {24,24,28}  — the deepest recessed plane
-//   L0 sidebar (sidebar_bg) {19,19,23}  — chrome rail, a touch below base
-//   L1 raised  (panel_bg)   {33,33,39}  — cards / panels / active tab
-//   L2 overlay (panel_bg_2) {42,42,49}  — search field, hover surfaces, chips
-// The gap between neighbouring layers is ~8-9 in luma (vs the old ~6 that made
-// everything blend), and the border is bumped so dividers are actually seen.
+// ONE BACKGROUND. Every value below with a hex beside it was read off a real
+// Puffin window with ~/w/vis/probe.py, not chosen. Puffin does not run a
+// 3-step elevation stack: the sidebar, the main pane, the tab strip, the
+// composer plane and even the composer's own input are all the SAME #171723,
+// and structure is carried by hairlines and by two named surfaces rather than
+// by tinting each plane a different value. The three-step ladder that used to
+// live here (base 24 / sidebar 19 / raised 33 / overlay 42) is what made every
+// side-by-side screenshot read as a different app at a glance.
+//
+//   flat plane   window_bg / sidebar_bg / panel_bg  #171723  everything
+//   header strip section_header_bg                  #22222D  VIEWS / FOLDERS
+//   selection    selected_bg                        #2E3A58  row + active tab
+//   rail hairline divider                           #2A2A39  sidebar -> main
+//   recessed     panel_bg_2                         #242430  search field
+//
+// panel_bg is now the same value as window_bg on purpose. It keeps its own
+// token because it means "the content plane" and a future palette may part the
+// two again; raised surfaces (cards, chips, the search pill) use panel_bg_2,
+// which is what actually separates them from the plane now.
 inline const Tokens kDark = {
-    /*window_bg*/ {24, 24, 28, 255},
-    /*sidebar_bg*/ {19, 19, 23, 255},
-    /*panel_bg*/ {33, 33, 39, 255},
-    /*panel_bg_2*/ {42, 42, 49, 255},
+    /*window_bg*/ {23, 23, 35, 255},   // #171723
+    /*sidebar_bg*/ {23, 23, 35, 255},  // #171723 — no separate rail tint
+    /*panel_bg*/ {23, 23, 35, 255},    // #171723 — the main pane is the window
+    /*panel_bg_2*/ {36, 36, 48, 255},  // #242430 — search fill
     /*border*/ {62, 62, 72, 255},
     /*border_soft*/ {255, 255, 255, 20},
+    /*section_header_bg*/ {34, 34, 45, 255},  // #22222D
+    /*divider*/ {42, 42, 57, 255},            // #2A2A39
 
     /*text_primary*/ {224, 224, 230, 255},
     /*text_secondary*/ {142, 142, 154, 255},
@@ -131,7 +151,7 @@ inline const Tokens kDark = {
     /*button_primary*/ {90, 128, 255, 255},
     /*button_secondary*/ {58, 58, 66, 255},
     /*hover_bg*/ {255, 255, 255, 16},
-    /*selected_bg*/ {52, 72, 128, 255},
+    /*selected_bg*/ {46, 58, 88, 255},  // #2E3A58 — selected row + active tab
     /*row_separator*/ {46, 46, 54, 255},
     /*focus_ring*/ {90, 128, 255, 255},
 
@@ -184,6 +204,19 @@ inline const Tokens kDark = {
 
 // -------- Light palette --------
 //
+// LEFT ALONE, deliberately. Puffin has no light theme to measure and no light
+// mode to switch into: it does not follow the system appearance at all. Its
+// palette is one of ten NAMED themes (`LinkTheme` in
+// fbobjc/Apps/Internal/Puffin/Sources/Models/Models.swift), chosen by the
+// reader and stored under the `theme` default as a NAME — an unrecognised
+// value there resolves to Hyrule, so `defaults write com.meta.puffin theme
+// -string light` would not produce a light Puffin, it would produce Hyrule.
+// The window chrome reads that same theme (`PuffinTheme.Chrome`), so every
+// number in the dark palette above is the "Navi" preset's chrome, not a dark
+// mode. Three of the ten presets are pale (Light World, Daylight, Puffin Day),
+// but picking one of them as "the light Puffin" would be a choice, not a
+// measurement — so nothing below changed. See the report / friction log.
+//
 // Independently tuned (NOT an inversion of dark). ELEVATION in light mode runs
 // the other way: a faintly grey base with progressively WHITER raised surfaces.
 //   L0 base    (window_bg)  {238,238,242} — recessed plane
@@ -212,6 +245,14 @@ inline const Tokens kLight = {
     /*panel_bg_2*/ {242, 242, 245, 255},  // search field / recessed surfaces
     /*border*/ {209, 209, 216, 255},      // crisp hairline (was too dark 176)
     /*border_soft*/ {0, 0, 0, 22},
+    // The two surfaces the dark palette gained for Puffin parity. These are
+    // NOT derived from the dark values and NOT an inversion of them: Puffin has
+    // no light theme to measure (see below), so each takes the light palette's
+    // OWN existing value for the same role — the recessed surface for the
+    // header strip, the hairline for the rail divider. No existing light token
+    // moved.
+    /*section_header_bg*/ {242, 242, 245, 255},
+    /*divider*/ {209, 209, 216, 255},
 
     /*text_primary*/ {33, 33, 43, 255},
     /*text_secondary*/ {85, 85, 95, 255},
@@ -442,6 +483,8 @@ inline Color panel_bg() { return t.panel_bg; }
 inline Color panel_bg_2() { return t.panel_bg_2; }
 inline Color border() { return t.border; }
 inline Color border_soft() { return t.border_soft; }
+inline Color section_header_bg() { return t.section_header_bg; }
+inline Color divider() { return t.divider; }
 inline Color text_primary() { return t.text_primary; }
 inline Color text_secondary() { return t.text_secondary; }
 inline Color text_faint() { return t.text_faint; }

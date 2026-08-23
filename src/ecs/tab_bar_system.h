@@ -31,28 +31,26 @@
 namespace ecs {
 
 namespace tab_colors {
-// Three-level elevation ladder so tabs read as physical tabs, not a segmented
-// toolbar. The review flagged the old two-token scheme (strip==inactive, only a
-// ~15L active/inactive delta) as "near-invisible". We now use a monotonic
-// triple that keeps its ordering in BOTH dark and light:
+// Two levels, not three. The review that produced the old ladder was right
+// that a ~15L active/inactive delta is near-invisible, but it solved that by
+// tinting three planes at different values, and the reference does the
+// opposite: everything is one background and the ACTIVE tab is the only thing
+// that is a different colour at all.
 //
-//              dark L   light L
-//   strip_bg   panel_bg     34      255   the content plane (no dark void)
-//   inactive   window_bg    24      238   recessed WELL, distinct from strip
-//   active     panel_bg     34      255   RAISED surface == the content pane
+//              dark          hex        role
+//   strip_bg   window_bg     #171723    the one background
+//   inactive   window_bg     #171723    the same — hairline + text only
+//   active     selected_bg   #2E3A58    the only filled surface in the strip
 //
-// The ACTIVE tab fills with panel_bg — the exact color of the transcript/main
-// pane directly below it (main_pane_system) — so it reads as one continuous
-// raised surface "lifted out of" the strip (we also bridge the strip's bottom
-// hairline under it, below). The STRIP now ALSO uses panel_bg so the empty area
-// to the RIGHT of the last tab reads as the same continuous chrome plane as the
-// content below — not a darker "unfinished" black well (the old sidebar_bg
-// strip left a hard dark void beside a single tab). INACTIVE tabs sit one step
-// DOWN (window_bg) as their own recessed wells, so each still reads as a
-// discrete tab. On hover an inactive tab gets a faint additive wash over its
-// own fill (theme::over, gap #13 — a subtle tint, never a solid block).
-inline afterhours::Color strip_bg() { return theme::panel_bg(); }
-inline afterhours::Color tab_active() { return theme::panel_bg(); }
+// The ACTIVE tab fills with selected_bg (#2E3A58 on the reference) — the SAME
+// fill the selected sidebar row uses, which is what makes "this is the current
+// thing" read the same in both places. The strip and the INACTIVE tabs are both
+// the window colour, so an inactive tab is invisible except for its hairline
+// and its text: on the reference there is no recessed well behind it. On hover
+// an inactive tab gets a faint additive wash over its own fill (theme::over,
+// gap #13 — a subtle tint, never a solid block).
+inline afterhours::Color strip_bg() { return theme::window_bg(); }
+inline afterhours::Color tab_active() { return theme::selected_bg(); }
 inline afterhours::Color tab_inactive() { return theme::window_bg(); }
 inline afterhours::Color tab_hover() {
     return theme::over(theme::hover_bg(), theme::window_bg());
