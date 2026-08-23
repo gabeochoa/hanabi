@@ -144,7 +144,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
             (kGroupH + ctrlRow * 3.0f) +          // Appearance: Theme + Rotate + Font
-            (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
+            (kGroupH + ctrlRow * 6.0f) +          // Behavior: 6 rows
             (kGroupH + ctrlRow * 2.0f) +          // Notifications: Sound + Quiet hours
             (kGroupH + ctrlRow);                  // Model: default model
         const float ctrlRowRight = kRowNameFoot + kThemeRowH;
@@ -293,6 +293,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_memory_backend_row(ctx, L, *app);
             render_timestamps_row(ctx, L, *app);
             render_send_key_row(ctx, L, *app);
+            render_subagents_row(ctx, L, *app);
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
             render_quiet_hours_row(ctx, L, *app);
@@ -1048,6 +1049,23 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                            Settings::get().set_send_key(
                                i == 1 ? hanabi::kSendKeyCmdReturn
                                       : hanabi::kSendKeyReturn);
+                       });
+    }
+
+    // Sub-agent chips in the transcript rollup: hide the finished ones, or
+    // list them all. Global, and local-only — how much of a thread's helper
+    // work this machine wants to read is not a preference another device wants
+    // pushed onto it.
+    void render_subagents_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 142, "Finished sub-agents",
+                 "settings_subagents_label");
+        const bool on = Settings::get().get_show_finished_subagents();
+        real_segmented(ctx, parent, 143, {"Hide", "Show"}, on ? 1 : 0,
+                       "settings_subagents",
+                       [](int i) {
+                           Settings::get().set_show_finished_subagents(i == 1);
                        });
     }
 

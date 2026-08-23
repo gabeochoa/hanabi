@@ -1672,10 +1672,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (subs.empty()) return 0.0f;
         float total = kSubAgentMargin + kSubAgentRowH + kSubAgentMargin;
         if (app.expandedPiles.count("__subagents__") != 0) {
-            const int rows = (static_cast<int>(subs.size()) + 2) / 3;
+            const int rows = (chip_count(subs) + 2) / 3;
             total += 6.0f + rows * (kSubAgentChipH + 6.0f);
         }
         return total;
+    }
+
+    // Does this sub-agent get a chip of its own? A finished one does not,
+    // unless the reader has asked for finished work: on a thread that spawned
+    // a dozen helpers it is the done ones that bury the two still running.
+    // Global, so the answer is the same in every thread — Settings ->
+    // Behavior -> Sub-agents.
+    static bool sub_agent_listed(const api::SubAgent& sa) {
+        return sa.state != api::SubAgentState::Done ||
+               Settings::get().get_show_finished_subagents();
+    }
+
+    // How many chips the expanded rollup draws: the listed sub-agents, plus one
+    // more saying how many were left out. The measure pass and the render have
+    // to agree on this or the transcript reserves the wrong height.
+    static int chip_count(const std::vector<api::SubAgent>& subs) {
+        int listed = 0;
+        for (const auto& sa : subs)
+            if (sub_agent_listed(sa)) ++listed;
+        const int hidden = static_cast<int>(subs.size()) - listed;
+        return listed + (hidden > 0 ? 1 : 0);
     }
 
     float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
@@ -1762,11 +1783,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("subrollup_chips"));
             int i = 0;
+            int hidden = 0;
             for (const auto& sa : subs) {
+                if (!sub_agent_listed(sa)) {
+                    ++hidden;
+                    continue;
+                }
                 sub_chip(ctx, chips.ent(), 10 + i, sub_glyph_for(sa.state),
                          sa.title);
                 ++i;
             }
+            // What was left out, said out loud. A list that quietly omits rows
+            // is a list you cannot trust; this is also the way back — the
+            // control it names is one global setting, not a per-thread one.
+            if (hidden > 0)
+                sub_chip(ctx, chips.ent(), 10 + i, SubGlyph::Done,
+                         std::to_string(hidden) + " finished hidden");
         }
         return total;
     }

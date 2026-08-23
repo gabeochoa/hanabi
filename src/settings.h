@@ -194,6 +194,14 @@ struct Settings {
     // settings, and a test can rotate in a second.
     int get_theme_rotate_secs() const;
     void set_theme_rotate_secs(int secs);  // auto-persists
+    // List sub-agents that have FINISHED in the transcript's sub-agent rollup.
+    // Global (not per session or per thread) and off by default: a finished
+    // sub-agent has nothing left to say, and on a thread that spawned dozens it
+    // is the finished ones that bury the two still working. The rollup's
+    // headline still counts every sub-agent whatever this says, so turning it
+    // off hides chips, never the fact that the work happened. Auto-persists.
+    bool get_show_finished_subagents() const;
+    void set_show_finished_subagents(bool on);  // auto-persists
 
     // Memory backend: "traditional" (default) or "hindsight".
     const std::string& get_memory_backend() const;
@@ -255,6 +263,7 @@ struct Settings {
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
     int theme_rotate_secs_ = 0;
+    bool show_finished_subagents_ = false;
     int quiet_start_minutes_ = 0;
     int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";

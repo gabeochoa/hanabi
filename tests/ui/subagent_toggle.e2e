@@ -1,0 +1,39 @@
+# The sub-agent rollup lists the helpers still working, and says how many
+# finished ones it left out. One global setting decides, and it lives in
+# Settings, not in the thread — the whole point is that it applies everywhere.
+#
+# t2 spawned two sub-agents: one running, one done. Every assertion here is
+# about the DONE one, because that is the only thing the setting moves; the
+# headline still counts both whatever it says, so a hidden chip never hides the
+# fact that the work happened.
+#
+# Driven through the real Settings sheet (the gear, not a state knob): the
+# preference is only worth having if the control writes it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+# The headline counts everything, folded.
+expect_text "2 sub-agents"
+expect_no_text "Duplicate-payout check"
+
+# Unfolded, and still no finished chip — but it is accounted for.
+click_ui subrollup_head
+wait_frames 8
+expect_text "Ledger diff scan"
+expect_no_text "Duplicate-payout check"
+expect_text "1 finished hidden"
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Finished sub-agents"
+click_ui settings_subagents_1
+wait_frames 8
+click_ui settings_close
+wait_frames 10
+
+# Now the finished one has its own chip and there is nothing left to account
+# for. The headline is unchanged, which is the point.
+expect_text "2 sub-agents"
+expect_text "Ledger diff scan"
+expect_text "Duplicate-payout check"
+expect_no_text "finished hidden"
