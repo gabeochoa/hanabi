@@ -1,0 +1,13 @@
+# The mode is the thread's, and it survives the launch that set it.
+#
+# This app starts with rfold already set to Expand all (settings `tool_fold`),
+# and both piles are open before anything is clicked. A mode that has to be
+# re-picked every launch is not a preference, it is a keystroke.
+#
+# settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark","tool_fold":{"rfold":1}}
+# env: HANABI_FOLD_DEMO=1 HANABI_OPEN=rfold
+
+expect_text "182 cache/evict.rs"
+expect_text "lru_drops_the_oldest_entry_first"
+# The chip says which mode is in force, so the state is legible, not implicit.
+expect_text "Tools: Expanded"

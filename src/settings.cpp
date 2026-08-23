@@ -70,6 +70,11 @@ bool Settings::load_save_file() {
                 if (v.is_number_integer())
                     last_read_[k] = v.get<int64_t>();
         }
+        tool_fold_.clear();
+        if (j.contains("tool_fold") && j["tool_fold"].is_object()) {
+            for (const auto& [k, v] : j["tool_fold"].items())
+                if (v.is_number_integer()) tool_fold_[k] = v.get<int>();
+        }
         starred_ids_.clear();
         if (j.contains("starred") && j["starred"].is_array()) {
             for (const auto& e : j["starred"])
@@ -143,6 +148,7 @@ void Settings::write_save_file() {
     j["collapsed_shelves"] = collapsed_shelves_;
     j["row_order"] = row_order_;
     j["last_read"] = last_read_;
+    j["tool_fold"] = tool_fold_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
 }
@@ -330,6 +336,18 @@ void Settings::set_last_read(const std::string& id, int64_t stamp) {
     auto it = last_read_.find(id);
     if (it != last_read_.end() && it->second == stamp) return;  // no churn
     last_read_[id] = stamp;
+    if (auto_save_enabled) write_save_file();
+}
+
+int Settings::get_tool_fold(const std::string& id) const {
+    auto it = tool_fold_.find(id);
+    return it == tool_fold_.end() ? 0 : it->second;
+}
+void Settings::set_tool_fold(const std::string& id, int mode) {
+    if (id.empty()) return;
+    auto it = tool_fold_.find(id);
+    if (it != tool_fold_.end() && it->second == mode) return;  // no churn
+    tool_fold_[id] = mode;
     if (auto_save_enabled) write_save_file();
 }
 
