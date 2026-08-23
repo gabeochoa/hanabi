@@ -202,4 +202,17 @@ inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
                                   afterhours::vec2{cx, cy + s}, c);
 }
 
+// A radio mark: a ring, filled when it is the current choice. Drawn rather
+// than typed for the same reason the chevron is — the font has no geometric
+// shapes, and a missing codepoint paints nothing at all.
+inline void radio(RectangleType rect, bool selected, theme::Color c,
+                  float radius = 4.0f) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    afterhours::draw_ring(cx, cy, radius - 1.0f, radius, 24, c);
+    if (selected)
+        afterhours::draw_circle(static_cast<int>(cx), static_cast<int>(cy),
+                                radius - 2.0f, c);
+}
+
 }  // namespace hanabi::glyph

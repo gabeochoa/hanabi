@@ -20,6 +20,7 @@
 #include "../ui/find_highlight.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
+#include "../ui/effort_menu.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "ui_imports.h"
@@ -3010,6 +3011,69 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // app.openSession->messages) and clears the local draft. When the backend
     // can't reply (an unconfigured http backend), the button stays disabled-
     // styled with an honest caption instead of faking it.
+    // The effort picker: a popover over the composer strip with the server's
+    // own ladder (src/ui/effort_menu.h), the current level marked. Choosing
+    // writes the local preference and closes — there is no request in flight,
+    // so there is no spinner and no "patching…" state to show. A slider was
+    // the sketch; five discrete named levels are not a continuum, and a row
+    // per level says what each one means where a notch cannot.
+    void render_effort_popover(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app, Entity& anchorEnt,
+                               const std::string& currentEffort) {
+        constexpr float kRowH = 30.0f;
+        constexpr float kPopW = 230.0f;
+        const auto& levels = hanabi::effort::all();
+        const float popH = kRowH * static_cast<float>(levels.size()) + 8.0f;
+        const RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, mk(parent, 3300), anchor, app.effortPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
+                .with_roundness(0.25f)
+                .with_render_layer(7)
+                .with_debug_name("effort_popover"));
+        if (!pop) return;
+        for (size_t i = 0; i < levels.size(); ++i) {
+            const auto& lv = levels[i];
+            const bool selected = lv.id == currentEffort;
+            auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
+                ComponentConfig{}
+                    .with_label(std::string(lv.name) + "   \xc2\xb7   " +
+                                std::string(lv.note))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_custom_background(selected ? theme::selected_bg()
+                                                     : theme::panel_bg_2())
+                    .with_custom_hover_bg(
+                        theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(selected ? theme::text_primary()
+                                                     : theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_padding(Padding{.left = pixels(26)})
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_render_layer(8)
+                    .with_on_draw_fg([selected](RectangleType r) {
+                        // Drawn, not typed: Roboto has no geometric shapes and
+                        // a codepoint it lacks paints nothing (gap #48).
+                        hanabi::glyph::radio(
+                            RectangleType{r.x + 8.0f, r.y, 12.0f, r.height},
+                            selected,
+                            selected ? theme::accent() : theme::text_faint());
+                    })
+                    .with_debug_name("effort_row_" + std::to_string(i)));
+            if (row) {
+                Settings::get().set_default_effort(std::string(lv.id));
+                app.effortPopoverOpen = false;
+            }
+        }
+    }
+
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH,
                          bool kickoff = false, float absX = -1.0f,
@@ -3452,10 +3516,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("composer_meta"));
-        // Left: model selector chip.
+        // Left: model selector chip. The effort it used to claim in
+        // parentheses now has a control of its own beside it, so the strip
+        // stops naming a level nothing set. (The model name itself is still a
+        // placeholder — that is the model picker's own piece of work.)
         div(ctx, mk(meta.ent(), 1),
             ComponentConfig{}
-                .with_label("Opus 4.8 (xhigh)")
+                .with_label("Opus 4.8")
                 .with_size(ComponentSize{children(), pixels(16)})
                 .with_padding(Padding{.top = pixels(1), .right = pixels(8),
                                       .bottom = pixels(1), .left = pixels(8)})
@@ -3467,6 +3534,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.5f)
                 .with_debug_name("composer_model"));
+        // The effort chip, right of the model: how hard the model is asked to
+        // think on the work you start next.
+        const std::string currentEffort = Settings::get().get_default_effort();
+        auto effortChip = button(ctx, mk(meta.ent(), 2),
+            ComponentConfig{}
+                .with_label("Effort: " +
+                            hanabi::effort::display_name(currentEffort))
+                .with_size(ComponentSize{children(), pixels(16)})
+                .with_margin(Margin{.left = pixels(6)})
+                .with_padding(Padding{.top = pixels(1), .right = pixels(8),
+                                      .bottom = pixels(1), .left = pixels(8)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_alignment(TextAlignment::Left)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.5f)
+                .with_debug_name("composer_effort"));
+        if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
+        if (app.escape == EscapeIntent::CloseEffortPicker)
+            app.effortPopoverOpen = false;
+        render_effort_popover(ctx, parent, app, effortChip.ent(),
+                              currentEffort);
+
         // Right cluster: status caption + context/cost meter.
         auto rightMeta = div(ctx, mk(meta.ent(), 2),
             ComponentConfig{}

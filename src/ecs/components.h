@@ -50,6 +50,7 @@ enum class EscapeIntent {
     CloseShortcuts,
     CloseSettings,
     CloseFind,
+    CloseEffortPicker,
     ClearTranscript,
 };
 
@@ -303,6 +304,10 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string stashedDraft;
     };
     std::map<std::string, ComposerHistory> composerHistory;
+
+    // The composer strip's effort picker. One flag: the popover is a list of
+    // levels and a click, with nothing in flight behind it.
+    bool effortPopoverOpen = false;
 
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;

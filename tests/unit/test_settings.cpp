@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "../../src/settings.h"
+#include "../../src/ui/effort_menu.h"
 #include "../../src/util/quiet_hours.h"
 #include "../../src/api/mock_client.h"  // pulls in client.h (Config + Client)
 
@@ -144,6 +145,38 @@ static void test_shelf_fold_round_trips() {
     CHECK(!s.is_shelf_collapsed("waiting"));
 }
 
+// --- Effort level: the ladder, and the settings round-trip ----------------
+static void test_effort_round_trips() {
+    std::printf("test_effort_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    namespace ef = hanabi::effort;
+
+    // A fresh install sits on the ladder's own default rather than an
+    // invented one.
+    CHECK(s.get_default_effort() == ef::default_id());
+    CHECK(ef::display_name("high") == "High");
+
+    s.set_default_effort("xhigh");
+    CHECK(s.get_default_effort() == "xhigh");
+    // Reading the file back is the whole point: a level that lives only in
+    // memory is gone on the next launch.
+    s.load_save_file();
+    CHECK(s.get_default_effort() == "xhigh");
+
+    // It stays OUT of the backend preference push — there is no confirmed
+    // field for it, and a guessed key would ride every other preference.
+    s.clear_settings_dirty();
+    s.set_default_effort("low");
+    CHECK(!s.is_settings_dirty());
+
+    // The tokens are the server's own; anything else is shown as itself
+    // rather than quietly redrawn as a level it is not.
+    CHECK(ef::index_of("max") < ef::all().size());
+    CHECK(ef::index_of("maximum") == ef::all().size());
+    CHECK(ef::display_name("maximum") == "maximum");
+}
+
 // --- Quiet hours: the window, and the settings round-trip -----------------
 static void test_quiet_hours_window() {
     std::printf("test_quiet_hours_window\n");
@@ -187,6 +220,7 @@ int main() {
     test_mock_settings_write();
     test_settings_write_config_gate();
     test_shelf_fold_round_trips();
+    test_effort_round_trips();
     test_quiet_hours_window();
     test_quiet_hours_persist();
     if (g_failures == 0) {
