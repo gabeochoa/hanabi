@@ -13,7 +13,7 @@
 # deliberately generous now and easy to tighten (edit the two constants below).
 #
 # Runs the app in the BACKGROUND with a hard timeout + guaranteed
-# `pkill -9 -f hanabi.exe` cleanup, so it never hangs a 5s foreground shell and
+# scoped `pkill` cleanup, so it never hangs a 5s foreground shell and
 # never leaves a stray process.
 set -uo pipefail
 
@@ -24,13 +24,17 @@ RSS_CEILING_MB=250       # Phase X: peak RSS < 250 MB
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-EXE="./output/hanabi.exe"
+EXE="$ROOT/output/hanabi.exe"
 SHOT="$(mktemp -t hanabi_launch_XXXX).png"
 LOG="$(mktemp -t hanabi_launch_XXXX).log"
 TIMELOG="$(mktemp -t hanabi_launch_XXXX).time"
 RUN_TIMEOUT=15  # seconds; headless one-shot is ~0.2s, this is a safety net
 
-cleanup() { pkill -9 -f hanabi.exe >/dev/null 2>&1 || true; rm -f "$SHOT" "$LOG" "$TIMELOG"; }
+# Stray cleanup is scoped to THIS worktree's binary path: several checkouts
+# measure and capture on one machine at a time, and `pkill -f hanabi.exe` kills
+# the other worktrees' runs.
+kill_own_runs() { pkill -9 -f "^$EXE" >/dev/null 2>&1 || true; }
+cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG" "$TIMELOG"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
@@ -62,7 +66,7 @@ BEST_FF=""; BEST_RSS=""; STARTUP_MS=""
 for attempt in 1 2 3 4 5 6; do
     ( /usr/bin/time -l "$EXE" --screenshot "$SHOT" >"$LOG" 2>"$TIMELOG" ) &
     APP_PID=$!
-    ( sleep "$RUN_TIMEOUT"; kill -9 "$APP_PID" >/dev/null 2>&1; pkill -9 -f hanabi.exe >/dev/null 2>&1 ) &
+    ( sleep "$RUN_TIMEOUT"; kill -9 "$APP_PID" >/dev/null 2>&1; kill_own_runs ) &
     WATCH_PID=$!
     wait "$APP_PID" 2>/dev/null
     APP_RC=$?
@@ -115,7 +119,7 @@ if [ "${HANABI_MEASURE_WINDOWED:-0}" != "0" ]; then
     WLOG="$(mktemp -t hanabi_win_XXXX).log"
     ( HANABI_QUIT_AFTER_FIRST_FRAME=1 HANABI_STARTUP_PROF=1 \
         timeout "$RUN_TIMEOUT" "$EXE" >"$WLOG" 2>&1 ) || true
-    pkill -9 -f hanabi.exe >/dev/null 2>&1 || true
+    kill_own_runs
     WFF=$(grep -Eo 'WindowedFirstFrame: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
     WGFX=$(grep -Eo 'Gfx init: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
     WAPP=$(grep -Eo 'App init: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
