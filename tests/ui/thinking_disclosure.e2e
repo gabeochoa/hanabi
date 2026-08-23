@@ -1,0 +1,25 @@
+# Reasoning arrives folded, and opens when you ask for it.
+#
+# The adapter already marks a thinking block ("it is not the answer" —
+# agentcloud_client.cpp), and the transcript rendered it as an ordinary
+# assistant bubble: the model's private reasoning read as something it said to
+# you, at full length, above the actual reply.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_THINKING_DEMO=1 HANABI_OPEN=rthink
+
+# The answer is here from the start.
+expect_text "The budget is per-request"
+# The reasoning is not — only the row that offers it.
+expect_text "Thought for a moment"
+expect_no_text "The backoff doubles from 200ms"
+
+click_ui thinking_head
+wait_frames 8
+expect_text "The backoff doubles from 200ms"
+
+# And it folds again.
+click_ui thinking_head
+wait_frames 8
+expect_no_text "The backoff doubles from 200ms"
+expect_text "The budget is per-request"

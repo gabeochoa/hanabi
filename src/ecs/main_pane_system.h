@@ -1644,7 +1644,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
     struct Item {
         enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider,
-                    DateDivider } kind;
+                    DateDivider, Thinking } kind;
         int lo = 0;
         int hi = 0;
         float height = 0.0f;
@@ -2610,6 +2610,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ++i;
                     continue;
                 }
+                if (is_thinking(m) &&
+                    !(streamingHere && static_cast<size_t>(i) == liveIdx)) {
+                    Item it;
+                    it.kind = Item::Thinking;
+                    it.lo = i;
+                    it.height = thinking_height(app, m, i, colW);
+                    totalH += it.height;
+                    items.push_back(it);
+                    ++i;
+                    continue;
+                }
                 Item it;
                 it.kind = Item::Bubble;
                 it.lo = i;
@@ -2922,6 +2933,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case Item::DateDivider:
                     date_divider(ctx, col, it.lo, msgs[it.lo].created_at,
                                  colW);
+                    break;
+                case Item::Thinking:
+                    render_thinking_block(ctx, col, it.lo, msgs[it.lo], app,
+                                          colW);
                     break;
             }
         }
@@ -5637,6 +5652,110 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // work, and render a DISTINCT inline card (sparkle + "Spawned agent" +
     // the task) at the point in the transcript where it happened (Gabe: "add UI
     // for when a thing is spawned"), instead of a generic tool row.
+    // ---------------- Thinking disclosure ----------------------------------
+    //
+    // The adapter marks a reasoning block by subtitle (agentcloud_client.cpp:
+    // "it is not the answer"), and until now the transcript rendered it as an
+    // ordinary assistant bubble — so the model's private reasoning read as
+    // something it said to you, at full length, above the actual reply.
+    //
+    // It renders folded: one quiet row saying how much reasoning there is.
+    // Open it and the text appears in the same dimmed treatment. The chevron
+    // is drawn rather than typed (the font has no triangles, gap #48).
+    static constexpr float kThinkingRowH = 26.0f;
+    static constexpr float kThinkingInset = 22.0f;
+    static constexpr float kThinkingPadBot = 8.0f;
+
+    static bool is_thinking(const api::Message& m) {
+        return m.role == api::Role::Assistant && m.subtitle == "thinking";
+    }
+
+    static std::string thinking_key(const api::Message& m, int index) {
+        return m.id.empty() ? ("think" + std::to_string(index)) : m.id;
+    }
+
+    // Measure and draw read this one function, so a fold cannot desync the
+    // virtualization spacers from what is painted.
+    static float thinking_height(AppComponent& app, const api::Message& m,
+                                 int index, float colW) {
+        if (app.expandedThinking.count(thinking_key(m, index)) == 0)
+            return kThinkingRowH;
+        return kThinkingRowH +
+               rich_body_h(strip_inline_md(m.text), colW - kThinkingInset) +
+               kThinkingPadBot;
+    }
+
+    void render_thinking_block(UIContext<InputAction>& ctx, Entity& parent,
+                               int index, const api::Message& m,
+                               AppComponent& app, float colW) {
+        const std::string key = thinking_key(m, index);
+        const bool open = app.expandedThinking.count(key) != 0;
+
+        auto wrap = div(ctx, mk(parent, 3400 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("thinking_block"));
+
+        auto head = div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), pixels(kThinkingRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("thinking_head"));
+        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (head.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (open) app.expandedThinking.erase(key);
+            else app.expandedThinking.insert(key);
+        }
+
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(14), pixels(18)})
+                .with_transparent_bg()
+                .with_on_draw_fg([open](RectangleType r) {
+                    hanabi::glyph::chevron(r, !open, theme::text_faint(), 3.2f);
+                })
+                .with_debug_name("thinking_chev"));
+
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label("Thought for a moment")
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("thinking_summary"));
+
+        if (!open) return;
+
+        auto body = div(ctx, mk(wrap.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW - kThinkingInset),
+                                         children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.left = pixels(kThinkingInset),
+                                    .bottom = pixels(kThinkingPadBot)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("thinking_body"));
+        render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
+                         colW - kThinkingInset);
+    }
+
     static bool is_spawn_tool(const api::Message& m) {
         if (m.role != api::Role::Tool) return false;
         const std::string& n = m.subtitle;
