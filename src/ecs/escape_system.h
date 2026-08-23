@@ -10,7 +10,8 @@
 // and wiped the draft you had typed.
 //
 // So the key is read exactly once, here, and resolved into a single intent by
-// what is on top: the modal composer draws over the shortcuts sheet, which
+// what is on top: the rename modal draws over the modal composer, which draws
+// over the shortcuts sheet, which
 // draws over settings, which draws over the find bar, which sits over the
 // transcript. The auth overlay is deliberately absent — login gates the app
 // and Esc must not dismiss it.
@@ -33,7 +34,9 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
         app->escape = EscapeIntent::None;
         if (!hanabi::keys::pressed(hanabi::keys::kEscape)) return;
 
-        if (app->composerOpen)
+        if (app->renameOpen && !app->renamePending)
+            app->escape = EscapeIntent::CloseRename;
+        else if (app->composerOpen)
             app->escape = EscapeIntent::CloseComposer;
         else if (app->showShortcuts)
             app->escape = EscapeIntent::CloseShortcuts;

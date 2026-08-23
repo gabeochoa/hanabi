@@ -326,7 +326,43 @@ class MockClient : public Client {
         return Result<Message>::success(ack);
     }
 
+    bool supports_rename() const override { return true; }
+
+    // Rename offline, echo-shaped: the reply carries the title the "server"
+    // settled on (trimmed), so the caller applies the echo rather than its own
+    // request. Refusals are real refusals — an empty or over-long title comes
+    // back as a failure with the reason, which is what the rename modal shows.
+    Result<std::string> rename_session(const std::string& session_id,
+                                       const std::string& title) override {
+        Session* target = find_mutable(session_id);
+        if (!target)
+            return Result<std::string>::failure("no such session: " +
+                                                session_id);
+        const std::string settled = one_line(trimmed(title));
+        if (settled.empty())
+            return Result<std::string>::failure("title cannot be empty");
+        if (settled.size() > kMaxTitleChars)
+            return Result<std::string>::failure(
+                "title is too long (max " + std::to_string(kMaxTitleChars) +
+                " characters)");
+        target->summary.title = settled;
+        return Result<std::string>::success(settled);
+    }
+
   private:
+    static constexpr size_t kMaxTitleChars = 120;
+
+    static std::string trimmed(const std::string& s) {
+        const auto is_space = [](unsigned char c) {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+        };
+        size_t b = 0;
+        size_t e = s.size();
+        while (b < e && is_space(static_cast<unsigned char>(s[b]))) ++b;
+        while (e > b && is_space(static_cast<unsigned char>(s[e - 1]))) --e;
+        return s.substr(b, e - b);
+    }
+
     // A short, generic acknowledgement. No company/product/service names.
     static std::string synth_reply(const std::string& prompt) {
         if (prompt.empty()) return "Got it \xe2\x80\x94 what would you like me to do?";

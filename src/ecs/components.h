@@ -45,6 +45,7 @@ enum class SmartView {
 // the intent instead of the key.
 enum class EscapeIntent {
     None,
+    CloseRename,
     CloseComposer,
     CloseShortcuts,
     CloseSettings,
@@ -476,6 +477,47 @@ struct AppComponent : public afterhours::BaseComponent {
     // hold it in the queue. Ordered per session (push_back = FIFO).
     void enqueue_send(const std::string& id, const std::string& prompt) {
         pendingSendQueue.push_back(PendingSend{id, prompt});
+    }
+
+    // ==== Session rename (durable echo, never local optimism) =============
+    // A right-click on a sidebar row opens rowMenu at the cursor; picking
+    // "Rename…" opens the modal on renameSessionId with the current title in
+    // renameDraft. Confirming parks the one-shot request for the loader, which
+    // sends it and waits for the server's `session_renamed` echo — the title in
+    // the sidebar and on the tab changes only when that echo lands. A refusal
+    // comes back in renameError and the modal stays open with the text intact.
+    bool rowMenuOpen = false;
+    std::string rowMenuSessionId;
+    float rowMenuX = 0.0f;
+    float rowMenuY = 0.0f;
+    void close_row_menu() {
+        rowMenuOpen = false;
+        rowMenuSessionId.clear();
+    }
+
+    bool renameOpen = false;
+    std::string renameSessionId;
+    std::string renameDraft;
+    std::string renameError;
+    // Set by Return in the field (the listener cannot decide anything — see the
+    // composerSubmit note above); routed by the modal on the next frame.
+    bool renameSubmit = false;
+    std::string requestRenameId;     // one-shot: what the loader should send
+    std::string requestRenameTitle;
+    bool renamePending = false;      // in flight; the modal shows a spinner
+    std::string renameInFlightId;
+    std::future<api::Result<std::string>> renameFuture;
+
+    // Apply a settled title everywhere it shows: the session list (sidebar
+    // rows) and the open transcript. Tab captions are derived from the summary
+    // every frame, so they follow with no work here.
+    void apply_renamed_title(const std::string& id, const std::string& title) {
+        for (auto& s : sessions)
+            if (s.id == id) s.title = title;
+        if (openSession && openSession->summary.id == id)
+            openSession->summary.title = title;
+        if (splitSession && splitSession->summary.id == id)
+            splitSession->summary.title = title;
     }
 
     // ==== Feature #4: settings read from the API =========================

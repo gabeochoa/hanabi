@@ -27,6 +27,8 @@ using api::agentcloud::parse_sessions_reply;
 using api::agentcloud::parse_page_frames;
 using api::Role;
 using api::agentcloud::classify_live_frame;
+using api::agentcloud::fold_session_renamed;
+using api::SessionSummary;
 using api::agentcloud::delta_from_accumulated;
 using LF = api::agentcloud::LiveFrame;
 using api::ThreadState;
@@ -413,6 +415,37 @@ static void test_block_delta_append_is_a_true_increment() {
     CHECK(classify_live_frame(weird).kind == LF::Kind::Ignore);
 }
 
+static void test_rename_echo_folds_into_the_title() {
+    // The durable echo is the ONLY thing that renames a session: the modal
+    // sends a title, and what the sidebar row and the tab then read is
+    // whatever comes back on this frame -- including a title the server
+    // normalised into something other than what was asked for.
+    SessionSummary s;
+    s.id = "abc";
+    s.title = "old title";
+    const std::string echo =
+        R"({"type":"frame","frame":"durable","seq":7,
+            "event":{"type":"session_renamed","title":"quarterly numbers"}})";
+    CHECK(fold_session_renamed(echo, s));
+    CHECK(s.title == "quarterly numbers");
+}
+
+static void test_only_a_rename_frame_touches_the_title() {
+    SessionSummary s;
+    s.title = "untouched";
+    const std::string other =
+        R"({"type":"frame","frame":"durable","seq":8,
+            "event":{"type":"block","block":{"kind":"text","text":"hi"}}})";
+    CHECK(!fold_session_renamed(other, s));
+    // A rename with no title is not an instruction to blank the row.
+    const std::string titleless =
+        R"({"type":"frame","event":{"type":"session_renamed"}})";
+    CHECK(!fold_session_renamed(titleless, s));
+    CHECK(!fold_session_renamed("not json", s));
+    CHECK(!fold_session_renamed("", s));
+    CHECK(s.title == "untouched");
+}
+
 static void test_settled_block_does_not_reprint_streamed_text() {
     // The end of a turn: appends streamed "1\n2\n3", then the durable block
     // arrives carrying the same text whole. The diff must be empty, or the
@@ -521,6 +554,8 @@ int main() {
     test_no_tokens_bag_means_no_meter();
     test_occupancy_without_a_budget_still_counts();
     test_unreadable_greeting_is_empty_not_a_crash();
+    test_rename_echo_folds_into_the_title();
+    test_only_a_rename_frame_touches_the_title();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

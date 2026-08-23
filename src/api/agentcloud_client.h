@@ -43,6 +43,13 @@ class AgentcloudClient : public Client {
     bool supports_steer() const override { return ready(); }
     bool supports_stream() const override { return ready(); }
 
+    // rename_v1 is announced on attach, so the capability question is settled
+    // per session rather than per client: this says the verb exists, and
+    // rename_session re-checks the hello it actually got before sending.
+    bool supports_rename() const override { return ready(); }
+    Result<std::string> rename_session(const std::string& session_id,
+                                       const std::string& title) override;
+
     void send_message_streaming(const std::string& session_id,
                                 const std::string& prompt,
                                 const StreamSink& sink) override;
@@ -139,6 +146,15 @@ struct LiveFrame {
 // Classify one `{"type":"frame",...}` server message. Never throws; anything
 // unrecognised is Ignore, because the event vocabulary grows.
 LiveFrame classify_live_frame(const std::string& msg_json);
+
+// Fold a durable `session_renamed` frame onto a summary's title.
+//
+// The rename echo is the ONLY thing that may change a title: the client asks,
+// the server settles, and this is where the settled value lands. Returns false
+// (leaving `summary` untouched) for any other frame, a titleless rename, or
+// text that is not a frame at all — the same never-throw contract the rest of
+// the fold has.
+bool fold_session_renamed(const std::string& msg_json, SessionSummary& summary);
 
 // Accumulated live text -> the increment StreamSink wants. Exposed for the
 // test: getting this wrong duplicates or drops text in a live bubble, and it

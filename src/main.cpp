@@ -37,6 +37,7 @@
 #include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
 #include "ecs/escape_system.h"
+#include "ecs/rename_modal_system.h"
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
 #include "ecs/main_pane_system.h"
@@ -315,6 +316,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
+    sm.register_update_system(std::make_unique<ecs::RenameModalSystem>());
     // Auth overlay draws on top of everything (login gates the app). No-op
     // unless AppComponent::showAuth is true, so it costs nothing when auth is
     // not configured.

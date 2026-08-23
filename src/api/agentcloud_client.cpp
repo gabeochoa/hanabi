@@ -575,6 +575,17 @@ LiveFrame classify_live_frame(const std::string& msg_json) {
     return lf;
 }
 
+bool fold_session_renamed(const std::string& msg_json, SessionSummary& summary) {
+    json root = json::parse(msg_json, nullptr, false);
+    if (root.is_discarded() || !root.is_object()) return false;
+    const json& e = obj_at(root, "event");
+    if (str_or(e, "type", "") != "session_renamed") return false;
+    const std::string title = str_or(e, "title", "");
+    if (title.empty()) return false;
+    summary.title = title;
+    return true;
+}
+
 }  // namespace agentcloud
 
 std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
@@ -881,10 +892,88 @@ Result<Message> AgentcloudClient::steer(const std::string& session_id,
     return result;
 }
 
+Result<std::string> AgentcloudClient::rename_session(
+    const std::string& session_id, const std::string& title) {
+    const auto fail = [](const std::string& why) {
+        return Result<std::string>::failure(why);
+    };
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    FrameQueue q;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded())
+        return fail("no hello for " + session_id + " (" + q.closed_reason + ")");
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " +
+                    str_or(hello, "message", "(no message)"));
+    }
+    // rename_v1 is announced on attach. An announcement list that exists and
+    // omits it means this session cannot be renamed; an absent list is a shape
+    // we do not know and is not evidence of anything, so it does not block.
+    if (hello.contains("capabilities") && hello.at("capabilities").is_array()) {
+        bool announced = false;
+        for (const json& c : hello.at("capabilities"))
+            if (c.is_string() && c.get<std::string>() == "rename_v1")
+                announced = true;
+        if (!announced) return fail("this session does not accept renames");
+    }
+
+    const json rename_env = {{"sub", 1},
+                             {"payload", {{"cmd", "rename"}, {"title", title}}}};
+    const std::string rename_wire = rename_env.dump();
+    if (!ws_send_text(conn, rename_wire.data(), rename_wire.size()))
+        return fail("socket closed before rename was sent");
+
+    // The durable session_renamed frame IS the acknowledgement; there is no
+    // other ack to wait for, and nothing may be applied before it arrives.
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(kReplyTimeoutSecs);
+    for (;;) {
+        const json msg = q.wait_for_next(deadline);
+        if (msg.is_discarded())
+            return fail(q.closed ? "connection closed before the rename echo: " +
+                                       q.closed_reason
+                                 : "no rename echo for " + session_id);
+        if (str_or(msg, "type", "") == "error")
+            return fail(str_or(msg, "message", "rename refused"));
+        if (str_or(msg, "type", "") != "frame") continue;
+        SessionSummary echoed;
+        if (agentcloud::fold_session_renamed(msg.dump(), echoed))
+            return Result<std::string>::success(echoed.title);
+    }
+}
+
 Result<Session> AgentcloudClient::get_session(const std::string& id) {
     return get_session(id, 200);
 }
-
 Result<Session> AgentcloudClient::get_session(const std::string& id, int limit) {
     // One socket for the pair: attach binds the principal for this
     // subscription, and page inherits it. Splitting them across two sockets

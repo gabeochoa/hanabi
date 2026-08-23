@@ -92,7 +92,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!folded) render_search(ctx, panel.ent(), *app, r.x, r.y, r.width);
         render_smart_views(ctx, panel.ent(), *app, folded, r.width);
 
-        if (folded) return;  // rail stops after icon views
+        if (folded) {
+            // The rail has no rows for a row menu to belong to.
+            app->close_row_menu();
+            return;
+        }
 
         // Scrollable region: folders + recent + archived.
         // header(40) + search(40) + VIEWS label(25) + views block(~162, now
@@ -212,9 +216,92 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name("sb_no_results"));
         }
+
+        render_row_menu(ctx, uiRoot, *app);
     }
 
   private:
+    // ---- right-click menu on a thread row ----
+    // Anchored at the cursor, above everything. Its one action today is
+    // Rename…, which is offered only when the backend actually has the verb.
+    void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
+                         AppComponent& app) {
+        if (!app.rowMenuOpen) return;
+        const api::SessionSummary* target = app.find_summary(app.rowMenuSessionId);
+        if (target == nullptr) {
+            app.close_row_menu();
+            return;
+        }
+
+        const float menuW = 150.0f;
+        const float itemH = 26.0f;
+        const float menuH = itemH;
+        float mx = app.rowMenuX;
+        float my = app.rowMenuY;
+        if (mx + menuW > ctx.screen_width) mx = ctx.screen_width - menuW;
+        if (my + menuH > ctx.screen_height) my = ctx.screen_height - menuH;
+        if (mx < 0.0f) mx = 0.0f;
+        if (my < 0.0f) my = 0.0f;
+
+        constexpr int kMenuLayer = 30;
+
+        // An invisible full-window eater under the menu. Without it a click
+        // meant to dismiss the menu lands on whatever row is beneath it and
+        // opens that thread on the way out.
+        auto eater = button(ctx, mk(uiRoot, 8899),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(ctx.screen_width),
+                                         pixels(ctx.screen_height)})
+                .with_absolute_position()
+                .with_translate(0.0f, 0.0f)
+                .with_transparent_bg()
+                .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.0f)
+                .with_render_layer(kMenuLayer - 1)
+                .with_debug_name("row_menu_eater"));
+
+        div(ctx, mk(uiRoot, 8900),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(menuW), pixels(menuH)})
+                .with_absolute_position()
+                .with_translate(mx, my)
+                .with_custom_background(theme::panel_bg())
+                .with_border(theme::border(), pixels(1))
+                .with_roundness(0.2f)
+                .with_render_layer(kMenuLayer)
+                .with_debug_name("row_menu"));
+
+        auto rename = button(ctx, mk(uiRoot, 8901),
+            ComponentConfig{}
+                .with_label("Rename\xe2\x80\xa6")
+                .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
+                .with_absolute_position()
+                .with_translate(mx, my)
+                .with_custom_background(theme::panel_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::ROW)
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(10)})
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.0f)
+                .with_render_layer(kMenuLayer + 1)
+                .with_debug_name("row_menu_rename"));
+
+        if (rename) {
+            app.renameOpen = true;
+            app.renameSessionId = target->id;
+            app.renameDraft = target->title;
+            app.renameError.clear();
+            app.renameSubmit = false;
+            app.close_row_menu();
+            return;
+        }
+        if (eater) app.close_row_menu();
+    }
+
     // ---- shared count-column geometry (gap #18: afterhours has no flex-grow)
     // The smart-view rows, folder headers, and time-group headers all show a
     // right-aligned count. To land every count at the SAME right-edge x, we
@@ -1837,6 +1924,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Right)
                 .with_roundness(0.0f)
                 .with_debug_name("row_time"));
+
+        // Right-click opens the row's context menu at the cursor. Offered only
+        // when the backend has the rename verb, since Rename… is its only item.
+        if (ctx.is_right_click(row.ent().id) && app.client &&
+            app.client->supports_rename()) {
+            app.rowMenuOpen = true;
+            app.rowMenuSessionId = s.id;
+            app.rowMenuX = ctx.mouse.pos.x;
+            app.rowMenuY = ctx.mouse.pos.y;
+        }
 
         // Apply the deferred row-open: open the thread on a row click UNLESS the
         // star was what got clicked (starring must not also open the thread).

@@ -2544,3 +2544,107 @@ should.
   ```
 
   Then a chord test can hold Cmd, and the 72 lines go away as a side effect.
+
+### #55 — A scripted test can right-click a coordinate, never a named element
+
+- **What I was trying to build.** The session-rename theme: right-click a
+  sidebar row, pick "Rename…", type, press Return. The context menu is the
+  entry point, so the test has to open it the way a person does.
+
+- **What I tried.**
+
+  ```
+  right_click_ui chat_row
+  ```
+
+- **What happened.** `right_click_ui` is not a command. The harness has
+  `click_ui`, `focus_ui`, `double_click_ui`, `triple_click_ui` and
+  `assert_ui`, all resolving a `debug_name` to the element's live rect — but
+  the secondary button has only the raw-coordinate form,
+  `right_click x y` (`e2e_testing/command_handlers.h:156`). The UI side is
+  complete: `UIContext::is_right_click(id)` exists and is exactly the API a
+  context menu wants. Only the driver half is missing.
+
+- **The workaround.** Hardcode the row's pixel position:
+
+  ```
+  mouse_move 120 511
+  right_click 120 511
+  ```
+
+  which is what `tests/ui/session_rename.e2e` does. It costs the property the
+  harness's own README sells `click_ui` for: a layout change now retargets the
+  click onto whatever moved into 120,511 — a different row, or empty sidebar —
+  and the test keeps passing while exercising the wrong thing (or fails for a
+  reason that has nothing to do with rename). The menu ITEM is safe, because
+  once the menu is open `click_ui row_menu_rename` finds it by name.
+
+- **What the library could offer instead.** The same handler `click_ui`
+  already has, dispatching `simulate_right_click` instead of
+  `simulate_click` — the element lookup, the centre-of-rect maths and the
+  failure message are all written. Roughly:
+
+  ```cpp
+  // ui_commands.h, beside HandleClickUiCommand
+  if (cmd.is("right_click_ui")) { ... test_input::simulate_right_click(cx, cy); }
+  ```
+
+- **Severity: makes it fragile.** The feature is testable; the test just
+  cannot be written the robust way, so every context menu in every app that
+  vendors this gets a coordinate-keyed test.
+
+### #56 — A newly built text_input cannot be focused programmatically
+
+- **What I was trying to build.** A rename modal whose field opens focused
+  with the current title selected, so Return renames and the first keystroke
+  replaces the old name. That is the ordinary behaviour of every rename dialog,
+  and `text_input` already implements the selecting half: focus gained by
+  anything other than a mouse press selects the whole value
+  (`text_input/component.h:245`).
+
+- **What I tried.** Focus the widget on the frame the modal opens, using the
+  entity the imm call hands back:
+
+  ```cpp
+  auto field = imm::text_input(ctx, mk(panel, 2), draft, cfg);
+  if (justOpened) ctx.set_focus(field.ent().id);
+  ```
+
+- **What happened.** The field never took focus; typing went nowhere and
+  `expect_focused rename_input` failed. Two separate reasons, and each on its
+  own is enough:
+
+  1. `text_input` returns its OUTER entity, and the `HasClickListener` lives on
+     the inner FIELD child. `can_be_focused` requires a click or drag listener,
+     so the outer is never added to `focused_ids` by `HandleTabbing` — and
+     `EndUIContextManager` then drops any focus id that is not in that set. So
+     focus set on the returned entity survives exactly until the end of the
+     frame it was set in.
+  2. Focusing the inner field instead is still not enough on the OPENING frame:
+     `can_be_focused` also requires `was_rendered_to_screen`, which a widget
+     created this frame does not have yet. The grab only becomes possible on
+     the following frame.
+
+- **The workaround.** Walk the outer entity's children for the one carrying
+  `InFocusCluster` (the field), and re-assert focus for a few frames rather
+  than once:
+
+  ```cpp
+  if (justOpened) focusFrames_ = 3;
+  if (focusFrames_ > 0) { --focusFrames_; ctx.set_focus(focusable_field(field.ent())); }
+  ```
+
+  It works, and it is guesswork: the app is reaching past the returned handle
+  into the widget's internal child structure and papering over a one-frame
+  ordering rule with a counter.
+
+- **What the library could offer instead.** Either make `set_focus` on the
+  entity `text_input` returns mean "focus this input" (route it to the field,
+  the way `state.is_focused` already accepts focus on EITHER entity), or give
+  the widget a config knob — `with_autofocus()` / `with_focus_on_open(bool)` —
+  which is what the caller actually wants to say. A widget that cannot be
+  focused by the code that just created it can only be reached with a mouse.
+
+- **Severity: makes it ugly.** The modal works, but four lines of the app now
+  encode two of the library's internal invariants, and they will break silently
+  if either changes.
