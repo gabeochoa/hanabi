@@ -376,3 +376,67 @@ silent missing glyphs (#48). **#29 is resolved** by `mouse_was_in_subtree`, and
   from app code (#46).
 - The context meter draws a hardcoded 38% fill while refusing to print a fake
   percentage. Pick one: wire the real number or drop the bar.
+  **Decided 2026-08-22: wire the real number — see below.**
+
+---
+
+## COME BACK TO: the context meter has a real denominator (2026-08-22)
+
+PR #3 removes the fake 38% bar and prints `~4.2k tokens` from a chars/4
+estimate, on the stated grounds that "no backend here reports a context
+window". **That premise is wrong — Gabe confirms the backend does report one.**
+
+So the bar comes back, with a true percentage behind it. What we already know
+from hanabi's own source:
+
+- The backend emits a **`context_usage`** SSE event and hanabi deliberately
+  **throws it away**. `Config::event_type_ignore = "context_usage"`
+  (`src/api/client.h:118`), described as a "pure telemetry kind that fires
+  constantly and must NOT trigger a refetch". The filter is in
+  `parse_events_frame` (`src/api/http_client.cpp:1298`, documented at
+  `src/api/http_client.h:161`).
+- Note the filter's *purpose* is only to stop a transcript re-fetch. Dropping
+  the frame's payload as well is incidental — the event can be consumed for its
+  numbers without ever triggering a refetch. That is the whole fix, if the
+  payload carries a maximum.
+
+Open questions, under investigation (subagent, ~/w/grey):
+- [ ] Exact `context_usage` payload — field names and types.
+- [ ] Does it carry a **denominator** (model max context window), or only
+      tokens-used? Without a max there is still no honest percentage and the
+      plain figure stands.
+- [ ] Real tokenizer counts from the model API's usage fields, or an estimate?
+- [ ] Cadence + whether there is a throttle. It "fires constantly"; the meter
+      must not drag a re-render per token.
+- [ ] Any REST route returning current usage, so we can poll on open instead of
+      subscribing to a firehose.
+- [ ] Does usage reset on compaction, and is there a signal for that?
+
+Then: restore the bar, keep the token figure beside it, and add a config key so
+the mock and any backend without a max degrade to the plain figure rather than
+a fake fill. Do NOT reintroduce a constant.
+
+## COME BACK TO: evaluate the agentcloud backend (2026-08-22)
+
+Gabe asked whether hanabi should move to the **agentcloud** backend that
+puffin/grey use. Subagent investigating ~/w/puffin and ~/w/grey: auth model,
+session/message endpoints and shapes, streaming vocabulary, tool-call blocks,
+context-usage reporting, and how much is reachable by changing `Config` field
+mappings alone versus new adapter code. Decide after that report — it likely
+subsumes the context-meter question above.
+
+---
+
+## STANDING DIRECTIVE (Gabe, 2026-08-22): PRs are too big
+
+The #2..#7 stack is ~4,700 added lines; #2 alone is +1831/-188 over 25 files.
+Too big to review. **One theme per PR from now on.**
+
+The `-O2` finding is the case in point: a one-line build change worth a 5-6x
+frame-time win, buried behind 1800 lines of unrelated transcript fixes and a
+new test harness. It should have been its own PR, merged the same hour.
+
+Rule of thumb: if the description needs a "Fixed" section AND an "Added"
+section, that is two PRs. Land the small independent win first so it is not
+held hostage by review of the big change. Stacking compounds this — nothing in
+#3..#7 could land until #2 did.
