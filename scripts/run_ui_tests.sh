@@ -71,8 +71,12 @@ for s in "${SCRIPTS[@]}"; do
         done < <(printf '%s' "$env_line" | xargs -n1 2>/dev/null)
     fi
 
+    # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": macOS ships bash 3.2, where
+    # expanding an EMPTY array under `set -u` is an unbound-variable error. Bash
+    # 4.4 fixed that, so the plain form works for anyone on a newer bash and
+    # fails every script without an "# env:" line on a stock Mac.
     ( env HOME="$ISO_HOME" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock \
-        "${extra_env[@]}" "$EXE" --e2e "$s" >"$log" 2>&1 ) &
+        ${extra_env[@]+"${extra_env[@]}"} "$EXE" --e2e "$s" >"$log" 2>&1 ) &
     pid=$!
     for ((i=0; i<TIMEOUT; i++)); do
         kill -0 "$pid" 2>/dev/null || break
