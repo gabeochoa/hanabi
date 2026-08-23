@@ -1410,6 +1410,60 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // TOOL-FOLD FIXTURE: two piles whose captured output differs in size,
+        // so Auto has something to decide. Seeded only under HANABI_FOLD_DEMO
+        // so the ordinary mock list is unchanged.
+        if (const char* fd = std::getenv("HANABI_FOLD_DEMO");
+            fd && *fd && std::string(fd) != "0") {
+            Session s;
+            s.summary = calm("rfold", "audit the cache eviction path",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "tool fold fixture");
+            Message shortA{"fd2", Role::Tool,
+                           "wc -l cache/evict.rs", hrs_ago(2), "shell"};
+            shortA.tool_result = "182 cache/evict.rs";
+            shortA.tool_status = "completed";
+            shortA.tool_duration_ms = 300;
+            Message shortB{"fd3", Role::Tool, "head -3 cache/evict.rs",
+                           hrs_ago(2), "shell"};
+            shortB.tool_result = "use crate::clock;";
+            shortB.tool_status = "completed";
+            shortB.tool_duration_ms = 200;
+            // Over kAutoResultChars, so Auto keeps this pile shut.
+            Message longA{"fd5", Role::Tool, "cargo test -p cache",
+                          hrs_ago(1), "shell"};
+            longA.tool_result =
+                "running 6 tests\n"
+                "test evict::lru_drops_the_oldest_entry_first ... ok\n"
+                "test evict::lru_keeps_an_entry_touched_this_tick ... ok\n"
+                "test evict::cap_of_zero_evicts_everything_at_once ... ok\n"
+                "test evict::a_pinned_entry_survives_a_full_sweep ... ok\n"
+                "test evict::eviction_is_stable_across_equal_stamps ... ok\n"
+                "SWEEPBUDGET exhausted after 4096 entries\n";
+            longA.tool_status = "completed";
+            longA.tool_duration_ms = 9100;
+            Message longB{"fd6", Role::Tool, "cargo bench -p cache",
+                          hrs_ago(1), "shell"};
+            longB.tool_result = "bench evict/lru  1.20 us";
+            longB.tool_status = "completed";
+            longB.tool_duration_ms = 40000;
+            s.messages = {
+                {"fd1", Role::User, "how big is the eviction path?", hrs_ago(2),
+                 ""},
+                shortA,
+                shortB,
+                {"fd4", Role::Assistant,
+                 "Small — one file, and the tests cover it.", hrs_ago(2), ""},
+                longA,
+                longB,
+                {"fd7", Role::Assistant, "Green, with one budget warning.",
+                 hrs_ago(1), ""},
+            };
+            for (auto& mm : s.messages)
+                if (mm.role == Role::Tool) mm.tool_node = "cli:aspen";
+            v.push_back(std::move(s));
+        }
+
         // DATE FIXTURE: a thread worked across three calendar days, seeded
         // only under HANABI_DATES_DEMO so the ordinary mock list is unchanged.
         // Stamps are anchored to local NOON so a run just after midnight (or

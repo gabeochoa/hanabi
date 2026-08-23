@@ -1,0 +1,43 @@
+# Tool output opens by the thread's rule, not one row at a time.
+#
+# Tool rows already arrived collapsed — `expandedPiles` starts empty — so the
+# backlog's "tool rows always expand" was never true of this code. What was
+# missing is the thread-level control: reading a tool-heavy thread meant
+# opening every pile by hand and nothing remembered that you had.
+#
+# The fixture has two piles: one whose first captured result is 18 characters
+# and one whose first result is a 300-character test log. Auto is the mode that
+# can tell them apart, which is why it is the mode this script leans on.
+#
+# settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_FOLD_DEMO=1 HANABI_OPEN=rfold
+
+# Folded is the default: both piles are one row apiece, no output.
+expect_text "wc -l cache/evict.rs"
+expect_no_text "182 cache/evict.rs"
+expect_no_text "lru_drops_the_oldest_entry_first"
+
+# Expand all opens both, long output and all.
+click_ui composer_fold
+wait_frames 8
+click_ui fold_row_1
+wait_frames 10
+expect_text "182 cache/evict.rs"
+expect_text "lru_drops_the_oldest_entry_first"
+
+# Auto keeps the short one open and shuts the log.
+click_ui composer_fold
+wait_frames 8
+click_ui fold_row_2
+wait_frames 10
+expect_text "182 cache/evict.rs"
+expect_no_text "lru_drops_the_oldest_entry_first"
+
+# And Fold all puts everything away again.
+click_ui composer_fold
+wait_frames 8
+click_ui fold_row_0
+wait_frames 10
+expect_no_text "182 cache/evict.rs"
+expect_no_text "lru_drops_the_oldest_entry_first"
+expect_text "wc -l cache/evict.rs"

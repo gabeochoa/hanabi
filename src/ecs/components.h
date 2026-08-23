@@ -53,6 +53,7 @@ enum class EscapeIntent {
     CloseSlashMenu,
     CloseModelPicker,
     CloseEffortPicker,
+    CloseFoldPicker,
     ClearTranscript,
 };
 
@@ -244,6 +245,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // collapsed — keeps a tool-heavy thread scannable and bounds render cost.
     std::set<std::string> expandedPiles;
 
+    // Transcript: which tool rows the reader has explicitly CLOSED, against a
+    // fold mode that would otherwise open them. The two sets are overrides on
+    // top of the per-session mode (src/ui/fold_menu.h): closed wins, then
+    // opened, then the mode's own answer. Picking a mode clears both, so
+    // "Expand all" means all and not "all except the four I closed".
+    std::set<std::string> collapsedPiles;
+
     // Transcript: which long assistant messages the user has expanded. A very
     // tall body is capped at a fold height with a "Show N more lines" toggle
     // (keeps a huge pasted log/diff from dominating the pane AND bounds the
@@ -358,6 +366,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // The composer strip's effort picker. One flag: the popover is a list of
     // levels and a click, with nothing in flight behind it.
     bool effortPopoverOpen = false;
+    // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
+    bool foldPopoverOpen = false;
 
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;

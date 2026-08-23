@@ -25,6 +25,7 @@
 #include "../ui/slash_commands.h"
 #include "../ui/model_menu.h"
 #include "../ui/effort_menu.h"
+#include "../ui/fold_menu.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "ui_imports.h"
@@ -3361,6 +3362,74 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // The tool-fold picker: three modes, per session, written straight to
+    // settings. Picking one clears the per-row overrides, because a reader who
+    // asks for "Expand all" means all of them and not "all except the four I
+    // closed before I found this menu".
+    void render_fold_popover(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app, Entity& anchorEnt,
+                             hanabi::fold::Mode current) {
+        constexpr float kRowH = 30.0f;
+        constexpr float kPopW = 230.0f;
+        const auto& choices = hanabi::fold::all();
+        const float popH = kRowH * static_cast<float>(choices.size()) + 8.0f;
+        const RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, mk(parent, 3500), anchor, app.foldPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
+                .with_roundness(0.25f)
+                .with_render_layer(7)
+                .with_debug_name("fold_popover"));
+        if (!pop) return;
+        for (size_t i = 0; i < choices.size(); ++i) {
+            const auto& c = choices[i];
+            const bool selected = c.mode == current;
+            auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
+                ComponentConfig{}
+                    .with_label(std::string(c.name) + "   \xc2\xb7   " +
+                                std::string(c.note))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_custom_background(selected ? theme::selected_bg()
+                                                     : theme::panel_bg_2())
+                    .with_custom_hover_bg(
+                        theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(selected ? theme::text_primary()
+                                                     : theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_padding(Padding{.left = pixels(26)})
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_render_layer(8)
+                    .with_on_draw_fg([selected](RectangleType r) {
+                        // Drawn, not typed: Roboto has no geometric shapes and
+                        // a codepoint it lacks paints nothing (gap #48).
+                        hanabi::glyph::radio(
+                            RectangleType{r.x + 8.0f, r.y, 12.0f, r.height},
+                            selected,
+                            selected ? theme::accent() : theme::text_faint());
+                    })
+                    .with_debug_name("fold_row_" + std::to_string(i)));
+            if (row && app.openSession) {
+                Settings::get().set_tool_fold(app.openSession->summary.id,
+                                              hanabi::fold::to_int(c.mode));
+                // The sub-agent rollup shares this set but is not a tool row,
+                // so its own disclosure is left exactly as the reader left it.
+                const bool subs = app.expandedPiles.count("__subagents__") != 0;
+                app.expandedPiles.clear();
+                app.collapsedPiles.clear();
+                if (subs) app.expandedPiles.insert("__subagents__");
+                app.foldPopoverOpen = false;
+            }
+        }
+    }
+
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH,
                          bool kickoff = false, float absX = -1.0f,
@@ -4078,6 +4147,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.effortPopoverOpen = false;
         render_effort_popover(ctx, parent, app, effortChip.ent(),
                               currentEffort);
+
+        // The tool-fold chip, right of effort: how much of a tool call this
+        // thread shows by default. Only where there is a thread to set it on —
+        // on the welcome screen there is no session to key the mode to.
+        if (app.openSession) {
+            const hanabi::fold::Mode currentFold = fold_mode(app);
+            auto foldChip = button(ctx, mk(leftMeta.ent(), 3),
+                ComponentConfig{}
+                    .with_label("Tools: " +
+                                hanabi::fold::chip_label(currentFold))
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.left = pixels(6)})
+                    .with_padding(Padding{.top = pixels(1),
+                                          .right = pixels(8),
+                                          .bottom = pixels(1),
+                                          .left = pixels(8)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.5f)
+                    .with_debug_name("composer_fold"));
+            if (foldChip) app.foldPopoverOpen = !app.foldPopoverOpen;
+            if (app.escape == EscapeIntent::CloseFoldPicker)
+                app.foldPopoverOpen = false;
+            render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
+        }
         // Right cluster: status caption + context/cost meter.
         auto rightMeta = div(ctx, mk(meta.ent(), 2),
             ComponentConfig{}
@@ -5827,23 +5926,81 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static bool tool_block_expandable(const api::Message& m) {
         return !m.tool_result.empty();
     }
+
+    // ---- Tool fold defaults (src/ui/fold_menu.h) --------------------------
+    // The mode belongs to the thread being rendered, and split view swaps
+    // openSession per pane, so reading it off openSession answers per pane.
+    static hanabi::fold::Mode fold_mode(AppComponent& app) {
+        if (!app.openSession) return hanabi::fold::kDefault;
+        return hanabi::fold::from_int(
+            Settings::get().get_tool_fold(app.openSession->summary.id));
+    }
+    // Auto's rule: a short captured result is worth the space, a long one is a
+    // log. No result at all means there is nothing to open.
+    static bool auto_opens(const api::Message& m) {
+        return !m.tool_result.empty() &&
+               m.tool_result.size() < hanabi::fold::kAutoResultChars;
+    }
+    // The result Auto judges a PILE by: the first call in it that captured
+    // one. `msgs[lo]` may have run silently while the call after it is the one
+    // with output, and folding on that would be judging a row by a result it
+    // does not have.
+    static const api::Message& pile_result_row(
+        const std::vector<api::Message>& msgs, int lo, int hi) {
+        for (int k = lo; k < hi; ++k)
+            if (!msgs[k].tool_result.empty()) return msgs[k];
+        return msgs[lo];
+    }
+    // The ONE answer to "is this tool row open" — read by the measure pass and
+    // by the draw. A second copy of this decision is precisely how a row
+    // measures one height and paints another, which desyncs every
+    // virtualization spacer below it.
+    static bool tool_is_open(AppComponent& app, const std::string& key,
+                             const api::Message& resultRow) {
+        if (!key.empty() && app.collapsedPiles.count(key) != 0) return false;
+        if (!key.empty() && app.expandedPiles.count(key) != 0) return true;
+        switch (fold_mode(app)) {
+            case hanabi::fold::Mode::Expand: return true;
+            case hanabi::fold::Mode::Auto: return auto_opens(resultRow);
+            case hanabi::fold::Mode::Fold: break;
+        }
+        return false;
+    }
+    // A click records what the reader wants for THAT row, as an override on
+    // the mode — so closing one row under "Expand all" does not silently
+    // demote the whole thread back to folded.
+    static void tool_toggle(AppComponent& app, const std::string& key,
+                            bool wasOpen) {
+        if (key.empty()) return;
+        app.expandedPiles.erase(key);
+        app.collapsedPiles.erase(key);
+        if (wasOpen) app.collapsedPiles.insert(key);
+        else app.expandedPiles.insert(key);
+    }
+
     // Max output lines shown when a single tool block is expanded (keeps a huge
     // dump from dominating the pane; the row stays a peek, not the full log).
     static constexpr int kToolOutLines = 8;
     // Height of the expanded output panel for a single tool block (0 if not
     // expanded / no output). Mirrors render_tool_block's expanded panel exactly.
-    float tool_out_height(AppComponent& app, const api::Message& m) {
+    // The output panel's own box height (what the draw asks for).
+    float tool_out_box_h(AppComponent& app, const api::Message& m) {
         if (!tool_block_expandable(m)) return 0.0f;
-        AppComponent* a = &app;
         const std::string key = m.id.empty() ? "" : m.id;
-        const bool open = a && !key.empty() && a->expandedPiles.count(key) != 0;
-        if (!open) return 0.0f;
+        if (!tool_is_open(app, key, m)) return 0.0f;
         // Count newline-split lines in the result, capped.
         int lines = 1;
         for (char c : m.tool_result)
             if (c == '\n') ++lines;
         if (lines > kToolOutLines) lines = kToolOutLines;
         return static_cast<float>(lines) * kLinePitch + 12.0f;  // + panel pad
+    }
+    // The space that panel takes in the column: its box plus its own bottom
+    // margin, which the measure used to leave out (same 4px omission as
+    // sub_out_height, found the same way).
+    float tool_out_height(AppComponent& app, const api::Message& m) {
+        const float box = tool_out_box_h(app, m);
+        return box <= 0.0f ? 0.0f : box + kToolRowGap;
     }
     float tool_block_height(AppComponent& app, const api::Message& m) {
         return kToolRowGap + kToolRowH + kToolRowGap + tool_out_height(app, m);
@@ -5853,7 +6010,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            int hi) {
         const std::string key =
             msgs[lo].id.empty() ? ("pile" + std::to_string(lo)) : msgs[lo].id;
-        const bool open = app.expandedPiles.count(key) != 0;
+        const bool open = tool_is_open(app, key, pile_result_row(msgs, lo, hi));
         float h = kToolRowGap + kToolRowH + kToolRowGap;
         if (open) {
             h += (hi - lo) * (kSubRowH + 2.0f) + 6.0f;
@@ -6053,7 +6210,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     ? ("pile" + std::to_string(keyIndex))
                                     : msgs[lo].id;
         AppComponent* app = app_singleton();
-        const bool open = app && app->expandedPiles.count(key) != 0;
+        const bool open =
+            app && tool_is_open(*app, key, pile_result_row(msgs, lo, hi));
 
         float rowW = paneWidth - 4.0f;
         if (rowW < 160.0f) rowW = 160.0f;
@@ -6085,8 +6243,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         head.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (app && head.get<afterhours::ui::HasClickListener>().down) {
-            if (open) app->expandedPiles.erase(key);
-            else app->expandedPiles.insert(key);
+            tool_toggle(*app, key, open);
         }
 
         if (open) {
@@ -6195,12 +6352,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         for (char c : m.tool_result) if (c == '\n') ++n;
         return n > kSubOutLines ? kSubOutLines : n;
     }
-    // Height of a sub-row's output panel (0 when no result). Mirrored in
-    // tool_pile_height so the virtualization spacers line up.
-    static float sub_out_height(const api::Message& m) {
+    // The output panel's own box height (what the draw asks for).
+    static float sub_out_box_h(const api::Message& m) {
         int n = sub_out_lines(m);
         if (n <= 0) return 0.0f;
         return static_cast<float>(n) * (kLinePitch - 2.0f) + 8.0f + 4.0f;
+    }
+    // The space that panel takes in the column: its box PLUS its own bottom
+    // margin. Mirrored in tool_pile_height so the virtualization spacers line
+    // up. The margin used to be left out, so every expanded sub-row measured
+    // 4px shorter than it drew and a pile of them threw the column off by a
+    // multiple of that. Found by the measure-vs-draw probe.
+    static float sub_out_height(const api::Message& m) {
+        const float box = sub_out_box_h(m);
+        return box <= 0.0f ? 0.0f : box + kToolRowGap;
     }
     // Compact output preview under a pile sub-row: a sunken mono panel with the
     // first kSubOutLines of the captured tool_result — the "tool details".
@@ -6211,7 +6376,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto panel = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(rowW - 20.0f),
-                                         pixels(sub_out_height(m))})
+                                         pixels(sub_out_box_h(m))})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_custom_background(theme::window_bg())
@@ -6475,7 +6640,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string key = m.id.empty() ? "" : m.id;
         const bool expandable = tool_block_expandable(m);
         const bool open =
-            expandable && app && !key.empty() && app->expandedPiles.count(key);
+            expandable && app && !key.empty() && tool_is_open(*app, key, m);
         // A single tool call is now clickable to reveal its captured output
         // (tool_result), exactly like a pile expands to its sub-rows. The
         // chevron shows only when there's something to expand.
@@ -6492,8 +6657,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             head.addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             if (head.get<afterhours::ui::HasClickListener>().down) {
-                if (open) app->expandedPiles.erase(key);
-                else app->expandedPiles.insert(key);
+                tool_toggle(*app, key, open);
             }
         }
         if (open) {
@@ -6516,7 +6680,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto panel = div(ctx, mk(parent, 200 + index * 10 + 5),
                 ComponentConfig{}
                     .with_size(ComponentSize{pixels(rowW),
-                                             pixels(tool_out_height(*app, m))})
+                                             pixels(tool_out_box_h(*app, m))})
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_custom_background(theme::window_bg())

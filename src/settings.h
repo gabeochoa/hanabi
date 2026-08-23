@@ -98,6 +98,14 @@ struct Settings {
     bool is_muted(const std::string& id) const;
     void set_muted(const std::string& id, bool muted);  // auto-persists
 
+    // How much of a tool call a thread shows by default (hanabi::fold::Mode as
+    // an int — see src/ui/fold_menu.h). Per session, because "show me every
+    // tool result" is a property of the thread you are reading, not of the
+    // app: a debugging thread wants them open and a long chat does not. An
+    // absent id means the default (folded). Auto-persists.
+    int get_tool_fold(const std::string& id) const;
+    void set_tool_fold(const std::string& id, int mode);  // auto-persists
+
     // How far a thread had been READ, as the timestamp of its newest message
     // at the moment it was last open. Persisted so reopening a conversation
     // can say what arrived while you were away — without it, a thread that
@@ -181,6 +189,7 @@ struct Settings {
     std::vector<std::string> muted_ids_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
+    std::map<std::string, int> tool_fold_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;
     int auto_archive_days_ = 5;
