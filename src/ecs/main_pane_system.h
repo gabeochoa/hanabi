@@ -2204,6 +2204,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         if (!app.openSession) {
+            // Still fetching: the welcome hero here reads as "nothing here"
+            // rather than "not yet". selectedId covers the frames before the
+            // loader flips transcriptState; Error already returned above.
+            const bool opening = !app.selectedId.empty() ||
+                                 app.transcriptState == LoadState::Loading ||
+                                 !app.transcriptLoadingId.empty();
+            if (opening) {
+                loading_spinner(ctx, parent, "Loading conversation\xe2\x80\xa6");
+                return;
+            }
             render_chat_welcome(ctx, parent, app, paneW, paneH);
             return;
         }
