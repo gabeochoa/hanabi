@@ -1379,10 +1379,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 })
                 .with_debug_name("home_section_chev"));
 
+        // Content-sized, not percent(1.0): the chevron takes 14px off the row
+        // and afterhours has no flex-grow (gap #18), so a full-width label
+        // overflows its parent and floods the log with wrap/overflow warnings
+        // — which also costs a solve_violations pass every frame. The row
+        // itself still spans the pane, so the hover band does too.
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(upper(text))
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_size(ComponentSize{children(), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(color)
                 .with_font_size(theme::type::LABEL)
