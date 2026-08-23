@@ -232,7 +232,13 @@ static void test_compact_count() {
     CHECK(fmtutil::compact_count(4999) == "4.9k");   // truncates, never rounds up
     CHECK(fmtutil::compact_count(10500) == "10k");   // no decimal past 10k
     CHECK(fmtutil::compact_count(130000) == "130k");
-    CHECK(fmtutil::compact_count(2500000) == "2M");
+    // Millions get the decimal thousands get. Without it a 1M-token budget
+    // renders every reading from 1.0M to 1.9M as the same "1M".
+    CHECK(fmtutil::compact_count(1000000) == "1M");
+    CHECK(fmtutil::compact_count(1500000) == "1.5M");
+    CHECK(fmtutil::compact_count(1999999) == "1.9M");  // truncates here too
+    CHECK(fmtutil::compact_count(2500000) == "2.5M");
+    CHECK(fmtutil::compact_count(12500000) == "12M");  // no decimal past 10M
     CHECK(fmtutil::compact_count(-1).empty());
 }
 

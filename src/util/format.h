@@ -72,18 +72,23 @@ inline std::string clock_time(int64_t epoch) {
     return std::string(buf);
 }
 
-// A count as a short human figure: 940, 4.2k, 130k.
+// A count as a short human figure: 940, 4.2k, 130k, 1.5M.
+//
+// One decimal below ten of a unit and none above it, at every magnitude. The
+// millions used to skip the decimal, which collapsed every reading from 1.0M
+// to 1.9M onto a single "1M" — and a context budget lives exactly there.
 inline std::string compact_count(int64_t n) {
     if (n < 0) return "";
     if (n < 1000) return std::to_string(n);
-    if (n < 1000000) {
-        const int64_t whole = n / 1000;
-        const int64_t tenth = (n % 1000) / 100;
+    const auto scaled = [n](int64_t unit, const char* suffix) {
+        const int64_t whole = n / unit;
+        const int64_t tenth = (n % unit) / (unit / 10);
         if (whole < 10 && tenth > 0)
-            return std::to_string(whole) + "." + std::to_string(tenth) + "k";
-        return std::to_string(whole) + "k";
-    }
-    return std::to_string(n / 1000000) + "M";
+            return std::to_string(whole) + "." + std::to_string(tenth) + suffix;
+        return std::to_string(whole) + suffix;
+    };
+    if (n < 1000000) return scaled(1000, "k");
+    return scaled(1000000, "M");
 }
 
 // Truncate to n chars with an ellipsis.
