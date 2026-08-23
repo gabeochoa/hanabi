@@ -164,8 +164,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                       : std::nullopt;
                     cached && !cached->empty()) {
                     app.sessions = std::move(*cached);
-                    for (auto& s : app.sessions)
+                    for (auto& s : app.sessions) {
                         if (Settings::get().is_starred(s.id)) s.starred = true;
+                        if (Settings::get().is_muted(s.id)) s.muted = true;
+                    }
                     app.listState = LoadState::Loaded;  // show stale now
                     // sessions is provably non-empty here (loaded from a
                     // !cached->empty() cache), so no re-check needed.
@@ -186,13 +188,16 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.listPending = false;
                 if (r.ok) {
                     app.sessions = std::move(r.value);
-                    // Re-apply the user's persisted stars over whatever the
-                    // backend reported (Settings is the durable source of truth
-                    // for starring — Phase I). Without this, a star flipped in a
-                    // prior launch would be lost because the mock/backend seeds
-                    // its own starred flags fresh each list fetch.
-                    for (auto& s : app.sessions)
+                    // Re-apply the user's persisted stars and mutes over
+                    // whatever the backend reported (Settings is the durable
+                    // source of truth for both — Phase I). Without this, a star
+                    // flipped in a prior launch would be lost because the
+                    // mock/backend seeds its own starred flags fresh each list
+                    // fetch, and mute has no backend copy at all.
+                    for (auto& s : app.sessions) {
                         if (Settings::get().is_starred(s.id)) s.starred = true;
+                        if (Settings::get().is_muted(s.id)) s.muted = true;
+                    }
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
                     // Persist the fresh list for the next launch's instant paint.

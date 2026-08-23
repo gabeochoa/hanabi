@@ -22,6 +22,7 @@
 // ---------------------------------------------------------------------------
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,15 +46,23 @@ using Snapshot = std::map<std::string, Activity>;
 
 // Transitions since `previous`. A thread absent from `previous` is new to us
 // and is only recorded, never reported.
+//
+// `muted` is the set of threads the user has silenced on this machine. They are
+// dropped HERE rather than at the banner: the caller still records them in the
+// next snapshot, so a thread that blocks while muted is already accounted for
+// and unmuting it later cannot fire a banner about something that happened
+// hours ago.
 inline std::vector<Event> transitions(
     const Snapshot& previous,
     const std::vector<std::pair<std::string, Activity>>& current,
-    const std::map<std::string, std::string>& titles) {
+    const std::map<std::string, std::string>& titles,
+    const std::set<std::string>& muted = {}) {
     std::vector<Event> out;
     for (const auto& [id, now] : current) {
         auto prev = previous.find(id);
         if (prev == previous.end()) continue;
         if (prev->second == now) continue;
+        if (muted.count(id) != 0) continue;
 
         auto title = titles.find(id);
         const std::string label = title == titles.end() ? std::string{}

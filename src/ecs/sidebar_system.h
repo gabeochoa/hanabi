@@ -65,6 +65,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->requestToggleStar.clear();
         }
 
+        // Apply a pending mute toggle, in the same single-writer spot and for
+        // the same reason: the notification gate reads s.muted off this vector
+        // on the very next frame, so a bell click has to land before then.
+        if (!app->requestToggleMute.empty()) {
+            for (auto& s : app->sessions) {
+                if (s.id == app->requestToggleMute) {
+                    s.muted = !s.muted;
+                    Settings::get().set_muted(s.id, s.muted);
+                    break;
+                }
+            }
+            app->requestToggleMute.clear();
+        }
+
         // Cmd+B toggles the sidebar.
         bool cmdDown = hanabi::keys::cmd_down();
         if (cmdDown && hanabi::keys::pressed(hanabi::keys::kB)) {
@@ -222,8 +236,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
   private:
     // ---- right-click menu on a thread row ----
-    // Anchored at the cursor, above everything. Its one action today is
-    // Rename…, which is offered only when the backend actually has the verb.
+    // Anchored at the cursor, above everything. Rename… is offered only when
+    // the backend actually has the verb; Mute is machine-local, so it is
+    // always there.
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
@@ -233,9 +248,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
+        enum class Action { Rename, Mute };
+        struct Item {
+            const char* label;
+            const char* name;
+            Action action;
+        };
+        std::vector<Item> items;
+        if (app.client && app.client->supports_rename())
+            items.push_back({"Rename\xe2\x80\xa6", "row_menu_rename",
+                             Action::Rename});
+        items.push_back({target->muted ? "Unmute" : "Mute", "row_menu_mute",
+                         Action::Mute});
+
         const float menuW = 150.0f;
         const float itemH = 26.0f;
-        const float menuH = itemH;
+        const float menuH = itemH * static_cast<float>(items.size());
         float mx = app.rowMenuX;
         float my = app.rowMenuY;
         if (mx + menuW > ctx.screen_width) mx = ctx.screen_width - menuW;
@@ -273,29 +301,37 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(kMenuLayer)
                 .with_debug_name("row_menu"));
 
-        auto rename = button(ctx, mk(uiRoot, 8901),
-            ComponentConfig{}
-                .with_label("Rename\xe2\x80\xa6")
-                .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
-                .with_absolute_position()
-                .with_translate(mx, my)
-                .with_custom_background(theme::panel_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::ROW)
-                .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(10)})
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(kMenuLayer + 1)
-                .with_debug_name("row_menu_rename"));
-
-        if (rename) {
-            app.renameOpen = true;
-            app.renameSessionId = target->id;
-            app.renameDraft = target->title;
-            app.renameError.clear();
-            app.renameSubmit = false;
+        const std::string targetId = target->id;
+        for (size_t k = 0; k < items.size(); ++k) {
+            auto hit = button(ctx, mk(uiRoot, 8901 + static_cast<int>(k)),
+                ComponentConfig{}
+                    .with_label(items[k].label)
+                    .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
+                    .with_absolute_position()
+                    .with_translate(mx, my + itemH * static_cast<float>(k))
+                    .with_custom_background(theme::panel_bg())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::ROW)
+                    .with_alignment(TextAlignment::Left)
+                    .with_padding(Padding{.left = pixels(10)})
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_render_layer(kMenuLayer + 1)
+                    .with_debug_name(items[k].name));
+            if (!hit) continue;
+            switch (items[k].action) {
+                case Action::Rename:
+                    app.renameOpen = true;
+                    app.renameSessionId = targetId;
+                    app.renameDraft = target->title;
+                    app.renameError.clear();
+                    app.renameSubmit = false;
+                    break;
+                case Action::Mute:
+                    app.requestToggleMute = targetId;
+                    break;
+            }
             app.close_row_menu();
             return;
         }
@@ -536,6 +572,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     //   Ring 4px (accent) running / in-progress (hollow, so it never reads as
     //                     the filled blue Done dot)
     //   Dot 2.4px(faint) calm  (parked / archived / no signal)
+    // The mute mark: a small ring with a slash through it, the universal
+    // "silenced". The icon atlas has no bell (see the smart-view note below),
+    // and an emoji bell is not in the UI font, so it is drawn from primitives.
+    static void draw_mute_mark(RectangleType rect, theme::Color c) {
+        // Sits toward the slot's right with a gap before the star, matching how
+        // the star insets itself from the timestamp.
+        const float cx = rect.x + rect.width - 12.0f;
+        const float cy = rect.y + rect.height * 0.5f - 1.0f;
+        const float r = 5.0f;
+        afterhours::draw_circle_lines(static_cast<int>(cx),
+                                      static_cast<int>(cy), r, c);
+        const float d = r * 0.72f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - d, cy + d},
+                                 afterhours::vec2{cx + d, cy - d}, 1.5f, c);
+    }
+
     static void draw_glyph(RectangleType rect, Glyph g) {
         const float cx = rect.x + rect.width * 0.5f;
         const float cy = rect.y + rect.height * 0.5f;
@@ -1769,6 +1821,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // title simply shrinks (it can't overflow — it's the only flex column).
         const float kRowPad = kRowLeftInset + 8.0f;  // row left + right 8
         const float kStarW = 18.0f;       // trailing star slot
+        const float kBellW = 18.0f;       // trailing mute slot, left of the star
         const float kTitleMin = 40.0f;    // title floor before dropping columns
         float rowContent = panelW - kRowPad;
         if (rowContent < kGlyphW + 10.0f) rowContent = kGlyphW + 10.0f;
@@ -1797,8 +1850,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool showStar =
             (rowContent - kGlyphW - kTitleMin -
              (showTime ? kRowTimeColW : 0.0f)) >= kStarW;
+        // The mute mark is claimed ONLY by a thread that is actually muted.
+        // Reserving it on every row the way the star slot is reserved would tax
+        // ~18px off every title in the list for an affordance almost no row
+        // uses — three characters of every name, permanently. Muting is on the
+        // row's context menu instead, so nothing appears on hover and no row
+        // reflows; a muted row pays for its own mark. Last in the chain, so it
+        // is also the first column dropped when the sidebar narrows.
+        bool showBell =
+            s.muted && (rowContent - kGlyphW - kTitleMin -
+                        (showTime ? kRowTimeColW : 0.0f) -
+                        (showStar ? kStarW : 0.0f)) >= kBellW;
         float reserved = kGlyphW + (showTime ? timeW : 0.0f) +
-                         (showStar ? kStarW : 0.0f);
+                         (showStar ? kStarW : 0.0f) +
+                         (showBell ? kBellW : 0.0f);
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
         // Ellipsize to the title column's width. At ROW size (12.5px) an avg
@@ -1842,6 +1907,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                           // the star-on-hover affordance headlessly). No-op
                           // unless HANABI_TEST_HOVER=row:<sessionId>.
                           hanabi::test_hooks::force_hover("row:" + s.id);
+
+        // The muted mark, immediately left of the star, on muted rows only.
+        // Clickable, so the one row that shows it also offers the one-click way
+        // out; muting in the first place is a row-menu item.
+        bool bellClicked = false;
+        if (showBell) {
+            const std::string mid = s.id;
+            auto bell = button(ctx, mk(row.ent(), 5),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_transparent_bg()
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([](RectangleType r) {
+                        draw_mute_mark(r, theme::text_secondary());
+                    })
+                    .with_debug_name("row_muted"));
+            if (bell.ent().has<afterhours::HasColor>())
+                bell.ent().get<afterhours::HasColor>().skip_hover_override =
+                    true;
+            if (bell) {
+                app.requestToggleMute = mid;
+                bellClicked = true;  // suppress the row's open-thread this frame
+            }
+        }
 
         // Trailing relative-time column FIRST (so it sits to the LEFT of the
         // ---- M5: star sits to the LEFT of the timestamp, both right-aligned.
@@ -1925,10 +2017,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("row_time"));
 
-        // Right-click opens the row's context menu at the cursor. Offered only
-        // when the backend has the rename verb, since Rename… is its only item.
-        if (ctx.is_right_click(row.ent().id) && app.client &&
-            app.client->supports_rename()) {
+        // Right-click opens the row's context menu at the cursor. Always
+        // offered now: Mute is machine-local, so the menu has an item to show
+        // even against a backend with no rename verb.
+        if (ctx.is_right_click(row.ent().id)) {
             app.rowMenuOpen = true;
             app.rowMenuSessionId = s.id;
             app.rowMenuX = ctx.mouse.pos.x;
@@ -1937,7 +2029,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Apply the deferred row-open: open the thread on a row click UNLESS the
         // star was what got clicked (starring must not also open the thread).
-        if (rowClicked && !starClicked) {
+        if (rowClicked && !starClicked && !bellClicked) {
             app.requestOpenTab = s.id;
         }
     }

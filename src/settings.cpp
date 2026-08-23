@@ -66,6 +66,11 @@ bool Settings::load_save_file() {
             for (const auto& e : j["starred"])
                 if (e.is_string()) starred_ids_.push_back(e.get<std::string>());
         }
+        muted_ids_.clear();
+        if (j.contains("muted") && j["muted"].is_array()) {
+            for (const auto& e : j["muted"])
+                if (e.is_string()) muted_ids_.push_back(e.get<std::string>());
+        }
         collapsed_shelves_.clear();
         if (j.contains("collapsed_shelves") &&
             j["collapsed_shelves"].is_array()) {
@@ -101,6 +106,7 @@ void Settings::write_save_file() {
     j["memory_backend"] = memory_backend_;
     j["default_model"] = default_model_;
     j["starred"] = starred_ids_;
+    j["muted"] = muted_ids_;
     j["collapsed_shelves"] = collapsed_shelves_;
     j["last_read"] = last_read_;
     std::ofstream out(get_settings_path());
@@ -177,6 +183,24 @@ void Settings::set_starred(const std::string& id, bool starred) {
         return;  // no change — skip the write
     }
     // Persist immediately (mirrors set_theme) so a star survives relaunch.
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::is_muted(const std::string& id) const {
+    for (const auto& m : muted_ids_)
+        if (m == id) return true;
+    return false;
+}
+void Settings::set_muted(const std::string& id, bool muted) {
+    auto it = std::find(muted_ids_.begin(), muted_ids_.end(), id);
+    const bool present = (it != muted_ids_.end());
+    if (muted && !present) {
+        muted_ids_.push_back(id);
+    } else if (!muted && present) {
+        muted_ids_.erase(it);
+    } else {
+        return;  // no change — skip the write
+    }
     if (auto_save_enabled) write_save_file();
 }
 

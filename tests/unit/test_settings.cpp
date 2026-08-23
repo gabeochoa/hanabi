@@ -181,6 +181,27 @@ static void test_quiet_hours_persist() {
     CHECK(s.get_quiet_end_minutes() == 8 * 60);
 }
 
+// --- A mute survives a reload, and unmuting removes it -------------------
+static void test_mute_round_trips() {
+    std::printf("test_mute_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    CHECK(!s.is_muted("r4"));
+    s.set_muted("r4", true);
+    CHECK(s.is_muted("r4"));
+
+    // Reading the file back is the whole point: a mute that lives only in
+    // memory is gone on the next launch, and the thread starts shouting again.
+    s.load_save_file();
+    CHECK(s.is_muted("r4"));
+    CHECK(!s.is_muted("r5"));
+
+    s.set_muted("r4", false);
+    s.load_save_file();
+    CHECK(!s.is_muted("r4"));
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -189,6 +210,7 @@ int main() {
     test_shelf_fold_round_trips();
     test_quiet_hours_window();
     test_quiet_hours_persist();
+    test_mute_round_trips();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+#include <set>
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
@@ -604,6 +605,10 @@ static void app_frame() {
 
             std::vector<std::pair<std::string, hanabi::notify::Activity>> now;
             std::map<std::string, std::string> titles;
+            // Muted threads are still gathered and still snapshotted below —
+            // they are dropped inside transitions(), so silence now cannot
+            // become a stale banner the moment the thread is unmuted.
+            std::set<std::string> muted;
             now.reserve(app.sessions.size());
             for (const auto& s : app.sessions) {
                 if (s.id.empty()) continue;
@@ -614,10 +619,11 @@ static void app_frame() {
                     activity = hanabi::notify::Activity::Finished;
                 now.emplace_back(s.id, activity);
                 titles[s.id] = s.title;
+                if (s.muted) muted.insert(s.id);
             }
 
             const auto events =
-                hanabi::notify::transitions(lastSeen, now, titles);
+                hanabi::notify::transitions(lastSeen, now, titles, muted);
             if (!events.empty() && !in_quiet_hours_now()) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());

@@ -84,6 +84,12 @@ struct Settings {
     bool is_starred(const std::string& id) const;
     void set_starred(const std::string& id, bool starred);  // auto-persists
 
+    // Muted session ids. Machine-local by design (see SessionSummary::muted),
+    // so this is the only place the state lives — there is no server copy to
+    // reconcile against, and an id that no longer exists simply never matches.
+    bool is_muted(const std::string& id) const;
+    void set_muted(const std::string& id, bool muted);  // auto-persists
+
     // How far a thread had been READ, as the timestamp of its newest message
     // at the moment it was last open. Persisted so reopening a conversation
     // can say what arrived while you were away — without it, a thread that
@@ -147,6 +153,7 @@ struct Settings {
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
     std::uint64_t cache_cap_bytes_ = 1024ull * 1024 * 1024;
     std::vector<std::string> starred_ids_;
+    std::vector<std::string> muted_ids_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
     // Preference slots (see getters). Defaults mirror the web defaults.

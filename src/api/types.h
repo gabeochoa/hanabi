@@ -136,6 +136,10 @@ struct SessionSummary {
     std::string folder;
     // User-pinned to the top / Starred view.
     bool starred = false;
+    // Silenced on THIS machine: the thread still changes state and still shows
+    // it in the list, it just never raises a notification. Deliberately not
+    // synced — which machine you want quiet on is a property of the machine.
+    bool muted = false;
 };
 
 // A sub-agent (child worker) running under a session. Visualized ONLY in the

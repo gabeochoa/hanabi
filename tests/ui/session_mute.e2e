@@ -1,0 +1,62 @@
+# Mute a thread from its row menu. A muted row carries a small crossed ring
+# where its bell would be, and clicking that ring is the way back — the mark
+# appears on muted rows only, so no row pays width for an affordance it is not
+# using and no row reflows under the pointer.
+#
+# Each step is addressed by the name that only exists in one state: row_muted
+# is the mark a muted row shows at rest, and the menu item reads Unmute only
+# once the thread is silenced. So reaching one of them IS the assertion that
+# the previous click landed.
+#
+# The row is addressed by coordinate because the harness has no
+# `right_click_ui <name>` (afterhours_gaps.md #55); the menu ITEM is addressed
+# by name, which is safe once the menu is open.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Draft release notes for 4.2"
+
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+click_ui row_menu_mute
+wait_frames 6
+
+# The mark is on the row at rest, with the pointer off the sidebar entirely.
+mouse_move 650 400
+wait_frames 8
+assert_ui row_muted hidden=false
+
+# The menu now offers the way back, which it only does for a muted thread.
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+expect_text "Unmute"
+click_ui row_menu_mute
+wait_frames 8
+
+# Unmuted: the mark is gone, so the row is offering Mute again.
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+expect_no_text Unmute
+click_ui row_menu_mute
+wait_frames 6
+
+# Clicking the mark itself is the one-click way out, and it must not open the
+# thread on its way past — the mark is a child of the row, so its click
+# registers on the row too, which is the bug the star already had.
+mouse_move 650 400
+wait_frames 8
+click_ui row_muted
+wait_frames 8
+expect_no_text "Pulled the 62 landed changes"
+
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+expect_no_text Unmute

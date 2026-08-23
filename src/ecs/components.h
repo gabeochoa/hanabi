@@ -216,6 +216,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // consumed by whichever system owns the summary mutation).
     std::string requestToggleStar;
 
+    // Request to silence (or un-silence) a thread on this machine. Same
+    // one-writer arrangement as the star: the sidebar owns the sessions vector.
+    std::string requestToggleMute;
+
     // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
     // collapse into one "N tool calls" summary row (like the navi website); the
     // set holds the pile keys (first tool msg id) the user has expanded. Default
