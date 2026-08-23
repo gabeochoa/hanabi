@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "../test_hooks.h"
+#include "../util/capture_clock.h"
 #include "../util/format.h"
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
@@ -5103,10 +5104,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // dot pulse + elapsed timer are fully client-side.
     void render_thinking_indicator(UIContext<InputAction>& ctx, Entity& parent,
                                    AppComponent* app) {
-        // Elapsed seconds since the turn began.
+        // Elapsed seconds since the turn began. During a headless capture the
+        // clock is frozen, so this subtracts two readings of the same instant
+        // and the photographed number is the one the demo asked for.
         long elapsed = 0;
         if (app && app->streamStartedAt > 0) {
-            long now = static_cast<long>(std::time(nullptr));
+            long now = static_cast<long>(capture_clock::now());
             elapsed = now - app->streamStartedAt;
             if (elapsed < 0) elapsed = 0;
         }
@@ -5134,7 +5137,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg([](RectangleType r) {
                     const float cx = r.x + r.width * 0.5f;
                     const float cy = r.y + r.height * 0.5f;
-                    const double t = afterhours::graphics::get_time();
+                    const double t = capture_clock::anim_time(
+                        afterhours::graphics::get_time());
                     // 0..1 breathing factor (~1.4s period).
                     const float p = 0.5f + 0.5f * static_cast<float>(
                                                 std::sin(t * 4.5));

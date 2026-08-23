@@ -12,41 +12,122 @@
     },
     "03_transcript_dark": {
       "threshold_pct": 0.0,
-      "note": "Transcript with three tabs open, dark. Exact match expected; the mock's ages are now-relative so the rendered '3h' stays '3h'."
+      "note": "Transcript with three tabs open, dark. The mock's ages are now-relative so the rendered '3h' stays '3h'."
+    },
+    "04_transcript_light": {
+      "threshold_pct": 0.0,
+      "note": "Transcript with three tabs open, light."
+    },
+    "05_transcript_t6_dark": {
+      "threshold_pct": 0.0,
+      "note": "Transcript with t6 (a running thread, 3 sub-agents) active."
+    },
+    "07_hover_tab_dark": {
+      "threshold_pct": 0.0,
+      "note": "A non-active content tab in its hover state."
+    },
+    "08_view_blocked_dark": {
+      "threshold_pct": 0.0,
+      "note": "Blocked-on-you smart view."
+    },
+    "09_view_review_dark": {
+      "threshold_pct": 0.0,
+      "note": "Ready-for-review smart view."
+    },
+    "10_view_starred_dark": {
+      "threshold_pct": 0.0,
+      "note": "Starred smart view, with the state chips."
+    },
+    "11_view_archived_dark": {
+      "threshold_pct": 0.0,
+      "note": "Archived smart view."
+    },
+    "12_view_blocked_light": {
+      "threshold_pct": 0.0,
+      "note": "Blocked-on-you smart view in the light palette."
+    },
+    "13_chat_welcome_dark": {
+      "threshold_pct": 0.0,
+      "note": "Chat with no thread open: the welcome prompts."
+    },
+    "14_sidebar_folded_dark": {
+      "threshold_pct": 0.0,
+      "note": "Sidebar folded to the icon rail."
+    },
+    "15_settings_dark": {
+      "threshold_pct": 0.0,
+      "note": "Settings overlay, dark. Every preference control on one sheet."
+    },
+    "16_settings_light": {
+      "threshold_pct": 0.0,
+      "note": "Settings overlay, light."
+    },
+    "17_newtask_dark": {
+      "threshold_pct": 0.0,
+      "note": "New-task overlay with an empty field."
+    },
+    "17b_shortcuts_dark": {
+      "threshold_pct": 0.0,
+      "note": "Keyboard-shortcuts sheet, dark."
+    },
+    "17c_shortcuts_light": {
+      "threshold_pct": 0.0,
+      "note": "Keyboard-shortcuts sheet, light."
+    },
+    "18_auth_dark": {
+      "threshold_pct": 0.0,
+      "note": "Device-code sign-in. The code and URL are the mock's fixed example.invalid pair."
+    },
+    "19_many_tabs_dark": {
+      "threshold_pct": 0.0,
+      "note": "Ten open tabs: the strip shrinks to fit."
+    },
+    "21_tools_expanded_dark": {
+      "threshold_pct": 0.0,
+      "note": "Every tool pile and the sub-agent rollup pre-expanded."
+    },
+    "22_split_view_dark": {
+      "threshold_pct": 0.0,
+      "note": "Two threads side by side."
+    },
+    "23_skeleton_dark": {
+      "threshold_pct": 0.0,
+      "note": "The list skeleton, before any session arrives."
+    },
+    "25_load_older_dark": {
+      "threshold_pct": 0.0,
+      "note": "The load-older affordance at the top of a transcript."
+    },
+    "26_thinking_dark": {
+      "threshold_pct": 0.0,
+      "note": "The live thinking indicator. The timer reads 32s exactly because the capture clock is frozen (src/util/capture_clock.h); without that freeze the reading flips to 33s whenever a run crosses a second boundary."
+    },
+    "27_streaming_dark": {
+      "threshold_pct": 0.0,
+      "note": "A turn arriving as tokens."
+    },
+    "28_composer_focus_dark": {
+      "threshold_pct": 0.0,
+      "note": "Composer focused: caret and focus ring."
+    },
+    "29_find_dark": {
+      "threshold_pct": 0.0,
+      "note": "Find in conversation with matches highlighted."
+    },
+    "30_find_light": {
+      "threshold_pct": 0.0,
+      "note": "Find in conversation, light."
+    },
+    "31_selection_dark": {
+      "threshold_pct": 0.0,
+      "note": "A run of transcript text selected."
     }
   },
   "unbaselined": {
-    "04_transcript_light": "not baselined yet; chunk 5 gathers the full set",
-    "05_transcript_t6_dark": "not baselined yet; chunk 5 gathers the full set",
-    "06_hover_row_star_dark": "not baselined yet; chunk 5 gathers the full set",
-    "07_hover_tab_dark": "not baselined yet; chunk 5 gathers the full set",
-    "07b_hover_msg_copy_dark": "not baselined yet; chunk 5 gathers the full set",
-    "08_view_blocked_dark": "not baselined yet; chunk 5 gathers the full set",
-    "09_view_review_dark": "not baselined yet; chunk 5 gathers the full set",
-    "10_view_starred_dark": "not baselined yet; chunk 5 gathers the full set",
-    "11_view_archived_dark": "not baselined yet; chunk 5 gathers the full set",
-    "12_view_blocked_light": "not baselined yet; chunk 5 gathers the full set",
-    "13_chat_welcome_dark": "not baselined yet; chunk 5 gathers the full set",
-    "14_sidebar_folded_dark": "not baselined yet; chunk 5 gathers the full set",
-    "15_settings_dark": "not baselined yet; chunk 5 gathers the full set",
-    "16_settings_light": "not baselined yet; chunk 5 gathers the full set",
-    "17_newtask_dark": "not baselined yet; chunk 5 gathers the full set",
-    "17b_shortcuts_dark": "not baselined yet; chunk 5 gathers the full set",
-    "17c_shortcuts_light": "not baselined yet; chunk 5 gathers the full set",
-    "18_auth_dark": "not baselined yet; chunk 5 gathers the full set",
-    "19_many_tabs_dark": "not baselined yet; chunk 5 gathers the full set",
-    "20_big_transcript_dark": "not baselined yet; chunk 5 gathers the full set",
-    "21_tools_expanded_dark": "not baselined yet; chunk 5 gathers the full set",
-    "22_split_view_dark": "not baselined yet; chunk 5 gathers the full set",
-    "23_skeleton_dark": "not baselined yet; chunk 5 gathers the full set",
-    "24_thread_loading_dark": "not baselined yet; chunk 5 gathers the full set",
-    "25_load_older_dark": "not baselined yet; chunk 5 gathers the full set",
-    "26_thinking_dark": "not baselined yet; chunk 5 gathers the full set",
-    "27_streaming_dark": "not baselined yet; chunk 5 gathers the full set",
-    "28_composer_focus_dark": "not baselined yet; chunk 5 gathers the full set",
-    "29_find_dark": "not baselined yet; chunk 5 gathers the full set",
-    "30_find_light": "not baselined yet; chunk 5 gathers the full set",
-    "31_selection_dark": "not baselined yet; chunk 5 gathers the full set",
-    "32_new_messages_dark": "not baselined yet; chunk 5 gathers the full set"
+    "06_hover_row_star_dark": "the capture is byte-identical to 01_home_dark: t2 lives in the collapsed 'Stars' folder, so the row the hover hook targets is not rendered and the hollow-star affordance never appears. A baseline here would claim coverage of a state it does not show. Fix the state (open the folder, or hover a row that is visible), then baseline it.",
+    "07b_hover_msg_copy_dark": "the hover action bar renders an ABSOLUTE clock time (fmtutil::clock_time of a mock stamp seeded at now-N), so the image changes every minute — two runs four minutes apart differ by 32 pixels, 06:08 vs 06:09. Freezing the capture clock does not help: the datum moves with the wall clock too. Baselining this needs the mock seeded from a fixed epoch during capture.",
+    "20_big_transcript_dark": "the rbig perf fixture is seeded at now-80h..now-36h, so local midnight sweeps through it as the day passes: for ~7% of the day (20 of 288 five-minute samples) a calendar-day boundary falls inside the last eight messages and a date divider enters the visible tail, shifting the layout. Deterministic within a run, unstable across the day.",
+    "24_thread_loading_dark": "the capture is byte-identical to 03_transcript_dark: the mock resolves the transcript fetch synchronously, so HANABI_LOADING_DEMO's per-thread loading state is already gone by the settle frames. Same class of bug the thinking demo had (the loader replaces openSession during the settle). Fix the knob, then baseline it.",
+    "32_new_messages_dark": "same rbig fixture and same sweeping date divider as 20_big_transcript_dark."
   }
 }

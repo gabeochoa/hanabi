@@ -25,6 +25,7 @@
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
+#include "util/capture_clock.h"
 #include "util/notify_events.h"
 #include "util/quiet_hours.h"
 #include "version.h"
@@ -789,8 +790,10 @@ static void apply_stream_demo(ecs::AppComponent* app) {
     // it on the next tick, one frame after the knob runs.
     app->streamDemoHold = true;
     // Re-stamped on every application so the timer reads the same 32s however
-    // many times this runs — a drifting number would rot every baseline.
-    app->streamStartedAt = static_cast<int64_t>(std::time(nullptr)) - 32;
+    // many times this runs — a drifting number would rot every baseline. The
+    // capture clock is what makes the reading exact: the renderer subtracts
+    // this stamp from ITS reading of now, and both are the same frozen instant.
+    app->streamStartedAt = capture_clock::now() - 32;
     app->view = ecs::SmartView::Chat;
 }
 
@@ -942,6 +945,11 @@ static void apply_test_knobs(ecs::AppComponent* app) {
 // smoke tests. Returns process exit code.
 static int run_headless_screenshot(const std::string& path, int w, int h) {
     using namespace afterhours;
+
+    // One clock reading for the whole capture, so a duration that is set up in
+    // one frame and rendered in a later one cannot straddle a second boundary
+    // and photograph a different number (see util/capture_clock.h).
+    capture_clock::freeze();
 
     // NOTE on hi-DPI: the WINDOWED app already runs high_dpi=true, so the real
     // window is crisp on Retina. This HEADLESS capture path, however, renders
