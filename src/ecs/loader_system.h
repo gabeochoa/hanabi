@@ -1129,6 +1129,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
 
         if (!app.streamActive) return;
+        if (app.streamDemoHold) return;
 
         // If the open thread changed out from under an in-flight stream, drop
         // it cleanly rather than writing into the wrong transcript.

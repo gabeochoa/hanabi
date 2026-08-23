@@ -1,0 +1,16 @@
+# The live turn shows that it is working, before any text arrives.
+#
+# The indicator (pulsing dot, "Thinking…", elapsed timer) has been in the code
+# for months and could not be seen: the demo knob injected the live message
+# BEFORE the settle frames, and the loader replaces the open session during
+# them — so 26_thinking_dark has been photographing a thread with no indicator
+# in it, and nothing scripted covered it at all.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_THINK_DEMO=1
+
+expect_text "Thinking"
+# The timer is stamped at a fixed 32s so the reading cannot drift between runs.
+expect_text "32s"
+# The thread it belongs to is still the one on screen.
+expect_text "Stars payout reconciliation"
