@@ -85,6 +85,14 @@ struct Tokens {
 
     // Session-list status pips (legacy)
     Color status_active, status_idle, status_archived;
+
+    // Fenced code blocks. A syntax palette is not the UI palette: it has to
+    // separate six roles from each other AND stay legible on the sunken code
+    // surface, so these are their own tokens rather than reused accents. Plain
+    // code keeps text_secondary, so an uncoloured language looks exactly as it
+    // did before.
+    Color syntax_keyword, syntax_type, syntax_string, syntax_comment,
+        syntax_number, syntax_punct;
 };
 
 // -------- Dark palette (anchor / default) --------
@@ -157,6 +165,16 @@ inline const Tokens kDark = {
     /*status_active*/ {126, 200, 140, 255},
     /*status_idle*/ {180, 150, 90, 255},
     /*status_archived*/ {110, 110, 122, 255},
+
+    // Syntax (dark): six hues that stay apart from each other on the sunken
+    // window_bg the code block fills with, and clear of the blue accent so a
+    // keyword never reads as a link.
+    /*syntax_keyword*/ {198, 149, 234, 255},
+    /*syntax_type*/ {126, 200, 200, 255},
+    /*syntax_string*/ {152, 195, 121, 255},
+    /*syntax_comment*/ {110, 112, 126, 255},
+    /*syntax_number*/ {216, 168, 108, 255},
+    /*syntax_punct*/ {150, 152, 166, 255},
 };
 
 // -------- Light palette --------
@@ -259,6 +277,16 @@ inline const Tokens kLight = {
     /*status_active*/ {34, 124, 62, 255},
     /*status_idle*/ {150, 112, 30, 255},
     /*status_archived*/ {110, 110, 122, 255},
+
+    // Syntax (light): the same six roles, darkened for a near-white code
+    // surface — each one clears 4.5:1 on it, which the dark palette's hues
+    // would not.
+    /*syntax_keyword*/ {138, 44, 178, 255},
+    /*syntax_type*/ {18, 108, 116, 255},
+    /*syntax_string*/ {32, 116, 48, 255},
+    /*syntax_comment*/ {124, 128, 140, 255},
+    /*syntax_number*/ {160, 92, 12, 255},
+    /*syntax_punct*/ {94, 98, 112, 255},
 };
 
 // Active token set (mutable, swapped at runtime). Defaults to dark.
@@ -443,6 +471,12 @@ inline Color role_tool() { return t.role_tool; }
 inline Color bubble_user_bg() { return t.bubble_user_bg; }
 inline Color bubble_assistant_bg() { return t.bubble_assistant_bg; }
 inline Color bubble_other_bg() { return t.bubble_other_bg; }
+inline Color syntax_keyword() { return t.syntax_keyword; }
+inline Color syntax_type() { return t.syntax_type; }
+inline Color syntax_string() { return t.syntax_string; }
+inline Color syntax_comment() { return t.syntax_comment; }
+inline Color syntax_number() { return t.syntax_number; }
+inline Color syntax_punct() { return t.syntax_punct; }
 inline Color status_active() { return t.status_active; }
 inline Color status_idle() { return t.status_idle; }
 inline Color status_archived() { return t.status_archived; }

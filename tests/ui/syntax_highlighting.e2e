@@ -1,0 +1,43 @@
+# A fenced code block is coloured by its language, and says so honestly when
+# it does not know the language.
+#
+# Colour is the whole feature and the harness cannot see a colour: `assert_ui`
+# reads x/y/w/h/hidden/text and nothing else, and cannot even be given a value
+# with a space in it (afterhours_gaps.md #61). So each
+# block carries a test-only caption, HANABI_SYNTAX_AUDIT=1, counting the runs
+# it actually handed to the renderer — the same list the draw was given, not a
+# second run of the scanner.
+#
+# The counts are the assertion. They differ per language, they are zero for a
+# language the scanner does not have, and two of them can only be right if the
+# scanner's state carries ACROSS lines: python's docstring is two runs of one
+# string, and the C++ block comment is two runs of one comment.
+#
+# settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_CODE_DEMO=1 HANABI_OPEN=rcode HANABI_SYNTAX_AUDIT=1
+
+expect_text "show me the retry helper"
+
+# JSON: three quoted keys, two numbers, one literal (true), no comments.
+assert_ui code_block_audit_JSON text=kw0/ty1/str3/com0/num2
+# ...and colouring it did not eat or reorder a character of it.
+expect_text "cap_ms"
+
+# An unknown language colours NOTHING rather than guessing with another
+# language's keywords.
+assert_ui code_block_audit_WAT text=kw0/ty0/str0/com0/num0
+
+# Home takes the transcript to the top, where the other three blocks are.
+key HOME
+wait_frames 20
+
+# Python: def/return, a # comment, four numbers — and a docstring that opens on
+# one line and closes on the next, which is two string runs.
+assert_ui code_block_audit_PYTHON text=kw2/ty0/str2/com1/num4
+
+# C++: three int types beside const/return, and a block comment spanning two
+# lines — two comment runs, same carried state.
+assert_ui code_block_audit_CPP text=kw2/ty3/str0/com2/num2
+
+# Shell: for/in/do/done, a # comment, a quoted argument.
+assert_ui code_block_audit_BASH text=kw4/ty2/str1/com1/num3

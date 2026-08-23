@@ -85,4 +85,19 @@ inline bool snippet_audit() {
     return on;
 }
 
+// HANABI_SYNTAX_AUDIT=1 makes a fenced code block print, in its language bar,
+// how many coloured runs of each kind it actually handed to the renderer.
+// Colour is the whole feature and the scripted harness cannot see a colour —
+// `assert_ui` reads x/y/w/h/hidden/text and nothing else (afterhours_gaps.md
+// #61) — so without this the only assertable thing is that the code is still
+// on screen, which was true before the highlighter existed. Same contract as
+// the two above: read once, hard no-op when unset.
+inline bool syntax_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_SYNTAX_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 }  // namespace hanabi::test_hooks
