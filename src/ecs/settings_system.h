@@ -62,6 +62,7 @@
 #include "../settings.h"
 #include "../version.h"
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
+#include "../keys.h"
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -82,9 +83,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         // Cmd+, toggles the settings overlay (mirrors sidebar's Cmd+B pattern:
         // 343/347 = left/right super, 44 = KEY_COMMA).
-        bool cmdDown = afterhours::graphics::is_key_down(343) ||
-                       afterhours::graphics::is_key_down(347);
-        if (cmdDown && afterhours::graphics::is_key_pressed(44)) {
+        if (hanabi::keys::cmd_down() &&
+            hanabi::keys::pressed(hanabi::keys::kComma)) {
             app->showSettings = !app->showSettings;
         }
 
@@ -106,7 +106,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // Esc closes.
-        if (afterhours::graphics::is_key_pressed(256)) {  // KEY_ESCAPE
+        if (hanabi::keys::pressed(hanabi::keys::kEscape)) {
             app->showSettings = false;
             return;
         }

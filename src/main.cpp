@@ -40,6 +40,7 @@
 #include "ecs/scroll_ease_system.h"
 #include "ecs/sidebar_system.h"
 #include "ecs/settings_system.h"
+#include "ecs/shortcuts_system.h"
 #include "ecs/status_bar_system.h"
 #include "ecs/tab_bar_system.h"
 #include "ui/theme.h"
@@ -289,6 +290,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::TabBarSystem>());
     sm.register_update_system(std::make_unique<ecs::StatusBarSystem>());
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
+    sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
     // Auth overlay draws on top of everything (login gates the app). No-op
     // unless AppComponent::showAuth is true, so it costs nothing when auth is
@@ -657,6 +659,90 @@ static void app_cleanup() {
 #include "../vendor/afterhours/src/plugins/e2e_testing/ui_commands.h"
 #endif
 
+// State-only test knobs, shared by the two headless entry points (the
+// screenshot capture and the scripted-UI runner) so a state reachable in one is
+// reachable in the other. Every one is ignored when its variable is unset, does
+// no network, and only writes app state — the knobs that need frames pumped
+// through them stay with the capture path that can pump them.
+static void apply_test_knobs(ecs::AppComponent* app) {
+    if (app == nullptr) return;
+    // Screenshot affordance: HANABI_VIEW=blocked|review|starred|home forces
+    // the landing smart-view so a headless capture can photograph any view
+    // (including an empty one) without a click. Set AFTER the wait loop so a
+    // restored tab's auto-open (which sets view=Chat) can't clobber it; we
+    // also drop the selection so the smart-view — not a stale transcript —
+    // renders. Ignored when unset.
+    if (const char* v = std::getenv("HANABI_VIEW")) {
+        std::string vs(v);
+        ecs::SmartView sv = app->view;
+        bool set = true;
+        if (vs == "blocked") sv = ecs::SmartView::Blocked;
+        else if (vs == "review") sv = ecs::SmartView::Review;
+        else if (vs == "starred") sv = ecs::SmartView::Starred;
+        else if (vs == "home") sv = ecs::SmartView::Home;
+        else if (vs == "archived") sv = ecs::SmartView::Archived;
+        else if (vs == "chat") sv = ecs::SmartView::Chat;  // welcome/no-thread
+        else set = false;
+        if (set) {
+            app->view = sv;
+            app->selectedId.clear();
+            if (sv == ecs::SmartView::Chat) app->openSession.reset();
+        }
+    }
+
+    // Screenshot affordance: HANABI_TEST_OVERLAY=settings|composer opens an
+    // overlay that is otherwise keypress-only (Cmd+, / Cmd+N), so the
+    // settings sheet + new-task composer can be photographed headlessly.
+    // Mirrors HANABI_VIEW; ignored when unset; no network, render-only.
+    if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
+        std::string os(ov);
+        if (os == "settings") app->showSettings = true;
+        else if (os == "composer") app->composerOpen = true;
+        else if (os == "shortcuts") app->showShortcuts = true;
+    }
+
+    // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache
+    // loading state (empty list + Loading) so the skeleton placeholder rows
+    // can be photographed headlessly — the harness otherwise waits PAST
+    // Loading and would never capture it. No network; render-only.
+    if (const char* d = std::getenv("HANABI_SKELETON_DEMO"); d && *d &&
+        std::string(d) != "0") {
+        app->sessions.clear();
+        app->listState = ecs::LoadState::Loading;
+        app->view = ecs::SmartView::Home;
+        app->selectedId.clear();
+    }
+
+    // Screenshot affordance: HANABI_LOADING_DEMO=1 forces the per-thread
+    // transcript switch spinner (transcriptState=Loading + a mismatched
+    // transcriptLoadingId, so the pane shows the "Loading conversation…"
+    // ring instead of stale/blank content). Render-only; no network.
+    if (const char* d = std::getenv("HANABI_LOADING_DEMO"); d && *d &&
+        std::string(d) != "0") {
+        app->view = ecs::SmartView::Chat;
+        app->transcriptState = ecs::LoadState::Loading;
+        app->transcriptLoadingId = "__loading_demo__";
+    }
+    // Screenshot affordance: HANABI_OLDER_DEMO=1 forces the top
+    // "loading older messages…" pill (loadingOlder=true) over the open
+    // transcript, so a headless capture can photograph it. Render-only.
+    if (const char* d = std::getenv("HANABI_OLDER_DEMO"); d && *d &&
+        std::string(d) != "0") {
+        app->loadingOlder = true;
+    }
+    // Screenshot affordance: HANABI_KICKOFF_DEMO=<text> fires the Home
+    // landing composer's kickoff ONCE (create_session for a NEW thread),
+    // proving the full Home -> type -> new tab -> Chat flow headlessly. The
+    // loader creates the session, opens it in a tab, and switches to Chat —
+    // exactly as a real Send/Enter from the landing composer would. Mock
+    // backend generates the session; no real network.
+    if (const char* d = std::getenv("HANABI_KICKOFF_DEMO"); d && *d &&
+        std::string(d) != "0") {
+        app->view = ecs::SmartView::Home;
+        app->requestKickoffPrompt = d;
+    }
+}
+
 // Headless one-shot: render the real UI to an offscreen texture and write a
 // PNG, with no window and no screen-recording permission. Used for docs and
 // smoke tests. Returns process exit code.
@@ -818,80 +904,9 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
         }
 
-        // Screenshot affordance: HANABI_VIEW=blocked|review|starred|home forces
-        // the landing smart-view so a headless capture can photograph any view
-        // (including an empty one) without a click. Set AFTER the wait loop so a
-        // restored tab's auto-open (which sets view=Chat) can't clobber it; we
-        // also drop the selection so the smart-view — not a stale transcript —
-        // renders. Ignored when unset. Only honored in --screenshot.
-        if (const char* v = std::getenv("HANABI_VIEW")) {
-            std::string vs(v);
-            ecs::SmartView sv = appForWait->view;
-            bool set = true;
-            if (vs == "blocked") sv = ecs::SmartView::Blocked;
-            else if (vs == "review") sv = ecs::SmartView::Review;
-            else if (vs == "starred") sv = ecs::SmartView::Starred;
-            else if (vs == "home") sv = ecs::SmartView::Home;
-            else if (vs == "archived") sv = ecs::SmartView::Archived;
-            else if (vs == "chat") sv = ecs::SmartView::Chat;  // welcome/no-thread
-            else set = false;
-            if (set) {
-                appForWait->view = sv;
-                appForWait->selectedId.clear();
-                if (sv == ecs::SmartView::Chat) appForWait->openSession.reset();
-            }
-        }
+        apply_test_knobs(appForWait);
 
-        // Screenshot affordance: HANABI_TEST_OVERLAY=settings|composer opens an
-        // overlay that is otherwise keypress-only (Cmd+, / Cmd+N), so the
-        // settings sheet + new-task composer can be photographed headlessly.
-        // Mirrors HANABI_VIEW; ignored when unset; no network, render-only.
-        if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
-            std::string os(ov);
-            if (os == "settings") appForWait->showSettings = true;
-            else if (os == "composer") appForWait->composerOpen = true;
-        }
 
-        // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache
-        // loading state (empty list + Loading) so the skeleton placeholder rows
-        // can be photographed headlessly — the harness otherwise waits PAST
-        // Loading and would never capture it. No network; render-only.
-        if (const char* d = std::getenv("HANABI_SKELETON_DEMO"); d && *d &&
-            std::string(d) != "0") {
-            appForWait->sessions.clear();
-            appForWait->listState = ecs::LoadState::Loading;
-            appForWait->view = ecs::SmartView::Home;
-            appForWait->selectedId.clear();
-        }
-
-        // Screenshot affordance: HANABI_LOADING_DEMO=1 forces the per-thread
-        // transcript switch spinner (transcriptState=Loading + a mismatched
-        // transcriptLoadingId, so the pane shows the "Loading conversation…"
-        // ring instead of stale/blank content). Render-only; no network.
-        if (const char* d = std::getenv("HANABI_LOADING_DEMO"); d && *d &&
-            std::string(d) != "0") {
-            appForWait->view = ecs::SmartView::Chat;
-            appForWait->transcriptState = ecs::LoadState::Loading;
-            appForWait->transcriptLoadingId = "__loading_demo__";
-        }
-        // Screenshot affordance: HANABI_OLDER_DEMO=1 forces the top
-        // "loading older messages…" pill (loadingOlder=true) over the open
-        // transcript, so a headless capture can photograph it. Render-only.
-        if (const char* d = std::getenv("HANABI_OLDER_DEMO"); d && *d &&
-            std::string(d) != "0") {
-            appForWait->loadingOlder = true;
-        }
-        // Screenshot affordance: HANABI_KICKOFF_DEMO=<text> fires the Home
-        // landing composer's kickoff ONCE (create_session for a NEW thread),
-        // proving the full Home -> type -> new tab -> Chat flow headlessly. The
-        // loader creates the session, opens it in a tab, and switches to Chat —
-        // exactly as a real Send/Enter from the landing composer would. Mock
-        // backend generates the session; no real network.
-        if (const char* d = std::getenv("HANABI_KICKOFF_DEMO"); d && *d &&
-            std::string(d) != "0") {
-            appForWait->view = ecs::SmartView::Home;
-            appForWait->requestKickoffPrompt = d;
-        }
     }
 
     // Render several frames so async data loads and layout settles.
@@ -1065,6 +1080,16 @@ static int run_e2e(const std::string& path, int w, int h) {
         graphics::clear_background(theme::window_bg());
         sm.run(1.0f / 60.0f);
         graphics::end_frame();
+    }
+
+    // Same state knobs the capture path honours, so a script can start from any
+    // state a screenshot can — including the overlays whose only real binding
+    // is a Cmd chord the injector cannot produce (gap #49).
+    {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        if (!q.empty()) apply_test_knobs(&q[0].get().get<ecs::AppComponent>());
     }
 
     // reset_frame is the host's job — the library never calls it, and without

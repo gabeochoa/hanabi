@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <string>
 
@@ -56,6 +57,33 @@ inline std::string relative_time(int64_t epoch, int64_t now) {
 }
 inline std::string relative_time(int64_t epoch) {
     return relative_time(epoch, static_cast<int64_t>(std::time(nullptr)));
+}
+
+// Clock time for a timestamp, e.g. "14:05". Empty for an unset (<=0) epoch.
+// Local time: these are stamps on the user's own conversation, so the machine's
+// zone is the right one.
+inline std::string clock_time(int64_t epoch) {
+    if (epoch <= 0) return "";
+    const std::time_t t = static_cast<std::time_t>(epoch);
+    std::tm tm{};
+    if (localtime_r(&t, &tm) == nullptr) return "";
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    return std::string(buf);
+}
+
+// A count as a short human figure: 940, 4.2k, 130k.
+inline std::string compact_count(int64_t n) {
+    if (n < 0) return "";
+    if (n < 1000) return std::to_string(n);
+    if (n < 1000000) {
+        const int64_t whole = n / 1000;
+        const int64_t tenth = (n % 1000) / 100;
+        if (whole < 10 && tenth > 0)
+            return std::to_string(whole) + "." + std::to_string(tenth) + "k";
+        return std::to_string(whole) + "k";
+    }
+    return std::to_string(n / 1000000) + "M";
 }
 
 // Truncate to n chars with an ellipsis.

@@ -25,6 +25,7 @@
 #include "../ui/icons.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "thread_model.h"
+#include "../keys.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -65,9 +66,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // Cmd+B toggles the sidebar.
-        bool cmdDown = afterhours::graphics::is_key_down(343) ||
-                       afterhours::graphics::is_key_down(347);
-        if (cmdDown && afterhours::graphics::is_key_pressed(66)) {  // B
+        bool cmdDown = hanabi::keys::cmd_down();
+        if (cmdDown && hanabi::keys::pressed(hanabi::keys::kB)) {
             layout->sidebarCollapsed = !layout->sidebarCollapsed;
             Settings::get().set_sidebar_collapsed(layout->sidebarCollapsed);
         }

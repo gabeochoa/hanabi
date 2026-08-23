@@ -1,0 +1,20 @@
+# The keyboard reference lists the app's bindings, and Esc closes it.
+#
+# Its own binding is Cmd+/ and the harness cannot press that: parse_key_combo
+# maps CMD+ to Control, and the Super flag it does parse is never held
+# (afterhours_gaps.md #49). So the sheet is opened through the same knob the
+# screenshot harness uses, and the Esc path is what gets driven here.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=shortcuts
+
+expect_text "Keyboard shortcuts"
+expect_text "Show or hide the sidebar"
+expect_text "Bring hanabi forward and start a task"
+expect_text "Copy it, and see when it was sent"
+
+key ESCAPE
+wait_frames 8
+expect_no_text Keyboard
