@@ -2717,3 +2717,47 @@ should.
      `ctx.set_focus(wrapper)` forward to the field) would make "put the caret
      back" a one-liner that cannot rot: today the only way to say it is to
      index into the widget's children.
+
+### #58 — No colour input of any kind, so a theme editor can only offer a menu
+
+- **What I was trying to build.** The custom theme editor from
+  `docs/breakdown/search-settings-shortcuts.md`: a row of colour swatches for
+  the palette's named tokens, each one opening a picker so a user can choose an
+  arbitrary colour, with a live preview of the result.
+
+- **What I tried.** Looked for anything in `vendor/afterhours/src/plugins/ui/`
+  that takes a colour from a user: an `imm::` colour widget, a hue/saturation
+  surface, a slider group I could compose three of, a hex text field with a
+  swatch preview. `imm_components.h` offers `div`, `button`, `checkbox`,
+  `checkbox_group`, `slider`, `dropdown`, `navigation_bar`, `pagination`,
+  `text_input`, `icon_row` — no colour widget, and no way to raise the OS
+  picker either (the library has no native-dialog surface at all, by design).
+
+- **The nearest composition, and why I did not ship it.** Three `slider`s (R,
+  G, B) plus a `div` filled with the result is buildable today. It costs an
+  editor that is three unlabelled sliders per token — the breakdown asks for
+  eleven tokens, so thirty-three sliders — and it would hand the user a colour
+  space with no guard rails, on an app whose light theme already shipped once
+  as "muddy grey sidebar, no card contrast, not shippable". A slider can pick
+  `#2b2b30` for `text_primary` on the dark palette, and the app is then a blank
+  window with no way back except editing settings.json by hand.
+
+- **The workaround, and its cost.** Named swatches instead of free colour: the
+  editable set is the two DECORATIVE token families (accent, find highlight),
+  each offered as four named choices that carry a dark colour AND a light one
+  (`src/ui/theme.h`). The cost is real — nobody can dial in their own brand
+  colour, and adding one means shipping a build. What it buys is that every
+  reachable combination has been looked at on both palettes, and no choice can
+  produce an unreadable pane.
+
+- **Severity: caps what an app can build.** Any app with theming, a drawing
+  tool, a chart editor or a tag-colour setting hits this the moment it wants a
+  colour from a person rather than from a constant.
+
+- **Minimal upstream fix.** An `imm::color_swatch(ctx, id, Color& value, cfg)`
+  — a button that fills with the current colour and, when pressed, opens a
+  library-drawn popover with a hue strip, a saturation/value square and a hex
+  field, writing back through the reference the way `slider` already writes a
+  float. It needs no platform code and no new backend surface: it is the
+  existing popover, rect-fill and text-input machinery arranged into the one
+  widget a themeable app cannot do without.

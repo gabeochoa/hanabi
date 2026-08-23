@@ -1,0 +1,39 @@
+# The two editable colour tokens change, and the sheet says which swatch is
+# live.
+#
+# A colour is invisible to the text registry, so each row name carries its own
+# chosen swatch ("Accent · Violet") and that is what this asserts — the same
+# reason the theme row cannot be asserted by its fill. The colours themselves
+# are checked by eye in both palettes (docs: a light-theme regression shipped
+# once already).
+#
+# Driven through the real sheet rather than a state knob: the point of the
+# editor is that the control writes the choice.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Custom colours"
+expect_text "Accent   ·   Default"
+expect_text "Find highlight   ·   Default"
+
+click_ui settings_accent_violet
+wait_frames 8
+expect_text "Accent   ·   Violet"
+
+click_ui settings_highlight_green
+wait_frames 8
+expect_text "Find highlight   ·   Green"
+
+# The choice belongs to the token, not to the palette: switching to light must
+# not quietly drop it back to Default.
+click_ui settings_theme_light
+wait_frames 10
+expect_text "Accent   ·   Violet"
+expect_text "Find highlight   ·   Green"
+
+click_ui settings_accent_default
+wait_frames 8
+expect_text "Accent   ·   Default"
+expect_text "Find highlight   ·   Green"

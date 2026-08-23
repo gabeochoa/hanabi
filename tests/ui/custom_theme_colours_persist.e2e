@@ -1,0 +1,12 @@
+# A colour choice made in an earlier run comes back on launch.
+#
+# The settings file here is what the previous run would have written. Without
+# the load path the sheet would open on "Default" — which is exactly what a
+# choice that persists in name only looks like.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","theme_accent":"amber","theme_highlight":"pink"}
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Accent   ·   Amber"
+expect_text "Find highlight   ·   Pink"
