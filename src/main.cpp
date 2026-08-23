@@ -34,6 +34,7 @@
 #include "ecs/components.h"
 #include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
+#include "ecs/escape_system.h"
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
 #include "ecs/main_pane_system.h"
@@ -282,6 +283,9 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
     sm.register_update_system(std::make_unique<ecs::LoaderSystem>());
     sm.register_update_system(std::make_unique<ecs::LayoutSystem>());
+
+    // Resolve Esc before anything reads it, so one keystroke means one thing.
+    sm.register_update_system(std::make_unique<ecs::EscapeSystem>());
 
     // UI-creating systems (draw order: later on top).
     sm.register_update_system(std::make_unique<ecs::SidebarSystem>());

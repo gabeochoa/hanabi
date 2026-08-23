@@ -70,7 +70,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app->findOpen = !app->findOpen;
             if (!app->findOpen) app->findQuery.clear();
         }
-        if (app->findOpen && hanabi::keys::pressed(hanabi::keys::kEscape)) {
+        if (app->findOpen && app->escape == EscapeIntent::CloseFind) {
             app->findOpen = false;
             app->findQuery.clear();
         }
@@ -79,7 +79,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (hanabi::keys::cmd_down() &&
             hanabi::keys::pressed(hanabi::keys::kC))
             hanabi::text_select::copy();
-        if (hanabi::keys::pressed(hanabi::keys::kEscape))
+        if (app->escape == EscapeIntent::ClearTranscript)
             hanabi::text_select::clear();
 
         layout->composerHeight = 92.0f;
@@ -3087,14 +3087,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // ESCAPE-TO-CLEAR (Gabe): when the composer field is focused and ESC is
         // pressed, clear the input. (The first-ESC-pauses-the-agent behavior is
         // deferred — for now ESC just clears, which is the common chat-app
-        // behavior.) Read the raw key (256=ESC) so it works regardless of the
-        // action mapping; only act when THIS field holds focus so ESC elsewhere
-        // (e.g. closing a modal) isn't hijacked.
+        // behavior.) Only when Esc belongs to the transcript this frame: with
+        // an overlay or the find bar up, Esc dismisses THAT and the draft you
+        // typed survives (escape_system.h).
         if (inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
             auto& st =
                 inputRes.ent().get<afterhours::text_input::HasTextInputState>();
-            if (st.is_focused &&
-                hanabi::keys::pressed(hanabi::keys::kEscape)) {
+            if (st.is_focused && app.escape == EscapeIntent::ClearTranscript) {
                 st.storage.clear();
                 st.cursor_position = 0;
                 replyDraft.clear();

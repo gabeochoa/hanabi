@@ -58,8 +58,8 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
 
         if (!app->composerOpen) return;
 
-        // Esc closes.
-        if (hanabi::keys::pressed(hanabi::keys::kEscape)) {
+        // Esc closes (escape_system.h decides which overlay it belongs to).
+        if (app->escape == EscapeIntent::CloseComposer) {
             app->composerOpen = false;
             return;
         }
