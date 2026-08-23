@@ -105,8 +105,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 (theme::mode() == theme::Mode::Light) ? "light" : "dark";
         }
 
-        // Esc closes.
-        if (hanabi::keys::pressed(hanabi::keys::kEscape)) {
+        // Esc closes (escape_system.h decides which overlay it belongs to).
+        if (app->escape == EscapeIntent::CloseSettings) {
             app->showSettings = false;
             return;
         }

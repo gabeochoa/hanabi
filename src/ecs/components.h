@@ -38,6 +38,20 @@ enum class SmartView {
     Chat,
 };
 
+// What Esc means on THIS frame. Four systems used to poll the key
+// independently, so one press closed the overlay AND dropped the transcript
+// selection AND wiped the composer draft. EscapeSystem reads the key once and
+// resolves it to a single intent (topmost thing wins); every other site reads
+// the intent instead of the key.
+enum class EscapeIntent {
+    None,
+    CloseComposer,
+    CloseShortcuts,
+    CloseSettings,
+    CloseFind,
+    ClearTranscript,
+};
+
 // Singleton: owns the API client and the whole app's data + view state.
 struct AppComponent : public afterhours::BaseComponent {
     std::unique_ptr<api::Client> client;
@@ -226,6 +240,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // A long thread is unsearchable without this: the sidebar's search finds
     // THREADS, and nothing finds a line inside the one you are reading.
     bool findOpen = false;
+    // Resolved by EscapeSystem at the top of the frame; read by whichever site
+    // owns that intent. Reset to None every frame.
+    EscapeIntent escape = EscapeIntent::None;
     std::string findQuery;
     int findIndex = 0;    // which match is current, 0-based
     int findCount = 0;    // matches on the last rendered frame (for "3 of 12")

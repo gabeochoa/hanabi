@@ -83,9 +83,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
 
         if (!app->showShortcuts) return;
 
-        // Esc closes. Settings owns the same key, so this only runs when the
-        // shortcuts sheet is the thing that is open.
-        if (hanabi::keys::pressed(hanabi::keys::kEscape)) {
+        // Esc closes, but only when the sheet is the topmost thing
+        // (escape_system.h decides).
+        if (app->escape == EscapeIntent::CloseShortcuts) {
             app->showShortcuts = false;
             return;
         }

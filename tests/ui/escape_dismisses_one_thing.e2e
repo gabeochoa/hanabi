@@ -1,0 +1,39 @@
+# Esc dismisses the topmost thing, and only that.
+#
+# Four sites polled Esc independently — the find bar, the transcript selection,
+# the composer field, and each overlay — and afterhours' injector hands one
+# press to all of them. So closing the find bar also wiped the reply you had
+# typed. One owner resolves the key now (src/ecs/escape_system.h) and the sites
+# read the resolved intent.
+#
+# The find bar is opened through the state knob because the harness cannot
+# press a Cmd chord (afterhours_gaps.md #49).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FIND_DEMO=ledger
+
+expect_text "1 of 2"
+
+click 646 674
+wait_frames 4
+type "draft that must survive"
+wait_frames 4
+expect_text "draft that must survive"
+
+key ESCAPE
+wait_frames 8
+
+# The find bar is gone.
+expect_no_text "1 of 2"
+# The draft it used to take with it is still here.
+expect_text "draft that must survive"
+
+# Closing the bar drops the field's focus (a separate defect, noted in
+# todo.md), so click back in before the next key.
+click 646 674
+wait_frames 4
+
+# With nothing over it, Esc belongs to the composer again.
+key ESCAPE
+wait_frames 8
+expect_no_text "draft that must survive"
