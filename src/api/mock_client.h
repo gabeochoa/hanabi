@@ -445,6 +445,22 @@ class MockClient : public Client {
     // Convenience: days-ago in the same now-based frame.
     static int64_t days_ago(int64_t d) { return hrs_ago(d * 24); }
 
+    // Local noon today. A fixture that wants messages on distinct CALENDAR
+    // days cannot subtract 86400 from "now": run at 00:30 and "a day ago" is
+    // still yesterday evening, but run at 23:30 and two stamps 25 hours apart
+    // can land on the same day either side of a DST shift. Anchoring at noon
+    // leaves twelve hours of slack in both directions.
+    static int64_t local_noon_today() {
+        const std::time_t now = std::time(nullptr);
+        std::tm tm{};
+        if (localtime_r(&now, &tm) == nullptr) return static_cast<int64_t>(now);
+        tm.tm_hour = 12;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        tm.tm_isdst = -1;
+        return static_cast<int64_t>(std::mktime(&tm));
+    }
+
     // Small helper to build a summary with the full high-signal model.
     static SessionSummary sum(std::string id, std::string title, int64_t h,
                               std::string status, ThreadState state,
@@ -1361,6 +1377,38 @@ class MockClient : public Client {
                  "\n"
                  "#42 is the follow-up ticket.",
                  hrs_ago(2), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
+        // DATE FIXTURE: a thread worked across three calendar days, seeded
+        // only under HANABI_DATES_DEMO so the ordinary mock list is unchanged.
+        // Stamps are anchored to local NOON so a run just after midnight (or
+        // in any zone) still puts these on three distinct days.
+        if (const char* dd = std::getenv("HANABI_DATES_DEMO");
+            dd && *dd && std::string(dd) != "0") {
+            const int64_t noonToday = local_noon_today();
+            Session s;
+            s.summary = calm("rdates", "rolling migration across three days",
+                             noonToday, "active", ThreadState::Unknown,
+                             "date dividers fixture");
+            s.messages = {
+                {"d1", Role::User, "kick off the migration when you can",
+                 noonToday - 2 * 86400, ""},
+                {"d2", Role::Assistant,
+                 "Started. First shard is copying; I will report as each one "
+                 "lands.",
+                 noonToday - 2 * 86400 + 600, ""},
+                {"d3", Role::Assistant,
+                 "Shards two and three are done. Verification is running "
+                 "overnight.",
+                 noonToday - 86400, ""},
+                {"d4", Role::User, "how did the verification go?",
+                 noonToday - 1800, ""},
+                {"d5", Role::Assistant,
+                 "Clean — every row count matches and the old tables are ready "
+                 "to drop.",
+                 noonToday, ""},
             };
             v.push_back(std::move(s));
         }

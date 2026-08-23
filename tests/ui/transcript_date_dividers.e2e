@@ -1,0 +1,26 @@
+# A thread worked over several days says where each day starts.
+#
+# Every row carries how long ago it was ("3h", "2d"), which never answers
+# "which day?" — so a conversation spanning a week read as one column and the
+# night that passed mid-thread was invisible. A row naming the day is drawn
+# above the first message of each new local calendar day.
+#
+# The height assertion is as much the point as the text: the row the renderer
+# builds must be exactly the height the item list measured for it, or every
+# virtualization spacer below it drifts.
+#
+# The fixture spans three days anchored at local noon, so the two newest days
+# are always "Yesterday" and "Today" whatever time this runs at.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_DATES_DEMO=1 HANABI_OPEN=rdates
+
+expect_text "Yesterday"
+expect_text "Today"
+
+assert_ui date_divider h=26
+assert_ui_text "Today" h=26
+
+# Two messages ten minutes apart on the same day get no row between them: the
+# oldest day's pair is under one divider, not two.
+expect_text "Started. First shard is copying"
