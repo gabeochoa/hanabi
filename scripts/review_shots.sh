@@ -51,12 +51,24 @@ ISO_HOME="$(mktemp -d /tmp/hanabi_shot_home.XXXXXX)"
 mkdir -p "$ISO_HOME/Library/Application Support/hanabi"
 BASE_WT="/tmp/hanabi_shot_base_$$"
 
+# Stray-render cleanup is scoped to the exact binaries THIS run starts (this
+# worktree's and the base worktree's), the same way scripts/screens.sh does it:
+# several checkouts capture on one machine at a time, and a machine-wide
+# `pkill -f hanabi.exe` kills the other worktrees' renders mid-capture.
+kill_own_renders() {
+    local wt
+    for wt in "$ROOT" "$BASE_WT"; do
+        pkill -9 -f "^$wt/output/hanabi.exe" >/dev/null 2>&1
+        pkill -9 -f "^$wt/output/hanabi_uitest.exe" >/dev/null 2>&1
+    done
+    return 0
+}
+
 SETTINGS="${HANABI_SHOT_SETTINGS:-{\"window_width\":1100,\"window_height\":760,\"open_tabs\":[],\"active_tab\":\"\",\"theme\":\"dark\"}}"
 SHOT_SCRIPT="${HANABI_SHOT_SCRIPT:-}"
 
 cleanup() {
-    pkill -9 -f hanabi.exe >/dev/null 2>&1
-    pkill -9 -f hanabi_uitest.exe >/dev/null 2>&1
+    kill_own_renders
     git worktree remove --force "$BASE_WT" >/dev/null 2>&1
     rm -rf "$ISO_HOME" "$STAGE" "$BASE_WT"
 }
@@ -90,8 +102,7 @@ capture() {
     for ((i=0; i<60; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
     kill -9 "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
-    pkill -9 -f hanabi.exe >/dev/null 2>&1
-    pkill -9 -f hanabi_uitest.exe >/dev/null 2>&1
+    kill_own_renders
 
     if [ -f "$png" ]; then
         printf '  %-8s captured\n' "$label"

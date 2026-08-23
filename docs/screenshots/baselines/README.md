@@ -5,8 +5,9 @@ these screens and fails if any of them drifts from what is stored here, so an
 accidental visual regression shows up as a failing target instead of being
 noticed weeks later.
 
-This is chunks 1–3 of `docs/breakdown/screenshot-testing.md`. Three screens are
-baselined so far; the rest of the 32-state set lands in a follow-up.
+This is chunks 1–4 of `docs/breakdown/screenshot-testing.md`. Three screens are
+baselined so far; the rest of the 35-state set lands in a follow-up, and every
+one of them is listed in `manifest.json` under `unbaselined` until it does.
 
 | baseline | state |
 |---|---|
@@ -19,6 +20,10 @@ baselined so far; the rest of the 32-state set lands in a follow-up.
 - **Thresholds live in `manifest.json`** — a default plus a per-screen override,
   as a percentage of differing pixels. All three are at 0.0%: these renders are
   byte-identical run to run, so anything above zero is a real change.
+- **Every state is accounted for.** `manifest.json` also has an `unbaselined`
+  map: state name → why it has no baseline. Validation fails on a state that is
+  in neither list, so a screen added to `scripts/screens.sh` cannot quietly go
+  unchecked (see "A screen with no baseline" below).
 
 ## The two rules that keep this honest
 
@@ -49,14 +54,44 @@ git diff --stat docs/screenshots/baselines/
 git add docs/screenshots/baselines/<the pngs you meant to change>
 ```
 
-`make update-baselines` recaptures exactly the screens that already have a
-baseline. To add a new one, name it:
+`make update-baselines` recaptures the screens that already have a baseline
+**plus** any state that has neither a baseline nor an `unbaselined` entry, so a
+newly added state is adopted without naming it. To recapture one screen and
+nothing else, name it:
 
 ```bash
 make update-baselines SHOT_FILTER='^04_transcript_light$'
 ```
 
 Then give it an entry in `manifest.json`.
+
+## A screen with no baseline
+
+Validation only recaptures the states it has baselines for — otherwise a
+three-screen check would render all 35. That makes a new state invisible to a
+naive comparison: it is never captured, so it is never missed. So the harness
+lists what it can capture and the comparison checks the list:
+
+```bash
+bash scripts/screens.sh --list     # every state name, one per line; renders nothing
+```
+
+A state on that list is either baselined, or named in `manifest.json`'s
+`unbaselined` map with the reason it is left out. Anything else is reported and
+fails the run:
+
+```
+NEW (no baseline): 33_foo_dark
+  scripts/screens.sh captures these; nothing checks them.
+  Adopt them:  make update-baselines   (then review the PNGs and commit)
+  Or record why they stay out, in docs/screenshots/baselines/manifest.json:
+      "unbaselined": {"33_foo_dark": "<why this state has no baseline>"}
+```
+
+`--lenient-new` reports it without failing, for a branch that adds a state and
+baselines it in a follow-up. The reason is deliberately a free-text string:
+"not baselined yet" and "content is stamped with an absolute time, so a
+baseline would rot" are both legitimate, and both are worth reading.
 
 ## When validation fails
 
