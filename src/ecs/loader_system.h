@@ -32,8 +32,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // already instant + deterministic, and its sample data must never be
     // polluted by — or leak into — a real backend's cache (or vice-versa). So
     // every disk-cache read/write is gated on the http backend being active.
+    // Any real backend, not a named list -- the mock is synthetic and
+    // regenerated each run, so persisting it would cache fiction.
     static bool disk_cache_enabled(const AppComponent& app) {
-        return app.backend_label == "http";
+        return app.backend_label != "mock";
     }
 
     // Persist a freshly-fetched transcript AND enforce the user's cache cap.

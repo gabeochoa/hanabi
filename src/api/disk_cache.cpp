@@ -259,10 +259,12 @@ void save_transcript(const Session& session) {
     for (const auto& m : session.messages) msgs.push_back(to_json(m));
     json subs = json::array();
     for (const auto& a : session.sub_agents) subs.push_back(to_json(a));
+    // Without has_more_older a cached windowed transcript loses "load older".
     json doc{{"version", 1},
              {"summary", to_json(session.summary)},
              {"messages", std::move(msgs)},
-             {"sub_agents", std::move(subs)}};
+             {"sub_agents", std::move(subs)},
+             {"has_more_older", session.has_more_older}};
     write_file(transcript_file(session.summary.id), doc.dump());
 }
 
@@ -283,6 +285,10 @@ std::optional<Session> load_transcript(const std::string& id) {
         if (doc.contains("sub_agents") && doc["sub_agents"].is_array())
             for (const auto& e : doc["sub_agents"])
                 s.sub_agents.push_back(subagent_from_json(e));
+        // Absent in files written before this was saved; false matches how
+        // they behaved, and the next fetch replaces them anyway.
+        if (doc.contains("has_more_older") && doc["has_more_older"].is_boolean())
+            s.has_more_older = doc["has_more_older"].get<bool>();
         return s;
     } catch (...) {
         return std::nullopt;
