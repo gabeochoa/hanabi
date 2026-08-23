@@ -561,6 +561,7 @@ SHOT_BASELINES := docs/screenshots/baselines
 SHOT_CURRENT := $(OUTPUT_DIR)/screenshots/current
 SHOT_DETERMINISM := $(OUTPUT_DIR)/screenshots/determinism
 SHOT_DECLARED := $(OUTPUT_DIR)/screenshots/declared.txt
+SHOT_FAILURES := test-failures
 
 # The states that have a committed baseline.
 SHOT_BASELINED = $(shell ls $(SHOT_BASELINES)/*.png 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.png$$//')
@@ -632,12 +633,14 @@ test-screenshot-determinism: $(MAIN_EXE) copy-resources
 # never being rendered (validation only recaptures what is already baselined).
 validate-screenshots: $(MAIN_EXE) copy-resources
 	@echo "=== capturing current screens for comparison ==="
+	@rm -rf $(SHOT_FAILURES)
 	$(call CAPTURE_SCREENS,$(SHOT_CURRENT),$(SHOT_FILTER))
 	@bash scripts/screens.sh --list > $(SHOT_DECLARED)
 	@echo
 	@$(SHOT_PYTHON) scripts/compare_screenshots.py \
 	    --baselines $(SHOT_BASELINES) --current $(SHOT_CURRENT) \
-	    --declared $(SHOT_DECLARED)
+	    --declared $(SHOT_DECLARED) \
+	    --failures-dir $(SHOT_FAILURES) --json $(SHOT_FAILURES)/summary.json
 
 # Chunk 3: adopt the current render as the new truth, for an INTENTIONAL visual
 # change. Review `git diff --stat $(SHOT_BASELINES)` (and the PNGs) before
@@ -653,3 +656,52 @@ update-baselines: $(MAIN_EXE) copy-resources
 	@echo "Baselines updated. Review the PNGs before committing."
 
 .PHONY: test-screenshot-determinism validate-screenshots update-baselines
+
+# ==============================================================================
+# THE PRE-PUSH GATE  (docs/breakdown/screenshot-testing.md, chunks 6-7)
+# ==============================================================================
+#
+# There is NO CI runner for this repo. The remote is a personal GitHub repo
+# with no .github/ directory — none on any branch, and none in the history —
+# so nothing runs `make test` when a commit lands. Calling `validate-screenshots`
+# "wired into CI" would name a machine that does not exist.
+#
+# What exists instead: this target, and a hook you can install so `git push`
+# runs it. Both halves report, so one run tells you everything that is wrong
+# rather than stopping at the first failure.
+#
+#     make gate            # everything a push should pass (several minutes)
+#     make install-hooks   # run it automatically on git push
+#
+# A failing screenshot leaves $(SHOT_FAILURES)/ behind: the baseline, the fresh
+# capture, a diff image per failure and summary.json.
+gate:
+	@rc=0; \
+	tests=ok; shots=ok; \
+	$(MAKE) test || { rc=1; tests=FAIL; }; \
+	$(MAKE) validate-screenshots || { rc=1; shots=FAIL; }; \
+	echo; \
+	echo "=== gate ==="; \
+	printf '  %-22s %s\n' "tests (make test)" "$$tests"; \
+	printf '  %-22s %s\n' "screenshot baselines" "$$shots"; \
+	if [ "$$rc" = "0" ]; then \
+	    echo "  PASS — safe to push"; \
+	elif [ "$$shots" = "FAIL" ]; then \
+	    echo "  FAIL — do not push. Screenshot evidence: $(SHOT_FAILURES)/"; \
+	else \
+	    echo "  FAIL — do not push."; \
+	fi; \
+	exit $$rc
+
+# Install the pre-push hook into this checkout. Uses --git-common-dir so it
+# also works from a worktree, where the per-worktree hooks dir is not the one
+# git reads.
+install-hooks:
+	@dir="$$(git rev-parse --git-common-dir)/hooks"; \
+	mkdir -p "$$dir"; \
+	cp scripts/hooks/pre-push "$$dir/pre-push"; \
+	chmod +x "$$dir/pre-push"; \
+	echo "installed $$dir/pre-push — 'git push' now runs 'make gate'"; \
+	echo "skip it for one push with: git push --no-verify"
+
+.PHONY: gate install-hooks

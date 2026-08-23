@@ -91,6 +91,22 @@ make bundle     # build a macOS Hanabi.app (mock-only; non-TLS)
 make test       # run unit tests
 ```
 
+## Before you push
+
+There is no CI for this repo — the remote is a plain GitHub repo with no
+workflows, so nothing runs the tests when a commit lands. The gate is local:
+
+```bash
+make gate          # tests + screenshot baselines; a few minutes
+make install-hooks # optional: run the gate automatically on git push
+```
+
+`make gate` runs both halves even if the first one fails, so one run tells you
+everything that is wrong. When a screen has drifted from its committed
+baseline, the evidence is written to `test-failures/`: the baseline, the fresh
+capture, a diff image with the changed pixels in red, and `summary.json`. See
+`docs/screenshots/baselines/README.md` for what to do with it.
+
 ## Configuration (optional)
 
 By default the app runs on the zero-config `mock` backend (offline sample data,
