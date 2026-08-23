@@ -49,9 +49,9 @@ expect_text "Draft release notes for 4.2"
 
 # An archived thread has no sidebar row left to right-click, so its card in
 # this view carries the same menu — and that menu offers the way back.
-mouse_move 650 110
+mouse_move 650 139
 wait_frames 3
-right_click 650 110
+right_click 650 139
 wait_frames 6
 expect_text "Unarchive"
 click_ui row_menu_archive

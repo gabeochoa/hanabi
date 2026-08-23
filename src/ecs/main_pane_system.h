@@ -32,6 +32,7 @@
 #include "../ui/model_menu.h"
 #include "../ui/effort_menu.h"
 #include "../ui/fold_menu.h"
+#include "../ui/measure_probe.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "ui_imports.h"
@@ -2914,7 +2915,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // content-collapsing scroll, so we center via the scroll's OWN L/R
         // padding: gutter = (paneW - 720)/2, clamped to a sane minimum. On a
         // narrow pane the gutter floors and the column just uses the width.
-        constexpr float kReadCol = 720.0f;
+        // 736 and symmetric: measured off the reference, where the transcript
+        // content spans x=362..1097 in a 900px pane (82px of gutter a side).
+        constexpr float kReadCol = 736.0f;
         float gutter = (paneW - kReadCol) * 0.5f;
         if (gutter < kContentInset) gutter = kContentInset;
 
@@ -2925,7 +2928,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // Symmetric gutters center the reading column; a small extra
                 // 6px is trimmed on the right for the overlay scrollbar strip.
                 .with_padding(Padding{.top = pixels(8),
-                                      .right = pixels(gutter - 6.0f),
+                                      .right = pixels(gutter),
                                       .bottom = pixels(10),
                                       .left = pixels(gutter)})
                 .with_debug_name("transcript_scroll"));
@@ -2968,6 +2971,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (colW < 120.0f) colW = 120.0f;
         Entity& col = centered_wrap(ctx, scroll.ent(), 7777, colW, colW);
 
+        probe_drawn_turns();
         hanabi::text_select::begin_frame();
         render_cache().reset_for_thread(app.openSession->summary.id);
 
@@ -3142,6 +3146,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     (i == 0) || (msgs[i - 1].role != api::Role::Assistant &&
                                  msgs[i - 1].role != api::Role::Tool);
                 it.height = bubble_height(m, colW, it.isLive, i, it.showAuthor);
+                hanabi::mprobe::expect("turn#" + std::to_string(i),
+                                       it.height);
                 totalH += it.height;
                 items.push_back(it);
                 ++i;
@@ -4816,6 +4822,42 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         return theme::text_secondary();
     }
+    // Bubble fills, measured off the reference. They live here rather than in
+    // the palette because the palette's transcript tokens are a different
+    // design (a neutral grey user bubble, a green-tinted assistant one) and
+    // that file is being reworked elsewhere; on light they fall back to it.
+    struct chat_colors {
+        static bool dark() { return theme::window_bg().r < 128; }
+        static theme::Color user_bubble() {
+            return dark() ? theme::Color{62, 56, 111, 255}
+                          : theme::bubble_user_bg();
+        }
+        static theme::Color asst_bubble() {
+            return dark() ? theme::Color{33, 33, 54, 255}
+                          : theme::bubble_assistant_bg();
+        }
+    };
+
+    // The user's avatar: a filled circle with their initial. Drawn, not a
+    // rounded box — see the note at the call site.
+    static void draw_user_avatar(RectangleType rc) {
+        const float cx = rc.x + rc.width * 0.5f;
+        const float cy = rc.y + rc.height * 0.5f;
+        afterhours::draw_circle(static_cast<int>(cx), static_cast<int>(cy),
+                                rc.width * 0.5f, chat_colors::user_bubble());
+        static const std::string initial = [] {
+            const char* u = std::getenv("USER");
+            char c = (u != nullptr && *u != '\0')
+                         ? static_cast<char>(std::toupper(*u))
+                         : 'Y';
+            return std::string(1, c);
+        }();
+        const float fp = 11.0f;
+        afterhours::draw_text(initial.c_str(),
+                              cx - theme::text_px(initial, fp) * 0.5f,
+                              cy - fp * 0.6f, fp, theme::text_primary());
+    }
+
     static theme::Color bubble_bg(api::Role r) {
         switch (r) {
             case api::Role::User: return theme::bubble_user_bg();
@@ -5299,25 +5341,62 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return false;
     }
 
+    // TEMPORARY (HANABI_PROBE_MEASURE=1): read back the height the LAYOUT
+    // ENGINE resolved for each turn drawn last frame and hold it against what
+    // bubble_height promised the virtualizer. afterhours offers no "how tall
+    // did that element come out" call, so this walks the UI collection for the
+    // turn elements by debug name.
+    static void probe_drawn_turns() {
+        if (!hanabi::mprobe::on()) return;
+        auto q = afterhours::EntityQuery<>(
+                     afterhours::ui::UICollectionHolder::get().collection,
+                     {.ignore_temp_warning = true})
+                     .whereHasComponent<afterhours::ui::UIComponent>()
+                     .whereHasComponent<afterhours::ui::UIComponentDebug>()
+                     .gen();
+        for (afterhours::Entity& e : q) {
+            const std::string& n =
+                e.get<afterhours::ui::UIComponentDebug>().name();
+            const bool user = n.rfind("user_turn#", 0) == 0;
+            const bool asst = n.rfind("asst_turn#", 0) == 0;
+            if (!user && !asst) continue;
+            if (!e.get<afterhours::ui::UIComponent>().was_rendered_to_screen)
+                continue;
+            const std::string idx = n.substr(n.find('#') + 1);
+            // The resolved rect is the turn's CONTENT box; its own margins are
+            // outside it and are the same two constants the measure adds.
+            const float margins =
+                (user ? (kTurnGapTop + 10.0f) : (kTurnGapTop + 8.0f)) +
+                kTurnGapBot;
+            hanabi::mprobe::observe(
+                "turn#" + idx,
+                e.get<afterhours::ui::UIComponent>().rect().height + margins);
+        }
+    }
+
     // ---- Item height functions (mirror the render layout exactly) ----------
     float bubble_height(const api::Message& m, float paneWidth, bool isLive,
                         int index, bool showAuthor = true) {
         if (m.role == api::Role::System) return 22.0f + 16.0f;
         const bool isUser = (m.role == api::Role::User);
         if (isUser) {
-            float bubbleW = paneWidth * 0.82f;
-            if (bubbleW > 520.0f) bubbleW = 520.0f;
-            const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
+            const UserBox box = user_box(m, paneWidth, isLive, index,
+                                         AppComponent::StreamPhase::Idle);
+            const auto& mr = measured(m, box.textW, isLive, index,
                                       AppComponent::StreamPhase::Idle,
                                       /*rich=*/false);
             // +12px for the sync-glyph child under the body when sync!=None
             // (a real ✓/✓✓ corner mark, gap #28 now fixed); server-loaded
             // messages (sync==None) add nothing. Mirrors render_bubble.
             const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
-            return kTurnGapTop + 10.0f + mr.height + syncH + kUserPadV +
-                   kTurnGapBot + kMsgActionsGap + kMsgActionsH;
+            // kBubblePadTop/Bot are the bubble's OWN padding, the same two
+            // numbers render_bubble hands to with_padding. The old code used a
+            // single kUserPadV=14 here while the draw padded 8+9=17, so every
+            // user message measured 3px shorter than it drew.
+            return kTurnGapTop + 10.0f + kBubblePadTop + mr.height + syncH +
+                   kBubblePadBot + kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         }
-        float textW = paneWidth - 34.0f;
+        float textW = asst_text_w(paneWidth);
         const auto& mr = measured(m, textW, isLive, index,
                                   AppComponent::StreamPhase::Idle,
                                   /*rich=*/true);
@@ -5326,8 +5405,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           ? rich_body_h(first_n_lines(mr.body, textW, kFoldLines),
                                         textW)
                           : mr.height;
+        // + the assistant bubble's own vertical padding, which the draw
+        // applies as with_padding on the bubble the body now lives in.
         float h = kTurnGapTop + 8.0f +
-                  (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + bodyH +
+                  (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) +
+                  kBubblePadTop + bodyH + kBubblePadBot +
                   kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         AppComponent* app = app_singleton();
         const std::string mkey =
@@ -5348,6 +5430,70 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // message doesn't run edge-to-edge across the wide pane (v3 #8). ~620px is
     // roughly 70 characters at this font, the comfortable-reading target.
     static constexpr float kBubbleCap = 620.0f;
+
+    // ---- Bubble geometry (measured off the Puffin reference) --------------
+    // A user message is a right-aligned indigo bubble that HUGS its text, with
+    // a circular avatar to its left; an assistant message is a left-aligned
+    // dark bubble of fixed width. Every number here is read off the reference,
+    // and every one of them is used by BOTH the measure pass and the draw —
+    // see user_box() / asst_text_w(), which exist so there is only one copy.
+    //
+    // afterhours insets a label's text horizontally inside its own rect (the
+    // wrap width is the rect less ~10px, and the first glyph lands ~6px in), so
+    // a 13px visual gap between the bubble edge and the first glyph is a 7px
+    // padding plus that inset. kLabelInsetX is that fudge, named so the next
+    // reader knows it is the library's, not a design choice.
+    static constexpr float kLabelInsetX = 6.0f;
+    static constexpr float kBubblePadX = 13.0f;   // bubble edge -> first glyph
+    static constexpr float kBubbleCfgPadX = kBubblePadX - kLabelInsetX;
+    static constexpr float kBubblePadTop = 8.0f;
+    static constexpr float kBubblePadBot = 7.0f;
+    static constexpr float kBubbleCorner = 8.0f;  // px, not a fraction
+    static constexpr float kAvatarD = 22.0f;      // circular user avatar
+    static constexpr float kAvatarGap = 5.0f;     // avatar -> bubble
+    static constexpr float kAvatarTop = 6.0f;     // avatar top below bubble top
+    // The assistant bubble is NOT content-sized: in the reference a one-line
+    // answer still fills a fixed 670 of the 736 column.
+    static constexpr float kAsstInsetR = 66.0f;
+
+    // The wrap width inside an assistant bubble at this column width. ONE
+    // function, called by the measure pass and the draw, so the two cannot
+    // drift the way two copies of `paneWidth - 34.0f` did.
+    static float asst_text_w(float paneWidth) {
+        const float w = paneWidth - kAsstInsetR - 2.0f * kBubblePadX;
+        return w < 40.0f ? 40.0f : w;
+    }
+    static float asst_bubble_w(float paneWidth) {
+        const float w = paneWidth - kAsstInsetR;
+        return w < 40.0f ? 40.0f : w;
+    }
+
+    // The user bubble's box: outer width and the wrap width inside it. Also
+    // ONE function for both passes.
+    struct UserBox {
+        float bubbleW = 0.0f;
+        float textW = 0.0f;
+    };
+    UserBox user_box(const api::Message& m, float paneWidth, bool isLive,
+                     int index, AppComponent::StreamPhase phase) {
+        float maxW = paneWidth - kAvatarD - kAvatarGap;
+        if (maxW > kBubbleCap) maxW = kBubbleCap;
+        if (maxW < 80.0f) maxW = 80.0f;
+        const float maxTextW = maxW - 2.0f * kBubbleCfgPadX;
+        const auto& mr = measured(m, maxTextW, isLive, index, phase,
+                                  /*rich=*/false);
+        // Widest wrapped line, measured with the font that will draw it. The
+        // +kLabelInsetX*2 puts back what the label takes off its own rect, so
+        // the text cannot re-wrap inside the narrowed box.
+        float widest = 0.0f;
+        for (const auto& ln : wrapped_lines(mr.body, maxTextW))
+            widest = std::max(widest, theme::text_px(ln, theme::type::BODY));
+        UserBox box;
+        box.textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
+        if (box.textW < 24.0f) box.textW = 24.0f;
+        box.bubbleW = box.textW + 2.0f * kBubbleCfgPadX;
+        return box;
+    }
 
 
     // Render an assistant body as one wrapped text box PER newline-delimited
@@ -5828,6 +5974,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("asst_body_spacer"));
             pending = 0.0f;
         };
+        const float probeStartY = bodyStartY;
         while (start <= shown.size()) {
             size_t nl = shown.find('\n', start);
             size_t end = (nl == std::string::npos) ? shown.size() : nl;
@@ -6001,6 +6148,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             start = nl + 1;
         }
         flush(8888);
+        hanabi::mprobe::compare("richbody", rich_body_h(shown, textW),
+                                y - probeStartY);
     }
 
     // ---- Per-message actions (hover) --------------------------------------
@@ -6122,9 +6271,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // ---- USER: compact right-aligned muted-grey bubble ----------------
         if (isUser) {
-            float bubbleW = paneWidth * 0.82f;
-            if (bubbleW > 520.0f) bubbleW = 520.0f;
-            const auto& mr = measured(m, bubbleW - 28.0f, isLive, index,
+            const UserBox box = user_box(m, paneWidth, isLive, index,
+                                         streamPhase);
+            const float bubbleW = box.bubbleW;
+            const auto& mr = measured(m, box.textW, isLive, index,
                                       streamPhase, /*rich=*/false);
             float bodyH = mr.height;
             // Local-first sync suffix (WhatsApp-style), appended to the body on
@@ -6157,7 +6307,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                         .left = pixels(0)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
-                    .with_debug_name("user_turn"));
+                    .with_debug_name(hanabi::mprobe::on()
+                                         ? ("user_turn#" +
+                                            std::to_string(index))
+                                         : std::string("user_turn")));
             // A turn is only hit-tested (and so only reports hover) once it
             // carries a listener — see ResolveHitTarget::is_candidate. The
             // listener does nothing; it exists to make the turn hoverable.
@@ -6170,24 +6323,40 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_justify_content(JustifyContent::FlexEnd)
+                    // Top, not centre: on a tall message the avatar belongs
+                    // beside the FIRST line, not floating halfway down.
+                    .with_align_items(AlignItems::FlexStart)
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("user_row"));
+            // Circular avatar to the LEFT of the bubble. A circle is drawn,
+            // not approximated with a fully-rounded box: afterhours' roundness
+            // is a fraction of the shorter side, and a 22px square at 0.5 still
+            // renders as a squircle at this size.
+            div(ctx, mk(row.ent(), 0),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(kAvatarD),
+                                             pixels(kAvatarD)})
+                    .with_margin(Margin{.top = pixels(kAvatarTop),
+                                        .right = pixels(kAvatarGap)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([](RectangleType rc) {
+                        draw_user_avatar(rc);
+                    })
+                    .with_debug_name("user_avatar"));
             auto bub = div(ctx, mk(row.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{pixels(bubbleW), children()})
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_custom_background(bubble_bg(m.role))
-                    .with_padding(Padding{.top = pixels(8), .right = pixels(14),
-                                          .bottom = pixels(9),
-                                          .left = pixels(14)})
-                    // Shared chat corner: derive roundness from the bubble's own
-                    // size so its pixel corner MATCHES the tool-call card (both
-                    // target theme::kChatCorner). afterhours radius =
-                    // min(w,h)*0.5*roundness, so a fixed roundness gave the
-                    // bubble and the (shorter) tool row different corners.
-                    .with_corner_radius(theme::kChatCorner)
+                    .with_custom_background(chat_colors::user_bubble())
+                    .with_padding(Padding{.top = pixels(kBubblePadTop),
+                                          .right = pixels(kBubbleCfgPadX),
+                                          .bottom = pixels(kBubblePadBot),
+                                          .left = pixels(kBubbleCfgPadX)})
+                    .with_corner_radius(kBubbleCorner)
                     .with_debug_name("user_bubble"));
             const std::string uq = paint_query_for(index);
             auto ucfg = ComponentConfig{}
@@ -6238,8 +6407,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // ---- ASSISTANT: full-column doc-feed turn (no bubble) -------------
-        float textW = paneWidth - 34.0f;
+        // ---- ASSISTANT: left-aligned bubble -------------------------------
+        float textW = asst_text_w(paneWidth);
         const auto& mr = measured(m, textW, isLive, index, streamPhase,
                                   /*rich=*/true);
         const int lineCount = mr.line_count;
@@ -6267,7 +6436,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     .left = pixels(0)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("asst_turn"));
+                .with_debug_name(hanabi::mprobe::on()
+                                     ? ("asst_turn#" + std::to_string(index))
+                                     : std::string("asst_turn")));
         // Hoverable only because of this listener (ResolveHitTarget skips
         // anything without one); it deliberately does nothing.
         turn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
@@ -6324,7 +6495,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // virtualization). Must mirror bubble_height's author-row term exactly.
         const float bodyStartY =
             itemTopY + (kTurnGapTop + 8.0f) +
-            (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f);
+            (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + kBubblePadTop;
+        // The body lives inside a left-aligned bubble now (the reference draws
+        // the assistant's answer on its own dark surface, not as bare column
+        // text). Its padding is the same two constants bubble_height adds.
+        auto asstBubble = div(ctx, mk(turn.ent(), 5),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(asst_bubble_w(paneWidth)),
+                                         children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_custom_background(chat_colors::asst_bubble())
+                .with_padding(Padding{.top = pixels(kBubblePadTop),
+                                      .right = pixels(kBubbleCfgPadX),
+                                      .bottom = pixels(kBubblePadBot),
+                                      .left = pixels(kBubbleCfgPadX)})
+                .with_corner_radius(kBubbleCorner)
+                .with_debug_name("asst_bubble"));
         // THINKING INDICATOR (Gabe: "we are missing these 'in progress, I'm
         // thinking' UI"): while the live turn is still THINKING (no visible
         // tokens yet), show a pulsing accent dot + an italic "Thinking…" label
@@ -6332,10 +6519,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // real tokens stream in (phase Streaming), fall through to the normal
         // document render so the text takes over.
         if (isLive && streamPhase == AppComponent::StreamPhase::Thinking) {
-            render_thinking_indicator(ctx, turn.ent(), app);
+            render_thinking_indicator(ctx, asstBubble.ent(), app);
         } else {
-            render_rich_body(ctx, turn.ent(), shown, textW, winTop, winBot,
-                             bodyStartY, paint_query_for(index));
+            render_rich_body(ctx, asstBubble.ent(), shown, textW, winTop,
+                             winBot, bodyStartY, paint_query_for(index));
         }
 
         // Inline image (agent surface): if the message carries a decodable

@@ -21,8 +21,8 @@
 
 expect_text "Built the config diff"
 
-mouse_move 456 492
+mouse_move 456 465
 wait_frames 4
-click 456 492
+click 456 465
 wait_frames 10
 expect_text "Opened D948120"

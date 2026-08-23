@@ -89,8 +89,14 @@ inline void keep_tab(afterhours::Entity& tabEntity) {
 // REUSES the existing preview tab rather than opening another, so browsing a
 // list never leaves a trail of tabs behind. Asking for a thread that is already
 // open always keeps it: the second look is the commitment.
+// `pinned` applies to a NEWLY created tab only. It is a parameter rather than
+// something the caller sets afterwards because an entity created here cannot be
+// found by EntityHelper::getEntityForID until the ECS merges at the end of the
+// frame — a restore loop that opened tabs and then looked them up by id to
+// stamp state on them silently stamped nothing (see FRICTION_LOG).
 inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
-                                const std::string& id, bool keep = true) {
+                                const std::string& id, bool keep = true,
+                                bool pinned = false) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
         if (opt.valid() && opt->has<Tab>() &&
@@ -119,6 +125,7 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     tab.sessionId = id;
     tab.label = tab_label_for(app, id);
     tab.keptOpen = keep;
+    tab.pinned = pinned;
     e->addComponentIfMissing<ActiveTab>();
 
     app.selectedId = id;

@@ -69,6 +69,11 @@ bool Settings::load_save_file() {
             for (const auto& e : j["open_tabs"])
                 if (e.is_string()) open_tabs_.push_back(e.get<std::string>());
         }
+        pinned_tabs_.clear();
+        if (j.contains("pinned_tabs") && j["pinned_tabs"].is_array()) {
+            for (const auto& e : j["pinned_tabs"])
+                if (e.is_string()) pinned_tabs_.push_back(e.get<std::string>());
+        }
         last_read_.clear();
         if (j.contains("last_read") && j["last_read"].is_object()) {
             for (const auto& [k, v] : j["last_read"].items())
@@ -128,6 +133,7 @@ void Settings::write_save_file() {
     j["last_session"] = last_session_;
     j["open_tabs"] = open_tabs_;
     j["active_tab"] = active_tab_;
+    j["pinned_tabs"] = pinned_tabs_;
     j["theme"] = theme_;
     j["font"] = font_choice_;
     j["theme_accent"] = accent_choice_;
@@ -174,10 +180,15 @@ const std::vector<std::string>& Settings::get_open_tabs() const {
     return open_tabs_;
 }
 const std::string& Settings::get_active_tab() const { return active_tab_; }
+const std::vector<std::string>& Settings::get_pinned_tabs() const {
+    return pinned_tabs_;
+}
 void Settings::set_open_tabs(std::vector<std::string> ids,
-                             std::string activeId) {
+                             std::string activeId,
+                             std::vector<std::string> pinnedIds) {
     open_tabs_ = std::move(ids);
     active_tab_ = std::move(activeId);
+    pinned_tabs_ = std::move(pinnedIds);
 }
 
 const std::string& Settings::get_theme() const { return theme_; }

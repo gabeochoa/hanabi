@@ -253,6 +253,7 @@ static void setup_app_state() {
 
     // Restore persisted tab set (opened once the list loads).
     app.restoreTabIds = Settings::get().get_open_tabs();
+    app.restorePinnedIds = Settings::get().get_pinned_tabs();
     app.restoreActiveId = Settings::get().get_active_tab();
     // Back-compat: if no tab set persisted, fall back to last_session.
     if (app.restoreTabIds.empty()) {
@@ -703,6 +704,7 @@ static void app_cleanup() {
     if (!stripQ.empty()) {
         auto& strip = stripQ[0].get().get<ecs::TabStripComponent>();
         std::vector<std::string> ids;
+        std::vector<std::string> pinned;
         std::string active;
         for (auto tabId : strip.tabOrder) {
             auto o = EntityHelper::getEntityForID(tabId);
@@ -711,11 +713,14 @@ static void app_cleanup() {
             if (o.valid() && o->has<ecs::Tab>() &&
                 o->get<ecs::Tab>().keptOpen) {
                 ids.push_back(o->get<ecs::Tab>().sessionId);
+                if (o->get<ecs::Tab>().pinned)
+                    pinned.push_back(o->get<ecs::Tab>().sessionId);
                 if (o->has<ecs::ActiveTab>())
                     active = o->get<ecs::Tab>().sessionId;
             }
         }
-        Settings::get().set_open_tabs(std::move(ids), active);
+        Settings::get().set_open_tabs(std::move(ids), active,
+                                      std::move(pinned));
     }
 
     auto q = EntityQuery({.force_merge = true})

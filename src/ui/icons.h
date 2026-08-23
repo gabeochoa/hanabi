@@ -215,4 +215,18 @@ inline void radio(RectangleType rect, bool selected, theme::Color c,
                                 radius - 2.0f, c);
 }
 
+// A pushpin, for a pinned tab. Roboto has no pin codepoint and a missing one
+// paints NOTHING (gap #48), so the mark is drawn: a round head, a shaft down
+// from it, and a short crossbar where the head meets the shaft.
+inline void pin(RectangleType rect, theme::Color c) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float top = rect.y + rect.height * 0.5f - 5.0f;
+    afterhours::draw_circle(static_cast<int>(cx), static_cast<int>(top + 3.0f),
+                            3.0f, c);
+    afterhours::draw_rectangle(
+        RectangleType{cx - 0.5f, top + 5.0f, 1.5f, 5.0f}, c);
+    afterhours::draw_rectangle(
+        RectangleType{cx - 3.0f, top + 5.0f, 6.0f, 1.5f}, c);
+}
+
 }  // namespace hanabi::glyph

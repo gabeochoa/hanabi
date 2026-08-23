@@ -4,7 +4,12 @@
 
 expect_text "Reconciled 4,812 accounts"
 
-click 507 18
+# The × only exists while the tab is hovered, so the cursor has to arrive
+# before the press. The tab occupies x=284..503, y=32..65; its × is the 16px
+# square 5px in from its right edge.
+mouse_move 491 49
+wait_frames 2
+click 491 49
 wait_frames 8
 
 expect_text "Home"

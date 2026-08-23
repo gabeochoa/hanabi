@@ -60,7 +60,10 @@ struct Settings {
     // Open tabs (ordered session ids) + which one was active.
     const std::vector<std::string>& get_open_tabs() const;
     const std::string& get_active_tab() const;
-    void set_open_tabs(std::vector<std::string> ids, std::string activeId);
+    // Which of the open tabs are pinned (a subset of get_open_tabs()).
+    const std::vector<std::string>& get_pinned_tabs() const;
+    void set_open_tabs(std::vector<std::string> ids, std::string activeId,
+                       std::vector<std::string> pinnedIds = {});
 
     // Theme mode: "dark" (default) or "light".
     const std::string& get_theme() const;
@@ -276,6 +279,7 @@ struct Settings {
     int window_height_ = 760;
     std::string last_session_;
     std::vector<std::string> open_tabs_;
+    std::vector<std::string> pinned_tabs_;
     std::string active_tab_;
     std::string theme_ = "dark";
     std::string font_choice_ = "default";

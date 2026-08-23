@@ -217,6 +217,7 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // Tab set to restore once the session list has loaded (from Settings).
     std::vector<std::string> restoreTabIds;
+    std::vector<std::string> restorePinnedIds;
     std::string restoreActiveId;
     bool restoreDone = false;
 
@@ -750,7 +751,13 @@ struct LayoutComponent : public afterhours::BaseComponent {
     float sidebarAnimFrom = 280.0f;
     float sidebarAnimTarget = 280.0f;
 
-    float tabStripHeight = 38.0f;
+    // The strip is taller than the tabs it holds: the tabs sit at its BOTTOM
+    // edge and the band above them is the window-drag / traffic-light zone the
+    // frameless window leaves clear (Puffin: tabs occupy y=32..65 of a 67px
+    // strip, and the content plane starts at 67). tabStripTabHeight is the tab
+    // itself; the difference is the clear band.
+    float tabStripHeight = 67.0f;
+    float tabStripTabHeight = 34.0f;
     float statusBarHeight = 26.0f;
     float composerHeight = 92.0f;  // chat input strip height (0 hides it)
 };
@@ -768,6 +775,10 @@ struct Tab : public afterhours::BaseComponent {
     // and is not restored on the next launch. Default true: anything that opens
     // a tab without saying otherwise is an explicit act, not a glance.
     bool keptOpen = true;
+    // A PINNED tab survives "close others", restores on launch, and carries a
+    // pin glyph before its title. Pinning is a deliberate act from the tab's
+    // context menu; nothing pins a tab implicitly.
+    bool pinned = false;
 };
 
 struct ActiveTab : public afterhours::BaseComponent {};
