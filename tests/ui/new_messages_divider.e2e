@@ -1,0 +1,25 @@
+# Reopening a thread says what arrived while you were away.
+#
+# Without it a thread that gained twelve messages overnight looks exactly like
+# one that gained none: you land at the bottom with no idea where to start.
+#
+# The divider sits before the first message newer than the stamp saved when the
+# thread was last open. Marked read only once the newest message is actually on
+# screen — marking on open would clear the very thing you opened it to see.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_UNREAD_DEMO=4
+
+expect_text "4 new messages"
+
+# Scrolling back through the thread does not un-read it or move the line.
+key HOME
+wait_frames 12
+key END
+wait_frames 12
+
+# Still there after a round trip to the top and back: arriving at the end
+# advances the stamp for NEXT time, it does not clear the line under you.
+expect_text "4 new messages"

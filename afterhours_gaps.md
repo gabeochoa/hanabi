@@ -2433,3 +2433,71 @@ should.
   grabbing a value, a path, a sentence. The cross-element version is a
   completeness thing, and it is worth doing properly once rather than
   approximately in every app.
+
+### #53 — A layout an app declares wrong is corrected silently, and warned about forever
+
+- **How I hit it.** Twice in one afternoon, in a 34px-tall bar with five
+  children. Both times the app looked *fine* and I only found out by reading
+  the log while chasing something else:
+
+  ```
+  [WARN] Layout wrap: 'find_close' in parent 'find_bar' - NoWrap set but would
+         overflow (child_size=26.0, offset=296.0, container=306.0)
+  [WARN] Layout wrap: 'text_input_field' in parent 'find_input' - NoWrap set
+         but would overflow (child_size=168.0, offset=0.0, container=158.0)
+  ```
+
+  The first: I sized a `NoWrap` row by eye and its children came to 16px more
+  than it. The second is subtler and worth naming, because it is a trap rather
+  than an arithmetic slip — **`text_input`'s inner element is sized to the
+  element's OUTER width**, so giving the field `with_padding(...)` makes the
+  child wider than the content box it sits in. Padding is the natural way to
+  inset text in a field, it is what every other widget here wants, and on
+  `text_input` it is always wrong.
+
+- **What it actually costs — measured, because I assumed wrong first.** I
+  claimed in a commit message that this is expensive: afterhours detects the
+  violation and then pays `solve_violations` to fix it every frame. **That is
+  not true and I should not have written it without measuring.** Same scene,
+  same 240 timed frames, overflowing versus fixed:
+
+  ```
+  overflowing:  median 1.39 ms/frame
+  fixed:        median 1.45 ms/frame
+  ```
+
+  No measurable cost — if anything the overflowing build is a hair faster, well
+  inside noise. `fix_violating_children` distributes the error in one pass now
+  and the loop exits immediately, so the correction is genuinely cheap. Good.
+
+  What it does cost:
+  - **570 log lines per 285 frames** (~98 KB in one short run), two a frame,
+    forever, on stdout mixed in with ordinary logs. That is enough to drown any
+    real diagnostic, which is precisely how both of these survived so long —
+    the app had learned to ignore its own log.
+  - **A layout that is not the one the author wrote.** The correction shrinks
+    children to fit, so the rendered result is *plausible* — my two bugs moved
+    the bar's contents by about 12px and nobody noticed for a week. Silence
+    would be better than plausible-but-wrong; a visible break would be better
+    still.
+
+- **What the library could offer instead.** The detection is already there and
+  correct — it is the reporting that fails:
+
+  1. **Warn once per (element, parent, reason), not once per frame.** A
+     `log_warn_once` keyed on the debug names would turn 570 lines into two,
+     and two lines an app author will actually read. This is the whole fix, and
+     it is a few lines.
+  2. **Make `text_input` reject or absorb padding.** Either honour it by
+     insetting the inner element (what a caller means), or refuse it with a
+     compile-time or startup error. Silently producing a child wider than its
+     parent is the worst of the three.
+  3. **A debug mode that renders the violation** — the classic red overflow
+     stripe. `debug_wrap` already exists as a per-child flag; a global
+     `theme.show_layout_violations` would make these findable by looking rather
+     than by grepping.
+
+- **Severity: makes it ugly.** No frame cost — I checked, and I was wrong to
+  say otherwise. The real damage is that the log is unusable as a signal, so an
+  app tripping this learns nothing until someone reads 98 KB of warnings by
+  accident.

@@ -37,6 +37,14 @@ inline constexpr int kC = 67;
 inline constexpr int kF = 70;
 inline constexpr int kN = 78;
 inline constexpr int kW = 87;
+// Reading keys. A long transcript is a document, and a document scrolls from
+// the keyboard.
+inline constexpr int kPageUp = 266;
+inline constexpr int kPageDown = 267;
+inline constexpr int kHome = 268;
+inline constexpr int kEnd = 269;
+inline constexpr int kUp = 265;
+inline constexpr int kDown = 264;
 
 inline bool pressed(int key) {
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING

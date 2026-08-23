@@ -252,6 +252,9 @@ capture 30_find_light "$TABS_LIGHT" HANABI_FIND_DEMO=ledger
 # --- A run of transcript text selected.
 capture 31_selection_dark "$TABS_DARK" 'HANABI_SELECT_DEMO=4,810 match to the cent'
 
+# --- Reopening a thread that gained messages while you were away.
+capture 32_new_messages_dark "$NOTABS_DARK" HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_UNREAD_DEMO=4
+
 echo
 echo "=== SUMMARY ==="
 for line in "${SUMMARY[@]}"; do echo "$line"; done

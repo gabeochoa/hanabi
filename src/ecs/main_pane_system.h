@@ -1592,7 +1592,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // its measured height so we can (a) sum total content height and (b)
     // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
     struct Item {
-        enum Kind { Bubble, ToolPile, ToolBlock, Spawn } kind;
+        enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider } kind;
         int lo = 0;
         int hi = 0;
         float height = 0.0f;
@@ -1799,6 +1799,93 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             [](Entity&) {});
         if (closeBtn.ent().get<afterhours::ui::HasClickListener>().down)
             app.requestSplitClose = true;
+    }
+
+    // ---------------- "New since you last looked" --------------------------
+    // A thread that gained twelve messages overnight looks exactly like one
+    // that gained none: you reopen it, land at the bottom, and have no idea
+    // where to start reading. Every mature client draws a line.
+    //
+    // The boundary is the newest message timestamp from the last time this
+    // thread was open, persisted per thread. Messages after it are new.
+    static constexpr float kNewDividerH = 26.0f;
+
+    static void new_divider(UIContext<InputAction>& ctx, Entity& parent,
+                            int id, int count, float rowW) {
+        const std::string label =
+            std::to_string(count) +
+            (count == 1 ? " new message" : " new messages");
+        // The label is a real text element, not something painted in
+        // on_draw_fg: drawn text never reaches the visible-text registry, so a
+        // divider drawn wholesale would be invisible to every assertion about
+        // it. The rule is drawn, the words are a widget.
+        float lw = 120.0f;
+        if (auto* fm = afterhours::EntityHelper::get_singleton_cmp<
+                afterhours::ui::FontManager>())
+            lw = afterhours::measure_text(fm->get_active_font(), label.c_str(),
+                                          theme::type::SM, 1.0f)
+                     .x;
+        constexpr float kGap = 10.0f;
+
+        auto row = div(ctx, mk(parent, 8600 + id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kNewDividerH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("new_divider"));
+        // The rule fills what the label leaves. afterhours has no flex-grow
+        // (gap #18), so its width is computed rather than grown — and it is
+        // sized off the COLUMN width the caller laid out, since percent() here
+        // would resolve against the row and overflow it (gap #53).
+        // Explicit width, NOT percent(1.0): a percent child in a NoWrap row
+        // resolves against the whole row, so it would take all of it, push the
+        // label out, and get silently shrunk to fit — the exact trap in gap
+        // #53, which cost an hour here before the label reappeared.
+        float ruleW = rowW - lw - kGap;
+        if (ruleW < 8.0f) ruleW = 8.0f;
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(ruleW), pixels(kNewDividerH)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg([](RectangleType r) {
+                    const float cy = r.y + r.height * 0.5f;
+                    afterhours::draw_line_ex(
+                        afterhours::vec2{r.x, cy},
+                        afterhours::vec2{r.x + r.width, cy}, 1.0f,
+                        theme::status_blocked());
+                })
+                .with_debug_name("new_divider_rule"));
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(lw + 2.0f),
+                                         pixels(kNewDividerH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::status_blocked())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("new_divider_label"));
+    }
+
+    // Is any text field holding the keyboard? While one is, the reading keys
+    // belong to it: Home and End move the caret, and space is a character.
+    static bool any_text_field_focused() {
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection
+                 .get_entities()) {
+            if (!e) continue;
+            if (!e->has<afterhours::text_input::HasTextInputState>()) continue;
+            if (e->get<afterhours::text_input::HasTextInputState>().is_focused)
+                return true;
+        }
+        return false;
     }
 
     // Make one text element selectable: hit-testable, tracked for press and
@@ -2222,6 +2309,61 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const auto& msgs = app.openSession->messages;
         const int n = static_cast<int>(msgs.size());
 
+        // ---- Where the reader left off -------------------------------------
+        // The first message newer than the stamp saved when this thread was
+        // last open. -1 when everything has been seen, or when it has never
+        // been opened (a first read is all-new, and marking every message new
+        // is noise, not information).
+        // Decided ONCE per open and held. A thread opens at its bottom, so
+        // arriving at the end is not evidence the reader has read anything —
+        // recomputing every frame deleted the line while they were looking at
+        // it. Reaching the end advances the persisted stamp for NEXT time; the
+        // line on screen stays until the thread is closed and reopened.
+        const std::string& openId0 = app.openSession->summary.id;
+        struct UnreadMark {
+            bool computed = false;
+            int64_t stamp = 0;   // the persisted stamp it was computed from
+            size_t seen = 0;     // message count when it was computed
+            int first = -1;
+            int count = 0;
+        };
+        static std::unordered_map<std::string, UnreadMark> s_unread;
+        UnreadMark& mark = s_unread[openId0];
+        const int64_t lastRead = Settings::get().get_last_read(openId0);
+        // Recomputed when the thread is first seen, and again if messages were
+        // PREPENDED (load-older shifts every index, so a held index would
+        // point at the wrong message).
+        // Also recomputed when the persisted stamp changes underneath us. Our
+        // OWN advance (reaching the end, below) writes mark.stamp too, so it
+        // does not look like an external change and does not delete the line
+        // the reader is looking at. Anything else — another window, a test
+        // placing the boundary — is a real re-mark and is honoured.
+        if (!mark.computed || msgs.size() < mark.seen || lastRead != mark.stamp) {
+            mark.computed = true;
+            mark.stamp = lastRead;
+            mark.seen = msgs.size();
+            mark.first = -1;
+            mark.count = 0;
+            if (lastRead > 0) {
+                for (int i = 0; i < n; ++i) {
+                    if (msgs[static_cast<size_t>(i)].created_at > lastRead) {
+                        if (mark.first < 0) mark.first = i;
+                        ++mark.count;
+                    }
+                }
+            }
+            // Everything new, on a thread that has been read before, means the
+            // stamp is stale rather than the whole thread being unread.
+            if (mark.first == 0 && mark.count == n) mark.first = -1;
+        } else if (msgs.size() > mark.seen && mark.first >= 0) {
+            // Messages arrived while it was open — they are new too, and they
+            // are appended, so the boundary index is unaffected.
+            mark.count += static_cast<int>(msgs.size() - mark.seen);
+            mark.seen = msgs.size();
+        }
+        const int firstUnread = mark.first;
+        const int unreadCount = mark.count;
+
         // ---- Pass 1: item list + measured heights (memoized). --------------
         std::vector<Item> items;
         items.reserve(n);
@@ -2229,6 +2371,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         {
             int i = 0;
             while (i < n) {
+                if (i == firstUnread) {
+                    Item d;
+                    d.kind = Item::NewDivider;
+                    d.lo = i;
+                    d.hi = unreadCount;
+                    d.height = kNewDividerH;
+                    totalH += d.height;
+                    items.push_back(d);
+                }
                 const auto& m = msgs[i];
                 if (m.role == api::Role::Tool) {
                     // A SPAWN (sub-agent launch) is rendered as its own distinct
@@ -2439,6 +2590,46 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (nearEnd) s_follow = true;
             s_prevOffset = curOffset;
         }
+
+        // ---- Reading the transcript from the keyboard ----------------------
+        // A long thread is a document, and a document scrolls without the
+        // mouse. Home/End jump to the ends, Page moves a viewport less a
+        // couple of lines of overlap (so the line you were reading is still on
+        // screen), and the arrows move a few lines.
+        //
+        // Suppressed while a text field owns the keyboard: Home and End belong
+        // to the caret then, and space belongs to the message being typed.
+        // TextInputSystem sets a focused field's is_focused, so anything
+        // focused means the composer or the find box is the target.
+        if (scroll.ent().has<afterhours::ui::HasScrollView>() &&
+            !any_text_field_focused()) {
+            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            const float page = std::max(40.0f, viewH - 2.0f * kLinePitch);
+            const float step = 3.0f * kLinePitch;
+            float delta = 0.0f;
+            bool jumpTop = false, jumpEnd = false;
+            if (hanabi::keys::pressed(hanabi::keys::kPageUp)) delta -= page;
+            if (hanabi::keys::pressed(hanabi::keys::kPageDown)) delta += page;
+            if (hanabi::keys::pressed(hanabi::keys::kUp)) delta -= step;
+            if (hanabi::keys::pressed(hanabi::keys::kDown)) delta += step;
+            if (hanabi::keys::pressed(hanabi::keys::kHome)) jumpTop = true;
+            if (hanabi::keys::pressed(hanabi::keys::kEnd)) jumpEnd = true;
+
+            if (jumpTop || jumpEnd || delta != 0.0f) {
+                float want = jumpTop  ? 0.0f
+                             : jumpEnd ? 1e9f
+                                       : sv.scroll_offset.y + delta;
+                sv.scroll_offset.y = want;
+                hanabi::set_scroll_target_y(sv, want);
+                sv.clamp_scroll();
+                scrollY = sv.scroll_offset.y;
+                // Scrolling up by hand means "stop following the bottom", the
+                // same as a wheel scroll does; End means "follow again".
+                s_follow = jumpEnd;
+                s_prevOffset = scrollY;
+            }
+        }
+
         // Pin to bottom on a first-open, while streaming here, or whenever the
         // follow-latch is engaged (user hasn't scrolled up).
         const bool atBottom = s_follow || nearEnd;
@@ -2534,9 +2725,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case Item::Spawn:
                     render_spawn_card(ctx, col, it.lo, msgs[it.lo], colW);
                     break;
+                case Item::NewDivider:
+                    new_divider(ctx, col, it.lo, it.hi, colW);
+                    break;
             }
         }
         flush_spacer(99999);
+
+        // Mark the thread read once the newest message is actually on screen.
+        // Not on open — that would clear the divider you opened the thread to
+        // see — and not on a mere scroll-to-bottom either: the stamp only ever
+        // advances (Settings::set_last_read enforces it), so the divider
+        // survives until the reader has genuinely arrived at the end.
+        if (atBottom && n > 0) {
+            const int64_t newest = msgs[static_cast<size_t>(n - 1)].created_at;
+            // Forward only — scrolling back through a thread must not un-read
+            // what you have already seen.
+            if (newest > 0 && newest > Settings::get().get_last_read(openId0)) {
+                Settings::get().set_last_read(openId0, newest);
+                mark.stamp = newest;  // our own write, not an external re-mark
+            }
+        }
 
         // Bottom breathing room: a real trailing spacer so the LAST line can be
         // scrolled fully clear of the viewport bottom (and the composer that
