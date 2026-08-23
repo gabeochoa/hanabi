@@ -131,7 +131,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app->escape == EscapeIntent::ClearTranscript)
             hanabi::text_select::clear();
 
-        layout->composerHeight = 92.0f + attachments_h(*app);
+        layout->composerHeight = 98.0f + attachments_h(*app);
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
@@ -4039,9 +4039,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // the transcript gutters) so the input lines up with the
                 // messages instead of spanning the full pane. Same gutter math
                 // as render_transcript's scroll padding.
-                .with_padding(Padding{.top = pixels(8),
+                //
+                // No top padding: Puffin's composer opens with a hairline rule
+                // flush to the top of the strip, and everything below is
+                // measured from that rule (spec: rule at y=851, meter row at
+                // y=861, input at y=885).
+                .with_padding(Padding{.top = pixels(0),
                                       .right = pixels(composerGutter),
-                                      .bottom = pixels(8),
+                                      .bottom = pixels(0),
                                       .left = pixels(composerGutter)})
                 .with_custom_background(theme::panel_bg())
                 .with_roundness(0.0f)
@@ -4070,19 +4075,267 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // A hairline top border sold via a 1px divider row so the composer
         // reads as a distinct footer strip separated from the message column.
+        // Flush to the top of the strip (Puffin's rule is at y=851, the strip's
+        // first pixel); the 9px breathing space belongs to the meter row below.
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(1)})
                 .with_custom_background(theme::border())
-                .with_margin(Margin{.bottom = pixels(7)})
                 .with_roundness(0.0f)
                 .with_debug_name("composer_divider"));
+
+        // Whether Send is really STEER: the agent is running and the backend
+        // can interrupt it. Read here because both the meter row's caption
+        // (below) and the send button (further down) turn on it.
+        const bool steerMode = !kickoff && app.should_steer_open();
+
+        // Meta row ABOVE the input: the context meter at the top LEFT and the
+        // control chips at the top RIGHT — Puffin's arrangement (spec: meter
+        // track at the strip's top left, three pills at the top right, both
+        // centred on y=869, i.e. 18px below the rule).
+        auto meta = div(ctx, mk(bar.ent(), 3),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                .with_margin(Margin{.top = pixels(9)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_meta"));
+        // LEFT cluster: the context meter and the status caption. Puffin puts
+        // a track + a "0%" figure here; hanabi's figure is a token count over
+        // the compaction budget, which three tests assert by text.
+        auto leftMeta = div(ctx, mk(meta.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_leftmeta"));
+
+        // RIGHT cluster: the live controls. Puffin's three pills are `Tools`,
+        // `Thinking`, `Deliveries`; hanabi's are the model picker, the effort
+        // picker and the tool-fold mode. Same place, same pill shape, and they
+        // still open their popovers — the words differ because the controls
+        // do (see the report).
+        auto rightMeta = div(ctx, mk(meta.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_rightmeta"));
+
+        const std::string currentModel = Settings::get().get_default_model();
+        auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
+            ComponentConfig{}
+                .with_label(hanabi::models::display_name(currentModel))
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_padding(Padding{.top = pixels(2), .right = pixels(9),
+                                      .bottom = pixels(2), .left = pixels(9)})
+                .with_custom_background(theme::panel_bg())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_alignment(TextAlignment::Left)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_corner_radius(9.0f)
+                .with_debug_name("composer_model"));
+        if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
+        if (app.escape == EscapeIntent::CloseModelPicker)
+            app.modelPopoverOpen = false;
+        render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
+
+        // The effort chip, right of the model: how hard the model is asked to
+        // think on the work you start next.
+        const std::string currentEffort = Settings::get().get_default_effort();
+        auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
+            ComponentConfig{}
+                .with_label("Effort: " +
+                            hanabi::effort::display_name(currentEffort))
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_margin(Margin{.left = pixels(4)})
+                .with_padding(Padding{.top = pixels(2), .right = pixels(9),
+                                      .bottom = pixels(2), .left = pixels(9)})
+                .with_custom_background(theme::panel_bg())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_alignment(TextAlignment::Left)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_corner_radius(9.0f)
+                .with_debug_name("composer_effort"));
+        if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
+        if (app.escape == EscapeIntent::CloseEffortPicker)
+            app.effortPopoverOpen = false;
+        render_effort_popover(ctx, parent, app, effortChip.ent(),
+                              currentEffort);
+
+        // The tool-fold chip, right of effort: how much of a tool call this
+        // thread shows by default. Only where there is a thread to set it on —
+        // on the welcome screen there is no session to key the mode to.
+        if (app.openSession) {
+            const hanabi::fold::Mode currentFold = fold_mode(app);
+            auto foldChip = button(ctx, mk(rightMeta.ent(), 3),
+                ComponentConfig{}
+                    .with_label("Tools: " +
+                                hanabi::fold::chip_label(currentFold))
+                    .with_size(ComponentSize{children(), pixels(18)})
+                    .with_margin(Margin{.left = pixels(4)})
+                    .with_padding(Padding{.top = pixels(2),
+                                          .right = pixels(9),
+                                          .bottom = pixels(2),
+                                          .left = pixels(9)})
+                    .with_custom_background(theme::panel_bg())
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(9.0f)
+                    .with_debug_name("composer_fold"));
+            if (foldChip) app.foldPopoverOpen = !app.foldPopoverOpen;
+            if (app.escape == EscapeIntent::CloseFoldPicker)
+                app.foldPopoverOpen = false;
+            render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
+        }
+        std::string caption;
+        if (!app.slashNotice.empty())
+            caption = app.slashNotice;
+        else if (!canSend)
+            caption =
+                "read-only \xe2\x80\x94 this backend doesn't support replies";
+        else if (sending && queued > 0)
+            caption = "sending\xe2\x80\xa6  \xc2\xb7  " +
+                      std::to_string(queued) + " queued";
+        else if (sending)
+            caption = "sending\xe2\x80\xa6";
+        else if (queued > 0)
+            caption = std::to_string(queued) + " queued";
+        else if (hasText) {
+            // Discoverability: when there's text to send and we're idle, tell
+            // the user which key sends (the fix for "HOW DO I SEND A MESSAGE" —
+            // the composer now sends on a keystroke, not just the button
+            // click). The hint names the key that is CONFIGURED: telling
+            // someone who moved the setting to Cmd+Return that Enter sends is
+            // worse than saying nothing, because they will believe it.
+            // (canSend is provably true here — the !canSend arm returned above.)
+            const char* key = Settings::get().get_send_key() ==
+                                      hanabi::kSendKeyCmdReturn
+                                  ? "Cmd+Return"
+                                  : "Enter";
+            caption = std::string(key) + (steerMode ? " to steer" : " to send");
+        }
+        // Conversation size against the budget that will compact it. The
+        // numerator is the provider's own count when the backend reports one
+        // and a chars/4 estimate otherwise, and only the estimate wears a "~".
+        // The denominator is the session's compaction budget, or the declared
+        // one for a backend that reports none; with neither, the bar is absent
+        // rather than filled to something invented.
+        if (canSend && app.openSession) {
+            const api::ContextUsage& usage = app.openSession->context;
+            const bool counted = usage.counted();
+            const int64_t tok =
+                counted ? usage.used_tokens : estimated_tokens(*app.openSession);
+            const int64_t budget = usage.has_denominator()
+                                       ? usage.budget_tokens
+                                       : app.configuredContextBudget;
+            if (tok > 0) {
+                std::string label = counted
+                                        ? fmtutil::compact_count(tok)
+                                        : "~" + fmtutil::compact_count(tok);
+                if (budget > 0)
+                    label += " / " + fmtutil::compact_count(budget);
+                label += " tokens";
+                // A reading the server has not caught up with says so. Hiding
+                // it would present a stale number as a live one.
+                if (usage.stale) label += " \xc2\xb7 stale";
+                // Puffin's order, left to right: the track first, then the
+                // figure (spec: track x=360..404, 45x6; figure starts x=413).
+                if (budget > 0) {
+                    const float frac =
+                        std::min(1.0f, static_cast<float>(tok) /
+                                           static_cast<float>(budget));
+                    div(ctx, mk(leftMeta.ent(), 13),
+                        ComponentConfig{}
+                            .with_size(ComponentSize{pixels(45), pixels(6)})
+                            .with_custom_background(theme::panel_bg_2())
+                            .with_roundness(0.5f)
+                            .with_on_draw_fg([frac](RectangleType rr) {
+                                float w = rr.width * frac;
+                                if (w < 2.0f) w = 2.0f;
+                                afterhours::draw_rectangle_rounded(
+                                    RectangleType{rr.x, rr.y, w, rr.height},
+                                    0.5f, 6,
+                                    theme::over(theme::accent(),
+                                                theme::panel_bg_2()));
+                            })
+                            .with_debug_name("composer_meter"));
+                }
+                div(ctx, mk(leftMeta.ent(), 12),
+                    ComponentConfig{}
+                        .with_label(label)
+                        .with_size(ComponentSize{children(), pixels(16)})
+                        .with_margin(Margin{.left = pixels(budget > 0 ? 8 : 0)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_debug_name("composer_size"));
+            }
+        }
+
+        // The status caption rides at the end of the left cluster: what is
+        // happening, or which key sends. Puffin has no equivalent — its strip
+        // is meter and pills only — but the key hint is the fix for "HOW DO I
+        // SEND A MESSAGE" and a scripted test asserts it.
+        if (!caption.empty()) {
+            div(ctx, mk(leftMeta.ent(), 11),
+                ComponentConfig{}
+                    .with_label(caption)
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("composer_status"));
+        }
+        // A live selection says how much is on the clipboard's doorstep. It
+        // also confirms the selection exists at all: the band is drawn behind
+        // text and easy to miss on a short run.
+        if (const std::string sel = hanabi::text_select::selected_text();
+            !sel.empty()) {
+            div(ctx, mk(leftMeta.ent(), 14),
+                ComponentConfig{}
+                    .with_label(std::to_string(sel.size()) + " selected")
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("composer_selected"));
+        }
 
         render_attachments(ctx, bar.ent(), app);
 
         auto row = div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_size(ComponentSize{percent(1.0f), pixels(45)})
+                .with_margin(Margin{.top = pixels(6)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -4090,64 +4343,76 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_row"));
 
-        // The input grows to fill; a fixed-width Send button sits at the right.
-        // NOTE (afterhours_gaps.md #17): text_input forces its own Secondary
-        // background and derives font size from field HEIGHT (~0.5*h) — it
-        // ignores with_font_size / with_custom_background. So the field is kept
-        // ~34px tall for a readable ~17px font, matching the composer overlay
-        // and sidebar search field workarounds.
-        float sendW = 78.0f;
-        float inputW = paneW - (composerGutter * 2.0f) - sendW - 8.0f;
+        // Puffin's input is an OUTLINED box 45px tall on the window colour,
+        // with a 19px circular send button 9px to its right (spec: input
+        // y=885..930, circle x=1082..1100 centred on the input's mid-line).
+        //
+        // NOTE (afterhours_gaps.md #17, and #64 below it): text_input STILL
+        // owns two things this box wants. Its font size is derived from the
+        // field height unless set explicitly (a 45px field would render 22.5px
+        // text), and its inner padding is derived from the height with no
+        // override at all — at 45px that is a 15.75px left inset the caller
+        // cannot change. So the field is given an explicit font size, and the
+        // padding is what the widget decides.
+        constexpr float kSendDia = 19.0f;
+        constexpr float kSendGap = 9.0f;
+        constexpr float kInputH = 45.0f;
+        float inputW = paneW - (composerGutter * 2.0f) - kSendDia - kSendGap;
         if (inputW < 120.0f) inputW = 120.0f;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(inputW), pixels(34)})
+                .with_size(ComponentSize{pixels(inputW), pixels(kInputH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.right = pixels(8)})
-                // Visible filled pill so the input reads as an INPUT even when
-                // empty (it was a near-invisible faint-bordered box — the
-                // "where's the input?" bug). The transparent text_input sits
-                // inside this pill; its forced Secondary fill (gap #17) is
-                // matched to panel_bg_2 below so they blend.
-                .with_custom_background(theme::panel_bg_2())
+                .with_justify_content(JustifyContent::FlexStart)
+                .with_margin(Margin{.right = pixels(kSendGap)})
+                // An OUTLINE on the strip colour, not a filled pill: Puffin's
+                // input interior is the window colour and only the 1px border
+                // says where the field is.
+                .with_custom_background(theme::panel_bg())
                 .with_border(theme::border(), pixels(1.0f))
-                // Modest uniform roundness (all 4 corners). A high fractional
-                // value (roundness_for_px(10) => ~0.59 on a 34px bar) drove the
-                // arc-heavy path that renders jagged bracket end-caps; 0.25 is a
-                // clean subtle corner. Uniform (not mixed) so it never hits the
-                // gap #25 degenerate-corner path.
-                .with_roundness(0.25f)
+                .with_corner_radius(7.0f)
                 .with_debug_name("composer_input_wrap"));
 
         // text_input forces its own Secondary bg over its rect (gap #17); point
-        // Secondary/Surface at panel_bg_2 so the field blends into the pill
-        // above instead of painting a jarring default-dark box.
-        ctx.theme.secondary = theme::panel_bg_2();
-        ctx.theme.surface = theme::panel_bg_2();
+        // Secondary/Surface at the strip colour so the field disappears into
+        // the outlined box instead of painting a filled panel inside it.
+        ctx.theme.secondary = theme::panel_bg();
+        ctx.theme.surface = theme::panel_bg();
         ctx.theme.font = theme::text_primary();
         ctx.theme.focus = theme::accent();
         // What the empty field says it is for. text_input renders this itself
         // now; it used to be an absolutely-positioned on_draw_fg child laid
         // over the field, because the widget had no placeholder of its own.
-        const bool phSteer = !kickoff && app.should_steer_open();
+        //
+        // Puffin's reads "Message Agentcloud… (↵)". The key hint is dropped:
+        // Roboto has no U+21B5, and a missing codepoint draws nothing at all
+        // (gap #48) — a placeholder cannot carry a drawn glyph, because the
+        // widget owns the string and its layout. The key that sends is named
+        // in words in the meter row's caption instead.
+        const bool phSteer = steerMode;
         const char* placeholder = kickoff ? "Start a new conversation\xe2\x80\xa6"
                                   : phSteer ? "Steer the running agent\xe2\x80\xa6"
                                             : "Message hanabi\xe2\x80\xa6";
+        // The FIELD inside the box is 29px, not the box's 45. Not a style
+        // choice: text_input derives its inner padding from the field height
+        // (pad_w = h*0.35) and overwrites whatever with_padding the caller
+        // passed, so the only way to ask for Puffin's 10px text inset is to
+        // pick the height that yields it — 10/0.35 = 28.6. The box still reads
+        // as 45px tall because the wrap owns the border and centres the field
+        // inside it. See afterhours_gaps.md #65.
+        constexpr float kFieldH = 29.0f;
         auto inputRes = afterhours::ui::imm::text_input(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
                 .with_placeholder(placeholder)
-                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
                 .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(12), .right = pixels(10)})
-                // Match the wrap's uniform 0.25 corner (gap #17: text_input
-                // paints its own bg over its rect, so a mismatched roundness
-                // double-draws an inner rounded box).
-                .with_roundness(0.25f)
+                .with_corner_radius(7.0f)
                 .with_debug_name("composer_reply_input"));
 
         // Screenshot affordance: HANABI_TEST_FOCUS_COMPOSER=1 force-focuses the
@@ -4437,25 +4702,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
 
-        // Send affordance. Enabled (primary-styled, clickable) when the backend
-        // supports replies and the draft has text; otherwise disabled-styled.
-        // When the open thread's agent is RUNNING and the backend can steer,
-        // this same button STEERS (interrupt/redirect) — relabel to "Steer" so
-        // the action reads honestly. Minimal touch: label-only (fits the same
-        // fixed sendW), no layout change.
-        const bool steerMode = !kickoff && app.should_steer_open();
-        // Send = a filled primary button with an up-arrow (modern chat "send"),
-        // Steer keeps its word (interrupt/redirect reads better as text), "…"
-        // while in flight. ~10px corner to match the input pill (0.5 made a
-        // fully-rounded lozenge that clashed with the field).
+        // Send affordance. Enabled (clickable) when the backend supports
+        // replies and the draft has text; otherwise disabled-styled.
+        //
+        // Puffin's is a 19px CIRCLE with an up-arrow and no word on it, so
+        // that is the shape here: a square button with a 9.5px corner radius
+        // and the arrow DRAWN (Roboto has no U+2191 and a missing codepoint
+        // paints nothing — gap #48; see hanabi::glyph::arrow_up).
+        //
+        // Two of the three states this button has cannot fit in a 19px circle,
+        // and both of them matter more than the shape: when the open thread's
+        // agent is RUNNING and the backend can steer, this button STEERS
+        // (interrupt/redirect) rather than sends, and while a turn is in flight
+        // it says so. A drawn arrow cannot tell you either. So the circle is
+        // the IDLE shape only, and the button falls back to its labelled pill
+        // for Steer and for in-flight — the label is the honest thing there.
+        const bool sendIsCircle = !steerMode && !sending;
         const char* sendLabel =
-            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "Send");
+            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "");
+        const float sendW = sendIsCircle ? kSendDia : 78.0f;
+        const float sendH = sendIsCircle ? kSendDia : 32.0f;
+        const theme::Color sendFill =
+            sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(sendLabel)
-                .with_size(ComponentSize{pixels(sendW), pixels(32)})
-                .with_custom_background(sendEnabled ? theme::button_primary()
-                                                    : theme::disabled_bg())
+                .with_size(ComponentSize{pixels(sendW), pixels(sendH)})
+                .with_custom_background(sendFill)
                 .with_custom_hover_bg(sendEnabled
                                           ? theme::hover_over(theme::button_primary())
                                           : theme::disabled_bg())
@@ -4466,7 +4739,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.25f)
+                .with_corner_radius(sendIsCircle ? kSendDia * 0.5f : 8.0f)
+                .with_on_draw_fg([sendIsCircle, sendEnabled](RectangleType rr) {
+                    if (!sendIsCircle) return;
+                    hanabi::glyph::arrow_up(
+                        rr, sendEnabled ? theme::window_bg()
+                                        : theme::disabled_text());
+                })
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
             // A slash draft is a command, so the button carries it out rather
@@ -4551,235 +4830,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         lastSlashDraft = replyDraft;
 
-        // Meta row under the input: model selector chip (left) + a
-        // context/cost meter (right) + the status caption — matches the Navi
-        // web composer's dense footer (defect #4: was a bare grey "Send" text).
-        auto meta = div(ctx, mk(bar.ent(), 3),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
-                .with_margin(Margin{.top = pixels(5)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("composer_meta"));
-        // Left: the model chip, which opens the picker. It used to read
-        // "Opus 4.8 (xhigh)" whatever the app was set to — a label, not a
-        // fact. It now says which model the next conversation will ask for
-        // (Settings' defaultModelId, the same value the settings sheet's
-        // Model row holds).
-        // The chips share a cluster: the row is SpaceBetween, so three direct
-        // children spread evenly and the effort chip drifts into the middle of
-        // the strip instead of sitting beside the model it qualifies.
-        auto leftMeta = div(ctx, mk(meta.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{children(), pixels(16)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("composer_leftmeta"));
-
-        const std::string currentModel = Settings::get().get_default_model();
-        auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
-            ComponentConfig{}
-                .with_label(hanabi::models::display_name(currentModel))
-                .with_size(ComponentSize{children(), pixels(16)})
-                .with_padding(Padding{.top = pixels(1), .right = pixels(8),
-                                      .bottom = pixels(1), .left = pixels(8)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_alignment(TextAlignment::Left)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.5f)
-                .with_debug_name("composer_model"));
-        if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
-        if (app.escape == EscapeIntent::CloseModelPicker)
-            app.modelPopoverOpen = false;
-        render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
-
-        // The effort chip, right of the model: how hard the model is asked to
-        // think on the work you start next.
-        const std::string currentEffort = Settings::get().get_default_effort();
-        auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
-            ComponentConfig{}
-                .with_label("Effort: " +
-                            hanabi::effort::display_name(currentEffort))
-                .with_size(ComponentSize{children(), pixels(16)})
-                .with_margin(Margin{.left = pixels(6)})
-                .with_padding(Padding{.top = pixels(1), .right = pixels(8),
-                                      .bottom = pixels(1), .left = pixels(8)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_alignment(TextAlignment::Left)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.5f)
-                .with_debug_name("composer_effort"));
-        if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
-        if (app.escape == EscapeIntent::CloseEffortPicker)
-            app.effortPopoverOpen = false;
-        render_effort_popover(ctx, parent, app, effortChip.ent(),
-                              currentEffort);
-
-        // The tool-fold chip, right of effort: how much of a tool call this
-        // thread shows by default. Only where there is a thread to set it on —
-        // on the welcome screen there is no session to key the mode to.
-        if (app.openSession) {
-            const hanabi::fold::Mode currentFold = fold_mode(app);
-            auto foldChip = button(ctx, mk(leftMeta.ent(), 3),
-                ComponentConfig{}
-                    .with_label("Tools: " +
-                                hanabi::fold::chip_label(currentFold))
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.left = pixels(6)})
-                    .with_padding(Padding{.top = pixels(1),
-                                          .right = pixels(8),
-                                          .bottom = pixels(1),
-                                          .left = pixels(8)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_alignment(TextAlignment::Left)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.5f)
-                    .with_debug_name("composer_fold"));
-            if (foldChip) app.foldPopoverOpen = !app.foldPopoverOpen;
-            if (app.escape == EscapeIntent::CloseFoldPicker)
-                app.foldPopoverOpen = false;
-            render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
-        }
-        // Right cluster: status caption + context/cost meter.
-        auto rightMeta = div(ctx, mk(meta.ent(), 2),
-            ComponentConfig{}
-                .with_size(ComponentSize{children(), pixels(16)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("composer_rightmeta"));
-        std::string caption;
-        if (!app.slashNotice.empty())
-            caption = app.slashNotice;
-        else if (!canSend)
-            caption =
-                "read-only \xe2\x80\x94 this backend doesn't support replies";
-        else if (sending && queued > 0)
-            caption = "sending\xe2\x80\xa6  \xc2\xb7  " +
-                      std::to_string(queued) + " queued";
-        else if (sending)
-            caption = "sending\xe2\x80\xa6";
-        else if (queued > 0)
-            caption = std::to_string(queued) + " queued";
-        else if (hasText) {
-            // Discoverability: when there's text to send and we're idle, tell
-            // the user which key sends (the fix for "HOW DO I SEND A MESSAGE" —
-            // the composer now sends on a keystroke, not just the button
-            // click). The hint names the key that is CONFIGURED: telling
-            // someone who moved the setting to Cmd+Return that Enter sends is
-            // worse than saying nothing, because they will believe it.
-            // (canSend is provably true here — the !canSend arm returned above.)
-            const char* key = Settings::get().get_send_key() ==
-                                      hanabi::kSendKeyCmdReturn
-                                  ? "Cmd+Return"
-                                  : "Enter";
-            caption = std::string(key) + (steerMode ? " to steer" : " to send");
-        }
-        if (!caption.empty()) {
-            div(ctx, mk(rightMeta.ent(), 1),
-                ComponentConfig{}
-                    .with_label(caption)
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.right = pixels(10)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_debug_name("composer_status"));
-        }
-        // A live selection says how much is on the clipboard's doorstep. It
-        // also confirms the selection exists at all: the band is drawn behind
-        // text and easy to miss on a short run.
-        if (const std::string sel = hanabi::text_select::selected_text();
-            !sel.empty()) {
-            div(ctx, mk(rightMeta.ent(), 4),
-                ComponentConfig{}
-                    .with_label(std::to_string(sel.size()) + " selected")
-                    .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.right = pixels(10)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_debug_name("composer_selected"));
-        }
-        // Conversation size against the budget that will compact it. The
-        // numerator is the provider's own count when the backend reports one
-        // and a chars/4 estimate otherwise, and only the estimate wears a "~".
-        // The denominator is the session's compaction budget, or the declared
-        // one for a backend that reports none; with neither, the bar is absent
-        // rather than filled to something invented.
-        if (canSend && app.openSession) {
-            const api::ContextUsage& usage = app.openSession->context;
-            const bool counted = usage.counted();
-            const int64_t tok =
-                counted ? usage.used_tokens : estimated_tokens(*app.openSession);
-            const int64_t budget = usage.has_denominator()
-                                       ? usage.budget_tokens
-                                       : app.configuredContextBudget;
-            if (tok > 0) {
-                std::string label = counted
-                                        ? fmtutil::compact_count(tok)
-                                        : "~" + fmtutil::compact_count(tok);
-                if (budget > 0)
-                    label += " / " + fmtutil::compact_count(budget);
-                label += " tokens";
-                // A reading the server has not caught up with says so. Hiding
-                // it would present a stale number as a live one.
-                if (usage.stale) label += " \xc2\xb7 stale";
-                div(ctx, mk(rightMeta.ent(), 2),
-                    ComponentConfig{}
-                        .with_label(label)
-                        .with_size(ComponentSize{children(), pixels(16)})
-                        .with_transparent_bg()
-                        .with_custom_text_color(theme::text_faint())
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Right)
-                        .with_debug_name("composer_size"));
-                if (budget > 0) {
-                    const float frac =
-                        std::min(1.0f, static_cast<float>(tok) /
-                                           static_cast<float>(budget));
-                    div(ctx, mk(rightMeta.ent(), 3),
-                        ComponentConfig{}
-                            .with_size(ComponentSize{pixels(56), pixels(6)})
-                            .with_margin(Margin{.left = pixels(6)})
-                            .with_custom_background(theme::panel_bg_2())
-                            .with_roundness(0.5f)
-                            .with_on_draw_fg([frac](RectangleType rr) {
-                                float w = rr.width * frac;
-                                if (w < 2.0f) w = 2.0f;
-                                afterhours::draw_rectangle_rounded(
-                                    RectangleType{rr.x, rr.y, w, rr.height},
-                                    0.5f, 6,
-                                    theme::over(theme::accent(),
-                                                theme::panel_bg_2()));
-                            })
-                            .with_debug_name("composer_meter"));
-                }
-            }
-        }
     }
 
     // A rough size for the open conversation, in tokens, for a backend that

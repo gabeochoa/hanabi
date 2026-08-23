@@ -202,6 +202,24 @@ inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
                                   afterhours::vec2{cx, cy + s}, c);
 }
 
+// An upward send arrow: a stem with a solid head, centred in `rect`. Roboto
+// has no U+2191, so a typed one paints nothing at all (afterhours_gaps.md
+// #48) — the composer's circular send button draws this instead of labelling
+// itself. `extent` is the arrow's half-height.
+inline void arrow_up(RectangleType rect, theme::Color c, float extent = 4.5f,
+                     float thickness = 1.6f) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    const float top = cy - extent;
+    const float bot = cy + extent;
+    const float head = extent * 0.95f;  // half-width of the arrowhead
+    afterhours::draw_line_ex(afterhours::vec2{cx, top + head * 0.4f},
+                             afterhours::vec2{cx, bot}, thickness, c);
+    afterhours::draw_triangle(afterhours::vec2{cx - head, top + head},
+                              afterhours::vec2{cx + head, top + head},
+                              afterhours::vec2{cx, top}, c);
+}
+
 // A radio mark: a ring, filled when it is the current choice. Drawn rather
 // than typed for the same reason the chevron is — the font has no geometric
 // shapes, and a missing codepoint paints nothing at all.
