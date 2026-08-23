@@ -2986,7 +2986,7 @@ already there.
 
 ---
 
-## #64 — no window-level chrome: a rule that spans panels cannot belong to any of them
+### #64 — no window-level chrome: a rule that spans panels cannot belong to any of them
 
 **What the design asks for.** Puffin parts its sidebar from its main pane with
 ONE hairline: a single pixel at x=279, colour `#2A2A39`, running the entire
