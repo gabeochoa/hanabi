@@ -2717,3 +2717,89 @@ should.
      `ctx.set_focus(wrapper)` forward to the field) would make "put the caret
      back" a one-liner that cannot rot: today the only way to say it is to
      index into the widget's children.
+
+### #58 — A scripted test can assert a rect and a string, never a colour
+
+- **What I was trying to build.** Syntax colouring in fenced code blocks
+  (`src/ui/syntax_highlighter.h`): keywords one hue, strings another, comments
+  grey. Colour is the entire feature — the text on screen is byte-for-byte what
+  it was before — so the test has to assert colour or it asserts nothing.
+
+- **What I tried.**
+
+  ```
+  assert_ui code_block_line color=syntax_keyword
+  assert_ui code_block_line spans=3
+  ```
+
+- **What happened.** `check_ui_property` (`e2e_testing/ui_commands.h:1013`)
+  understands exactly five properties: `x`, `y`, `w`, `h`, `hidden`, and
+  `text`. Anything else is `unknown property`. `text` compares against
+  `HasLabel::label`, which for a styled label is the concatenated plain string
+  — so the one property that can see a styled element cannot see the styling.
+  `HasLabel::spans` sits right beside `label` in the same component, holding a
+  `TextSpan{text, color, weight}` per run, and nothing in the harness reads it.
+
+  A second, smaller edge of the same gap: `assert_ui` splits its arguments on
+  whitespace (`cmd.args`), so `text=kw 2 ty 0` cannot be expressed at all. Any
+  value a test wants to assert has to be a single token.
+
+- **The workaround.** A test-only audit caption, the same shape as the find
+  bar's band counter: `HANABI_SYNTAX_AUDIT=1` makes each code block render a
+  count of the coloured runs it handed to the renderer, spelled without spaces
+  (`kw2/ty0/str2/com1/num4`), and the test asserts that string. The counts are
+  filled in by the span builder itself, so they cannot drift from the draw —
+  but they are still a caption ABOUT the colouring rather than the colouring,
+  and they only exist because the harness cannot read what it renders. The
+  shipping build carries the branch and never the caption.
+
+- **Severity: makes it untestable.** Every colour-carrying feature — syntax
+  highlighting, a diff view's red and green, a status hue, the find band — is
+  in the same position: assertable only through a hook the app adds for the
+  purpose. Three of hanabi's features now carry one.
+
+- **Minimal upstream fix.** Teach `check_ui_property` two more properties:
+
+  ```cpp
+  else if (prop == "spans") { actual_int = label.spans.size(); }
+  else if (prop.starts_with("span")) {   // span0_color=#c695ea
+      ...  compare TextSpan::color, hex or r,g,b
+  }
+  ```
+
+  and let a quoted `prop="value with spaces"` survive argument splitting. The
+  data is already in the component; only the reader is missing.
+
+### #59 — Styled spans are placed run by run, so a monospace block loses its columns
+
+- **What I was trying to build.** The same code blocks. Each line is one mono
+  label, and the colours arrive as `with_styled_label(spans)`.
+
+- **What happened.** The runs are measured and drawn one after another, each
+  advancing x by its own measured width. In proportional text nobody sees the
+  fractional pixel that rounds off at each boundary. In a MONOSPACE block the
+  columns are the point: `min(base * 2 ** attempt, 30000)` drawn as one label
+  and the same line drawn as seven coloured runs do not line up, and a block
+  whose lines have different run counts wobbles column by column against
+  itself. Screenshot evidence: colouring punctuation put a visible half-space
+  before every comma and closing paren.
+
+- **The workaround.** Colour fewer boundaries: punctuation is deliberately NOT
+  coloured, which removes the most frequent split (the syntax palette carries a
+  `punct` token that the scanner never emits — kept because the omission is a
+  workaround, not a design). Keywords, strings, comments and numbers are almost
+  always bounded by spaces, where a fraction of a pixel does not read as a
+  broken column. The wobble is reduced, not gone.
+
+- **Cost of the workaround.** Punctuation-heavy languages get less colour than
+  they should, and the residual drift is still visible in a dense expression.
+  The alternative — hand-drawing every code line at exact `advance * column`
+  offsets through `on_draw_fg` — would cost the label its measurement, its
+  overflow handling and its text selection, for a feature that is legibility
+  polish.
+
+- **Minimal upstream fix.** Lay a styled label out on the ORIGINAL string's
+  measured positions rather than by accumulating per-run widths: measure the
+  full label once, then draw each run at the offset its byte range has in that
+  measurement. That is the same trick `find_highlight.h` performs from outside
+  to place a band, so the geometry is known to be available.

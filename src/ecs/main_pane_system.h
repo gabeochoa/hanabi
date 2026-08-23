@@ -23,6 +23,7 @@
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
+#include "../ui/syntax_highlighter.h"
 #include "../ui/model_menu.h"
 #include "../ui/effort_menu.h"
 #include "../keys.h"
@@ -4897,6 +4898,70 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // A syntax token's colour. The one place the scanner's vocabulary meets
+    // the palette.
+    static theme::Color syntax_color(hanabi::syntax::Tok t) {
+        switch (t) {
+            case hanabi::syntax::Tok::Keyword: return theme::syntax_keyword();
+            case hanabi::syntax::Tok::Type: return theme::syntax_type();
+            case hanabi::syntax::Tok::String: return theme::syntax_string();
+            case hanabi::syntax::Tok::Comment: return theme::syntax_comment();
+            case hanabi::syntax::Tok::Number: return theme::syntax_number();
+            case hanabi::syntax::Tok::Punct: return theme::syntax_punct();
+            case hanabi::syntax::Tok::Plain: break;
+        }
+        return theme::text_secondary();
+    }
+
+    // Counts of what was coloured, for the HANABI_SYNTAX_AUDIT caption. Filled
+    // by the span builder itself, so what the caption reports is what the draw
+    // was handed rather than a second run of the scanner.
+    struct SyntaxAudit {
+        int kw = 0, ty = 0, str = 0, com = 0, num = 0;
+        // No spaces: `assert_ui name text=<value>` splits its arguments on
+        // whitespace and cannot be given a value that contains any
+        // (afterhours_gaps.md #58), so a spaced caption is unassertable.
+        std::string summary() const {
+            return "kw" + std::to_string(kw) + "/ty" + std::to_string(ty) +
+                   "/str" + std::to_string(str) + "/com" +
+                   std::to_string(com) + "/num" + std::to_string(num);
+        }
+    };
+
+    // Turn the scanner's coloured runs into the renderer's span list, filling
+    // the gaps between them with plain code text.
+    static std::vector<afterhours::ui::TextSpan> code_spans(
+        const std::string& line, const std::vector<hanabi::syntax::Run>& runs,
+        SyntaxAudit* audit) {
+        std::vector<afterhours::ui::TextSpan> spans;
+        size_t at = 0;
+        const auto plain = [&](size_t from, size_t to) {
+            if (to > from)
+                spans.push_back(afterhours::ui::TextSpan{
+                    line.substr(from, to - from), theme::text_secondary()});
+        };
+        for (const hanabi::syntax::Run& r : runs) {
+            if (r.off >= line.size() || r.len == 0) continue;
+            plain(at, r.off);
+            const size_t len = std::min(r.len, line.size() - r.off);
+            spans.push_back(afterhours::ui::TextSpan{line.substr(r.off, len),
+                                                     syntax_color(r.tok)});
+            if (audit != nullptr) {
+                switch (r.tok) {
+                    case hanabi::syntax::Tok::Keyword: ++audit->kw; break;
+                    case hanabi::syntax::Tok::Type: ++audit->ty; break;
+                    case hanabi::syntax::Tok::String: ++audit->str; break;
+                    case hanabi::syntax::Tok::Comment: ++audit->com; break;
+                    case hanabi::syntax::Tok::Number: ++audit->num; break;
+                    default: break;
+                }
+            }
+            at = r.off + len;
+        }
+        plain(at, line.size());
+        return spans;
+    }
+
     void render_code_block(UIContext<InputAction>& ctx, Entity& parent, int id,
                            const std::string& lang,
                            const std::vector<std::string>& lines,
@@ -4949,8 +5014,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // box = blockW - (left 12 + right 10) pad; minus the 120px lang
             // label and the copyW button = the spacer that pins Copy flush-right.
             const float copyW = 42.0f;
+            // The test-only audit caption sits after Copy, so the spacer has
+            // to give up its width — a child that overflows a NoWrap row warns
+            // every frame, and that spam is a real cost even in a test build.
+            const float auditW =
+                hanabi::test_hooks::syntax_audit() ? 110.0f : 0.0f;
             const float barContent = (blockW > 0.0f ? blockW : 698.0f) - 22.0f;
-            float spacerW = barContent - 120.0f - copyW;
+            float spacerW = barContent - 120.0f - copyW - auditW;
             if (spacerW < 0.0f) spacerW = 0.0f;
             div(ctx, mk(bar.ent(), 2),
                 ComponentConfig{}
@@ -5001,19 +5071,49 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("code_block_body"));
         int li = 0;
+        // Colouring runs down the block, not per line: a block comment and a
+        // Python docstring both carry across lines, so the scanner's state is
+        // threaded through the loop and reset here, at the opening fence.
+        const hanabi::syntax::Lang slang = hanabi::syntax::lang_from_tag(lang);
+        hanabi::syntax::State sstate;
+        SyntaxAudit audit;
         for (const auto& cl : lines) {
-            div(ctx, mk(body.ent(), 1 + li),
+            const std::string shown = cl.empty() ? " " : cl;
+            auto cfg =
                 ComponentConfig{}
-                    .with_label(cl.empty() ? " " : cl)
+                    .with_label(shown)
                     .with_size(ComponentSize{percent(1.0f), pixels(kLinePitch)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
                     .with_font("mono", theme::type::SM)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("code_block_line"));
+                    .with_debug_name("code_block_line");
+            // The spans re-say the whole line, plain parts included: the
+            // renderer draws the runs INSTEAD of the label, so a gap between
+            // two coloured runs would be a hole in the code.
+            const std::vector<hanabi::syntax::Run> runs =
+                cl.empty() ? std::vector<hanabi::syntax::Run>{}
+                           : hanabi::syntax::scan(slang, cl, sstate);
+            if (!runs.empty())
+                cfg = cfg.with_styled_label(code_spans(shown, runs, &audit));
+            div(ctx, mk(body.ent(), 1 + li), cfg);
             ++li;
         }
+        // Test-only (HANABI_SYNTAX_AUDIT=1): what was actually coloured, in the
+        // lang bar, because a script can read a label and never a colour.
+        if (hanabi::test_hooks::syntax_audit())
+            div(ctx, mk(bar.ent(), 4),
+                ComponentConfig{}
+                    .with_label(audit.summary())
+                    .with_size(ComponentSize{children(), pixels(14)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("code_block_audit_" +
+                                     (lang.empty() ? "CODE" : lang)));
     }
 
     // "In progress / thinking" indicator: a pulsing accent dot + a muted label

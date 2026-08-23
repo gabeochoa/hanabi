@@ -1410,6 +1410,73 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // CODE FIXTURE: one reply carrying fenced blocks in several
+        // languages, seeded only under HANABI_CODE_DEMO so the ordinary mock
+        // list is unchanged. Each block is chosen to exercise a different part
+        // of the scanner: a Python docstring and a # comment, a C++ block
+        // comment that spans two lines, a shell pipeline, and JSON literals.
+        if (const char* cd = std::getenv("HANABI_CODE_DEMO");
+            cd && *cd && std::string(cd) != "0") {
+            Session s;
+            s.summary = calm("rcode", "show me the retry helper",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "code highlighting fixture");
+            s.messages = {
+                {"cd1", Role::User, "show me the retry helper, and how to run it",
+                 hrs_ago(2), ""},
+                {"cd2", Role::Assistant,
+                 "Here it is.\n"
+                 "\n"
+                 "```python\n"
+                 "def retry(attempt, base=200):\n"
+                 "    \"\"\"Full jitter, capped at 30 seconds.\n"
+                 "    Deliberately multi-line, to hold the docstring open.\"\"\"\n"
+                 "    # the ceiling is per request, not per call\n"
+                 "    delay = min(base * 2 ** attempt, 30000)\n"
+                 "    return random.uniform(0, delay)\n"
+                 "```\n"
+                 "\n"
+                 "The C++ side is the same shape:\n"
+                 "\n"
+                 "```cpp\n"
+                 "/* the cap is a constant here,\n"
+                 "   because the config lands next week */\n"
+                 "int backoff(int attempt) {\n"
+                 "  const int cap = 30000;\n"
+                 "  return std::min(200 << attempt, cap);\n"
+                 "}\n"
+                 "```\n"
+                 "\n"
+                 "Run it with:\n"
+                 "\n"
+                 "```bash\n"
+                 "# one shard at a time\n"
+                 "for shard in 1 2 3; do\n"
+                 "  cargo test -p retry -- --shard \"$shard\"\n"
+                 "done\n"
+                 "```\n"
+                 "\n"
+                 "and the knobs are:\n"
+                 "\n"
+                 "```json\n"
+                 "{ \"base_ms\": 200, \"cap_ms\": 30000, \"jitter\": true }\n"
+                 "```\n",
+                 hrs_ago(1), ""},
+                // Its own message, deliberately: a body over 40 lines folds,
+                // and a block whose lines are BEHIND the fold renders empty —
+                // which would make "an unknown language colours nothing" pass
+                // for the wrong reason.
+                {"cd3", Role::Assistant,
+                 "The generated stub is in a language I do not know:\n"
+                 "\n"
+                 "```wat\n"
+                 "(func $retry (param i32) (result i32))\n"
+                 "```\n",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+
         // DATE FIXTURE: a thread worked across three calendar days, seeded
         // only under HANABI_DATES_DEMO so the ordinary mock list is unchanged.
         // Stamps are anchored to local NOON so a run just after midnight (or
