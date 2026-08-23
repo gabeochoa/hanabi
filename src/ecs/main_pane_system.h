@@ -5,12 +5,14 @@
 // are digest lists over the thread set; Chat renders the active tab's
 // transcript as message bubbles.
 
+#include <chrono>
 #include <cstdlib>
 #include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "../test_hooks.h"
 #include "../util/format.h"
 #include "thread_model.h"
 #include "transcript_render_cache.h"
@@ -123,8 +125,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // when the backend can't send, rather than the pane hiding it.
         {
             const auto& cr = layout->composer;
-            render_composer(ctx, uiRoot, *app, cr.width, cr.height,
-                            composerKickoff, cr.x, cr.y);
+            // In split view the composer replies to the LEFT (primary) thread
+            // only, so it takes the left pane's width. Full-width under two
+            // panes gave no clue which conversation you were typing into.
+            const bool split = app->view == SmartView::Chat &&
+                               !app->splitSessionId.empty();
+            const float cw = split ? (cr.width - 1.0f) * 0.5f : cr.width;
+            render_composer(ctx, uiRoot, *app, cw, cr.height, composerKickoff,
+                            cr.x, cr.y);
         }
     }
 
@@ -787,8 +795,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else if (rest == "---" || rest == "***" || rest == "___" ||
                        rest == "----" || rest == "-----") {
                 // horizontal rule -> a light dashed line
-                line = "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80"
-                       "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80";
+                line = "\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94"
+                       "\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94\xe2\x80\x94";
             }
             out += line;
             if (nl == std::string::npos) break;
@@ -1402,6 +1410,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // panel). Returns the total height it occupied (for virtualization math).
     // Only shown when the session carries REAL sub-agents — tool activity now
     // has its own dense rows, so we no longer duplicate it here.
+    static constexpr float kSubAgentRowH = 24.0f;
+    static constexpr float kSubAgentMargin = 8.0f;
+    static constexpr float kSubAgentChipH = 26.0f;
+
+    // Trailing spacer under the last message, so it can be scrolled clear of
+    // the pane bottom instead of sitting flush against it.
+    static constexpr float kTranscriptBottomPad = 28.0f;
+
+    // Height of the sub-agent rollup, WITHOUT rendering it — the transcript
+    // needs the number during its measure pass, before it knows where in the
+    // column the rollup will actually sit.
+    static float sub_agent_panel_height(AppComponent& app) {
+        const auto& subs = app.openSession->sub_agents;
+        if (subs.empty()) return 0.0f;
+        float total = kSubAgentMargin + kSubAgentRowH + kSubAgentMargin;
+        if (app.expandedPiles.count("__subagents__") != 0) {
+            const int rows = (static_cast<int>(subs.size()) + 2) / 3;
+            total += 6.0f + rows * (kSubAgentChipH + 6.0f);
+        }
+        return total;
+    }
+
     float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
                           AppComponent& app) {
         const auto& subs = app.openSession->sub_agents;
@@ -1419,10 +1449,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string key = "__subagents__";
         const bool open = app.expandedPiles.count(key) != 0;
 
-        constexpr float kRowH = 24.0f;
-        constexpr float kMargin = 8.0f;
-        constexpr float kChipH = 26.0f;
-        float total = kMargin + kRowH + kMargin;
+        constexpr float kRowH = kSubAgentRowH;
+        constexpr float kMargin = kSubAgentMargin;
+        const float total = sub_agent_panel_height(app);
 
         auto wrap = div(ctx, mk(col, 8000),
             ComponentConfig{}
@@ -1455,12 +1484,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
-                .with_label(open ? "\xe2\x96\xbe" : "\xe2\x96\xb8")
+                .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Center)
+                .with_on_draw_fg([open](RectangleType r) {
+                    hanabi::glyph::chevron(r, !open, theme::text_faint(), 3.2f);
+                })
                 .with_debug_name("subrollup_chev"));
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
@@ -1492,8 +1521,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          sa.title);
                 ++i;
             }
-            int rows = (static_cast<int>(count) + 2) / 3;
-            total += 6.0f + rows * (kChipH + 6.0f);
         }
         return total;
     }
@@ -1503,7 +1530,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                   SubGlyph g, const std::string& title) {
         auto chip = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{children(), pixels(26)})
+                .with_size(ComponentSize{children(), pixels(kSubAgentChipH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -1891,7 +1918,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         render_cache().reset_for_thread(app.openSession->summary.id);
 
-        float subH = sub_agent_panel(ctx, col, app);
+        // Measured here, RENDERED further down: the rollup is the first thing
+        // in the column, but a short thread gets a leading spacer in front of
+        // it, and the spacer's size isn't known until every item is measured.
+        const float subH = sub_agent_panel_height(app);
 
         const bool streamingHere =
             app.streamActive &&
@@ -2129,22 +2159,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("virt_spacer"));
             pendingSpacer = 0.0f;
         };
-        // Sparse-thread balance (chat spec #6): when the whole transcript is
-        // SHORTER than the viewport (a 1-3 message thread), don't pin it to the
-        // top with a big void below — nudge it toward the upper-middle with a
-        // leading spacer of ~1/3 the slack. Only when content fits (no scroll),
-        // so long threads + virtualization are untouched. Not while streaming
-        // (content is growing) or loading older.
+        // Short-thread bottom anchor: when the whole transcript fits in the
+        // viewport there is nothing to scroll, and afterhours stacks a column
+        // from the top — so a two-message thread floated at the top of the pane
+        // with a few hundred px of dead space above the composer. A chat log
+        // reads bottom-up: the newest line sits just above the input and the
+        // conversation grows upward off the top. A leading spacer of the whole
+        // slack gives exactly that, and it keeps the transition into a
+        // scrollable thread seamless (the last line stays where it was).
+        // Skipped while content is growing (streaming) or shifting (load-older)
+        // so the anchor math isn't fighting a spacer that resizes underneath it.
         if (totalH < viewH - 40.0f && !streamingHere && !app.loadingOlder &&
             app.anchorPending.empty()) {
             div(ctx, mk(col, 29999),
                 ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f),
-                                             pixels((viewH - totalH) / 3.0f)})
+                    .with_size(ComponentSize{
+                        percent(1.0f),
+                        pixels(viewH - totalH - kTranscriptBottomPad - 6.0f)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("sparse_balance"));
         }
+        sub_agent_panel(ctx, col, app);
         for (const auto& it : items) {
             const float top = y;
             const float bot = y + it.height;
@@ -2180,7 +2216,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the edge and couldn't be brought fully into view.
         div(ctx, mk(col, 30000 + 88888),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(28.0f)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(kTranscriptBottomPad)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_bottom_pad"));
@@ -2317,6 +2354,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool canSend = app.client && app.client->supports_send();
         const bool canStream = app.client && app.client->supports_stream();
         const std::string& openId = draftKey;  // same value: the open thread id
+
+        // Enter parked its text here (see the listener at the bottom of this
+        // function). Route it the same way the Send button does, with the mode
+        // recomputed for THIS frame.
+        if (!app.composerSubmit.empty()) {
+            const std::string text = std::move(app.composerSubmit);
+            app.composerSubmit.clear();
+            if (canStream || canSend) {
+                if (kickoff) app.requestKickoffPrompt = text;
+                else if (canStream) app.requestStreamPrompt = text;
+                else app.requestSendPrompt = text;
+            }
+            replyDraft.clear();
+        }
         // "Sending" covers BOTH the synchronous reply in flight and a live
         // stream draining into this thread — either disables the composer. In
         // kickoff mode it's the create_session round-trip (kickoffPending).
@@ -2435,6 +2486,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.secondary = theme::panel_bg_2();
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
+        ctx.theme.focus = theme::accent();
         auto inputRes = afterhours::ui::imm::text_input(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
@@ -2499,13 +2551,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // on_submit sets the SAME one-shot send/stream request the Send button
         // does, so Enter sends like every chat app. Shift+Enter is NOT a newline
         // here (single-line composer); plain Enter = send.
+        //
+        // addComponentIfMissing means the listener attached on some early frame
+        // is the one that runs forever. Anything it captures is frozen at that
+        // moment — and on the frames right after launch there is no open
+        // session, so a captured `kickoff` was baked in as TRUE and Enter
+        // started a new conversation for the rest of the process even with a
+        // thread open (the Send button, recomputed every frame, replied
+        // correctly — so the two did different things). The same freeze applied
+        // to the &replyDraft pointer, which would clear whichever thread's
+        // draft happened to be current when the field was born.
+        //
+        // So the listener decides nothing: it parks the text on the app and the
+        // per-frame code above routes it.
         {
             Entity& inputEnt = inputRes.ent();
             inputEnt.addComponentIfMissing<
                 afterhours::text_input::HasTextInputListener>(
                 nullptr,  // on_change: not needed (imm syncs replyDraft)
-                [appPtr = &app, canStream, canSend, kickoff,
-                 draftPtr = &replyDraft](Entity& e) {
+                [appPtr = &app](Entity& e) {
                     // Read the CURRENT field text off the input state (the most
                     // up-to-date value, incl. the char typed just before Enter).
                     std::string text;
@@ -2517,23 +2581,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            (text.back() == '\n' || text.back() == '\r' ||
                             text.back() == ' '))
                         text.pop_back();
-                    if (text.empty()) return;              // nothing to send
-                    if (!(canStream || canSend)) return;   // backend can't send
-                    // Kickoff (Home landing composer) starts a NEW session via
-                    // create_session; a normal composer replies to the open one.
-                    if (kickoff) appPtr->requestKickoffPrompt = text;
-                    else if (canStream) appPtr->requestStreamPrompt = text;
-                    else appPtr->requestSendPrompt = text;
-                    // Clear BOTH the input state AND the persistent draft (the
-                    // imm wrapper re-syncs state<-draft each frame, so clearing
-                    // only the state would let the draft repopulate it).
+                    if (text.empty()) return;  // nothing to send
+                    appPtr->composerSubmit = text;
                     if (e.has<afterhours::text_input::HasTextInputState>()) {
                         auto& st =
                             e.get<afterhours::text_input::HasTextInputState>();
                         st.storage.clear();
                         st.cursor_position = 0;
                     }
-                    if (draftPtr) draftPtr->clear();
                 });
         }
 
@@ -2575,8 +2630,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // while in flight. ~10px corner to match the input pill (0.5 made a
         // fully-rounded lozenge that clashed with the field).
         const char* sendLabel =
-            sending ? "\xe2\x80\xa6"
-                    : (steerMode ? "Steer" : "Send  \xe2\x86\x91");
+            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "Send");
         auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(sendLabel)
@@ -2629,7 +2683,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Left: model selector chip.
         div(ctx, mk(meta.ent(), 1),
             ComponentConfig{}
-                .with_label("Opus 4.8 (xhigh)  \xe2\x96\xbe")
+                .with_label("Opus 4.8 (xhigh)")
                 .with_size(ComponentSize{children(), pixels(16)})
                 .with_padding(Padding{.top = pixels(1), .right = pixels(8),
                                       .bottom = pixels(1), .left = pixels(8)})
@@ -2667,7 +2721,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // the user Enter sends (the fix for "HOW DO I SEND A MESSAGE" — the
             // composer now sends on Enter, not just the button click).
             // (canSend is provably true here — the !canSend arm returned above.)
-            caption = steerMode ? "\xe2\x86\xb5 steer" : "\xe2\x86\xb5 send";
+            caption = steerMode ? "Enter to steer" : "Enter to send";
         if (!caption.empty()) {
             div(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
@@ -3078,7 +3132,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 phase == AppComponent::StreamPhase::Thinking)
                 r.body = "thinking\xe2\x80\xa6";
             else
-                r.body += " \xe2\x96\x8b";
+                r.body += " |";
         }
         r.line_count = count_lines(r.body, textW);  // logical lines (for fold)
         r.wrap_w = textW;
@@ -3117,7 +3171,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // messages (sync==None) add nothing. Mirrors render_bubble.
             const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
             return kTurnGapTop + 10.0f + mr.height + syncH + kUserPadV +
-                   kTurnGapBot;
+                   kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         }
         float textW = paneWidth - 34.0f;
         const auto& mr = measured(m, textW, isLive, index,
@@ -3130,7 +3184,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           : mr.height;
         float h = kTurnGapTop + 8.0f +
                   (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + bodyH +
-                  kTurnGapBot;
+                  kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         AppComponent* app = app_singleton();
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
@@ -3320,13 +3374,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("code_bar_spacer"));
+            // Same in-place confirmation as a message's Copy: a press that
+            // changes nothing on screen reads as a press that did nothing.
+            const std::string ckey = "code:" + std::to_string(id);
+            const bool ccopied = recently_copied(ckey);
             auto copy = button(ctx, mk(bar.ent(), 3),
                 ComponentConfig{}
-                    .with_label("Copy")
+                    .with_label(ccopied ? "Copied" : "Copy")
                     .with_size(ComponentSize{pixels(copyW), pixels(15)})
                     .with_custom_background(theme::panel_bg_2())
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(theme::text_secondary())
+                    .with_custom_text_color(ccopied ? theme::status_active()
+                                                    : theme::text_secondary())
                     .with_font_size(theme::type::MICRO)
                     .with_alignment(TextAlignment::Center)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
@@ -3340,6 +3399,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (k + 1 < lines.size()) joined += "\n";
                 }
                 afterhours::clipboard::set_text(joined);
+                copied_key() = ckey;
+                copied_at() = std::chrono::steady_clock::now();
             }
         }
         // Code body: mono rows, no wrap (pre-formatted).
@@ -3596,6 +3657,81 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         flush(8888);
     }
 
+    // ---- Per-message actions (hover) --------------------------------------
+    // afterhours has no text selection on read-only labels (see
+    // afterhours_gaps.md #36), so there is no way to drag across an answer and
+    // copy it. A per-message Copy is the affordance that replaces it: reserved
+    // in the layout on every turn, painted only while the pointer is over that
+    // turn, and confirmed in place for a moment after a click.
+    static constexpr float kMsgActionsH = 22.0f;
+    static constexpr float kMsgActionsGap = 2.0f;
+
+    // Which message last had Copy pressed, and when — so the button can read
+    // "Copied" for a beat instead of silently doing nothing visible.
+    static std::string& copied_key() {
+        static std::string k;
+        return k;
+    }
+    static std::chrono::steady_clock::time_point& copied_at() {
+        static std::chrono::steady_clock::time_point t{};
+        return t;
+    }
+    static bool recently_copied(const std::string& key) {
+        if (copied_key() != key) return false;
+        const auto age = std::chrono::steady_clock::now() - copied_at();
+        return age < std::chrono::milliseconds(1600);
+    }
+
+    void message_actions(UIContext<InputAction>& ctx, Entity& turn,
+                         int index, const std::string& key,
+                         const std::string& rawText, bool alignRight) {
+        // mouse_was_in_subtree answers "is the pointer on this turn or on
+        // anything inside it" from LAST frame's hit test — the tree being built
+        // right now hasn't been resolved yet. Without the subtree form, moving
+        // onto the Copy button would make the turn itself stop being hot and
+        // the button would vanish under the cursor.
+        const bool copied = recently_copied(key);
+        const bool show = copied || ctx.mouse_was_in_subtree(turn.id) ||
+                          hanabi::test_hooks::force_hover("msg:" + key);
+
+        auto bar = div(ctx, mk(turn, 8),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kMsgActionsH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(alignRight ? JustifyContent::FlexEnd
+                                                 : JustifyContent::FlexStart)
+                .with_margin(Margin{.top = pixels(kMsgActionsGap)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("msg_actions"));
+        if (!show) return;
+
+        auto btn = div(ctx, mk(bar.ent(), 1),
+            ComponentConfig{}
+                .with_label(copied ? "Copied" : "Copy")
+                .with_size(ComponentSize{pixels(56), pixels(18)})
+                .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_text_color(copied ? theme::status_active()
+                                               : theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.35f)
+                .with_debug_name("msg_copy_btn"));
+        btn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (btn.ent().get<afterhours::ui::HasClickListener>().down) {
+            afterhours::clipboard::set_text(rawText);
+            copied_key() = key;
+            copied_at() = std::chrono::steady_clock::now();
+        }
+        (void)index;
+    }
+
     // A conversational message (User / Assistant). Assistant = full-column
     // doc-feed turn (no bubble); User = compact right-aligned MUTED-GREY bubble.
     // Heights match bubble_height() exactly so virtualization spacers line up.
@@ -3643,16 +3779,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // The sync state is shown as a real ✓/✓✓ glyph in the bubble's
             // corner (a nested on_draw_fg child, now that gap #28 is fixed) —
             // NOT appended to the body text. See the sync_check child below.
-            auto row = div(ctx, mk(parent, 200 + index * 10),
+            auto uturn = div(ctx, mk(parent, 200 + index * 10),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), children()})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_margin(Margin{.top = pixels(kTurnGapTop + 10.0f),
+                                        .right = pixels(0),
+                                        .bottom = pixels(kTurnGapBot),
+                                        .left = pixels(0)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("user_turn"));
+            // A turn is only hit-tested (and so only reports hover) once it
+            // carries a listener — see ResolveHitTarget::is_candidate. The
+            // listener does nothing; it exists to make the turn hoverable.
+            uturn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            uturn.ent().get<afterhours::HasColor>().skip_hover_override = true;
+            auto row = div(ctx, mk(uturn.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), children()})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_justify_content(JustifyContent::FlexEnd)
-                    .with_margin(Margin{.top = pixels(kTurnGapTop + 10.0f),
-                                        .right = pixels(0),
-                                        .bottom = pixels(kTurnGapBot),
-                                        .left = pixels(0)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("user_row"));
@@ -3703,6 +3853,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("sync_check"));
             }
             (void)hasSync;
+            message_actions(ctx, uturn.ent(), index,
+                            m.id.empty() ? ("msg" + std::to_string(index))
+                                         : m.id,
+                            m.text, /*alignRight=*/true);
             return;
         }
 
@@ -3731,6 +3885,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("asst_turn"));
+        // Hoverable only because of this listener (ResolveHitTarget skips
+        // anything without one); it deliberately does nothing.
+        turn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        turn.ent().get<afterhours::HasColor>().skip_hover_override = true;
 
         // Author row: colored name bound TIGHT above its body, subtle
         // right-aligned timestamp on the same row. Shown only on the FIRST
@@ -3845,6 +4004,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 else app->expandedMsgs.insert(mkey);
             }
         }
+        message_actions(ctx, turn.ent(), index, mkey, m.text,
+                        /*alignRight=*/false);
     }
 
     // A System message: a quiet, centered, muted caption — conversation
@@ -4164,15 +4325,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
-                .with_label(expandable ? (open ? "\xe2\x96\xbe"
-                                               : "\xe2\x96\xb8")
-                                       : " ")
+                .with_label(" ")
                 .with_size(ComponentSize{pixels(12), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Center)
                 .with_roundness(0.0f)
+                .with_on_draw_fg([expandable, open](RectangleType r) {
+                    if (expandable)
+                        hanabi::glyph::chevron(r, !open, theme::text_faint(),
+                                               3.2f);
+                })
                 .with_debug_name("tool_chev"));
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}

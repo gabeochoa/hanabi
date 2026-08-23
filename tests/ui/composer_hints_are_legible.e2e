@@ -1,0 +1,16 @@
+# The composer's keyboard hint and Send label must be TEXT the UI font can
+# actually draw. Roboto has no arrows: the hint used to be "<return-arrow> send"
+# and the button "Send  <up-arrow>", and both arrows rendered as nothing at all
+# — leaving a bare lowercase "send" floating next to the context meter and a
+# button with a trailing gap. A missing codepoint draws no tofu, so neither was
+# visible in review. afterhours_gaps.md #48.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Send"
+
+click 646 674
+wait_frames 4
+type "hint check"
+wait_frames 6
+expect_text "Enter to send"

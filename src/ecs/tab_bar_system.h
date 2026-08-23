@@ -449,7 +449,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // pushing the glyphs low (same recipe as the sidebar chat rows).
             div(ctx, mk(tabBtn.ent(), 1),
                 ComponentConfig{}
-                    .with_label(fmtutil::ellipsize(tab.label, labelBudget))
+                    .with_label(fmtutil::ellipsize(
+                        model::tab_label_for(app, tab.sessionId), labelBudget))
                     .with_size(ComponentSize{percent(1.0f), pixels(tabH)})
                     .with_transparent_bg()
                     .with_custom_text_color(txt)

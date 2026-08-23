@@ -1,0 +1,17 @@
+# Regression: scrolling the sidebar list used to leave the rows in place but
+# stop drawing their titles past a certain offset — the rows stayed clickable
+# and went blank.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Tidy up the retry backoff in the s"
+
+mouse_move 140 600
+scroll_wheel 0 -6
+wait_frames 6
+scroll_wheel 0 -6
+wait_frames 6
+
+# Whatever is under the cursor now, SOMETHING must still be lettered: these two
+# rows are far enough down the list to be on screen after the scroll.
+expect_text "wire up the new empty-state illust"

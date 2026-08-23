@@ -58,6 +58,24 @@ numbers are independent of the main series (both happen to reuse 8–12).
 **Watch-only**
 - #7 RAM knobs · #8 windowed launch cost is OS/graphics-init dominated (log-only)
 
+**Added 2026-08-22** (full entries at the end of the file)
+- #37 no text selection on read-only text — you cannot copy an answer *(blocks)*
+- #38 a container can't report hover unless it carries a click listener
+- #39 the e2e runner never fails a single-script run *(blocks, silently)*
+- #40 the e2e runner never observes the last command's result *(blocks)*
+- #41 the e2e harness has no worked example of a host loop
+- #42 the draw path re-measures every string every frame; `TextMeasureCache` is bypassed *(~21% of an idle frame)*
+- #43 component lookup goes through `dynamic_cast`, so type identity costs a `strcmp` *(~16%)*
+- #44 the imm builder copies `ComponentConfig` by value on every widget *(~7%)*
+
+**Resolved / corrected**
+- #29 (a hoverable child steals the parent row's hover fill) is **fixed** —
+  `ctx.mouse_was_in_subtree(id)` is exactly the primitive, verified against a
+  real pointer; hanabi's hand-rolled workaround is deleted.
+- #27's "~8.6ms idle-frame floor" was **mostly our own missing `-O2`**, not the
+  per-frame rebuild. See the perf section at the end. The design observation
+  stands; the number was wrong and we're sorry for the bad signal.
+
 The promote-these-upstream synthesis (grouped by theme, with proposed API
 shapes) is in sections A–H near the end.
 
@@ -1203,3 +1221,840 @@ NSText standard key bindings.
   5. [GAP] macOS Cmd-based bindings (word/line nav, select-all, clipboard, undo).
   6. [GAP] double/triple-click + drag selection.
   7. [GAP] first-class placeholder (#29) + honor style config (#17).
+
+---
+
+# Session 2026-08-22 — parity pass (transcript polish)
+
+### #37 — No text selection on read-only text (you cannot copy an answer)
+
+- **What I was trying to build.** The transcript is the product. A user reads an
+  answer and wants a line of it: drag across it, Cmd+C, paste into a terminal.
+  Every chat client on the desktop does this, and it is the single most common
+  thing anyone does with a body of text they did not write.
+
+- **What I tried.** Rendered the message body the ordinary way and dragged
+  across it:
+
+  ```cpp
+  div(ctx, mk(turn, 2),
+      ComponentConfig{}
+          .with_label(body)
+          .with_text_overflow(TextOverflow::Wrap)
+          .with_font_size(theme::type::BODY)
+          .with_debug_name("asst_line"));
+  ```
+
+  Then went looking for the opt-in — `with_selectable()`, a `HasTextSelection`,
+  anything on `ComponentConfig` — and for a context-level accessor that would
+  hand back whatever the user had highlighted.
+
+- **What happened.** Nothing highlights and nothing is exposed. `ComponentConfig`
+  has no selection knob (the only near-miss is the `readonly` comment on
+  `component_config.h:152`, which is a text_input mode, not a label feature), and
+  the press/drag path never associates a byte range with a rendered label.
+  Dragging across a message does exactly what dragging across a rectangle does.
+
+  The frustrating part is how close it already is. `ui/text_selection.h` is a
+  complete, backend-free selection-geometry module — `byte_offset_at()`,
+  `selection_rects()`, `substring()`, `line_start_offsets()`, `Selection` with
+  anchor/cursor — deliberately written against a `measure` callable so it builds
+  anywhere. `clipboard::set_text()` works on the sokol backend. But
+  `grep -rl 'text_selection::' src/` returns exactly one file,
+  `ui/text_input/text_layout.h`. All of the hard geometry is done and it is
+  reachable only from inside the editable widget.
+
+- **The workaround.** A per-message **Copy** button, revealed on hover
+  (`main_pane_system.h`, `message_actions`). 108 added lines, and three costs
+  worth naming:
+  1. **A permanent 24px of vertical space per message.** The strip has to be in
+     `bubble_height()` or the virtualization spacers drift the instant the mouse
+     moves, so it is reserved on every turn whether or not it is painted. On a
+     120-message transcript that is ~2900px of reserved whitespace.
+  2. **Whole-message granularity.** A user who wants one account number out of a
+     four-line reply copies all four lines and edits them somewhere else.
+  3. **No selection, so no Cmd+C.** The keyboard route people actually use is
+     still dead; they have to find and hit a button.
+
+- **What the library could offer instead.** An opt-in on the config, defaulting
+  off so nothing changes for anyone who doesn't ask:
+
+  ```cpp
+  // ComponentConfig
+  .with_selectable_text()            // opt in; no cost when unset
+
+  // Context, after the frame resolves
+  [[nodiscard]] std::string selected_text() const;
+  [[nodiscard]] bool has_selection() const;
+  ```
+
+  The implementation is mostly assembly of parts that exist. On press inside a
+  selectable element, claim it (one selection at a time — a press anywhere else
+  clears) and seed `Selection.anchor` from
+  `text_selection::byte_offset_at(lines, local, line_h, measure)`; on drag,
+  update `.cursor` the same way; in the render pass, paint
+  `selection_rects(...)` behind the glyphs in a theme token
+  (`selection_bg`/`selection_fg`) — the rects come back in the element's own
+  coordinates already; on Cmd/Ctrl+C, `clipboard::set_text(substring(lines,
+  sel.range()))`.
+
+  Two things that would make it genuinely good rather than merely present:
+  **double-click selects a word, triple-click a line** (the text-input spec in
+  this file already wants both, §4 — one implementation could serve both
+  widgets), and an **`I` beam cursor** over selectable text via the existing
+  `HasCursor`, so it is discoverable.
+
+  Selection spanning *several* elements (drag from one message into the next) is
+  a much bigger design question — a document-order model across the tree — and I
+  would explicitly leave it out of v1. Per-element selection alone covers the
+  overwhelming majority of the need, and it is the difference between "I can get
+  this text out" and "I cannot".
+
+- **Severity: blocks the feature.** Not the app — hanabi ships with a Copy
+  button — but it blocks the interaction, and it is the one gap on this list a
+  user notices in the first thirty seconds. For any app whose main surface is
+  text somebody wants to keep, this is the highest-value thing on the list.
+
+### #38 — A container cannot report hover unless it is clickable
+
+- **What I was trying to build.** The reveal half of #37's workaround: show the
+  Copy button only while the pointer is over that message. The natural shape is
+  "does the mouse sit anywhere in this turn's subtree", asked of the plain
+  `Column` div that already wraps the turn.
+
+- **What I tried.**
+
+  ```cpp
+  auto turn = div(ctx, mk(parent, 200 + index * 10),
+      ComponentConfig{}
+          .with_size(ComponentSize{percent(1.0f), children()})
+          .with_flex_direction(FlexDirection::Column)
+          .with_transparent_bg()
+          .with_debug_name("asst_turn"));
+  const bool hovered = ctx.mouse_was_in_subtree(turn.ent().id);   // always false
+  ```
+
+- **What happened.** Always false. `ResolveHitTarget::is_candidate`
+  (`ui/systems.h`) opens with
+
+  ```cpp
+  if (e.is_missing<HasClickListener>() && e.is_missing<HasDragListener>())
+    return false;
+  ```
+
+  so an element with no listener is never eligible to be `hot_id`, and every
+  query derived from `hot_id` — `is_hot`, `was_hot`, `mouse_in_subtree`,
+  `mouse_was_in_subtree` — reports false for it forever. The rule is a
+  reasonable default for click resolution; it just also means *hover is a
+  privilege of clickable things*, which containers and read-only surfaces are
+  not.
+
+- **The workaround.** Two lines per turn, and neither reads like intent:
+
+  ```cpp
+  // hoverable only because of this listener; it deliberately does nothing
+  turn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+      [](Entity&) {});
+  turn.ent().get<afterhours::HasColor>().skip_hover_override = true;
+  ```
+
+  The empty lambda is load-bearing, which is exactly the kind of line that gets
+  "cleaned up" by the next person through. And the second line is needed because
+  the moment an element becomes hot, `rendering.h` (~1549) swaps its fill for
+  `hover_bg()` unless `HasColor::skip_hover_override` is set — a field with no
+  `ComponentConfig` setter, so it has to be poked directly on the component
+  after construction, bypassing the config API the rest of the call site uses.
+  hanabi now does this in two places (`sidebar_system.h:1866` for the star, and
+  here).
+
+- **What the library could offer instead.** Two small additions:
+
+  ```cpp
+  .with_hoverable()             // eligible for hot_id; no click semantics
+  .with_skip_hover_override()   // opt out of the automatic hover fill
+  ```
+
+  `with_hoverable()` would add whatever marker `is_candidate` should really be
+  testing — say `AcceptsPointer` — with `HasClickListener`/`HasDragListener`
+  implying it. That keeps today's behaviour for every existing call site while
+  letting a container say "I want to know about the pointer" without pretending
+  to be a button. `with_skip_hover_override()` is a one-line config setter for a
+  field that is already there.
+
+- **Severity: makes it ugly.** Everything works; the code lies about why.
+
+- **Credit where it is due:** `mouse_was_in_subtree()` is the right primitive and
+  it is exactly what this needed. Gap #29 in this file (a hoverable child steals
+  the parent row's hover fill) describes the problem it solves, and the sidebar's
+  hand-rolled fix for #29 — caching the star's id and OR-ing `is_hot`/`was_hot`
+  across both entities, `sidebar_system.h:1607-1665` — predates it and can now be
+  deleted. **#29 is resolved.** One call, no id bookkeeping, and it composes to
+  any depth. Thank you.
+
+### #39 — The e2e runner never fails a single-script run
+
+- **What I was trying to build.** Scripted UI tests: hover this, click that,
+  assert the text that appeared. One script per process so a hang is attributed
+  to the script that caused it, and the process exit code is the verdict.
+
+- **What I tried.** The documented shape, from the Quick Start in
+  `e2e_testing.h`:
+
+  ```cpp
+  t::E2ERunner runner;
+  runner.load_script(path);
+  while (!runner.is_finished()) { t::test_input::reset_frame();
+                                  runner.tick(dt); render_one_frame(); }
+  return runner.has_failed() ? 1 : 0;
+  ```
+
+- **What happened.** Every script passed, including one written to fail. This
+  script exits 0:
+
+  ```
+  mouse_move 140 700          # the sidebar — nowhere near a message
+  wait_frames 3
+  expect_text "Copy"          # only ever rendered on a hovered message
+  ```
+
+  The assertion does fail. `E2ECommandCleanupSystem` times the command out after
+  `MAX_FRAMES`, logs `[E2E ERROR]`, and increments
+  `detail::command_error_count()`. But `has_failed()` returns `failed_`, and
+  `failed_` is only ever set by the `validate` path; the bridge from the counter
+  into the result is `finalize_current_script()`, which begins
+
+  ```cpp
+  if (script_results_.empty() || current_script_idx_ >= script_results_.size())
+      return;
+  ```
+
+  and `script_results_` is only populated by `load_scripts_from_directory()`. So
+  in single-script mode the counter is read by nobody and the runner is
+  structurally incapable of reporting a failure. A green suite that cannot go
+  red is worse than no suite.
+
+- **The workaround.** Ignore `has_failed()` and read the handlers' counter
+  directly (`src/main.cpp`, `run_e2e`):
+
+  ```cpp
+  const int errors = t::get_command_error_count();
+  const bool failed = errors > 0 || runner.has_failed() || ranOut;
+  ```
+
+  Two lines, but they require having read the internals of three headers to know
+  the public API is not load-bearing.
+
+- **What the library could offer instead.** Fold the counter in for both modes —
+  give `finalize_current_script()` a single-script branch, or have `has_failed()`
+  itself consider `get_command_error_count()`:
+
+  ```cpp
+  bool has_failed() const {
+    if (!script_results_.empty()) { /* … as today … */ }
+    return failed_ || get_command_error_count() > 0;
+  }
+  ```
+
+  A test in the library's own suite that runs a deliberately-failing script and
+  asserts the runner reports failure would have caught this, and is worth having
+  whichever way it is fixed.
+
+- **Severity: blocks the feature** — silently, which is the bad kind. Anyone
+  adopting the harness in single-script mode gets a suite that always passes and
+  no signal that anything is wrong.
+
+### #40 — The last command's result is never observed
+
+- **What happened.** A script's final assertion is not waited for. `tick()` ends
+  with
+
+  ```cpp
+  dispatch_command(cmd);
+  index_++;
+  if (index_ >= commands_.size()) { finalize_current_script(); finished_ = true; }
+  ```
+
+  so the last command is dispatched and the runner declares itself finished in
+  the *same* tick, before any system has had a chance to handle it. The host's
+  `while (!runner.is_finished())` loop exits immediately, the frame that would
+  have evaluated the assertion never runs, and `finalize_current_script()` reads
+  an error count the command had no opportunity to increment. There is a guard
+  for exactly this a few lines above —
+
+  ```cpp
+  if (index_ >= commands_.size()) { if (has_pending_commands()) return; … }
+  ```
+
+  — but it is unreachable, because the bottom of the previous tick already set
+  `finished_`. Ending a script with an assertion is the normal case, so this
+  affects most scripts.
+
+- **The workaround.** Pump 40 more frames after the runner says it is done —
+  past `PendingE2ECommand::MAX_FRAMES` (30) — so a trailing command resolves or
+  times out for real, and only then read the verdict. Costs ~0.7s per script and
+  an explanation in the host loop.
+
+- **What the library could offer instead.** Don't set `finished_` while commands
+  are outstanding; let the top-of-tick guard do its job:
+
+  ```cpp
+  dispatch_command(cmd);
+  index_++;
+  // …and nothing else. The next tick's
+  //   if (index_ >= commands_.size()) { if (has_pending_commands()) return; … }
+  // finalizes once the queue actually drains.
+  ```
+
+  That is a deletion, and it makes the existing guard meaningful.
+
+- **Severity: blocks the feature** (paired with #39 — together they are why a
+  script asserting something plainly false came back green).
+
+### #41 — The e2e harness has no worked example of a host loop
+
+- **What happened.** Wiring the driver into an app took reading five headers,
+  because nothing in the repo does it. `grep -rl E2ERunner .` returns only the
+  three headers that define it; no `examples/` program hosts one. The Quick
+  Start in `e2e_testing.h` covers handler registration and stops there, which is
+  the easy half.
+
+  The things that had to be discovered by reading source:
+  1. **`AFTER_HOURS_ENABLE_E2E_TESTING` is the switch.** Without it,
+     `input_system.h` compiles the injection branches out and every synthetic
+     click goes to the real platform. It is not named in `e2e_testing.h` at all.
+  2. **`test_input::reset_frame()` is the host's job and nothing says so.** The
+     library never calls it. Without it a synthetic press stays pressed forever
+     and the second click of a script never registers — which looks like a bug
+     in the app, not in the harness.
+  3. **Registration order is load-bearing.** The handlers inject this frame's
+     input, so they have to be registered ahead of the input and UI systems or
+     every click lands a frame late and races the assertions.
+  4. **Screen size comes from `window_manager::ProvidesCurrentResolution`,** so
+     percentage coordinates silently fall back to 1280x720 if the app hasn't
+     registered it.
+  5. **The app must settle before the script starts.** Data loads
+     asynchronously; a script that clicks a sidebar row on frame 1 clicks empty
+     space.
+
+- **What the library could offer instead.** One example program under
+  `examples/` — a window, three widgets, a `.e2e` script, and the host loop —
+  plus a HOST LOOP section in the Quick Start covering the five points above.
+  The whole loop is about 25 lines; having it written down once would have saved
+  most of an evening, and it is the difference between a feature people adopt
+  and a feature people don't find.
+
+  `hanabi`'s integration is in `src/main.cpp` (`run_e2e`) and
+  `scripts/run_ui_tests.sh` if a worked example is useful to crib from — it is
+  MIT, take any of it.
+
+- **Severity: makes it ugly** — nothing is broken, but a genuinely good piece of
+  the library is sitting unused for want of a page of documentation.
+
+## Perf, re-measured 2026-08-22 — and a correction to #27
+
+**First, a retraction.** This file (#27) and hanabi's own notes have been
+carrying an "~8.6ms idle-frame floor" attributed to afterhours rebuilding the
+widget tree and re-solving layout every frame. That was mostly wrong, and the
+error was ours: hanabi's makefile had **no `-O` flag in the main build at all**.
+Only the perf micro-benchmark asked for `-O2`; the app, and the `.app` bundle
+built from the same objects, were `-O0`. Adding `-O2`:
+
+| screen | widgets | -O0 | -O2 |
+|---|---|---|---|
+| Home digest, idle | 315 | 5.45 ms | **0.95 ms** |
+| a short transcript | 343 | 6.25 ms | **1.14 ms** |
+| 120-message transcript (virtualized) | 460 | 9.08 ms | **1.64 ms** |
+
+Median of 240 frames, headless 1100x760, mock data, Apple Silicon. So the floor
+was 5-6x compiler flag, not architecture. **#27 stands as a design observation —
+there is still no dirty/skip layer, and every one of those frames is identical
+work on a screen where nothing changed — but it is no longer costing us
+anything we can feel, and nobody should re-prioritise it on our account.** Sorry
+for the bad signal.
+
+What follows is where the time goes *now*, at `-O2`, on an idle Home digest —
+`sample` at 1ms for 10s, 5,859 non-worker samples, frame median 0.95ms. The
+absolute numbers are small (a fifth of a millisecond each). They are here
+because they are pure repeated work with clean fixes, and because they scale
+with content: the same proportions on a bigger screen are a bigger bill.
+
+### #42 — The draw path re-measures every string from scratch, every frame
+
+- **What I was trying to build.** Nothing in particular — this is what an idle
+  screen costs. 315 widgets, no animation, no input, the same pixels as the
+  frame before.
+
+- **What happened.** Roughly a fifth of the frame is spent measuring text that
+  has not changed:
+
+  | | self |
+  |---|---|
+  | `stbtt_GetGlyphKernAdvance` | 11.5% |
+  | `fons__getGlyph` | 5.6% |
+  | `stbtt__GetGlyphClass` | 1.4% |
+  | `fons__getQuad` | 1.3% |
+  | `fonsDrawText` | 1.0% |
+  | | **~21%** |
+
+  The stack says why:
+
+  ```
+  RenderImm::render_me
+    -> draw_text_in_rect          (rendering.h)
+       -> position_text_ex        347 samples
+          -> measure_text(font, text, size, spacing)     <-- uncached
+             -> fonsTextBounds
+                -> fons__getQuad
+                   -> fons__tt_getGlyphKernAdvance
+                      -> stbtt_GetGlyphKernAdvance       <-- GPOS re-parse, per pair
+  ```
+
+  Two things are stacked here. `position_text_ex` measures the string to align
+  it in its rect — necessary information, but the answer is identical every
+  frame for an unchanged label. And underneath, `stbtt_GetGlyphKernAdvance`
+  walks the font's GPOS coverage tables for **every adjacent glyph pair**, with
+  no memo; `stbtt__GetCoverageIndex` and `ttUSHORT` between them were the two
+  hottest functions in the whole profile before optimisation.
+
+  The part that makes this an easy fix: **`ui::TextMeasureCache` already exists**
+  — LRU, generation-pruned, hashed on (text, font, size, spacing) — and is
+  already registered as a singleton in `utilities.h`. It appeared in a 10-second
+  profile exactly once. `rendering.h` calls the raw `measure_text` in about a
+  dozen places, including this one; only `measure_text_wrapped` takes the cache.
+  The cache is built and then not used on the path that needs it most.
+
+- **The workaround.** None available app-side — `position_text_ex` is inside the
+  renderer. hanabi memoizes at a much coarser grain (`transcript_render_cache.h`
+  caches measured message heights), which helps the app's own layout pass but
+  cannot touch what the renderer does when it draws.
+
+- **What the library could offer instead.** Two independent changes, either one
+  worth having:
+
+  1. **Route `rendering.h`'s measurements through the cache that exists.** The
+     singleton is reachable the same way `systems.h:580` already reaches it:
+
+     ```cpp
+     if (auto *cache = EntityHelper::get_singleton_cmp<ui::TextMeasureCache>())
+       size = cache->measure(text, font_name, font_size, spacing);
+     else
+       size = measure_text(font, text.c_str(), font_size, spacing);
+     ```
+
+     Best done once behind a `measure_cached(...)` helper in `rendering.h` and
+     applied to the dozen call sites, so no new call site can forget.
+
+  2. **Memoize the kern pair.** A `(glyph_a, glyph_b, size) -> advance` map in
+     the fontstash shim would collapse the GPOS re-parse for everyone, including
+     callers who legitimately miss the measure cache. A UI draws from a small
+     alphabet; the table saturates in the first frame.
+
+- **Severity: makes it slow** — ~0.2ms/frame here, and it is the largest single
+  item left in an idle frame. Not urgent for hanabi at 0.95ms/frame, but it is
+  paid on every frame of every app on the library, forever.
+
+### #43 — Component lookup goes through `dynamic_cast`, so type identity costs a `strcmp`
+
+- **What happened.** The second-largest cluster in the same profile is C++
+  runtime type machinery, and the single hottest non-font function is `strcmp`:
+
+  | | self |
+  |---|---|
+  | `_platform_strcmp` | 9.1% |
+  | `System<UIContext, FontManager>::for_each_derived` (two sites) | 4.5% |
+  | `std::type_info::operator==` | 1.7% |
+  | `dyn_cast_slow` | 1.1% |
+  | | **~16%** |
+
+  The chain, from the unoptimised profile where it is fully legible:
+
+  ```
+  run_systems_on_ui_entities
+    -> System<UIContext, FontManager>::for_each_derived
+       -> HasAllComponents<...>::has_all
+          -> Entity::has_child_of<UIContext>()            entity.h:84
+             -> child_of<UIContext, BaseComponent>(BaseComponent*)
+                -> __dynamic_cast
+                   -> dyn_cast_try_downcast
+                      -> __si_class_type_info::search_above_dst
+                         -> std::type_info::operator==
+                            -> strcmp                     <-- comparing type NAMES
+  ```
+
+  On Apple's libc++abi, `type_info::operator==` for types from the same image
+  can fall through to comparing the mangled name strings. So each system, for
+  each UI entity, for each required child component, does a `dynamic_cast` whose
+  inner loop is string comparison. Two call sites in this profile alone (256 and
+  259 samples) were ~9.4% of the main thread. It is O(entities x systems x
+  required-components) per frame and it grows with the app.
+
+- **The workaround.** None — this is inside `System::for_each_derived`.
+
+- **What the library could offer instead.** The type identity is already known
+  without asking the runtime. `Entity` carries a `std::bitset<128>` of component
+  ids and `components::get_type_id<T>()` gives a stable index — the same
+  mechanism `Entity::has<T>()` uses, which does not appear in the profile at
+  all. `has_child_of<T>()` could ask the same question:
+
+  ```cpp
+  template <typename T> bool has_child_of() const {
+    // instead of dynamic_cast'ing each component to T
+    for (const auto &c : children_components)
+      if (c && c->is_child_of(components::get_type_id<T>()))  // or a bitset test
+        return true;
+    return false;
+  }
+  ```
+
+  If the child relationship genuinely needs a runtime downcast, the cheap fix is
+  to **cache the answer per (entity, system)** — the set of components on a UI
+  entity is stable for the entity's life, and the imm layer reuses entities
+  across frames, so the cast result can be computed once and invalidated when a
+  component is added or removed.
+
+  A smaller, free win regardless: `__dynamic_cast` is much faster when the class
+  hierarchy is simple, and much slower when it has to search. If `child_of`
+  can be restructured so the common answer is "no" without entering libc++abi
+  at all, most of this disappears.
+
+  `docs/speed.md` already lists "remove virtual destructor / BaseComponent
+  inheritance" and the SoA/archetype work as HIGH-impact core items — this is a
+  measurement in support of that section, from a real app rather than a
+  microbenchmark, and it suggests the *type-identity* half is worth pulling out
+  as its own smaller change: the profile says `strcmp`, not cache misses.
+
+- **Severity: makes it slow.** ~0.15ms/frame here. Cheap to fix relative to the
+  rest of the speed.md list, and it scales with entity count, so it gets worse
+  exactly as an app gets more interesting.
+
+### #44 — The imm builder copies its config a lot
+
+- **What happened.** Smaller, but visible in the same profile and worth a line:
+
+  | | self |
+  |---|---|
+  | `ComponentConfig` copy ctor | 1.8% |
+  | `imm::mk(Entity&, int, source_location)` | 1.8% |
+  | `ComponentConfig` move ctor | 1.3% |
+  | `ComponentConfig::operator=(&&)` | 1.1% |
+  | `~ComponentConfig()` | 1.0% |
+  | | **~7%** |
+
+  `ComponentConfig` is passed by value through `div()` / `button()` into
+  `init_component` and `add_missing_components`, and it carries `std::string`s
+  (label, debug name) and `std::function`s (`on_draw_fg`), so each hop is a real
+  allocation-touching copy. A `const &` through the internal chain, or moving it
+  once at the entry point, should take most of this off — it is the one call
+  every widget in the tree makes.
+
+- **Severity: makes it slow** (mildly). Listed because it is a small, local
+  change on the hottest possible path.
+
+### #45 — Widget callbacks outlive the frame that wrote them (no imm `on_submit`)
+
+- **What I was trying to build.** Enter sends the message in the chat composer.
+  The same composer is a "reply to this thread" field when a thread is open and
+  a "start a new conversation" field when one isn't, so the handler has to know
+  which — the same decision the Send button makes.
+
+- **What I tried.** The imm layer has `text_input(...)` but no submit hook, so
+  the handler goes on the entity, the way the docs and the existing widgets do
+  it:
+
+  ```cpp
+  inputEnt.addComponentIfMissing<text_input::HasTextInputListener>(
+      nullptr,
+      [appPtr = &app, kickoff, canSend, canStream, draftPtr = &replyDraft]
+      (Entity& e) {
+          …
+          if (kickoff) appPtr->requestKickoffPrompt = text;
+          else         appPtr->requestSendPrompt = text;
+          draftPtr->clear();
+      });
+  ```
+
+- **What happened.** Enter created a brand-new conversation every time, even
+  with a thread open — while the Send button, three lines away and reading the
+  same variables, replied correctly. Two controls that are supposed to be the
+  same action, doing different things.
+
+  `addComponentIfMissing` keeps the FIRST closure forever. In an immediate-mode
+  UI the surrounding code runs every frame, so it is natural to write a lambda
+  that captures this frame's values — but the lambda that survives is the one
+  from whatever frame the entity happened to be created on. Here that was a
+  frame during startup, before the session finished loading, when `kickoff` was
+  legitimately `true`. It stayed `true` for the life of the process. The
+  captured `&replyDraft` had the same problem: it pointed into a per-thread
+  draft map at whichever thread was open at birth, so Enter cleared the wrong
+  thread's draft after a tab switch.
+
+  Nothing here is a bug in afterhours — `addComponentIfMissing` does exactly
+  what it says. But it is a trap the imm style walks you into: everything else
+  in the frame is rebuilt from current state, and this one thing silently isn't.
+  It is also invisible in review; the code reads correctly.
+
+- **The workaround.** The listener is now stateless — it parks the submitted
+  text on the app, and the per-frame composer code routes it with a mode
+  computed this frame. ~15 lines, one new field on the app component, and a
+  paragraph of comment so nobody "simplifies" it back.
+
+- **What the library could offer instead.** Two options, and I would want both:
+
+  1. **A config-level submit hook, refreshed each frame like every other
+     config value:**
+
+     ```cpp
+     text_input(ctx, mk(parent, 1), draft,
+         ComponentConfig{}
+             .with_on_submit([&](std::string_view text) { … })   // re-set every frame
+             .with_placeholder("Message…"));
+     ```
+
+     `ComponentConfig` already carries `std::function`s (`on_draw_fg`) and they
+     are applied fresh on every build, so the mechanism exists — this would just
+     extend it to submit. The frozen-capture class of bug then cannot happen,
+     because the callback is replaced every frame along with everything else.
+
+  2. **A result-style read, matching `button()`:** the imm layer's whole idiom
+     is `if (button(...)) { … }` — the widget returns what happened and the
+     caller reacts in the frame's own scope, where all the state is live. A
+     `text_input(...)` that returned `{changed, submitted}` would let the
+     composer write:
+
+     ```cpp
+     auto res = text_input(ctx, mk(parent, 1), draft, cfg);
+     if (res.submitted) { /* full access to this frame's state */ }
+     ```
+
+     which is the shape that makes the bug unwriteable.
+
+  Failing either, a line in `PLUGIN_API.md` next to `addComponentIfMissing`
+  saying "the first closure wins; do not capture per-frame state" would have
+  saved this.
+
+- **Severity: blocks the feature** (it shipped broken and looked fine), and the
+  class of bug is worse than the instance: any listener attached this way with
+  a captured value is wrong in a way that only shows up in a specific startup
+  order.
+
+### #46 — The focus ring fans out at the corners (concentric rings, constant roundness)
+
+- **What I was trying to build.** A focused chat composer that looks like a
+  focused text field.
+
+- **What happened.** Clicking into the composer drew bracket marks hanging off
+  each corner — four short arcs that don't join the ring, at a visibly bigger
+  radius than the field's own corner. It reads as a rendering glitch, and it is
+  on the app's most-used control.
+
+  `rendering.h` (~1481-1536) draws the ring as an outline plus `thickness`
+  concentric rounded-line rects:
+
+  ```cpp
+  for (float t = 0; t < thickness; t += 1.0f) {
+    RectangleType thickRect = {focus_rect.x - t, focus_rect.y - t,
+                               focus_rect.width  + t * 2.0f,
+                               focus_rect.height + t * 2.0f};
+    draw_rectangle_rounded_lines(thickRect, focus_roundness, focus_segments,
+                                 focus_col, focus_corner_settings);
+  }
+  ```
+
+  Every ring is passed the same **roundness fraction**, and roundness is
+  relative: `radius = min(w, h) * 0.5 * roundness`. Each ring outward is 2px
+  taller, so each ring's corner radius is 0.25px larger than the one inside it.
+  The straight edges stay parallel — a 1px step is invisible there — but at the
+  corners the arcs sweep different radii from different centres, so they splay
+  apart into a fan. With the defaults (`focus_ring_thickness = 3`,
+  `focus_ring_offset = 4`, plus the contrast outline) that is five arcs at five
+  radii, which is the bracket.
+
+  It is worst exactly where you would want a focus ring most: a short wide
+  control. On a 34px-tall field `min(w,h)` is the height, so the ring's radius
+  is dominated by the dimension that is changing fastest in relative terms.
+
+- **The workaround.** Collapse the ring to a single hairline flush with the
+  element, in `ThemeDefaults` at startup:
+
+  ```cpp
+  theme.focus_ring_thickness = 1.0f;
+  theme.focus_ring_offset    = 0.0f;
+  ```
+
+  One ring has nothing to diverge from. It costs the ring's visibility on
+  low-contrast backgrounds — the dual-colour outline is a genuinely good idea
+  and this throws it away — and it doesn't fully clear the artifact: two faint
+  accent arcs remain at the left corners, drawn about 10px in (roughly the
+  field's `padding.left`), which suggests a second focus-coloured rounded rect
+  is being emitted somewhere for the input's content rect. That one I could not
+  reach from app code.
+
+- **What the library could offer instead.** Grow the ring in **radius**, not
+  just in rect — keep the arcs concentric:
+
+  ```cpp
+  // radius of the element's own corner
+  const float base_r = std::min(focus_rect.width, focus_rect.height)
+                       * 0.5f * focus_roundness;
+  for (float t = 0; t < thickness; t += 1.0f) {
+    RectangleType r = { focus_rect.x - t, focus_rect.y - t,
+                        focus_rect.width + t*2.0f, focus_rect.height + t*2.0f };
+    // absolute radius grows 1:1 with the offset, so every ring is parallel
+    draw_rectangle_rounded_lines_px(r, base_r + t, focus_segments,
+                                    focus_col, focus_corner_settings);
+  }
+  ```
+
+  which needs a **pixel-radius entry point** next to the fraction-based one:
+
+  ```cpp
+  void draw_rectangle_rounded_lines_px(RectangleType, float radius_px,
+                                       int segments, Color, CornerSettings);
+  ```
+
+  That primitive is worth having on its own. A relative roundness is a
+  reasonable default for a standalone widget, but it makes any two rectangles of
+  different sizes impossible to keep visually parallel — hanabi already carries
+  a `theme::roundness_for_px(px, w, h)` helper that back-solves the fraction
+  from a wanted pixel radius, purely to line a message bubble up with the tool
+  card next to it. Both problems disappear if the primitive can just be told the
+  radius. (Related: gap #25, the degenerate triangle on mixed corners, is in the
+  same family of "the rounded-rect path is doing radius arithmetic the caller
+  cannot see".)
+
+- **Severity: makes it ugly** — cosmetic, but on the control the user looks at
+  most, and it made a polished app look broken.
+
+### #47 — `expect_no_text` can never fail (its argument keeps the quotes)
+
+- **What happened.** Every negative assertion in every UI script passes,
+  including this one, on a build where the tab plainly reads `new1`:
+
+  ```
+  expect_text    "new1"      # PASSES  — the text is on screen
+  expect_no_text "new1"      # ALSO PASSES — on the same frame
+  ```
+
+  `parse_script` gives `parse_quoted()` to `expect_text`,
+  `expect_selected_text`, `expect_input_text` and `assert_ui_text`, but
+  `expect_no_text` is not in that chain and falls through to the generic
+  tail:
+
+  ```cpp
+  } else {
+      std::string arg;
+      while (iss >> arg) cmd.args.push_back(arg);   // whitespace-split, quotes kept
+  }
+  ```
+
+  So `args[0]` is the seven characters `"new1"` — with the quote marks — and
+  `VisibleTextRegistry::contains()` is asked for a substring nothing will ever
+  contain. The handler is correct; it is never given the string the script
+  meant. A multi-word argument fails a second way: it is split on whitespace and
+  only the first fragment is ever consulted.
+
+  This is the quietest possible failure mode. `expect_no_text` is exactly the
+  assertion you write when you want to be sure something is gone, and it has
+  been answering "yes, gone" unconditionally.
+
+- **The workaround.** Pass a bare single word — `expect_no_text Copy` — and
+  choose a distinctive one, since multi-word phrases are unusable. Every script
+  in `tests/ui/` now carries a comment saying why, because the natural thing to
+  write is the quoted form and it looks right.
+
+- **What the library could offer instead.** One line, next to its sibling:
+
+  ```cpp
+  } else if (cmd.name == "expect_text" || cmd.name == "expect_no_text") {
+      cmd.args.push_back(parse_quoted());
+      cmd.wait_seconds = 1 * frame;
+  }
+  ```
+
+  Worth a wider look while in there: `parse_script`'s dispatch is a chain of
+  string comparisons plus three `constexpr` name arrays, and a command that
+  matches none of them silently gets whitespace-split args rather than an error.
+  Any command whose argument can contain a space is one forgotten branch away
+  from this same bug. Having the tables declare an arity *and* a quoting rule
+  per command — rather than the branch order deciding — would make the class
+  impossible.
+
+  A test for the harness itself, along the lines of "`expect_no_text` fails when
+  the text is present", is the other half. It is a two-line test and it would
+  have caught this the day it was written.
+
+- **Severity: blocks the feature.** Together with #39 and #40 this is three
+  independent ways a UI script reports success it did not earn. All three bit us
+  in the first hour of using the harness, and all three are small fixes.
+
+### #48 — A codepoint the font lacks draws NOTHING, and there is no way to ask
+
+- **What I was trying to build.** Ordinary UI furniture typed as characters: a
+  disclosure chevron on a collapsible row, a return-arrow in the composer's
+  "↵ send" hint, an up-arrow on the Send button, a block caret at the end of a
+  streaming reply, a horizontal rule for markdown `---`.
+
+- **What happened.** Several of them were never on screen and nobody noticed,
+  because a codepoint the loaded font does not cover renders as **nothing at
+  all** — no `.notdef` box, no warning, no log line. `fons__getGlyph` returns
+  no glyph and the draw is silently skipped.
+
+  The composer's hint had been reading a bare lowercase **"send"** floating next
+  to the context meter, which looks like a stray label rather than a keyboard
+  hint. The Send button was `"Send  ↑"`, so it had a trailing gap and no arrow.
+  The sub-agent rollup and the tool pile had no disclosure triangle, so neither
+  looked expandable. And a markdown `---` produced a blank line.
+
+  Auditing this from screenshots does not work — you are looking for something
+  that is not there. What worked was reading the font's `cmap` directly and
+  cross-referencing every non-ASCII literal in the source:
+
+  ```
+  0x21b5 '↵'   composer hint            0x2500 '─'  markdown rule
+  0x2191 '↑'   Send button              0x258b '▋'  streaming caret
+  0x25b8 '▸'   collapsed disclosure     0x25be '▾'  expanded disclosure
+  0x2605 '★'   0x2606 '☆'  0x2713 '✓'  0x2699 '⚙'  0x26d4 '⛔'  0x2302 '⌂'
+  0x25a4 '▤'   0x2726 '✦'  0x1f389 '🎉' 0x1f50d '🔍'
+  ```
+
+  Every one of those is in Roboto's coverage hole — it has no Arrows block, no
+  Geometric Shapes block, no Box Drawing block. That is not unusual: it is one
+  of the most widely-used UI faces there is, and a toolkit's users will reach
+  for these characters constantly.
+
+- **The workaround.** Draw the shaped ones as vectors
+  (`hanabi::glyph::chevron`, a filled triangle — hanabi already had one of these
+  in the sidebar and now shares it), and for the rest pick characters Roboto
+  does cover: em dashes for the rule, `|` for the caret, and plain words —
+  "Enter to send" — for the hint. Plus a `tests/ui` script asserting the hint
+  and the button label are on screen, since the failure is invisible.
+
+- **What the library could offer instead.** Three things, cheapest first:
+
+  1. **A coverage query.** fontstash already parses the `cmap`; expose it.
+
+     ```cpp
+     [[nodiscard]] bool FontManager::has_glyph(std::string_view font,
+                                               uint32_t codepoint) const;
+     ```
+
+     An app can then pick a fallback at startup instead of shipping an invisible
+     label.
+
+  2. **Draw `.notdef`.** A visible box is the convention for a reason: it turns
+     a silent bug into an obvious one. Behind a flag if it would upset anyone —
+     `theme.show_missing_glyphs = true` in debug builds would be enough.
+
+  3. **A `log_warn` on the first miss per codepoint.** Rate-limited to once, this
+     costs nothing and would have put the whole list above in the terminal on
+     the first run. This is the one I would do first.
+
+  A fourth, bigger and genuinely valuable: **font fallback**. `FontManager`
+  already holds several faces (hanabi has Roboto, JetBrains Mono and Atkinson
+  Hyperlegible loaded at once, and JetBrains Mono covers `⏎` and `→`). A
+  per-glyph fallback chain — try the requested face, then the others in
+  registration order — would have made every one of these Just Work.
+
+- **Severity: makes it ugly**, but it is the most *insidious* item on this list.
+  Every other gap announced itself. This one produces a screenshot that looks
+  fine until you know what should have been there.

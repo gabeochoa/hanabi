@@ -314,3 +314,65 @@ Ranked by heat. Each must be VERIFIED (screenshot / e2e), not assumed.
 - [x] Search input hover + focus-ring state — d3c6370
 - [x] Turn off noisy hotkey/menubar logging (HANABI_NATIVE_LOG gate) — d3c6370
 - [x] Window close hangs/freezes → app_cleanup persists then _Exit(0) (skip blocking future dtors) — d3c6370
+
+---
+
+## BRANCH feat/desktop-parity-polish (PR #2) — 2026-08-22
+
+Transcript polish + a real UI test harness. `make test` green throughout:
+11/11 unit+e2e, 11/11 scripted UI, launch 223ms / RSS 47MB, build 0/0.
+
+### Shipped
+- **-O2.** There was no `-O` flag in the main build — only the perf
+  micro-benchmark asked for one, so every binary including `make app`'s bundle
+  was unoptimised. Home idle 5.45ms -> 0.95ms, short transcript 6.25 -> 1.14,
+  120-message transcript 9.08 -> 1.64. **The "8.6ms idle-frame floor" on this
+  list was 5-6x compiler flag, not afterhours.** `make OPT=0` for the old build.
+- **Short threads bottom-anchor.** They were floated mid-pane by a leading
+  spacer of 1/3 the slack — ~170px of void above and ~290px below, and every
+  new message shifted the thread up by a third of its height.
+- **Hover a message to Copy it.** There is no text selection anywhere in the
+  transcript, so this is the only way text leaves the app. Code blocks' Copy
+  gained the same in-place "Copied" confirmation.
+- **Enter replies instead of starting a new thread.** The submit listener is
+  attached with `addComponentIfMissing`, so it captured `kickoff` from a frame
+  before the session had loaded and kept it forever; Send (recomputed per frame)
+  was right and Enter was wrong. Listener decides nothing now.
+- **A new thread's tab shows the thread, not `new1`.**
+- **Characters the font cannot draw.** Roboto has no Arrows / Geometric Shapes /
+  Box Drawing block and a missing codepoint draws NOTHING — no tofu. So the
+  composer hint read a bare "send", the Send button had a trailing gap, the
+  sub-agent rollup and tool piles had no disclosure triangle, `---` drew a blank
+  line, and a streaming reply had no caret. Found by reading the font cmap
+  against every non-ASCII literal in src/. Shaped ones are vectors now.
+- **One hairline focus ring.** It was drawn as concentric rounded rects sharing
+  a roundness FRACTION, so each ring's corner radius grew — bracket marks on
+  every corner of the composer.
+- **Split-view composer takes the left pane's width** (it replies to the primary
+  thread; full-width gave no clue which one you were typing into).
+- **Sidebar row hover** uses `mouse_in_subtree` — drops the star-id map.
+
+### New harness
+- `make uitest` — a second binary with afterhours' e2e input hooks, driving the
+  real widget tree from `tests/ui/*.e2e`. 11 scripts, each verified to fail
+  against a build without its fix. Folded into `make test`.
+- `scripts/screens.sh` captures 29 screens, not 7 — every smart view, the folded
+  rail, all three overlays, ten tabs, split, and the transient states.
+
+### afterhours gaps filed: #37-#48
+Text selection (#37, the big one — the geometry is already in their
+`text_selection.h` and only `text_input` can reach it), container hover (#38),
+three ways the e2e harness reports unearned success (#39/#40/#47 — all three
+bit us in the first hour), no worked host-loop example (#41), per-frame text
+re-measurement bypassing their own `TextMeasureCache` (#42, ~21% of a frame),
+`dynamic_cast`-to-`strcmp` component lookup (#43, ~16%), `ComponentConfig`
+copies (#44), frozen widget callbacks (#45), focus-ring corner fan (#46),
+silent missing glyphs (#48). **#29 is resolved** by `mouse_was_in_subtree`, and
+#27's frame-time number is retracted with an apology.
+
+### Not done / notes
+- Two faint arcs remain at the composer's left corners under focus — something
+  emits a focus-coloured rounded rect at the input's content rect; unreachable
+  from app code (#46).
+- The context meter draws a hardcoded 38% fill while refusing to print a fake
+  percentage. Pick one: wire the real number or drop the bar.

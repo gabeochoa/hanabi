@@ -1,0 +1,11 @@
+# Closing the last tab drops back to Home and clears the transcript.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Reconciled 4,812 accounts"
+
+click 507 18
+wait_frames 8
+
+expect_text "Home"
+expect_no_text Reconciled

@@ -44,6 +44,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
         ctx.theme.font_muted = theme::text_faint();
+        ctx.theme.focus = theme::accent();
 
         // Apply a pending star-toggle request (set by a row's star affordance).
         // The mutation lives HERE so this owned system is the single writer of
@@ -353,20 +354,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // rotated atlas cell (the atlas has no chevron-right).
     static void draw_chevron(RectangleType rect, bool collapsed,
                              theme::Color c) {
-        const float cx = rect.x + rect.width * 0.5f;
-        const float cy = rect.y + rect.height * 0.5f;
-        const float s = 3.6f;  // half-extent
-        if (collapsed) {
-            // Right-pointing: apex on the right, base on the left.
-            afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
-                                      afterhours::vec2{cx - s, cy + s},
-                                      afterhours::vec2{cx + s, cy}, c);
-        } else {
-            // Down-pointing: apex at bottom, base along the top.
-            afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
-                                      afterhours::vec2{cx + s, cy - s},
-                                      afterhours::vec2{cx, cy + s}, c);
-        }
+        hanabi::glyph::chevron(rect, collapsed, c);
     }
 
     // ---- attention model helpers ----
@@ -1601,34 +1589,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         Glyph glyph = automated ? Glyph::Automated : glyph_for(s);
 
         // ---- STABLE row hover (fixes the "star hover flashes the whole row")
-        // The trailing star is a real (clickable) child button inside the row.
-        // afterhours' hot state is a SINGLE entity (systems.h HandleClicks
-        // sets hot on the deepest element under the mouse), so the moment the
-        // cursor crosses from the row body onto the star, `hot_id` flips from
-        // the row to the star: is_hot(row) goes FALSE. The framework paints a
-        // widget's hover-wash only while it is is_hot (rendering.h), so the
-        // row's background would drop its hover wash for exactly the frames the
-        // star is hot — i.e. the WHOLE row flickers between washed/unwashed as
-        // the pointer moves over the star. (It is NOT a reflow: the star slot
-        // is always reserved — see the width math + row_star_slot below.)
-        //
-        // Fix: don't rely on the framework's per-frame is_hot wash for the row
-        // at all. We BAKE the hover wash into the row's BASE background whenever
-        // the pointer is anywhere in the row — the row body OR its own star
-        // child. The star's entity id is stable across frames (mk() hashes
-        // parent+index+location), so we cache it per-session on first render
-        // and OR its hot state into the row's hover signal. With the wash in
-        // the base color (and hover_bg == the same wash), the row paints the
-        // identical fill no matter which of {row, star} currently owns hot_id,
-        // so there is no flash. A selected row always wins (its own fill), and
-        // an unselected+unhovered row stays plain — the row bg is now fully
-        // independent of star hover.
-        static std::unordered_map<std::string, afterhours::EntityID> starIds;
-        afterhours::EntityID cachedStar = -1;
-        if (auto it = starIds.find(s.id); it != starIds.end())
-            cachedStar = it->second;
-        bool starHot = cachedStar >= 0 && (ctx.is_hot(cachedStar) ||
-                                           ctx.was_hot(cachedStar));
+        // The trailing star is a real clickable child of the row, and hot is a
+        // single entity: the moment the pointer crosses from the row body onto
+        // the star, hot flips to the star, is_hot(row) goes false, and the row
+        // drops its hover wash for exactly those frames — the whole row flashes.
+        // The wash is therefore baked into the row's BASE fill, asking about the
+        // whole subtree rather than the row entity alone, so the fill is
+        // identical no matter which of {row, star} currently owns hot.
+        // A selected row always wins; an unhovered unselected row stays plain.
 
         // Denser rows: 24px tall with tight vertical padding, so more threads
         // fit — matching the mock's compact sidebar feel. Rows are indented
@@ -1655,12 +1623,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("chat_row"));
 
         // Bake the hover wash into the row's BASE fill whenever the pointer is
-        // in the row body OR on its star child, so the row bg never flickers as
-        // hot moves between the two (see note above). Selected always wins.
+        // anywhere in the row's subtree, so the fill never flickers as hot moves
+        // between the row and its star (see note above). Selected always wins.
         {
-            bool rowBodyHot =
-                ctx.is_hot(row.ent().id) || ctx.was_hot(row.ent().id);
-            if (!selected && (rowBodyHot || starHot)) {
+            const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
+                                ctx.mouse_was_in_subtree(row.ent().id);
+            if (!selected && rowHot) {
                 if (row.ent().has<afterhours::HasColor>())
                     row.ent()
                         .get<afterhours::HasColor>()
@@ -1807,14 +1775,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // state isn't resolved until after this render pass. A starred row shows
         // a filled accent star; a hovered-unstarred row shows a faint hollow
         // star to toggle; an unhovered-unstarred row shows nothing.
-        bool rowHovered = ctx.was_hot(row.ent().id) ||
-                          ctx.is_hot(row.ent().id) ||
-                          // The star child owns hot_id while the pointer is on
-                          // it (see the stable-hover note at the top of the
-                          // row); treat that as the row still being hovered so
-                          // the star affordance doesn't blink out from under
-                          // the cursor.
-                          starHot ||
+        // Subtree, not the row entity alone: the star child owns hot while the
+        // pointer is on it, and the affordance must not blink out from under
+        // the cursor.
+        bool rowHovered = ctx.mouse_was_in_subtree(row.ent().id) ||
+                          ctx.mouse_in_subtree(row.ent().id) ||
                           // Test-only: force one row's hover (e.g. to capture
                           // the star-on-hover affordance headlessly). No-op
                           // unless HANABI_TEST_HOVER=row:<sessionId>.
@@ -1865,9 +1830,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (star.ent().has<afterhours::HasColor>())
                 star.ent().get<afterhours::HasColor>().skip_hover_override =
                     true;
-            // Cache the star's (stable) entity id so the NEXT frame's row can
-            // treat star-hover as row-hover (stable-hover note above).
-            starIds[s.id] = star.ent().id;
             if (star) {
                 app.requestToggleStar = sid;
                 starClicked = true;  // suppress the row's open-thread this frame

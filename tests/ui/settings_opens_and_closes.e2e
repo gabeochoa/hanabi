@@ -1,0 +1,14 @@
+# The gear opens the settings sheet; its close button dismisses it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_no_text Appearance
+
+click 228 21
+wait_frames 8
+expect_text "Appearance"
+expect_text "Cache limit"
+
+click 814 128
+wait_frames 8
+expect_no_text Appearance

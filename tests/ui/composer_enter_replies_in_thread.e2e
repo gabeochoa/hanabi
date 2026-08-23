@@ -1,0 +1,22 @@
+# Enter in the composer REPLIES to the open thread; it does not start a new one.
+#
+# The Enter listener is attached once and lives for the field's whole life, so
+# it cannot capture the kickoff/reply decision — it used to, froze it as
+# "kickoff" on a pre-load frame, and every Enter thereafter created a session
+# while the Send button (recomputed per frame) replied correctly.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Stars payout reconciliation"
+
+click 646 674
+wait_frames 4
+type "enter should reply here"
+wait_frames 4
+key ENTER
+wait_frames 40
+
+# Still the same thread: its title, and its existing content, are both present.
+expect_text "Stars payout reconciliation"
+expect_text "Reconciled 4,812 accounts"
+expect_text "enter should reply here"

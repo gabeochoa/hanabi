@@ -651,6 +651,12 @@ static void app_cleanup() {
     std::_Exit(0);
 }
 
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+#include "../vendor/afterhours/src/plugins/e2e_testing/e2e_testing.h"
+#include "../vendor/afterhours/src/plugins/e2e_testing/platform_test_input.h"
+#include "../vendor/afterhours/src/plugins/e2e_testing/ui_commands.h"
+#endif
+
 // Headless one-shot: render the real UI to an offscreen texture and write a
 // PNG, with no window and no screen-recording permission. Used for docs and
 // smoke tests. Returns process exit code.
@@ -968,10 +974,17 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         for (double v : ms) sum += v;
         double mean = sum / ms.size();
         double median = ms[ms.size() / 2];
+        // Widget count is the number that explains the rest: the tree is torn
+        // down and rebuilt every frame, and full-tree layout is re-solved every
+        // frame, so per-frame cost tracks it almost linearly.
+        size_t widgets = 0;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities())
+            if (e && e->has<afterhours::ui::UIComponent>()) ++widgets;
         log_info(
-            "FrameTiming: frames={} min={:.2f}ms median={:.2f}ms "
+            "FrameTiming: frames={} widgets={} min={:.2f}ms median={:.2f}ms "
             "mean={:.2f}ms max={:.2f}ms",
-            ms.size(), ms.front(), median, mean, ms.back());
+            ms.size(), widgets, ms.front(), median, mean, ms.back());
         if (split && !msU.empty()) {
             std::sort(msU.begin(), msU.end());
             std::sort(msR.begin(), msR.end());
@@ -993,6 +1006,111 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     return 0;
 }
 
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+// Drive the real UI from a script: a headless render loop with synthetic mouse
+// and keyboard, so an interaction — hover this, click that, assert the text
+// that appeared — can be checked in CI. Only compiled into the dedicated e2e
+// binary; the shipping build has no trace of it.
+//
+// `path` is one .e2e script or a directory of them. Returns a process exit
+// code: 0 if every script passed.
+static int run_e2e(const std::string& path, int w, int h) {
+    using namespace afterhours;
+    namespace t = afterhours::testing;
+
+    graphics::Config gcfg{};
+    gcfg.display = graphics::DisplayMode::Headless;
+    gcfg.width = w;
+    gcfg.height = h;
+    gcfg.target_fps = 60;
+    if (!graphics::init(gcfg)) {
+        fprintf(stderr, "e2e: headless init failed (no GPU?)\n");
+        return 2;
+    }
+
+    Preload::get().init("hanabi").make_singleton();
+    setup_app_state();
+
+    SystemManager sm;
+    app_state::systemManager = &sm;
+    // Command handlers first: they inject the synthetic input for this frame,
+    // and the input + UI systems registered by build_systems have to read it
+    // in the SAME frame or a click lands one frame late and the script races
+    // its own assertions.
+    t::register_builtin_handlers(sm);
+    t::ui_commands::register_ui_commands<InputAction>(sm);
+    t::register_unknown_handler(sm);
+    t::register_cleanup(sm);
+    build_systems(sm);
+
+    t::platform_input::set_test_mode(true);
+
+    t::E2ERunner runner;
+    if (std::filesystem::is_directory(path))
+        runner.load_scripts_from_directory(path);
+    else
+        runner.load_script(path);
+    if (!runner.has_commands()) {
+        fprintf(stderr, "e2e: no commands in %s\n", path.c_str());
+        graphics::shutdown();
+        return 2;
+    }
+    runner.set_screenshot_callback(
+        [](const std::string& p) { graphics::capture_frame(p); });
+
+    // Settle: the session list loads asynchronously, and a script that clicks a
+    // sidebar row before the rows exist clicks empty space.
+    for (int i = 0; i < 45; ++i) {
+        graphics::begin_frame();
+        graphics::clear_background(theme::window_bg());
+        sm.run(1.0f / 60.0f);
+        graphics::end_frame();
+    }
+
+    // reset_frame is the host's job — the library never calls it, and without
+    // it a synthetic press stays pressed forever and every later click is
+    // swallowed. It has to run before the frame's commands are dispatched.
+    constexpr float kDt = 1.0f / 60.0f;
+    constexpr int kMaxFrames = 60 * 120;  // a script may not run over 2 minutes
+    int frames = 0;
+    while (!runner.is_finished() && frames++ < kMaxFrames) {
+        t::test_input::reset_frame();
+        runner.tick(kDt);
+        graphics::begin_frame();
+        graphics::clear_background(theme::window_bg());
+        sm.run(kDt);
+        graphics::end_frame();
+    }
+
+    const bool ranOut = !runner.is_finished();
+    if (ranOut) fprintf(stderr, "e2e: hit the %d-frame ceiling\n", kMaxFrames);
+
+    // Drain. The runner marks itself finished in the same tick that dispatches
+    // the LAST command, so that command's outcome is never observed — and a
+    // trailing assertion is the normal way to end a script. Pump past the
+    // command timeout (MAX_FRAMES) so it resolves or fails for real.
+    for (int i = 0; i < 40; ++i) {
+        t::test_input::reset_frame();
+        graphics::begin_frame();
+        graphics::clear_background(theme::window_bg());
+        sm.run(kDt);
+        graphics::end_frame();
+    }
+
+    // And read the verdict off the handlers' own counter rather than
+    // runner.has_failed(): in single-script mode the runner never folds the
+    // command error count into its result, so it reports success no matter
+    // what the assertions did.
+    const int errors = t::get_command_error_count();
+    runner.print_results();
+    if (errors) fprintf(stderr, "e2e: %d failed command(s)\n", errors);
+    const bool failed = errors > 0 || runner.has_failed() || ranOut;
+    graphics::shutdown();
+    std::fflush(nullptr);
+    return failed ? 1 : 0;
+}
+#endif  // AFTER_HOURS_ENABLE_E2E_TESTING
+
 int main(int argc, char* argv[]) {
     argh::parser cmdl;
     // --screenshot takes a path value. It MUST be pre-registered as a param;
@@ -1000,7 +1118,7 @@ int main(int argc, char* argv[]) {
     // as a bare flag plus a positional arg, cmdl.params() comes back empty,
     // and we silently fall through to the windowed run() path — which opens a
     // real Metal window and never exits in a headless/one-shot context.
-    cmdl.add_params({"--screenshot"});
+    cmdl.add_params({"--screenshot", "--e2e"});
     cmdl.parse(argc, argv);
 
     // --version prints and exits.
@@ -1010,6 +1128,17 @@ int main(int argc, char* argv[]) {
     }
 
     app_state::startTime = std::chrono::high_resolution_clock::now();
+
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    // --e2e <script.e2e|dir>: drive the UI from a script and exit with the
+    // verdict. Only exists in the e2e build.
+    if (std::string script = cmdl("e2e").str(); !script.empty()) {
+        int sw = 1100, sh = 760;
+        if (const char* ew = std::getenv("HANABI_WIN_W"); ew && *ew) sw = atoi(ew);
+        if (const char* eh = std::getenv("HANABI_WIN_H"); eh && *eh) sh = atoi(eh);
+        return run_e2e(script, sw, sh);
+    }
+#endif
 
     // --screenshot <path>: headless one-shot render + capture (docs/smoke).
     // Accepts both "--screenshot <path>" and "--screenshot=<path>".

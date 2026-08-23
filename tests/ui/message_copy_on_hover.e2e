@@ -1,0 +1,25 @@
+# Hovering a message reveals its Copy action; moving away hides it again.
+#
+# The transcript has no text selection (afterhours_gaps.md #37), so Copy is the
+# only way text leaves the app — this guards the one affordance that replaces it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+# Nothing hovered: no message action is on screen.
+# NOTE: expect_no_text takes a BARE single word, never a quoted string —
+# the script parser only strips quotes for expect_text, so a quoted
+# argument here is matched WITH its quote characters and can never hit.
+# afterhours_gaps.md #47.
+
+expect_text "Reconciled 4,812 accounts"
+expect_no_text Copy
+
+# Park the pointer over the first assistant message.
+mouse_move 600 470
+wait_frames 3
+expect_text "Copy"
+
+# Off the transcript entirely (the sidebar), and it goes away.
+mouse_move 140 700
+wait_frames 3
+expect_no_text Copy
