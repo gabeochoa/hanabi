@@ -364,7 +364,14 @@ $(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_c
 	@echo "Compiling test_real..."
 	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
+# agentcloud transport slice: query encoding (an unescaped colon in the
+# verifier is an opaque HTTP 400) and the env gate that keeps the mock the
+# zero-config default. No network.
+$(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_auth.cpp | $(TEST_DIR)
+	@echo "Compiling test_agentcloud..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
