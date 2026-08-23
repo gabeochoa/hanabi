@@ -6,6 +6,7 @@
 
 #include "../../vendor/nlohmann/json.hpp"
 #include "http_client.h"
+#include "agentcloud_client.h"
 #include "mock_client.h"
 
 namespace api {
@@ -282,6 +283,14 @@ Config Config::from_env() {
 }
 
 std::unique_ptr<Client> make_client(const Config& cfg) {
+    // agentcloud is opt-in by name AND has to be configured: its credential
+    // comes from a local proxy, so on a machine without one there is nothing
+    // to fall forward to. Falling back to the mock beats failing at startup.
+    if (cfg.backend == "agentcloud") {
+        auto ac = std::make_unique<AgentcloudClient>(
+            agentcloud::auth_config_from_env());
+        if (ac->ready()) return ac;
+    }
     if (cfg.backend == "http" && cfg.http_ready())
         return std::make_unique<HttpClient>(cfg);
     // Default and safe fallback: fully offline sample data.

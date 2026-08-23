@@ -166,6 +166,20 @@ output: $(MAIN_EXE) copy-resources
 # A small stamp file records whether the last build was TLS or not; if the mode
 # flips we `clean` first, because toggling HANABI_TLS changes compile flags that
 # make's timestamp check alone wouldn't pick up on the existing .o files.
+# `make run` talks to the real backend; `make run-mock` is the offline sample
+# data. agentcloud is the default because it is what the app is for now.
+#
+# Its endpoints are deliberately NOT in this repo (see the HARD CONSTRAINTS in
+# todo.md: no real API hardcoded). Put them in .env, which is already
+# gitignored, and this sources it:
+#
+#     HANABI_AC_HOST=<orchestrator host>
+#     HANABI_AC_MINT_HOST=<proxy-local mint pseudo-host>
+#     HANABI_AC_VERIFIER=<service identity to mint against>
+#
+# With those unset the app degrades to the mock rather than failing, so a fresh
+# clone still runs -- the recipe says so out loud instead of leaving you to
+# wonder why the sessions look invented.
 run:
 	@if [ -n "$$(brew --prefix openssl@3 2>/dev/null)" ]; then \
 		echo "==> OpenSSL found — building with TLS (https backends enabled)"; \
@@ -175,7 +189,23 @@ run:
 		echo "    For an https backend: brew install openssl@3, then 'make run' again."; \
 		$(MAKE) output; \
 	fi
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	export HANABI_BACKEND="$${HANABI_BACKEND:-agentcloud}"; \
+	if [ "$$HANABI_BACKEND" = "agentcloud" ] && [ -z "$${HANABI_AC_HOST:-}" ]; then \
+		echo "==> HANABI_BACKEND=agentcloud, but HANABI_AC_HOST is unset."; \
+		echo "    Running the OFFLINE MOCK. Set the HANABI_AC_* values in .env"; \
+		echo "    (gitignored) to talk to the real orchestrator."; \
+	else \
+		echo "==> backend: $$HANABI_BACKEND"; \
+	fi; \
 	./$(MAIN_EXE)
+
+# The offline sample data, whatever .env says. Useful for UI work and for
+# telling "the backend is down" apart from "I broke the sidebar".
+run-mock:
+	@$(MAKE) output
+	@echo "==> backend: mock (offline sample data)"
+	@HANABI_BACKEND=mock ./$(MAIN_EXE)
 
 # macOS .app bundle
 APP_BUNDLE := $(OUTPUT_DIR)/Hanabi.app
@@ -260,7 +290,7 @@ MOCK_PORT ?= 8787
 mock-server:
 	python3 tools/mock_server/server.py --port $(MOCK_PORT)
 
-.PHONY: all clean clean-all deps copy-resources output run bundle app mock-server
+.PHONY: all clean clean-all deps copy-resources output run run-mock bundle app mock-server
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)
@@ -277,39 +307,48 @@ TEST_DIR := $(OUTPUT_DIR)/tests
 $(TEST_DIR):
 	@mkdir -p $(TEST_DIR)
 
-$(TEST_DIR)/test_api: tests/unit/test_api.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+# Everything make_client() can construct has to link wherever config.cpp does,
+# so this is one list rather than nine. Adding a backend means editing here and
+# nowhere else -- the previous shape made a new backend break eight targets.
+# ws_socket.mm is Obj-C++, hence the ARC flag and the two frameworks.
+API_SRCS := src/api/config.cpp src/api/http_client.cpp \
+            src/api/agentcloud_client.cpp src/api/agentcloud_auth.cpp \
+            src/ws_socket.mm
+API_LINK := -fobjc-arc -framework Foundation -framework CFNetwork
+
+$(TEST_DIR)/test_api: tests/unit/test_api.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_api..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Device-code auth state machine (Phase AUTH). Pure logic against a FAKE
 # transport — no graphics, no network. auth.cpp + config.cpp are the only app
 # sources it needs.
-$(TEST_DIR)/test_auth: tests/unit/test_auth.cpp src/api/auth.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_auth: tests/unit/test_auth.cpp src/api/auth.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_auth..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Sending (Phase SEND): kickoff (create_session) + reply (send_message) driven
 # directly against the MockClient. Pure logic — no graphics, no network. Only
 # config.cpp is needed alongside the header-only mock client.
-$(TEST_DIR)/test_send: tests/unit/test_send.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_send: tests/unit/test_send.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_send..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Streaming (Phase STREAM): mock delivers a reply as ordered chunks that
 # reassemble across per-frame ticks + the pure SSE parser against fixture text.
 # Pure logic — NO graphics, NO network, NO timers. config.cpp + http_client.cpp
 # supply Config + the parse_sse_chunk parser alongside the header-only mock.
-$(TEST_DIR)/test_stream: tests/unit/test_stream.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_stream: tests/unit/test_stream.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_stream..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Tool-call block splitting + memory-light newest-N + live SSE event parsing
 # (LIVE phase). Pure logic — NO graphics, NO network, NO timers. Exercises the
 # adapter's split_message_blocks + parse_events_frame (from http_client.cpp)
 # and the MockClient windowed get_session(id, N) contract.
-$(TEST_DIR)/test_tools: tests/unit/test_tools.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_tools: tests/unit/test_tools.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_tools..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Composer text-input key handling (gap #31): the macOS sokol backend emits a
 # CHAR event for backspace (U+007F); hanabi's is_typable_char filter must reject
@@ -329,9 +368,9 @@ $(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp | $(TEST_DIR
 
 # Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
 # queue ordering/draining, newest-N windowing, settings read.
-$(TEST_DIR)/test_data: tests/unit/test_data.cpp src/api/config.cpp src/api/http_client.cpp src/api/disk_cache.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_data: tests/unit/test_data.cpp $(API_SRCS) src/api/disk_cache.cpp | $(TEST_DIR)
 	@echo "Compiling test_data..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Settings rework (wt/settings): each wired preference control changes the
 # persisted Settings value + marks the sync-dirty flag; the mock's settings
@@ -339,15 +378,15 @@ $(TEST_DIR)/test_data: tests/unit/test_data.cpp src/api/config.cpp src/api/http_
 # + OFF by default. Pure logic — no graphics, no network. settings.cpp supplies
 # the persistence slots; config.cpp + http_client.cpp supply Config + the
 # header-only mock client.
-$(TEST_DIR)/test_settings: tests/unit/test_settings.cpp src/settings.cpp src/api/config.cpp src/api/http_client.cpp vendor/afterhours/src/plugins/files.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_settings: tests/unit/test_settings.cpp src/settings.cpp $(API_SRCS) vendor/afterhours/src/plugins/files.cpp | $(TEST_DIR)
 	@echo "Compiling test_settings..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
-$(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_e2e..."
-	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ -o $@
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $^ $(API_LINK) -o $@
 
 # Headless perf micro-benchmark: in-process thread-switch latency (built -O2).
 $(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp src/api/disk_cache.cpp | $(TEST_DIR)
@@ -360,11 +399,21 @@ $(TEST_DIR)/test_perf: tests/e2e/test_perf.cpp src/api/disk_cache.cpp | $(TEST_D
 # the pre-push "does it work with real data?" check — NOT part of the default
 # offline `make test` (it hits the network). Uses CXXFLAGS (which carry
 # -DHANABI_ENABLE_TLS + OpenSSL paths only when HANABI_TLS=1).
-$(TEST_DIR)/test_real: tests/e2e/test_real.cpp src/api/config.cpp src/api/http_client.cpp | $(TEST_DIR)
+$(TEST_DIR)/test_real: tests/e2e/test_real.cpp $(API_SRCS) | $(TEST_DIR)
 	@echo "Compiling test_real..."
-	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) -o $@
+	$(CXX) $(CXXFLAGS) $(TEST_INCLUDES) $^ $(LDFLAGS) $(API_LINK) -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings
+# agentcloud transport slice: query encoding (an unescaped colon in the
+# verifier is an opaque HTTP 400) and the env gate that keeps the mock the
+# zero-config default. No network.
+$(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_auth.cpp src/api/agentcloud_client.cpp src/ws_socket.mm | $(TEST_DIR)
+	@echo "Compiling test_agentcloud..."
+	# Foundation/CFNetwork are for ws_socket.mm, which comes along with the
+	# client TU. The tests never open a socket -- parse_sessions_reply is pure.
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $^ \
+	    -framework Foundation -framework CFNetwork -o $@
+
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

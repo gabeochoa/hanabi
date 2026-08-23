@@ -1,0 +1,586 @@
+#include "agentcloud_client.h"
+
+#include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <limits>
+#include <vector>
+#include <mutex>
+#include <unordered_map>
+#include <string>
+
+#include "../../vendor/nlohmann/json.hpp"
+#include "../ws_socket.h"
+
+namespace api {
+namespace {
+
+using json = nlohmann::json;
+
+// A list of 2000+ sessions is over a megabyte, and the mint plus upgrade is a
+// couple of round trips before that. Generous, but bounded: a hung socket must
+// not hang the loader thread forever.
+constexpr int kReplyTimeoutSecs = 30;
+
+// Collects one reply off the socket's private queue and hands it to the
+// waiting caller. The socket calls these from its own thread.
+struct Waiter {
+    std::mutex m;
+    std::condition_variable cv;
+    std::string reply;
+    std::string closed_reason;
+    bool done = false;
+
+    void finish(std::string text, std::string reason) {
+        {
+            std::lock_guard<std::mutex> lock(m);
+            if (done) return;  // first outcome wins
+            reply = std::move(text);
+            closed_reason = std::move(reason);
+            done = true;
+        }
+        cv.notify_all();
+    }
+};
+
+void on_text_cb(void* user, const char* text, size_t len) {
+    static_cast<Waiter*>(user)->finish(std::string(text, len), "");
+}
+
+void on_close_cb(void* user, const char* reason) {
+    static_cast<Waiter*>(user)->finish("", reason != nullptr ? reason : "closed");
+}
+
+// nlohmann's .value() falls back only when the key is ABSENT -- a key present
+// and null throws type_error.302. Real data is full of nulls (40 of 2066
+// sessions have title:null), so every read goes through these instead. Found
+// the hard way: the first live run died on session number who-knows-what.
+std::string str_or(const json& j, const char* key, const std::string& dflt) {
+    if (!j.is_object() || !j.contains(key)) return dflt;
+    const json& v = j.at(key);
+    return v.is_string() ? v.get<std::string>() : dflt;
+}
+
+int64_t int_or(const json& j, const char* key, int64_t dflt) {
+    if (!j.is_object() || !j.contains(key)) return dflt;
+    const json& v = j.at(key);
+    return v.is_number_integer() ? v.get<int64_t>() : dflt;
+}
+
+bool bool_or(const json& j, const char* key, bool dflt) {
+    if (!j.is_object() || !j.contains(key)) return dflt;
+    const json& v = j.at(key);
+    return v.is_boolean() ? v.get<bool>() : dflt;
+}
+
+const json& obj_at(const json& j, const char* key) {
+    static const json kEmpty = json::object();
+    if (!j.is_object() || !j.contains(key) || !j.at(key).is_object())
+        return kEmpty;
+    return j.at(key);
+}
+
+// round_trip's Waiter takes the first message and stops. attach+page needs two
+// replies in order on the same socket, so this one queues everything and lets
+// the caller wait for a named type -- the protocol has no request ids for
+// these commands, so "the next reply of type X" is the only correlation there
+// is (and why one request per type may be outstanding at a time).
+struct FrameQueue {
+    std::mutex m;
+    std::condition_variable cv;
+    std::vector<std::string> frames;
+    std::string closed_reason;
+    bool closed = false;
+
+    void push(std::string f) {
+        {
+            std::lock_guard<std::mutex> lock(m);
+            frames.push_back(std::move(f));
+        }
+        cv.notify_all();
+    }
+    void close(std::string reason) {
+        {
+            std::lock_guard<std::mutex> lock(m);
+            if (closed) return;
+            closed = true;
+            closed_reason = std::move(reason);
+        }
+        cv.notify_all();
+    }
+    // Next queued message whose msg.type == want, waiting up to timeout.
+    // Returns the msg object, or a discarded json on timeout/close.
+    json wait_for_type(const std::string& want, int timeout_secs) {
+        std::unique_lock<std::mutex> lock(m);
+        size_t scanned = 0;
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(timeout_secs);
+        for (;;) {
+            while (scanned < frames.size()) {
+                json root = json::parse(frames[scanned++], nullptr, false);
+                if (root.is_discarded()) continue;
+                const json& msg = obj_at(root, "msg");
+                const std::string t = str_or(msg, "type", "");
+                if (t == "error") return msg;  // surfaced by the caller
+                if (t == want) return msg;
+            }
+            if (closed) return json(json::value_t::discarded);
+            if (cv.wait_until(lock, deadline) == std::cv_status::timeout &&
+                scanned >= frames.size())
+                return json(json::value_t::discarded);
+        }
+    }
+};
+
+void fq_text_cb(void* user, const char* text, size_t len) {
+    static_cast<FrameQueue*>(user)->push(std::string(text, len));
+}
+void fq_close_cb(void* user, const char* reason) {
+    static_cast<FrameQueue*>(user)->close(reason != nullptr ? reason : "closed");
+}
+
+// A tool's `input` is a JSON STRING of the tool's own argument object. Showing
+// it raw puts {"command": "ls -l"} in the transcript where `ls -l` belongs, so
+// unwrap the argument that IS the call when there is an obvious one. Tools seen
+// live: bash/meta__run take `command`, step takes `text`, and the rest are
+// small enough that their JSON reads fine.
+std::string readable_tool_input(const std::string& raw) {
+    json in = json::parse(raw, nullptr, false);
+    if (in.is_discarded() || !in.is_object()) return raw;
+    for (const char* key : {"command", "text", "query", "path", "pattern"}) {
+        const std::string v = str_or(in, key, "");
+        if (!v.empty()) return v;
+    }
+    return raw;
+}
+
+// `list` sorts newest-first by last_seq. There is no timestamp on the wire
+// (see the note in list_sessions), so sequence is the only recency signal.
+bool by_last_seq_desc(const json& a, const json& b) {
+    return int_or(a, "last_seq", 0) > int_or(b, "last_seq", 0);
+}
+
+// The server reports two overlapping notions of "how is this session doing":
+// a coarse resolved_status/running, and an optional richer `status` bag that
+// carries the model's own read. Prefer the rich one where present.
+void apply_state(const json& s, SessionSummary& out) {
+    const bool running = bool_or(s, "running", false);
+
+    // status: {state, subject, headline, attention, updated_seq}. This is the
+    // server-side attention signal hanabi has been asking its other backend
+    // for — believe it over any client-side guess.
+    const json& st = obj_at(s, "status");
+    if (!st.empty()) {
+        const std::string state = str_or(st, "state", "");
+        const std::string attention = str_or(st, "attention", "");
+        out.preview = str_or(st, "headline", "");
+
+        if (state == "blocked") {
+            out.state = ThreadState::Attention;
+            out.tag = ThreadTag::Blocked;
+        } else if (state == "waiting") {
+            out.state = ThreadState::Attention;
+            out.tag = attention == "review" ? ThreadTag::Review : ThreadTag::Blocked;
+        } else if (state == "working") {
+            out.state = ThreadState::Running;
+        } else if (state == "done") {
+            // "done" plus an explicit review request is the one case where a
+            // finished thread still wants the reader.
+            out.state = attention == "review" ? ThreadState::Attention
+                                              : ThreadState::Ready;
+            out.tag = attention == "review" ? ThreadTag::Review : ThreadTag::Done;
+        }
+        out.status = state;
+        if (out.state != ThreadState::Unknown) return;
+    }
+
+    if (running) {
+        out.state = ThreadState::Running;
+        out.status = "active";
+        return;
+    }
+    const std::string kind = str_or(obj_at(s, "resolved_status"), "kind", "");
+    if (kind == "idle") {
+        out.state = ThreadState::Parked;
+        out.status = "idle";
+    } else {
+        out.state = ThreadState::Ready;
+        out.status = "idle";
+        if (str_or(obj_at(s, "last_outcome"), "outcome", "") == "completed")
+            out.tag = ThreadTag::Done;
+    }
+}
+
+}  // namespace
+
+AgentcloudClient::AgentcloudClient(agentcloud::AuthConfig cfg)
+    : auth_(std::move(cfg)) {}
+
+AgentcloudClient::~AgentcloudClient() = default;
+
+std::string AgentcloudClient::backend_label() const { return "agentcloud"; }
+
+std::string AgentcloudClient::round_trip(const std::string& payload_json,
+                                         const std::string& expect_type,
+                                         std::string* error) {
+    const auto fail = [&](const std::string& why) {
+        if (error != nullptr) *error = why;
+        return std::string();
+    };
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    Waiter waiter;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = on_text_cb;
+    wc.on_close = on_close_cb;
+    wc.user = &waiter;
+
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return fail("could not parse " + url);
+
+    // The credential travels IN the command, not as a header: control commands
+    // (list/create/attach) must each carry it.
+    json cmd = json::parse(payload_json);
+    cmd["auth"] = {{"cat", {{"payload", token.value}}}};
+    const json envelope = {{"sub", 0}, {"payload", cmd}};
+    const std::string wire = envelope.dump();
+
+    if (!ws_send_text(conn, wire.data(), wire.size())) {
+        ws_close(conn);
+        return fail("socket closed before the command was sent");
+    }
+
+    std::string reply, closed;
+    {
+        std::unique_lock<std::mutex> lock(waiter.m);
+        const bool got = waiter.cv.wait_for(
+            lock, std::chrono::seconds(kReplyTimeoutSecs),
+            [&] { return waiter.done; });
+        if (!got) {
+            lock.unlock();
+            ws_close(conn);
+            return fail("timed out after " + std::to_string(kReplyTimeoutSecs) +
+                        "s waiting for '" + expect_type + "'");
+        }
+        reply = waiter.reply;
+        closed = waiter.closed_reason;
+    }
+    ws_close(conn);
+
+    if (reply.empty()) return fail("connection closed: " + closed);
+
+    json root = json::parse(reply, nullptr, false);
+    if (root.is_discarded()) return fail("reply was not JSON");
+    // Server envelope is {"sub":N,"msg":{...}} -- note it is NOT "payload",
+    // which is the client direction only.
+    if (!root.contains("msg") || !root["msg"].is_object())
+        return fail("reply had no msg object");
+
+    const json& msg = root["msg"];
+    const std::string type = str_or(msg, "type", "");
+    if (type == "error") {
+        // A token the server rejects may be one our clock still believes in;
+        // drop it so the next call mints fresh rather than retrying the same
+        // rejected credential.
+        auth_.invalidate();
+        return fail("server error: " + str_or(msg, "message", "(no message)"));
+    }
+    if (type != expect_type)
+        return fail("expected '" + expect_type + "', got '" + type + "'");
+
+    return msg.dump();
+}
+
+namespace agentcloud {
+
+std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
+    json msg = json::parse(msg_json, nullptr, false);
+    if (msg.is_discarded() || !msg.contains("sessions") ||
+        !msg["sessions"].is_array())
+        return {};
+
+    std::vector<json> rows(msg["sessions"].begin(), msg["sessions"].end());
+    std::stable_sort(rows.begin(), rows.end(), by_last_seq_desc);
+
+    std::vector<SessionSummary> out;
+    out.reserve(rows.size());
+    for (const json& s : rows) {
+        SessionSummary sum;
+        sum.id = str_or(s, "session_id", "");
+        if (sum.id.empty()) continue;  // unaddressable; nothing could open it
+        // 40 of 2066 live rows have title:null. A blank row is unclickable in
+        // practice -- the reader cannot tell one from the next -- so fall back
+        // to the model's own subject line, then to a marker.
+        sum.title = str_or(s, "title", "");
+        if (sum.title.empty())
+            sum.title = str_or(obj_at(s, "status"), "subject", "");
+        if (sum.title.empty()) sum.title = "(untitled)";
+        // NO TIMESTAMP EXISTS ON THIS WIRE. Not "we do not read it" -- the row
+        // carries last_seq, a monotonic sequence, and nothing clock-like at
+        // all. updated_at stays 0, which the UI already reads as "unknown", so
+        // rows sort correctly by recency but cannot say "40m ago". Fixing that
+        // needs either a server field or a timestamp mined from the session's
+        // own events at attach.
+        sum.updated_at = 0;
+        // Same field name the other backend uses for folders -- but NOT the
+        // same meaning. Most workspaces here are scratch directories the
+        // server made per session, named after the session: 2054 of 2066 live
+        // rows carry their own id in the path, so grouping on it verbatim
+        // yields ~2055 folders of one and a useless sidebar. A path containing
+        // its session's id is machine-generated, not a place someone chose.
+        const std::string workspace = str_or(s, "workspace", "");
+        sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
+        apply_state(s, sum);
+        out.push_back(std::move(sum));
+    }
+    return out;
+}
+
+}  // namespace agentcloud
+
+Result<std::vector<SessionSummary>> AgentcloudClient::list_sessions() {
+    std::string error;
+    const std::string msg_json =
+        round_trip(R"({"cmd":"list"})", "sessions", &error);
+    if (msg_json.empty())
+        return Result<std::vector<SessionSummary>>::failure(error);
+
+    auto rows = agentcloud::parse_sessions_reply(msg_json);
+    if (rows.empty())
+        return Result<std::vector<SessionSummary>>::failure(
+            "sessions reply had no readable sessions");
+    return Result<std::vector<SessionSummary>>::success(std::move(rows));
+}
+
+namespace agentcloud {
+
+std::vector<Message> parse_page_frames(const std::string& msg_json) {
+    json msg = json::parse(msg_json, nullptr, false);
+    if (msg.is_discarded() || !msg.contains("frames") ||
+        !msg["frames"].is_array())
+        return {};
+
+    std::vector<Message> out;
+    // tool_result names the SEQ of the tool_intent it answers, and arrives
+    // later -- sometimes much later. Remember where each intent's row landed so
+    // the result can be folded back into it instead of appended as a stray row.
+    std::unordered_map<int64_t, size_t> row_for_intent_seq;
+
+    for (const json& f : msg["frames"]) {
+        if (!f.is_object()) continue;
+        const json& e = obj_at(f, "event");
+        const std::string type = str_or(e, "type", "");
+        const int64_t seq = int_or(f, "seq", 0);
+        // Every history frame carries a real wall-clock stamp, unlike the
+        // session list. Milliseconds on the wire, seconds in Message.
+        const int64_t created = int_or(f, "created_at_unix_ms", 0) / 1000;
+
+        const auto push = [&](Role role, std::string text) -> Message& {
+            Message m;
+            m.id = std::to_string(seq);
+            m.role = role;
+            m.text = std::move(text);
+            m.created_at = created;
+            out.push_back(std::move(m));
+            return out.back();
+        };
+
+        if (type == "user_input") {
+            std::string text = str_or(e, "text", "");
+            if (text.empty()) continue;
+            push(Role::User, std::move(text));
+        } else if (type == "block") {
+            const json& b = obj_at(e, "block");
+            const std::string kind = str_or(b, "kind", "");
+            // tool_use blocks are the model ANNOUNCING a call; the call itself
+            // arrives as tool_intent with the same call_id. Rendering both
+            // would double every tool row, so this side is dropped.
+            if (kind == "text") {
+                std::string text = str_or(b, "text", "");
+                if (!text.empty()) push(Role::Assistant, std::move(text));
+            } else if (kind == "thinking") {
+                // Reasoning is real content, but it is not the answer. Mark it
+                // so the renderer can fold or dim it rather than presenting it
+                // as something the assistant said to you.
+                std::string text = str_or(b, "text", "");
+                if (!text.empty()) push(Role::Assistant, std::move(text)).subtitle =
+                    "thinking";
+            }
+        } else if (type == "tool_intent") {
+            Message& m = push(Role::Tool, readable_tool_input(str_or(e, "input", "")));
+            m.subtitle = str_or(e, "tool", "");
+            row_for_intent_seq[seq] = out.size() - 1;
+        } else if (type == "tool_node_selected") {
+            // Which host the call actually ran on, and it arrives as its own
+            // frame after the intent -- so like tool_result it is folded back
+            // rather than rendered as a row of its own.
+            auto it = row_for_intent_seq.find(int_or(e, "intent", 0));
+            if (it != row_for_intent_seq.end())
+                out[it->second].tool_node = str_or(e, "node_id", "");
+        } else if (type == "tool_result") {
+            const int64_t intent = int_or(e, "intent", 0);
+            auto it = row_for_intent_seq.find(intent);
+            if (it == row_for_intent_seq.end()) continue;  // intent off-page
+            Message& m = out[it->second];
+            const json& outcome = obj_at(e, "outcome");
+            m.tool_status = str_or(outcome, "outcome", "") == "success"
+                                ? "completed"
+                                : "failed";
+            m.tool_result = str_or(obj_at(outcome, "content"), "text", "");
+            // The row's own stamp stays the intent's: a tool row belongs where
+            // the call was made, not where the answer landed.
+            if (created > 0 && m.created_at > 0)
+                m.tool_duration_ms = (created - m.created_at) * 1000;
+        }
+        // Everything else -- run_started, model_call_*, epoch_change_*, noop,
+        // status_reported and the rest of a vocabulary the server says will
+        // grow -- folds as nothing on purpose.
+    }
+    return out;
+}
+
+}  // namespace agentcloud
+
+std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
+                                              Session* out,
+                                              std::string* error) {
+    const auto fail = [&](const std::string& why) {
+        if (error != nullptr) *error = why;
+        return std::string();
+    };
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    FrameQueue q;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return fail("could not parse " + url);
+
+    struct Closer {
+        ws_conn* c;
+        ~Closer() { ws_close(c); }
+    } closer{conn};
+
+    // sub 1 is the session channel; attach must carry the credential.
+    json attach = {{"cmd", "attach"},
+                   {"session_id", id},
+                   {"auth", {{"cat", {{"payload", token.value}}}}}};
+    const json attach_env = {{"sub", 1}, {"payload", attach}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded())
+        return fail("no hello for " + id + " (" + q.closed_reason + ")");
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " + str_or(hello, "message", "(no message)"));
+    }
+
+    // hello.state carries what the session list could not: a real title, and
+    // the token accounting behind a context meter.
+    const json& state = obj_at(hello, "state");
+    const std::string title = str_or(state, "title", "");
+    if (!title.empty()) out->summary.title = title;
+    apply_state(state, out->summary);
+
+    // Page BACKWARD from the newest until the server says done.
+    //
+    // limit == 0 means "the whole transcript" to this app (loader_system's
+    // load-older path). It is NOT a wire value: clamping it into 1..500 like a
+    // real limit would ask for a single frame and hand back a one-message
+    // transcript, which is how this first went wrong.
+    const bool want_all = (limit <= 0);
+    const int per_page = want_all ? 500 : (limit > 500 ? 500 : limit);
+    // A session can be millions of seqs long; "all" has to mean "all we will
+    // sit here for". 20 pages of 500 is 10k frames, well past any transcript a
+    // person reads, and the caller still learns there is more.
+    constexpr int kMaxPages = 20;
+
+    // Pages arrive newest-first, oldest-first WITHIN a page. Collect them and
+    // splice in ascending seq order so the fold sees one continuous history --
+    // a tool_result must be able to find an intent from an earlier page.
+    std::vector<json> pages;
+    uint64_t before = std::numeric_limits<uint64_t>::max();
+    bool done = false;
+    for (int p = 0; p < (want_all ? kMaxPages : 1) && !done; ++p) {
+        const json page_env = {{"sub", 1},
+                               {"payload",
+                                {{"cmd", "page"},
+                                 {"before", before},
+                                 {"limit", per_page}}}};
+        const std::string page_wire = page_env.dump();
+        if (!ws_send_text(conn, page_wire.data(), page_wire.size()))
+            return fail("socket closed before page was sent");
+
+        const json page = q.wait_for_type("page", kReplyTimeoutSecs);
+        if (page.is_discarded())
+            return fail("no page for " + id + " (" + q.closed_reason + ")");
+        if (str_or(page, "type", "") == "error")
+            return fail("page refused: " +
+                        str_or(page, "message", "(no message)"));
+
+        const json& frames = page.contains("frames") && page["frames"].is_array()
+                                 ? page["frames"]
+                                 : json::array();
+        if (frames.empty()) { done = true; break; }
+
+        // Next page ends where this one begins.
+        const uint64_t oldest =
+            static_cast<uint64_t>(int_or(frames.front(), "seq", 0));
+        pages.push_back(frames);
+        done = page.value("done", true);
+        if (oldest == 0) break;  // no usable cursor; stop rather than spin
+        before = oldest;
+    }
+
+    json all = json::array();
+    for (auto it = pages.rbegin(); it != pages.rend(); ++it)
+        for (const json& f : *it) all.push_back(f);
+
+    const json combined = {{"type", "page"}, {"frames", all}};
+    out->messages = agentcloud::parse_page_frames(combined.dump());
+    // Only claim there is more when the server said so and we stopped asking.
+    out->has_more_older = !done;
+    return hello.dump();
+}
+
+Result<Session> AgentcloudClient::get_session(const std::string& id) {
+    return get_session(id, 200);
+}
+
+Result<Session> AgentcloudClient::get_session(const std::string& id, int limit) {
+    // One socket for the pair: attach binds the principal for this
+    // subscription, and page inherits it. Splitting them across two sockets
+    // would re-attach for nothing.
+    std::string error;
+    Session session;
+    session.summary.id = id;
+
+    const std::string hello_json = attach_and_page(id, limit, &session, &error);
+    if (hello_json.empty()) return Result<Session>::failure(error);
+    return Result<Session>::success(std::move(session));
+}
+
+}  // namespace api
