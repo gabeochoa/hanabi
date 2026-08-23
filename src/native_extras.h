@@ -23,6 +23,11 @@
 //      even when hanabi is in the background. Uses NSUserNotification (see the
 //      API note in native_extras.mm for the deprecated-vs-permission tradeoff).
 //
+//   3b. Image attachments (section 6 below). Pasting or dropping an image is
+//      an AppKit fact — NSPasteboard holds the pixels, NSDraggingDestination
+//      delivers the file — so both arrive through this seam as a PATH the
+//      immediate-mode core can hold in app state and draw from.
+//
 //   3. Spotlight indexing seam. native_spotlight_index() exists so open/recent
 //      threads COULD be indexed into system search — but see the honest
 //      feasibility note in native_extras.mm: CoreSpotlight needs a real .app
@@ -99,6 +104,53 @@ void native_openurl_install(void);
 // nothing is pending. Polled by the C++ frame loop, which then sets
 // AppComponent::requestOpenTab to open + navigate to the thread.
 bool native_take_open_thread(char* out, int cap);
+
+// ---- 6. Image attachments: clipboard paste + file drop ---------------------
+//
+// Both answer with a filesystem PATH to an image, never with bytes: the
+// transcript's inline-image cache (src/ui/inline_image.h) already turns a path
+// into a texture, so a path is the one currency both the chip thumbnail and any
+// future send path can spend. AppKit owns the pixels only long enough to write
+// them somewhere the C++ side can read.
+//
+// The two halves poll differently, and deliberately:
+//   * A PASTE is a pull. The chord (Cmd+V) is a C++ key read, and the
+//     pasteboard can be asked what it holds at that instant, so there is
+//     nothing to latch — native_take_clipboard_image() answers the question
+//     the keystroke asked.
+//   * A DROP is a push. AppKit delivers it whenever the user lets go of the
+//     mouse, so the .mm latches the path and the frame loop drains it, exactly
+//     as the hotkey and the deep-link do.
+
+// True when the clipboard holds an image RIGHT NOW: writes a path to it into
+// `out` (UTF-8, NUL-terminated, up to cap-1 bytes) and returns true, else
+// returns false leaving `out` untouched. Copied-in-Finder image FILES answer
+// with their own path; raw image data (a screenshot, an image copied from a
+// browser) is written to a temp PNG that outlives the call. Safe to call every
+// frame, but the caller should only ask on the paste chord — reading the
+// pasteboard allocates.
+bool native_take_clipboard_image(char* out, int cap);
+
+// Register the app window as a drag destination for image files. Idempotent;
+// main-thread + an existing window required, so the frame loop installs it on
+// the first windowed frame alongside the hotkey. NEVER call from the headless
+// path. No-op (with a log) if the window is not up yet — call again next frame.
+void native_filedrop_install(void);
+
+// One-shot: if an image file was dropped on the window since the last call,
+// writes its path into `out` (UTF-8, NUL-terminated, up to cap-1 bytes) and
+// returns true, then clears. Returns false (leaving out untouched) when
+// nothing is pending. Drops arrive one path per call — a multi-file drop
+// queues them, so a caller that keeps asking until it answers false drains the
+// whole drop.
+bool native_take_dropped_image(char* out, int cap);
+
+// TEST SEAM. Pushes `path` into the same pending-drop queue a real AppKit drop
+// feeds, so the frame-loop drain + everything downstream of it can be exercised
+// without a hand on a mouse: a drag is not in the widget tree and the scripted
+// harness cannot produce one. main.cpp calls this once when HANABI_DROP_TEST is
+// set. It does NOT simulate AppKit's delivery — that half stays manual.
+void native_simulate_file_drop(const char* path);
 
 // ---- 5. OS appearance (for the "System" theme choice) ----------------------
 

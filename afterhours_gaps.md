@@ -2808,3 +2808,53 @@ should.
   shape `assert_ui_text` already has: read the name, then `parse_quoted()` each
   remaining `prop=value` so a quoted value survives. Two lines next to the
   `assert_ui_text` branch.
+---
+
+### #60 — sokol's drag-and-drop is built into the backend and cannot be turned on
+
+- **What I was trying to build.** Dropping an image from Finder onto the
+  composer. sokol_app already has this: `sapp_desc.enable_dragndrop`, then
+  `SAPP_EVENT_TYPE_FILES_DROPPED` with `sapp_get_dropped_file_path(i)`. Every
+  platform sokol supports implements it, so an app that could ask for it would
+  get drops on macOS, Windows and Linux from one code path.
+
+- **What I tried.** Setting it through the graphics `Config` hanabi already
+  fills in (`width`, `height`, `title`, `target_fps`, `flags`) — the same place
+  `FLAG_WINDOW_RESIZABLE` goes.
+
+- **What happened.** There is nothing to set. `MetalPlatformAPI::run()`
+  (`vendor/afterhours/src/backends/sokol/backend.h`) builds its `sapp_desc`
+  privately and hard-codes the whole thing: callbacks, `high_dpi`,
+  `sample_count`, `enable_clipboard`, `clipboard_size`. `enable_dragndrop` is
+  never mentioned, `Config` carries no field for it, and the only flag the
+  backend reads (`FLAG_WINDOW_RESIZABLE`) it then ignores as a no-op. The
+  event enum afterhours translates sokol events into has no dropped-files
+  member either, so even a flipped flag would have nowhere to arrive.
+
+- **The workaround, and what it costs.** hanabi installs its own AppKit
+  dragging destination in `src/native_extras.mm` (section 6): a category on
+  `MTKView` adding the `NSDraggingDestination` methods, plus
+  `registerForDraggedTypes:` on the window's content view, feeding a queue the
+  frame loop drains. It works — the install logs the registration and the
+  content view is sokol's `MTKView` — but the costs are real:
+
+  1. **macOS only.** sokol's version would have been every platform at once;
+     this one is AppKit, so a Linux or Windows hanabi has no drop at all.
+  2. **It reaches around the backend to a view it does not own.** The
+     category assumes the content view is an `MTKView` — true today because
+     sokol makes it one, and checked at install time rather than assumed, but
+     it is a fact about somebody else's implementation.
+  3. **The other two ways in are worse.** Replacing the window's delegate
+     takes sokol's own resize/close callbacks away from it; an overlay
+     `NSView` registered for dragged types has to be hit-testable to be found
+     as a drag destination, and a hit-testable view over the content view eats
+     every mouse event the UI needs.
+  4. **Untestable in the harness.** A drag is not in the widget tree, so the
+     scripted test drives the queue directly (`native_simulate_file_drop`) and
+     the AppKit delivery itself is verified by hand.
+
+- **Minimal upstream fix.** One bool on `Config` (`enable_file_drop`) copied
+  into `desc.enable_dragndrop`, and the dropped-files event surfaced the way
+  the other sokol events already are — a `files_dropped` callback on `Config`,
+  or a `get_dropped_files()` the frame can poll. Everything underneath it is
+  already written and shipping inside sokol_app.

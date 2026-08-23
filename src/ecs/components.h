@@ -396,6 +396,28 @@ struct AppComponent : public afterhours::BaseComponent {
     };
     std::map<std::string, ComposerHistory> composerHistory;
 
+    // Images pasted or dropped onto the composer, in the order they arrived.
+    // A PATH each, never bytes: the transcript's inline-image cache turns a
+    // path into a texture, so the chip's thumbnail costs nothing new.
+    //
+    // NOT keyed by thread, unlike the draft above. hanabi cannot SEND an image
+    // on any backend it speaks (see the note over the chips row in
+    // main_pane_system.h), so an attachment never moves with a message and
+    // there is no per-thread lifetime to respect yet. When a send path exists
+    // this becomes a per-thread slot the way the draft is.
+    struct Attachment {
+        // Absolute path to the image on this machine.
+        std::string path;
+        // What the chip calls it — the file's base name.
+        std::string name;
+    };
+    std::vector<Attachment> composerAttachments;
+    // The most images the composer will hold. Not an arbitrary number: it is
+    // the cap the orchestrator's own message route enforces (five per
+    // message), so hanabi never accumulates a set that could not be sent even
+    // once a send path exists.
+    static constexpr size_t kMaxAttachments = 5;
+
     // Slash-command menu (the dropdown a "/" draft raises over the composer).
     // Its open state lives on the app rather than in the composer's own
     // locals because Esc has exactly one owner, and that owner has to rank
