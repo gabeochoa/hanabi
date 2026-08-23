@@ -518,10 +518,30 @@ uitest-build: $(UITEST_EXE) copy-resources
 .PHONY: uitest uitest-build
 
 # ==============================================================================
-# SCREENSHOT BASELINES  (docs/breakdown/screenshot-testing.md)
+# SCREENSHOT BASELINES  (docs/breakdown/screenshot-testing.md, chunks 1-3)
 # ==============================================================================
 
+SHOT_BASELINES := docs/screenshots/baselines
+SHOT_CURRENT := $(OUTPUT_DIR)/screenshots/current
 SHOT_DETERMINISM := $(OUTPUT_DIR)/screenshots/determinism
+
+# Which states to capture: by default exactly the ones that have a baseline, so
+# a three-baseline check renders three screens and not all 32. Override to add
+# one: make update-baselines SHOT_FILTER='^04_transcript_light$$'
+SHOT_FILTER = $(shell ls $(SHOT_BASELINES)/*.png 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.png$$//' | paste -sd'|' - | sed 's/^/^(/; s/$$/)$$/')
+
+# compare_screenshots.py prefers Pillow and falls back to ImageMagick; the
+# python3 first on PATH is not necessarily the one with Pillow installed.
+SHOT_PY = $(shell for p in python3 /usr/bin/python3 /opt/homebrew/bin/python3; do command -v $$p >/dev/null 2>&1 && $$p -c 'import PIL' >/dev/null 2>&1 && { echo $$p; break; }; done | head -1)
+SHOT_PYTHON = $(if $(SHOT_PY),$(SHOT_PY),python3)
+
+# Capture $(SHOT_FILTER) into $(1). Mock backend, isolated HOME and per-shot
+# timeout all come from scripts/screens.sh.
+define CAPTURE_SCREENS
+	@rm -rf $(1); mkdir -p $(1)
+	@HANABI_SCREENS_OUT=$(abspath $(1)) HANABI_SCREENS_FILTER='$(SHOT_FILTER)' \
+	    bash scripts/screens.sh
+endef
 
 # Chunk 1: the whole suite rests on this. Capture one screen twice and require
 # the two PNGs to be byte-identical.
@@ -551,4 +571,23 @@ test-screenshot-determinism: $(MAIN_EXE) copy-resources
 	    exit 1; \
 	fi
 
-.PHONY: test-screenshot-determinism
+# Chunk 3: capture the baselined states and compare.
+validate-screenshots: $(MAIN_EXE) copy-resources
+	@echo "=== capturing current screens for comparison ==="
+	$(call CAPTURE_SCREENS,$(SHOT_CURRENT))
+	@echo
+	@$(SHOT_PYTHON) scripts/compare_screenshots.py \
+	    --baselines $(SHOT_BASELINES) --current $(SHOT_CURRENT)
+
+# Chunk 3: adopt the current render as the new truth, for an INTENTIONAL visual
+# change. Review `git diff --stat $(SHOT_BASELINES)` (and the PNGs) before
+# committing.
+update-baselines: $(MAIN_EXE) copy-resources
+	@echo "=== recapturing baselines ==="
+	$(call CAPTURE_SCREENS,$(SHOT_CURRENT))
+	@cp $(SHOT_CURRENT)/*.png $(SHOT_BASELINES)/
+	@echo
+	@git diff --stat $(SHOT_BASELINES) || true
+	@echo "Baselines updated. Review the PNGs before committing."
+
+.PHONY: test-screenshot-determinism validate-screenshots update-baselines

@@ -122,7 +122,9 @@ the headless `--screenshot` path can reach, into `/tmp/hanabi_screens/`
 It exits non-zero if any capture is missing or not exactly 1100×760.
 
 Per state it writes the matching `settings.json`, runs the app headless with a
-per-shot timeout, `pkill`s any stray `hanabi.exe`, and verifies dimensions.
+per-shot timeout, kills any stray render **started from this worktree's own
+binary path**, and verifies dimensions. `HANABI_SCREENS_FILTER` is an extended
+regex that narrows the run to the matching state names.
 
 **Isolation / safety.** Each capture runs with `HOME` pointed at a throwaway
 temp dir, so our `settings.json` is written and read *there* — the user's real
@@ -167,6 +169,23 @@ branches:
 No `vendor/` file is modified; the hover hot-state machinery lives in vendored
 afterhours (which we don't patch), so the hook is applied in *our* render code
 at the point where we already branch on hover.
+
+### Screenshot baselines (`make validate-screenshots`)
+
+Committed reference PNGs live in `docs/screenshots/baselines/`, with their
+per-screen diff thresholds in `manifest.json` and the update workflow in that
+directory's README.
+
+- `make test-screenshot-determinism` captures `01_home_dark` twice and requires
+  the two PNGs to be byte-identical. Everything else rests on this: the mock
+  seeds its timestamps relative to now (`src/api/mock_client.h`), so rendered
+  ages are constant and a baseline stays valid.
+- `make validate-screenshots` recaptures the baselined states and compares them.
+- `make update-baselines` adopts the current render, for an intentional change.
+
+Comparison is `scripts/compare_screenshots.py` — Pillow when the running python3
+has it, ImageMagick's `magick compare` otherwise, and a clear install message
+rather than a crash when neither is present.
 
 ## Scripted UI tests (`make uitest`, `tests/ui/*.e2e`)
 
