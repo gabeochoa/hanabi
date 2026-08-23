@@ -516,3 +516,39 @@ uitest: $(UITEST_EXE) copy-resources
 uitest-build: $(UITEST_EXE) copy-resources
 
 .PHONY: uitest uitest-build
+
+# ==============================================================================
+# SCREENSHOT BASELINES  (docs/breakdown/screenshot-testing.md)
+# ==============================================================================
+
+SHOT_DETERMINISM := $(OUTPUT_DIR)/screenshots/determinism
+
+# Chunk 1: the whole suite rests on this. Capture one screen twice and require
+# the two PNGs to be byte-identical.
+test-screenshot-determinism: $(MAIN_EXE) copy-resources
+	@echo "=== screenshot determinism: capturing 01_home_dark twice ==="
+	@rm -rf $(SHOT_DETERMINISM)
+	@mkdir -p $(SHOT_DETERMINISM)/a $(SHOT_DETERMINISM)/b
+	@HANABI_SCREENS_OUT=$(abspath $(SHOT_DETERMINISM))/a HANABI_SCREENS_FILTER='^01_home_dark$$' \
+	    bash scripts/screens.sh
+	@HANABI_SCREENS_OUT=$(abspath $(SHOT_DETERMINISM))/b HANABI_SCREENS_FILTER='^01_home_dark$$' \
+	    bash scripts/screens.sh
+	@A=$(SHOT_DETERMINISM)/a/01_home_dark.png; B=$(SHOT_DETERMINISM)/b/01_home_dark.png; \
+	for f in $$A $$B; do \
+	    [ -s "$$f" ] || { echo "FAIL: $$f missing or empty" >&2; exit 1; }; \
+	done; \
+	SA=$$(wc -c < $$A | tr -d ' '); SB=$$(wc -c < $$B | tr -d ' '); \
+	MA=$$(md5 -q $$A 2>/dev/null || md5sum $$A | cut -d' ' -f1); \
+	MB=$$(md5 -q $$B 2>/dev/null || md5sum $$B | cut -d' ' -f1); \
+	echo "  capture A: $$SA bytes  md5 $$MA"; \
+	echo "  capture B: $$SB bytes  md5 $$MB"; \
+	if [ "$$SA" = "$$SB" ] && [ "$$MA" = "$$MB" ]; then \
+	    echo "PASS: two captures of 01_home_dark are byte-identical"; \
+	else \
+	    echo "FAIL: captures differ — the render is not deterministic, so" >&2; \
+	    echo "      baselines cannot be trusted. Check for absolute-epoch mock" >&2; \
+	    echo "      seeding (src/api/mock_client.h) or an unfrozen animation." >&2; \
+	    exit 1; \
+	fi
+
+.PHONY: test-screenshot-determinism

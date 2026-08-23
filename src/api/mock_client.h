@@ -21,6 +21,10 @@
 //
 // Timestamps are now-based (time(nullptr) - N) so the sidebar time buckets
 // (Today / This Week / Earlier) always populate whenever the app is run.
+// The screenshot baseline suite (docs/screenshots/baselines/) depends on this:
+// datum and display are measured from the same moving now, so every rendered
+// age ("3h") is constant — reseeding with absolute epochs rots every
+// time-showing baseline within a day.
 // Nothing here names or encodes any real service, product, or company.
 
 #include <algorithm>
