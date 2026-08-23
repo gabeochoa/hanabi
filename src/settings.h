@@ -115,6 +115,15 @@ struct Settings {
     bool get_notification_sound() const;
     void set_notification_sound(bool on);  // auto-persists + marks dirty
 
+    // ── Local display preferences. Persisted, but NOT part of the web
+    // preferences schema and never marked dirty: how this machine draws the
+    // transcript is not something another device wants pushed onto it.
+
+    // Show the time on transcript rows. Default true (the long-standing
+    // behaviour).
+    bool get_show_timestamps() const;
+    void set_show_timestamps(bool on);  // auto-persists
+
     // Memory backend: "traditional" (default) or "hindsight".
     const std::string& get_memory_backend() const;
     void set_memory_backend(const std::string& backend);  // auto-persists + dirty
@@ -153,6 +162,7 @@ struct Settings {
     int yap_level_ = 2;
     int auto_archive_days_ = 5;
     bool notification_sound_ = true;
+    bool show_timestamps_ = true;
     int quiet_start_minutes_ = 0;
     int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";

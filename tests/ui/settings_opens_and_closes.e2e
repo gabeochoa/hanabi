@@ -1,14 +1,19 @@
 # The gear opens the settings sheet; its close button dismisses it.
 #
+# Both clicks go by NAME. The close button used to be a raw coordinate, which
+# is a coordinate onto a CENTERED sheet: adding one row to the panel moved it
+# and the click landed on the backdrop, so the test failed for a reason that
+# had nothing to do with opening or closing settings.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_no_text Appearance
 
-click 228 21
+click_ui sb_settings
 wait_frames 8
 expect_text "Appearance"
 expect_text "Cache limit"
 
-click 814 128
+click_ui settings_close
 wait_frames 8
 expect_no_text Appearance

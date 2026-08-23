@@ -45,6 +45,7 @@ bool Settings::load_save_file() {
         yap_level_ = j.value("yap_level", yap_level_);
         auto_archive_days_ = j.value("auto_archive_days", auto_archive_days_);
         notification_sound_ = j.value("notification_sound", notification_sound_);
+        show_timestamps_ = j.value("show_timestamps", show_timestamps_);
         quiet_start_minutes_ =
             j.value("quiet_start_minutes", quiet_start_minutes_);
         quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
@@ -96,6 +97,7 @@ void Settings::write_save_file() {
     j["yap_level"] = yap_level_;
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
+    j["show_timestamps"] = show_timestamps_;
     j["quiet_start_minutes"] = quiet_start_minutes_;
     j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
@@ -249,6 +251,13 @@ void Settings::set_notification_sound(bool on) {
     if (on == notification_sound_) return;
     notification_sound_ = on;
     settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_show_timestamps() const { return show_timestamps_; }
+void Settings::set_show_timestamps(bool on) {
+    if (on == show_timestamps_) return;
+    show_timestamps_ = on;
     if (auto_save_enabled) write_save_file();
 }
 
