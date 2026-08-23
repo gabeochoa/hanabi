@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "../test_hooks.h"
+#include "../util/diff.h"
 #include "../util/format.h"
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
@@ -5856,6 +5857,57 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kToolRowGap = 4.0f;
     static constexpr float kSubRowH = 22.0f;
 
+    // ---- Diff colouring (src/util/diff.h decides WHAT a line is) ---------
+    //
+    // The hues are the theme's existing on-background status pair — the red
+    // and green already tuned to read as red and green on BOTH palettes (see
+    // the status_blocked / status_review note in theme.h). A diff does not
+    // need a second opinion about what red means, and inventing a token per
+    // feature is how a palette stops being one.
+    static theme::Color diff_line_fg(hanabi::diff::LineKind kind) {
+        switch (kind) {
+            case hanabi::diff::LineKind::Added: return theme::status_review();
+            case hanabi::diff::LineKind::Removed: return theme::status_blocked();
+            case hanabi::diff::LineKind::Hunk: return theme::accent();
+            case hanabi::diff::LineKind::Meta: return theme::text_faint();
+            case hanabi::diff::LineKind::Context: break;
+        }
+        return theme::text_secondary();
+    }
+    // The band behind a changed row. Pre-composited over the panel fill
+    // because a UI rect cannot alpha-blend (afterhours gap #13): passing a
+    // low-alpha token straight in paints a harsh near-opaque block.
+    static std::optional<theme::Color> diff_line_bg(
+        hanabi::diff::LineKind kind) {
+        const auto wash = [](theme::Color c) {
+            return theme::over(theme::Color{c.r, c.g, c.b, 28},
+                               theme::window_bg());
+        };
+        switch (kind) {
+            case hanabi::diff::LineKind::Added:
+                return wash(theme::status_review());
+            case hanabi::diff::LineKind::Removed:
+                return wash(theme::status_blocked());
+            default: break;
+        }
+        return std::nullopt;
+    }
+    // The row's debug name says what the line was read as. A test can assert a
+    // name; it cannot assert a colour (the harness has no colour property), so
+    // the name IS how the classification is checked from outside.
+    static std::string diff_line_name(hanabi::diff::LineKind kind, size_t i,
+                                      const std::string& prefix = "tool_out") {
+        const std::string idx = "_" + std::to_string(i);
+        switch (kind) {
+            case hanabi::diff::LineKind::Added: return prefix + "_add" + idx;
+            case hanabi::diff::LineKind::Removed: return prefix + "_del" + idx;
+            case hanabi::diff::LineKind::Hunk: return prefix + "_hunk" + idx;
+            case hanabi::diff::LineKind::Meta: return prefix + "_meta" + idx;
+            case hanabi::diff::LineKind::Context: break;
+        }
+        return prefix + "_line" + idx;
+    }
+
     // A single tool block is expandable IF it has captured output (tool_result)
     // to show. Keyed in expandedPiles by the message id (shared with piles).
     static bool tool_block_expandable(const api::Message& m) {
@@ -5864,20 +5916,50 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Max output lines shown when a single tool block is expanded (keeps a huge
     // dump from dominating the pane; the row stays a peek, not the full log).
     static constexpr int kToolOutLines = 8;
+
+    // The lines the expanded panel shows — the ONE list, built once and read
+    // by both the measure (tool_out_height, below) and the draw
+    // (render_tool_block). It used to be two walks of the same string that
+    // happened to agree: the measure counted newlines and capped the count,
+    // the draw cut the string at the Nth newline and split what was left. Two
+    // readings of one text is exactly how a panel ends up a row taller than
+    // the space reserved for it, and every virtualization spacer below it
+    // moves. Now there is nothing to disagree about — the height is this
+    // vector's size, and the rows are its elements.
+    static std::vector<std::string> tool_out_lines(const api::Message& m,
+                                                   int cap) {
+        std::vector<std::string> out;
+        size_t start = 0;
+        const std::string& text = m.tool_result;
+        if (text.empty()) return out;
+        while (start <= text.size() && out.size() < static_cast<size_t>(cap)) {
+            const size_t nl = text.find('\n', start);
+            std::string line =
+                text.substr(start, (nl == std::string::npos ? text.size() : nl) -
+                                       start);
+            // Tabs -> 2 spaces for stable columns (same as code lines).
+            for (size_t t = line.find('\t'); t != std::string::npos;
+                 t = line.find('\t', t))
+                line.replace(t, 1, "  ");
+            out.push_back(std::move(line));
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return out;
+    }
+
     // Height of the expanded output panel for a single tool block (0 if not
-    // expanded / no output). Mirrors render_tool_block's expanded panel exactly.
+    // expanded / no output). Counts the rows render_tool_block will draw,
+    // because it counts the same vector.
     float tool_out_height(AppComponent& app, const api::Message& m) {
         if (!tool_block_expandable(m)) return 0.0f;
         AppComponent* a = &app;
         const std::string key = m.id.empty() ? "" : m.id;
         const bool open = a && !key.empty() && a->expandedPiles.count(key) != 0;
         if (!open) return 0.0f;
-        // Count newline-split lines in the result, capped.
-        int lines = 1;
-        for (char c : m.tool_result)
-            if (c == '\n') ++lines;
-        if (lines > kToolOutLines) lines = kToolOutLines;
-        return static_cast<float>(lines) * kLinePitch + 12.0f;  // + panel pad
+        return static_cast<float>(tool_out_lines(m, kToolOutLines).size()) *
+                   kLinePitch +
+               12.0f;  // + panel pad
     }
     float tool_block_height(AppComponent& app, const api::Message& m) {
         return kToolRowGap + kToolRowH + kToolRowGap + tool_out_height(app, m);
@@ -6222,12 +6304,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // How many output lines a sub-row's detail panel shows (a peek, not a dump).
     static constexpr int kSubOutLines = 4;
-    // Number of result lines actually rendered for a sub-row (capped).
+    // The sub-row's lines — the same ONE list the single-tool panel uses, at
+    // the sub-row's tighter cap. It was a second pair of walks over the same
+    // string (count the newlines here, split them there), which is the same
+    // way to be wrong the single panel had: this panel's height is mirrored in
+    // tool_pile_height, so a row more than was measured moves every spacer
+    // below the pile.
     static int sub_out_lines(const api::Message& m) {
-        if (m.tool_result.empty()) return 0;
-        int n = 1;
-        for (char c : m.tool_result) if (c == '\n') ++n;
-        return n > kSubOutLines ? kSubOutLines : n;
+        return static_cast<int>(tool_out_lines(m, kSubOutLines).size());
     }
     // Height of a sub-row's output panel (0 when no result). Mirrored in
     // tool_pile_height so the virtualization spacers line up.
@@ -6240,8 +6324,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // first kSubOutLines of the captured tool_result — the "tool details".
     void tool_sub_output(UIContext<InputAction>& ctx, Entity& parent, int id,
                          const api::Message& m, float rowW) {
-        const int n = sub_out_lines(m);
-        if (n <= 0) return;
+        const std::vector<std::string> lines = tool_out_lines(m, kSubOutLines);
+        if (lines.empty()) return;
         auto panel = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(rowW - 20.0f),
@@ -6255,31 +6339,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
                 .with_corner_radius(4.0f)
                 .with_debug_name("sub_out"));
-        // Split tool_result into lines; render the first kSubOutLines.
-        size_t ls = 0;
-        int li = 0;
-        while (ls <= m.tool_result.size() && li < n) {
-            size_t nl = m.tool_result.find('\n', ls);
-            size_t e = (nl == std::string::npos) ? m.tool_result.size() : nl;
-            std::string line = m.tool_result.substr(ls, e - ls);
-            for (size_t t = line.find('\t'); t != std::string::npos;
-                 t = line.find('\t', t))
-                line.replace(t, 1, "  ");
-            div(ctx, mk(panel.ent(), 1 + li),
-                ComponentConfig{}
+        // The rows are the vector sub_out_lines() counted, so the panel is
+        // exactly as tall as what goes in it. A patch is coloured here too:
+        // the edit tool usually arrives in a PILE with the calls around it,
+        // which makes this — not the single-tool panel — the place its diff is
+        // actually read.
+        const bool isDiff = hanabi::diff::looks_like_diff(m.tool_result);
+        for (size_t li = 0; li < lines.size(); ++li) {
+            const std::string& line = lines[li];
+            const hanabi::diff::LineKind kind =
+                isDiff ? hanabi::diff::classify(line)
+                       : hanabi::diff::LineKind::Context;
+            auto cfg = ComponentConfig{}
                     .with_label(line.empty() ? " "
                                              : fmtutil::ellipsize(line, 90))
                     .with_size(ComponentSize{percent(1.0f),
                                              pixels(kLinePitch - 2.0f)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
+                    .with_custom_text_color(
+                        isDiff ? diff_line_fg(kind) : theme::text_faint())
                     .with_font("mono", theme::type::MICRO)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("sub_out_line"));
-            ++li;
-            if (nl == std::string::npos) break;
-            ls = nl + 1;
+                    .with_debug_name(diff_line_name(kind, li, "sub_out"));
+            const std::optional<theme::Color> band = diff_line_bg(kind);
+            if (band.has_value()) cfg = cfg.with_custom_background(*band);
+            else cfg = cfg.with_transparent_bg();
+            div(ctx, mk(panel.ent(), 1 + static_cast<int>(li)), cfg);
         }
     }
 
@@ -6533,20 +6618,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (open) {
             // Expanded output: a sunken monospace panel showing the first
             // kToolOutLines of the tool's captured result (a peek, not the full
-            // log). Height mirrors tool_out_height().
-            std::string out = m.tool_result;
-            // Keep only the first kToolOutLines lines.
-            int nl = 0;
-            size_t cut = std::string::npos;
-            for (size_t p = 0; p < out.size(); ++p) {
-                if (out[p] == '\n' && ++nl >= kToolOutLines) {
-                    cut = p;
-                    break;
-                }
-            }
-            if (cut != std::string::npos) {
-                out = out.substr(0, cut);
-            }
+            // log). The rows are tool_out_lines(m) — the same vector
+            // tool_out_height() measured, so the panel cannot be the wrong
+            // size for what goes in it.
+            const std::vector<std::string> outLines =
+                tool_out_lines(m, kToolOutLines);
+            // An edit tool reports what it changed as a patch, and a patch
+            // read in one flat grey is just text with punctuation. When the
+            // output announces itself as a diff (a hunk header, or the
+            // ---/+++ pair — never a leading "-" alone, which is also every
+            // bullet list a tool ever printed), each row is coloured by what
+            // it IS. See src/util/diff.h.
+            const bool isDiff = hanabi::diff::looks_like_diff(m.tool_result);
             auto panel = div(ctx, mk(parent, 200 + index * 10 + 5),
                 ComponentConfig{}
                     .with_size(ComponentSize{pixels(rowW),
@@ -6573,32 +6656,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("tool_out_col"));
-            {
-                size_t ls = 0;
-                int li = 0;
-                while (ls <= out.size()) {
-                    size_t nl2 = out.find('\n', ls);
-                    size_t e = (nl2 == std::string::npos) ? out.size() : nl2;
-                    std::string ln = out.substr(ls, e - ls);
-                    // Tabs -> 2 spaces for stable columns (same as code lines).
-                    for (size_t p = ln.find('\t'); p != std::string::npos;
-                         p = ln.find('\t', p))
-                        ln.replace(p, 1, "  ");
-                    div(ctx, mk(outCol.ent(), 1 + li),
-                        ComponentConfig{}
-                            .with_label(ln.empty() ? " " : ln)
-                            .with_size(ComponentSize{percent(1.0f),
-                                                     pixels(kLinePitch)})
-                            .with_transparent_bg()
-                            .with_custom_text_color(theme::text_secondary())
-                            .with_font("mono", theme::type::SM)
-                            .with_alignment(TextAlignment::Left)
-                            .with_roundness(0.0f)
-                            .with_debug_name("tool_out_line"));
-                    ++li;
-                    if (nl2 == std::string::npos) break;
-                    ls = nl2 + 1;
-                }
+            for (size_t li = 0; li < outLines.size(); ++li) {
+                const std::string& ln = outLines[li];
+                const hanabi::diff::LineKind kind =
+                    isDiff ? hanabi::diff::classify(ln)
+                           : hanabi::diff::LineKind::Context;
+                auto cfg = ComponentConfig{}
+                        .with_label(ln.empty() ? " " : ln)
+                        .with_size(ComponentSize{percent(1.0f),
+                                                 pixels(kLinePitch)})
+                        .with_custom_text_color(diff_line_fg(kind))
+                        .with_font("mono", theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_roundness(0.0f)
+                        // Named by what the line IS, so a scripted test can
+                        // address "the second added line" — the classification
+                        // is not otherwise observable from outside (the
+                        // harness can assert geometry and text, never colour).
+                        .with_debug_name(diff_line_name(kind, li));
+                // A wash behind the whole row, not just the glyphs: a changed
+                // line should be findable by scanning the block, which is what
+                // a coloured band does and a coloured word does not.
+                const std::optional<theme::Color> band = diff_line_bg(kind);
+                if (band.has_value()) cfg = cfg.with_custom_background(*band);
+                else cfg = cfg.with_transparent_bg();
+                div(ctx, mk(outCol.ent(), 1 + static_cast<int>(li)), cfg);
             }
         }
     }
