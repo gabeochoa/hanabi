@@ -811,7 +811,8 @@ wrong:
 - [x] Session rename (~80) `[APP]` — `feat/session-rename`. Backend verb is
       advertised on attach.
 - [x] Composer history walk, Up/Down (~90) — `feat/composer-history-walk`.
-- [ ] Muted sessions, bell toggle (~60) — machine-local, no backend needed.
+- [x] Muted sessions (~60) — `feat/session-mute`. Menu item, not a per-row
+      bell: an always-reserved column taxed every row's title.
 - [x] Home shelf collapse/expand (~50) `[APP]` — `feat/home-shelf-collapse`.
 
 ## Screenshot testing — `screenshot-testing.md`
@@ -820,10 +821,11 @@ wrong:
 - [x] 2. Baseline directory + first three screens — `docs/screenshots/baselines/`
 - [x] 3. Comparison script + `make validate-screenshots` (Pillow, ImageMagick
       fallback, per-screen thresholds in `manifest.json`)
-- [ ] 4. Unbaselined-screen handling
-- [ ] 5. Full baseline set
-- [ ] 6. CI gate
-- [ ] 7. Diff artifacts on failure (post-MVP)
+- [x] 4. Unbaselined-screen handling
+- [x] 5. Full baseline set — 30 screens
+- [x] 6. CI gate — there IS no CI (checked: no `.github` anywhere in history),
+      so it is `make gate` plus an installable pre-push hook, and it says so
+- [x] 7. Diff artifacts on failure — `test-failures/` with the pair and a red diff
 
 Determinism is already proven: two captures are byte-identical. It holds
 because the mock seeds timestamps as `time(nullptr) - N`, so the difference
@@ -835,10 +837,12 @@ backend serves live production data.
 
 - [x] Session rename (~80) `[APP]` — shipped, with the row context menu the
       rest of this section hangs off
-- [ ] Session fork, `/btw` (~70) `[APP]`
-- [ ] Session archive — partial; state exists, UI does not (~60) `[APP]`
-- [ ] Session pin / star (~50) `[APP]`
-- [ ] Session mute (~40) `[APP]`
+- [ ] Session fork, `/btw` (~70) `[APP]` — `/btw` is in the slash menu and
+      reports that this client cannot fork yet
+- [x] Session archive (~60) `[APP]` — `feat/session-archive-ui`, with an undo toast
+- [x] Session pin / star (~50) `[APP]` — was already built; the gap was the
+      undo, which `feat/undo-toast` closed
+- [x] Session mute (~40) `[APP]`
 - [ ] Sub-agent status panel — partial (~80) `[APP]`. The transcript rollup is
       built (`render_sub_agent_panel`); what is missing is the sidebar toggle
 - [ ] ~~Delete session~~ **BLOCKED** — no server verb exists
@@ -846,11 +850,14 @@ backend serves live production data.
 ## Composer — `composer.md`
 
 - [x] History walk, Up/Down (~90) `[APP]`
-- [ ] Slash command menu: `/new` `/model` `/effort` `/rename` `/btw` `/compact` `[APP]`
-- [ ] Model picker popover `[APP]`
-- [ ] Effort level picker `[APP]`
-- [ ] Undo toast for archive/pin/mute `[APP]` — there is a toast plugin
-- [ ] Skills chip `[APP]`
+- [x] Slash command menu `[APP]` — `feat/slash-commands`. `/new` runs; the
+      rest say plainly what this client cannot do rather than reaching the agent
+- [x] Model picker popover `[APP]` — the strip's chip named a model nothing set
+- [x] Effort level picker `[APP]` — local-only; nothing sends it yet
+- [x] Undo toast for archive/pin/mute `[APP]`
+- [ ] ~~Skills chip~~ **BLOCKED** — nothing in the client or on the wire knows
+      what skills a session has; `/whoami` carries one account-wide count of
+      skills the USER authored. Evidence in `docs/breakdown/composer.md`
 - [x] Streaming animation, working dots `[APP]` — **the correction was itself
       wrong.** `render_thinking_indicator` (pulsing dot + Thinking… + elapsed
       timer) has been there for months; what was broken was the demo knob, so
@@ -868,24 +875,25 @@ re-plan it here.
 - [x] 1. Date dividers `[APP]` — `feat/transcript-date-dividers`. Local-day
       boundary, not the doc's four-hour gap (a gap rule prints twice in one day
       and nothing across midnight)
-- [ ] 2. Thinking disclosure, collapsible `[APP]`
-- [ ] 3. Fold defaults for tool rows `[APP]`
+- [x] 2. Thinking disclosure, collapsible `[APP]`
+- [x] 3. Fold defaults for tool rows `[APP]`
 - [x] 4. Message delivery status rows `[APP]` — ALREADY BUILT: `api::SyncState`
       per message + `draw_sync_check` in the transcript. False gap
-- [ ] 5. Syntax highlighting in code blocks `[APP]` — fenced blocks are their
+- [x] 5. Syntax highlighting in code blocks `[APP]` — fenced blocks are their
       own rows, so per-line colour works. INLINE mono inside a paragraph does
       not: `TextSpan` carries colour and weight but no per-run font.
 - [x] 6. Markdown H1-H4 `[APP]` — `feat/markdown-headings`
 - [x] 7. Streaming animation, pulsing dots `[APP]` — see the composer entry:
       built all along, the demo knob was what was broken
-- [ ] 8. Link auto-detection for work-tracker ids `[APP-WORKAROUND]` — needs
+- [x] 8. Link auto-detection for work-tracker ids `[APP-WORKAROUND]` — needs
       to know where a byte range landed on screen, which the library will not
       tell you (no `text_rects_for`). Same trick `find_highlight.h` already
       uses: re-derive the wrap with the library's own wrapper. Fragile, and
       already written down as a gap.
-- [ ] 9. Exclude thinking rows from find `[APP]`
-- [ ] 10. Minimap navigator `[APP]` — a custom-drawn rail via `on_draw_fg`
-- [ ] 11. Transcript behaviour settings `[APP]`
+- [x] 9. Exclude thinking rows from find `[APP]`
+- [x] 10. Minimap navigator `[APP]` — a custom-drawn rail via `on_draw_fg`,
+      reading the same item list the transcript virtualizes from
+- [x] 11. Transcript behaviour settings `[APP]`
 
 **Any layout change here must keep `rich_body_h` and `render_rich_body` in
 step** — they measure and draw the same thing, and drift desyncs the
@@ -896,15 +904,15 @@ multi-line bubble.
 
 - [x] Home shelf collapse/expand (~50) `[APP]`
 - [ ] Muted sessions bell (~60) `[APP]`
-- [ ] Sub-agent visibility toggle `[APP]`
-- [ ] Sidebar row drag-reorder (~110) `[APP]` — `HasDragListener` exists
-- [ ] Search snippet highlighting in rows `[APP-WORKAROUND]` — same no-text-rects problem as #8
+- [x] Sub-agent visibility toggle `[APP]`
+- [x] Sidebar row drag-reorder (~110) `[APP]`
+- [x] Search snippet highlighting in rows `[APP-WORKAROUND]` — same no-text-rects problem as #8
 - [x] Tab drag-reorder (~90) `[APP]` — ALREADY BUILT: `model::reorder_tab`,
       driven from the drag in `tab_bar_system.h`. False gap
 - [x] Tab context menu: copy URL, close others (~50) `[APP]` — ALREADY BUILT:
       the menu, the real clipboard write and `model::close_others` are all in
       `tab_bar_system.h`. Only "close all" is genuinely missing. Mostly a false gap
-- [ ] Tab preview mode (~65) `[APP]`
+- [x] Tab preview mode (~65) `[APP]` — and it is the feature that helps at 2000 rows
 - [ ] ~~Space grouping~~ **BLOCKED** — sessions carry no Space; evidence above
 - [ ] ~~Folder collapse-all~~ **BLOCKED** — depends on Space grouping
 - [x] Tab scrollbar / overflow `[APP]` — ALREADY BUILT (Chrome-style overflow
@@ -917,28 +925,40 @@ Anything touching the sidebar must say how it behaves at 2000+ sessions.
 
 ## Search, settings, shortcuts — `search-settings-shortcuts.md`
 
-- [ ] Find operators: `is:thinking`, `has:tool`, `state:` (small) `[APP]` — in flight
-- [ ] Session search across threads, Cmd+Shift+F (medium) — needs a corpus;
+- [~] Find operators `[APP]` — `state:` and `has:tool` shipped; `is:thinking`
+      waits on a data-model change and shipping it now would break the tally rule
+- [x] Session search across threads, Cmd+Shift+F — a local index over the disk
+      cache, which says out loud how much of the corpus it could see. Needed a corpus;
       say whether it is a local index over the disk cache or a server verb
-- [ ] Command palette, Cmd+K (~250) `[APP]` `[TEST-BLOCKED]`
-- [ ] Snippet highlighting in sidebar search (small) `[APP-WORKAROUND]`
-- [ ] Send-key configuration, Return vs Cmd+Return (small) `[APP]` `[TEST-BLOCKED]`
-- [ ] Show/hide timestamps (small) `[APP]` — in flight
+- [x] Command palette, Cmd+K (~250) `[APP]` — actions and threads in one list;
+      every row raises the same request the button does
+- [x] Snippet highlighting in sidebar search (small) `[APP-WORKAROUND]`
+- [x] Send-key configuration, Return vs Cmd+Return (small) `[APP]`
+- [x] Show/hide timestamps (small) `[APP]`
 - [x] Typeface picker (small) `[APP]` — ALREADY BUILT: Settings → App font
       (Standard / Hyperlegible), wired and persisted. LIMITED as predicted: the library can load a font by
       path but cannot enumerate system fonts, so this can only offer the fonts
       we bundle. Shipping a fixed list is fine; "pick any system font" is not
       reachable and should not be promised.
-- [ ] Text weight picker (small) `[APP]` — `with_font_weight` exists; needs bold font assets, which is a licensing call
-- [ ] Theme picker with rotation (medium) `[APP]`
-- [ ] Custom theme editor (medium) `[APP]`
-- [ ] Second global hotkey for the palette (**small** — the focus-gated Carbon
+- [ ] ~~Text weight picker~~ **BLOCKED ON YOU** — no bundled face has a bold or
+      a variable axis, so the control would do nothing. Needs Roboto-Bold.ttf
+      (Apache-2.0) and AtkinsonHyperlegible-Bold.ttf (OFL 1.1) committed with
+      their licences: adding third-party binaries is your call, not an agent's
+- [x] Theme picker with rotation (medium) `[APP]`
+- [~] Custom theme editor (medium) `[APP]` — named swatches for the accent and
+      the find band, each carrying a dark and a light colour. Not a freeform
+      picker: the library has no colour input at all (gap #58), and a hex field
+      would let someone pick #2b2b30 for text
+- [x] Second global hotkey for the palette — Cmd+Shift+K. UNVERIFIED: nothing
+      automated can press a global chord and I could not press it either
+      (**small** — the focus-gated Carbon
       mechanism already exists in `native_extras.mm`; this registers one more
       chord against it)
 - [ ] Keyboard shortcut recorder in Settings (medium) `[APP]` `[TEST-BLOCKED]`
 - [ ] Composer keyboard shortcuts (small) `[APP]` `[TEST-BLOCKED]`
-- [ ] Navigation shortcuts, arrows in lists (small) `[APP]` — in flight
-- [ ] Find next/prev, Cmd+G (small) `[APP]` `[TEST-BLOCKED]`
+- [x] Navigation shortcuts, arrows in lists (small) `[APP]` — and the arrows
+      have one owner now (`ecs/arrow_system.h`), the Esc pattern one key on
+- [x] Find next/prev, Cmd+G (small) `[APP]`
 
 **Cmd chords cannot be scripted.** The harness maps `CMD+` onto Control and
 never holds Super, so every item above that is a Cmd chord needs its test to
@@ -957,13 +977,20 @@ to change.
 - [x] Quiet hours (~50) `[APP]` — `feat/quiet-hours`. Presets, not a picker:
       there is no clock control, and the window logic (which crosses midnight)
       is a tested pure function
-- [ ] System menu bar: File / Edit / View `[APP]` — Obj-C++, not the UI library
-- [ ] Image paste and drop in composer `[APP]` — an Obj-C++ job behind the
+- [ ] System menu bar: File / Edit / View `[APP]` — Obj-C++, not the UI library.
+      NOT STARTED and deliberately so: a menu item's key equivalent is consumed
+      by AppKit before the app sees it, so binding Cmd+F/Cmd+B there rewires
+      chords that work today, and nothing here can verify a menu by hand
+- [x] Image paste and drop in composer `[APP]` — the intake ships and the chip
+      says plainly that this client cannot send an image yet (the wire wants an
+      uploaded file id we have no path to). An Obj-C++ job behind the
       existing `extern "C"` seam, NOT a UI-library one. Clipboard images and
       file drops come from AppKit. Sending them is a separate question: the
       wire has fields, our client does not use them.
-- [ ] File picker for the upload tool `[APP]` — NSOpenPanel via the `.mm` seam
-- [ ] Diff rendering for the edit tool `[APP]` — coloured per-line rows
+- [x] File picker `[APP]` — NSOpenPanel via the `.mm` seam, wired to the export
+      destination (the upload tool it was specced against does not exist here)
+- [x] Diff rendering for the edit tool `[APP]` — coloured per-line rows, and the
+      classifier refuses to guess: a leading `-` is also every bullet list
 
 Already built, do not rebuild: global hotkey (focus-gated), native
 notifications, menu-bar extra, Spotlight seam, deep-link handler.
@@ -1026,3 +1053,70 @@ built" by an agent who read the docs instead of the code.
 
 Slash commands + model/effort pickers; find operators + timestamps + list
 navigation; archive UI + pin + mute. Each on its own branch, unmerged.
+
+---
+
+# SESSION 2026-08-23, second half — the parity backlog, worked through
+
+Everything below is merged into `main` and pushed, each theme also on its own
+branch. `make test` on the merged tree: **17/17 unit, 72/72 scripted UI**,
+launch gate PASS, `make validate-screenshots` 30/30.
+
+| theme | branch |
+|---|---|
+| Command palette (Cmd+K) + a global chord for it | `feat/command-palette`, `feat/palette-hotkey` |
+| Slash commands, model picker, effort picker | `feat/slash-commands`, `feat/model-picker`, `feat/effort-picker` |
+| Undo toast, send-key setting | `feat/undo-toast`, `feat/send-key-setting` |
+| Archive UI, mute, row drag-reorder, sub-agent toggle, tab preview | `feat/session-archive-ui`, `feat/session-mute`, `feat/sidebar-row-drag`, `feat/subagent-toggle`, `feat/tab-preview` |
+| Thinking disclosure, tool fold defaults, code colour, find skips reasoning | `feat/thinking-disclosure`, `feat/tool-fold-defaults`, `feat/code-highlighting`, `feat/find-skips-thinking` |
+| Transcript settings, link detection, minimap | `feat/transcript-settings`, `feat/link-detection`, `feat/transcript-minimap` |
+| Cmd+G, cross-session search, sidebar snippets | `feat/find-next-binding`, `feat/cross-session-search`, `feat/search-snippets` |
+| Theme rotation, custom colours | `feat/theme-picker`, `feat/theme-editor` |
+| Image intake, file picker, diff rows | `feat/composer-images`, `feat/file-picker`, `feat/diff-rendering` |
+| Screenshot gate, chunks 4-7 | `feat/shots-unbaselined`, `feat/shots-full-set`, `feat/shots-gate` |
+
+## Two blocked on you, not on us
+
+1. **Text weight picker** — needs `Roboto-Bold.ttf` (Apache-2.0) and
+   `AtkinsonHyperlegible-Bold.ttf` (OFL 1.1) committed with their licences. No
+   bundled face has a bold or a variable axis, so the control would do nothing.
+   Adding third-party binaries and attesting redistribution is your call.
+2. **Skills chip** — nothing in this client or on its wire knows what skills a
+   session has. Evidence in `docs/breakdown/composer.md`.
+
+## Things that were wrong with the harness, now fixed
+
+- **`make test` could pass on a stale binary.** The unit targets depended only
+  on their `.cpp`, so changing a header the test exercises re-ran the previous
+  build. It produced at least one false green before it was caught. Every test
+  now depends on every header.
+- **A test that passed only while the machine was busy.** The slash script
+  re-clicked the composer to select its draft; two clicks a few frames apart
+  are a DOUBLE click, and that window is real time. It passed under load and
+  failed at rest.
+- **The thinking indicator was unphotographable**, so a screenshot of it showed
+  a thread with no indicator in it.
+- **Scoped kills.** `run_ui_tests.sh`, `screens.sh` and `measure_launch.sh` no
+  longer `pkill` every hanabi on the machine. `scripts/review_shots.sh` still
+  does — it is not on the gate path.
+
+## Still open, and worth knowing
+
+- **`is:thinking` / `is:tool` find operators** need a data-model change; adding
+  them now would break the rule that the tally equals the bands painted.
+- **The system menu bar is deliberately not started.** A menu item's key
+  equivalent is consumed by AppKit before the app sees it, so binding Cmd+F or
+  Cmd+B there rewires chords that work today — and no agent here can verify a
+  menu by hand.
+- **A scrollbar draws over the modal sheets.** Visible as a grey rail through
+  the settings panel and the palette; it is the pane behind bleeding through a
+  layer boundary. Pre-existing, not from today's work.
+- **A 2-6px measure/draw drift** in user turns, thinking blocks and spawn
+  cards, identical on builds that predate all of today's transcript work. It
+  looks like the library's `children()` box arithmetic. Chasing it moves every
+  baseline, so it wants its own change.
+- **Five agents filed an afterhours gap as #58 within the hour.** They are
+  renumbered #58-#63 on main; if you have an unmerged branch citing one, check
+  the number.
+- **`git stash` is repo-global across worktrees.** Two agents popped each
+  other's stash today (both restored). With parallel worktrees, use patch files.
