@@ -22,7 +22,8 @@ were corrected on review — see items 4 and 7.)
 3. Model picker popover — no UI to list/select models or change effort level
 4. Effort level picker — no slider control for model-specific effort tuning
 5. Undo toast bar — no 10-second reversible action toast for Archive/Pin/Mute
-6. Skills chip in composer strip — no skill list or invocation affordance
+6. Skills chip in composer strip — BLOCKED on the backend, which tells this
+   client nothing about skills. See Gap 6 for the evidence.
 7. Streaming animation (working dots) — CORRECTED after this file was drafted.
    It was listed as already built "implied by streaming support"; grepping for
    any working/typing indicator in `main_pane_system.h` returns nothing. It is a
@@ -191,7 +192,66 @@ Click a model → radio selects it, slider appears for that model's effort optio
 
 ---
 
-## Gap 6: Skills Chip in Composer Strip
+## Gap 6: Skills Chip in Composer Strip — **BLOCKED on the backend**
+
+**Status: BLOCKED. Nothing in this client knows what a skill is, and no
+backend it speaks to tells it.** The dependency line below said "already exists
+in puffin; hanabi may need wiring" — that was inferred, not checked. It was
+checked, and there is nothing to wire. Do not build the chip until one of the
+gaps below closes; a chip built on what is actually on the wire today would be
+a label with nothing behind it.
+
+The whole of what this repo knows about skills:
+
+- `UserSettings::skill_count` (`src/api/types.h`, `counts.authoredSkills` from
+  `GET /whoami`, parsed in `src/api/http_client.cpp`). It is one integer,
+  account-wide, and it counts skills the USER AUTHORED — not skills that exist,
+  not skills a session can reach, not skills anything invoked. The mock reports
+  0. It cannot rank anything and it is not per-session.
+- That is the entire list. `grep -rni skill src/` returns that field, its config
+  key, and nothing else.
+
+What the agentcloud adapter is told about a session, in full
+(`src/api/agentcloud_client.cpp`):
+
+- `hello.state` — title, running, `status{state, subject, headline, attention,
+  updated_seq}`, `tokens{occupancy, budget}`. No skills.
+- `hello.capabilities` — an announcement list, and the only member this build
+  looks for is `rename_v1`. No skills capability.
+- The frame vocabulary the page fold parses — `user_input`, `block`
+  (text/thinking/tool_use), `tool_intent`, `tool_node_selected`, `tool_result`.
+  The types it deliberately drops are named in the code: `run_started`,
+  `model_call_*`, `epoch_change_*`, `noop`, `status_reported`. There is no skill
+  frame in either list.
+- A `tool_intent` carries `tool` (the tool's name) and `input`. Nothing marks a
+  call as a skill invocation and nothing names the skill behind it.
+
+So "count tool calls by skill name" has no skill name to count. The nearest
+thing available is `Message::subtitle`, the TOOL name (`bash`, `shell`, `sql`,
+`editor`, `spawn_agent`), and a chip that ranked those would be a tool chip
+wearing the word Skills — it would answer a question nobody asked and quietly
+imply the thread used skills it never used.
+
+**What has to land first (either one unblocks the chip):**
+1. A per-session skills list on the wire — in `hello.state` (what skills this
+   session can reach) or on the session payload — which the adapter maps onto
+   `Session`. This alone gets a chip that lists; invocation needs (2).
+2. Skill attribution on tool calls — a `skill` field on the `tool_intent` frame,
+   or a skill-invocation frame type of its own. This is what "ranked by
+   invocation count" actually requires, and it is the harder of the two because
+   it is a durable-frame schema change.
+
+**Not blocked on afterhours.** The chip is a button and a popover; both exist in
+the strip already (the model and effort chips are exactly this shape). The gap
+is entirely a data gap.
+
+**What the chip should look like when the data lands:** the strip's row is
+SpaceBetween with a left cluster (model chip, effort chip) and the context meter
+on the right, so the skills chip joins the LEFT CLUSTER — a third direct child
+of the row would push the cluster and the meter apart.
+
+<details>
+<summary>Original plan, kept for when the backend catches up</summary>
 
 **What ships:** Composer strip shows a "Skills: 3 invoked" chip (left side, next to the model chip). Click to expand a popover listing all skills used in this thread, ranked by invocation count. Popover shows:
 - Skill name + icon
@@ -213,8 +273,8 @@ Skill list is ranked by frequency. Top 3 are shown inline on the chip ("Skills: 
 - Skill invocation: clicking a skill in the popover sets `app.requestSkillInvoke = skill_name` (or similar), which LoaderSystem routes to the send path with a special prompt format.
 
 **Dependencies:**
-- Backend must emit skill names in tool metadata (already exists in puffin; hanabi may need wiring).
-- Skill invocation endpoint (may be a regular send with a special format, or a dedicated endpoint).
+- Backend must emit skill names in tool metadata (already exists in puffin; hanabi may need wiring). — **FALSE, see above.**
+- Skill invocation endpoint (may be a regular send with a special format, or a dedicated endpoint). — **Does not exist either.**
 
 **How it is proven:**
 - Unit test: `tests/unit/skills_ranking.cpp` — given a transcript with 3 tools (file_upload, search, file_upload), assert ranking is correct (file_upload=2, search=1) and top 3 are extracted.
@@ -222,6 +282,8 @@ Skill list is ranked by frequency. Top 3 are shown inline on the chip ("Skills: 
 - Screenshot: popover showing skill list with counts.
 
 **Traps:** Same as model popover — scripted test cannot easily interact with the popover. Use env flags or rely on unit tests + manual verification.
+
+</details>
 
 ---
 
@@ -256,10 +318,10 @@ Skill list is ranked by frequency. Top 3 are shown inline on the chip ("Skills: 
    - Bundled with gap #3 (same popover component).
    - Enables fine-tuning of model behavior without restarting.
 
-6. **Skills Chip (Gap 6)** — 100 lines
-   - Aggregates and surfaces skills used in the thread.
-   - Depends on backend skill metadata; otherwise stubs as "upcoming".
-   - Good UX payoff (skill discovery) for moderate effort.
+6. **Skills Chip (Gap 6)** — BLOCKED, do not schedule
+   - There is no skill data on the wire to aggregate. See Gap 6.
+   - Stubbing it as "upcoming" was the plan; a stub chip still claims the
+     feature exists, so the chip waits for the data instead.
 
 ---
 
@@ -267,10 +329,15 @@ Skill list is ranked by frequency. Top 3 are shown inline on the chip ("Skills: 
 
 None of these gaps are blocked on the UI library. The text input widget is afterhours', but it already supports single-line input and Enter-to-submit.
 
-**Data-layer dependencies** (if any):
+**Data-layer dependencies:**
 - Model picker: requires backend to emit model list + effort levels.
-- Skills chip: requires backend to emit skill names in tool metadata.
-- Both are likely already available (puffin has them); hanabi may need wiring in the client.
+- Skills chip: **BLOCKED** — requires backend to emit skill names in tool
+  metadata, and it does not. Verified against `src/api/` and the agentcloud
+  adapter, not inferred; the evidence is in Gap 6.
+
+The line that used to sit here — "both are likely already available (puffin has
+them)" — is what sent someone to build a chip on data that is not there. Puffin
+having a thing is not evidence about hanabi's backend.
 
 ---
 
@@ -295,4 +362,5 @@ None of these gaps are blocked on the UI library. The text input widget is after
 - **Gaps to ship:** 6 (history walk, slash commands, model picker, effort slider, undo toast, skills chip)
 - **First three ships:** history walk, undo toast, slash commands
 - **Estimated scope:** ~590 lines total, ~1–2 weeks for a team of one (accounting for testing, integration, and edge cases)
-- **No blockers:** all gaps can be built with the current UI library and API
+- **One blocker:** the skills chip has no data behind it on this backend (Gap
+  6). Every other gap can be built with the current UI library and API.
