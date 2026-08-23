@@ -242,8 +242,72 @@ static void test_tab_open_focus_no_duplicate() {
     CHECK(active == 1);
 }
 
+static void test_tab_preview_keeps_one_slot() {
+    std::printf("test_tab_preview_keeps_one_slot\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+
+    auto tab_at = [&](size_t i) -> ecs::Tab& {
+        // Force the pending-entity merge the app gets for free every frame:
+        // a tab created by the call just above is not in the entity map until
+        // some query merges it, and active_tab_entity's does.
+        (void)ecs::model::active_tab_entity();
+        auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        return o.asE().get<ecs::Tab>();
+    };
+
+    // A sidebar row clicked once is a preview.
+    ecs::model::open_session_in_tab(strip, app, "t1", /*keep=*/false);
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(!tab_at(0).keptOpen);
+    CHECK(app.selectedId == "t1");
+
+    // Clicking down a list does not leave a trail: the second glance REUSES the
+    // preview tab — same slot, same entity, new thread.
+    const auto firstId = strip.tabOrder[0];
+    ecs::model::open_session_in_tab(strip, app, "t4", /*keep=*/false);
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(strip.tabOrder[0] == firstId);
+    CHECK(tab_at(0).sessionId == "t4");
+    CHECK(!tab_at(0).keptOpen);
+    CHECK(tab_at(0).label == "Tier upgrade flow");
+
+    // Asking for the thread you are already looking at is the second look, and
+    // the second look keeps it.
+    ecs::model::open_session_in_tab(strip, app, "t4", /*keep=*/false);
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(tab_at(0).keptOpen);
+
+    // Now a kept tab is in the way, so the next preview gets its own slot
+    // beside it rather than replacing it.
+    ecs::model::open_session_in_tab(strip, app, "t1", /*keep=*/false);
+    CHECK(strip.tabOrder.size() == 2);
+    CHECK(tab_at(0).sessionId == "t4" && tab_at(0).keptOpen);
+    CHECK(tab_at(1).sessionId == "t1" && !tab_at(1).keptOpen);
+    CHECK(ecs::model::preview_tab_entity(strip) != nullptr);
+    CHECK(ecs::model::preview_tab_entity(strip)->id == strip.tabOrder[1]);
+
+    // And that one is replaced in turn, so there is never more than one.
+    ecs::model::open_session_in_tab(strip, app, "t6", /*keep=*/false);
+    CHECK(strip.tabOrder.size() == 2);
+    CHECK(tab_at(1).sessionId == "t6");
+
+    // An explicit open (restore, kickoff, "open in split") is a commitment, so
+    // it defaults to kept and never eats the preview.
+    ecs::model::open_session_in_tab(strip, app, "t13");
+    CHECK(strip.tabOrder.size() == 3);
+    CHECK(tab_at(2).keptOpen);
+    CHECK(tab_at(1).sessionId == "t6" && !tab_at(1).keptOpen);
+
+    // Keeping is idempotent, so every path that means it can just say it.
+    auto& prev = *ecs::model::preview_tab_entity(strip);
+    ecs::model::keep_tab(prev);
+    ecs::model::keep_tab(prev);
+    CHECK(prev.get<ecs::Tab>().keptOpen);
+    CHECK(ecs::model::preview_tab_entity(strip) == nullptr);
+}
+
 // KICKOFF from the Home landing composer: the loader creates a brand-new
-// session (an id NOT yet in the summary list) and hands it to the tab flow via
 // open_session_in_tab. That MUST still create a tab + switch the view to Chat
 // even though no summary exists yet (the list refresh lands a frame later).
 // This is the regression guard for "no chat input" -> Home landing composer.
@@ -1058,6 +1122,7 @@ int main() {
     test_state_model_and_glyphs();
     test_smart_view_filters();
     test_tab_open_focus_no_duplicate();
+    test_tab_preview_keeps_one_slot();
     test_kickoff_opens_new_tab_without_summary();
     test_tab_close_fallback();
     test_tab_switch_between_open_tabs();

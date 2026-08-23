@@ -724,6 +724,14 @@ struct LayoutComponent : public afterhours::BaseComponent {
 struct Tab : public afterhours::BaseComponent {
     std::string sessionId;   // which thread this tab shows
     std::string label;       // display title
+    // A KEPT tab is one the user committed to; a PREVIEW tab is a look. There
+    // is at most one preview tab at a time — clicking another sidebar row
+    // reuses it rather than piling a tab up per glance — and only a second
+    // click on the same thread keeps it. A preview tab holds no live
+    // subscription (so its transcript is frozen at the moment it was opened)
+    // and is not restored on the next launch. Default true: anything that opens
+    // a tab without saying otherwise is an explicit act, not a glance.
+    bool keptOpen = true;
 };
 
 struct ActiveTab : public afterhours::BaseComponent {};

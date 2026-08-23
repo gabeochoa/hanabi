@@ -59,13 +59,43 @@ inline std::string tab_label_for(const AppComponent& app,
     return id;
 }
 
+// The one tab currently showing a PREVIEW, or nullptr. There is never more than
+// one: opening a second preview reuses this tab instead of adding another.
+inline afterhours::Entity* preview_tab_entity(const TabStripComponent& strip) {
+    // Merge first, then look up: a tab created earlier in the same frame is not
+    // in the entity map yet, and finding exactly that tab is what this is for.
+    // active_tab_entity's query forces the same merge.
+    auto tabs = afterhours::EntityQuery({.force_merge = true})
+                    .whereHasComponent<Tab>()
+                    .gen();
+    for (auto tabId : strip.tabOrder) {
+        for (auto& ref : tabs) {
+            afterhours::Entity& e = ref.get();
+            if (e.id == tabId && !e.get<Tab>().keptOpen) return &e;
+        }
+    }
+    return nullptr;
+}
+
+// Commit to a tab: it stops being a glance and becomes one the user is using.
+// Idempotent, so "keep it" can be said on every path that means it without any
+// caller having to check first.
+inline void keep_tab(afterhours::Entity& tabEntity) {
+    if (tabEntity.has<Tab>()) tabEntity.get<Tab>().keptOpen = true;
+}
+
 // Open `id` in a tab: focus if already open, else create a new tab.
+// `keep` false means this is a PREVIEW — a sidebar row clicked once. A preview
+// REUSES the existing preview tab rather than opening another, so browsing a
+// list never leaves a trail of tabs behind. Asking for a thread that is already
+// open always keeps it: the second look is the commitment.
 inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
-                                const std::string& id) {
+                                const std::string& id, bool keep = true) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
         if (opt.valid() && opt->has<Tab>() &&
             opt->get<Tab>().sessionId == id) {
+            keep_tab(opt.asE());
             switch_to_tab(app, opt.asE());
             return;
         }
@@ -73,12 +103,23 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     // New tab.
     if (auto* old = active_tab_entity()) old->removeComponent<ActiveTab>();
 
-    auto& e = afterhours::EntityHelper::createEntity();
-    auto& tab = e.addComponent<Tab>();
+    afterhours::Entity* e = nullptr;
+    if (!keep) {
+        // Reuse the tab already holding a preview: same slot in tabOrder, same
+        // entity, new thread — which is what makes clicking down a list feel
+        // like one pane changing rather than tabs accumulating.
+        e = preview_tab_entity(strip);
+    }
+    if (e == nullptr) {
+        e = &afterhours::EntityHelper::createEntity();
+        e->addComponent<Tab>();
+        strip.tabOrder.push_back(e->id);
+    }
+    auto& tab = e->get<Tab>();
     tab.sessionId = id;
     tab.label = tab_label_for(app, id);
-    e.addComponent<ActiveTab>();
-    strip.tabOrder.push_back(e.id);
+    tab.keptOpen = keep;
+    e->addComponentIfMissing<ActiveTab>();
 
     app.selectedId = id;
     app.requestOpenId = id;  // loader fetches the transcript

@@ -692,7 +692,10 @@ static void app_cleanup() {
         std::string active;
         for (auto tabId : strip.tabOrder) {
             auto o = EntityHelper::getEntityForID(tabId);
-            if (o.valid() && o->has<ecs::Tab>()) {
+            // Preview tabs are not restored: a thread you glanced at once is
+            // not somewhere you asked to come back to.
+            if (o.valid() && o->has<ecs::Tab>() &&
+                o->get<ecs::Tab>().keptOpen) {
                 ids.push_back(o->get<ecs::Tab>().sessionId);
                 if (o->has<ecs::ActiveTab>())
                     active = o->get<ecs::Tab>().sessionId;
