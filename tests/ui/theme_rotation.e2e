@@ -1,0 +1,30 @@
+# Rotation flips the palette by itself, and the Appearance row says which one
+# is up.
+#
+# The theme lives in COLOUR, which the text registry cannot see, so the row
+# name carries the current palette ("Rotate theme · showing Dark") and that is
+# what this asserts. Clicking a theme by hand restarts the interval, which is
+# what makes the wait below deterministic: the clock starts at the click, not
+# at whatever frame the loader settled on.
+#
+# The interval is two SECONDS here, set through settings.json — the sheet only
+# offers minutes, and the harness runs a fixed 1/60 per frame, so 150 frames is
+# 2.5 simulated seconds: past the first flip, well short of the second.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","theme_rotate_secs":2}
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Rotate theme"
+
+click_ui settings_theme_dark
+wait_frames 10
+expect_text "showing Dark"
+
+wait_frames 150
+expect_text "showing Light"
+
+click_ui settings_theme_rotate_off
+wait_frames 10
+expect_no_text "showing Light"
+expect_text "Rotate theme"

@@ -46,6 +46,7 @@ bool Settings::load_save_file() {
         auto_archive_days_ = j.value("auto_archive_days", auto_archive_days_);
         notification_sound_ = j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
+        theme_rotate_secs_ = j.value("theme_rotate_secs", theme_rotate_secs_);
         quiet_start_minutes_ =
             j.value("quiet_start_minutes", quiet_start_minutes_);
         quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
@@ -110,6 +111,7 @@ void Settings::write_save_file() {
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
+    j["theme_rotate_secs"] = theme_rotate_secs_;
     j["quiet_start_minutes"] = quiet_start_minutes_;
     j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
@@ -304,6 +306,14 @@ bool Settings::get_show_timestamps() const { return show_timestamps_; }
 void Settings::set_show_timestamps(bool on) {
     if (on == show_timestamps_) return;
     show_timestamps_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+int Settings::get_theme_rotate_secs() const { return theme_rotate_secs_; }
+void Settings::set_theme_rotate_secs(int secs) {
+    if (secs < 0) secs = 0;
+    if (secs == theme_rotate_secs_) return;
+    theme_rotate_secs_ = secs;
     if (auto_save_enabled) write_save_file();
 }
 

@@ -29,6 +29,8 @@
 //
 // WIRED (persist locally + sync):
 //   Appearance · Theme  (Light/Dark/System)   — client-local (theme::set_mode).
+//   Appearance · Rotate theme (Off/15m/30m/1h) — client-local; the interval
+//     persists, the palette it lands on does not (theme_rotation_system.h).
 //   Appearance · Font   (Default/Hyperlegible) — client-local (FontManager).
 //   Behavior · Yap level (No yapping/A little/Full).
 //   Behavior · Auto-archive (Never/5/14/30 days).
@@ -65,6 +67,7 @@
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
 #include "../ui/model_menu.h"
+#include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -137,9 +140,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // control rows). Keep this in sync with the LEFT/RIGHT render blocks.
         const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
         const float leftH =
-            (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
+            (kGroupH + ctrlRow * 3.0f) +          // Appearance: Theme + Rotate + Font
             (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
-            (kGroupH + ctrlRow) +                 // Notifications: Sound
+            (kGroupH + ctrlRow * 2.0f) +          // Notifications: Sound + Quiet hours
             (kGroupH + ctrlRow);                  // Model: default model
         const float rightH =
             (kGroupH + (kRowNameFoot + kCacheRowH) + (kRowNameFoot + kLimitRowH) +
@@ -277,6 +280,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             Entity& L = leftCol.ent();
             group_label(ctx, L, 2, "Appearance", "settings_grp_appearance");
             render_theme_row(ctx, L, *app);
+            render_theme_rotate_row(ctx, L, *app);
             render_font_row(ctx, L, *app);
             group_label(ctx, L, 3, "Behavior", "settings_grp_behavior");
             render_yap_row(ctx, L, *app);
@@ -484,6 +488,82 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         theme_choice(ctx, row.ent(), 1, "Light", "light", app, segW, true);
         theme_choice(ctx, row.ent(), 2, "Dark", "dark", app, segW, true);
         theme_choice(ctx, row.ent(), 3, "System", "system", app, segW, false);
+    }
+
+    // Appearance group -> Rotate theme. Off / 15m / 30m / 1h, sharing the theme
+    // row's gutter math. Rotation is what the picker above could not do: leave
+    // the sheet and the palette keeps moving on its own.
+    //
+    // The row NAME carries which palette is up right now. Rotation moves the
+    // theme while the sheet is open, and the picker above says which one only
+    // in colour — which is not something a person glancing at the sheet can
+    // read off, nor anything a test can assert.
+    void render_theme_rotate_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        const int secs = Settings::get().get_theme_rotate_secs();
+        std::string name = "Rotate theme";
+        if (secs > 0) {
+            name += "   \xc2\xb7   showing ";
+            name += (theme::mode() == theme::Mode::Light) ? "Light" : "Dark";
+        }
+        row_name(ctx, parent, 150, name, "settings_theme_rotate_label");
+
+        auto row = div(ctx, mk(parent, 151),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_theme_rotate_row"));
+
+        constexpr float kSegGap = 6.0f;
+        const float segW = (content_w() - kSegGap * 3.0f) / 4.0f;
+        rotate_choice(ctx, row.ent(), 1, "Off", "off", 0, segW, true);
+        rotate_choice(ctx, row.ent(), 2, "15m", "15m", 15 * 60, segW, true);
+        rotate_choice(ctx, row.ent(), 3, "30m", "30m", 30 * 60, segW, true);
+        rotate_choice(ctx, row.ent(), 4, "1h", "1h", 60 * 60, segW, false);
+    }
+
+    // One segmented rotation-interval button. "Off" is the 0 case, so an
+    // interval and an enabled flag can never contradict each other.
+    void rotate_choice(UIContext<InputAction>& ctx, Entity& parent, int id,
+                       const std::string& label, const std::string& dbg,
+                       int secs, float segW, bool trailingGap) {
+        const int current = Settings::get().get_theme_rotate_secs();
+        // Any interval the sheet cannot express (a test's two seconds) still has
+        // to light SOMETHING other than Off, or the sheet would claim rotation
+        // is off while the theme is visibly moving.
+        const bool selected = secs == 0 ? current <= 0
+                              : current == secs ||
+                                    (current > 0 && current < 15 * 60 &&
+                                     secs == 15 * 60);
+        auto btn = button(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
+                .with_custom_background(selected ? theme::button_primary()
+                                                 : theme::button_secondary())
+                .with_custom_hover_bg(selected ? theme::button_primary()
+                                               : theme::hover_bg())
+                .with_custom_text_color(selected ? theme::window_bg()
+                                                 : theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("settings_theme_rotate_" + dbg));
+        if (btn) {
+            Settings::get().set_theme_rotate_secs(secs);
+            // A fresh interval starts now, not part-way through the old one.
+            theme_rotation::restart();
+        }
     }
 
     // Appearance group -> Font. A 2-way segmented control mirroring the theme
@@ -1175,6 +1255,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         s.set_theme(value);
         s.write_save_file();
         theme::set_mode(light ? theme::Mode::Light : theme::Mode::Dark);
+        // Picking a theme by hand buys a WHOLE interval of it, rather than
+        // however many seconds were left on the rotation clock.
+        theme_rotation::restart();
     }
 
     void render_footnote(UIContext<InputAction>& ctx, Entity& parent,
