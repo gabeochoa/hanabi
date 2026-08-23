@@ -178,10 +178,26 @@ static void test_unreadable_input_is_empty_not_a_crash() {
 
 static void test_workspace_becomes_the_folder() {
     const std::string reply = R"({"type":"sessions","sessions":[
-      {"session_id":"a","last_seq":1,"workspace":"/tmp/ws/a"}]})";
+      {"session_id":"a","last_seq":1,"workspace":"/home/me/gdrive"}]})";
     const auto out = parse_sessions_reply(reply);
     CHECK(out.size() == 1);
-    CHECK(out[0].folder == "/tmp/ws/a");
+    CHECK(out[0].folder == "/home/me/gdrive");
+}
+
+static void test_per_session_scratch_workspace_is_not_a_folder() {
+    // 2054 of 2066 live rows had a server-made scratch dir named after the
+    // session. Grouping on those verbatim gave ~2055 folders of one session
+    // each, which is a sidebar nobody can use. A path carrying its own session
+    // id is machine-generated, not a place a person picked.
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"0051e820-bf8c","last_seq":2,
+       "workspace":"/tmp/agentcloud-101-workspace/0051e820-bf8c"},
+      {"session_id":"b","last_seq":1,"workspace":"/tmp"}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 2);
+    CHECK(out[0].folder == "");      // scratch: no folder at all
+    CHECK(out[1].folder == "/tmp");  // a real directory still groups
 }
 
 int main() {
@@ -200,6 +216,7 @@ int main() {
     test_falls_back_to_coarse_status_without_the_bag();
     test_unreadable_input_is_empty_not_a_crash();
     test_workspace_becomes_the_folder();
+    test_per_session_scratch_workspace_is_not_a_folder();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -166,6 +166,20 @@ output: $(MAIN_EXE) copy-resources
 # A small stamp file records whether the last build was TLS or not; if the mode
 # flips we `clean` first, because toggling HANABI_TLS changes compile flags that
 # make's timestamp check alone wouldn't pick up on the existing .o files.
+# `make run` talks to the real backend; `make run-mock` is the offline sample
+# data. agentcloud is the default because it is what the app is for now.
+#
+# Its endpoints are deliberately NOT in this repo (see the HARD CONSTRAINTS in
+# todo.md: no real API hardcoded). Put them in .env, which is already
+# gitignored, and this sources it:
+#
+#     HANABI_AC_HOST=<orchestrator host>
+#     HANABI_AC_MINT_HOST=<proxy-local mint pseudo-host>
+#     HANABI_AC_VERIFIER=<service identity to mint against>
+#
+# With those unset the app degrades to the mock rather than failing, so a fresh
+# clone still runs -- the recipe says so out loud instead of leaving you to
+# wonder why the sessions look invented.
 run:
 	@if [ -n "$$(brew --prefix openssl@3 2>/dev/null)" ]; then \
 		echo "==> OpenSSL found — building with TLS (https backends enabled)"; \
@@ -175,7 +189,23 @@ run:
 		echo "    For an https backend: brew install openssl@3, then 'make run' again."; \
 		$(MAKE) output; \
 	fi
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	export HANABI_BACKEND="$${HANABI_BACKEND:-agentcloud}"; \
+	if [ "$$HANABI_BACKEND" = "agentcloud" ] && [ -z "$${HANABI_AC_HOST:-}" ]; then \
+		echo "==> HANABI_BACKEND=agentcloud, but HANABI_AC_HOST is unset."; \
+		echo "    Running the OFFLINE MOCK. Set the HANABI_AC_* values in .env"; \
+		echo "    (gitignored) to talk to the real orchestrator."; \
+	else \
+		echo "==> backend: $$HANABI_BACKEND"; \
+	fi; \
 	./$(MAIN_EXE)
+
+# The offline sample data, whatever .env says. Useful for UI work and for
+# telling "the backend is down" apart from "I broke the sidebar".
+run-mock:
+	@$(MAKE) output
+	@echo "==> backend: mock (offline sample data)"
+	@HANABI_BACKEND=mock ./$(MAIN_EXE)
 
 # macOS .app bundle
 APP_BUNDLE := $(OUTPUT_DIR)/Hanabi.app
@@ -260,7 +290,7 @@ MOCK_PORT ?= 8787
 mock-server:
 	python3 tools/mock_server/server.py --port $(MOCK_PORT)
 
-.PHONY: all clean clean-all deps copy-resources output run bundle app mock-server
+.PHONY: all clean clean-all deps copy-resources output run run-mock bundle app mock-server
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)

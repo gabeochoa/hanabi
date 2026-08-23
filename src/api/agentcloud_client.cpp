@@ -254,9 +254,14 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
         // needs either a server field or a timestamp mined from the session's
         // own events at attach.
         sum.updated_at = 0;
-        // The same field name the other backend uses for folders, and the same
-        // meaning, so the sidebar's folder grouping needs no change.
-        sum.folder = str_or(s, "workspace", "");
+        // Same field name the other backend uses for folders -- but NOT the
+        // same meaning. Most workspaces here are scratch directories the
+        // server made per session, named after the session: 2054 of 2066 live
+        // rows carry their own id in the path, so grouping on it verbatim
+        // yields ~2055 folders of one and a useless sidebar. A path containing
+        // its session's id is machine-generated, not a place someone chose.
+        const std::string workspace = str_or(s, "workspace", "");
+        sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
         apply_state(s, sum);
         out.push_back(std::move(sum));
     }
