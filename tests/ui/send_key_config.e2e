@@ -1,0 +1,74 @@
+# Which key sends is a SETTING, and changing it changes what Return does — in
+# this same process, to this same composer field.
+#
+# That last part is the whole point of the test. The submit listener is
+# attached with addComponentIfMissing, so the one attached on some early frame
+# is the one that runs forever: anything it decides is frozen at that moment.
+# Enter-to-send already shipped that bug once (the ENTER-TO-SEND comment in
+# render_composer is its scar). A test that started the app with Cmd+Return
+# already chosen would pass with a listener that read the setting once and
+# froze it, so this script flips the setting at runtime and asserts the
+# behaviour swaps underneath the field that is already on screen.
+#
+# Cmd+Return itself cannot be scripted — the injector cannot synthesise a Cmd
+# chord (afterhours_gaps.md #49) — so the arm this proves is that plain Return
+# STOPS sending, and the composer's own hint stops claiming it does. That the
+# chord then sends is asserted where it can be: hanabi::enter_sends, unit
+# tested in tests/unit/test_settings.cpp against both settings.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Stars payout reconciliation"
+
+# ---- Default: Return sends -----------------------------------------------
+click 646 674
+wait_frames 4
+type "return should send this"
+wait_frames 4
+expect_text "Enter to send"
+key ENTER
+wait_frames 40
+
+expect_text "return should send this"
+# The field emptied, which is the other half of "it was sent".
+expect_input_text composer_reply_input ""
+
+# ---- Switch the setting to Cmd+Return ------------------------------------
+click_ui sb_settings
+wait_frames 8
+expect_text "Send with"
+click_ui settings_send_key_1
+wait_frames 6
+click_ui settings_close
+wait_frames 8
+
+# ---- Now Return does NOT send --------------------------------------------
+click 646 674
+wait_frames 4
+type "return must not send this"
+wait_frames 4
+# The hint names the key that actually sends now, not the one that used to.
+expect_text "Cmd+Return to send"
+key ENTER
+wait_frames 40
+
+# The draft is still sitting in the field, untouched — nothing was sent and
+# nothing was thrown away.
+expect_input_text composer_reply_input "return must not send this"
+
+# ---- And switching back restores Return ----------------------------------
+click_ui sb_settings
+wait_frames 8
+click_ui settings_send_key_0
+wait_frames 6
+click_ui settings_close
+wait_frames 8
+
+click 646 674
+wait_frames 4
+expect_text "Enter to send"
+key ENTER
+wait_frames 40
+
+expect_text "return must not send this"
+expect_input_text composer_reply_input ""

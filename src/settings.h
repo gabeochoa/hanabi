@@ -11,6 +11,32 @@
 // Minimal persisted settings: window geometry, theme mode, and the open-tab
 // set (session ids + which one is active) so a launch restores exactly where
 // the user left off. Stored as JSON next to the platform config dir.
+
+namespace hanabi {
+
+// The two send-key choices, as they are written into settings.json.
+inline constexpr const char* kSendKeyReturn = "return";
+inline constexpr const char* kSendKeyCmdReturn = "cmd-return";
+
+// What an Enter keypress MEANS, given the configured send key and whether Cmd
+// was held at the moment of the press. This is the whole of the decision, in
+// one pure function, deliberately away from the composer: the composer's
+// submit listener is attached with addComponentIfMissing, so whatever it
+// decides is frozen on the frame the field was born and every later Enter
+// re-runs a stale answer (that bug shipped once, and the ENTER-TO-SEND comment
+// in render_composer is its scar tissue). The listener reports the two facts;
+// this decides; and because it is pure it can be asserted directly in
+// tests/unit/test_settings.cpp, where a UI test cannot go — the harness cannot
+// synthesise a Cmd chord at all (afterhours_gaps.md #49).
+//
+// Under "return" Cmd+Return sends as well: fingers trained on other apps reach
+// for it, and refusing it would only look broken.
+inline bool enter_sends(const std::string& sendKey, bool cmdHeld) {
+    return sendKey == kSendKeyCmdReturn ? cmdHeld : true;
+}
+
+}  // namespace hanabi
+
 SINGLETON_FWD(Settings)
 struct Settings {
     SINGLETON(Settings)
@@ -153,6 +179,14 @@ struct Settings {
     const std::string& get_default_effort() const;
     void set_default_effort(const std::string& effort);  // auto-persists
 
+    // Which keystroke in the composer sends: hanabi::kSendKeyReturn (plain
+    // Return, the default every chat app trains people to expect) or
+    // hanabi::kSendKeyCmdReturn (Cmd+Return, for people who want Return free).
+    // Local-only, like the effort token: the backend preference payload has no
+    // field for it. See hanabi::enter_sends for what the choice MEANS.
+    const std::string& get_send_key() const;
+    void set_send_key(const std::string& key);  // auto-persists
+
     // ── Backend-sync bookkeeping. Any preference change flips settings_dirty_;
     // the loader debounces + pushes to the backend (best-effort) via
     // ApiClient::update_settings, then clears the flag. Purely in-memory (NOT
@@ -191,6 +225,7 @@ struct Settings {
     std::string memory_backend_ = "traditional";
     std::string default_model_ = "default";
     std::string default_effort_ = "high";
+    std::string send_key_ = "return";
     // In-memory only: set on any preference change, cleared by the loader
     // after a successful (or best-effort) backend push.
     bool settings_dirty_ = false;

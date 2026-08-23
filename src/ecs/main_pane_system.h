@@ -3461,18 +3461,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the field entity exists (a completion has to be written back into
         // it).
         std::string slashSubmit;
+        // Enter is not always the send key. When it is not, the keystroke is
+        // dropped here and the draft is left exactly as typed — which is why
+        // the field is emptied HERE, on the decision, instead of by the
+        // listener that merely saw the key.
+        bool clearFieldAfterSubmit = false;
         if (!app.composerSubmit.empty()) {
             const std::string text = std::move(app.composerSubmit);
+            const bool withCmd = app.composerSubmitWithCmd;
             app.composerSubmit.clear();
-            if (hanabi::slash::is_command_text(text)) {
-                slashSubmit = text;
-            } else if (canStream || canSend) {
-                if (kickoff) app.requestKickoffPrompt = text;
-                else if (canStream) app.requestStreamPrompt = text;
-                else app.requestSendPrompt = text;
-                remember_sent(text);
+            app.composerSubmitWithCmd = false;
+            if (hanabi::enter_sends(Settings::get().get_send_key(), withCmd)) {
+                if (hanabi::slash::is_command_text(text)) {
+                    slashSubmit = text;
+                } else if (canStream || canSend) {
+                    if (kickoff) app.requestKickoffPrompt = text;
+                    else if (canStream) app.requestStreamPrompt = text;
+                    else app.requestSendPrompt = text;
+                    remember_sent(text);
+                }
+                replyDraft.clear();
+                clearFieldAfterSubmit = true;
             }
-            replyDraft.clear();
         }
         // "Sending" covers BOTH the synchronous reply in flight and a live
         // stream draining into this thread — either disables the composer. In
@@ -3726,6 +3736,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             st.clear_selection();
         };
 
+        // The send decided at the top of this frame: empty the field now that
+        // there is something that can write to it. The widget keeps its own
+        // storage, so clearing replyDraft up there is not enough.
+        if (clearFieldAfterSubmit) set_field("");
+
         // Carry out a parsed command. Only /new has somewhere to go today; the
         // rest report what is missing rather than reaching the agent as text.
         // `typed` is put back in the field for anything that did not run, so
@@ -3866,6 +3881,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //
         // So the listener decides nothing: it parks the text on the app and the
         // per-frame code above routes it.
+        //
+        // The send KEY is the same trap one turn further on. Which keystroke
+        // sends is a setting the user can change between one Enter and the
+        // next, so the listener must not test it either — nor may it empty the
+        // field, because emptying it IS the decision that the text was sent.
+        // It reports two facts, the text and whether Cmd was held, and the
+        // router above applies hanabi::enter_sends to them.
         {
             Entity& inputEnt = inputRes.ent();
             inputEnt.addComponentIfMissing<
@@ -3885,12 +3907,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         text.pop_back();
                     if (text.empty()) return;  // nothing to send
                     appPtr->composerSubmit = text;
-                    if (e.has<afterhours::text_input::HasTextInputState>()) {
-                        auto& st =
-                            e.get<afterhours::text_input::HasTextInputState>();
-                        st.storage.clear();
-                        st.cursor_position = 0;
-                    }
+                    appPtr->composerSubmitWithCmd = hanabi::keys::cmd_down();
                 });
         }
 
@@ -4110,12 +4127,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             caption = "sending\xe2\x80\xa6";
         else if (queued > 0)
             caption = std::to_string(queued) + " queued";
-        else if (hasText)
+        else if (hasText) {
             // Discoverability: when there's text to send and we're idle, tell
-            // the user Enter sends (the fix for "HOW DO I SEND A MESSAGE" — the
-            // composer now sends on Enter, not just the button click).
+            // the user which key sends (the fix for "HOW DO I SEND A MESSAGE" —
+            // the composer now sends on a keystroke, not just the button
+            // click). The hint names the key that is CONFIGURED: telling
+            // someone who moved the setting to Cmd+Return that Enter sends is
+            // worse than saying nothing, because they will believe it.
             // (canSend is provably true here — the !canSend arm returned above.)
-            caption = steerMode ? "Enter to steer" : "Enter to send";
+            const char* key = Settings::get().get_send_key() ==
+                                      hanabi::kSendKeyCmdReturn
+                                  ? "Cmd+Return"
+                                  : "Enter";
+            caption = std::string(key) + (steerMode ? " to steer" : " to send");
+        }
         if (!caption.empty()) {
             div(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
