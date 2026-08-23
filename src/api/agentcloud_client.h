@@ -103,7 +103,15 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json);
 // transcript down with it.
 std::vector<Message> parse_page_frames(const std::string& msg_json);
 
-// What one live frame means to a streaming reply.
+// The `tokens` bag on an attach greeting -> ContextUsage.
+//
+// Exposed for the test for the same reason parse_sessions_reply is: it is the
+// half worth pinning down and it needs no proxy, no credential and no socket.
+// The choice it encodes — budget as the denominator, window ignored — is the
+// whole point of the meter, and only a fixture can hold it still.
+ContextUsage parse_context_usage(const std::string& hello_json);
+
+
 //
 // Live text arrives BOTH ways, which is the trap. `block_delta{delta:"append"}`
 // is a true increment and must be emitted as-is. A `value` frame (what

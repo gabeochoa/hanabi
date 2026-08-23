@@ -153,6 +153,28 @@ struct SubAgent {
     std::string note;
 };
 
+// Token accounting for one session, as the BACKEND reports it. Every field is
+// the provider's own number; nothing here is estimated or derived.
+//
+// `budget_tokens` is the denominator, and it is deliberately the compaction
+// budget rather than the model's context window. Hitting the budget is what
+// summarises the thread out from under the reader; the window is trivia.
+//
+// `stale` means the reading predates content the server has not accounted for
+// yet. It is rendered, not hidden — a stale number presented as live is a lie
+// with a decimal point on it.
+//
+// Defaults mean "the backend said nothing", which is how an adapter that
+// reports no accounting degrades to a plain figure with no bar.
+struct ContextUsage {
+    int64_t used_tokens = -1;
+    int64_t budget_tokens = -1;
+    bool stale = false;
+
+    [[nodiscard]] bool counted() const { return used_tokens >= 0; }
+    [[nodiscard]] bool has_denominator() const { return budget_tokens > 0; }
+};
+
 // A full session: summary + ordered transcript.
 struct Session {
     SessionSummary summary;
@@ -168,6 +190,10 @@ struct Session {
     // (no limit) it is false. Defaults false so a full/mock transcript reads as
     // complete.
     bool has_more_older = false;
+
+    // Token accounting from the backend (see ContextUsage). Left at its
+    // defaults by any adapter that reports none.
+    ContextUsage context;
 };
 
 // User/account settings read back from the backend, so the app can verify it
@@ -187,13 +213,11 @@ struct UserSettings {
     int64_t schedule_count = -1;  // counts.schedules
     int64_t skill_count = -1;     // counts.authoredSkills
     // The model's context window, in tokens, when the backend reports one.
-    // Left at -1 by every adapter here, because nothing this repo talks to
-    // reports it — and that is the whole point of the field: the composer
-    // shows the thread's size as a plain figure, and draws a proportion bar
-    // ONLY when a real denominator exists. Populate this from a backend that
-    // supplies one and the bar appears; there is deliberately no setting for
-    // it, because a capability is something the program can determine and not
-    // something a user should have to declare.
+    // Nothing this repo talks to reports it, and the context meter no longer
+    // reads it: the meter's denominator is the COMPACTION BUDGET (see
+    // ContextUsage), because the budget is what summarises a thread, and the
+    // window is trivia beside that. Kept because the settings screen shows
+    // whatever the backend sends.
     int64_t context_window_tokens = -1;
     // Raw JSON of the settings response, verbatim, for the settings screen to
     // show / debug the exact backend payload without re-fetching.

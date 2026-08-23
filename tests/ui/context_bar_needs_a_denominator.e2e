@@ -1,13 +1,15 @@
-# The composer draws a proportion bar only when a backend reports a context
-# window. Without one it shows the thread's size and nothing more.
+# The composer draws a proportion bar only when a real denominator exists, and
+# the denominator is the COMPACTION BUDGET — the number that, once reached,
+# summarises the thread out from under the reader.
 #
-# It used to draw a bar filled to a hardcoded 38% — a meter that moved for
-# nobody and implied a fraction of something. There is no setting for this:
-# the bar appears when the data to draw it honestly exists.
+# It used to draw a bar filled to a hardcoded 38%, then no bar at all next to a
+# chars/4 estimate. Both told the reader nothing. The figure here is the
+# provider's own count and the budget is declared, so the ratio is real.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_CONTEXT_WINDOW=4000
+# env: HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000
 
-# A denominator arrived, so it reads as a proportion.
-expect_text "/ 4k tokens"
+# A counted numerator over a real budget reads as a proportion.
+expect_text "258k / 800k tokens"
+# No tilde: the "~" is reserved for the estimate, and this is not one.
 expect_no_text "~"

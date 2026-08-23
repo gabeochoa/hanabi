@@ -140,6 +140,7 @@ void load_config_file(Config& c) {
     };
     num("auth_poll_interval", c.auth_poll_interval);
     num("auth_expires_in", c.auth_expires_in);
+    num("context_budget_tokens", c.context_budget_tokens);
 }
 }  // namespace
 
@@ -277,6 +278,12 @@ Config Config::from_env() {
     }
     if (const char* v = std::getenv("HANABI_AUTH_EXPIRES_IN"); v && *v) {
         try { c.auth_expires_in = std::stoll(v); } catch (...) {}
+    }
+
+    // Declared compaction budget for a backend that reports none. A bad value
+    // leaves it at zero, which draws no bar — never a bar against a guess.
+    if (const char* v = std::getenv("HANABI_CONTEXT_BUDGET_TOKENS"); v && *v) {
+        try { c.context_budget_tokens = std::stoll(v); } catch (...) {}
     }
 
     return c;

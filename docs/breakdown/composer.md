@@ -7,11 +7,13 @@ were corrected on review — see items 4 and 7.)
 1. Draft persistence (per-session auto-save on keystroke) — `src/ecs/main_pane_system.h` lines 2844–2849, `src/ecs/composer_system.h` lines 42–56
 2. Sending (reply via HTTP or streaming) — `src/api/agentcloud_client.cpp` line 812 (`send_message_streaming`), routed in `main_pane_system.h` lines 2913–2917
 3. Enter-to-send — `main_pane_system.h` lines 3104–3151 (HasTextInputListener)
-4. Token context meter — PARTIAL. `main_pane_system.h:3291` draws a proportion
-   bar only when `settings.context_window_tokens > 0`, and falls back to a plain
-   token figure otherwise. Nothing sets that value on the current backend, so in
-   practice you always get the figure and never the bar. Wiring the real
-   denominator is queued separately in `todo.md`; do not re-plan it here.
+4. Token context meter — DONE. `main_pane_system.h` draws the figure and, when
+   a denominator exists, a proportion bar. The numerator is
+   `Session::context.used_tokens` (the provider's own count, from
+   `hello.state.tokens.occupancy`) and falls back to a "~"-marked chars/4
+   estimate; the denominator is `context.budget_tokens` — the COMPACTION
+   budget, not the window — or the declared `context_budget_tokens` config key.
+   With neither there is no bar, which is how the mock degrades.
 5. Send-disabled reason notices — `main_pane_system.h` lines 3242–3257 (caption dynamically shows "read-only", "sending…", queued count, or "Enter to send")
 
 **Real gaps to build:** 7 gaps remain genuine:

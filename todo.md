@@ -439,16 +439,15 @@ arrives on the existing stream.
 
 ### Still open
 
-- [ ] **Now unblocked — build it.** We are on agentcloud, and `hello.state`
-      carries `tokens` directly (seen live on every attach). Denominator is
-      `tokens.context.budget`, NOT `window`: the budget is what triggers
-      compaction, which is the thing with a consequence. Numerator is
-      `tokens.occupancy.tokens`. Render `occupancy.stale` rather than hiding
-      it. `cache_read`/`cache_creation` nest inside `input`, never add to it.
-      (The old caveat here — "is this the backend we are actually on?" — is
-      settled: we switched. `make run` is agentcloud, so `hello.state.tokens`
-      is the live shape, and the `context_usage` event named elsewhere in this
-      file belongs to the backend we left.)
+- [x] **Now unblocked — build it.** DONE (`feat/context-meter-denominator`).
+      `hello.state.tokens` is parsed into `api::ContextUsage` on the session
+      (`parse_context_usage`), the denominator is `tokens.context.budget` and
+      the numerator `tokens.occupancy.tokens`, `occupancy.stale` renders beside
+      the figure, and nothing subscribes to the per-delta usage event. The bar
+      is back with the figure beside it; `context_budget_tokens` (config key /
+      `HANABI_CONTEXT_BUDGET_TOKENS`) declares a budget for a backend that
+      reports none, and with neither there is no bar. `compact_count` now gives
+      millions the same one-decimal treatment as thousands.
 
 Then: restore the bar, keep the token figure beside it, and add a config key so
 the mock and any backend without a max degrade to the plain figure rather than

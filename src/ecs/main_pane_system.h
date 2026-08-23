@@ -3267,11 +3267,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Right)
                     .with_debug_name("composer_status"));
         }
-        // Conversation size. This used to be a bar filled to a hardcoded 38%
-        // next to the word "context" — a meter that moved for nobody and told
-        // the user nothing. A bar needs a denominator and no backend here
-        // supplies a context window, so the bar is gone and what is left is a
-        // real number: the open thread's own size, measured from its text.
         // A live selection says how much is on the clipboard's doorstep. It
         // also confirms the selection exists at all: the band is drawn behind
         // text and easy to miss on a short run.
@@ -3288,19 +3283,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Right)
                     .with_debug_name("composer_selected"));
         }
+        // Conversation size against the budget that will compact it. The
+        // numerator is the provider's own count when the backend reports one
+        // and a chars/4 estimate otherwise, and only the estimate wears a "~".
+        // The denominator is the session's compaction budget, or the declared
+        // one for a backend that reports none; with neither, the bar is absent
+        // rather than filled to something invented.
         if (canSend && app.openSession) {
-            const int64_t tok = estimated_tokens(*app.openSession);
-            const int64_t window = app.settings.context_window_tokens;
+            const api::ContextUsage& usage = app.openSession->context;
+            const bool counted = usage.counted();
+            const int64_t tok =
+                counted ? usage.used_tokens : estimated_tokens(*app.openSession);
+            const int64_t budget = usage.has_denominator()
+                                       ? usage.budget_tokens
+                                       : app.configuredContextBudget;
             if (tok > 0) {
-                // With a real denominator this reads as a proportion; without
-                // one it is the thread's size and nothing more. No setting
-                // gates this — the bar appears when the data to draw it
-                // honestly exists.
-                const std::string label =
-                    window > 0
-                        ? (fmtutil::compact_count(tok) + " / " +
-                           fmtutil::compact_count(window) + " tokens")
-                        : ("~" + fmtutil::compact_count(tok) + " tokens");
+                std::string label = counted
+                                        ? fmtutil::compact_count(tok)
+                                        : "~" + fmtutil::compact_count(tok);
+                if (budget > 0)
+                    label += " / " + fmtutil::compact_count(budget);
+                label += " tokens";
+                // A reading the server has not caught up with says so. Hiding
+                // it would present a stale number as a live one.
+                if (usage.stale) label += " \xc2\xb7 stale";
                 div(ctx, mk(rightMeta.ent(), 2),
                     ComponentConfig{}
                         .with_label(label)
@@ -3310,10 +3316,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Right)
                         .with_debug_name("composer_size"));
-                if (window > 0) {
+                if (budget > 0) {
                     const float frac =
                         std::min(1.0f, static_cast<float>(tok) /
-                                           static_cast<float>(window));
+                                           static_cast<float>(budget));
                     div(ctx, mk(rightMeta.ent(), 3),
                         ComponentConfig{}
                             .with_size(ComponentSize{pixels(56), pixels(6)})
@@ -3335,12 +3341,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // A rough size for the open conversation, in tokens. Counts the characters
-    // the thread actually carries — message bodies plus captured tool output —
-    // and divides by four, the usual English rule of thumb. Deliberately
-    // approximate and labelled "~": an exact count needs the tokenizer the
-    // model uses, which is the backend's to know, and a wrong precise number is
-    // worse than an honest estimate.
+    // A rough size for the open conversation, in tokens, for a backend that
+    // reports no count of its own. Counts the characters the thread actually
+    // carries — message bodies plus captured tool output — and divides by four,
+    // the usual English rule of thumb. Deliberately approximate and labelled
+    // "~": an exact count needs the tokenizer the model uses, which is the
+    // backend's to know, and a wrong precise number is worse than an honest
+    // estimate.
     static int64_t estimated_tokens(const api::Session& s) {
         size_t chars = 0;
         for (const auto& m : s.messages) {
