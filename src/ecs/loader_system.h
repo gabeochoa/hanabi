@@ -501,6 +501,38 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
+        // --- Session rename (durable echo; no local optimism) ---------------
+        // The modal parks the ask here and keeps its spinner up. The title is
+        // applied only from what the server echoes back; a refusal goes back to
+        // the modal, which is still open with the user's text in it.
+        if (!app.requestRenameId.empty() && !app.renameFuture.valid()) {
+            const std::string id = app.requestRenameId;
+            const std::string title = app.requestRenameTitle;
+            app.requestRenameId.clear();
+            app.requestRenameTitle.clear();
+            app.renameInFlightId = id;
+            api::Client* c = app.client.get();
+            app.renameFuture = std::async(std::launch::async, [c, id, title] {
+                return c->rename_session(id, title);
+            });
+        }
+        if (app.renameFuture.valid() &&
+            app.renameFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.renameFuture.get();
+            app.renamePending = false;
+            if (r.ok) {
+                app.apply_renamed_title(app.renameInFlightId, r.value);
+                app.renameOpen = false;
+                app.renameSessionId.clear();
+                app.renameDraft.clear();
+                app.renameError.clear();
+            } else {
+                app.renameError = r.error;
+            }
+            app.renameInFlightId.clear();
+        }
+
         // --- Reply (transcript composer "Send" -> continue the open thread) ---
         if (!app.requestSendPrompt.empty() && !app.sendPending &&
             !app.selectedId.empty()) {

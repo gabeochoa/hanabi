@@ -547,6 +547,22 @@ class Client {
             "this backend does not support steering");
     }
 
+    // Rename a session. The returned value is the title the SERVER settled on,
+    // read back off its durable echo — callers must display THAT, never the
+    // requested string, so a refusal or a normalisation is never papered over
+    // with a local guess. A failure carries the refusal, for showing the user.
+    virtual Result<std::string> rename_session(const std::string& session_id,
+                                               const std::string& title) {
+        (void)session_id;
+        (void)title;
+        return Result<std::string>::failure(
+            "this backend does not support renaming sessions");
+    }
+
+    // Whether this client can rename. Gates the "Rename…" context-menu item, so
+    // a backend without the verb never offers an action that cannot work.
+    virtual bool supports_rename() const { return false; }
+
     // Whether this client can send (kickoff + reply). The composer uses this to
     // decide between an enabled Send and the honest disabled caption. The mock
     // supports send; the http adapter supports it only when a chat path is

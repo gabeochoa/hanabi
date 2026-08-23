@@ -1,0 +1,53 @@
+# Right-click a sidebar row, rename the session, and both the row and the tab
+# caption take the title the server echoed back.
+#
+# The old title has to be GONE afterwards, not merely joined by the new one:
+# the row, the tab and the transcript header all render it, and asserting only
+# that "Ship notes" appeared would pass with two of the three still stale.
+# (expect_no_text takes a BARE word — afterhours_gaps.md #47.)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "Draft release notes for 4.2"
+
+# Open the thread first, so the rename has a tab caption to reach as well.
+click 120 511
+wait_frames 8
+expect_text "Pulled the 62 landed changes"
+
+# Secondary click on the same row: the context menu opens at the cursor.
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+expect_text "Rename"
+
+click_ui row_menu_rename
+wait_frames 4
+expect_text "Rename session"
+
+# The field opens focused with the whole title selected, so typing replaces it.
+type "Ship notes"
+wait_frames 2
+key ENTER
+wait_frames 30
+
+expect_text "Ship notes"
+expect_no_text Draft
+
+# A refusal is shown in the modal and nothing local changes: the server has the
+# last word on the title, so an empty one comes back rejected and the row keeps
+# the name it already had.
+mouse_move 120 511
+wait_frames 3
+right_click 120 511
+wait_frames 4
+click_ui row_menu_rename
+wait_frames 4
+expect_input_text rename_input "Ship notes"
+type " "
+wait_frames 2
+key ENTER
+wait_frames 30
+expect_text "title cannot be empty"
+expect_text "Ship notes"

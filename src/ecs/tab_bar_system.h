@@ -575,14 +575,17 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         const auto& tab = tabEntity.get<Tab>();
         struct Item {
             const char* label;
-            int action;  // 0 = copy url, 1 = close others, 2 = open in split
+            int action;  // 0 = copy url, 1 = close others, 2 = open in split,
+                         // 3 = rename
         };
-        static const Item kItems[] = {
-            {"Copy URL", 0},
-            {"Open in split", 2},
-            {"Close others", 1},
-        };
-        const int nItems = static_cast<int>(sizeof(kItems) / sizeof(kItems[0]));
+        std::vector<Item> items;
+        if (app.client && app.client->supports_rename())
+            items.push_back({"Rename\xe2\x80\xa6", 3});
+        items.push_back({"Copy URL", 0});
+        items.push_back({"Open in split", 2});
+        items.push_back({"Close others", 1});
+        const Item* kItems = items.data();
+        const int nItems = static_cast<int>(items.size());
 
         const float menuW = 160.0f;
         const float itemH = 26.0f;
@@ -643,6 +646,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     // beside the active one. No-op if it's the active thread.
                     app.requestSplitOpen = keepId;
                     app.view = SmartView::Chat;
+                } else if (kItems[k].action == 3) {
+                    app.renameOpen = true;
+                    app.renameSessionId = keepId;
+                    const auto* sum = app.find_summary(keepId);
+                    app.renameDraft = sum != nullptr ? sum->title : tab.label;
+                    app.renameError.clear();
+                    app.renameSubmit = false;
                 } else {
                     model::close_others(strip, app, keepId);
                 }
