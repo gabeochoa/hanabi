@@ -955,20 +955,33 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.openThreadLive = false;
             return;
         }
-        // Collect the set of currently-open tab session ids.
+        // Collect the set of currently-open tab session ids. A PREVIEW tab is
+        // deliberately left out: a preview is a look at what the thread said
+        // when you opened it, and holding a live subscription open behind every
+        // row you glanced at is exactly the cost the preview is there to avoid.
+        // Keeping the tab (a second click) subscribes it on the next tick.
         std::set<std::string> openIds;
+        bool selectedIsPreview = false;
         if (auto* strip = find_singleton<TabStripComponent>()) {
             for (auto tabId : strip->tabOrder) {
                 auto opt = afterhours::EntityHelper::getEntityForID(tabId);
                 if (opt.valid() && opt->has<Tab>()) {
-                    const std::string& sid = opt->get<Tab>().sessionId;
-                    if (!sid.empty()) openIds.insert(sid);
+                    const auto& tab = opt->get<Tab>();
+                    if (tab.sessionId.empty()) continue;
+                    if (!tab.keptOpen) {
+                        if (tab.sessionId == app.selectedId)
+                            selectedIsPreview = true;
+                        continue;
+                    }
+                    openIds.insert(tab.sessionId);
                 }
             }
         }
         // Always keep the focused thread subscribed even if (transiently) it
-        // has no tab entity yet.
-        if (!app.selectedId.empty()) openIds.insert(app.selectedId);
+        // has no tab entity yet — unless the tab it does have is a preview,
+        // which would put the live stream back behind the frozen one.
+        if (!app.selectedId.empty() && !selectedIsPreview)
+            openIds.insert(app.selectedId);
 
         // Reap subscriptions whose tab closed (detach so stop()/join is off the
         // UI thread — the blocking SSE read can sit up to the read timeout).

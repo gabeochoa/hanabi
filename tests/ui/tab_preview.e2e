@@ -1,0 +1,40 @@
+# A sidebar row clicked once opens a PREVIEW tab; a second click keeps it.
+#
+# The point of preview mode is that browsing a list does not leave a tab behind
+# per glance, so the assertions are about SLOTS: the preview marker and the
+# active-tab accent both sit at slot 0 (x=280) while three different threads are
+# looked at in turn, and only once a tab has been kept does the next glance get
+# a slot of its own beside it (x=523).
+#
+# Rows are clicked by coordinate because the harness cannot name one row of a
+# list (afterhours_gaps.md #55): the band starts at y=380 with 24px rows, so
+# y=386 / y=410 / y=434 are the first three threads.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+mouse_move 650 400
+wait_frames 10
+
+# One click: a preview tab, marked as temporary, and it is the current tab.
+click 140 386
+wait_frames 8
+assert_ui tab_preview x=284
+assert_ui tab_accent_top x=280
+
+# A second thread REUSES that tab rather than opening another — the marker and
+# the accent are both still on slot 0, so there is exactly one tab and it is
+# still a preview.
+click 140 410
+wait_frames 8
+assert_ui tab_preview x=284
+assert_ui tab_accent_top x=280
+
+# Clicking the tab you are already reading is the second look, and the second
+# look keeps it. The next glance can no longer take that slot: it opens beside
+# the kept tab instead.
+click_ui tab_label
+wait_frames 8
+click 140 434
+wait_frames 8
+assert_ui tab_preview x=527
+assert_ui tab_accent_top x=523

@@ -256,10 +256,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 // per-tab click branch below can't also fire.
                 ctx.mouse.just_pressed = false;
             } else if (!strip.dragging && from < nTabs) {
-                // Pure click (moved < threshold): preserve click-to-focus.
+                // Pure click (moved < threshold): preserve click-to-focus, and
+                // treat a click on the tab you are already reading as the
+                // second look that keeps it.
                 auto o = EntityHelper::getEntityForID(strip.dragCandidate);
-                if (o.valid() && o->has<Tab>() && !o->has<ActiveTab>())
-                    switch_to_tab(app, o.asE());
+                if (o.valid() && o->has<Tab>()) {
+                    if (o->has<ActiveTab>()) model::keep_tab(o.asE());
+                    else switch_to_tab(app, o.asE());
+                }
             }
             strip.clear_drag();
         }
@@ -368,6 +372,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             auto& tab = tabEntity.get<Tab>();
             bool isActive = tabEntity.has<ActiveTab>();
             bool isDragged = dragging && i == dragFrom;
+            // A preview tab keeps the recessed fill even while it is the one
+            // you are reading: the accent bar above still says "this is the
+            // current tab", and the un-raised surface says "and it is not one
+            // you have kept". That is the whole visual difference — a glance
+            // does not get to look like a commitment.
+            const bool isPreview = !tab.keptOpen;
 
             float tabW = uniformW;
             tabX = renderX[i];
@@ -400,11 +410,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                            hanabi::test_hooks::force_hover("tab:" +
                                                            tab.sessionId);
 
-            afterhours::Color bg = isActive  ? tab_colors::tab_active()
+            afterhours::Color bg = (isActive && !isPreview)
+                                       ? tab_colors::tab_active()
                                    : hovered ? tab_colors::tab_hover()
                                              : tab_colors::tab_inactive();
-            afterhours::Color txt =
-                isActive ? tab_colors::tab_text_act() : tab_colors::tab_text();
+            afterhours::Color txt = (isActive && !isPreview)
+                                        ? tab_colors::tab_text_act()
+                                        : tab_colors::tab_text();
 
             // At narrow (scrolled) widths, Chrome hides the × on inactive,
             // non-hovered tabs so the (ellipsized) title keeps as much room as
@@ -478,7 +490,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             .with_size(ComponentSize{pixels(tabW), pixels(2)})
                             .with_absolute_position()
                             .with_translate(tabX, r.y + tabH - 1.0f)
-                            .with_custom_background(tab_colors::tab_active())
+                            .with_custom_background(bg)
                             .with_roundness(0.0f)
                             .with_render_layer(baseLayer + 1)
                             .with_debug_name("tab_bridge"));
@@ -495,6 +507,21 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_render_layer(baseLayer + 1)
                         .with_debug_name("tab_accent_top"));
             }
+
+            // Preview marker: a short bar in the tab's left gutter, over the
+            // padding the label never uses, so saying "this one is temporary"
+            // costs the title no width. There is at most one on screen.
+            if (isPreview)
+                div(ctx, mk(uiRoot, 940 + static_cast<int>(i)),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{pixels(3),
+                                                 pixels(tabH - 14.0f)})
+                        .with_absolute_position()
+                        .with_translate(tabX + 4.0f, r.y + 7.0f)
+                        .with_custom_background(tab_colors::tab_text())
+                        .with_roundness(0.5f)
+                        .with_render_layer(baseLayer + 1)
+                        .with_debug_name("tab_preview"));
 
             // Click-to-focus is now resolved on RELEASE (see the drag-input
             // block above) so a press that turns into a drag doesn't also
@@ -672,8 +699,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     // Open `id` in a tab: focus if already open, else create a new tab.
     // Delegates to the graphics-free, headlessly-tested model tab logic.
     static void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
-                                    const std::string& id) {
-        model::open_session_in_tab(strip, app, id);
+                                    const std::string& id, bool keep = true) {
+        model::open_session_in_tab(strip, app, id, keep);
     }
 
     static void switch_to_tab(AppComponent& app, Entity& newTab) {
@@ -721,7 +748,9 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
         app.requestOpenTab.clear();
         auto* strip = find_singleton<TabStripComponent>();
         if (!strip) return;
-        TabBarSystem::open_session_in_tab(*strip, app, id);
+        // A sidebar row clicked once is a look, not a commitment: it opens as a
+        // PREVIEW and reuses whatever preview tab is already there.
+        TabBarSystem::open_session_in_tab(*strip, app, id, /*keep=*/false);
     }
 };
 
