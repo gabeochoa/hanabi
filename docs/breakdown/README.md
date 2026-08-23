@@ -27,9 +27,18 @@ worth treating as a signal rather than a footnote.
 
 ## Overlaps
 
-**Session rename is planned in two places.** `session-lifecycle.md` is
-authoritative — it verified the backend verb is advertised on attach.
-`sidebar-tabs.md` covers only the sidebar/tab entry point and points at it.
+Agents worked in parallel and did not see each other's output, so three things
+were written up twice. Each now names one owner:
+
+- **Session rename** — `session-lifecycle.md` owns it (it verified the backend
+  verb is advertised on attach). `sidebar-tabs.md` keeps only the entry point.
+- **Composer history walk** — `composer.md` owns it. `search-settings-shortcuts.md`
+  had it bundled with find-next/prev; that bundle is now find-only.
+- **Global hotkey** — not a contradiction but it read like one.
+  `native-notifications-attachments.md` verified a focus-gated Carbon hotkey
+  already exists; `search-settings-shortcuts.md` wants a SECOND chord for the
+  palette. That makes it small, not medium — the focus-gating is the hard part
+  and it is done.
 
 ## Corrections already applied
 

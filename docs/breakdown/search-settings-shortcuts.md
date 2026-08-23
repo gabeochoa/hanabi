@@ -18,7 +18,9 @@
 **True gaps needing implementation: 16**
 - Search: 3 (operators, full-text session search, command palette, snippet highlighting)
 - Settings: 6 (send key config, timestamps toggle, typeface picker, text weights, theme rotate, custom theme editor)
-- Keyboard: 5 (global hotkey, shortcut recorder, composer history, navigation shortcuts, find next/prev)
+- Keyboard: 5 (global hotkey — but see #4a, the mechanism exists; shortcut
+  recorder; composer history — PLANNED IN `composer.md`, build it from there;
+  navigation shortcuts; find next/prev)
 
 ---
 
@@ -347,7 +349,16 @@
 
 ## Keyboard & Shortcuts (5 gaps → 5 real gaps)
 
-### Gap #4a: Global hotkey (Cmd+Shift+Space) — Size: Medium
+### Gap #4a: Global hotkey (Cmd+Shift+Space) — Size: SMALL, not Medium
+
+> **The global-hotkey machinery already exists.** `src/native_extras.mm`
+> registers a Carbon hotkey and — importantly — gates it on app focus, so it
+> does not steal the chord from other apps while hanabi is in the background.
+> That focus-gating was hard-won and is the expensive part. This gap is
+> "register a SECOND chord against the existing mechanism and point it at the
+> palette", not "add global hotkey support". See
+> `native-notifications-attachments.md`, which verified the existing one.
+
 **What ships:**
 - From anywhere (e.g., browser, Slack), press Cmd+Shift+Space
 - Hanabi comes to foreground (or launches if closed)
@@ -545,8 +556,9 @@
    - Theme rotation needs render-loop timer but is otherwise isolated
 
 ### Batch 3 (Day 3) — Advanced keyboard
-5. **Composer history + find next/prev** (#4c, #4e, ~100 lines)
-   - "Keyboard: composer history walk (Up/Down) + find navigation (Cmd+G)"
+5. **Find next/prev** (#4e, ~50 lines)
+   - Composer history was in this bundle; it is planned in `composer.md`
+     instead, which owns the composer. Build it from there.
    - Tight scope, high daily-use value
    - No modal/UI churn
 
