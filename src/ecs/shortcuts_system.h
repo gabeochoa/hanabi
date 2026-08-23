@@ -31,7 +31,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
 
     // The shortcuts this app actually binds. Each entry names the file that
     // owns the binding, so a shortcut that moves cannot quietly go stale here.
-    static constexpr std::array<Row, 21> kRows{{
+    static constexpr std::array<Row, 22> kRows{{
         {"", "Conversations"},
         {"Cmd N", "Start a new task"},              // composer_system.h
         {"Cmd W", "Close the current tab"},         // tab_bar_system.h
@@ -51,6 +51,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         {"Esc", "Close whatever is open"},
         {"", "Anywhere on the desktop"},
         {"Cmd Shift N", "Bring hanabi forward and start a task"},  // native_extras.mm
+        {"Cmd Shift K", "Bring hanabi forward and search"},        // native_extras.mm
         {"", "Mouse"},
         {"Hover a message", "Copy it, and see when it was sent"},
     }};

@@ -448,7 +448,8 @@ static void app_frame() {
     // path, so a press behaves exactly like the "New task" menu item.
     {
         bool hotkey = native_hotkey_take_triggered();
-        bool wantShow = menubar_take_show() || hotkey;
+        const bool paletteHotkey = native_palette_hotkey_take_triggered();
+        bool wantShow = menubar_take_show() || hotkey || paletteHotkey;
         bool wantNewTask = menubar_take_new_task() || hotkey;
         if (wantShow) metal_activate_app();
         if (wantNewTask) {
@@ -456,6 +457,13 @@ static void app_frame() {
                          .whereHasComponent<ecs::AppComponent>()
                          .gen();
             if (!q.empty()) q[0].get().get<ecs::AppComponent>().requestNewTask = true;
+        }
+        if (paletteHotkey) {
+            auto q = afterhours::EntityQuery({.force_merge = true})
+                         .whereHasComponent<ecs::AppComponent>()
+                         .gen();
+            if (!q.empty())
+                q[0].get().get<ecs::AppComponent>().paletteOpen = true;
         }
         // Phase G extra: a hanabi://thread/<id> open (tapped Spotlight result)
         // opens + navigates to that thread — same seam a sidebar row click

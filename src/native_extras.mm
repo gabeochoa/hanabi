@@ -69,13 +69,16 @@ static bool hanabi_native_log_enabled(void) {
 //   system-wide, which is the user's stated intent ("only when focused").
 
 static std::atomic<bool> g_hotkey_triggered{false};
+static std::atomic<bool> g_palette_triggered{false};
 static EventHotKeyRef g_hotkey_ref = nullptr;   // non-null while registered
+static EventHotKeyRef g_palette_ref = nullptr;  // Cmd+Shift+K, same lifetime
 static bool g_handler_installed = false;        // Carbon event handler once
 static bool g_focus_observed = false;           // NSApp notifications hooked
 
 // Our hotkey's identity, matched in the handler.
 static const OSType kHotkeySig = 'hnbi';        // 4-char creator-style tag
 static const UInt32 kHotkeyId = 1;
+static const UInt32 kPaletteHotkeyId = 2;
 
 static OSStatus hotkey_handler(EventHandlerCallRef nextHandler,
                                EventRef event, void* userData) {
@@ -85,10 +88,11 @@ static OSStatus hotkey_handler(EventHandlerCallRef nextHandler,
     OSStatus st = GetEventParameter(event, kEventParamDirectObject,
                                     typeEventHotKeyID, nullptr, sizeof(hkId),
                                     nullptr, &hkId);
-    if (st == noErr && hkId.signature == kHotkeySig && hkId.id == kHotkeyId) {
+    if (st == noErr && hkId.signature == kHotkeySig) {
         // Set the one-shot; the C++ frame loop does the actual activate +
-        // new-task on the main thread. Keep this callback trivial.
-        g_hotkey_triggered.store(true);
+        // new-task (or palette) on the main thread. Keep this callback trivial.
+        if (hkId.id == kHotkeyId) g_hotkey_triggered.store(true);
+        else if (hkId.id == kPaletteHotkeyId) g_palette_triggered.store(true);
     }
     return noErr;
 }
@@ -117,6 +121,23 @@ static void hotkey_register(void) {
         return;
     }
     HLOG(@"native_extras: global hotkey Cmd+Shift+N registered (hanabi active)");
+
+    // Cmd+Shift+K opens the command palette. Same focus-gated lifetime as the
+    // chord above, for the same reason: an unfocused app must not swallow a
+    // chord another app owns. A failure here is not fatal — Cmd+K still works
+    // inside the app; only the summon-from-elsewhere version is lost.
+    EventHotKeyID palId;
+    palId.signature = kHotkeySig;
+    palId.id = kPaletteHotkeyId;
+    OSStatus pst = RegisterEventHotKey(kVK_ANSI_K, cmdKey | shiftKey, palId,
+                                       GetApplicationEventTarget(), 0,
+                                       &g_palette_ref);
+    if (pst != noErr) {
+        NSLog(@"native_extras: RegisterEventHotKey(Cmd+Shift+K) failed (%d) — "
+              @"another app may own this chord",
+              (int)pst);
+        g_palette_ref = nullptr;
+    }
 }
 
 // Unregister the Carbon hotkey iff registered. Called when hanabi resigns
@@ -128,9 +149,14 @@ static void hotkey_unregister(void) {
         NSLog(@"native_extras: UnregisterEventHotKey failed (%d)", (int)st);
     }
     g_hotkey_ref = nullptr;
+    if (g_palette_ref != nullptr) {
+        UnregisterEventHotKey(g_palette_ref);
+        g_palette_ref = nullptr;
+    }
     // Clear any press that arrived right at the focus boundary so a stale
     // trigger doesn't fire after we've decided hanabi isn't focused.
     g_hotkey_triggered.store(false);
+    g_palette_triggered.store(false);
     HLOG(@"native_extras: global hotkey Cmd+Shift+N unregistered (hanabi "
          @"resigned active) — passes through to other apps");
 }
@@ -204,6 +230,10 @@ void native_hotkey_install(void) {
 
 bool native_hotkey_take_triggered(void) {
     return g_hotkey_triggered.exchange(false);
+}
+
+bool native_palette_hotkey_take_triggered(void) {
+    return g_palette_triggered.exchange(false);
 }
 
 // ===========================================================================

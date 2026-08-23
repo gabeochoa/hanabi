@@ -45,7 +45,8 @@ extern "C" {
 
 // ---- 1. Global hotkey ------------------------------------------------------
 
-// Register the system-wide hotkey (Cmd+Shift+N). Idempotent — safe to call
+// Register the system-wide hotkeys (Cmd+Shift+N new task, Cmd+Shift+K
+// palette). Idempotent — safe to call
 // more than once (only the first call installs). Must run on the main thread
 // after NSApp exists. NEVER call from the headless path: it installs a
 // process-lifetime Carbon event handler + a global hotkey registration.
@@ -54,6 +55,11 @@ void native_hotkey_install(void);
 // One-shot: returns true exactly once per hotkey press, then clears. Polled by
 // the C++ frame loop, which then runs the existing activate + new-task path.
 bool native_hotkey_take_triggered(void);
+
+// The same, for Cmd+Shift+K: bring hanabi forward and open the command
+// palette. Registered and unregistered with the chord above, so an unfocused
+// hanabi never swallows a chord another app owns.
+bool native_palette_hotkey_take_triggered(void);
 
 // ---- 2. Native notification ------------------------------------------------
 
