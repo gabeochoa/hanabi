@@ -5254,12 +5254,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // mock's `.block`. Heights are shared by render + measure so the
     // virtualization mirror stays exact.
     static constexpr float kCodeBarH = 20.0f;    // lang-bar header height
+    // An UNLABELLED fence's header carries only the copy affordance, which is
+    // invisible at rest, so it does not need a label's height. Puffin sizes
+    // its header to its content the same way and tightens the body's padding
+    // with it (`CodeBlockView`: `.padding(top: showsHeader ? 4 : 8)`), which
+    // is why the reference's bare fence stands 41px for two lines where
+    // hanabi's stood 63.
+    static constexpr float kCodeBarBareH = 0.0f;
+    // The per-line chip's horizontal padding. Measured off the reference's
+    // short line: "exit 65" is 7 mono glyphs and its chip runs x374..435.
+    static constexpr float kCodeChipPadX = 6.0f;
     static constexpr float kCodeVMargin = 8.0f;  // margin above + below block
     static constexpr float kCodePadV = 6.0f;     // top+bottom padding inside body
     // Total height of a code block with `nLines` inner lines.
-    static float code_block_h(int nLines) {
+    static float code_block_h(int nLines, bool labelled = true) {
         if (nLines < 1) nLines = 1;
-        return kCodeVMargin + kCodeBarH +
+        return kCodeVMargin + (labelled ? kCodeBarH : kCodeBarBareH) +
                (static_cast<float>(nLines) * kLinePitch + 2.0f * kCodePadV) +
                kCodeVMargin;
     }
@@ -5466,7 +5476,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (n2 == std::string::npos) { p = body.size() + 1; break; }
                     p = n2 + 1;
                 }
-                h += code_block_h(codeLines);
+                h += code_block_h(codeLines, !fence_lang(line).empty());
                 start = p;
                 continue;
             }
@@ -5942,16 +5952,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int n = lines.empty() ? 1 : static_cast<int>(lines.size());
         auto block = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f),
-                                         pixels(code_block_h(n) -
-                                                2.0f * kCodeVMargin)})
+                .with_size(ComponentSize{
+                    percent(1.0f),
+                    pixels(code_block_h(n, !lang.empty()) -
+                           2.0f * kCodeVMargin)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.top = pixels(kCodeVMargin),
                                     .bottom = pixels(kCodeVMargin)})
-                .with_custom_background(theme::window_bg())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_roundness(0.22f)
+                // TRANSPARENT, and no border. The reference's fence is not a
+                // panel: measured row by row, its dark surface hugs each code
+                // LINE -- the long error line's chip runs x384..1018 and the
+                // "exit 65" line's runs x374..435, in the same block. Puffin
+                // puts the background on the highlighted text itself
+                // (`SyntaxHighlighter.highlight` returns an AttributedString
+                // and the view draws ONE background behind the whole thing;
+                // what reaches the screen is per-line because the text is).
+                //
+                // A panel here was wrong twice over: it painted window_bg,
+                // which punched a hole clean through the bubble behind it, and
+                // it painted the full rectangle where the reference paints
+                // only behind the words. The hole was invisible to the parity
+                // metric -- window_bg (23,23,35) is within tolerance of the
+                // bubble's (33,33,54) -- and plainly visible to a reader.
+                .with_transparent_bg()
+                .with_roundness(0.0f)
                 .with_debug_name("code_block"));
         // Lang bar: uppercase language label on a slightly-raised strip with a
         // hairline bottom divider.
@@ -5964,9 +5989,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // fence — a bare one — carries no caption at all. The strip itself
         // stays, because the copy affordance lives in it and Puffin's header
         // holds its own height for the same reason.
+        // The bar exists only for a LANGUAGE. An unlabelled fence has nothing
+        // to put on a strip -- Puffin's `CodeBlockView.header` emits its label
+        // `if !lang.isEmpty` and its copy button floats -- and a zero-height
+        // one is worse than none: its three children overflow it every frame
+        // and each writes a layout warning, three per frame forever.
         auto bar = div(ctx, mk(block.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kCodeBarH)})
+                .with_size(ComponentSize{
+                    percent(1.0f),
+                    pixels(lang.empty() ? kCodeBarBareH : kCodeBarH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -5978,16 +6010,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // `CodeBlockView` paints ONE background behind the whole
                 // block — and hanabi's raised strip only earns its keep when
                 // there is a language sitting on it.
-                .with_custom_background(lang.empty() ? theme::window_bg()
+                .with_custom_background(lang.empty() ? theme::code_bg()
                                                      : theme::panel_bg())
-                .with_border_bottom(lang.empty() ? theme::window_bg()
+                .with_border_bottom(lang.empty() ? theme::code_bg()
                                                  : theme::border(),
                                     pixels(1))
                 .with_roundness(0.0f)
                 .with_debug_name("code_block_bar"));
+        if (!lang.empty())
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
-                .with_label(lang.empty() ? " " : lang)
+                .with_label(lang)
                 .with_size(ComponentSize{pixels(120), pixels(14)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -5999,7 +6032,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Copy button (right of the lang label): copies the whole block to the
         // clipboard (mock's `.copy`). A spacer pushes it flush-right (no
         // flex-grow — gap #18 — so size the lang label fixed + a flexer).
-        {
+        if (!lang.empty()) {
             // Compute the spacer width EXPLICITLY (afterhours has no flex-grow —
             // gap #18 — so a percent(1.0) spacer in a NoWrap row resolves to the
             // FULL parent width and overflows, flooding the log). Bar content
@@ -6097,11 +6130,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // (Transcript fixture). The 12 is kept because it is Puffin's
             // number and the next person to widen this type needs to know
             // that 1px is not a step.
+            // Sized to its OWN text plus a chip's padding, not to the block:
+            // this is the surface the reference draws, and it stops where the
+            // words do. Measured rather than flex-sized, because a box cannot
+            // be told to hug its text (afterhours_gaps.md #87).
+            const float chipW =
+                std::ceil(theme::text_px(shown.c_str(), theme::type::MD)) +
+                2.0f * kCodeChipPadX;
             auto cfg =
                 ComponentConfig{}
                     .with_label(shown)
-                    .with_size(ComponentSize{percent(1.0f), pixels(kLinePitch)})
-                    .with_transparent_bg()
+                    .with_size(ComponentSize{pixels(chipW), pixels(kLinePitch)})
+                    .with_custom_background(theme::code_bg())
                     .with_custom_text_color(theme::text_primary())
                     .with_font("mono", theme::type::MD)
                     .with_alignment(TextAlignment::Left)
@@ -6335,8 +6375,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (n2 == std::string::npos) { p = shown.size() + 1; break; }
                     p = n2 + 1;
                 }
-                const float blockH =
-                    code_block_h(static_cast<int>(codeLines.size()));
+                const float blockH = code_block_h(
+                    static_cast<int>(codeLines.size()), !lang.empty());
                 const float segTop = y;
                 const float segBot = y + blockH;
                 y = segBot;

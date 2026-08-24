@@ -2497,3 +2497,73 @@ binary, `getbbox()` `None` within each pair. When the harness is used the way
 `REFERENCE.md` says, it resolves a single hairline; when it is not, two shots
 of one unmodified binary read 4.19% and 4.66%.
 
+
+---
+
+## The code fence (no branch — done on main)
+
+### 1. The fence punched a hole through the bubble, and the metric said it was fine
+
+- The block filled with `theme::window_bg()`. Inside an assistant bubble, which
+  fills with something else, that is a **hole clean through the bubble** — the
+  reader sees one bubble, a gap, another bubble.
+- It survived because window_bg (23,23,35) is within the metric's 12/255
+  tolerance of the bubble's (33,33,54). **A full-width rectangle of the wrong
+  colour scored as a match.** Fixing it to the reference's (19,19,27) made the
+  score WORSE — 3.80% → 6.63% — because the correct colour is out of tolerance
+  and the shape was still wrong.
+- **This is the tab agent's rule from the other side.** They found that
+  correcting a shape while its colour is out of tolerance costs points. The
+  same trap: correcting a COLOUR while the shape is wrong costs points too.
+  Either half alone is punished; only both together pay.
+
+### 2. The reference's fence is per-LINE, not a panel
+
+- Measured row by row: the long error line's dark chip runs x384..1018 and the
+  "exit 65" line's runs x374..435, in the same block. Puffin puts the surface
+  on the highlighted text (`SyntaxHighlighter.highlight` returns an
+  `AttributedString`), so what reaches the screen hugs each line.
+- hanabi drew one rounded panel. Now each line is a chip sized to its own text
+  plus 6px — measured, not flex-sized, because a box cannot be told to hug its
+  text (gap #87, third caller).
+- Both halves together: **6.63% → 4.50%**.
+
+### 3. An unlabelled fence had a 20px strip with nothing on it
+
+- 63px tall for two code lines against the reference's 41. Puffin's
+  `CodeBlockView` emits its header `if !lang.isEmpty || hasCopy` and tightens
+  the body's padding when it does (`padding(top: showsHeader ? 4 : 8)`).
+- **A zero-height bar is worse than no bar**: its three children then overflow
+  it every frame and each writes a layout warning — three per frame, forever.
+  Caught only because a scripted test's log was 40 lines of it. The bar and its
+  children are now skipped entirely when there is no language.
+
+### 4. Puffin highlights an unlabelled fence; hanabi coloured nothing
+
+- `scan()` returned early on `Lang::None` — "an honest 'I don't know this one'",
+  which is right for KEYWORDS and wrong for the two things no language owns.
+  The reference's bare fence has its quoted path in the string colour and its
+  exit code in the number colour, and Puffin calls `SyntaxHighlighter.highlight`
+  with an empty language to get it.
+- One line: drop the early return. Strings and numbers now colour on any fence;
+  keywords still need a declared language.
+
+### 5. `expect_text` cannot see a STYLED label
+
+- The renderer draws the runs INSTEAD of the label, so a syntax-highlighted
+  line is not in the plain-text index `expect_text` searches. It reports the
+  sidebar's rows and nothing from the transcript, which reads as "the
+  transcript did not render".
+- Same blind spot as gap #61 one layer over: the harness can read what a widget
+  was told to say, and not what it drew. `assert_ui_text` finds them by label
+  and works.
+
+### 6. The mono face is 2.3x narrower than the reference's, and no size fixes it
+
+- The same 53-character line is 635px in the reference and 276px in hanabi.
+  Swept 16/18/19/20px: 742 / 785 / 801 / 831 — still 190px short at 20, and the
+  score rises at every step. It is the face (JetBrains Mono against SF Mono),
+  and the reference's own is ~20pt where Puffin's source says 12.
+- Left at 12, which is Puffin's number and the metric's best. **Recorded so the
+  next person does not sweep it again**; that is three sweeps now (UI face,
+  bold weight, mono size) that all end at the shipping value.

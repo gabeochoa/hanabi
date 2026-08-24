@@ -105,6 +105,13 @@ struct Tokens {
     // did before.
     Color syntax_keyword, syntax_type, syntax_string, syntax_comment,
         syntax_number, syntax_punct;
+    // The fence's own surface. It is NOT window_bg, which is what the block
+    // used to fill with: inside a bubble that fills with something else, a
+    // window-coloured fence punches a hole through the bubble and reads as two
+    // bubbles with a gap. Puffin gives the fence its own token
+    // (PuffinTheme.Color.codeBackground -> the theme's syntax.background) and
+    // draws it a step DARKER than whatever it sits on.
+    Color code_bg;
 };
 
 // -------- Dark palette (anchor / default) --------
@@ -200,6 +207,13 @@ inline const Tokens kDark = {
     /*syntax_comment*/ {110, 112, 126, 255},
     /*syntax_number*/ {216, 168, 108, 255},
     /*syntax_punct*/ {150, 152, 166, 255},
+    // Measured off ref/02_thread.png's fence panel, x374..1018 y205..245.
+    // LAST, because these initializers are positional: the /*name*/ comments
+    // are a courtesy the compiler does not check, and putting this one where
+    // it reads best rather than where the field is declared silently shifts
+    // six syntax colours by one. It did, and the fence rendered in the
+    // punctuation grey.
+    /*code_bg*/ {19, 19, 27, 255},
 };
 
 // -------- Light palette --------
@@ -334,6 +348,9 @@ inline const Tokens kLight = {
     /*syntax_comment*/ {124, 128, 140, 255},
     /*syntax_number*/ {160, 92, 12, 255},
     /*syntax_punct*/ {94, 98, 112, 255},
+    // The light fence surface, a step darker than the pane it sits on for the
+    // same reason the dark one is. Also last -- see the dark palette's note.
+    /*code_bg*/ {240, 240, 245, 255},
 };
 
 // Active token set (mutable, swapped at runtime). Defaults to dark.
@@ -521,6 +538,7 @@ inline Color role_tool() { return t.role_tool; }
 inline Color bubble_user_bg() { return t.bubble_user_bg; }
 inline Color bubble_assistant_bg() { return t.bubble_assistant_bg; }
 inline Color bubble_other_bg() { return t.bubble_other_bg; }
+inline Color code_bg() { return t.code_bg; }
 inline Color syntax_keyword() { return t.syntax_keyword; }
 inline Color syntax_type() { return t.syntax_type; }
 inline Color syntax_string() { return t.syntax_string; }

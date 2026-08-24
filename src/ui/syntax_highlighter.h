@@ -47,8 +47,12 @@ enum class Lang {
 };
 
 // The fence tag, upper-cased by the caller, mapped to a scanner. An unknown
-// tag gets Lang::None, which colours nothing — an honest "I don't know this
-// one" rather than colouring another language's keywords over it.
+// tag gets Lang::None, which colours no KEYWORDS — an honest "I don't know
+// this one" rather than colouring another language's words over it. It still
+// colours quoted strings and numbers, which are not a language's to own: the
+// reference client highlights an unlabelled fence the same way, and
+// `ref/02_thread.png`'s bare fence has its quoted path in the string colour
+// and its exit code in the number colour.
 inline Lang lang_from_tag(std::string_view tag) {
     if (tag == "PY" || tag == "PYTHON") return Lang::Python;
     if (tag == "SH" || tag == "BASH" || tag == "ZSH" || tag == "SHELL" ||
@@ -192,7 +196,6 @@ inline std::string lower_of(std::string_view w) {
 // ordinary text colour).
 inline std::vector<Run> scan(Lang lang, const std::string& line, State& st) {
     std::vector<Run> out;
-    if (lang == Lang::None) return out;
 
     const size_t n = line.size();
     size_t i = 0;
