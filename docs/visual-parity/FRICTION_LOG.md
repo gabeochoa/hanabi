@@ -1893,3 +1893,173 @@ a semibold because it is the correct render, never because of a parity number.
   being told where they are.
 - Worth running over any region before working on it. It is a sieve, not a
   measurement: it hands you a short list of places to go and measure properly.
+
+---
+
+## Session list, round two (feat/vis-list2)
+
+Region **14.25% -> 14.11%** structural; sidebar 11.10% -> 11.05%. Two real
+defects closed, and the number barely knows. That is the finding.
+
+### The ceiling, stated before the result
+
+The brief asked for the honest ceiling first, measured against ink rather than
+boxes. Here is a stronger version of that measurement, and everyone working
+this metric should steal it: **replace a rectangle of hanabi's capture with the
+reference's own pixels and re-score.** Nothing hanabi can do to that element
+beats copying the reference, so the delta is a true upper bound — no estimate,
+no modelling, and it costs one `Image.paste`.
+
+Run against `main`, on `ref/02_thread.png`:
+
+| replace with the reference's pixels | list falls to | ceiling |
+|---|---|---|
+| every row title, x25..236, rows 0..17 | 2.15% | **12.10** |
+| the row-19 band, y878..911 | 13.31% | 0.94 |
+| the glyph column, x0..26 | 13.52% | 0.73 |
+| the count column, x236..283 | 13.69% | 0.56 |
+| the whole list region | 0.02% | 14.23 |
+
+Those four are very nearly a partition (12.10 + 0.94 + 0.73 + 0.56 = 14.33
+against a 14.25 total; the overlap is blur bleed at the seams). So:
+
+**85% of the list region is the eighteen row titles, and on all eighteen the
+string, the start x and the size already match.** Their ink bboxes agree to
+±1px on the left and ±6px on the right, and hanabi's ink is 77–86% of the
+reference's on every single one. That is `## The typeface question, settled`
+and gap #92, arriving from a third direction. My honest ceiling before starting
+work was **~1.3 points**, and it was still too optimistic.
+
+### Four hypotheses from the brief, killed with numbers
+
+Worth recording as dead so nobody spends another round on them.
+
+- **Row pitch and cumulative drift — exact.** Ink-band midpoints down the whole
+  list, reference against hanabi: 316/315.5, 347/346.5, 379/378.5, 412/411.5,
+  444/443.5, 476/475.5, 507/507, 539/538.5, 571.5/571, 603.5/603.5,
+  636/635.5, 667.5/667.5, 699.5/699.5, 731.5/731.5, 763.5/763.5, 795.5/795.5,
+  828/827.5, 859.5/859.5. Eighteen rows, no drift, max error 0.5px. The
+  `feat/vis-list` grid-snapping fix holds.
+- **Row separators / hover surfaces — neither app has any.** The modal colour
+  of every row band in both frames is (23,23,35), identically. Scanning for a
+  y-line where more than 150 of the 283 columns are non-background finds the
+  same seven text bands in the reference and four in hanabi — all of them
+  glyph rows, no rules.
+- **Group headers — neither app draws one.** Puffin's `SidebarSection` is real
+  and this frame does not use it: `HomeSessionList.section()` takes the
+  `bucket.title.isEmpty` branch for the flat Home bucket and draws a bare
+  `LazyVStack`. hanabi's list is flat for the same reason.
+- **Fixture drift — no.** Nineteen visible rows, same order, same strings, same
+  glyph shape on every row. The `pf()` catalog in `src/api/mock_client.h` is a
+  faithful port of the v0.5.5 reference (NOT of `~/kt-ng2w-puffin`'s v0.5.2
+  `MockBackend.swift`, which is missing five of these rows entirely — see
+  REFERENCE.md). One row differs and only one: `t2` carries two sub-agents, one
+  running and one done, so `ChildActivity`'s rule renders `1/2` where the
+  reference says `1`. Left alone deliberately — see below.
+
+### The star was a column, and it cost every title 18px — gap #93
+
+The one structural defect in the row, and it took reading Puffin's
+`SessionRowView` to see it. Puffin's row has no star; its trailing items —
+theme mark, mute bell, child count, age — are all conditional, and the title
+takes the slack with `.frame(maxWidth: .infinity)` and a layout priority.
+hanabi reserved 18px on **every** row for a star that is invisible at rest,
+"so the row does not reflow under the pointer", which was a real concern and
+the wrong trade.
+
+Measured: the reference lets a title run to x≈270, hanabi cut at x≈250, and
+three of the nineteen titles were ellipsized a word or two early because of it.
+
+| row | reference | hanabi, before | hanabi, after |
+|---|---|---|---|
+| stickers broke — concluded, … | ends x269 | x249 | x265 |
+| needs a decision before it can go on | ends x247 | x220 | x239 |
+| oncall sweep finished — 3 rows need… | ends x265 | x251 | x264 |
+
+The fix is the star as an absolutely positioned child floating over the title's
+tail (gap #93 for what that cost). It reflows nothing now — an absolute child
+*cannot* move a sibling, which is a stronger guarantee than the reserved slot
+ever gave.
+
+**It moved the score by 0.01 points.** Ceiling on those three rows' tails was
+1.24 by the paste test, and 0.52 of that is the floor the same rectangle scores
+on three rows whose strings already match — so ~0.7 points of headroom, and it
+delivered one seventieth of it. The words are now the reference's words, in
+the reference's places, and the glyphs land a pixel or two out of register, so
+every one that arrives adds about as much disagreement as it removes. This is
+the `sub-agent count column` finding — a region's share is not what filling it
+can win — pushed one step further: **for text, even a correct fix's measured
+ceiling is not what a correct fix wins.** The ceiling assumes the reference's
+own rasterization comes with it, and it does not.
+
+Ship it anyway. Three rows say what they mean now.
+
+### The sidebar's scroll view could not scroll
+
+`fillCap = viewportRows - 1` made the rendered content shorter than the panel
+**by construction**, so the `ScrollPanel` had nothing to move, at any catalog
+size. A twenty-session list showed eighteen rows and spent the nineteenth slot
+on a button reading "Show 2 more…" — a row spent to save a row. The reference
+just keeps going: nineteen rows and a twentieth clipped by the footer.
+
+Rendering two viewports' worth restores that and keeps the only property the
+cap was ever protecting (rendered rows bounded by viewport height, not by list
+size). hanabi's list now matches the reference row for row, including the
+clipped twentieth.
+
+Costs, both worth knowing:
+
+- **A permanent scrollbar appeared and cost 3 points** the moment the content
+  overflowed — an 8px (100,100,112) stripe painted over the sidebar's own
+  column rule at x=279, where the reference has nothing. Puffin asks for
+  overlay scrollers by name; afterhours has a bare bool. Gap #94, worked around
+  in three lines, and the list went 17.25% back to 14.11%. **Anyone who makes a
+  list longer in this app should expect this and check for it** — it does not
+  look like a scrollbar in a diff image, it looks like the sidebar's edge
+  moving.
+- **The footer region got worse, 4.08% -> 5.24%,** because the clipped
+  twentieth row now exists there and lands ~1px low against the reference's.
+  That is the correct trade — the reference draws that row and hanabi did not —
+  but it is a region going up for a good reason, which the score cannot say.
+
+Net across the sidebar: -0.05.
+
+### The glyph nudge, measured and reverted
+
+Every mark except the bang sits 1px right of the reference's, and the arc and
+chevron 1px high; the dot is a pixel narrow and the cross a pixel wide. All
+five re-measured off the reference and re-tuned: **0.01 points.** Reverted —
+`feat/vis-glyphs` already tuned these against the same pixels, and 0.01 does
+not buy churning a measured constant. Gap #92 predicted this in as many words:
+the aliasing is worth more of the diff than the placement is, and the whole
+glyph column can only ever be worth ~1.2 points (paste test says 0.73 on this
+pair).
+
+### The one fixture difference, and why it stays
+
+`t2` — "needs a decision before it can go on" — has two sub-agents in hanabi's
+mock (`t2s1` running, `t2s2` done) and renders `1/2`; the reference's row says
+`1`. Under `ChildActivity.label(total:running:)` a bare number means all live
+or none live, so the reference's row has a different sub-agent shape. Every
+other counted row agrees exactly: 7 of 19 rows carry a count in both, and
+`1/3` on "coordinating 3 shard workers" matches to the pixel.
+
+Not changed. It is worth ~0.1 points and it is the only mixed-state parent in
+the fixture — the one row that exercises the running/total branch of the label
+rule and the sub-agent panel's mixed list. Editing a fixture to move a parity
+number is fitting the test; the divergence is measured, it is one row, and it
+is written down here instead.
+
+### For the next person
+
+- The paste test above is the tool to reach for first. Five minutes, and it
+  tells you which of your ideas are worth an afternoon before you spend one.
+- The list is finished as a *structural* surface. Pitch, columns, fills,
+  separators, headers, row count, row content and glyph vocabulary all agree
+  with the reference now. What is left is 12 points of CoreText-versus-
+  fontstash on eighteen strings that already match, and the three files that
+  say so (`## The typeface question, settled`, gap #92, gap #77) now have a
+  fourth measurement agreeing with them from the layout side.
+- **Do not shrink the text to chase it.** The metric will pay you for that and
+  it is the only thing it will pay you for.
+

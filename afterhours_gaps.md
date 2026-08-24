@@ -4532,3 +4532,141 @@ call site changes for anyone who does not set it.
 
 CLASS: WORKAROUND
 
+### #93 — An absolutely positioned child can only be placed from the LEADING edge, so a trailing-edge overlay has to re-derive its parent's layout by hand
+
+**What was wanted.** A sidebar row's star: a hover affordance that floats over
+the trailing end of the row's title, anchored to the row's right edge, taking
+no width from the title. Puffin's row reserves nothing for it — its trailing
+items are all conditional and it has no star at all — and hanabi's version was
+costing every one of twenty titles a permanent 18px whether or not a star was
+ever drawn.
+
+**What happens.** `with_absolute_position()` does the hard half correctly:
+`autolayout.h:1356` skips absolute children in the flow pass, in the size pass
+and in `solve_violations`, so an overlaid child genuinely costs its siblings
+nothing. But the position it takes is `computed_rel[X] = absolute_pos_x`, one
+raw number measured from the parent's LEADING edge, and that is the only
+anchor there is. There is no trailing, bottom or centre form, and no percent
+that resolves against the parent (`with_absolute_position(Size, Size)` exists,
+but a `Percent` under an absolute element is the case `autolayout.h:398`
+special-cases away).
+
+So "18px in from the row's right edge" has to be written as a leading-edge
+number the caller computes itself:
+
+```cpp
+.with_absolute_position(pixels(panelW - kCountRightPad - countW - kStarW),
+                        pixels(6.0f))
+```
+
+Every term there is a copy of something the row already knows. `panelW` is the
+row's own width, `kCountRightPad` is the row's own right padding, `countW` is a
+sibling's measured width, and the `6.0f` is the row's top padding. The row is
+the one object that has all four, and it is the one object that cannot be
+asked: an absolute child is positioned before its parent's box is anything the
+caller can read back.
+
+**Why the obvious escapes do not work.**
+
+- **Leaving it in flow and letting the row overflow.** The row is a NoWrap
+  fixed-px Row; a child past the content box makes afterhours log a wrap
+  warning and run `solve_violations` up to ten iterations EVERY FRAME. The
+  sidebar's collapse tween sweeps 280 -> 52 and hits every intermediate width,
+  so this is a measurable per-frame cost, not a one-off.
+- **Reserving the slot only when the star will draw.** That is what a
+  conditional column means, and it reflows the row's trailing columns under the
+  pointer — the count jumps 18px sideways on hover. This is what the reserved
+  slot was there to prevent, and it was the right call given the choice.
+- **Drawing it in the TITLE's `on_draw_fg` instead of as a child.** The draw
+  lands fine — but `on_draw_fg` gets a rect and nothing else, so the widget has
+  no click of its own. The star stops being a button and the row has to
+  hand-hit-test a sub-rectangle of itself against `ctx.mouse.pos`, which is
+  gap #55's problem (no way to name or address part of a widget) reached from a
+  new direction.
+- **A negative margin.** `with_absolute_position()` warns and ignores margins
+  outright: "For absolute elements, margins are position offsets only."
+
+**The workaround, and its cost.** Compute the leading-edge number in the caller
+from the four constants above, and hand-paint 18px of the row's current
+background inside the star's own `on_draw_fg` before the glyph — an overlaid
+child inherits nothing from what it covers, so without the chip the star lands
+on top of the title's last letters and the two are unreadable together. Twelve
+lines, and the cost is that the star's position is now a formula that does not
+recompute when the row's padding does: change `kCountRightPad` and the star
+silently drifts off the count while every test still passes, because nothing
+in the layout engine relates the two any more. The chip is a second, quieter
+cost — the row now has a rectangle of fill that must be kept in step with the
+row's hover state by hand, and it is wrong for exactly one frame after the
+pointer leaves.
+
+**Minimal upstream fix.** An anchor on `ComponentConfig`:
+`with_absolute_position(Anchor::TrailingTop, dx, dy)`, resolved against the
+parent's computed content box in the same pass that already reads
+`absolute_pos_x`. Four enumerators and one subtraction where line 1359 sits;
+the leading-edge form stays exactly as it is.
+
+CLASS: WORKAROUND
+
+### #94 — A scroll view's bar is a bare on/off bool, so "overlay scrollers" has to be re-implemented per frame by the caller, and the bar paints over the panel's own trailing edge
+
+**What was wanted.** macOS overlay scrollers, which is what the reference client
+asks for by name (`.background(OverlayScrollers())` on its session list):
+nothing at rest, a bar while the list is being scrolled or the pointer is over
+it, then gone again.
+
+**What happens.** `HasScrollView` offers `show_scrollbar` (bool),
+`scrollbar_thickness` and `scrollbar_min_thumb`, and `scrollbar_geometry()`
+draws whenever `show_scrollbar && needed`. There is no auto-hide, no fade, and
+no notion of "recently scrolled" anywhere in the component — `dragging_scrollbar`
+is the only activity state and it only covers a thumb drag, not a wheel.
+
+Worse for a sidebar: the bar is laid inside the panel's own right edge rather
+than beside it, so it paints over whatever is there. hanabi's sidebar draws a
+1px column rule at x=279 and the bar covers it for the panel's whole height —
+600px of a (23,23,35) rule replaced by an 8px (100,100,112) stripe. Measured
+against the frozen reference the moment the list became long enough to scroll:
+the list region went 14.24% -> 17.25% structural, 2.8 of those 3 points being
+the stripe alone. Puffin's frame has no bar in it at all.
+
+**Why the obvious escapes do not work.**
+
+- **`show_scrollbar = false` and live without one.** A list of 2000 sessions
+  with no scroll indicator does not say it is scrollable or how far down you
+  are. It is also the wrong answer to compare against a reference that has an
+  overlay scroller and simply is not showing it in this frame.
+- **Making it thinner or dimmer.** `scrollbar_thickness` is reachable, colour
+  is not: the bar is drawn from `ctx.theme` inside `rendering.h` with no
+  per-view override, which is gap #90 again — a per-widget colour is a
+  frame-wide edit.
+- **Padding the panel so the bar sits clear of the rule.** The padding applies
+  to the panel's children, and the bar is drawn from the panel's own rect, so
+  the rows move and the bar does not.
+
+**The workaround, and its cost.** Drive the bool from the app, once per frame,
+off hanabi's own hover test:
+
+```cpp
+scroll.ent().get<HasScrollView>().show_scrollbar =
+    ctx.mouse_in_subtree(scroll.ent().id) ||
+    ctx.mouse_was_in_subtree(scroll.ent().id);
+```
+
+Three lines and it gets the resting state right, which is the state a
+screenshot is taken in and the state the reader spends all their time in. What
+it does NOT get right is the half of the real behaviour that is about activity
+rather than the pointer: a two-finger flick that carries momentum after the
+pointer has left the sidebar scrolls a list with no bar on it, and a keyboard
+`Page Down` never shows one at all. Reproducing that needs a timestamp and a
+fade the component has nowhere to keep, so hanabi would have to hold a
+per-scroll-view clock of its own beside every panel.
+
+**Minimal upstream fix.** Replace the bool with a three-state enum —
+`Always | Never | WhileActive` — and one `float last_activity` on
+`HasScrollView`, bumped where `scroll_offset` is already written; `Always` is
+the current behaviour and stays the default. Separately, subtract the bar's
+thickness from the content box rather than overlaying it, or expose an
+`overlay_scrollbar` bool so a caller with chrome at its trailing edge can
+choose.
+
+CLASS: WORKAROUND
+
