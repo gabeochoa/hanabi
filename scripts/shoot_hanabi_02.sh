@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# scripts/shoot_hanabi_02.sh -- capture hanabi in ref/02_thread.png's state.
+#
+#   scripts/shoot_hanabi_02.sh [out.png] [thread_id] [worktree_root]
+#
+# A SECOND script rather than a flag on shoot_hanabi.sh, because that one is
+# the 01 state and several agents shoot with it at once; a flag that defaults
+# wrong is a worse failure than two files.
+#
+# 02 differs from 01 in the fixture, not the window: same 1180x949, same mock
+# backend, but ONE UNPINNED tab instead of two pinned ones. Shooting 01's blob
+# against 02 measures the tab strip's fixture, the same trap REFERENCE.md
+# describes in the other direction.
+#
+# The default thread is r5, and the choice is the whole point of the script.
+# 02's transcript is a short user question and one assistant reply; r5 is
+# hanabi's thread of that shape ("the build box is at 96% disk..." and one
+# paragraph back). t2 is the other candidate and is a worse comparison by
+# 4.5 structural points on `main` -- it opens with two long replies where the
+# reference has one, so most of what gets measured is how much text is on
+# screen. Pass another id to compare a different pair deliberately.
+#
+# WARNING, and it is not hypothetical: the mock fixture's timestamps are
+# relative to the wall clock (`mins_ago`/`hrs_ago` in src/api/mock_client.h),
+# and the transcript inserts a date divider where the calendar day changes
+# between two messages. Around local midnight that divider MOVES between one
+# capture and the next, which shifts every row below it. Two shots of the same
+# binary taken either side of 00:00 differ by 0.6 structural points on `main`
+# with no code change at all. If you are A/B-ing two builds, shoot both back
+# to back and diff the two hanabi PNGs against each other first: if they
+# differ anywhere you did not touch, the clock moved and the comparison is
+# void.
+# ===========================================================================
+set -uo pipefail
+
+OUT="${1:-/tmp/hb02.png}"
+TAB="${2:-r5}"
+ROOT="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+EXE="$ROOT/output/hanabi.exe"
+
+if [ ! -x "$EXE" ]; then
+    echo "ERROR: $EXE not found. Build it with 'make'." >&2
+    exit 2
+fi
+
+H="$(mktemp -d /tmp/hanabi_shoot02_home.XXXXXX)"
+trap 'rm -rf "$H"' EXIT
+mkdir -p "$H/Library/Application Support/hanabi"
+cat > "$H/Library/Application Support/hanabi/settings.json" <<JSON
+{"window_width":1180,"window_height":949,"open_tabs":["$TAB"],"active_tab":"$TAB","pinned_tabs":[],"theme":"dark"}
+JSON
+
+rm -f "$OUT"
+env HOME="$H" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
+    HANABI_CONFIG="/tmp/none_$$" "$EXE" --screenshot "$OUT" \
+    > "/tmp/hanabi_shoot02_$$.log" 2>&1 &
+pid=$!
+for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+kill -9 "$pid" 2>/dev/null
+wait "$pid" 2>/dev/null
+pkill -9 -f "^$EXE" >/dev/null 2>&1
+
+dim="$(/usr/bin/file "$OUT" 2>/dev/null | sed -nE 's/.*, ([0-9]+ x [0-9]+),.*/\1/p')"
+if [ "$dim" != "1180 x 949" ]; then
+    echo "FAIL: expected 1180 x 949, got '${dim:-nothing}'" >&2
+    tail -20 "/tmp/hanabi_shoot02_$$.log" >&2
+    exit 1
+fi
+echo "OK  $OUT  ($dim)  thread=$TAB"

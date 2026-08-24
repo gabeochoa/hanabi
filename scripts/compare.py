@@ -72,6 +72,46 @@ STRUCT_BLUR = 0.8
 # than excluding the wrong band.
 DIVERGENCE_FRAME = (1180, 949)
 
+# Four of these are properties of how the two apps were CAPTURED, not of what
+# either was showing, so they are the same rectangles in every reference shot
+# at this size and are shared rather than copied per entry. Verified rather
+# than assumed: all four rects are byte-identical between 01_home.png and
+# 02_thread.png. (The version string's rect is shared; its CONTENT is not --
+# 01 reads v0.5.5 and 02 reads v0.5.6, because Puffin was rebuilt between the
+# two captures. Neither is a number hanabi can become, which is the point.)
+_CAPTURE_DIVERGENCES = [
+    (
+        "bottom status bar",
+        [(283, 922, 1180, 949)],
+        "hanabi paints a status strip along the bottom of the MAIN pane "
+        "(not the window -- see layout_system.h); Puffin's only bottom "
+        "chrome is the sidebar-width SidebarColumn.sidebarFooter, so "
+        "right of the sidebar there is nothing to compare it against",
+    ),
+    (
+        "sidebar footer version string",
+        [(8, 926, 60, 944)],
+        "both apps print their own version at the foot of the sidebar; "
+        "the reference says v0.5.x and hanabi says v0.1.0, and no design "
+        "change makes one app's version number the other's",
+    ),
+    (
+        "titlebar traffic lights",
+        [(0, 0, 72, 34)],
+        "Puffin's reference came through the window server and includes "
+        "the macOS close/minimise/zoom buttons; hanabi's parity capture "
+        "is run_headless_screenshot, an offscreen render of the client "
+        "area with no window and therefore no decoration",
+    ),
+    (
+        "rounded window corners",
+        [(0, 0, 16, 16), (1164, 0, 1180, 16),
+         (0, 933, 16, 949), (1164, 933, 1180, 949)],
+        "same cause as the traffic lights: the reference is masked to the "
+        "window's corner radius and hanabi's offscreen render is square",
+    ),
+]
+
 KNOWN_DIVERGENCES = {
     "01_home.png": [
         (
@@ -81,37 +121,13 @@ KNOWN_DIVERGENCES = {
             "MockBackend.swift:936 renders one line, 'No fixture transcript "
             "for <id> yet.', where hanabi renders a full conversation",
         ),
-        (
-            "bottom status bar",
-            [(283, 922, 1180, 949)],
-            "hanabi paints a status strip along the bottom of the MAIN pane "
-            "(not the window -- see layout_system.h); Puffin's only bottom "
-            "chrome is the sidebar-width SidebarColumn.sidebarFooter, so "
-            "right of the sidebar there is nothing to compare it against",
-        ),
-        (
-            "sidebar footer version string",
-            [(8, 926, 60, 944)],
-            "both apps print their own version at the foot of the sidebar; "
-            "the reference says v0.5.5 and hanabi says v0.1.0, and no design "
-            "change makes one app's version number the other's",
-        ),
-        (
-            "titlebar traffic lights",
-            [(0, 0, 72, 34)],
-            "Puffin's reference came through the window server and includes "
-            "the macOS close/minimise/zoom buttons; hanabi's parity capture "
-            "is run_headless_screenshot, an offscreen render of the client "
-            "area with no window and therefore no decoration",
-        ),
-        (
-            "rounded window corners",
-            [(0, 0, 16, 16), (1164, 0, 1180, 16),
-             (0, 933, 16, 949), (1164, 933, 1180, 949)],
-            "same cause as the traffic lights: the reference is masked to the "
-            "window's corner radius and hanabi's offscreen render is square",
-        ),
-    ],
+    ] + _CAPTURE_DIVERGENCES,
+    # 02 declares the four capture divergences and NOT the transcript one.
+    # That is the whole reason it was captured: its open thread has a real
+    # Puffin fixture in it, so the transcript viewport is a surface the two
+    # apps genuinely share and every pixel of it is scoreable. Use 02 for the
+    # transcript and the composer, 01 for the sidebar and the tab bar.
+    "02_thread.png": list(_CAPTURE_DIVERGENCES),
 }
 
 
