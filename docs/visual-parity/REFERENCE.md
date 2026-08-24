@@ -5,7 +5,38 @@ one desktop and one app, and an agent that relaunches it (or one that flips its
 backend with `--args -mockBackend NO`, which already happened) moves the target
 under everyone else. These files do not move.
 
-- `ref/01_home.png` — 1180x949, mock backend, welcome dismissed, one thread open
+- `ref/01_home.png` — 1180x949, mock backend, welcome dismissed, two pinned
+  tabs, the second active. **Its open thread has no transcript.** The id in that
+  tab is a real session uuid, not a `mock-*` fixture, so Puffin's mock falls
+  through to `MockBackend.swift:936` and renders one line — *"No fixture
+  transcript for <id> yet."* — where hanabi renders a whole conversation.
+  That is 3.18 structural points, 43% of the score, and no design change can
+  spend it; `compare.py` now declares the viewport and reports it separately.
+  Use 01 for the **chrome**: sidebar, tab bar, search, footer.
+- `ref/02_thread.png` — 1180x949, same backend and window, **one unpinned tab,
+  a thread with a real transcript in it**: a right-aligned user bubble with an
+  avatar, an assistant bubble containing a fenced code block, and a run-outcome
+  divider. Use 02 for the **transcript and composer**. Measured off it:
+
+  | | |
+  |---|---|
+  | user turn | x 792..1097, y 95..129 — right-aligned, 35px tall, shrink-to-fit |
+  | avatar | centred near x=801, fill (52,46,103) |
+  | user bubble fill | (237,237,245) — near-white, dark text |
+  | assistant bubble | x 362..1031, y 153..276, fill (33,33,54) |
+  | fenced code fill | (51,68,60) |
+  | run-outcome divider | x 362..1097, y 296..303, rule (48,48,62) |
+  | composer meta row | x 358..1099, y 861..889 |
+  | composer input | x 357..1100, y 885..930 |
+
+  **Why you can trust it, given the rule below.** It was NOT captured by
+  driving the app: a 13-hour `buck2 test PuffinTestsMac` job of Gabe's owns
+  Puffin right now and is opening and closing tabs of its own, so two captures
+  8s apart differ by 13%. This one is a coherent frame caught between test
+  steps, and it is verifiable as coherent rather than torn: **its sidebar is
+  identical to `01_home.png`'s to within 0.13%, and its VIEWS block to 0.00%.**
+  A torn frame does not agree with a reference taken six hours earlier to two
+  decimal places. Do not try to re-shoot it while that job is running.
 
 Compare against them:
 
