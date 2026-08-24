@@ -1078,3 +1078,66 @@ a semibold because it is the correct render, never because of a parity number.
 - **Class** — `TEDIOUS` (our metric) + `IMPOSSIBLE` (the rasterizer)
 - **Gap filed?** — no new one. #82 (cannot measure text at a weight) and #77
   (no bundled bold) already cover the library's half. The rest is CoreText.
+
+---
+
+## sub-agent count column (feat/sidebar-counts) — 2026-08-24
+
+1. **The brief's semantics for `1/3` were wrong, and only the source could say
+   so.** The handoff read it as "three sub-agents of which one is done".
+   Puffin's `ChildActivity.label(total:running:)` says the opposite: the
+   numerator is the RUNNING count, the denominator only appears when some but
+   not all are live, and a bare number is ambiguous between "all live" and
+   "none live" — the COLOUR resolves it. Two of the seven reference rows are
+   only explicable under the real rule. Reading `SessionRowView.swift` and
+   `ChildActivity.swift` took five minutes and changed what got built; the
+   screenshot alone would have produced a plausible, wrong feature.
+
+2. **The reference client does not have this field at all, which is the whole
+   design.** `AgentcloudSessionSummary` carries `parent` — one id — and Puffin
+   derives counts by indexing the catalog (`indexChildren`, `childCounts`).
+   Nothing is denormalized onto a row. Worth knowing before designing ours:
+   hanabi's list type could not take that shape without changing which rows
+   the sidebar shows, but the *wire* fact it rests on — every child is its own
+   row carrying `parent` — turned out to be exactly what let hanabi's real
+   backend fill a count too, instead of shipping a mock-only display.
+
+3. **`docs/visual-parity/ref/01_home.png` cannot be trusted for colour by peak
+   pixel, and thin glyphs make that bite.** A count is 3-4px of antialiased
+   stroke with no solid interior, so its brightest pixel is nowhere near its
+   true colour: the running count peaks at (114,161,243) where the running
+   *glyph* on the same row peaks at (154,197,255), and reusing the glyph's
+   constant would have been visibly wrong. What works is the RATIO of
+   (pixel − background) across samples, which is coverage-independent and was
+   consistent to three decimal places across two samples. That gave
+   (120,169,255) for live and confirmed the settled colour is exactly the
+   existing `kGlyphCalm`. This trick should be in `REFERENCE.md`; every future
+   small-text colour match needs it.
+
+4. **afterhours cannot right-align text flush to its box — filed as gap #84.**
+   `rendering.h` insets every alignment by a hardcoded `kInset = 5.f` with no
+   `ComponentConfig` knob reaching it, so `TextAlignment::Right` means "5px
+   shy". The workaround is to LEFT-align in a slot sized to the text plus that
+   inset. The cost of not knowing this earlier: **every right-aligned count
+   already in hanabi's sidebar has the same 8px error** — the smart-view
+   badges land at x=263 where the reference puts them at x=271, and have for
+   the whole parity effort. Fixing those is a separate, larger change than
+   this branch, but it is now measured and written down.
+
+5. **The "worth 1.08pp" estimate was measured off the count COLUMN, and the
+   column is not the digits.** Masking x=[238,278] out of the list region does
+   move it 1.03pp — but restricting the diff to the reference's actual count
+   ink shows only ~718 differing pixels, ~0.4pp of the list at absolute best,
+   and most of that 1.03pp is truncated title tails and the selected row.
+   Drawing the counts pixel-correctly recovered 4 of those 718. **A region's
+   share of a diff is not the same as what filling that region can win**, and
+   for thin text the difference is two orders of magnitude. Future estimates
+   for text-sized elements should be made against the ink, not the bounding
+   box, or they will keep promising points that are not there.
+
+6. **`make` will not relink after you restore a binary over `output/`.** Doing
+   `git stash; make; cp output/hanabi.exe /tmp/base.exe; git stash pop; make`
+   silently produces nothing on the second `make` — the .exe is newer than
+   every source. It looks exactly like a successful no-op build, and the next
+   screenshot is of the OLD binary. `touch src/api/types.h` first. Cost me one
+   round of measurements I nearly believed.

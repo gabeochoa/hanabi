@@ -43,6 +43,29 @@ answers in minutes:
 Use it. The pixels say WHAT; the source says WHY, and only the second one tells
 you whether a difference is a bug in hanabi or a feature hanabi does not have.
 
+## Never read a colour off the reference by its brightest pixel
+
+Small text has no solid interior: a sidebar count is 3–4px of antialiased
+stroke, so its peak pixel is nowhere near its real colour. Measured on
+`ref/01_home.png`, a running count peaks at (114,161,243) while the running
+*glyph* on the same row — same colour in Puffin's source — peaks at
+(154,197,255). Reuse one for the other and you ship a visibly wrong colour.
+
+What works is the **ratio of (pixel − background)** across several samples,
+which is coverage-independent. It agreed to three decimal places across two
+samples and recovered (120,169,255), which turned out to be a constant hanabi
+already had.
+
+## Write your notes in YOUR worktree, never in `~/w/vis/`
+
+`docs/visual-parity/FRICTION_LOG.md` **inside your own worktree** is the log.
+The copy at `~/w/vis/FRICTION_LOG.md` is a leftover from before this directory
+existed and it is shared by every agent on this machine: it has no merge, so
+two agents appending to it means the second one's `cp` erases the first one's
+entries. That has already happened once and cost six entries. Same for
+`~/w/vis/compare.py` and `~/w/vis/REFERENCE.md` — read them if you like, write
+to `scripts/` and `docs/visual-parity/` in your branch, and I will merge.
+
 ## Compare LIKE FOR LIKE — this is worth 45 percentage points
 
 `ref/01_home.png` has a **thread open**. If you shoot hanabi on the Home
