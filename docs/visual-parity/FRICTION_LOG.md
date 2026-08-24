@@ -1016,3 +1016,148 @@ friction is mostly in the measuring, not the library.
    question and the "is the open thread highlighted" question in about two
    minutes, with no need to touch the live app. Nothing in `REFERENCE.md`
    mentions it; it should.
+
+## Transcript turns (feat/vis-turns)
+
+1. **The turn shape was already right; the score was hiding it.** The theme was
+   "make the transcript render Puffin's turn shape" and most of it was already
+   in `render_bubble` — right-aligned user bubble, avatar, shrink-to-fit,
+   left-aligned assistant. What was missing was that the fixture never showed
+   it: `t2` opened on a System caption, so the parity capture measured a shape
+   the code could already draw but never drew. Half an hour of reading beat any
+   amount of drawing. Worth checking before starting: is this a rendering gap
+   or a fixture gap?
+
+2. **The score is dominated by vertical registration, not by shape.** The 2x2,
+   all on `main`, STRUCTURAL, all four cells taken on the **pre-divergence**
+   `compare.py` (see entry 10 — the scorer changed under this branch and these
+   are not comparable with a figure quoted after it):
+
+   |                    | opens on a System caption | opens on a user turn |
+   |--------------------|---------------------------|----------------------|
+   | sub-agent rollup on  | **6.10** (the baseline) | **7.88**             |
+   | sub-agent rollup off | 5.60                    | 5.48                 |
+
+   The correct shape scores 1.78 points *worse* than the wrong one, and the
+   same change scores 0.12 points *better* once one unrelated 36px row is out
+   of the way. Neither number is about the turns. The reference transcript is
+   two short rows and then 600px of empty background, so anything that adds
+   height above the fold pushes hanabi's content into a region where the
+   reference has nothing, and costs several times its own area. **A per-region
+   percentage cannot distinguish "wrong shape" from "right shape, 40px down".**
+   Anyone driving this metric should re-shoot with the confound removed before
+   concluding a change was bad.
+   - **Cost** — four rebuild-and-shoot cycles to establish, and a headline
+     regression to explain.
+   - **Class** — `TEDIOUS` (our tooling)
+
+3. **Reading Puffin's source was worth it, and it was worth 0.01 points.**
+   Four constants were corrected against
+   `Sources/Views/AgentcloudTranscriptView.swift` rather than the 1x PNG:
+   avatar diameter 22→20 (`BubbleAvatar.diameter`), avatar gap 5→6 (the
+   `HStack` spacing), corner radius 8→10 (`RoundedRectangle(cornerRadius: 10)`),
+   bubble cap 620→644 (736 − 60 − 6 − 20 − 6, which is the `Spacer(minLength:
+   60)` arithmetic and not a reading of anything). Measured against the same
+   frame, the four together moved `main` from 7.89% to 7.88%. At 1x with a
+   0.8px structural blur, 2px of diameter and 2px of corner radius are inside
+   the noise. Read the source for *correctness* — the numbers are now derived
+   and named rather than guessed, and the next person can check them — but do
+   not expect the metric to notice.
+   - **Class** — `TEDIOUS`
+
+4. **The source checkout is not the build that shot the reference.** The brief
+   described "a small round avatar with a G in it"; `~/kt-ng2w-puffin`'s
+   `BubbleAvatar` draws `Image(systemName: "person.fill")`. Zoomed 3x, the
+   reference is unambiguously a **G**. So `REFERENCE.md`'s "the source says
+   WHY" rule needs a rider: the checkout can be ahead of or behind the frozen
+   PNG, and where they disagree about *what is on screen* the PNG wins — the
+   source only wins on *what a number is*. (Here it cost nothing: hanabi
+   already draws `$USER`'s initial, which is a G on this box.)
+   - **Class** — `FOOTGUN`
+
+5. **Two numbers that look contradictory are the same number.** Puffin says
+   `.padding(.horizontal, 12)`; hanabi's `kBubblePadX` is 13 and the reference
+   measures 13 (bubble left edge 752, first lit pixel 765). Both are right: 12
+   is text-origin to edge, 13 is first-ink to edge, and the 1px between them is
+   the leading side bearing of a lowercase glyph at 13px. An hour is available
+   to be lost here on any constant where the source measures from the layout
+   box and the screenshot measures from the ink.
+   - **Class** — `FOOTGUN`
+
+6. **`expect_text` is a substring match over every visible label, and that
+   silently weakens assertions when a fixture changes.** Turning `t2`'s opening
+   caption into a user turn made "ledger" paintable three times instead of two
+   (a System caption has no highlight path; a user bubble does), so four find
+   tests moved from `1 of 2` to `1 of 3`. In `sidebar_search_snippet` that
+   collides with a sidebar row's own snippet, "1 of 3 workers has reported" —
+   the tally assertion would then have passed off the wrong element with find
+   completely broken. There is no exact-label form of `expect_text` (the
+   sibling complaint to gaps #73 about `assert_ui_text`). Worked around by
+   giving that one script a find query whose count cannot collide.
+   - **Cost** — one near-miss, caught by reading rather than by the suite.
+   - **Class** — `FOOTGUN`
+   - **Gap filed?** — no; #73 already covers the family. An
+     `expect_text_exact` would close both.
+
+7. **`assert_ui <debug_name> x= y= w= h=` is the right tool for a layout
+   assertion and nothing points at it.** Every coordinate test in this repo
+   drives the mouse to a pixel and asserts on text, with a paragraph of comment
+   explaining how the pixel was derived and a warning that it will rot.
+   `assert_ui` asserts the *computed rect* directly, prints the actual on
+   failure (so deriving the expected value is one deliberately-wrong run), and
+   is immune to everything except the thing under test. The new
+   `user_turn_hugs_the_right_edge.e2e` uses it and is about a tenth the
+   commentary of the tests either side of it. It is documented only in
+   afterhours' own `ui_commands.h`.
+   - **Class** — `TEDIOUS`
+
+8. **hanabi puts sub-agents in the transcript; Puffin puts them in a popover.**
+   `SubAgentPanel` / `StripListPopover` are opened from a chip and never appear
+   inline. hanabi renders "▸ 2 sub-agents · running" as the first row of the
+   scroll content, 36px above the first message. On the parity capture that row
+   is worth **2.40 structural points on `main`** — by a distance the largest
+   single item left in the region, and larger than everything this theme
+   changed put together. Deliberately not touched: it is a different theme, and
+   `subagent_toggle.e2e` is built on `t2` having sub-agents.
+   - **Class** — `WORKAROUND` (not taken)
+   - **Gap filed?** — no; a design divergence, not a library limitation.
+
+9. **The always-reserved Copy/timestamp bar costs 19px per turn and zero
+   points.** Puffin overlays its copy button (`.overlay(alignment:
+   .topTrailing)`) and takes no layout space; hanabi reserves a 22px row plus a
+   2px gap under every turn, which makes the inter-turn gap 43px against
+   Puffin's 24px. afterhours can express the overlay —
+   `with_absolute_position()` sets `computed_rel` from the parent and is skipped
+   everywhere a child's size would feed into its parent's — so this is buildable
+   and is a genuine rhythm difference. Measured before building it: setting
+   `kMsgActionsH` and `kMsgActionsGap` to 0 moves every reply up 24px and
+   changes `main` by **0.00%**, because the reference is empty background
+   everywhere the rows land. Not built. A real difference that this reference
+   cannot see is not worth the surgery on `bubble_height()` and three hover
+   tests until there is a frame that can see it.
+   - **Class** — `WORKAROUND` (not taken)
+
+10. **The scorer changed mid-theme, and this theme is now entirely inside a
+    declared-unspendable region.** `feat/vis-divergences` landed while this
+    branch was building: `compare.py` now subtracts five declared divergences,
+    the largest of which is **`transcript viewport` — the whole rect
+    (283, 71)–(1180, 820)** — on the grounds that the reference's open thread
+    has no Puffin mock fixture and renders one placeholder line where hanabi
+    renders a conversation. Every pixel this theme touched is inside that rect.
+    Measured on the new scorer, baseline and this branch:
+
+    | | whole frame STRUCT | SHARED `main` STRUCT | declared cost |
+    |---|---|---|---|
+    | baseline | 7.39% | 10.74% | −3.50 |
+    | this branch | 8.64% | **10.72%** | −4.75 |
+
+    On the surfaces the new scorer says to drive, the change is **−0.02
+    points**: neutral. The 1.25-point rise in the whole-frame figure is
+    entirely the declared cost growing, i.e. hanabi and the reference
+    disagreeing *more* inside a box that was already written off. Two agents
+    reached "this reference cannot measure the transcript" independently within
+    the same hour — `REFERENCE.md` from Puffin's `MockBackend.swift:936`, and
+    this branch from the 2x2 in entry 2. It is worth taking as settled, and the
+    re-capture REFERENCE.md asks for (a `mock-*` thread with a real fixture) is
+    the only thing that makes transcript work measurable at all.
+    - **Class** — `TEDIOUS` (our tooling)

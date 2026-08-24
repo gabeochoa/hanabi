@@ -3949,3 +3949,201 @@ in `ComputeVisualFocusId` on it. Ten lines where the focus already lives, and
 survive the frame boundary.
 
 CLASS: WORKAROUND
+
+---
+
+### #84 — A box cannot be sized to its own text AND capped: `Dim::Text` measures unwrapped, and `max_width` clamps nothing but itself
+
+**What was wanted.** Puffin's user turn, verbatim from
+`Sources/Views/AgentcloudTranscriptView.swift`:
+
+```swift
+HStack(alignment: .top, spacing: 6) {
+  Spacer(minLength: 60)
+  BubbleAvatar(fill: fill)
+  VStack(alignment: .leading, spacing: 4) { Text(row.text) ... }
+    .padding(.horizontal, 12).padding(.vertical, 9)
+    .background(Color(fill))
+}
+```
+
+There is no width in it. The bubble is as wide as its text; the `Spacer` is what
+stops it at 644 of the 736pt column; past that the `Text` wraps and the bubble
+grows down instead of sideways. Two rules — *hug your content* and *never
+exceed N* — and in SwiftUI they compose for free.
+
+**What happens.** afterhours has both halves and they do not compose.
+
+`Dim::Text` on the X axis resolves in `calculate_standalone`, through
+`get_text_size_for_axis`. That function only measures a wrapped extent when
+
+```cpp
+const bool wraps = label.text_overflow == TextOverflow::Wrap &&
+                   widget.font_size_explicitly_set &&
+                   widget.computed[Axis::X] > 10.f;
+```
+
+— and on the X pass `computed[Axis::X]` is exactly the thing being computed, so
+it is still `-1`. **The intrinsic width of a label is therefore always its
+single-line width**, however long the string. A 200-character message measures
+~1240px wide on a 736px column. (The Y pass then runs with X already set, so it
+*does* measure wrapped: the box ends up two lines tall and twelve hundred wide.)
+
+`with_max_width(pixels(N))` exists and works — but only on the element carrying
+it. `apply_size_constraints` is called from `solve_violations`, which runs
+*after* `calculate_those_with_children`, so nothing else in the tree is
+re-solved around the clamp. Both directions leak, and both were measured on the
+real app at 1180x949 rather than argued:
+
+- **Parent hugs the pre-clamp child.** Bubble `children()`, text
+  `Dim::Text` + `max_width(pixels(200))`. The text clamps; the bubble was
+  already sized from the unclamped 800-odd and stays there. Measured bubble
+  width: **818px**, off the right edge of a 1180px window. A cap of 200 changed
+  nothing anyone can see.
+- **Child stretches to the pre-clamp parent.** Bubble `pixels(500)` +
+  `max_width(pixels(200))`, text `percent(1.0f)`. The bubble clamps correctly
+  to **200**. The text was already sized against 500 and renders **226px** wide
+  — 26px of it painted outside the bubble it is supposed to be inside.
+
+The second failure is the more dangerous one, because the clamp *looks* like it
+worked: the box is the right size and the content is simply wrong.
+
+**Why the obvious escapes do not work.**
+
+- **`children()` on the bubble alone** hugs the text, but the text still has no
+  cap, so a long message runs off the pane. That is the 818px measurement.
+- **`percent()` on the bubble** caps it, but every bubble is then the same
+  width. That is precisely the shape Puffin does *not* have — the assistant
+  side is full-width and the user side is not, and the difference is what makes
+  a transcript read as a conversation.
+- **`Dim::Text` plus `max_width`** is the API that ought to be the answer and is
+  the measurement above.
+- **`expand()` with `min_width(text())`**, the pattern
+  `resolve_constraint`'s own comment advertises, is the opposite problem: it
+  fills its share and refuses to shrink. There is no `max_width(text())`
+  equivalent that would mean "hug".
+
+**The workaround, and its cost.** `MainPaneSystem::user_box()` — hanabi measures
+the text itself. It wraps the body at the cap with `wrapped_lines()`, measures
+every resulting line with `theme::text_px()`, takes the widest, adds back the
+6px the label inset takes off its own rect, clamps to `kBubbleCap`, and hands
+the layout a literal `pixels(N)`. About 20 lines.
+
+The cost is not the 20 lines, it is what they oblige. The number has to be
+computed **twice per message per frame** — once in `bubble_height()` so the
+transcript's virtualization spacers reserve the right extent, once in
+`render_bubble()` for the draw — which is why `user_box()` exists as a function
+at all rather than as two expressions that drift. And hanabi's `wrapped_lines()`
+must agree with the renderer's own wrap to the character, forever: the library
+wraps in `measure_wrapped`, the app wraps in `textscan.h`, and if either ever
+splits on a different rule the bubble is the wrong width with no warning
+anywhere. The app now owns a second implementation of the layout engine's most
+subtle function, and cannot stop owning it.
+
+Pinned by `tests/ui/user_turn_hugs_the_right_edge.e2e`, which asserts the
+bubble's computed width is its text's (412) and not the cap (644) or the column
+(736) — because a hand-computed literal is exactly the kind of number that rots
+without a test.
+
+**Minimal upstream fix.** Give `get_text_size_for_axis` the max constraint that
+is already on the widget: when `max_size[Axis::X]` resolves to a real value,
+wrap against *that* on the X pass instead of requiring `computed[Axis::X]`.
+`Dim::Text` then means "as wide as my text, wrapped at my cap", which is the
+only thing anyone ever wants it to mean, and `min(intrinsic, cap)` falls out.
+The second half is one more line: re-run `calculate_those_with_children` for a
+`children()`-sized parent whose child was clamped, or clamp before the parent
+reads the child rather than after.
+
+CLASS: WORKAROUND
+
+---
+
+### #85 — A row cannot baseline-align its children, so every avatar-beside-text row carries a magic top offset
+
+**What was wanted.** A 20px avatar beside a 35px bubble, sitting on the bubble's
+first line of text rather than floating in the middle of it.
+
+**What happens.** `AlignItems` is `FlexStart | FlexEnd | Center | Stretch`.
+There is no `Baseline`. `SelfAlign` — the per-child override, which does exist
+and does work — carries the same four.
+
+`FlexStart` is close and is what hanabi uses, but "top of the avatar box" and
+"top of the first line of text in the sibling" are not the same y: the sibling
+has 9px of padding and the text has its own ascent above the cap height, and
+the avatar has to come down by some of that to look aligned. Nothing in the
+layout knows either number, so the offset is a constant in app code:
+
+```cpp
+static constexpr float kAvatarTop = 6.0f;  // BubbleAvatar .padding(.top, 6)
+```
+
+Puffin has exactly the same constant, `.padding(.top, 6)`, for exactly the same
+reason — SwiftUI *has* `.firstTextBaseline` and Puffin did not reach for it,
+because the avatar is a `Circle` with no baseline to align to. So this is not a
+gap where afterhours is behind a peer; it is a gap where **both** toolkits push
+the same fudge into the app, and afterhours could not offer the alternative even
+if the design wanted it.
+
+**Why the obvious escapes do not work.**
+
+- **`AlignItems::Center`** puts the avatar at the vertical centre of the row.
+  Measured: y=142 against the wanted 137 on a one-line bubble, and it gets
+  worse with every line the message wraps to — a five-line message parks the
+  silhouette next to line three.
+- **`Stretch`** makes the avatar as tall as the bubble, and `draw_circle_v`
+  then draws an ellipse.
+- **Wrapping the avatar in a `children()`-sized spacer column** moves the magic
+  number rather than removing it, and adds an entity per turn.
+
+**The workaround, and its cost.** The 6px constant, and a comment saying where
+it came from. The cost is small and entirely in the future: the number is
+correct for BODY at 13px with 9px of bubble padding and silently wrong for any
+other combination, and nothing will fail when someone changes one of them. It
+is pinned by `tests/ui/user_turn_hugs_the_right_edge.e2e` (`user_avatar y=137`
+against `user_bubble y=131`), which at least makes the rot loud.
+
+**Minimal upstream fix.** `AlignItems::Baseline` / `SelfAlign::Baseline`, where
+a child with a label contributes its own first-line ascent and a child without
+one falls back to its top edge. The renderer already knows the ascent — it is
+what `draw_text_in_rect` positions against.
+
+CLASS: FOOTGUN
+
+---
+
+### #86 — NOT A GAP: right-aligning a child needs no spacer, and this is worth writing down
+
+Filed deliberately as a negative result, because two of the three things this
+theme set out to probe turned out to be things afterhours does correctly, and a
+gaps file that only records failures overstates the case.
+
+**What was wanted.** Puffin pushes the user turn to the right edge with
+`Spacer(minLength: 60)` — a real sibling view that eats the slack. The question
+was whether hanabi would have to build the same thing.
+
+**What happens.** It does not. `JustifyContent::FlexEnd` on the row does it,
+with no spacer sibling and no phantom child:
+
+```cpp
+.with_size(ComponentSize{percent(1.0f), children()})
+.with_flex_direction(FlexDirection::Row)
+.with_justify_content(JustifyContent::FlexEnd)
+```
+
+Measured at 1100x760: the row is x=322 w=736, the bubble is x=646 w=412, and
+646+412 == 322+736 == 1058. Flush, to the pixel, with two children of unequal
+width and no filler between them. Flipping it to `FlexStart` moves the bubble
+to x=348, which is what
+`tests/ui/user_turn_hugs_the_right_edge.e2e` exists to catch.
+
+`SelfAlign` covers the per-child cross-axis case too, so "this one child aligns
+differently from its siblings" is expressible without a wrapper.
+
+**The one caveat.** `FlexEnd` justifies within the row's own width, so the row
+must have one: `percent(1.0f)` here. A `children()`-sized row has no slack to
+distribute and `FlexEnd` silently does nothing — which reads as the
+justification being broken rather than as the row being the wrong size. That is
+a footgun, not a missing feature, and one line of documentation on
+`with_justify_content` would retire it.
+
+CLASS: TEDIOUS

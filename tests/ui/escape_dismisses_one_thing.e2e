@@ -12,7 +12,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_FIND_DEMO=ledger
 
-expect_text "1 of 2"
+expect_text "1 of 3"
 
 click 646 674
 wait_frames 4
@@ -24,7 +24,7 @@ key ESCAPE
 wait_frames 8
 
 # The find bar is gone.
-expect_no_text "1 of 2"
+expect_no_text "1 of 3"
 # The draft it used to take with it is still here.
 expect_text "draft that must survive"
 
