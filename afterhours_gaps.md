@@ -3949,3 +3949,58 @@ in `ComputeVisualFocusId` on it. Ten lines where the focus already lives, and
 survive the frame boundary.
 
 CLASS: WORKAROUND
+
+---
+
+### #84 — Right-aligned label text can never sit flush to its box (hardcoded 5px inset)
+
+**What was wanted.** A sub-agent count on a sidebar row, right-aligned against
+the row's right edge, the way the reference client draws it.
+
+**What the library does.** Every alignment insets the text by a constant that
+callers cannot see or change. `rendering.h`:
+
+```cpp
+constexpr float kInset = 5.f;                       // line 890
+float x = rect.x + kInset;                          // Left
+...
+else if (alignment == TextAlignment::Right)
+  x = rect.x + rect.width - kInset - line_w;        // Right
+```
+
+`ComponentConfig` has no margin, inset or padding knob that reaches this, so
+`TextAlignment::Right` means "5px shy of the right edge" and nothing else. The
+same constant governs Left and Center, which is fine for those — a 5px gutter
+on the left of a left-aligned label is invisible. On the right it is a
+5px hole between the digits and the edge they are supposed to be flush with.
+
+**This is not theoretical, and it is not new.** Every right-aligned count
+already in hanabi's sidebar — the smart-view badges (Home/Blocked/Review), the
+folder counts — lands its right edge at x=263 where the reference puts it at
+x=271. The 8px has been visible in the parity captures the whole time and read
+as "the counts sit a bit left", which is exactly what a hardcoded inset plus a
+glyph's own side bearing looks like.
+
+**Why the obvious escapes do not work.**
+
+- **Shrinking the parent's right padding** moves every sibling in the row, not
+  just the label — the star and mute slots go with it.
+- **Making the slot 5px wider** does nothing: the inset is measured from the
+  slot's own right edge, so the text moves left with it.
+- **`with_translate`** takes an absolute position, not a delta, so using it
+  here means re-deriving the row's laid-out x in the caller, which is the
+  layout engine's job and wrong the moment anything beside it changes width.
+
+**The workaround, and its cost.** Left-align in a slot sized to the measured
+text **plus** `kInset`. The inset then lands on the left of the slot, where
+there is nothing to be flush with, and the text's right edge falls exactly on
+the slot's — which, for the row's last child, is the row's right edge. It is
+exact and it costs one measurement the layout will immediately redo, but it
+encodes the library's private constant (`kAhTextInset` in `sidebar_system.h`)
+in app code, so a change to `kInset` upstream silently moves hanabi's counts.
+
+**Minimal upstream fix.** Honour a per-component inset/margin on
+`ComponentConfig` and default it to the current 5px; or simply stop insetting
+the Right case, where the inset has no reader-facing purpose.
+
+CLASS: WORKAROUND
