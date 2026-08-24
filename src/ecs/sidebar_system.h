@@ -530,10 +530,30 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kSnippetH = 16.0f;
     // A session row's left inset and its leading status-glyph slot. Puffin puts
     // the glyph's centre at x=15.5 and the title's first ink at x=28, so the
-    // slot is 13 wide from kSbInset and the title carries a 6px left pad.
+    // slot is 13 wide from kSbInset.
     static constexpr float kRowLeftInset = kSbInset;
     static constexpr float kGlyphW = 13.0f;   // leading status glyph slot
+    // kRowTitlePad DOES NOT PLACE THE TITLE, and it is no longer asked to.
+    // afterhours draws a label's text from the ELEMENT's own rect plus its
+    // private 5px text margin and ignores the element's padding entirely
+    // (afterhours_gaps.md #85, #91) — measured here: built at 6, 7 and 20 the
+    // captures are byte-identical except where the wider budget re-ellipsized
+    // three rows. So this constant is a WIDTH budget for fit_to_width and
+    // nothing else, the `.with_padding` that used to sit on the title element
+    // is GONE rather than left in as decoration (it would have moved every
+    // title six pixels right the day #85 is fixed upstream), and the title's
+    // first ink lands at kRowLeftInset + kGlyphW + kAhTextInset + kRowTitleLead.
+    //
+    // Without the lead that is 27, and the reference's is 28. That one pixel,
+    // uniform across all nineteen visible rows, was the whole of the list
+    // region's remaining parity headroom: six rounds read the comment above,
+    // believed the text was at 28, measured the ink as 77-86% of the
+    // reference's and concluded rasterizer. kRowTitleLead is the pixel,
+    // applied as a MARGIN — which moves an element and its text together, the
+    // way render_snippet below already documents and the way gap #85's escape
+    // list wrongly rules out.
     static constexpr float kRowTitlePad = 6.0f;
+    static constexpr float kRowTitleLead = 1.0f;
     // Ellipsize by MEASURED width, not by a chars-times-average-advance
     // budget: the estimate is calibrated to one font at one size, so it either
     // clips a title early or overflows the column when either changes.
@@ -2633,8 +2653,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          theme::type::LIST_ROW,
                                          rowTitleW - kRowTitlePad -
                                              (showCount ? kCountTextPad : 0.0f)))
-                .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
-                .with_padding(Padding{.left = pixels(kRowTitlePad)})
+                .with_size(ComponentSize{pixels(rowTitleW - kRowTitleLead),
+                                        pixels(20)})
+                .with_margin(Margin{.left = pixels(kRowTitleLead)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
                 .with_font_size(theme::type::LIST_ROW)

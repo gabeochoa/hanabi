@@ -5557,3 +5557,111 @@ sprite's weight becomes a draw-time parameter rather than an asset decision.
 
 CLASS: MISSING
 
+---
+
+### #140 — #85's escape list rules out `with_margin`, and `with_margin` is the fix; the ignored padding it warns about was still live 2,200 lines down the same file and cost a whole region
+
+**This is not a new wall.** #85 (*"Padding on a label-only element is silently
+ignored"*) and #91 describe the mechanism exactly and correctly. This entry is
+the second instance, what it cost, and one correction to #85 that is the reason
+the second instance was fixable in one line and was not fixed for six rounds.
+
+**What was wanted.** A session-row title indented from its status-glyph slot.
+`sidebar_system.h:2655`:
+
+```cpp
+.with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
+.with_padding(Padding{.left = pixels(kRowTitlePad)})   // does nothing
+```
+
+with, six lines up, the arithmetic out loud: *"Puffin puts the glyph's centre at
+x=15.5 and the title's first ink at x=28, so the slot is 13 wide from kSbInset
+and the title carries a 6px left pad."* 9 + 13 + 6 = 28 and 28 is right.
+
+**What happens.** Same as #85, and confirmed the same way: built at
+`kRowTitlePad` 6, 7 and **20**, the three captures are byte-identical except
+where the wider budget re-ellipsized three rows. The title has always drawn at
+`kRowLeftInset + kGlyphW + 5 = 27`. `rendering.h:2161` is the whole
+explanation — the rect handed to `position_text_ex` is the element's own drawn
+rect, inset only by a nine-slice border, and the layout system's `Padding` is
+never consulted on that path:
+
+```cpp
+RectangleType text_rect = draw_rect;
+if (entity.has<HasNineSliceBorder>()) { text_rect.x += ns.left; ... }
+position_text_ex(fm, hasLabel.label.c_str(), text_rect, hasLabel.alignment,
+                 Vector2Type{5.f, 5.f}, ...);
+```
+
+**What the recurrence cost, which is the reason to file it again.** One pixel,
+uniform across all nineteen visible rows. That pixel was **100% of the session
+list's remaining parity headroom**: list 13.56% → 11.82% structural against a
+floor of 8.41–11.83, i.e. from +1.73 to AT FLOOR, on one line. Six independent
+rounds of visual-parity work read that comment, checked the arithmetic, measured
+hanabi's ink at 77–86% of the reference's, and concluded "the rest is the
+rasterizer" — because a rigid 1px shift on every string is indistinguishable
+from a uniform ink deficit in every aggregate anybody had. #85's closing line
+is *"silence is what made this cost a day."* Filed, it cost six rounds.
+
+**The correction, and it is the useful half.** #85's escape list opens with:
+
+> **`with_margin`** is the same story one level out: it spaces the element from
+> its siblings, not the text from the element.
+
+That sentence is literally true and practically backwards. Margin does not move
+text *within* an element — but it moves the ELEMENT, and the element's rect is
+precisely what the text is drawn from, so the text goes with it. It is the
+cheapest correct fix for the thing #85 is about, it costs no entity, and #85
+rules it out in its first bullet. `render_snippet`, forty lines above the
+defect in the same file, already says so in as many words — *"The indent is a
+margin, which moves the element and its text together"* — so one function in
+this codebase knew and the gap doc said not to.
+
+The consequence is visible in the workarounds: #85 shipped `sb_spacer_x`, an
+empty div per row whose only job is to be 10px wide, because margin had been
+ruled out.
+
+**Why the other obvious escapes still do not work.**
+
+- **Widen the preceding sibling** (`kGlyphW` 13 → 14). It moves the title and
+  it also moves the status glyph, which centres in that slot. Measured: the
+  glyph column is AT FLOOR at 1.95% and half a pixel of drift takes it to
+  10.13%. A layout constant two elements read is not a place to put one
+  element's offset.
+- **`TextAlignment::Center` and size the box.** Centring divides the slack at
+  both ends, so a title's left edge becomes a function of its own length —
+  nineteen different indents.
+- **A padded wrapper** (#85's "works, and costs an entity per label"). Nineteen
+  more entities in the sidebar, and the wrapper needs the row's width
+  arithmetic, so the constant that was wrong once is now wrong in two places.
+
+**The workaround, and its cost.** A left `Margin` of 1 with the element's width
+reduced by the same 1, so the row's column arithmetic and its ellipsis budget
+are untouched:
+
+```cpp
+static constexpr float kRowTitleLead = 1.0f;
+    .with_size(ComponentSize{pixels(rowTitleW - kRowTitleLead), pixels(20)})
+    .with_margin(Margin{.left = pixels(kRowTitleLead)})
+```
+
+Two costs. The indent is now split across two constants that only make sense
+read together — `kRowTitlePad` is a WIDTH budget for `fit_to_width`, and
+`kRowTitleLead` is the position — and neither name says which without its
+comment. And the defect is still live elsewhere: **twenty label-bearing
+elements in hanabi set horizontal padding**, of which nine are cases where the
+element's own label is the thing meant to move — `tab_label`, `md_table_cell`,
+`msg_time`, `dc_tag`, `welcome_chip`, `sb_show_more`, `sb_no_results`,
+`shortcuts_keys`, `xsearch_note`. None sits in a region above its floor today
+(the tab bar, where `tab_label` lives, is AT FLOOR), so none is touched here.
+They are listed so the tenth round starts from the right hypothesis.
+
+**Minimal upstream fix.** #85 offers two and prefers the warning; after a
+second instance the warning is clearly the right one, because the honouring
+fix would silently move nine live labels in this app alone. A label element
+carrying a non-zero `Padding` and no `HasNineSliceBorder` is asking for
+something the renderer will not do — one `log_warn` at build time, once per
+debug name. That single line would have turned six rounds of a parity
+workstream into a startup message.
+
+CLASS: FOOTGUN

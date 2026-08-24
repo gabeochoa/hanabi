@@ -230,6 +230,82 @@ If you genuinely need a state that is not here — a settings sheet, a light
 theme, an expanded tool pile — ASK ME rather than driving the live app. I will
 capture it, freeze it, and add it to this list.
 
+### The session list is DONE, and here are the per-glyph numbers so nobody re-opens it
+
+**list 11.82% structural against a floor of 8.41–11.83 — AT FLOOR**, as of
+`feat/vis-titles`. It joins the tab bar and the row-mark column. Six rounds
+concluded the eighteen row titles were the rasterizer and left them alone; the
+seventh found that the last +1.73 was one pixel of horizontal position
+(afterhours ignores a label's padding — gaps #85, #91, #140), fixed it, and
+then measured what remained DIRECTLY rather than inferring it. This section is
+that measurement, so the eighth round does not happen.
+
+**1. Every title now starts on the reference's column.** First-ink x, all
+nineteen visible rows, hanabi against `ref/02_thread.png`: exact, including the
+reference's own 28/29 alternation, which is the first letter's side bearing and
+which hanabi reproduces. Before the fix it was `ref − 1` on every row.
+
+**2. The ink deficit is uniform, and it is 11.5%.** Coverage-weighted ink,
+hanabi over reference, per row: 0.895 0.886 0.904 0.896 0.870 0.886 0.875 0.892
+0.858 0.890 0.889 0.887 0.893 0.885 0.882 0.888 0.895 0.877 0.875. Mean
+**0.885**, range 0.858–0.904. There is no outlier row and therefore no second
+bug hiding in the average. (Scan the full ink band: row 0's starts at y309,
+above the list rectangle's own y313, and crops to a false 0.77.)
+
+**3. Puffin's title is the REGULAR face.** `HomeSessionList.swift:1212` is
+`.font(PuffinTheme.Font.message)`, and `PuffinTheme.Font.message =
+face(Size.message)` with `face`'s weight parameter defaulting to `.regular`.
+`messageEmphasis` exists and is used in three places, none of them a session
+row, so Puffin bolds nothing in this list — no unread weight, no selected
+weight. `FRICTION_LOG.md`'s `## The typeface question, settled` says *"Puffin
+renders semibold through CoreText"*; it does not. The 11.5% is Regular against
+Regular, which means there is no heavier face to switch to and the deficit is
+CoreText's stem darkening alone.
+
+**4. The advances drift, both ways, up to ±4px — this is the finished answer.**
+Slide hanabi's per-column ink-coverage profile against the reference's inside a
+24px window, take the best-correlating sub-pixel offset, and step the window
+along the string. Every row starts registered (first-window dx between −0.5 and
++0.6, which is the fix landing) and then diverges on its own schedule:
+
+| row title | dx, first window → last |
+|---|---|
+| `row 133 banyan diff gate` | −0.2 → **+4.0** |
+| `coordinating 3 shard workers` | −0.2 → +1.9 |
+| `two shards died` | −0.5 → +1.5 |
+| `needs a decision before it can go on` | −0.3 → −0.3 |
+| `Navi PRs: oak + juno` | −0.3 → −0.1 |
+| `import failed twice` | −0.4 → −2.0 |
+| `style guide written` | −0.3 → −2.2 |
+| `parent — nothing to report` | −0.2 → −2.5 |
+| `SKU backfill — my name for it` | −0.8 → **−3.7** |
+
+Mean end-drift over all eighteen is −0.4px, so there is no second global
+constant in it — the signs are mixed and a shift that helps one row hurts
+another. And the per-row residual tracks |drift|: the rows still at their own
+floor are exactly the rows whose drift ends under 0.5px. **Two text engines
+advancing differently along a string, measured per glyph rather than argued
+from ink totals.**
+
+**5. The largest single named contributor is the em-dash, and it is priced at
+0.22 points.** Four titles carry one. Measured as an isolated horizontal bar:
+the reference draws 13px (x106–118, x96–108, x163–175, x72–84) and hanabi draws
+**10px** on all four — Roboto's em-dash at 16.5px against the reference face's.
+It shows up in the drift curves as a step at exactly those columns. Widening
+all four synthetically to 13px and sliding each tail 3px right — better than
+any real fix could do, since it moves already-drawn glyphs into place — takes
+the title column 14.94% → 14.72%. There is no per-glyph advance override to
+spend that with, and it is two tenths of a point.
+
+**What this means for anyone arriving here.** The list is finished. So is the
+tab bar, the search row and the row-mark column. If you are about to work a
+text region, the one test worth running first is the rigid-shift sweep: crop
+the region out of hanabi's capture, translate it by ±1px in each axis, paste it
+back and re-score. It takes five minutes, the `dx=0,dy=0` cell is its own
+control, and it is the only cheap way to tell a placement bug from a
+rasterizer residual. A rasterizer residual is flat under that sweep. This one
+was 2.27 points deep at +1.0.
+
 ## Read Puffin's source before you probe its pixels
 
 **Puffin's own Swift source is checked out on this machine:

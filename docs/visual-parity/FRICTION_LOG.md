@@ -1063,6 +1063,20 @@ a 19% deficit, on strings whose start, end and vertical extent all match. Puffin
 renders semibold through CoreText with macOS stem darkening; fontstash draws
 thinner glyphs from a Regular face.
 
+> **Correction, 2026-08-24 (feat/vis-titles).** Two things in the paragraph
+> above are wrong, and both were checkable. *"Puffin renders semibold"* — it
+> does not: `HomeSessionList.swift:1212` is `.font(PuffinTheme.Font.message)`
+> and `PuffinTheme.Font.message = face(Size.message)`, whose weight parameter
+> defaults to `.regular`. `messageEmphasis` exists and is used in three places,
+> none of them a session row. The deficit is Regular against Regular, so there
+> is no heavier face to reach for and CoreText's stem darkening is the whole of
+> it. *"strings whose start … match"* — they did not. Every one of the
+> nineteen started exactly one pixel left of the reference's, which is a
+> silently-ignored `Padding` (gaps #85, #91, #140) and not a rasterizer, and
+> which was worth the region's entire remaining headroom. Re-measured with the
+> full ink band, the deficit is **11.5%**, uniform across all nineteen rows
+> (0.858–0.904). See `## The row titles (feat/vis-titles)`.
+
 But **adding ink makes the score worse, monotonically**: dilating only the title
 column takes the list from 14.31% to 16.11 / 17.98 / 19.80 / 21.66 at 25 / 40 /
 60 / 100% blend. The ink is not in the same *places* — advances diverge across a
@@ -3538,6 +3552,226 @@ four in one command.
   (+3.89, blocked on the atlas), the fill's corners (0.37, blocked on #111) and
   the eighteen row titles (+2.57, blocked on the typeface). **Nothing else in
   this region is above two pixels.**
+
+---
+
+## The row titles (feat/vis-titles)
+
+**The list is AT FLOOR. 13.56% → 11.82% structural against a floor of
+8.41–11.83, and the change is one pixel of horizontal position on eighteen
+strings.** It is not the rasterizer. Six rounds said it was, and the evidence
+was strong — the strings match, the start x matches, the size matches, the ink
+is 77–86% of the reference's, 2x scored worse, three font sweeps ended at the
+shipping value. Every one of those is true. The one that was measured wrong is
+*the start x matches*: it never did, by exactly one pixel, on every row.
+
+| | main | feat/vis-titles | floor |
+|---|---|---|---|
+| **list** | 13.56% | **11.82%** | 8.41–11.83 **AT FLOOR** |
+| list/titles | 17.21% | **14.94%** | 10.54–14.64 |
+| list/counts | 3.35% | 3.11% | 1.60–2.63 |
+| list/marks | 1.95% | 1.95% | AT FLOOR (untouched) |
+| search | 3.20% | **2.99%** | 1.54–3.17 **AT FLOOR** |
+| sidebar | 10.28% | **9.15%** | 6.25–8.93 (+1.35 → +0.21) |
+| whole frame, structural | 4.28% | **4.01%** | |
+| shared surfaces | 4.10% | **3.83%** | |
+
+Search and the footer move without being touched: `compare.py` blurs by 0.8px
+before scoring, so the first and last row titles bleed across the list's
+boundaries. Points, not credit.
+
+### Do the per-element pricing FIRST, then take the element apart
+
+`scripts/ceiling.py` is the right first move and `feat/vis-sb3` is right that
+it reorders the work. But it prices a RECTANGLE, and "the eighteen row titles"
+is not one element — it is eighteen. Priced as one rectangle they read +2.57
+over floor, which is the shape of a rasterizer residual: a small uniform
+surplus with nothing to grab. Priced one row at a time, the same 2.57 is not
+uniform at all — five rows sit AT their own floor and three carry +6 to +9.5.
+A number that is flat across a region is a metric fact; a number that is
+concentrated is a bug. You cannot tell which you have until you split it.
+
+The split took twenty lines of Python: find each row's ink band, and for each
+one print ref-vs-hanabi ink, the ink bbox, and that band's own now/ceiling/floor.
+The first column of the output settled it before any of the rest was read:
+
+```
+ #   refink  hbink  ratio   rx0  hx0    rx1  hx1
+ 0      563    434   0.77    29   28    131  128
+ 1      731    613   0.84    28   27    153  151
+ 2      371    329   0.89    29   28     92   88
+ 3     1055    903   0.86    28   27    207  208
+ ...  eighteen more rows, and hx0 == rx0 - 1 on every single one
+```
+
+**Nineteen rows, nineteen first-ink columns, every one exactly one pixel left.**
+Not a distribution around zero — a constant. Rasterization phase does not do
+that; a wrong constant does. (Note the reference's own 28/29 alternation is
+reproduced faithfully one pixel over, which is what says the two engines agree
+about side bearings and disagree only about the origin.)
+
+### Prove a rigid error is rigid before you go looking for it in the code
+
+Shifting hanabi's own pixels is a five-minute test and it tells you the size of
+the prize before you spend an afternoon finding the constant. Crop the title
+column out of the capture, translate it, paste it back, re-score — the same
+trick as the paste test, one axis over. The `dx=0, dy=0` cell is the control:
+it is the cost of one bicubic round trip, and here it was zero.
+
+```
+        dy=    -1.0    -0.5     0.0     0.5     1.0
+  dx=-1.0    20.72   19.51   18.86   18.71   19.45
+  dx= 0.0    20.05   18.42   17.21   17.06   18.33
+  dx=+1.0    19.25   17.06   14.94   14.89   17.08     <- floor is 14.64
+  dx=+2.0    19.79   17.83   16.37   16.07   17.78
+```
+
+The minimum is at exactly +1.0, it is 2.27 points deep, and the vertical axis
+is flat — which independently re-confirms `feat/vis-list2`'s pitch measurement
+and says the row's baseline is right. **This is the test the whole workstream
+was missing**: if the residual is per-glyph placement, no rigid shift can
+help, and that is a falsifiable claim nobody had falsified. Run it on any text
+rectangle before concluding rasterizer.
+
+Run the same sweep on the glyph column and it says the opposite — `dx=0` is
+1.95% and `dx=+1` is 10.13%. The marks are right where they should be. So the
+error is not the row's left inset; it is inside the row, between the glyph slot
+and the title.
+
+### The constant was right, the comment was right, and the padding was never applied — and gap #85 had already said so
+
+```cpp
+// Puffin puts the glyph's centre at x=15.5 and the title's first ink at x=28,
+// so the slot is 13 wide from kSbInset and the title carries a 6px left pad.
+static constexpr float kRowLeftInset = kSbInset;   // 9
+static constexpr float kGlyphW       = 13.0f;
+static constexpr float kRowTitlePad  = 6.0f;
+```
+
+9 + 13 + 6 = 28, and 28 is the right answer. The title draws at **27**.
+`.with_padding(Padding{.left = pixels(kRowTitlePad)})` on a label does not move
+that label's text — afterhours positions a label from the element's own drawn
+rect plus its private 5px margin, and consults `Padding` only for the element's
+CHILDREN. Built at 6, 7 and 20 the captures are byte-identical apart from the
+ellipsis budget. So the real arithmetic has always been
+`kRowLeftInset + kGlyphW + 5 = 27`, the six were never in it, and the comment
+that said they were is why five rounds trusted the number.
+
+**And this was filed. Gap #85, from the smart-view row, in this same file:**
+*"its comment did the arithmetic out loud — kSbInset 9 + icon 16 + a 12px pad
+on the label = 37 … `pixels(12)` and `pixels(40)` produce a byte-identical
+frame."* Same defect, same file, 2,200 lines apart, same shape of comment. #85
+closes with *"silence is what made this cost a day"*; filed, it cost six
+rounds. **Reading the gap log for the mechanism you are about to blame is
+cheaper than measuring, and nobody in this workstream did it** — including,
+until an hour ago, me.
+
+The one thing #85 gets wrong is the thing that made the second instance
+expensive. Its escape list opens with *"`with_margin` is the same story one
+level out: it spaces the element from its siblings, not the text from the
+element."* Literally true, practically backwards — margin moves the ELEMENT,
+and the element's rect is what the text is drawn from, so the text goes with
+it. That is the fix here: a left `Margin` of 1 and a width reduced by 1, no
+extra entity — and the dead `.with_padding` is REMOVED rather than left in as
+decoration, because the day #85 is fixed upstream it would have moved every
+title in the list six pixels right. `render_snippet`, forty lines above the
+defect, already documents the margin (*"The indent is a margin, which moves the
+element and its text together"*), so one function in this codebase knew and the
+gap doc said not to. #85 shipped an empty `sb_spacer_x` div per row instead.
+Correction filed as gap #140, with the audit.
+
+The audit is the part to carry forward: **twenty labels in hanabi set
+horizontal padding**, nine of them on elements whose own label is the thing
+meant to move. None is in a region above its floor today, so none is touched —
+but `tab_label`, `md_table_cell`, `msg_time` and `dc_tag` are all drawing at
+their element's edge right now.
+
+### What is left, measured per glyph, and it IS the rasterizer
+
+With the origin fixed, the residual is now worth the name six rounds gave it,
+and this is the direct measurement rather than the inference.
+
+**The ink deficit is uniform.** Coverage-weighted ink, hanabi over reference,
+per row: 0.895 0.886 0.904 0.896 0.870 0.886 0.875 0.892 0.858 0.890 0.889
+0.887 0.893 0.885 0.882 0.888 0.895 0.877 0.875. Nineteen rows, mean **0.885**,
+full range 0.858–0.904. No row is a different bug from its neighbours. (Any
+figure showing a low outlier is a clipped scan window — row 0's band starts at
+y309, above the list rectangle's own y313, and reads 0.77 if you crop to the
+region.)
+
+**Puffin's title is the REGULAR face, not semibold.**
+`HomeSessionList.swift:1212` is `.font(PuffinTheme.Font.message)`, and
+`PuffinTheme.Font.message = face(Size.message)` with `face`'s weight parameter
+defaulting to `.regular`; `messageEmphasis` exists and is used in three places,
+none of them a session row. So `## The typeface question, settled` should read
+*"Puffin renders the Regular face through CoreText with macOS stem darkening"*
+— the 11.5% ink deficit is Regular against Regular, and there is no weight to
+switch to. It also kills the last version of the "does Puffin bold an unread
+row" question: it does not bold anything in this list.
+
+**The advances drift, in both directions, up to ±4px.** Slide hanabi's
+per-column coverage profile against the reference's inside a 24px window and
+take the best-correlating sub-pixel offset; step the window along the string
+and the offset is a curve. Every row starts registered — dx between −0.5 and
++0.6 at the first window, which is the fix landing — and then goes its own way:
+
+| row | title | dx at start → end |
+|---|---|---|
+| 17 | `row 133 banyan diff gate` | −0.2 → **+4.0** |
+| 3 | `coordinating 3 shard workers` | −0.2 → +1.9 |
+| 7 | `two shards died` | −0.5 → +1.5 |
+| 8 | `needs a decision before it can go on` | −0.3 → −0.3 |
+| 16 | `Navi PRs: oak + juno` | −0.3 → −0.1 |
+| 15 | `import failed twice` | −0.4 → −2.0 |
+| 14 | `style guide written` | −0.3 → −2.2 |
+| 18 | `parent — nothing to report` | −0.2 → −2.5 |
+| 5 | `SKU backfill — my name for it` | −0.8 → **−3.7** |
+
+Mean end-drift over all eighteen is −0.4px, so there is no second global
+constant hiding in it. And the per-row residual tracks |drift| almost
+perfectly: the five rows still at their own floor are the five whose drift ends
+under 0.5px (rows 1, 8, 10, 16, 4), and the three carrying the most are rows 5,
+17 and 18. **Two text engines advancing differently along a string is the
+finished answer, and this is what it looks like measured instead of inferred.**
+
+**The single largest named contributor is the em-dash, and it is priced.** Four
+titles carry one. Measured as an isolated horizontal bar in both frames:
+
+| row | ref | hanabi | |
+|---|---|---|---|
+| 5 | x106–118, **13px** | x105–114, **10px** | −3 |
+| 11 | x96–108, 13px | x97–106, 10px | −3 |
+| 12 | x163–175, 13px | x164–173, 10px | −3 |
+| 18 | x72–84, 13px | x73–82, 10px | −3 |
+
+Three pixels, identically, on all four — Roboto's em-dash at 16.5px against the
+reference face's. It is visible in the drift curves as a step: row 18 goes +0.3
+→ −1.9 across exactly the columns the dash occupies. Synthetically widening all
+four dashes to 13px and sliding each tail 3px right — the paste-quality upper
+bound, better than any real fix could do — is worth **0.22 points** (14.94 →
+14.72). Not spent. There is no per-glyph advance override to spend it with, and
+hand-drawing four dashes to buy two tenths of a point is fitting.
+
+### Declare it, and here is the guard
+
+The list joins the tab bar and the marks column. Its remaining 11.82% against a
+floor whose top is 11.83% is per-glyph advance drift with an ink deficit of
+11.5%, both measured directly above, and neither is reachable from hanabi.
+**There is no seventh round in this region.**
+
+The count column is the one thing left inside the list rectangle: 3.11% against
+a floor of 1.60–2.63, and a synthetic sweep says its best offset is +0.5px
+(2.82%). It is right-aligned through the `kAhTextInset` trick, so a half pixel
+is not expressible, and `feat/sidebar-counts` already swept every real
+constant. Three tenths of a point, unreachable, left alone — and now for the
+second time, which is the note that matters.
+
+**The guard is a scripted test, and it is the first pixel finding in this
+workstream that `assert_ui` CAN see** — because the fix is an element's x, not
+a colour or a coverage. `tests/ui/row_title_starts_where_puffin_starts.e2e`
+asserts `row_title x=23`, and a build with the margin removed reports 22 and
+fails. Everything else here stays where the harness cannot reach it: the drift
+curves, the ink ratios and the dash widths are all gap #86.
 
 ---
 

@@ -1,0 +1,55 @@
+# A session row's title starts where Puffin's does, and its padding is not what
+# puts it there.
+#
+# `ref/02_thread.png` puts every visible row title's first ink at x=28 or 29 --
+# the alternation is the first letter's own side bearing. hanabi put all
+# nineteen of them exactly one pixel left, for the whole of the visual-parity
+# workstream, and that one pixel was 100% of the session list's remaining
+# headroom: list 13.56% -> 11.82% structural against a floor of 8.41-11.83,
+# which is AT FLOOR.
+#
+# The reason it survived six rounds is that the code says otherwise, out loud:
+#
+#     // Puffin puts the glyph's centre at x=15.5 and the title's first ink at
+#     // x=28, so the slot is 13 wide from kSbInset and the title carries a 6px
+#     // left pad.
+#     kSbInset 9 + kGlyphW 13 + kRowTitlePad 6 = 28
+#
+# and 28 is right. But `.with_padding()` on a label-only element is silently
+# ignored -- afterhours draws a label from the element's own rect plus a
+# private 5px inset and never consults Padding (afterhours_gaps.md #85, #91).
+# Built at 6, 7 and 20 the captures are byte-identical. So the real arithmetic
+# was 9 + 13 + 5 = 27, and every aggregate anybody had -- ink totals, string
+# widths, bbox extents -- reads a uniform 1px shift as a uniform ink deficit,
+# which is why six rounds concluded "rasterizer" instead.
+#
+# What this asserts is the LAYOUT x of the title element, which is what the fix
+# moves: a 1px left Margin, with the element's width reduced by 1 so the row's
+# column arithmetic and its ellipsis budget are unchanged. Margin moves the
+# element and the text is drawn from the element's rect, so the text goes with
+# it -- the escape gap #85 rules out in its first bullet and gap #140 corrects.
+#
+#   kRowLeftInset 9 + kGlyphW 13 + kRowTitleLead 1 = 23
+#
+# Remove the margin and this reads 22. That is the whole guard, and it is the
+# one pixel fact in this branch the scripted harness CAN see: assert_ui reads
+# x/y/w/h/hidden/text (gap #86), so the per-glyph advance drift, the 11.5% ink
+# deficit and the em-dash's three pixels -- the measurements that say what is
+# LEFT is genuinely the rasterizer -- are all unassertable and live in
+# docs/visual-parity/FRICTION_LOG.md instead.
+#
+# First match is the top row's title, which is the one whose x is being pinned;
+# every row in the list is laid out by the same three constants.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
+
+assert_ui row_title hidden=false
+assert_ui row_title x=23
+
+# The glyph slot it follows is NOT moved by the fix, and that matters: the
+# status mark centres in this slot, the mark column is AT FLOOR (1.95% against
+# a floor of 3.22-5.38), and a synthetic sweep says half a pixel of drift there
+# costs it eight points. Widening kGlyphW to move the title would have paid for
+# the titles out of the marks.
+assert_ui row_glyph x=9
+assert_ui row_glyph w=13
