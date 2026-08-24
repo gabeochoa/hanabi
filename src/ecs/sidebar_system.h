@@ -755,6 +755,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // where hanabi's peaked at (98,98,110) -- half the contrast, on the one
     // label in the sidebar whose whole job is to be noticed by someone who
     // has not found the field yet.
+    // The VIEWS strip's own label. Measured: the reference's "VIEWS" is 37px
+    // of ink (x22..58) where hanabi's LABEL size gave 26.
+    static constexpr float kViewsHeadPx = 14.5f;
     static constexpr float kSearchPx = 15.5f;
     static constexpr theme::Color kSearchHintFg{168, 168, 174, 255};
     static constexpr float kBadgeRightPad = kCountRightPad - 1.0f;
@@ -1027,8 +1030,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.right = pixels(6),
-                                      .left = pixels(kSbInset)})
+                // 6, not the sidebar's usual kSbInset of 9: the strip's own
+                // chevron sits further left than every row below it. Measured
+                // -- the reference's chevron spans x9..16 where a 9px inset
+                // puts hanabi's at x12..18.
+                .with_padding(Padding{.right = pixels(5),
+                                      .left = pixels(7)})
                 .with_custom_background(theme::section_header_bg())
                 .with_custom_hover_bg(theme::hover_over(
                     theme::section_header_bg()))
@@ -1047,11 +1054,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             else app.collapsedFolders.insert(kViewsKey);
         }
 
-        const theme::Color tint = theme::text_faint();
+        // The strip's ink is the same blue-tinted grey as the view labels
+        // below it, not theme::text_faint: measured, the reference's VIEWS
+        // peaks at (151,151,176) where text_faint is (100,100,112).
+        const theme::Color tint = kViewLabelFg;
         div(ctx, mk(strip.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(13), pixels(18)})
+                // 10 wide: the chevron is centred in it and the label follows
+                // it in flow, so this one number sets both. 7 + 10 + the 5px
+                // text inset nothing can turn off (gap #75) puts the label's
+                // ink on the reference's x=22, and the chevron on its x9..16.
+                .with_size(ComponentSize{pixels(10), pixels(18)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_on_draw_fg([collapsed, tint](RectangleType rect) {
@@ -1060,7 +1074,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_views_chevron"));
         // Fixed pixel width (gap #18: no flex-grow) so the toggle that follows
         // lands on the measured right edge instead of packing mid-strip.
-        float labelW = panelW - kSbInset - 6.0f - 13.0f - 24.0f;
+        float labelW = panelW - 7.0f - 5.0f - 10.0f - 24.0f;
         if (labelW < 20.0f) labelW = 20.0f;
         div(ctx, mk(strip.ent(), 2),
             ComponentConfig{}
@@ -1068,7 +1082,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(labelW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(tint)
-                .with_font_size(theme::type::LABEL)
+                .with_font_size(kViewsHeadPx)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_views_label"));
@@ -1084,8 +1098,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
                 .with_roundness(0.3f)
+                // panel_left, at 17: the reference's toggle is SF
+                // `sidebar.leading`, a panel outline with its leading column
+                // filled -- not the arrowed bracket `sidebar_close` draws. It
+                // spans x255..270, which is 16px of ink.
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "sidebar_close", "\xc2\xab", tint, 15.0f))
+                    "panel_left", "\xc2\xab", tint, 17.0f))
                 .with_debug_name("sb_collapse"));
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
@@ -1321,12 +1339,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.3f)
                 .with_debug_name("sb_search"));
         s_searchFieldId = field.ent().id;
+        spacer_x(ctx, field.ent(), 9, 6.0f);
         div(ctx, mk(field.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                // 13, not 18: the slot's width is what puts the hint text at
-                // x=33 where the reference has it; at 18 it started at 38.
-                .with_size(ComponentSize{pixels(13), pixels(18)})
+                // The magnifier's slot is 7 wide with a 6px spacer in front of
+                // it, and the two numbers are locked together: the glyph is
+                // centred in its slot and the hint follows the slot in flow,
+                // so the only way to move the glyph WITHOUT moving the hint is
+                // to trade spacer for slot at a constant sum. 6 + 7 == the 13
+                // that puts the hint on the reference's x=33, and it centres
+                // the glyph on 21.5 where a bare 13 centred it on 18.5. The
+                // glyph is 11px in a 7px box, which overhangs by 2 each side --
+                // on_draw_fg paints into the widget rect and is not clipped to
+                // it.
+                .with_size(ComponentSize{pixels(7), pixels(18)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 // 11px, not 13: the reference's magnifier is 10px wide
@@ -1500,17 +1527,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // a view, so it carries no count and never reads as selected.
         if (!folded)
             settings_item(ctx, container.ent(), 2, app, panelW);
-        smart_item(ctx, container.ent(), 3, "blocked", "\xe2\x9b\x94",
+        // "hand", not "blocked": the atlas' `blocked` is Lucide's ban sign, a
+        // circle-slash that reads as "forbidden" rather than "waiting on you".
+        // The reference uses SF `hand.raised` (SmartViewSidebar.systemImage),
+        // and the atlas now carries Lucide's hand, which is the same drawing.
+        smart_item(ctx, container.ent(), 3, "hand", "\xe2\x9b\x94",
                    "Blocked", SmartView::Blocked, blocked, app, folded, panelW,
                    lit);
-        smart_item(ctx, container.ent(), 4, "review", "\xe2\x9c\x93", "Review",
-                   SmartView::Review, review, app, folded, panelW, lit);
+        // The reference's Review glyph is SF `checkmark.circle` -- the check
+        // is INSIDE a ring. The atlas' `review` is a bare check.
+        smart_item(ctx, container.ent(), 4, "check_circle", "\xe2\x9c\x93",
+                   "Review", SmartView::Review, review, app, folded, panelW,
+                   lit);
         // Pinned and Archived carry NO badge, in either client: the badge
         // means "this many things are waiting on you", and a pin is a
         // bookmark, not a queue (`SmartView.showsAttentionBadge` is true for
         // home/blocked/review and false for pinned/archived/settings). The
         // counts are still computed above -- other things read them.
-        smart_item(ctx, container.ent(), 5, "star", "\xe2\x98\x85", "Pinned",
+        // A pin, for the view called Pinned. The star sprite stays in the
+        // atlas because the per-ROW star affordance still uses it -- Puffin
+        // draws the shelf with `pin` and the row action with a star, and the
+        // two are different things wearing one glyph here until now.
+        smart_item(ctx, container.ent(), 5, "pin", "\xf0\x9f\x93\x8c", "Pinned",
                    SmartView::Starred, -1, app, folded, panelW, lit);
         // "archive" now has a real Lucide sprite in the atlas; \xe2\x96\xa4 stays as fallback.
         smart_item(ctx, container.ent(), 6, "archive", "\xe2\x96\xa4",
@@ -1656,22 +1694,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         theme::Color dotColor = (view == SmartView::Blocked)
                                     ? theme::tag_blocked_fg()
                                     : theme::accent();
-        // Defect #5: the Blocked smart-view nav icon was the Lucide "blocked"
-        // atlas sprite — a no-entry / prohibition circle-slash that reads as
-        // "forbidden / banned", not "waiting on you / needs attention". The
-        // atlas (src/ui/icons_atlas.h) has NO better-fitting glyph: it carries
-        // only brand/gear/plus/search/sidebar/chevron/home/blocked/review(check)
-        // /star/folder_grid/fold_all — nothing that reads as
-        // waiting/attention (no clock, hourglass, inbox, bell, or hand). So we
-        // draw the Blocked view's icon as a WARNING TRIANGLE (an outlined
-        // up-triangle with a bang), which (a) reads as "attention", and (b)
-        // reuses the SAME up-triangle shape the per-row Blocked/attention glyph
-        // already uses, so the smart view and its rows share one visual
-        // vocabulary. Ideally the atlas would gain a Lucide "clock" (or
-        // "bell"/"hourglass"/"inbox") sprite for this — see report / gen_icons
-        // note; that's owned elsewhere, so we draw the triangle in-app rather
-        // than regenerate the atlas.
-        const bool useAttentionIcon = (view == SmartView::Blocked);
+        // The Blocked view's icon used to be drawn in-app as a warning
+        // triangle, because the atlas' `blocked` sprite was Lucide's ban sign
+        // -- a circle-slash reading as "forbidden", not "waiting on you" --
+        // and a comment here listed the atlas' contents to show nothing better
+        // existed. That was true when it was written. The atlas now carries
+        // Lucide's `hand`, which is the reference's own glyph, so the override
+        // is gone and the row draws its sprite like every other row.
+        const bool useAttentionIcon = false;
         const float iconPx = folded ? 18.0f : 16.0f;
         auto attnColor = txt;
         auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph, txt,

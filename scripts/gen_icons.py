@@ -54,6 +54,16 @@ ICONS = [
     ("close",        "x"),                # ✕ close buttons (tab/composer/settings/search-clear)
     ("archive",      "archive"),          # ▤ Archived smart view (was the last TODO(icon-atlas))
     ("layers",       "layers"),           # ≡ tool-call pile count badge (last raw unicode chrome)
+    # The smart-view glyphs the reference actually uses. Puffin names them as
+    # SF Symbols in SmartViewSidebar.systemImage -- hand.raised,
+    # checkmark.circle, pin, sidebar.leading -- and these are the Lucide icons
+    # of the same drawing. Before these existed the Blocked view wore a
+    # hand-drawn warning triangle and a comment explaining that the atlas had
+    # nothing better, Review wore a bare check, and Pinned wore a star.
+    ("hand",         "hand"),             # Blocked   (SF: hand.raised)
+    ("check_circle", "circle-check"),     # Review    (SF: checkmark.circle)
+    ("pin",          "pin"),              # Pinned    (SF: pin)
+    ("panel_left",   "panel-left"),       # the VIEWS strip's panel toggle
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on

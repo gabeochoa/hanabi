@@ -185,21 +185,37 @@ inline bool draw_at(std::string_view name, float cx, float cy, float px,
 // instead of typed.
 namespace hanabi::glyph {
 
-// A disclosure chevron: pointing DOWN when open, RIGHT when collapsed. Filled
-// triangle so it stays crisp at any size without a rotated atlas cell.
+// A disclosure chevron: pointing DOWN when open, RIGHT when collapsed.
+//
+// Two STROKES, not a filled triangle. It was a triangle, and the difference is
+// not subtle at a glance: measured off the reference, its chevron is 8x5 with
+// a ~1.5px stroke and open space inside it, where a filled triangle of the
+// same extent puts twice the ink on screen and reads as a play button.
+//
+// The proportions come from that measurement -- 8 wide by 5 tall, so the
+// half-height is 0.7 of the half-width, and `halfExtent` keeps meaning the
+// half-WIDTH so every existing caller's number still means what it did.
 inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
                     float halfExtent = 3.6f) {
     const float cx = rect.x + rect.width * 0.5f;
     const float cy = rect.y + rect.height * 0.5f;
-    const float s = halfExtent;
-    if (collapsed)
-        afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
-                                  afterhours::vec2{cx - s, cy + s},
-                                  afterhours::vec2{cx + s, cy}, c);
-    else
-        afterhours::draw_triangle(afterhours::vec2{cx - s, cy - s},
-                                  afterhours::vec2{cx + s, cy - s},
-                                  afterhours::vec2{cx, cy + s}, c);
+    const float w = halfExtent;
+    const float h = halfExtent * 0.7f;
+    // 1.6, because afterhours does not antialias primitives (gaps.md #92): a
+    // thinner stroke drops to a hairline of hard-edged pixels rather than
+    // getting lighter, which is what a vector renderer would do.
+    const float t = 1.6f;
+    if (collapsed) {
+        afterhours::draw_line_ex(afterhours::vec2{cx - h, cy - w},
+                                 afterhours::vec2{cx + h, cy}, t, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx + h, cy},
+                                 afterhours::vec2{cx - h, cy + w}, t, c);
+    } else {
+        afterhours::draw_line_ex(afterhours::vec2{cx - w, cy - h},
+                                 afterhours::vec2{cx, cy + h}, t, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx, cy + h},
+                                 afterhours::vec2{cx + w, cy - h}, t, c);
+    }
 }
 
 // An upward send arrow: a stem with a solid head, centred in `rect`. Roboto
