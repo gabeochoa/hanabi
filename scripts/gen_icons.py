@@ -64,6 +64,7 @@ ICONS = [
     ("check_circle", "circle-check"),     # Review    (SF: checkmark.circle)
     ("pin",          "pin"),              # Pinned    (SF: pin)
     ("panel_left",   "panel-left"),       # the VIEWS strip's panel toggle
+    ("sliders",      "sliders-horizontal"), # the search pill's filter affordance
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on

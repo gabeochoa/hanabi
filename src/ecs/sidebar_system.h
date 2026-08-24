@@ -464,8 +464,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kSbViewFillRadius = 5.0f;
     static constexpr int kSbViewRows = 6;
     static constexpr float kSbRuleH = 4.0f;       // 3px gap + a 1px hairline
-    static constexpr float kSbSearchH = 32.0f;    // 6px gap + a 26px field
-    static constexpr float kSbFieldH = 26.0f;
+    static constexpr float kSbSearchH = 32.0f;    // 7px gap + a 25px field
+    // 24, which rasterizes as the reference's 25 (gap #80). It was 26, giving
+    // 27.
+    static constexpr float kSbFieldH = 24.0f;
     static constexpr float kSbListGap = 4.0f;
     static constexpr float kSbFooterH = 28.0f;    // 1px rule + the footer row
     // One left inset for EVERY column in the sidebar: the strip's chevron, a
@@ -760,6 +762,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kViewsHeadPx = 14.5f;
     static constexpr float kSearchPx = 15.5f;
     static constexpr theme::Color kSearchHintFg{168, 168, 174, 255};
+    // The filter glyph is brighter than the hint beside it: measured, it peaks
+    // at (193,193,196) where the placeholder peaks at (163,163,168).
+    static constexpr theme::Color kSearchFilterFg{200, 200, 206, 255};
     static constexpr float kBadgeRightPad = kCountRightPad - 1.0f;
 
     static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
@@ -1273,8 +1278,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(kSbSearchH - kSbFieldH),
-                                      .right = pixels(4),
+                // -1: the pill lands on the reference's y270 rather than 271.
+                // Taken off the wrap's own top padding rather than off
+                // kSbSearchH, which also sets where the session list starts --
+                // twenty rows are not worth one.
+                .with_padding(Padding{
+                    .top = pixels(kSbSearchH - kSbFieldH - 1.0f),
+                                      .right = pixels(0),
                                       .bottom = pixels(0),
                                       .left = pixels(kSbInset)})
                 .with_transparent_bg()
@@ -1322,7 +1332,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Field width in pixels: the wrap's content box minus the filter
         // button that follows it (gap #18 again — the field cannot simply
         // take "the rest").
-        float fieldW = panelW - kSbInset - 4.0f - 28.0f;
+        // The pill runs x8..249 in the reference and the filter affordance
+        // sits OUTSIDE it, glyph on x259..274. So: the pill, then a 5px gap,
+        // then the filter's 24px box hard against the sidebar's right edge --
+        // which is what centres its glyph on the reference's 266.5.
+        float fieldW = panelW - kSbInset - 30.0f;
         if (fieldW < 60.0f) fieldW = 60.0f;
         auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
@@ -1435,6 +1449,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // rides the collapsedFolders sentinel set for the same reason the VIEWS
         // fold does — AppComponent is shared and this is one boolean.
         const bool hidingAuto = app.collapsedFolders.count(kHideAutoKey) > 0;
+        spacer_x(ctx, wrap.ent(), 3, 5.0f);
         auto filt = button(ctx, mk(wrap.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
@@ -1445,22 +1460,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
                 .with_roundness(0.3f)
-                .with_on_draw_fg([tint = hidingAuto ? theme::accent()
-                                                    : theme::text_faint()]
-                                 (RectangleType r) {
-                    // Three shortening rules with a knob on each — the standard
-                    // "filter / sliders" mark. The atlas has no such sprite and
-                    // is generated elsewhere, so it is drawn here.
-                    const float cx = r.x + r.width * 0.5f;
-                    const float cy = r.y + r.height * 0.5f;
-                    const float w[3] = {6.5f, 5.0f, 3.5f};
-                    for (int i = 0; i < 3; ++i) {
-                        const float y = cy - 4.0f + 4.0f * static_cast<float>(i);
-                        afterhours::draw_line_ex(
-                            afterhours::vec2{cx - w[i], y},
-                            afterhours::vec2{cx + w[i], y}, 1.3f, tint);
-                    }
-                })
+                // Lucide's sliders-horizontal. The three rules that used to be
+                // drawn here came with a comment saying the atlas had no such
+                // sprite and "is generated elsewhere" -- it is generated by
+                // scripts/gen_icons.py, in this repo, and adding one was a
+                // line. The drawn version also laid down 39px of ink against
+                // the reference's 95, and in text_faint, which is 90 levels
+                // darker than the reference's glyph.
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "sliders", "\xe2\x89\xa1",
+                    hidingAuto ? theme::accent() : kSearchFilterFg, 15.0f))
                 .with_debug_name("sb_search_filter"));
         if (filt) {
             if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);

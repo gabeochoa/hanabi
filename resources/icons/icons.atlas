@@ -23,3 +23,4 @@ hand 64 128 32 32
 check_circle 96 128 32 32
 pin 0 160 32 32
 panel_left 32 160 32 32
+sliders 64 160 32 32

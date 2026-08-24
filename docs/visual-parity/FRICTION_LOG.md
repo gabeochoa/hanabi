@@ -1856,3 +1856,40 @@ a semibold because it is the correct render, never because of a parity number.
   looked wrong on its own — "a bit small and a bit grey" is not a thing the eye
   reports. Worth a sweep of every remaining label against the reference rather
   than waiting to trip over them one at a time.
+
+### 5. I measured the pill off stray pixels and rebuilt a control that was already right
+
+- `inkdiff.py` flagged the filter affordance, so I measured the pill it sits
+  beside by scanning for its fill colour across the whole band. It came back
+  **x8..280, 32px tall** — full sidebar width, with the filter INSIDE it. I
+  restructured the search field around that: pill to full width, filter moved
+  in as its last child, every width recomputed.
+- **Search went 4.72% → 16.39%.** The measurement was garbage: matching the
+  fill colour anywhere in a 40-row band picked up antialiased pixels from the
+  rows above and below, and `min(x)..max(x)` over a scatter is not an extent.
+  The reference's pill is **x8..249, 25px tall**, and the filter sits outside
+  it exactly as hanabi already had it.
+- What found the error was the score going the wrong way by a factor of three
+  — not the geometry, which "matched" beautifully afterwards.
+- **The rule this earns**: an extent is only an extent if the pixels are
+  CONTIGUOUS. Scan row by row, take the longest run in each row, and look at
+  whether the runs agree with each other. Two lines more code and it would have
+  said 8..249 the first time. `inkdiff.py` does it this way; my ad-hoc probe
+  did not.
+- Reverted, then took the two real findings on the original structure: Lucide's
+  `sliders-horizontal` instead of three hand-drawn rules (39px of ink against
+  the reference's 95, and 90 levels too dark), and the pill 2px wider and 2px
+  shorter. **Search 4.72% → 4.23%.**
+
+### 6. `inkdiff.py` — the lever, and what it found in one pass
+
+- Three flagged runs across the whole sidebar, all real, none of which anyone
+  had noticed by looking: the VIEWS panel toggle 3px too tall and 70% too
+  inky, the selected row's label 27% short of the reference's ink, and the
+  search filter 6px left, 3px narrow and 90 brightness levels dark.
+- It works by segmenting both frames into ink bands against the **local**
+  background — the most common colour in each row's own strip — so it crosses a
+  selected row's fill, a section header's tint and the window colour without
+  being told where they are.
+- Worth running over any region before working on it. It is a sieve, not a
+  measurement: it hands you a short list of places to go and measure properly.
