@@ -13,9 +13,35 @@ Compare against them:
 /usr/bin/python3 ~/w/vis/compare.py ~/w/vis/ref/01_home.png <your_shot.png> --regions --diff /tmp/d.png
 ```
 
+`--regions` prints two columns per region: **STRUCT first — that is the one to
+drive** — and RAW beside it. Until 2026-08-24 the table printed RAW only, while
+the two summary lines above it said to drive STRUCTURAL, so every per-region
+figure quoted before that date is the raw mask. The two do not always agree on
+direction: a face can score better on one and worse on the other, so quote the
+column you are deciding from.
+
 If you genuinely need a state that is not here — a settings sheet, a light
 theme, an expanded tool pile — ASK ME rather than driving the live app. I will
 capture it, freeze it, and add it to this list.
+
+## Read Puffin's source before you probe its pixels
+
+**Puffin's own Swift source is checked out on this machine:
+`~/kt-ng2w-puffin`** (`Sources/Views/`, `Sources/Agentcloud/`). It is the
+authority on every question a screenshot can only be argued about, and it
+answers in minutes:
+
+- *Is this fill a selection or a hover?* — `SessionRowView` reads
+  `.hoverHighlight(inset: 4, ..., isSelected: isKeyboardSelected)`, which settles
+  that Puffin's persistent accent fill follows the **arrow-key cursor** and not
+  the open thread. A static PNG cannot tell those two apart, and an agent
+  spent a round measuring bands to reach a weaker version of that answer.
+- *Is this element missing or just off-screen in this state?*
+- *What is the real constant?* — an inset of 4 and a corner radius of 5 are in
+  the source; off a 1x downsample they are a guess.
+
+Use it. The pixels say WHAT; the source says WHY, and only the second one tells
+you whether a difference is a bug in hanabi or a feature hanabi does not have.
 
 ## Compare LIKE FOR LIKE — this is worth 45 percentage points
 
