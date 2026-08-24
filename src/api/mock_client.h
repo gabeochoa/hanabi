@@ -1025,17 +1025,37 @@ class MockClient : public Client {
             s.summary = pf("r9", "row 133 banyan diff gate", 300, "active",
                            ThreadState::Unknown, ThreadTag::Failed,
                            "the gate failed, nothing landed");
+            // The transcript is PORTED, not invented: it is Puffin's
+            // `mock-outcome-2` (`Mock/MockBackend.swift:752`) turn for turn —
+            // the same question, the same reply, the same fenced two lines,
+            // the same relative stamps, and the same `failed` outcome closing
+            // the run. The sidebar half of this fixture has mirrored Puffin's
+            // catalog row for row for some time, and the transcript being
+            // hanabi's own words is what made the main pane unmeasurable: two
+            // panes holding different sentences of different lengths cannot be
+            // compared, so every pixel of difference read as content and none
+            // of it as design. With the words shared, what is left is design.
             s.messages = {
-                {"m1", Role::System,
-                 "Task: take row 133 through the diff gate.",
-                 hrs_ago(7), ""},
+                {"m1", Role::User,
+                 "why is the banyan diff gate red on row 133",
+                 mins_ago(320), ""},
                 {"m2", Role::Assistant,
-                 "The gate refused it: the diff touches a generated file that "
-                 "is not regenerated in the same change, so the check can "
-                 "never go green as written. Nothing landed. This one needs a "
-                 "call before I redo it.",
-                 mins_ago(300), ""},
+                 "The gate is not red for a code reason:\n"
+                 "\n"
+                 "```\n"
+                 "error: no signing identity matched 'fbmacos-apps-inhouse'\n"
+                 "exit 65\n"
+                 "```\n"
+                 "\n"
+                 "That is the Autograph key, which row 133 does not have. "
+                 "Nothing in the diff can fix it.",
+                 mins_ago(310), ""},
             };
+            // Puffin's third row is a `runFinished(outcome: "failed")`, which
+            // it draws as a rule with the word centred in it. hanabi has no
+            // event row, so the outcome rides on the message the run ended on
+            // (api::Message::run_outcome).
+            s.messages[1].run_outcome = "failed";
             v.push_back(std::move(s));
         }
         {

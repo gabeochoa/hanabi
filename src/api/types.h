@@ -143,6 +143,26 @@ struct Message {
     // to LocalOnly → Persisting → Synced/Failed so the transcript shows a
     // WhatsApp-style check reflecting whether the work has reached the server.
     SyncState sync = SyncState::None;
+
+    // The RUN this message closed, as the backend's own word for how it ended
+    // ("completed", "failed", "interrupted", ...) — empty on every message
+    // that did not end a run, which is nearly all of them. The transcript
+    // draws a rule with that word centred in it below the message.
+    //
+    // A run ending is an EVENT, not a message: the backend reports it as its
+    // own row (Puffin's `runFinished`, which `AgentcloudTranscriptView`
+    // renders through `runSeparator`). Modelling it as a fifth Role would have
+    // forced every switch over Role — author label, bubble colour, tool
+    // piling, the find index — to grow a case for something that is not an
+    // author and has no text, so it rides on the message it follows instead.
+    // The cost of that choice is that a run which produced NO message cannot
+    // be drawn at all; nothing in the mock or either adapter emits one today,
+    // and the alternative was worse.
+    //
+    // Free string rather than an enum for the same reason Puffin keeps it one:
+    // the divider prints the word the server said, so an outcome this build
+    // predates still reads instead of rendering as "unknown".
+    std::string run_outcome;
 };
 
 // Lightweight summary of a session for the list view.

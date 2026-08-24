@@ -1,0 +1,25 @@
+# A run that ENDED says so: a rule across the column with the outcome in it.
+#
+# Puffin closes a run with `runSeparator` — rule / the server's own word / rule
+# — and a failure is the only outcome it paints red. Without it a run that DIED
+# and a run that is merely quiet look identical: the thread just stops, and the
+# only place the failure is stated is the sidebar's tag.
+#
+# r9 is Puffin's `mock-outcome-2` ported verbatim (src/api/mock_client.h): the
+# banyan diff gate, one reply, and a `failed` outcome on it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
+
+expect_text "That is the Autograph key"
+
+# The word itself is a real text element, not paint: a divider drawn wholesale
+# in on_draw_fg never reaches the visible-text registry and no assertion could
+# see it.
+expect_text "failed"
+
+# Centred in the reading column, with a rule either side. The label box is the
+# word plus 8px of Puffin's HStack spacing a side (21 + 16 = 37); the rules take
+# half of what is left each, so the three add up to the column and the word
+# sits on its centre line.
+assert_ui run_outcome_divider w=736 h=22
+assert_ui run_outcome_label w=37

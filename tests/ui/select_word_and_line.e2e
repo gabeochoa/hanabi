@@ -10,19 +10,22 @@ expect_no_text selected
 
 # Inside "ledger" on the first account line: six characters.
 # The y here is a measured text-line centre, not a guess -- the three body
-# lines sit at 226 / 242 / 258. They were at 184 / 200 / 216 until the thread
-# began on a user turn (a right-aligned bubble and its avatar, to match
-# Puffin's reference frame), which pushed the first reply 42px down. A
+# lines sit at 209 / 225 / 241. They were at 226 / 242 / 258 until the hover
+# Copy row stopped being reserved in the layout (feat/vis-fixture: it is an
+# overlay on the bubble now, as Puffin's is), which lifted every reply by 24px
+# and then put 10 back as turn air and 4 as the transcript's top inset. They
+# were at 184 / 200 / 216 before that, until the thread began on a user turn (a
+# right-aligned bubble and its avatar, to match Puffin's reference frame). A
 # coordinate click is brittle by nature (see afterhours_gaps.md: there is no
 # way to ask where a piece of text landed), so if this starts selecting the
 # wrong word, re-measure rather than nudge -- render t2 at this script's own
 # 1100x760 and scan the PNG for the bubble's band.
-double_click 415 242
+double_click 415 225
 wait_frames 6
 expect_text "6 selected"
 
 # The whole line is much longer than one word.
-triple_click 415 242
+triple_click 415 225
 wait_frames 6
 expect_no_text "6 selected"
 expect_text "61 selected"

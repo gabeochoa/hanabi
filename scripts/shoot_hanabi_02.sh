@@ -13,13 +13,20 @@
 # against 02 measures the tab strip's fixture, the same trap REFERENCE.md
 # describes in the other direction.
 #
-# The default thread is r5, and the choice is the whole point of the script.
-# 02's transcript is a short user question and one assistant reply; r5 is
-# hanabi's thread of that shape ("the build box is at 96% disk..." and one
-# paragraph back). t2 is the other candidate and is a worse comparison by
-# 4.5 structural points on `main` -- it opens with two long replies where the
-# reference has one, so most of what gets measured is how much text is on
-# screen. Pass another id to compare a different pair deliberately.
+# The default thread is r9, and the choice is the whole point of the script.
+# r9 IS the reference's thread: `ref/02_thread.png` has Puffin's
+# `mock-outcome-2` open ("row 133 banyan diff gate"), and hanabi's r9 is that
+# fixture ported turn for turn -- same question, same reply, same fenced two
+# lines, same `failed` outcome (src/api/mock_client.h, feat/vis-fixture).
+#
+# It used to default to r5, and the reasoning is worth keeping because it says
+# what changed: with hanabi's transcript holding its OWN words, no thread could
+# be compared with the reference at all, so the script picked the nearest-
+# SHAPED one -- r5 is a short question and one paragraph back, and t2 scored
+# 4.5 structural points worse on `main` purely for having more text on screen.
+# That made `main` a measure of how much prose each fixture happened to carry.
+# With the words shared, what the number measures is design. Pass another id to
+# compare a different pair deliberately.
 #
 # WARNING, and it is not hypothetical: the mock fixture's timestamps are
 # relative to the wall clock (`mins_ago`/`hrs_ago` in src/api/mock_client.h),
@@ -35,7 +42,7 @@
 set -uo pipefail
 
 OUT="${1:-/tmp/hb02.png}"
-TAB="${2:-r5}"
+TAB="${2:-r9}"
 ROOT="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 EXE="$ROOT/output/hanabi.exe"
 

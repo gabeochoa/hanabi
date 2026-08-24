@@ -71,9 +71,30 @@ them at once.
 
 ```bash
 scripts/shoot_hanabi.sh    /tmp/hb01.png          # 01: t9 + t2, both pinned
-scripts/shoot_hanabi_02.sh /tmp/hb02.png          # 02: r5, one unpinned tab
+scripts/shoot_hanabi_02.sh /tmp/hb02.png          # 02: r9, one unpinned tab
 /usr/bin/python3 scripts/compare.py docs/visual-parity/ref/01_home.png /tmp/hb01.png --regions --diff /tmp/d.png
 ```
+
+**02's transcript is like-for-like as of `feat/vis-fixture`, and that is a
+divergence CLOSED rather than declared.** `ref/02_thread.png` has Puffin's
+`mock-outcome-2` open — "row 133 banyan diff gate" — and hanabi's r9 row is
+now that fixture ported turn for turn from `MockBackend.swift:752`: the same
+question, the same reply, the same fenced two lines, the same relative stamps
+and the same `failed` outcome. `shoot_hanabi_02.sh` defaults to it. Before
+that the script shot r5, the nearest-SHAPED thread hanabi had, and `main`
+measured how much prose each fixture happened to carry rather than how the two
+apps draw a transcript.
+
+Two consequences, both worth knowing before quoting a number:
+
+- **Shoot 02 with r9.** Any other thread is measuring content again. Passing
+  another id is still supported and still useful — deliberately, to compare a
+  different pair — but it is not the parity number.
+- **A per-thread score is a property of the PAIR.** The changes on
+  `feat/vis-fixture` moved r9 from 4.53% to 3.80% and moved r5, on the same
+  binary, from 4.49% to 5.09%. Nothing regressed: r5's rows happened to land
+  closer under the old rhythm. Always say which thread a `main` figure was
+  shot on.
 
 `02_thread.png` declares the four capture divergences and **not** the
 transcript one — that is what it was captured for. Its declared cost is 0.25
@@ -348,7 +369,6 @@ Keep the filter. It is the honest form of the idea: the reader says "not now",
 rather than the client deciding some threads matter less than others.
 
 ### The row mark's vocabulary is Puffin's, not `docs/state-model.md`'s
-
 `docs/state-model.md` specifies a colour-blind-safe legend of its own — red
 up-triangle for blocked, green diamond for review, blue dot for done — derived
 from an analysis of ~200 real threads. The shipped sidebar has not drawn that
@@ -357,3 +377,20 @@ either: `ecs::model::mark_for` speaks the reference's vocabulary. Shape still
 carries the status independently of colour, so the colour-blind property the
 doc was protecting survives; the shapes themselves are the reference's.
 
+
+### The user bubble is 20px narrower than the reference's, and that is the typeface
+
+Measured on the ported thread, where both apps hold the same 42-character
+sentence: Puffin's bubble is x 817..1097 and hanabi's is x 837..1097. Same
+nominal 13px body, same 12/13px horizontal padding, same right edge — the
+string simply sets narrower in Roboto than in SF. The same fact runs the other
+way inside the fence: hanabi's JetBrains Mono sets the code line 281px wide
+against SF Mono's 249px.
+
+Do not close this by widening the bubble. A bubble is shrink-to-fit, so its
+width is its text's width, and forcing it to Puffin's number would mean padding
+the box away from its own content — the one property the shape exists to have.
+The typeface itself was measured and discarded as a change on its own terms
+(FRICTION_LOG, "The typeface question, settled"). It is not a declared
+divergence in `compare.py` either: it is a handful of pixels down one edge, and
+declaring rectangles over text is how a metric stops measuring text.

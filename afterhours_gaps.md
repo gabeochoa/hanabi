@@ -4532,3 +4532,76 @@ call site changes for anyone who does not set it.
 
 CLASS: WORKAROUND
 
+### #99 — An absolute child cannot be sized against what it overlays: `percent()` is refused outright, so every overlay is handed a literal pixel width
+
+**What was wanted.** Puffin's per-message Copy affordance, verbatim from
+`Sources/Views/AgentcloudTranscriptView.swift`:
+
+```swift
+VStack(alignment: .leading, spacing: 4) { Text(row.text) ... }
+  .padding(.horizontal, 12).padding(.vertical, 9)
+  .background(Color(fill))
+  .overlay(alignment: .topTrailing) { copyButton }
+```
+
+An overlay in the bubble's own coordinate space, aligned to its trailing edge,
+taking no layout space. There is no width anywhere in it: "as wide as the thing
+I am on" is the default, and it stays true when the bubble is re-measured —
+which for a user bubble in this app is every frame, because the bubble is
+shrink-to-fit and its width is computed from its text (gap #87).
+
+**What happens.** afterhours has the overlay — `with_absolute_position()` sets
+`computed_rel` from the parent and `solve_absolute_children` keeps the subtree
+solved — and it cannot be sized relative to the parent. `percent()` on an
+absolute widget is not merely wrong, it is rejected:
+
+```cpp
+// autolayout.h, compute_size_for_parent_expectation
+if (widget.absolute && exp.dim == Dim::Percent) {
+  VALIDATE(false, "Absolute widgets should not use Percent");
+}
+```
+
+`children()` is no good either — it sizes to the overlay's OWN children, so the
+bar shrinks to the Copy button and the right-alignment inside it means nothing.
+So the only sayable width for an overlay is `pixels(N)`, and N has to be the
+parent's width, which the parent knows and the child cannot ask for.
+
+**Why the obvious escapes do not work.**
+
+- **`expand()`** resolves in `distribute_expand_space`, which runs over a
+  parent's flow children; an absolute child is skipped everywhere its size
+  would feed into its parent's, so it never gets a share. It comes out 0.
+- **Reading the parent's resolved rect** is a frame late by construction. The
+  tree being built now has not been laid out — that is the same reason
+  `mouse_was_in_subtree` exists — so an overlay sized from `rect().width` is
+  one frame behind every resize, and on a shrink-to-fit bubble it is one frame
+  behind every keystroke.
+- **Putting the overlay outside the bubble** (a sibling, absolutely positioned
+  over it) needs the bubble's width AND its origin, so it trades one unknown
+  for two.
+- **`with_translate` alone**, without a width, positions a box that is still
+  sized by the rules above.
+
+**The workaround, and its cost.** `MainPaneSystem::message_actions()` takes the
+host's width as a parameter, and both call sites pass the same expression the
+bubble itself was built from — `box.bubbleW` for the user turn,
+`asst_bubble_w(paneWidth)` for the assistant. The overlay is
+`pixels(hostW) x pixels(22)`, absolute at (0,0) of the bubble, right-justified.
+
+The cost is a third caller of the width, on top of the two gap #87 already
+forced (the measure pass and the draw). Nothing checks that the three agree:
+if `user_box()` ever changes and one call site is missed, the Copy button
+detaches from the bubble's corner by exactly the drift, on hover only, in a
+state no screenshot test captures. The same fact — how wide is this bubble —
+is now written in three places and owned by none of them.
+
+**Minimal upstream fix.** Let `Dim::Percent` on an absolute widget resolve
+against the PARENT's computed size instead of failing the validate. The parent
+is solved before `solve_absolute_children` runs, so the number is already
+there; this is the one case where percent has an unambiguous meaning for an
+absolute child, and it is the meaning every overlay wants. A `with_fill_parent()`
+sugar over it would cover the whole alignment family (`topTrailing` and
+friends) without any caller doing arithmetic.
+
+CLASS: WORKAROUND
