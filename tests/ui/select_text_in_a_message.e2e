@@ -11,9 +11,13 @@
 
 expect_text "Reconciled 4,812 accounts"
 
-mouse_down 343 483
+# y=242 is the middle body line of the first reply, re-measured after the
+# thread began on a user turn and moved every reply down. It was 483, which is
+# empty pane now -- a drag over nothing still satisfies every assertion below,
+# so this was corrected rather than left passing.
+mouse_down 343 242
 wait_frames 3
-mouse_move 430 483
+mouse_move 430 242
 wait_frames 3
 mouse_up
 wait_frames 4

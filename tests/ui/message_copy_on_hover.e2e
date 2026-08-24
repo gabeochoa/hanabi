@@ -14,10 +14,12 @@
 expect_text "Reconciled 4,812 accounts"
 expect_no_text Copy
 
-# Park the pointer over the first assistant message. It sits at the TOP of the
-# pane now (y=166..236): the pane has no title header and no longer bottom-
-# anchors a short thread, so this point moved up from 470.
-mouse_move 600 200
+# Park the pointer over the first assistant message. It sits at y=208..270 now:
+# the thread opens on a user turn (a right-aligned bubble and its avatar, to
+# match Puffin's reference frame), which pushes the first reply down from
+# y=166..236. Re-derived by rendering t2 at this script's own 1100x760 and
+# scanning the PNG for the bubble's band, not by adding the difference.
+mouse_move 600 240
 wait_frames 3
 expect_text "Copy"
 

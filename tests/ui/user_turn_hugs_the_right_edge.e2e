@@ -1,0 +1,43 @@
+# A user turn is a bubble that hugs its own text, pushed flush to the right
+# edge of the reading column, with its avatar beside it.
+#
+# Puffin's reference frame opens on exactly this shape and hanabi's transcript
+# is measured against it, so the shape is worth pinning: three separate things
+# have to hold at once and any one of them can rot on its own.
+#
+#   1. RIGHT-ALIGNED. The bubble's right edge is the column's right edge:
+#      646 + 412 == 322 + 736 == 1058. This is the whole of what
+#      JustifyContent::FlexEnd buys — there is no spacer sibling holding the
+#      bubble over, so if the justification is lost the bubble slides left to
+#      348 (the column, plus the avatar and its gap) and every number below
+#      moves at once.
+#   2. SHRINK-TO-FIT, CAPPED. 412 is this message's own wrapped width, not the
+#      column's. A bubble that stopped hugging its text would be 644 (the cap,
+#      kBubbleCap) or 736 (the column). afterhours cannot express "as wide as
+#      my text but no wider than N" — see afterhours_gaps.md #87 — so this
+#      width is computed by hanabi in user_box() and handed to the layout as a
+#      literal pixels(). That makes it exactly the kind of number that rots
+#      silently, and exactly the kind worth asserting.
+#   3. TOP-ALIGNED, NOT CENTRED. The avatar's y is the bubble's y plus 6, on a
+#      35px-tall bubble: it sits beside the FIRST line rather than floating
+#      halfway down. Centred, it would be at 138 here and wrong the moment the
+#      message wraps to two lines.
+#
+# Every figure was read out of the layout at this window size (assert_ui
+# reports the actual when it fails, so a deliberate mismatch prints them), not
+# derived from the constants — the point is to catch the constants and the
+# layout disagreeing.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "Reconcile this cycle's Stars payouts"
+
+# The reading column the turn is laid out in.
+assert_ui user_row x=322 w=736
+
+# Flush right, and narrower than the column.
+assert_ui user_bubble x=646 w=412 h=35
+
+# Beside the bubble, 6px clear of it and 6px down from its top.
+assert_ui user_avatar x=620 y=137 w=20 h=20
+assert_ui user_bubble y=131

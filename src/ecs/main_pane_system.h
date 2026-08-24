@@ -5395,16 +5395,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Max bubble content width — caps the reading column so a conversational
-    // message doesn't run edge-to-edge across the wide pane (v3 #8). ~620px is
-    // roughly 70 characters at this font, the comfortable-reading target.
-    static constexpr float kBubbleCap = 620.0f;
+    // message doesn't run edge-to-edge across the wide pane (v3 #8). Puffin
+    // does not spell this cap as a number: its user row is
+    // `HStack(spacing: 6) { Spacer(minLength: 60); avatar; bubble }` inside the
+    // 736px content column, so the cap is whatever is left once the spacer,
+    // the two 6pt gaps and the 20pt avatar have taken their share — 644. It
+    // was 620 here, guessed as "~70 characters at this font"; the arithmetic
+    // is the same shape and lands 24px wider.
+    static constexpr float kBubbleCap = 644.0f;
 
-    // ---- Bubble geometry (measured off the Puffin reference) --------------
+    // ---- Bubble geometry --------------------------------------------------
     // A user message is a right-aligned indigo bubble that HUGS its text, with
     // a circular avatar to its left; an assistant message is a left-aligned
-    // dark bubble of fixed width. Every number here is read off the reference,
-    // and every one of them is used by BOTH the measure pass and the draw —
-    // see user_box() / asst_text_w(), which exist so there is only one copy.
+    // dark bubble of fixed width. Every number here is used by BOTH the
+    // measure pass and the draw — see user_box() / asst_text_w(), which exist
+    // so there is only one copy.
+    //
+    // These were read off the 1x reference PNG. They are now read off Puffin's
+    // own source instead (`Sources/Views/AgentcloudTranscriptView.swift`,
+    // `BubbleRowView` / `BubbleAvatar`), because a downsample cannot tell a
+    // 20pt circle from a 22pt one and cannot tell a corner radius at all. Each
+    // constant below names the Swift it came from; where the PNG and the
+    // source disagree the source wins, EXCEPT for kBubblePadX — see below.
     //
     // afterhours insets a label's text horizontally inside its own rect (the
     // wrap width is the rect less ~10px, and the first glyph lands ~6px in), so
@@ -5412,16 +5424,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // padding plus that inset. kLabelInsetX is that fudge, named so the next
     // reader knows it is the library's, not a design choice.
     static constexpr float kLabelInsetX = 6.0f;
+    // Puffin's `.padding(.horizontal, 12)` and this 13 are not in conflict:
+    // 12 is text-origin to bubble edge, 13 is first INK to bubble edge, and
+    // the leading side bearing of a lowercase glyph at 13px is the 1px between
+    // them. Measured on the reference: bubble left 752, first lit pixel 765.
     static constexpr float kBubblePadX = 13.0f;   // bubble edge -> first glyph
     static constexpr float kBubbleCfgPadX = kBubblePadX - kLabelInsetX;
     static constexpr float kBubblePadTop = 8.0f;
     static constexpr float kBubblePadBot = 7.0f;
-    static constexpr float kBubbleCorner = 8.0f;  // px, not a fraction
-    static constexpr float kAvatarD = 22.0f;      // circular user avatar
-    static constexpr float kAvatarGap = 5.0f;     // avatar -> bubble
-    static constexpr float kAvatarTop = 6.0f;     // avatar top below bubble top
+    // `RoundedRectangle(cornerRadius: 10)`. Confirmed on the reference: the
+    // top row of the bubble is inset 6.9px from its left edge, which is the
+    // chord of a radius-10 arc at half a pixel down and nothing else.
+    static constexpr float kBubbleCorner = 10.0f;  // px, not a fraction
+    static constexpr float kAvatarD = 20.0f;      // BubbleAvatar.diameter
+    static constexpr float kAvatarGap = 6.0f;     // the user row's HStack spacing
+    static constexpr float kAvatarTop = 6.0f;     // BubbleAvatar .padding(.top, 6)
     // The assistant bubble is NOT content-sized: in the reference a one-line
-    // answer still fills a fixed 670 of the 736 column.
+    // answer still fills a fixed 670 of the 736 column. That 66 is
+    // `Spacer(minLength: 60)` plus the same 6pt HStack spacing, so the two
+    // sides of the transcript are inset by the same rule.
     static constexpr float kAsstInsetR = 66.0f;
 
     // The wrap width inside an assistant bubble at this column width. ONE

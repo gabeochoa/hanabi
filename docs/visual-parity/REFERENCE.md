@@ -79,6 +79,13 @@ answers in minutes:
 Use it. The pixels say WHAT; the source says WHY, and only the second one tells
 you whether a difference is a bug in hanabi or a feature hanabi does not have.
 
+**With one rider: the checkout is not the build that shot the references.**
+`BubbleAvatar` in `~/kt-ng2w-puffin` draws `person.fill`; the frozen frames
+unambiguously show a **G**. So the source is authoritative about *rules* — what
+a fill means, which count goes in a badge, what the real inset is — and NOT
+about what any particular pixel in `ref/` is. When the two disagree, the PNG is
+the reference and the checkout has moved on. Say which one you used.
+
 ## Never read a colour off the reference by its brightest pixel
 
 Small text has no solid interior: a sidebar count is 3–4px of antialiased

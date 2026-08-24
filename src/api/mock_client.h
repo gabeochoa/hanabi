@@ -723,10 +723,18 @@ class MockClient : public Client {
             s.summary = pf("t2", "needs a decision before it can go on", 14,
                            "active", ThreadState::Attention,
                            ThreadTag::Blocked, "two accounts do not reconcile");
+            // t2 is the thread the visual-parity capture opens, and it opens
+            // on a USER turn on purpose. Puffin's own reference frame
+            // (docs/visual-parity/ref/01_home.png) is a transcript whose first
+            // row is right-aligned — an avatar and a shrink-to-fit bubble —
+            // and a fixture that opens on a centred System line is not the
+            // same picture no matter how well the bubbles below it are drawn.
+            // Every other thread here still opens on a System task line, so
+            // the centred meta row keeps its fixture coverage.
             s.messages = {
-                {"m1", Role::System,
-                 "Task: reconcile this cycle's Stars payouts against the "
-                 "ledger before the batch runs.",
+                {"m1", Role::User,
+                 "Reconcile this cycle's Stars payouts against the ledger "
+                 "before the batch runs.",
                  hrs_ago(5), ""},
                 {"m2", Role::Assistant,
                  "Reconciled 4,812 accounts. 4,810 match to the cent. Two "
