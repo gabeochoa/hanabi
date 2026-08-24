@@ -773,6 +773,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // the sub-agent count's `kCountFontPx` arrived at independently: the same
     // 8px digit, in the same sidebar, at the same size.
     static constexpr float kBadgeFontPx = 14.0f;
+    // The badge sat a pixel below the reference's -- ring y140..156 against
+    // y139..155 -- while the label, the icon and everything else in the same
+    // row were exactly on it, so nothing about the ROW could be moved to fix
+    // it. A bottom margin under `AlignItems::Center` lifts the badge alone:
+    // the row splits what is left, so 2px of margin under a 16px badge in a
+    // 22px content box is a 1px rise. Measured back: ring y139..155, digit
+    // y143..150, both exactly the reference's rows.
+    static constexpr float kBadgeLift = 2.0f;
     // The reference pads the digits by 5pt on each side; one digit lands on
     // the square case above, two need the capsule.
     static constexpr float kBadgePadX = 5.0f;
@@ -1968,6 +1976,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(countText)
                     .with_size(ComponentSize{pixels(svBadgeW), pixels(kBadgeD)})
+                    .with_margin(Margin{.top = pixels(0.0f),
+                                        .right = pixels(0.0f),
+                                        .bottom = pixels(kBadgeLift),
+                                        .left = pixels(0.0f)})
                     .with_custom_background(kBadgeFill)
                     .with_border(kBadgeRing, pixels(1))
                     .with_custom_text_color(kBadgeText)

@@ -5105,3 +5105,205 @@ the second argument behaves exactly as it does today.
 
 CLASS: WORKAROUND
 
+
+### #110 — A primitive cannot be antialiased, and the ONE escape that works needs a flat, known background: `bg + c*(fg-bg)` is a colour, not a blend
+
+**What was wanted.** A sidebar row's bang — the mark on six of the eighteen
+visible rows — drawn to the reference's own measurement: a vertical stroke
+**1.95px wide**, which the reference lays down as 0.44 / 0.97 / 0.50 coverage
+across three columns.
+
+**What happens.** `draw_line_ex` at 1.95px emits two triangles into a pipeline
+with `sample_count = 1` (gap #92), so the stroke rasterizes to whole columns at
+full strength. There are exactly two answers available and neither is the
+shape:
+
+| thickness asked | columns lit | ink laid down | reference |
+|---|---|---|---|
+| 1.4 | 2 hard | 2.00 | 1.95 in three columns |
+| 2.3 | 3 hard | 3.00 | 1.95 in three columns |
+
+hanabi shipped the second. Measured against `ref/02_thread.png`, its bang
+carried **twice the reference's ink** — 30.0 coverage against 14.8 — on the
+most common mark in the list.
+
+**Why the obvious escapes do not work — and one that gap #92 said does not, and
+does.**
+
+- **A thinner stroke** does not get lighter, it drops to a hairline: without
+  antialiasing, coverage is quantized to whole pixels, so 1.4px and 1.0px paint
+  the same two columns. This is `hanabi::glyph::chevron`'s comment, arrived at
+  from the other side.
+- **A second, dimmer pass at +0.5px** — gap #92 lists this and rules it out,
+  correctly, because the fill path cannot alpha-blend a shape over a shape
+  (gap #13) and the second pass lands as a solid halo.
+- **The escape that works, and why #92 missed it: it needs no blending at
+  all.** A partly covered pixel is not a translucent pixel. Over a background
+  whose colour is KNOWN, the composited result of coverage `c` is the opaque
+  colour `bg + c*(fg - bg)`, which the caller can compute and lay down as a
+  solid rectangle. #92 reached for alpha because that is how a renderer does
+  it; the caller does not have to, because the caller can do the compositing
+  arithmetic itself. Coverage of an axis-aligned rectangle is separable —
+  `cov(x,y) = fx(x)*fy(y)` — so a fractional rect is at most **nine solid
+  rectangles**: three column bands by three row bands.
+
+  Measured, per column, on the reference's bang and hanabi's:
+
+  | | x14 | x15 | x16 | total |
+  |---|---|---|---|---|
+  | reference | 0.44 | 0.97 | 0.50 | 1.91 |
+  | hanabi, hard 2.3px | 1.00 | 1.00 | 1.00 | 3.00 |
+  | hanabi, `rect_aa` | 0.47 | 1.00 | 0.47 | 1.94 |
+
+  Every row of the stroke and every row of the tittle now agrees with the
+  reference's to within 0.05 coverage.
+
+**The workaround, and its cost.** `hanabi::glyph::rect_aa(x0,y0,x1,y1,fg,bg)`
+in `src/ui/icons.h`, used by the row bang and by the search row's filter rules.
+Three costs, and the third is the one that bites:
+
+1. **Axis-aligned only.** The separability is what makes it nine rectangles. An
+   arc, a diagonal or a disc needs per-pixel coverage, which is a rectangle per
+   run per row — hundreds of draw calls for one 9px glyph. The arc, the cross
+   and the chevron in the same vocabulary therefore stay hard-edged, so the
+   sidebar now draws two marks with soft edges beside three without.
+2. **It bakes the background in.** The composited colour is only right over the
+   colour it was computed against, so every caller has to KNOW what is behind
+   it. `draw_mark` had to grow a `bg` parameter and the session row had to hoist
+   its own hover-fill decision above the glyph slot to pass it — a row that
+   forgets gets a visible halo under the pointer and nowhere else, which is a
+   state no reference captures and no screenshot test shoots.
+3. **It cannot survive anything non-flat.** A gradient, an image, another
+   widget's fill, or a translucent surface behind the glyph all break it
+   silently. It works in the sidebar because the sidebar is one flat colour.
+
+**Minimal upstream fix.** #92's — take the sample count from `Config`. With
+MSAA on, none of the above is needed and the arc gets soft edges too, which
+`rect_aa` can never give it. Failing that, an `afterhours::draw_rectangle_aa`
+that does this arithmetic in the library would at least put the background
+parameter in one place instead of at every call site.
+
+CLASS: WORKAROUND
+
+### #111 — A selected row's fill IS the row's own background box, so its inset, height and corner radius cannot be set independently of the row's padding and pitch
+
+**What was wanted.** The smart-view sidebar's selected fill, matching
+`ref/02_thread.png`: full-bleed x0..278, **27.7px tall inside a 32px pitch**,
+corner radius **~8**, with the row's label, icon and count badge staying
+exactly where they already are — which is exactly right, measured.
+
+**What happens.** hanabi's fill is the row div's `with_custom_background`, so
+the fill's rectangle and the row's content box are the same box. Its height is
+`kSbViewRowH - kSbViewFillInset`, its position is the row's `Margin`, its
+radius is `with_roundness` — and its content's position is that same box's
+`Padding`. Change any of the first three and the label moves with it.
+
+Measured, the fill is 1.3px too tall and its radius is 3.5 where the
+reference's is 8. Every attempt to fix either one, scored against the
+reference (views region, 4.41% before each):
+
+| change | intent | views |
+|---|---|---|
+| radius 5 → 8 | match the measured corner | 4.44% |
+| radius 5 → 11 | " | 4.48% |
+| margin top 1 → 2, padding top 6 → 5 | drop the fill 1px, hold the content | **5.36%** |
+| inset 3 → 4, top 1 → 2, pad 6 → 5 | shrink and drop it | 4.81% |
+| inset 4.3, top 1.7, pad 5.3 | the measured 27.7px height exactly | 5.13% |
+
+The radius alone gets worse because the fill is also a pixel high, and the
+corner is where the two errors meet: a bigger radius on a misplaced corner
+disagrees over more pixels, not fewer (this is the workstream's trap #1 — a
+correct change costs points while its other half is missing). And the other
+half cannot be applied: the fractional margins that would give the fill its
+real height are also the rows' pitch, so **six rows drift** and the region
+loses half a point.
+
+Puffin has the separation as a first-class thing.
+`SessionRowView`/`SmartViewSidebar` end with
+`.hoverHighlight(inset: 4, vertical: 0, cornerRadius: 5, ...)` — a background
+modifier with its OWN inset, independent of the `EdgeInsets` above it. Two
+rectangles, one for the fill and one for the content, and the row states both.
+
+**Why the obvious escapes do not work.**
+
+- **A child div behind the content** — afterhours has no z-order within a row
+  and no way to make a sibling render under its neighbours; an absolutely
+  positioned one is placed from the leading edge only (gap #93) and cannot be
+  sized against what it overlays (gap #97).
+- **Fractional margins** — they work, and they move the pitch. See the table.
+- **Padding the row and letting the fill shrink** — padding insets the CONTENT,
+  not the box; the fill is the box.
+
+**The workaround, and its cost.** None taken. `with_on_draw_bg` exists and
+would let the fill be painted at an arbitrary rect under the content, which is
+the real answer — but it means re-implementing the selected and hover fills by
+hand for six rows plus the folded rail, and the whole prize is 0.37 points on
+one region. Left measured and unspent, which is the cost: the fill is visibly
+squarer than the reference's at every corner and nothing in the app can say so.
+
+**Minimal upstream fix.** A `with_background_inset(Padding)` on
+`ComponentConfig`, applied to the background rect only, before roundness is
+resolved. It is Puffin's `inset:` parameter, it changes nothing for anyone who
+does not set it, and it makes the corner radius mean a radius on the shape the
+designer drew rather than on the box the layout happened to produce.
+
+CLASS: MISSING
+
+### #112 — An icon's stroke weight is baked into the atlas at generation time, so a sprite cannot be drawn lighter without changing it for every consumer
+
+**What was wanted.** The six smart-view icons matching the reference's, which
+draws them as SF Symbols at `Font.message`. Same drawings — Puffin names them
+in `SmartViewSidebar.systemImage` and hanabi now blits the Lucide icons of the
+same shape — and the bounding boxes agree to a pixel.
+
+**What happens.** Every one of them carries more ink than the reference's,
+measured over the icon's own box against `ref/02_thread.png`:
+
+| icon | reference | hanabi | ratio |
+|---|---|---|---|
+| house | 49.0 | 63.2 | 1.29 |
+| gearshape | 31.3 | 41.3 | 1.32 |
+| hand.raised | 23.9 | 37.5 | **1.57** |
+| checkmark.circle | 25.6 | 31.9 | 1.24 |
+| pin | 22.5 | 28.2 | 1.25 |
+| archivebox | 28.8 | 40.9 | **1.42** |
+
+The cause is not the size and not the colour. Lucide draws on a 24-unit grid at
+`stroke-width="2"`; SF Symbols at this weight is nearer 1.5. The extra is
+inside a box that already matches, so it is stroke, and a sprite's stroke is
+pixels — it was decided when `scripts/gen_icons.py` rasterized the SVG.
+
+**Why the obvious escapes do not work.**
+
+- **Blit it smaller** — that thins the stroke and the drawing together. Swept
+  against the reference: 14px scores 4.48%, 15px 4.45%, **16px 4.41%**, 17px
+  4.54%. The shipping size is already the optimum; the bbox is right and only
+  the stroke is heavy.
+- **Blit it dimmer** — this is real and worth doing for the part of the error
+  that IS colour (see the friction log: a blit reaches its colour and 9pt text
+  never does, so the icon needed its own token). But the score keeps improving
+  monotonically as the ink darkens past the measured value — 4.42% at the true
+  `Chrome.mutedText`, 4.31% at 125 — which is the metric paying for less ink,
+  not for a truer colour. Stopping at the source's own constant is the only
+  defensible place to stop, and it leaves the surplus.
+- **Regenerate the atlas at `stroke-width="1.5"`** — the atlas is ONE sheet
+  shared by the tab strip, the composer, the sidebar footer and the main pane,
+  and two of those regions are already AT FLOOR. Thinning them all to fix six
+  sidebar rows is a change no one region can justify and no one region can
+  veto.
+- **Ship thin variants alongside** — six more cells, a bigger PNG, two names
+  for one drawing, and a rule about which to use that nobody will remember.
+
+**The workaround, and its cost.** None. The icons keep Lucide's weight and the
+sidebar's views region keeps roughly a third of a point it cannot spend. The
+cost worth recording is that the residual is now ISOLATED: the size is swept,
+the colour is measured off the source's own token, the bboxes match, so
+anything still there is the atlas and nobody needs to re-derive that.
+
+**Minimal upstream fix.** Not afterhours': it is `gen_icons.py`, and the fix is
+a `stroke-width` override per icon in the `ICONS` table so a caller can ask for
+a lighter cut of one sprite without re-cutting the sheet. What afterhours could
+offer instead is a tinted blit that takes a coverage gamma — one uniform — so a
+sprite's weight becomes a draw-time parameter rather than an asset decision.
+
+CLASS: MISSING

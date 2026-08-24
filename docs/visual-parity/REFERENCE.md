@@ -133,6 +133,29 @@ glyph on the same grid — it measured the wrong thing.
 The column prints `AT FLOOR` when a region is at or under it. **A region at
 floor is done.** Do not spend a day proving otherwise; two people already have.
 
+### The floor is computable for ANY rectangle, and that is how you know what to work on
+
+`--floor` prints one per named REGION, and that framing hid the useful half for
+a while: the same arithmetic works on any rectangle you care to name.
+`scripts/ceiling.py` prints, per rectangle, what this shot scores, what the
+REFERENCE'S OWN PIXELS score pasted in (the ceiling — `feat/vis-list2`'s paste
+test), and that rectangle's floor.
+
+You need all three, and the sidebar is the case that shows why. Its session
+list is 13.6 points and its eighteen row titles are 12.8 of them, so every
+round of work started there. But the titles are only **+2.57 over their own
+floor**, while a 34x26 filter icon nobody had looked at was **+1.09** — 83% of
+an entire region's headroom — and a column of eighteen 9px marks was +2.25. A
+ceiling ranks by size; a ceiling beside a floor ranks by *reachable* size, and
+the two orders are not the same.
+
+One more rule the same tool earns: **shapes pay their ceiling and strings pay a
+tenth of it.** A ceiling assumes the reference's own rasterization arrives with
+the fix, which for a string it never does — `feat/vis-list2` got one seventieth
+of its ceiling on three row titles. A rule, a ring or a fill is a shape hanabi
+can put exactly where Puffin put one: the filter icon delivered **88%** of
+its ceiling. Sort candidates by which they are before you sort them by size.
+
 ### The floor is real, but its explanation was wrong — and rendering at 2x does not remove it
 
 The section above says the floor is *rasterization phase*, and that a hanabi
@@ -495,6 +518,31 @@ either: `ecs::model::mark_for` speaks the reference's vocabulary. Shape still
 carries the status independently of colour, so the colour-blind property the
 doc was protecting survives; the shapes themselves are the reference's.
 
+
+### hanabi paints an icon and the label beside it in TWO colours where Puffin uses one
+
+`SmartViewSidebar` line 297 hands `Chrome.mutedText` to the whole smart-view
+row — icon and label together — and hanabi deliberately does not. The icon
+takes (140,140,166), which is that token; the label takes (150,150,175), ten
+levels above it.
+
+This is not drift and it must not be "corrected" back to one constant, which is
+what the source reads like an instruction to do. **A sprite blit reaches its
+colour and antialiased 9pt text never does.** The label's ten extra levels are
+what it takes for hanabi's text to read like the reference's text; handed to a
+blit they arrive in full, and every view icon peaked 15-22 levels above the
+reference's for as long as one constant served both.
+
+The same fact is already in this file with the opposite sign: the sidebar
+footer's ink is measurably better in `text_faint` than in the nearest real
+token, "because Puffin's 9pt glyphs never reach their own colour and hanabi's
+sprite blits do". One rule, two consequences — move a BLIT to the source's
+token, and leave TEXT wherever it measures.
+
+Corollary worth holding onto: the score keeps improving as an icon's ink darkens
+past the measured value (4.42% at the true token, 4.31% at 125, monotonically).
+That is the metric paying for less ink, exactly as it pays for smaller text.
+The source's own constant is the only defensible place to stop.
 
 ### The session row's star (hanabi has it; Puffin's row has no equivalent)
 
