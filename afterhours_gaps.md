@@ -3800,3 +3800,58 @@ bounded here only because the list renders viewport-many rows.
 resolved inside the renderer where the font, the size and the final rect are all
 already in hand. Failing that, expose the measurement the layout already does so
 callers stop guessing at advances.
+
+### #83 — The focus ring paints at rest: there is no `:focus-visible`, and `FocusSource` cannot be used to build one
+
+**What was wanted.** An app that opens looking like an app that has not been
+touched. Puffin's sidebar at launch has a selection fill on the current view and
+nothing else; hanabi's had a 1px accent-blue rectangle around the same row,
+present in every screenshot the harness took, before any input at all.
+
+**What happens.** `UIContext::try_to_grab` parks focus on the first focusable
+widget of the frame — "whichever widget happens to be first", as its own comment
+says — and `ComputeVisualFocusId` then paints the ring on whatever holds focus,
+with no interest in how focus got there. Every desktop toolkit and every browser
+distinguishes *focused* from *focus-visible*: the ring appears when the keyboard
+is driving and stays away when the pointer is. afterhours has one state.
+
+Measured cost on the parity capture: rows y=67..69 and y=98..99 across the whole
+sidebar width, ~99% wrong on each, the single largest contiguous block in the
+VIEWS region. Removing it took VIEWS from 8.85% to 7.66%.
+
+**Why `FocusSource` is not the answer.** It looks like the missing signal — it
+already separates `Grab` (the per-frame re-park) from `Pointer` and `Explicit` —
+but it is reset to `Grab` at the top of every frame in `BeginUIContextManager`,
+so it answers "who claimed focus THIS frame", not "how did the focused element
+come to be focused". By render time, a focus moved by Tab three frames ago
+reports `Grab`, exactly like one nobody ever asked for.
+
+**Why the obvious escapes do not work.**
+
+- **`with_skip_tabbing(true)` on the first row** moves the problem rather than
+  solving it: focus lands on whatever is next, and wears the ring instead. The
+  sidebar already does this to its VIEWS header strip, which is how the ring
+  came to sit on the first *row*. Do it to everything and the app has no
+  keyboard navigation at all, and hanabi's search field then swallows every
+  keystroke (gap #66).
+- **`theme.focus = <the row's own background>`** hides the ring by painting it
+  invisible, which also hides it when the keyboard IS being used — the ring's
+  entire job.
+- **A per-widget "no ring" flag** does not exist; the ring is drawn from the
+  theme in `rendering.h`, keyed only on `visual_focus_id`.
+
+**The workaround, and its cost.** `src/ui/focus_visible.h` plus a
+`FocusVisibleSystem` registered ahead of every UI system: hanabi tracks, itself,
+whether a navigation key has been pressed since the last pointer press, and
+writes `theme.focus_ring_thickness` to 1 or 0 each frame accordingly —
+`focus_ring_thickness = 0` being the one knob afterhours documents for turning
+the ring off. It is ~30 lines and it works. The cost is that a heuristic every
+UI framework ships now lives in the app, so every other afterhours app either
+reinvents it or ships the resting ring; and because the knob is global, an app
+that wants the ring suppressed on ONE widget still cannot have that.
+
+**Minimal upstream fix.** Keep a sticky `focus_visible` bool on the context —
+set when focus moves by keyboard, cleared on a pointer press — and gate the ring
+in `ComputeVisualFocusId` on it. Ten lines where the focus already lives, and
+`FocusSource` already carries the distinction the frame needs; it only needs to
+survive the frame boundary.

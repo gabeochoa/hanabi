@@ -38,6 +38,12 @@ inline constexpr int kN = ah::N;
 inline constexpr int kV = ah::V;
 inline constexpr int kW = ah::W;
 
+// Keyboard navigation: the keys that mean "I am driving with the keyboard now"
+// and so bring the focus ring out (ui/focus_visible.h).
+inline constexpr int kTab = ah::TAB;
+inline constexpr int kLeft = ah::LEFT;
+inline constexpr int kRight = ah::RIGHT;
+
 // Transcript navigation.
 inline constexpr int kPageUp = ah::PAGE_UP;
 inline constexpr int kPageDown = ah::PAGE_DOWN;

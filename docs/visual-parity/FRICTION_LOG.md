@@ -872,3 +872,28 @@ region went 4.75% -> 4.55%.
   constant to 0 left that pill floating 62px down over the first message. Pure
   hanabi, one line, but it is the exact failure mode a named constant is for.
 - **Class** — `FOOTGUN` (hanabi's own)
+
+## The resting focus ring (feat/focus-visible)
+
+### The app wore a blue box before anyone touched it — IMPOSSIBLE-without-a-shim (gap #83)
+
+- **What I wanted** — the launch screenshot to look like Puffin's launch
+  screenshot. Puffin shows a selection fill on the current view and nothing
+  else.
+- **What the library did** — parked focus on the first focusable widget
+  (`try_to_grab`, every frame, "whichever widget happens to be first") and drew
+  the accent-blue ring around it. There is no `:focus-visible`: afterhours knows
+  *what* has focus and never *why*, so it cannot tell "the user tabbed here"
+  from "this was first in the tree".
+- **The trap that cost the most time** — `FocusSource` exists, and it already
+  names `Grab` vs `Pointer` vs `Explicit`. It reads like the answer. It is reset
+  to `Grab` at the top of every frame, so by render time it describes this
+  frame's claim, not the focus's history. Two reads of `context.h` to be sure.
+- **Cost** — a 30-line shim in hanabi (`src/ui/focus_visible.h` + one system
+  registered ahead of every UI system) reimplementing a browser heuristic, plus
+  a test-only audit hook, because `assert_ui` can read a label and never an
+  outline (gap #61) and the ring is the entire subject.
+- **Worth** — 5 sidebar-wide rows at ~99% wrong each; VIEWS 8.85% → 7.66%,
+  overall 8.18% → 7.99%.
+- **Class** — `WORKAROUND`, and the kind that every other afterhours app will
+  either write again or ship without.

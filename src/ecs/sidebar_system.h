@@ -1017,6 +1017,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_footer(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const LayoutComponent::Rect& r) {
         const float top = r.height - kSbFooterH;
+        // Test-only (HANABI_FOCUS_AUDIT=1): whether afterhours will paint a
+        // focus ring this frame, read off the thickness the renderer itself
+        // uses. See test_hooks.h.
+        std::string version = std::string("v") + hanabi::kVersion;
+        if (hanabi::test_hooks::focus_audit()) {
+            version += ctx.theme.focus_ring_thickness > 0.0f ? "  ring on"
+                                                             : "  ring off";
+        }
         div(ctx, mk(parent, 11),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(r.width), pixels(1)})
@@ -1028,8 +1036,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_footer_rule"));
         div(ctx, mk(parent, 12),
             ComponentConfig{}
-                .with_label(std::string("v") + hanabi::kVersion)
-                .with_size(ComponentSize{pixels(90), pixels(kSbFooterH - 1.0f)})
+                .with_label(version)
+                .with_size(ComponentSize{
+                    pixels(hanabi::test_hooks::focus_audit() ? 200.0f : 90.0f),
+                    pixels(kSbFooterH - 1.0f)})
                 .with_absolute_position()
                 .with_translate(10.0f, top + 1.0f)
                 .with_transparent_bg()

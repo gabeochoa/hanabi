@@ -100,4 +100,21 @@ inline bool syntax_audit() {
     return on;
 }
 
+// HANABI_FOCUS_AUDIT=1 makes the sidebar footer print whether the focus ring
+// is currently painted ("ring on" / "ring off"), next to the version. The ring
+// is the whole point of ui/focus_visible.h and `assert_ui` can read a label but
+// never an outline (afterhours_gaps.md #61), so without this the rule "no ring
+// until the keyboard is used" can only be argued for. The label reports
+// afterhours' OWN theme.focus_ring_thickness — the number the renderer
+// consumes — not hanabi's intent, so a build that never suppresses the ring
+// fails the test rather than agreeing with itself. Same contract as the hooks
+// above: read once, hard no-op when unset.
+inline bool focus_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_FOCUS_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 }  // namespace hanabi::test_hooks

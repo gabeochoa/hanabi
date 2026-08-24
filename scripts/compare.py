@@ -68,7 +68,8 @@ def main():
     overall = pct(mask)
     sa = a.filter(ImageFilter.GaussianBlur(STRUCT_BLUR))
     sb = b.filter(ImageFilter.GaussianBlur(STRUCT_BLUR))
-    struct = pct(diff_mask(sa, sb))
+    smask = diff_mask(sa, sb)
+    struct = pct(smask)
     print(f"RAW         {overall:.2f}%   (floor ~2.3% -- retina downsample)")
     print(f"STRUCTURAL  {struct:.2f}%   (floor ~0.2% -- this is the one to drive)")
 
@@ -86,12 +87,20 @@ def main():
             "main":         (int(W * 0.24), int(H * 0.075), W, H),
         }
         print()
+        # The leading column is STRUCTURAL, because that is the number the two
+        # lines above tell you to drive. It used to be RAW, which meant every
+        # per-region figure quoted in this workstream carried the downsample
+        # floor the header says no design change can get under -- and the floor
+        # is not spread evenly: it lands almost entirely on text, so the
+        # text-heavy regions read several points worse than they are.
+        print(f"  {'region':<12} {'STRUCT':>7}  {'RAW':>7}")
         for name, box in regions.items():
-            sub = mask.crop(box)
-            hist = sub.histogram()
-            p = 100.0 * hist[255] / max(1, sub.width * sub.height)
+            sub = smask.crop(box)
+            p = 100.0 * sub.histogram()[255] / max(1, sub.width * sub.height)
+            rsub = mask.crop(box)
+            rp = 100.0 * rsub.histogram()[255] / max(1, rsub.width * rsub.height)
             bar = "#" * int(p / 2)
-            print(f"  {name:<12} {p:6.2f}%  {bar}")
+            print(f"  {name:<12} {p:6.2f}%  {rp:6.2f}%  {bar}")
 
     if "--diff" in sys.argv:
         out = sys.argv[sys.argv.index("--diff") + 1]

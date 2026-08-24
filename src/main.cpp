@@ -46,6 +46,7 @@
 #include "ecs/arrow_system.h"
 #include "ecs/attachment_intake_system.h"
 #include "ecs/escape_system.h"
+#include "ecs/focus_visible_system.h"
 #include "ecs/rename_modal_system.h"
 #include "ecs/toast_system.h"
 #include "ecs/layout_system.h"
@@ -333,6 +334,9 @@ static void build_systems(afterhours::SystemManager& sm) {
     // Same for Up/Down, which the composer, the transcript and the lists all
     // want.
     sm.register_update_system(std::make_unique<ecs::ArrowSystem>());
+    // And for the focus ring: decided once, ahead of every widget, so nothing
+    // renders a ring the keyboard has not earned (ui/focus_visible.h).
+    sm.register_update_system(std::make_unique<ecs::FocusVisibleSystem>());
     // Pasted / dropped images become composer attachments here, before the UI
     // systems: MainPaneSystem reserves the composer strip from that list.
     sm.register_update_system(std::make_unique<ecs::AttachmentIntakeSystem>());

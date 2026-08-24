@@ -1,0 +1,32 @@
+# The focus ring waits for the keyboard.
+#
+# afterhours parks focus on the first focusable widget every frame and paints
+# the ring on it regardless of how it got there, so before this rule existed
+# the app opened with a blue box around the first view row and every screenshot
+# carried it (afterhours_gaps.md #83). The rule: no ring until a navigation key
+# is pressed, and none again after a pointer press — the browser's
+# :focus-visible heuristic, by hand.
+#
+# HANABI_FOCUS_AUDIT=1 prints the state next to the version in the sidebar
+# footer, read off afterhours' OWN theme.focus_ring_thickness — the number the
+# renderer consumes. A build that does not suppress the ring prints "ring on"
+# here and fails the first assertion.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FOCUS_AUDIT=1
+
+# At rest, before anything has been touched: focus is parked on the first row
+# and it does NOT wear a ring.
+expect_text "ring off"
+
+# Tab is the user saying they are driving with the keyboard. Now the ring is
+# the only thing telling them where they are, so it comes out.
+key TAB
+wait_frames 6
+expect_text "ring on"
+
+# And a click puts it away again: the pointer says where focus is going, so a
+# ring left behind is noise.
+click_ui sb_new
+wait_frames 6
+expect_text "ring off"
