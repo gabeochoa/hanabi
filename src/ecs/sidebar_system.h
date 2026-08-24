@@ -474,6 +474,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // off the reference (fill y69..97 inside a row starting at 68, first row
     // x3..276 against a middle of x0..278).
     static constexpr float kSbViewFillInset = 3.0f;
+    // Where the fill's own box starts inside the pitch, and how far its
+    // content is padded from that box's top. They move in opposite directions
+    // by design: the fill was a pixel above the reference's while the label,
+    // the icon and the row's whole content were exactly on it, so the two have
+    // to be adjusted together or a fix to one is a regression in the other.
+    static constexpr float kSvFillTop = 1.0f;
+    static constexpr float kSvPadTop = 6.0f;
     // The pitch stays 32 even though the reference's own is ~32.2: it is a
     // SwiftUI layout captured at 2x and halved, so its rows sit on fractional
     // rows that no integer pitch matches -- 32 puts Blocked and Review exactly
@@ -747,13 +754,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // a border against the element's own background, not the one behind it.
     static constexpr theme::Color kBadgeFill{43, 50, 69, 255};
     static constexpr theme::Color kBadgeRing{79, 96, 129, 255};
-    static constexpr theme::Color kBadgeText{152, 198, 255, 255};
+    // Re-measured by the (pixel - fill) ratio across every digit pixel of the
+    // reference's 6 and 3 badges -- 0.641/0.803 and 0.643/0.804, agreeing to
+    // two thousandths on two independent badges, which is what says the read is
+    // the colour and not the coverage. Ten levels of red short of where hanabi
+    // had it.
+    static constexpr theme::Color kBadgeText{162, 199, 255, 255};
     // Asked for 16, not 17: every box rasterizes one pixel bigger and one
     // pixel up-left than requested (gap #80), so a 16px request lands as the
     // measured 17. The lost pixel on the right is given back by shortening
     // this row's right padding by one, below — the badge is the row's last
     // child, so its right edge IS the row's content edge.
     static constexpr float kBadgeD = 16.0f;
+    // The digit inside it. Measured on the reference's 6 and 3 badges: 8px of
+    // ink tall and 5-6 wide, where `theme::type::SM` gave hanabi 7 by 4 -- 12
+    // lit pixels against the reference's 32, and 30 brightness levels short
+    // with it, because a smaller glyph never reaches its own colour. This is
+    // the sub-agent count's `kCountFontPx` arrived at independently: the same
+    // 8px digit, in the same sidebar, at the same size.
+    static constexpr float kBadgeFontPx = 14.0f;
     // The reference pads the digits by 5pt on each side; one digit lands on
     // the square case above, two need the capsule.
     static constexpr float kBadgePadX = 5.0f;
@@ -766,7 +785,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // pixel (REFERENCE.md): 0.907 / 0.907 / 1.000, i.e. blue-tinted, where
     // theme::text_secondary is a neutral grey.
     static constexpr theme::Color kViewLabelFg{150, 150, 175, 255};
+    static constexpr unsigned char kVIF = 140;
+    static constexpr unsigned char kVIFB = 166;
     static constexpr theme::Color kViewLabelActiveFg{251, 250, 255, 255};
+    // The ICON gets its own ink, and the reason is the reason the sidebar
+    // footer's colour sweep came out backwards (REFERENCE.md): a sprite blit
+    // reaches its own colour and 9pt text never does. Puffin paints both from
+    // one token -- `SmartViewSidebar` line 297 hands `Chrome.mutedText` to the
+    // whole row -- so a single hanabi constant looks like the faithful
+    // reading, and it is not: kViewLabelFg was measured off the LABEL, where
+    // it is 10 levels above the token to make up for coverage the text never
+    // gets. Handed to a blit, those 10 levels arrive in full and every icon
+    // peaks 15-22 above the reference's.
+    static constexpr theme::Color kViewIconFg{kVIF, kVIF, kVIFB, 255};
+    static constexpr float kViewIconPx = 16.0f;
+    
     // The gap between the icon slot and the label. It is a SPACER, not the
     // label's padding: padding on a label-only div is silently ignored
     // (afterhours_gaps.md #85), which is why the 12px pad this row used to ask
@@ -786,7 +819,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // The filter glyph is brighter than the hint beside it: measured, it peaks
     // at (193,193,196) where the placeholder peaks at (163,163,168).
     static constexpr theme::Color kSearchFilterFg{200, 200, 206, 255};
-    static constexpr float kBadgeRightPad = kCountRightPad - 1.0f;
+    // Was `kCountRightPad - 1`, which tied the smart-view badges to the
+    // session rows' count. They are two columns in two different lists and
+    // they measured out to two different insets: the badges already land on
+    // the reference's x255..271 and the counts sat 1.3px left of theirs, so
+    // one constant could not be right for both.
+    static constexpr float kBadgeRightPad = 8.0f;
 
     // (247,247,255), measured off the reference's own row titles: same hue
     // ratio as hanabi already had (1.000/1.000/0.986) but nine levels
@@ -1712,8 +1750,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(16), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
+                // kViewIconFg, not `txt`: same split as smart_item's, and
+                // for the same reason -- a blit reaches its colour, the label
+                // beside it does not.
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "gear", "\xe2\x9a\x99", txt, 16.0f, -1.0f))
+                    "gear", "\xe2\x9a\x99", kViewIconFg, 16.0f, -1.0f))
                 .with_debug_name("sv_icon"));
         // Same geometry as smart_item's label, for the same measured reasons:
         // a real spacer rather than an inert padding (gap #85), the reference's
@@ -1765,14 +1806,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // row rode up with it. Re-derived by sweep against the
                 // reference's own label rows: at 6/4 Blocked lands 142..152
                 // and Review 174..184, both exact.
-                .with_padding(Padding{.top = pixels(6),
+                .with_padding(Padding{.top = pixels(kSvPadTop),
                                       .right = pixels(kBadgeRightPad),
                                       .bottom = pixels(folded ? 4.0f : 4.0f),
                                       .left = pixels(folded ? 0.0f
                                                             : kSbInset)})
-                .with_margin(Margin{.top = pixels(1.0f),
+                .with_margin(Margin{.top = pixels(kSvFillTop),
                                     .right = pixels(0),
-                                    .bottom = pixels(folded ? 1.0f : 2.0f),
+                                    // Whatever the pitch has left under the
+                                    // fill once its top margin is taken.
+                                    .bottom = pixels(folded
+                                                         ? 1.0f
+                                                         : kSbViewFillInset -
+                                                               kSvFillTop),
                                     .left = pixels(0)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::sidebar_bg())
@@ -1833,9 +1879,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // is gone and the row draws its sprite like every other row.
         const bool useAttentionIcon = false;
         const float iconPx = folded ? 18.0f : 16.0f;
-        auto attnColor = txt;
-        auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph, txt,
-                                               16.0f, -1.0f);
+        const theme::Color iconInk = active ? kViewLabelActiveFg : kViewIconFg;
+        auto attnColor = iconInk;
+        auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph,
+                                               iconInk, kViewIconPx, -1.0f);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -1924,7 +1971,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_custom_background(kBadgeFill)
                     .with_border(kBadgeRing, pixels(1))
                     .with_custom_text_color(kBadgeText)
-                    .with_font_size(theme::type::SM)
+                    .with_font_size(kBadgeFontPx)
                     .with_alignment(TextAlignment::Center)
                     .with_roundness(1.0f)
                     .with_debug_name("sv_count"));
