@@ -4004,3 +4004,59 @@ in app code, so a change to `kInset` upstream silently moves hanabi's counts.
 the Right case, where the inset has no reader-facing purpose.
 
 CLASS: WORKAROUND
+
+---
+
+### #85 — Padding on a label-only element is silently ignored
+
+**What was wanted.** A smart-view row's label to start 12px after its icon,
+where the reference draws it. The row asked for exactly that:
+
+```cpp
+div(ctx, mk(row.ent(), 2),
+    ComponentConfig{}
+        .with_label(label)
+        .with_size(ComponentSize{pixels(svLabelW), pixels(22)})
+        .with_padding(Padding{.left = pixels(12)})   // does nothing
+        ...
+```
+
+and its comment did the arithmetic out loud: *"Puffin puts the label ink at
+x=37: kSbInset 9 + icon 16 + a 12px pad on the label = 37."*
+
+**What happens.** The text lands at x=31 — the div's own left edge plus the
+hardcoded 5px text inset (gap #75), with the padding contributing nothing.
+Proven by changing the value: **`pixels(12)` and `pixels(40)` produce a
+byte-identical frame.** Padding is applied when laying out an element's
+CHILDREN; a label is not a child, it is drawn into the element's rect by
+`position_text_ex`, which reads the rect and the alignment and never the
+padding.
+
+The cost is not the six pixels. It is that the code, its author and its comment
+all believed the padding was applied, and nothing in the build or the run said
+otherwise — the label sat 6px left of the reference for the entire parity
+effort while a comment in the same file asserted it was correct. A silent no-op
+on a value someone computed is worse than a compile error and worse than a
+crash.
+
+**Why the obvious escapes do not work.**
+
+- **`with_margin`** is the same story one level out: it spaces the element from
+  its siblings, not the text from the element.
+- **Sizing the label div smaller and letting alignment place it** only works for
+  Right and Center, and both of those are already 5px off for the same reason
+  (gap #84).
+- **Nesting the label in a padded parent** works, and costs an entity per label.
+
+**The workaround, and its cost.** An empty div of the measured width before the
+label — the same move this file already makes vertically (`spacer`, "afterhours
+has no margin between column children"), now also horizontally (`spacer_x`).
+Two entities per row instead of one, and every measured gap in the design
+becomes a widget that exists only to be empty.
+
+**Minimal upstream fix.** Either honour `Padding` in `position_text_ex` — the
+rect is right there — or, better, refuse it: make `with_padding` on an element
+that has a label and no children a warn-once, the way `resolve_weighted` now
+warns on an unresolvable font weight. Silence is what made this cost a day.
+
+CLASS: FOOTGUN

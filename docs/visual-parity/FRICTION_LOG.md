@@ -1141,3 +1141,57 @@ a semibold because it is the correct render, never because of a parity number.
    every source. It looks exactly like a successful no-op build, and the next
    screenshot is of the OLD binary. `touch src/api/types.h` first. Cost me one
    round of measurements I nearly believed.
+
+---
+
+## Smart-view badges and labels (no branch — done on main)
+
+### 1. The count is a badge, and reading the source said so before the pixels did
+
+- **What I wanted** — to know why the VIEWS region would not go under 8%.
+- **What happened** — I had been reading the counts as bare numerals with an
+  alignment error. They are not. `SmartViewSidebar.badgeView` draws a
+  `tintedPill`: *"the accent as a low-alpha fill, a hairline of the same accent
+  as its border, and the digits in that accent rather than white"* — with a
+  paragraph of history explaining that a solid pill was tried and reverted.
+  The measurement agreed exactly: ring, fill and digit are the SAME hue at
+  three coverages, ratio (0.596, 0.778, 1.000) at every sample.
+- **Worth** — VIEWS 8.07% → 7.58% for the badge alone, and it is the difference
+  between a control that looks designed and one that looks unstyled.
+- **Class** — `TEDIOUS` avoided by reading the source first.
+
+### 2. Home's badge had a comment describing it and a `-1` where the number goes
+
+- hanabi's code said *"Home's count is what is WAITING: the blocked rows plus
+  the ones done and unread"* and then passed `-1`, which draws nothing. The
+  reference's rule is that comment verbatim —
+  `[.home: blocked + review, .blocked: blocked, .review: review]` — and the
+  reference badges Home with 9 over a Blocked of 6 and a Review of 3.
+- The row that is **selected the moment the window opens** was missing its
+  badge, and a comment two lines up said what it should be.
+- **Class** — `FOOTGUN` (hanabi's own). Second time this pattern has cost us:
+  see `kHeaderH` being a named constant in one place and a bare `62.0f` in
+  another.
+
+### 3. A `.with_padding(12)` that had never done anything — gap #85
+
+- **What I wanted** — the label 6px further right.
+- **What happened** — the row already asked for it, and had done for the whole
+  effort. Padding on a label-only div is ignored: `pixels(12)` and `pixels(40)`
+  render **byte-identical frames**. The comment beside it did the arithmetic
+  (`9 + 16 + 12 = 37`) and shipped 31.
+- **Cost** — the six pixels were cheap; the twenty minutes spent not believing
+  the measurement, because the code said the opposite, were not.
+- **Class** — `FOOTGUN`, filed as gap #85 with a request that it warn rather
+  than obey silently.
+
+### 4. The label was two sizes too small and nobody could see it
+
+- The reference's view label is 11px tall over a 49px run for "Blocked";
+  hanabi drew 9px over 39px at `theme::type::BODY` (13). The right size is
+  16.8 — a 29% error, sitting in plain sight in every screenshot, invisible
+  because "a bit small" is not a thing the eye reports and there was no
+  measurement that would have caught it. It was **twice the ink** of the badge
+  and the alignment put together: VIEWS 7.54% → 6.59%.
+- **Class** — `TEDIOUS`, and an argument for measuring type against the
+  reference rather than picking from a scale.
