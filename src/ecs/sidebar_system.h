@@ -1086,6 +1086,34 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // ABSOLUTELY at the sidebar's bottom rather than as the column's last
     // child: the scroll panel above it is sized in pixels, and a flow child
     // after it would be pushed off the bottom by a single px of rounding.
+    //
+    // The footer's ink stays `text_faint`, and that is a MEASURED decision
+    // rather than the absence of one.
+    //
+    // Puffin gives the version label and all three glyph buttons one token
+    // (`SidebarColumn.sidebarFooter` -> `PuffinTheme.Chrome.mutedText`), and on
+    // the navi theme the reference was shot in that token is (140,140,166)
+    // (`Models.swift:593`; navi is `defaultValue` and its headerBg is the
+    // (23,23,35) the frame paints). hanabi's nearest token is `text_secondary`
+    // (142,142,154), two units off in luminance -- so the obvious move is to
+    // use it, and it makes the footer WORSE: 4.08% -> 4.58%.
+    //
+    // The reason is that a colour constant is not what lands on screen. Over
+    // this footer's ink the reference's mean (pixel - background) is 54.8 and
+    // its brightest sample is 119 above background; hanabi's sprite blits and
+    // 11px text reach full coverage, so setting (142,142,154) puts hanabi's
+    // brightest at 139 and its mean at 93.6 -- overshooting the reference by
+    // twice as much as `text_faint` (100,100,112) undershoots it. Puffin's
+    // 9pt/10pt SF Symbols never get to their own colour; hanabi's marks do.
+    //
+    // Swept analytically across the whole plausible range (recolouring the ink
+    // by its recovered per-pixel coverage, which is exact for a blend), the
+    // BEST colour available scores 4.32% against text_faint's 4.44% in the same
+    // harness. The entire colour axis of this footer is worth 0.11 points,
+    // because what actually costs is that two of the three glyphs are different
+    // ICONS -- see REFERENCE.md, "The sidebar footer's three buttons". An
+    // eleventh palette token to buy a tenth of a point is not a trade.
+
     void render_footer(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const LayoutComponent::Rect& r) {
         const float top = r.height - kSbFooterH;

@@ -347,6 +347,43 @@ screen.
 Keep the filter. It is the honest form of the idea: the reader says "not now",
 rather than the client deciding some threads matter less than others.
 
+### The sidebar footer's three buttons are not Puffin's three buttons
+
+Both apps end the sidebar with a version label on the left and three glyph
+buttons on the right, over a hairline, in a 28px band. The buttons are not the
+same buttons and should not be made so.
+
+- **Puffin**: `info.circle` (About), `ant` (`BugReport.icon` — file a bug),
+  `gearshape` (Settings). `SidebarColumn.sidebarFooter`, and its own comment
+  records that these moved there from a titlebar accessory.
+- **hanabi**: `plus` (new thread), `search` (command palette), `gear`
+  (Settings).
+
+Only the third pair matches, and the score says so: measured on
+`ref/01_home.png`, the gear column carries 44 structural diff pixels against 87
+and 90 for the two either side of it — the matched one costs half what the
+mismatched ones do, on the same ink, at the same size, in the same colour.
+
+This is a product difference, not a defect. hanabi has no bug-report flow for an
+`ant` to open and no About pane distinct from Settings, and closing the gap
+would mean deleting a reader's two fastest paths to a new thread and the
+palette in exchange for one button that does nothing and one that duplicates
+the gear. It does NOT meet the bar for a `compare.py` exclusion either — a
+different icon is closeable in principle, and the rectangle would hide the
+colour and position work that is genuinely scoreable in that band. So the
+footer region keeps scoring it, and 221 of its 643 diff pixels are these three
+buttons with two of them drawing different things on purpose.
+
+Corollary, measured while establishing the above and worth knowing before
+anyone reaches for the footer again: **the footer's whole colour axis is worth
+0.11 points.** Puffin's footer ink is `mutedText` (140,140,166) and hanabi's is
+`text_faint` (100,100,112), which looks like an easy point — and moving to
+`text_secondary` (142,142,154), the nearest token, makes the region WORSE
+(4.08% -> 4.58%), because Puffin's 9pt glyphs never reach their own colour and
+hanabi's sprite blits do. Swept across every plausible ink, the best available
+scores 4.32% against text_faint's 4.44% in the same harness. The full working is
+in FRICTION_LOG.md under `## Tab strip and sidebar footer (feat/vis-tabs3)`.
+
 ### The row mark's vocabulary is Puffin's, not `docs/state-model.md`'s
 
 `docs/state-model.md` specifies a colour-blind-safe legend of its own — red

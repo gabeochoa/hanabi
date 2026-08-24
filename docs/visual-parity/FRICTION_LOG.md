@@ -1749,3 +1749,225 @@ a semibold because it is the correct render, never because of a parity number.
   (they keep "6m"/"5h" stable across runs *within* a day). Shoot the before and
   the after in the same session, or quote the region you changed.
 
+
+---
+
+## Tab strip and sidebar footer (feat/vis-tabs3)
+
+Two regions that were already worked and already stalled. Both stayed small.
+The useful output of this round is not the 1.5 points it moved, it is **why the
+two regions read as much bigger than they are**, and one finding about the
+metric that applies to every drawn mark in this workstream.
+
+### The ceiling, counted before any code was written
+
+A region's percentage is a fraction of its whole rectangle, and both of these
+rectangles are mostly empty in both frames. So the first thing done was a census
+of the actual diff pixels — where they are, and what each one IS.
+
+**Tab bar, `ref/01_home.png`: 4.28%, 2840 structural diff pixels.**
+
+| | px | share | can design close it? |
+| --- | ---: | ---: | --- |
+| row y=0, the whole width | 897 | 32% | no — macOS window bevel |
+| the two tab TITLES | 1687 | 59% | no — different fixture strings |
+| two pin glyphs | 128 | 5% | yes |
+| the `+` | 75 | 3% | partly |
+| everything else | 53 | 2% | — |
+
+**Tab bar, `ref/02_thread.png`: 3.39%, 2257 px.** Same shape: 897 bevel (40%),
+1184 the single title (52%), 75 the `+`, ~100 the rest. No pins — 02 is the
+unpinned state, which is what makes quoting both references worth the trouble.
+
+**Sidebar footer: 4.08%, 643 px.** ~200 of it is already declared (the version
+string, the window corner). 203 more sit in rows y917..921 — that is ABOVE the
+footer's rule, and it is the last session-list row bleeding into a region cut at
+`H * 0.96`, so it belongs to whoever owns the list, not to the footer. What is
+left, and what the footer actually is, is **221 pixels: three glyph buttons.**
+
+So the honest ceiling stated up front was: **~0.3 points on the tab bar and
+~2.2 on the footer, before any floor**. The eventual result was 0.12 and 0.00
+from design work, plus 1.35 and 0.00 from one declaration. The ceiling estimate
+was right about the size and wrong about which half would pay.
+
+### The reference's top row is window decoration, and it was being charged to the tab strip — DECLARED
+
+- **What I found.** Row y=0 of both references is (59..80) grey across the full
+  1180 — the macOS window's own top border. Row 1 is already back to (28,28,40),
+  and the left, right and bottom edges of the frame carry nothing like it. It is
+  byte-identical between 01 and 02.
+- **Why it survived four rounds.** Two entries in `compare.py` already declare
+  exactly this cause — "titlebar traffic lights" and "rounded window corners",
+  both worded "hanabi's parity capture is an offscreen render of the client area
+  with no window and therefore no decoration". Between them they mask x<72 and
+  x>1163. The 1092 pixels of the same border in between were never covered, and
+  the tabbar region starts at x=283, so **the tab strip was being charged a
+  third of its score for a window frame hanabi does not have.**
+- **Cost.** Every tab-bar figure quoted in this workstream before today included
+  it, including the previous round's "the region is at its floor" — which was
+  right in substance and 1.35 points pessimistic in number.
+- **Result.** Declared. tabbar 4.16% -> 2.81% on 01 and 3.39% -> 2.03% on 02, a
+  metric fix and not a design one, and `--no-exclusions` still reproduces the
+  old number exactly.
+
+### The pin: the source said the rule and the reference confirmed the constant
+
+The one clean win, and the shape of it is worth copying.
+
+- **What I wanted.** A pinned tab's pushpin to look like the reference's.
+- **What the source says.** `TabStrip.swift:506` draws `pin.fill` with its OWN
+  `.foregroundColor(mutedText)` and its own `.opacity(0.7)`, overriding the
+  chip's `.foregroundColor(isSelected ? text : mutedText)`. So the pin is one
+  colour regardless of selection — a rule a screenshot can only guess at.
+- **What the pixels say.** mutedText on the navi theme is (140,140,166)
+  (`Models.swift:593`; navi is `defaultValue` and its headerBg is the (23,23,35)
+  the frame paints). At 0.7 that predicts (105,105,127) over the inactive tab
+  and (112,115,143) over the active one. Measured: **(107,107,127)** and
+  **(114,117,143)**. Two units, on both tabs at once, from a rule read out of
+  Swift.
+- **What hanabi was doing.** Passing the tab's title colour, which on the active
+  tab is pure white — 209 above its own background where the reference is 71.
+  Every pixel of that mark was a difference on brightness alone.
+- **Result.** pin1 57 px -> 28, pin2 71 px -> 24. Half the tab bar's closeable
+  surface, from reading nine lines of Swift.
+
+### Correcting a shape made the score WORSE, and that is the finding of the round
+
+The first pin attempt fixed the silhouette and left the colour alone. Traced off
+the reference row by row, it came out **worse: 57 px -> 69 and 71 -> 80.**
+
+The `+` then reproduced it exactly, and cleanly enough to tabulate. hanabi's
+plus runs y42..55 with a two-row crossbar; the reference's runs y43..55 with a
+three-row one. A half-pixel `y_bias` reproduces the reference's geometry
+exactly — same span, same three rows — and:
+
+| | hanabi's ink (141,141,153) | reference's ink (148,148,172) |
+| --- | ---: | ---: |
+| as shipped (2-row crossbar) | 75 px | 56 px |
+| geometry corrected (3-row) | **84 px** | **54 px** |
+
+**The metric's verdict on the shape inverts with the colour.** The reason is
+that hanabi's marks have no partial coverage (gap #92) and its ink is nineteen
+units off on blue, against a tolerance of twelve — so every pixel of the glyph
+is already a difference, and the two rows the correction ADDS are two more of
+them. Fix the colour and the same correction wins by 2.
+
+Two things follow, and they are general:
+
+1. **Never A/B a shape against this metric while its colour is out of
+   tolerance.** You will measure the colour and conclude something about the
+   shape. The pin only started paying once the colour was right; the two changes
+   were tested in the wrong order first and the first result was a lie.
+2. **On an aliased renderer the metric quietly prefers under-drawing.** The
+   reference's outer ring of any small mark is coverage, not ink — the pin's
+   widest row reads 8 pixels to the eye and 6 at half coverage, and its needle
+   peaks at 42, 43 and 15 above background. Draw those solid and each one is a
+   new diff pixel; leave them out and they mostly fall under tolerance. The
+   silhouette that scores best is the one thresholded at half coverage, which is
+   how the shipped pin was finally traced.
+
+The `+`'s geometry was **left uncorrected**, deliberately. The claim is weaker
+than it looks: hanabi's plus is Lucide's and the reference's is SF Symbols', and
+one icon set is under no obligation to sit where another does. The ink is a real
+defect; half a pixel between two different glyphs is not.
+
+### hanabi's greys are neutral; Puffin's carry a violet cast
+
+Not a tab-bar fact, and it is the reason two of the marks above cannot be
+finished.
+
+Every muted ink in the reference has more blue than red. Measured as
+(pixel − background), which is coverage-independent and therefore the only safe
+way to read a colour off antialiased ink: the footer's version string and its
+glyph buttons both give (54.8, 54.8, 60.3), a blue:red ratio of **1.10**;
+Puffin's `mutedText` (140,140,166) predicts 1.12. hanabi's `text_secondary` is
+(142,142,154) and `text_faint` is (100,100,112) — both exactly **1.00**.
+
+On a mark whose entire content is ink, that is the whole score. The `+` at its
+own full coverage is (141,141,153) against the reference's (148,148,172):
+red and green inside tolerance, blue nineteen out, so all 75 pixels of it are a
+difference and no amount of shaping helps. Recoloured to the reference's ink and
+re-scored, it drops to 56.
+
+Nine to nineteen units of blue, on every muted mark in the app. Closing it means
+touching `text_secondary` and `text_faint` in `theme.h`, which is every region
+in this workstream at once and three other agents' numbers moving under them.
+Left alone on purpose; flagged here because it is the single largest thing
+standing between the small drawn marks and their floor, and it wants doing in
+one deliberate change by whoever owns the palette, not in four.
+
+### The sidebar footer's whole colour axis is worth 0.11 points — NEGATIVE RESULT
+
+Worth the space because the reasoning that motivated it was good and the answer
+was still no.
+
+- **What I wanted.** The footer's ink to match. Puffin gives the version label
+  and all three glyph buttons one token (`SidebarColumn.sidebarFooter` ->
+  `Chrome.mutedText`, which is (140,140,166)); hanabi draws them in `text_faint`
+  (100,100,112), a token dimmer by a whole step. The obvious move is
+  `text_secondary` (142,142,154), two units off in luminance.
+- **What happened.** The footer went **4.08% -> 4.58%**. A colour constant is not
+  what lands on screen: Puffin's 9pt and 10pt SF Symbols never reach their own
+  colour — the reference's brightest footer pixel is 119 above background and
+  its mean is 54.8 — while hanabi's sprite blits and 11px text do. Setting
+  (142,142,154) put hanabi's brightest at 139 and its mean at 93.6, overshooting
+  by twice as much as `text_faint` undershoots.
+- **What the whole axis is worth.** Swept analytically rather than by rebuilding
+  nine times: the per-pixel coverage is recoverable from one render with a known
+  colour, so any other colour can be re-synthesised exactly. Across the whole
+  plausible range the best available scores 4.32% against `text_faint`'s 4.44%
+  in the same harness. **0.11 points, total.**
+- **Why so little.** Because what the footer costs is not its colour. Two of its
+  three buttons are different ICONS — see REFERENCE.md, "The sidebar footer's
+  three buttons" — and a wrong shape costs the same whether the ink is dim or
+  bright. The gear column, the one that IS semantically matched, carries half
+  the diff pixels of either of its neighbours; that ratio is the finding.
+- **Result.** Reverted. `text_faint` stays, with the measurement written above
+  the code so the next person does not spend the same afternoon.
+- **Class** — `NEGATIVE RESULT` (hanabi's palette, not afterhours)
+
+### The tab titles are different strings, and renaming the fixture is not on
+
+1687 of 01's 2840 diff pixels and 1184 of 02's 2257 are two tab titles that say
+different words: the reference's fixture holds "TODO" and "Oncall triage tick —
+subs_ex…", hanabi's holds "kicker-tick" and "needs a decision before it…".
+Renaming hanabi's mock sessions to match would move roughly 2.6 points on 01 and
+1.9 on 02 — by a wide margin the largest number available in either region.
+
+Declined, for two reasons and the second is the real one.
+
+- The mock catalog feeds the sidebar list as well as the strip, and another
+  agent is live in the list's code on `feat/vis-list2`. Renaming two sessions
+  moves their region under them mid-round.
+- It would be measuring the fixture. REFERENCE.md's "compare LIKE FOR LIKE" says
+  to shoot hanabi in the reference's STATE — same tabs open, same ones pinned —
+  because otherwise you measure what is on screen instead of how it is drawn.
+  Matching the state is what makes the comparison mean something; matching the
+  CONTENT is the same move continued one step past the point where it stops
+  being honest, and it would retire 2.6 points that describe nothing about
+  either app's design.
+
+### Cited, not re-filed
+
+- **#92** (no antialiasing on primitives) is the floor under every number in
+  this entry, and this round sharpens its own cost paragraph: it is not just
+  that a correct mark still differs, it is that a correct mark can differ MORE
+  than an incorrect one, and the table above is the case in point.
+- **#61** (a scripted assertion reads x/y/w/h/hidden/text and never a pixel) is
+  why the pin's ink is guarded by `tests/unit/test_tab_colors.cpp` — arithmetic
+  against constants sampled off the reference — rather than by a `.e2e` file.
+  Getting to it needed gap #96's file split.
+
+### Where the remaining 2.81% / 2.03% is
+
+Tab bar, after the bevel declaration. On 01: 1687 px the two titles, 75 the `+`,
+52 the two pins, ~50 elsewhere. On 02: 1184 the title, 75 the `+`, ~100 else.
+The titles are fixture and the `+` is nineteen units of blue. **Everything
+reachable in this region without touching the mock catalog or the palette is now
+about 50 pixels, or 0.08 points.** The previous round's "the region is at its
+floor short of renaming mock sessions" was correct; the pins were the one thing
+left in it, and they are done.
+
+Footer, unchanged at 4.08%: 221 px of glyph buttons, of which the two mismatched
+icons are a product difference rather than a defect, and 203 px of session-list
+row bleeding in above the footer's own rule, which belongs to the list.

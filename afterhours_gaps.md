@@ -4532,3 +4532,131 @@ call site changes for anyone who does not set it.
 
 CLASS: WORKAROUND
 
+
+---
+
+### #96 — `clipboard.h` declares none of the symbols it calls, so a header that copies one string becomes a graphics translation unit
+
+**What was wanted.** To unit-test the tab strip's palette. `tab_colors` is
+arithmetic — a token, an alpha, a composite over a known fill — with a right
+answer measured off the frozen reference, and it lived in
+`src/ecs/tab_bar_system.h`. A test that includes that header and asserts three
+colours.
+
+**What happens.** Nothing under `tests/` can include `tab_bar_system.h`,
+because it includes `vendor/afterhours/src/plugins/clipboard.h` for the tab
+context menu's "Copy Navi URL", and that plugin does not compile on its own.
+It is `#pragma once`, `<string>`, `<string_view>`, and then a three-way
+`#ifdef` whose backend arms call symbols it never declares or includes:
+
+```cpp
+#elif defined(AFTER_HOURS_USE_METAL)
+inline void set_text(std::string_view text) {
+  std::string str(text);
+  sapp_set_clipboard_string(str.c_str());   // sokol_app.h is nowhere in scope
+```
+
+Compiling a two-line TU that defines `AFTER_HOURS_USE_METAL` and includes only
+this header gives `use of undeclared identifier 'sapp_set_clipboard_string'`
+three times over. So the header is not includable; it is *pasteable*, and only
+after something else has pulled the whole sokol stack in. Anything that wants
+to put a string on the clipboard therefore has to be a full graphics TU.
+
+The other arm of the same `#ifdef` is worse, and it is the one a test would
+hit. With no backend macro defined at all, the file falls through to:
+
+```cpp
+#else
+// Fallback implementations when no backend is available
+inline void set_text(std::string_view) {}
+```
+
+That compiles silently and copies nothing. So the header has exactly two
+behaviours — refuse to compile, or work as a no-op — and it picks between them
+off a macro the includer may never have heard of, with no `#error`, no
+`static_assert`, and no diagnostic of any kind. A test binary that copies to
+the clipboard and asserts the clipboard passes by doing nothing twice.
+
+**Why the obvious escapes do not work.**
+
+- **Include `sokol_app.h` before it in the test.** That is the whole windowing
+  backend, in a headless unit test, to reach a colour constant. It also needs
+  the Metal frameworks at link time.
+- **Define `AFTER_HOURS_USE_METAL` off in the test TU only.** The fallback arm
+  then compiles, but every other afterhours header the file needs keys off the
+  same macro, so the TU no longer agrees with the app about what `Color`,
+  `RectangleType` or the UI plugin are.
+- **Include the plugin lazily at the call site instead of the header top.** The
+  call site is a lambda inside a `ComponentConfig` chain in the middle of a
+  function; there is no scope where a `#include` helps, and the header is
+  needed for the declaration either way.
+- **Forward-declare `sapp_set_clipboard_string` in hanabi.** It is a C symbol
+  with a stable signature, so this does link — but it puts a private
+  redeclaration of somebody else's ABI in the app, which is worse than a file
+  split, and it does nothing about the silent-no-op arm.
+
+**The workaround, and its cost.** The palette moved out to
+`src/ecs/tab_colors.h`, which includes `theme.h` and afterhours'
+`rounded_corners.h` and nothing else, and `tab_bar_system.h` includes that. The
+test then reaches the shipped constants rather than a copy of them
+(`tests/unit/test_tab_colors.cpp`). Cost: a new header and one more include, and
+the split is arbitrary from the outside — the file boundary records a
+limitation of a clipboard plugin, which is not a thing anyone reading
+`tab_colors.h` would guess. Anybody who moves a colour back into
+`tab_bar_system.h` for tidiness silently removes it from the test.
+
+**Minimal upstream fix.** Include the backend header the arm actually uses —
+`sokol_app.h` under the Metal arm, raylib under the other — the way every other
+plugin in that directory does, and replace the silent `#else` with an
+`#error "afterhours/clipboard: define AFTER_HOURS_USE_RAYLIB or
+AFTER_HOURS_USE_METAL"`, or keep the no-op arm behind a macro the caller has to
+ask for by name. Two lines, and the header becomes includable and honest.
+
+CLASS: WORKAROUND
+
+---
+
+### #97 — NOT A GAP: a translucent SHAPE blends correctly inside `on_draw_fg`, and only the texture path needs its own pipeline
+
+Written down because the evidence in front of you points the other way, and
+acting on it costs every call site something.
+
+Puffin draws a pinned tab's pushpin as `mutedText` at `.opacity(0.7)`
+(`TabStrip.swift:506`), so hanabi's wants an alpha too. The nearest thing to
+guidance in hanabi's own tree is `src/ui/icons.h`, where the atlas blit is
+wrapped in a manual pipeline dance:
+
+```cpp
+// Push a blend-enabled pipeline so the atlas' transparent pixels
+// don't blit as opaque black (sgl's default pipeline has blending
+// off — see the AtlasTexture note / afterhours_gaps.md).
+sgl_push_pipeline();
+sgl_load_pipeline(AtlasTexture::get().blend_pipeline());
+```
+
+Read that and the conclusion is obvious and wrong: alpha does not survive an
+`on_draw_fg`, so a translucent mark has to be resolved by hand — 
+`theme::over(ink, backdrop)` at the call site, which means every call site has
+to know what it is sitting on, and a mark drawn over a surface whose colour is
+not in scope cannot be translucent at all.
+
+Probed instead of assumed: the same pin drawn both ways, pre-composited with
+`theme::over` and handed straight through with `a = 179`, then the two captures
+diffed. **Identical pixels** — (107,107,119) on the inactive tab and
+(113,117,134) on the active one, both ways. `Backend::begin_drawing` loads
+`g_blend_pip` for the whole frame (`backends/sokol/backend.h:403`), so
+`draw_rectangle`, `draw_line_ex` and the rest are already blending src-over.
+
+What the comment in `icons.h` is actually about is narrower than it reads: the
+TEXTURE path calls `sgl_texture` and the atlas keeps its own pipeline object,
+so a blit specifically needs that push. Shapes do not, and the general claim
+"sgl's default pipeline has blending off" is true of `sgl_defaults()` and not
+of the state any hanabi draw callback ever runs in.
+
+So: pass the alpha. It is one less thing that has to know its own backdrop, and
+it is what makes a translucent mark work over a surface that is itself hovered
+or themed. Filed as a numbered entry rather than a footnote because the wrong
+version of this belief is cheap to hold and expensive to unpick — it was held
+here for about an hour and shipped a `pinInk` local that existed for no reason.
+
+CLASS: NOT A GAP

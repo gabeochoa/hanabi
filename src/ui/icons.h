@@ -237,14 +237,26 @@ inline void radio(RectangleType rect, bool selected, theme::Color c,
 // paints NOTHING (gap #48), so the mark is drawn: a round head, a shaft down
 // from it, and a short crossbar where the head meets the shaft.
 inline void pin(RectangleType rect, theme::Color c) {
-    // Thumbtack in profile, traced off the reference: flat cap, narrow shaft,
-    // wide flange, needle. A 7x10 mark drawn from the rect's top-left.
+    // Thumbtack in profile: flat cap, narrow shaft, wide flange, needle. A 6x10
+    // mark hung from the rect's top-left.
+    //
+    // Re-traced against `ref/01_home.png` at x295..302, y44..54, by thresholding
+    // the reference's coverage at half rather than by eye -- squinting at an
+    // intensity ramp read the widest row as 8 wide when the two outer columns
+    // are 29 and 35 above background, a third of a covered pixel. The half-
+    // coverage silhouette is 6 / 4 / 6 / 4 / 2: a cap, a shaft, a flange, the
+    // flange's taper, a needle.
+    //
+    // What was here drew the shaft 2 wide and hung it off the cap's LEFT half
+    // (x+1 of a 6-wide cap), so the mark leaned, and it had no taper. Four wide
+    // and centred is both the reference's shape and a pushpin's.
     const float x = rect.x + 1.0f;
     const float y = rect.y + (rect.height - 10.0f) * 0.5f;
     afterhours::draw_rectangle(RectangleType{x, y, 6.0f, 2.0f}, c);
-    afterhours::draw_rectangle(RectangleType{x + 1.0f, y + 2.0f, 2.0f, 3.0f}, c);
+    afterhours::draw_rectangle(RectangleType{x + 1.0f, y + 2.0f, 4.0f, 3.0f}, c);
     afterhours::draw_rectangle(RectangleType{x, y + 5.0f, 6.0f, 2.0f}, c);
-    afterhours::draw_rectangle(RectangleType{x + 2.0f, y + 7.0f, 2.0f, 3.0f}, c);
+    afterhours::draw_rectangle(RectangleType{x + 1.0f, y + 7.0f, 4.0f, 1.0f}, c);
+    afterhours::draw_rectangle(RectangleType{x + 2.0f, y + 8.0f, 2.0f, 2.0f}, c);
 }
 
 }  // namespace hanabi::glyph

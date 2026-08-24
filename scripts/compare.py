@@ -104,6 +104,19 @@ _CAPTURE_DIVERGENCES = [
         "area with no window and therefore no decoration",
     ),
     (
+        "window top bevel",
+        [(0, 0, 1180, 1)],
+        "the reference's single top row is the macOS window's own light "
+        "border -- (59..80) grey across the full width, where row 1 is "
+        "already back to (28,28,40) and the left, right and bottom edges "
+        "carry nothing like it. Same cause as the traffic lights and the "
+        "corners, and byte-identical between 01 and 02: it is the window "
+        "frame, and hanabi's offscreen capture has no window. It was left "
+        "in the score by the two entries either side of it, which mask "
+        "only x<72 and x>1163, so 1092 pixels of pure window decoration "
+        "were being charged to the tab strip -- a third of that region",
+    ),
+    (
         "rounded window corners",
         [(0, 0, 16, 16), (1164, 0, 1180, 16),
          (0, 933, 16, 949), (1164, 933, 1180, 949)],
