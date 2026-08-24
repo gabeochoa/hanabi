@@ -69,6 +69,14 @@ Order matters and hanabi's is different:
 4. Search field with a magnifier, and a filter icon to its right
 5. A **flat** session list — glyph, title, optional right-aligned count.
    **No timestamps.** hanabi shows a time on every row; Puffin shows none.
+   **No selection fill on the open thread.** Puffin's session row takes a
+   persistent `#2E3A58` fill only for the KEYBOARD CURSOR
+   (`SessionRowView.isKeyboardSelected`); "this thread is already a tab"
+   (`isOpen`) reaches nothing but the context menu, where it disables the
+   split items. Verified in `ref/01_home.png` (the only `#2E3A58` block in the
+   sidebar is the selected VIEW row, y=69..97) and in Puffin's own source.
+   A session row's only other fill is HOVER — near-white at ~0.09 over the
+   chrome surface, drawn as a pill inset 4px with a 5px radius, not full bleed.
 6. Footer: version string (`v0.5.5`) left, three small icons right
 
 hanabi today: a brand row with three buttons, search ABOVE the views, a FOLDERS
