@@ -1,0 +1,52 @@
+# The sidebar footer's leading edge is Puffin's, and the label's box is not
+# where its ink is.
+#
+# Puffin's footer is `HStack { Text(version); Spacer(minLength: 8); three
+# buttons }.padding(.horizontal, 10)` (`SidebarColumn.sidebarFooter`), so its
+# version label's INK begins at x=10, and `ref/01_home.png` confirms it: the
+# reference's "v0.5.5" runs x10..36.
+#
+# hanabi shipped its version box AT 10 and its ink at 15, because afterhours
+# insets a label's text by a hardcoded 5px on every alignment with no way off
+# (afterhours_gaps.md #84). Five pixels right of the reference's, in every
+# capture this workstream has taken.
+#
+# **No score could ever have caught it.** `compare.py` declares the rectangle
+# (8,926,60,944) as "sidebar footer version string" — correctly, because
+# v0.5.5 is not a number hanabi can become — so every pixel of that label is
+# masked out of the structural figure, and moving it cost and bought exactly
+# 0.000 points. `scripts/ceiling.py --no-exclusions` is the only reading
+# available: 12.78% -> 11.30% on the move alone. This file is the guard, and
+# the thing it guards is the BOX at 5, not the ink at 10, because the ink is
+# not a thing a scripted assertion can see.
+#
+# The window size comes from `# env:`, not from `# settings:`: the scripted
+# runner writes the settings blob but the uitest binary sizes its offscreen
+# surface from HANABI_WIN_W/H, so a height declared only in the blob is
+# silently ignored and every bottom-anchored assertion here would be measured
+# against the runner's default 760 — a wrong number that looks exactly like a
+# layout bug you just introduced.
+#
+# Verified to fail without the fix: reverting `label_box_x` in
+# sidebar_footer_geometry.h to the identity and re-running gives
+#
+#   assert_ui 'sb_version': x=5 but got 10                (line 42)
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark"}
+# env: HANABI_WIN_W=1180 HANABI_WIN_H=949
+
+wait_frames 30
+
+# 5 + afterhours' own 5 = the reference's 10. The band is 949 - 28 = 921 for
+# the rule and 922 for its content, which is where the label sits.
+assert_ui sb_version x=5 y=922
+
+# The version label is still the leftmost thing in the band, and the action
+# cluster is still hard against the trailing edge: three 22px buttons centred
+# on 210 / 234 / 258, which is the reference's own 24px pitch measured off its
+# three glyphs (x205..215, x230..238, x253..263). Puffin's checkout says
+# `FooterMetrics.buttonWidth = 20`; the frame it shot says 24. The PNG wins —
+# the checkout is v0.5.2 and the reference is v0.5.5.
+assert_ui sb_new x=199 w=22
+assert_ui sb_palette x=223 w=22
+assert_ui sb_settings_footer x=247 w=22

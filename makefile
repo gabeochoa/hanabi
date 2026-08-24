@@ -417,6 +417,16 @@ $(TEST_DIR)/test_tab_colors: tests/unit/test_tab_colors.cpp src/ecs/tab_colors.h
 	@echo "Compiling test_tab_colors..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_tab_colors.cpp -o $@
 
+# The sidebar footer's arithmetic. The one property here that no other harness
+# in the repo can see is that the activity light's origin is on a whole pixel:
+# assert_ui reads x/y/w/h and ROUNDS them, so it cannot tell a snapped position
+# from an unsnapped one, and afterhours draws an unsnapped 6px box five rows
+# tall. Same split as test_tab_colors: the screenshot suite holds the
+# placement, this holds the property.
+$(TEST_DIR)/test_footer_geometry: tests/unit/test_footer_geometry.cpp src/ecs/sidebar_footer_geometry.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_footer_geometry..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_footer_geometry.cpp -o $@
+
 # Data/loader layer additions (wt/data): disk_cache total_bytes/wipe, message
 # queue ordering/draining, newest-N windowing, settings read.
 $(TEST_DIR)/test_data: tests/unit/test_data.cpp $(API_SRCS) src/api/disk_cache.cpp $(TEST_HDRS) | $(TEST_DIR)
@@ -469,7 +479,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_tab_colors
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
