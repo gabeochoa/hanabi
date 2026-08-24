@@ -586,3 +586,289 @@ words now match — anything still different in the list is one of these.
   — a light blue, a shade brighter than the working dot's `(151,190,250)`.
   The only amber-adjacent thing in that column is nothing at all. Recorded so
   nobody spends an afternoon making a red triangle orange.
+
+---
+
+## Tab bar (round 2) — feat/vis-tabs-round2
+
+Region went 25.30% -> 3.90%. The headline finding is that most of 25.3% was not
+a design gap at all: the capture opened ONE tab where the reference has TWO,
+both pinned. Fixing the settings blob (`open_tabs` + `pinned_tabs`, active =
+the second) took the region to 5.54% with no code change. Everything below is
+what the remaining 1.6 points cost.
+
+### Per-corner rounding is index-mirrored — FOOTGUN (gap #74)
+
+Wanted: the reference's folder-tab shape, top corners rounded and bottom
+corners square so the tab stands on the strip hairline. `RoundedCorners` numbers
+its corners TOP_LEFT=0..BOTTOM_RIGHT=3; the sokol backend reads the same bitset
+as 3=TL, 2=TR, 1=BL, 0=BR. Every corner you name is applied to its diagonal
+opposite. `top_round()` is separately wrong on its own terms — it sets
+BOTTOM_RIGHT round too — so the two faults compose into a lopsided bracket that
+reads as a rasterizer glitch.
+
+COST: a previous round diagnosed that bracket as "the outline/edge path
+glitches on sharp bottom corners", gave up, and shipped fully-rounded pills —
+the tab shape was wrong for a whole round. Rediscovery: ~35 min reading the
+backend. Workaround: name the BOTTOM two corners to round the TOP two.
+
+### Boxes rasterize 1px bigger and 1px up-left — WORKAROUND (gap #73)
+
+Wanted: a tab whose outer edge lands on the measured 220x34 at (284,32).
+A `w x h` box at `(x,y)` paints `(w+1) x (h+1)` at `(x-1,y-1)`.
+
+COST: 416 diff pixels on the single row y=31 = 0.65 points of the region, from
+one off-by-one. Compensated with a named `kRasterGrow` constant; hit-testing and
+the drawn rect now disagree by a pixel on every edge.
+
+### Text carries a hardcoded 5px margin — WORKAROUND (gap #75)
+
+Wanted: title 26px from the tab's left edge. `draw_text_in_rect` hardcodes
+`margin_px{5.f, 5.f}`; no config field reaches it.
+
+COST: 7px drift on every tab title, ~25 min to find. Every left pad in the file
+is now authored as `design_inset - kTextMarginPx`, so the number in the source
+is not the number in the design. Same renderer-only inset #69 names from the
+wrapped-label side.
+
+### An unpadded child is not unpadded — FOOTGUN (gap #76)
+
+Wanted: a label child that fills its parent's content box. When every padding
+side is `Dim::None`, `component_init` substitutes `Spacing::sm` =
+`screen_pct(0.02f)` — a fraction of the WINDOW.
+
+COST: ~15 min chasing the wrong suspect above, plus a latent resize bug in every
+nested element that never set padding. Sibling of #71. Zeroing needs all four
+sides given explicitly.
+
+### No bold face, and the weight API no-ops silently — IMPOSSIBLE (gap #77)
+
+Wanted: the reference's active tab title, which is bold white where the
+inactive ones are regular — weight is the whole active-tab signal.
+`with_font_weight` resolves `"<font>@<weight>"` and falls back to the base font
+when unregistered; hanabi ships three Regular faces and no Bold, so the call
+compiles, runs, logs nothing, and draws regular text. No synthetic bold, no
+stroke weight to fake it with.
+
+COST: unconvergeable. The active tab's text zone is 1072 diff px = 1.68 points
+of the region and cannot be driven down. Same silent-fallback shape as #48, one
+level up: #48 drops a GLYPH, this drops a WEIGHT. Escaping it means shipping a
+Bold TTF, which is an asset decision, so it was left alone.
+
+### Cited, not re-filed
+
+#61 — nothing in the tab-bar change is testable. The outline moved from
+`theme::border()` to `theme::divider()` and the bottom corners went square;
+a test can assert the tab's rect and its label, neither of which changed.
+#68 — the 1px raster error above would have been a one-line assertion if an
+element could report the height it actually came out at.
+
+### Where the remaining 3.90% is
+
+2481 diff pixels: 897 are the row y=0, the macOS window bevel around the
+captured Puffin window, which hanabi's headless capture has no equivalent of;
+1383 are the two tab titles, which are different STRINGS (Puffin's fixture says
+"TODO" / "Oncall triage tick", hanabi's mock has neither). That leaves ~200
+pixels of real design difference — the `+` glyph is a hair thin, and the pin's
+antialiasing. The region is at its floor short of renaming mock sessions to
+match Puffin's fixture.
+
+---
+
+## Session list (feat/vis-list)
+
+Region 19.21% -> 16.58%. Row pitch is the headline: it was drifting 2px a row
+and is now exact.
+
+### Grid snapping: the global lever was never actually tested — WORKAROUND (gap #71, now resolved)
+
+Wanted: Puffin's measured 32px session-row pitch, at the 949-tall window the
+reference was shot in. hanabi asks for `pixels(32)` and got 30, drifting 33.5px
+by row 18.
+
+#71 diagnosed this correctly and then closed with "the only lever is
+`set_grid_snapping(false)` in preload.cpp, which is global; it moves every panel
+in the window by up to 5px, so it is not a change a single component can make
+while four others are being matched in parallel." That last clause is an
+assumption, and it is wrong. Flipping it and re-scoring every region:
+
+| region | snap on | snap off |
+|---|---|---|
+| views | 8.89% | 8.85% |
+| search | 8.02% | 7.59% |
+| list | 19.21% | 16.50% |
+| footer | 5.26% | 5.26% |
+| tabbar | 25.30% | 25.30% |
+| main | 4.75% | 4.74% |
+| STRUCTURAL | 10.71% | 9.84% |
+
+Nothing regressed. Four regions improved. The 5px moves are real but they are
+moves AWAY from a grid nobody designed to and TOWARD the pixel numbers already
+written in the code, so every region that had a measured number in it got
+closer. It is off now, and pitch is exactly 32 with row centres inside 1px of
+the reference on all 18 rows.
+
+One caveat the region scorer does NOT show: elements really do move. At
+1100x760 the transcript body rose 12px and a link's ink bbox rose 8px, which
+broke the two coordinate-addressed transcript tests (`select_word_and_line`,
+`tracker_links`). Both say in their own comments to re-measure rather than
+nudge, so both were re-measured; the suite's failure set is back to the nine
+that fail on main. Anyone else flipping a global layout default should expect
+the same and should grep for `assert_ui_text .* y=` and bare `click <x> <y>`
+first — there are only three such files in tests/ui, which is why this was
+cheap.
+
+COST: the diagnosis was free (it was already filed); the retest was 2 rebuilds
+and ~15 min, plus ~20 min re-measuring the two coordinate tests. What it cost
+the PROJECT is that the largest single error in this region sat filed-and-
+unfixed because the escape was assumed to be expensive without being run once.
+Worth generalising: in this codebase a global styling default is one line and
+two minutes, and the per-region scorer already exists to prove what it did.
+
+### draw_circle_v truncates its centre to int — WORKAROUND (gap #78)
+
+Wanted: Puffin's 7px resting dot, centred on x=15.5. `draw_circle_v` takes a
+`Vector2Type` of floats and immediately does
+`draw_circle(static_cast<int>(center.x), static_cast<int>(center.y), ...)`. At
+r=3.7 with 32 unantialiased segments the half-pixel loss is visible: the dot
+lands a pixel left of the glyph column's centre and reads as a lumpy polygon
+next to Puffin's clean circle.
+
+Workaround, 1 line: `draw_ring_segment(cx, cy, 0.0f, r, 0, 360, 28, c)` — same
+shape, float centre, because the ring path never casts. Two primitives for one
+shape, and the one with the obvious name is the broken one.
+
+COST: ~40 px per dot across 2 rows plus the 20 rows a real backend would show;
+20 min to find, since "the dot looks wrong" reads as a radius bug, not a cast.
+
+### A label cannot be told to fit a width — WORKAROUND (gap #79)
+
+Wanted: a row title that ellipsizes exactly where Puffin's does. afterhours
+hard-clips a label at its widget width mid-glyph and offers no truncation, so
+the caller must ellipsize before handing the string over — and the caller only
+has a character count. hanabi's existing budget was
+`chars = (width - pad) / 6.1f`, an average advance calibrated to Roboto at
+12.5px, so changing the font size to the measured 16.5 silently clipped four
+titles a word early ("coordinating 3 shard worke…").
+
+Workaround, 18 lines: measure with `theme::text_px` (which wraps
+`measure_text_internal`) and shrink on UTF-8 boundaries until it fits. Correct
+at any size and any face — and it is the third place in this file that
+re-derives text metrics the layout engine already has.
+
+COST: 18 lines, ~25 min, and one wrong-looking screenshot that cost a rebuild
+before the cause was clear.
+
+### The parity metric rewards a font that is too small — TEDIOUS (no gap; this is our tooling)
+
+hanabi's row title was 12.5px against Puffin's ~16.5 — measurably, from ink
+bbox widths (102/125/99/148 ref vs 81/97/78/114 hanabi, ratio 1.27) and from
+ascender-to-descender height (13 vs 10). Setting it to the correct 16.5 made
+`compare.py` WORSE, by 0.14 points.
+
+Why: the two renderers use different faces, so glyph ink overlaps only 53% even
+when size and colour are exact. A too-small font simply paints less ink to be
+wrong with. The metric cannot reward correct typography until the typeface
+matches, and it will keep quietly paying for shrinking text.
+
+Shipped 16.5 anyway. Worth knowing before someone "optimises" a region by
+making its text smaller.
+
+### Cited, not re-filed
+
+#77 — no bold face, and the weight API no-ops silently. Same wall from the
+sidebar side: Puffin's row titles are semibold near-white, hanabi's ink is 17%
+lighter than the reference's at the same size and position. Of the 16.58% left
+in this region, 6.11 points is title ink that does not overlap the reference's,
+and weight is the biggest single component of it. It ends where #77 ends: a
+Bold TTF is an asset decision.
+
+### Where the remaining 16.58% is
+
+- **5.18 points is one row band** — hanabi's mock puts session `t2` in the open
+  tab and highlights its row; Puffin's reference fixture has a different session
+  open, so its list has no selected row at all. A fixture difference owned by
+  the tab-bar work, not a design difference. Excluding it the region is 11.39%.
+- **1.08 points is the count column.** Puffin right-aligns a count on 7 of 19
+  rows (`1`, and `1/3` for a session with 3 sub-agents of which 1 is done — the
+  mock data matches exactly). hanabi draws nothing: `api::SessionSummary` has no
+  sub-agent count, and the sub-agent list lives on the loaded `Session`. Real,
+  cheap-ish, and a change to a shared type + 20 mock call sites, which is not a
+  thing to land while four agents are in the same files.
+- **6.11 points is typeface and weight** (above, #77).
+- **1.05 points is glyphs**, and most of that is unreachable: Puffin draws seven
+  distinct row markers (arc, blue dot, bang, cross, grey dot, red dot, chevron)
+  and hanabi's model carries five `(state, tag)` pairs across these 19 rows. The
+  mapping is not a function — six rows are all `Attention/Blocked` in hanabi and
+  Puffin gives three of them a bang, two a cross and one a red dot. Four shapes
+  is the ceiling on this data, and it is reached.
+
+## Transcript pane — the furniture around the messages (header, per-turn times, anchoring)
+
+Scope was the pane's own chrome, not the bubbles: delete the title header, drop
+the per-turn relative times, and stop bottom-anchoring a short thread. `main`
+region went 4.75% -> 4.55%.
+
+### 10. The header removal itself cost nothing; proving it cost four rebuilds
+
+- **What I wanted** — to know whether deleting the transcript header changed
+  what the pane MEASURES, which is the thing todo.md warns desyncs the
+  virtualization spacers.
+- **What the library did** — nothing at all: afterhours will not tell you the
+  height it resolved for anything, so the only witness is hanabi's own probe
+  (`HANABI_PROBE_MEASURE=1`) reading `rect()` off elements you named in advance.
+  Answering "is this drift mine or pre-existing" is therefore a build of `main`,
+  a build of the change, and a build per hypothesis in between.
+- **The answer, for whoever comes next** — header removal and anchor removal
+  introduce **zero** drift. `main`: 182 comparisons, 45 drifts, all
+  `turn#2 measured 89.00 drew 88.00 (-1.00)`. Same numbers with the header and
+  the anchor gone. The drift only appears when the meta row is suppressed.
+- **Cost** — 4 full rebuilds at ~2 min each (a one-line edit to
+  `main_pane_system.h` recompiles all of `main.o`), plus 2 suite runs at ~13 min
+  to separate my failures from main's nine.
+- **Class** — `TEDIOUS`
+
+### 11. A row that is 15+3 constants tall occupies 20px, and you cannot ask why
+
+- **What I wanted** — measure == draw after suppressing the (now empty) meta row
+  above an assistant turn.
+- **What the library did** — `bubble_height` charges `kAuthorH + kAuthorGap` =
+  18 for that row; removing it takes **20** off the drawn turn. Measured off two
+  screenshots: the first assistant bubble's fill starts at y=189 with the row and
+  y=169 without. `flex_gap` is 0 on that column, so the extra 2px is not a gap I
+  set.
+- **Why it stayed unexplained** — the obvious next step is to read the resolved
+  heights of the turn's children and find the one that does not add up.
+  `UIComponent::children` is cleared every frame before app code runs, so a
+  resolved subtree cannot be walked at all — see `afterhours_gaps.md` **#73**.
+- **What it is, precisely** — not a new bug: turns with no meta row were ALREADY
+  measuring short on `main` (`turn#2`, -1.00, on 45 of 182 comparisons). My
+  change moves one more turn onto that path, where it reads -2.00. A pre-existing
+  over-measure of the no-meta-row case, now exercised twice instead of once.
+  Instance of gap **#68**; not papered over with a fudge constant.
+- **Cost** — 2px on one turn; drifting comparisons 45/182 -> 90/182.
+- **Class** — `FOOTGUN`
+- **Vacuity check, so the numbers above mean something** — `+1.0f` injected into
+  the measure moved every reported drift by exactly -1.00 (turn#1 -2.00 -> -3.00,
+  turn#2 -1.00 -> -2.00) and both measured values by +1. The probe is not vacuous.
+
+### 12. Moving the pane's content broke three tests that address it by pixel
+
+- **What I wanted** — a green suite after the content moved up.
+- **What the library did** — there is still no way to address a text run or ask
+  where one landed (gaps #47, #51), so `message_copy_on_hover`,
+  `select_word_and_line` and `tracker_links` all reach into the transcript by raw
+  coordinate. All three broke, and each had to be re-measured by rendering the
+  thread at the test's own window size and scanning the PNG for text rows.
+- **Cost** — 3 tests, 6 coordinates, 2 screenshots. The thread in `t2` moved
+  273px up, the one in `t1` 321px — the shift is per-thread, so one delta does
+  not fix them all.
+- **Class** — `TEDIOUS`
+
+### 13. `kHeaderH` was a named constant in one place and a bare `62.0f` in another
+
+- The transcript's overlays position themselves below the header. Two of them
+  read `kHeaderH`; the load-older pill hard-coded `62.0f + 6.0f`. Setting the
+  constant to 0 left that pill floating 62px down over the first message. Pure
+  hanabi, one line, but it is the exact failure mode a named constant is for.
+- **Class** — `FOOTGUN` (hanabi's own)
