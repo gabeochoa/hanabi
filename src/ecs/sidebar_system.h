@@ -2066,7 +2066,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          const api::SessionSummary& s,
                                          AppComponent& app, bool archived,
                                          float panelW) {
-        bool selected = app.selectedId == s.id;
         // Defect #5: cron / scheduled rows are visually de-emphasized (not
         // hidden). Detect purely by title shape ("Schedule:" prefix / "-tick"
         // suffix). When automated, the row draws a quiet "automated" glyph and
@@ -2082,10 +2081,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // The wash is therefore baked into the row's BASE fill, asking about the
         // whole subtree rather than the row entity alone, so the fill is
         // identical no matter which of {row, star} currently owns hot.
-        // A selected row always wins; an unhovered unselected row stays plain.
+        // An unhovered row stays plain.
 
         // Row height is the MEASURED Puffin pitch (kRowHeight = 32). Full
-        // bleed, square corners: Puffin's selected row runs edge to edge.
+        // bleed, square corners: the hover wash runs edge to edge.
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
@@ -2096,13 +2095,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(kCountRightPad),
                                       .bottom = pixels(6),
                                       .left = pixels(kRowLeftInset)})
-                .with_custom_background(selected ? theme::selected_bg()
-                                                 : theme::sidebar_bg())
-                // Selected row = no hover reaction (hover bg == selected fill);
-                // only an unselected row gets the subtle hover wash.
-                .with_custom_hover_bg(selected ? theme::selected_bg()
-                                               : theme::hover_over(
-                                                     theme::sidebar_bg()))
+                .with_custom_background(theme::sidebar_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Open on RELEASE, not press. afterhours withholds a click
                 // whose press moved past the drag threshold, but only on the
@@ -2114,11 +2108,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Bake the hover wash into the row's BASE fill whenever the pointer is
         // anywhere in the row's subtree, so the fill never flickers as hot moves
-        // between the row and its star (see note above). Selected always wins.
+        // between the row and its star (see note above).
         {
             const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
                                 ctx.mouse_was_in_subtree(row.ent().id);
-            if (!selected && rowHot) {
+            if (rowHot) {
                 if (row.ent().has<afterhours::HasColor>())
                     row.ent()
                         .get<afterhours::HasColor>()
