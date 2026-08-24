@@ -63,6 +63,27 @@ STARTUP_MS="$(echo "$LAUNCH_OUT" | grep -Eo 'Startup: +[0-9]+ ms' | grep -Eo '[0
 FIRSTFRAME_MS="$(echo "$LAUNCH_OUT" | grep -Eo 'FirstFrame: +[0-9]+ ms' | grep -Eo '[0-9]+' | head -1)"
 RSS_MB="$(echo "$LAUNCH_OUT" | grep -Eo 'Peak RSS: +[0-9]+ MB' | grep -Eo '[0-9]+' | head -1)"
 
+# --- Source checks ---
+# Cheap, and they catch a class of defect the pixel tests cannot: a silent
+# no-op renders plausibly and asserts nothing.
+step "Source checks"
+for chk in scripts/check_label_padding.py; do
+    OUT="$(/usr/bin/python3 "$chk"; echo "RC=$?")"
+    echo "$OUT" | sed '/^RC=/d' | sed 's/^/  /'
+    if echo "$OUT" | grep -q '^RC=0$'; then
+        echo "  $(basename "$chk"): PASS"
+    else
+        echo "  $(basename "$chk"): FAIL"; FAIL=1
+    fi
+done
+
+# The parity harness's own hermetic self-test, for the same reason: it has
+# three deliberate-breakage cases and nothing was running them on a schedule.
+OUT="$(/usr/bin/python3 scripts/compare.py --selftest; echo "RC=$?")"
+echo "$OUT" | sed '/^RC=/d' | sed 's/^/  /'
+if echo "$OUT" | grep -q '^RC=0$'; then echo "  compare.py --selftest: PASS"
+else echo "  compare.py --selftest: FAIL"; FAIL=1; fi
+
 # --- Summary ---
 printf '\n\033[1m======== SUMMARY ========\033[0m\n'
 echo "  Startup:          ${STARTUP_MS:-?} ms   (budget < 250 ms)"

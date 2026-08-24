@@ -3775,3 +3775,39 @@ curves, the ink ratios and the dash widths are all gap #86.
 
 ---
 
+
+---
+
+## The lesson, encoded (no branch — done on main)
+
+Gap #85 — padding on a label-only element is silently ignored — has now cost
+this project three times, and the third was the expensive one:
+
+1. a smart-view row's label sat 6px left of the reference for the whole parity
+   effort, under a comment doing the arithmetic out loud;
+2. the composer's pill labels drew at their element's edge (#91);
+3. **every session-row title was one pixel left, which was 100% of the session
+   list's remaining headroom** — after SIX rounds concluded the difference was
+   the text rasterizer (#109).
+
+Writing it in the gaps file a fourth time would not stop the fourth. So
+`scripts/check_label_padding.py` finds them, and `scripts/run_tests.sh` runs it.
+
+**There are thirty today, and they are not thirty bugs.** Wherever one is
+visible, somebody has already tuned the geometry around it, so "fixing" the
+padding moves something that currently looks right. What they are is thirty
+places where the next edit will silently do nothing. The set is frozen in
+`scripts/label_padding_baseline.txt`; the checker fails on a **new** one, and
+prints the list to anyone who touches an old one.
+
+Two exemptions, because a checker that cries wolf gets waived wholesale:
+zeroed padding (the documented workaround for gap #76, where an element with no
+padding silently gets a fraction of the *screen*), and centred labels, where
+horizontal padding is irrelevant by construction.
+
+Verified by injecting a hit: `NEW src/ecs/toast_system.h:116 toast_probe_new
+(up to 9px)`, exit 1. And `compare.py --selftest` now runs in the same step —
+it has three deliberate-breakage cases and nothing was running them.
+
+- **Class** — `ENCODED`. The first thing in this workstream that stops a defect
+  rather than describing it.
