@@ -897,3 +897,122 @@ region went 4.75% -> 4.55%.
   overall 8.18% → 7.99%.
 - **Class** — `WORKAROUND`, and the kind that every other afterhours app will
   either write again or ship without.
+
+---
+
+## Bold / semibold face (feat/bold-face)
+
+Testing whether shipping a bold TTF closes the title-ink gap. Short answer: the
+weighted-resolution path works, and the bold buys nothing on the metric. The
+friction is mostly in the measuring, not the library.
+
+### 1. `compare.py --regions` scores the RAW mask, but the header tells you to drive STRUCTURAL
+
+- **What I wanted** — to know whether "list 16.58%" is the number I should be
+  moving, since the tool prints `STRUCTURAL ... this is the one to drive`
+  directly above it.
+- **What happened** — the region table is computed from `mask`, the RAW
+  per-pixel diff, never from the blurred structural pair. So every per-region
+  number quoted across this whole workstream — the 16.58 list, the 3.90 tab bar,
+  the "6.1 of 16.6" that motivated this task — carries the ~10% retina
+  downsample floor the header explicitly says no design change can get under.
+  The two numbers do not even agree on direction: SF Semibold at 15.5px scores
+  list 16.02 (worse than the 15.83 of SF Regular) while its STRUCTURAL is 7.99
+  (better than 8.04). Pick a different mask and you make the opposite decision.
+- **Cost** — every region figure in this report has to be quoted twice, and the
+  regression I was sent to explain is partly an artifact of which mask got used.
+- **Class** — `FOOTGUN` (the tooling's own)
+- **Gap filed?** — no, this is `~/w/vis/compare.py`, not afterhours. Two lines:
+  build a second mask from the blurred pair and print both columns.
+
+### 2. The metric pays you to draw too little ink
+
+- **What I wanted** — a number that says whether a semibold looks more like the
+  reference than Regular does.
+- **What happened** — the diff counts non-overlapping pixels on both sides, so a
+  face that under-inks is cheap to be wrong with. Over the 18 list-title rows:
+  the reference has 9442 ink px; SF Semibold at 15.5 puts down 9253 (−2.0%) and
+  overlaps 53.9% of the reference's ink; SF Regular at 15.5 puts down 6562
+  (−30.5%) and overlaps 34.8%. **The region score prefers the second one**
+  (15.83 vs 16.02). The arm that draws a third less ink than the reference wins.
+  Ranking font decisions on this metric will keep choosing the lighter, wronger
+  face, and it very nearly did here.
+- **Cost** — the headline finding of this task is "the metric disagrees with the
+  picture", which took an ink-density/overlap probe of my own to see at all.
+- **Class** — `FOOTGUN` (the tooling's own)
+- **Gap filed?** — no. Suggest `compare.py` grow an ink-overlap mode
+  (intersection / union over bright pixels) for text-dense regions.
+
+### 3. No way to score a sub-band, so "how much of the list is titles?" needs a private script
+
+- **What I wanted** — the title column's contribution to the list region.
+- **What happened** — `--regions` has a fixed dict of seven fraction boxes and
+  no flag to add one. Had to reimplement `diff_mask` in a throwaway script to
+  learn that the title column is 14.83 of the list's 16.58 points. That is the
+  single most useful number in this investigation and the tool cannot produce it.
+- **Cost** — ~30 lines of duplicated masking logic, and a second implementation
+  of the tolerance constant that can drift from `compare.py`'s.
+- **Class** — `TEDIOUS`
+- **Gap filed?** — no. `--region name=x0,y0,x1,y1` would do it.
+
+### 4. Measured Regular, drew SemiBold — the ellipsizer cannot see the weight
+
+- **What I wanted** — semibold titles ellipsized to their column.
+- **What happened** — `theme::text_px` -> `measure_text_internal(text, size)`
+  measures the backend's *global* active font, which is the base face; the
+  renderer swaps the weighted variant in and back out around the draw, so app
+  code can never observe it. Titles were ellipsized at Regular widths and the
+  wider SemiBold glyphs ran past the column and hard-clipped mid-glyph: stray
+  ink past x=248 went from 3 px (Regular) to 116-132 px (SemiBold). Invisible
+  until a weight variant is registered, then every measured string in the app is
+  wrong at once.
+- **Cost** — not worked around; it is a precondition for shipping a bold at all.
+- **Class** — `WORKAROUND`
+- **Gap filed?** — **#82**.
+
+### 5. Half of gap #77 was already fixed upstream and nobody re-read it
+
+- **What I wanted** — to confirm `with_font_weight` "falls back silently".
+- **What happened** — it does not. `resolve_weighted` has called `warn_once`
+  since upstream 90f8ae8 ("stop two text features failing silently"), which the
+  pinned submodule (428047e) includes; the very first headless run printed
+  `No font registered for '__default@semibold'`. #77 was filed against an older
+  pin, classed `IMPOSSIBLE`, and has been quoted as a blocker since.
+- **Cost** — the cheap half of the finding was free and sat unclaimed. Worth a
+  habit: re-run the reproduction before quoting a gap older than the last
+  submodule bump.
+- **Class** — `TEDIOUS`
+- **Gap filed?** — #77 corrected in place, and re-classed `WORKAROUND`.
+
+## row-selection agent (feat/no-open-row-highlight) — 2026-08-24
+
+1. **`compare.py --regions` scores the RAW mask, not the structural one.** The
+   headline prints both numbers, then the per-region table silently uses RAW.
+   "list 16.58%" and "STRUCTURAL 8.18%" are not on the same scale, so a band
+   improvement quoted from the table cannot be added to the structural figure.
+   Worth one line in the table header.
+
+2. **`ref/01_home.png` has one stray `#2E3A58` pixel in the list band**
+   (x=270, y=408, on the sidebar's right edge). A "does the reference contain
+   the selection colour anywhere below the views" scan returns 1, not 0, and
+   reads as a hit until you print the coordinates. Any future colour-presence
+   scan on this reference needs a run-length floor, not `> 0`.
+
+3. **The scripted `.e2e` DSL has no colour assertion.** `assert_ui` /
+   `expect_text` cover structure and text; there is no `expect_pixel`. A change
+   whose whole content is "this surface is no longer painted" therefore cannot
+   be locked by the suite — the only regression gate is the screenshot
+   baselines, and those are the thing we are told not to regenerate. A
+   `expect_pixel x y r g b [tol]` handler would have made this a one-line test.
+
+4. **`run_ui_tests.sh` ignored my `# settings:` line.** A probe script whose
+   header asked for 1180x949 ran at the 1100x760 default, so the first round of
+   pixel sampling was aimed at the wrong rows and read "hover paints nothing".
+   Diffing the two frames whole (`ImageChops.difference(...).getbbox()`) found
+   the band immediately and is the better first move regardless.
+
+5. **Puffin's source is on this box** (`~/kt-ng2w-puffin`) and answers questions
+   the frozen screenshot cannot. `HomeSessionList.swift` settled the hover
+   question and the "is the open thread highlighted" question in about two
+   minutes, with no need to touch the live app. Nothing in `REFERENCE.md`
+   mentions it; it should.

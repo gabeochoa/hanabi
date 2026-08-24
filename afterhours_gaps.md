@@ -3674,38 +3674,81 @@ CLASS: FOOTGUN
 
 ---
 
-### #77 — There is no bold, and `with_font_weight` fails silently rather than saying so
+### #77 — There is no bold face bundled (the "fails silently" half is FIXED)
 
-**What was wanted.** The reference's ACTIVE tab title is bold white; its
-inactive titles are regular. Weight is the only thing distinguishing the
-current tab's label from the rest.
+**Correction, measured on the pinned submodule (428047e), feat/bold-face.**
+The "fails silently" half of this entry is stale. `resolve_weighted` calls
+`warn_once` on an unresolvable weight — added upstream in 90f8ae8, "Public text
+measuring, and stop two text features failing silently", which the current pin
+includes. Asking for SemiBold with no variant registered prints, once:
 
-**What the library does.** `ComponentConfig::with_font_weight` exists and
-resolves to a registered `"<font>@<weight>"` font, **falling back to the base
-font** when that name is not registered. hanabi ships three Regular faces
-(Roboto, JetBrains Mono, Atkinson Hyperlegible) and no Bold, so the call
-compiles, runs, logs nothing, and draws regular text. There is no synthetic
-emboldening and no stroke-weight knob to fake one with. Same silent-fallback
-shape as #48, one level up: #48 drops a glyph the face cannot draw, this drops
-a WEIGHT the app never registered.
+```
+[WARN] No font registered for '__default@semibold', drawing '__default' at its
+normal weight. Load the variant under that exact name to get it.
+```
 
-**Cost as a number.** The active tab's title can never converge. Its text zone
-is 1072 diff pixels — 1.68 points of the tab bar's region score — and while
-most of that is the fixture's different title string, the weight is the part
-that would still be wrong if the strings matched. Every "emphasis" in the
-reference design (active tab, selected row, section headers) is the same
-problem.
+**The weighted-resolution path works end to end.** Registering a second face
+under `"<base>@semibold"` / `"<base>@bold"` is all it takes: `load_font` accepts
+the weighted name, `resolve_weighted` finds it, and every renderer path
+(`render`, the styled-span path, the measuring paths) swaps the face in and back
+out around the draw. Proven by pointing `HANABI_BOLD_FONT` at a bold TTF already
+on the machine and re-shooting `01_home`. With the knob unset the capture is
+byte-identical to the run before the `with_font_weight` calls were added, so the
+fallback is genuinely inert. **The only missing thing is the asset.**
 
-**Workaround.** None available in code. Raising the active title to pure white
-buys some contrast and is not the same signal. Escaping this means shipping a
-Bold TTF and registering it as a weight variant — an asset decision, not a
-library one, so it is deliberately not taken here.
+**Cost as a number — and it is not the number this entry implied.** With a real
+semibold in place the diff does NOT improve. Measured against
+`ref/01_home.png` at 1180x949:
 
-**Minimal upstream fix.** Make an unresolvable weight loud: log once, or return
-a resolution failure the app can assert on. Better still, synthesize bold from
-the regular face when no bold is registered, as most text stacks do.
+| session-list titles | list % | structural % |
+|---|---|---|
+| Roboto Regular 16.5 (shipped) | 16.58 | 8.18 |
+| + Roboto Medium @semibold, 16.5 | 17.07 | 8.28 |
+| + Roboto Bold @semibold, 16.5 | 17.32 | 8.38 |
+| + Roboto Bold @semibold, best size (16.0) | 16.45 | 8.13 |
+| SF Text Regular 15.5 (reference's own face, no bold) | **15.83** | 8.04 |
+| SF Text Regular + SF Text Semibold, 15.5 | 16.02 | **7.99** |
 
-CLASS: IMPOSSIBLE
+The active tab's title moves 3.90 -> 3.86, not the 1.68 points this entry
+attributed to it: the tab-bar residue is the fixture's different title strings,
+which weight cannot touch.
+
+**Why the correct answer scores worse.** The metric counts every
+non-overlapping pixel on BOTH sides, so a face that draws too little ink is
+cheap to be wrong with. Title-ink measurements over the same 18 rows:
+
+| | ink px | vs reference | overlap with ref ink |
+|---|---|---|---|
+| reference (SF semibold) | 9442 | — | — |
+| Roboto Regular 16.5 | 7958 | −15.7% | 40.1% |
+| Roboto Bold @semibold 16.0 | 10518 | +11.4% | **60.3%** |
+| SF Semibold 15.5 | 9253 | −2.0% | **53.9%** |
+| SF Regular 15.5 (the region-score "winner") | 6562 | **−30.5%** | 34.8% |
+
+The semibold closes the 16% ink-density deficit this entry named and lifts
+title-ink overlap from 40% to 60% — it is unambiguously the more faithful
+render — while the region score's best result is the arm that draws a THIRD
+less ink than the reference. Shipping a bold is right for the picture and
+roughly neutral-to-negative for this metric; anyone quoting "6 points" off it
+should stop.
+
+**What actually holds the titles apart** is glyph position, not glyph weight:
+Roboto's advances diverge from SF's over a string, so ink drifts out of register
+after a few characters and denser glyphs simply miss harder. Compounding it,
+`theme::type::LIST_ROW = 16.5f` was fitted with a Regular face in hand — it was
+absorbing the missing weight. Swap in the reference's own face and the optimum
+moves to 15.5px, which alone is worth more (16.58 -> 15.83) than any weight
+change.
+
+**Still true.** No bold TTF ships in `resources/fonts`, so every
+`with_font_weight` call in the tree resolves back to Regular today. Shipping one
+is `Roboto-Bold.ttf` (Apache-2.0) + `AtkinsonHyperlegible-Bold.ttf` (OFL 1.1),
+which is a licensing decision, not a library one.
+
+CLASS: WORKAROUND
+
+---
+
 ### #78 — `draw_circle_v` truncates its centre to whole pixels
 
 **A filled circle cannot be placed on a half pixel: `draw_circle_v` takes float
@@ -3801,6 +3844,55 @@ resolved inside the renderer where the font, the size and the final rect are all
 already in hand. Failing that, expose the measurement the layout already does so
 callers stop guessing at advances.
 
+### #82 — Text cannot be measured at a weight, so every weighted string is ellipsized against the wrong metrics
+
+**What was wanted.** Ellipsize a semibold session-list title to its column.
+`fit_to_width` (see #79) already does this for regular text by measuring the
+candidate substring and walking back until it fits.
+
+**What the library does.** The measuring function the app can reach,
+`afterhours::measure_text_internal(text, size)`, takes no weight and no font.
+It measures against the backend's *global* active font
+(`graphics::metal_detail::g_active_font`), which is whatever the renderer last
+set — the base face, never the weighted variant, because the renderer swaps the
+variant in and straight back out around each draw. So the app measures Regular
+and the renderer draws SemiBold. There IS a font-taking `measure_text(Font, ...)`
+overload, but reaching a weighted `Font` from app code means pulling the
+`FontManager` singleton out of the ECS and hand-composing
+`fm.get_font(fm.resolve_weighted(base, weight))` at every measuring site —
+re-implementing resolution the renderer already does internally.
+
+**Cost as a number.** Measured on `01_home` at 1180x949, ink beyond the title
+column's right edge (x=248..268, 18 rows):
+
+| titles drawn at | stray ink px past the column |
+|---|---|
+| Roboto Regular (measured correctly) | 3 |
+| Roboto Bold @semibold, 15.75 | 26 |
+| Roboto Bold @semibold, 16.5 | 132 |
+| SF Text Semibold, 15.5 | 116 |
+
+The ellipsis is placed where Regular would have ended, then the wider SemiBold
+glyphs run past it and the label widget hard-clips mid-glyph — the exact failure
+`fit_to_width` was written to avoid. It is invisible until a weight variant is
+registered, at which point every measured-and-ellipsized string in the app is
+silently wrong at once. The three existing measure-per-frame sites in hanabi all
+inherit it.
+
+**Workaround.** None taken. Correct would be to thread the weight to every
+`theme::text_px` call site and have that helper resolve a weighted `Font`
+through the FontManager singleton, which means `theme.h` — a pure colour/size
+header — acquiring an ECS dependency.
+
+**Minimal upstream fix.** Give `measure_text_internal` a
+`colors::FontWeight w = Regular` parameter and resolve it the same way the
+renderer does. One signature, one lookup, and the whole class of "measured
+regular, drew bold" bugs goes away before anyone ships a bold face.
+
+CLASS: FOOTGUN
+
+---
+
 ### #83 — The focus ring paints at rest: there is no `:focus-visible`, and `FocusSource` cannot be used to build one
 
 **What was wanted.** An app that opens looking like an app that has not been
@@ -3855,3 +3947,5 @@ set when focus moves by keyboard, cleared on a pointer press — and gate the ri
 in `ComputeVisualFocusId` on it. Ten lines where the focus already lives, and
 `FocusSource` already carries the distinction the frame needs; it only needs to
 survive the frame boundary.
+
+CLASS: WORKAROUND
