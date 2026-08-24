@@ -96,6 +96,12 @@ Two consequences, both worth knowing before quoting a number:
   closer under the old rhythm. Always say which thread a `main` figure was
   shot on.
 
+Both scripts also take `HANABI_SHOOT_2X=1`, which renders at 2360x1898 with
+`theme.ui_scale = 2.0` and reduces to 1180x949 with LANCZOS. **It is not the
+default and should not become one — it scores worse.** See the floor section
+below.
+
+
 `02_thread.png` declares the four capture divergences and **not** the
 transcript one — that is what it was captured for. Its declared cost is 0.25
 structural points against 01's 4.75, so on 02 the transcript is a surface the
@@ -126,6 +132,63 @@ glyph on the same grid — it measured the wrong thing.
 
 The column prints `AT FLOOR` when a region is at or under it. **A region at
 floor is done.** Do not spend a day proving otherwise; two people already have.
+
+### The floor is real, but its explanation was wrong — and rendering at 2x does not remove it
+
+The section above says the floor is *rasterization phase*, and that a hanabi
+capture sampled the way Puffin's was would collapse it. That was the natural
+reading of the half-pixel-offset experiment, it was the highest-value lead left
+in this workstream, and **it is wrong**. `feat/vis-hidpi` built the capture and
+measured it.
+
+hanabi CAN render at 2x. It is `theme.ui_scale`, not `Config.hidpi`: hanabi
+runs afterhours in Adaptive scaling mode, where `ui_scale` multiplies every
+`pixels()` value including explicit font sizes, so a 2360x1898 render at 2.0 is
+the same UI at twice the size. `HANABI_SHOOT_2X=1` on either shoot script does
+it and reduces the PNG with LANCZOS, the way the reference was reduced.
+
+It does not help. Shot back to back on one binary, structural over shared
+surfaces:
+
+| region | floor | 1x | 2x |
+|---|---|---|---|
+| list | 8.41–11.83 | **14.02** | 14.60 |
+| views | 2.31–3.88 | **4.53** | 6.02 |
+| sidebar | 6.25–8.93 | **10.61** | 11.35 |
+| tabbar | 1.25–3.02 | **2.81** | 3.53 |
+| footer | 1.61–5.87 | 5.26 | **4.40** |
+| search | 1.54–3.17 | 4.24 | **4.21** |
+| whole (shared) | | **9.12** | 9.68 |
+
+**No region moves toward its floor.** The split is not random and it is not a
+registration artefact — measured at each capture's own best sub-pixel offset,
+the hand-drawn row marks improve (6.92% → 5.67%) and the row titles get worse
+(14.57% → 15.86%). Supersampling helps every drawn SHAPE and hurts every
+STRING.
+
+The reason is that afterhours has no supersample, only a layout zoom (gap #101).
+A 2x render re-measures, re-fits and re-advances every string at 33px instead
+of sampling the 16.5px layout more finely. Over the eighteen visible row
+titles that closes half the ink deficit against Puffin (640 → 662 px of ink,
+against the reference's 685) and makes the strings 2.3px wider on average.
+Extra ink along a string whose advances are drifting increases non-overlap on
+both sides of every glyph — which is the same result the dilation and
+gamma-lift experiments reached from the other direction, now confirmed a third
+time by a different route.
+
+**So: the residual under every text region is per-glyph PLACEMENT, not phase,
+not coverage, not weight, and not sampling.** The floor numbers are still the
+right thing to compare against and `AT FLOOR` still means done. What has
+changed is that nobody should expect to get under them by changing how hanabi
+is captured. Two remedies were already killed with numbers; this is the third,
+and it was the last plausible one.
+
+(A separate finding from the same branch, worth knowing before you read any
+2x number: afterhours' private 5px text margin is in DEVICE pixels, so at
+`ui_scale 2` every label sits 2.5px left of where the 1x build puts it —
+gap #100. That is worth +1.49 points on VIEWS all by itself, and the sub-pixel
+sweep above is how it was held apart from the rest.)
+
 
 `--regions` prints two columns per region: **STRUCT first — that is the one to
 drive** — and RAW beside it. Until 2026-08-24 the table printed RAW only, while

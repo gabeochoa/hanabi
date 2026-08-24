@@ -117,4 +117,29 @@ inline bool focus_audit() {
     return on;
 }
 
+// HANABI_UI_SCALE=<float> multiplies every pixels() value in the Adaptive
+// scaling cascade, the way a browser's Ctrl+/- does — so a 2360x1898 render at
+// 2.0 lays out the SAME UI at twice the size rather than a thin sidebar in a
+// big canvas. It exists for the visual-parity harness: the frozen references
+// are Puffin captured at 2x on a retina panel and downsampled to 1x, so a 1x
+// hanabi capture is scored against 2x-downsampled glyphs and the metric has an
+// 8-12% floor in every text region that no design change can reach
+// (docs/visual-parity/REFERENCE.md, "The score has a FLOOR").
+//
+// Clamped to afterhours' own [0.5, 3.0] (theme.h with_ui_scale). Same contract
+// as the hooks above: read once, and a hard no-op when unset — an unset var
+// returns exactly 1.0f and setup_app_state does not touch theme.ui_scale at
+// all, so the scripted UI suite at 1100x760 renders byte-identically to a
+// build without this hook.
+inline float ui_scale() {
+    static const float v = [] {
+        const char* s = std::getenv("HANABI_UI_SCALE");
+        if (s == nullptr || *s == '\0') return 1.0f;
+        const float f = std::strtof(s, nullptr);
+        if (f < 0.5f || f > 3.0f) return 1.0f;
+        return f;
+    }();
+    return v;
+}
+
 }  // namespace hanabi::test_hooks

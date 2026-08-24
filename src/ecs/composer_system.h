@@ -66,9 +66,9 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const float sw =
-            static_cast<float>(afterhours::graphics::get_screen_width());
+            hanabi::viewport::width();
         const float sh =
-            static_cast<float>(afterhours::graphics::get_screen_height());
+            hanabi::viewport::height();
 
         // Dimmed full-window backdrop (pre-blended, gap #13). Click = close.
         auto backdrop = button(ctx, mk(uiRoot, 8100),

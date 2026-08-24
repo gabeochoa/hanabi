@@ -2567,3 +2567,228 @@ of one unmodified binary read 4.19% and 4.66%.
 - Left at 12, which is Puffin's number and the metric's best. **Recorded so the
   next person does not sweep it again**; that is three sweeps now (UI face,
   bold weight, mono size) that all end at the shipping value.
+
+## Capturing at 2x (feat/vis-hidpi)
+
+**The verdict, first: hanabi CAN render its own UI at 2x, and it does not help.
+The floor does not collapse — supersampling makes hanabi's TEXT score worse,
+measurably and after correcting for registration, and it makes its hand-drawn
+VECTOR chrome better. The premise this branch was opened on is disproved with
+numbers, and the two things it turned up along the way are worth more than the
+capture would have been.**
+
+### What the theory was
+
+`ref/*.png` are Puffin captured at 2x on a retina panel and reduced to 1x, and
+hanabi's capture is a 1x offscreen render, so every glyph in every comparison
+has been a 2x-downsampled glyph against a 1x-rasterized one. `compare.py
+--floor` prices that asymmetry at 8.4–11.8% in the session list and 2.2–3.3%
+overall, against a list sitting at 14.07%. If hanabi rendered at 2x and were
+reduced the same way, the reasoning went, the floor would largely go and every
+text region would become honestly measurable for the first time.
+
+`main.cpp`'s own comment said this was blocked upstream:
+
+> *the Metal backend does not supersample it (Config.hidpi is honored only by
+> the raylib backend) … Rendering into a 2x-sized texture does NOT help: the
+> adaptive UI just lays out at the larger logical size (thin sidebar in a big
+> canvas), it doesn't supersample.*
+
+Both halves of that are true, and the second half is exactly why
+`theme.ui_scale` is the answer to it: in Adaptive mode — which is the mode
+hanabi runs in, `main.cpp:149` — `ui_scale` multiplies every `pixels()` value
+in the tree, **explicit font sizes included** (`rendering.h:1611` and `:2179`
+both resolve `cmp.font_size` through the scaling-mode-aware overload). So a
+2360x1898 texture at `ui_scale = 2.0` is not a bigger canvas. It is the same
+UI, twice the size.
+
+Four things could have killed it before it started. Three did not:
+
+- **Adaptive or Proportional?** Adaptive. `main.cpp:149` sets it globally.
+- **Do literal `with_font_size(<px>)` calls scale?** Yes. Both render paths
+  resolve them with `resolve_to_pixels(size, screen_h, mode, ui_scale)`. This
+  was the one that would have ended the branch in a paragraph, and it holds.
+- **Do `h720()` sizes and `pixels()` sizes stay in step?** In this harness,
+  yes — but only by coincidence. `h720()` is `ScreenPercent`, and
+  `resolve_to_pixels` returns `value * screen_dimension` for it with no
+  `ui_scale` term anywhere (`layout_types.h:200-207`): it scales with the
+  framebuffer, not with the zoom. The capture doubles the framebuffer as well
+  as `ui_scale`, so both units land on exactly 2x and nothing is out of step.
+  Zoom the app WITHOUT resizing the window and they part company by the zoom
+  factor — hanabi has 19 `h720()`/`w1280()` sizes and 37 `FontSize::` tiers
+  (the tier API resolves to `h720()`, `component_config.h:685`), and every one
+  of them would hold still while the `pixels()` around it grew. Not measured
+  here, because this branch never had a reason to zoom without resizing; noted
+  because anyone shipping `HANABI_UI_SCALE` as a user-facing zoom will hit it
+  first thing.
+- **Anything hanabi computes in raw pixels itself.** This one did not hold, and
+  it is finding #1 below.
+
+### Finding 1 — hanabi's own panel arithmetic was in device pixels, so every rectangle it computed was scaled twice
+
+At `ui_scale 2.0` the first 2x capture came out with **no composer, no status
+bar, a sidebar whose footer had fallen off the bottom edge, and a transcript
+laid out in a pane twice as wide as the one it was drawn into** — bubbles
+running off the right of the frame. The app reported nothing wrong.
+
+Nineteen call sites across ten systems read
+`graphics::get_screen_width()/get_screen_height()` — the real framebuffer — and
+fed the result straight back to the tree as `pixels(sw)` or
+`with_absolute_position(x, y)`, which afterhours then multiplies by `ui_scale`
+again (`component_init.h:433`). `layout_system.h` is the worst of them: it
+computes the sidebar, tab strip, main pane, composer strip and status bar from
+the window size every frame, and at scale 2 the composer's y doubles to 2792 in
+a 1520-tall window.
+
+afterhours already draws the distinction this needs — `LayoutInfo::make`
+divides the screen size by `ui_scale` for precisely this reason — but only
+hands it to code that asks for a `LayoutInfo`. `src/ui/viewport.h` is hanabi's
+version: `width()`/`height()` are the window in LOGICAL pixels, and every one
+of the nineteen sites now reads them. At `ui_scale 1.0` the divisor is exactly
+`1.0f`, so it is bit-identical to what was there before.
+
+Held by `tests/ui/ui_scale_is_a_zoom_not_a_bigger_canvas.e2e`, which asserts
+the five rectangles at scale 2 and goes red on four of them without the fix.
+
+- **Class** — `FOOTGUN` (ours, not the library's — but see gap #102 for the half
+  that is the library's)
+- **Gap filed?** — no. This is hanabi's bug, and the property that makes it
+  invisible (an off-window widget renders silently) is #86's territory.
+
+### Finding 2 — everything hanabi draws by hand stayed 1x inside the 2x frame
+
+Every escape hatch this project uses for a shape afterhours cannot draw — the
+five row-state marks, the mute ring, the attention triangle, the disclosure
+chevron, the send arrow, the pushpin, the radio, and every icon-atlas blit —
+goes through `on_draw_fg` or an immediate-mode helper. Those are handed a
+widget rect afterhours has already scaled, and then every radius, stroke width
+and sprite size **inside** them is a literal the library never sees. At 2x they
+came out half size in a correctly-scaled frame.
+
+Fixed in hanabi with `viewport::px()` — a multiply by the active scale, exactly
+`v` at 1.0 — at 25 sites in `icons.h` and `sidebar_system.h`. Filed as gap #102,
+because the reachable-only-through-a-global workaround is also wrong for any
+widget that overrides its own scaling mode.
+
+### Finding 3 — the renderer's private 5px text margin is in DEVICE pixels, so every label slides left as you zoom
+
+Gap #75 named `position_text_ex`'s hardcoded `Vector2Type margin_px{5.f, 5.f}`
+as an inset no caller can turn off. It is also not scaled, which means it is
+not a constant inset at all — it is `5/ui_scale` logical pixels, and every
+left-aligned label in the app slides toward its leading edge as the app zooms
+in. Measured on the "Settings" nav label, taking its ink start in device pixels
+and dividing by the scale:
+
+| ui_scale | label starts at (logical px) | 5/s |
+|---|---|---|
+| 1.0 | 37.000 | 5.000 |
+| 1.5 | 34.667 | 3.333 |
+| 2.0 | 34.000 | 2.500 |
+| 3.0 | 33.333 | 1.667 |
+
+The residual after subtracting `5/s` is 31.3–32.0 across all four — flat to
+within a pixel, which is the first-glyph bearing. Across the eighteen visible
+row titles the same drift reads 5.5px → 2.8px of left inset, against the
+reference's 6.6px.
+
+That is a 2.7px misregistration on every string in a 2x capture, and it is
+worth more than everything supersampling gains. Filed as gap #100. **It is not
+the reason the experiment failed, though — see below; I measured past it.**
+
+### The numbers, both references, all four shot back to back
+
+Same binary, four captures in one run (the fixture-clock rule); a 1x re-shoot
+afterwards differs from the first by **0 pixels**, so nothing below is the
+clock moving. STRUCT over shared surfaces, RAW in brackets.
+
+`ref/01_home.png`:
+
+| region | floor | 1x | 2x | Δ |
+|---|---|---|---|---|
+| sidebar | 6.25–8.93 | 10.61 (9.72) | 11.35 (11.07) | **+0.74** |
+| &nbsp;&nbsp;views | 2.31–3.88 | 4.53 (5.27) | 6.02 (6.40) | **+1.49** |
+| &nbsp;&nbsp;search | 1.54–3.17 | 4.24 (4.22) | 4.21 (4.13) | −0.03 |
+| &nbsp;&nbsp;list | 8.41–11.83 | 14.02 (12.36) | 14.60 (14.00) | **+0.58** |
+| &nbsp;&nbsp;footer | 1.61–5.87 | 5.26 (4.68) | 4.40 (4.41) | **−0.86** |
+| tabbar | 1.25–3.02 | 2.81 (2.40) | 3.53 (3.92) | **+0.72** |
+| main | 0.83–1.41 | 9.13 (9.53) | 9.03 (8.09) | −0.10 |
+| **SHARED** | | **9.12 (8.59)** | **9.68 (9.35)** | **+0.56** |
+
+`ref/02_thread.png`:
+
+| region | floor | 1x | 2x | Δ |
+|---|---|---|---|---|
+| sidebar | 6.25–8.93 | 10.64 (9.75) | 11.38 (11.09) | +0.74 |
+| &nbsp;&nbsp;views | 2.31–3.88 | 4.53 (5.27) | 6.02 (6.40) | +1.49 |
+| &nbsp;&nbsp;search | 1.54–3.17 | 4.26 (4.22) | 4.23 (4.13) | −0.03 |
+| &nbsp;&nbsp;list | 8.41–11.83 | 14.07 (12.40) | 14.63 (14.03) | +0.56 |
+| &nbsp;&nbsp;footer | 1.61–5.87 | 5.26 (4.68) | 4.40 (4.41) | −0.86 |
+| tabbar | 1.25–3.02 | 2.03 (1.66) | 2.41 (3.17) | +0.38 |
+| main | 0.83–1.41 | 4.49 (3.73) | 4.43 (3.68) | −0.06 |
+| **SHARED** | | **5.84 (5.08)** | **6.00 (5.45)** | **+0.16** |
+
+**No region drops toward its floor. The list moves the wrong way.**
+
+### Why, and this is the part worth keeping
+
+The obvious objection to the table is finding 3: of course 2x scores worse, the
+text is 2.7px out of register. So I removed the registration. Sub-pixel x-shift
+sweep of each capture against the reference, per column, taking each one at its
+own best offset:
+
+| column | 1x best | at dx | 2x best | at dx | verdict |
+|---|---|---|---|---|---|
+| row marks, x 0–20 | 6.92 | −0.5 | **5.67** | 0.0 | **2x wins by 1.25** |
+| footer buttons, x 195–275 | 11.75 | +0.5 | **11.19** | +0.5 | 2x wins by 0.56 |
+| views icons, x 0–32 | 12.05 | 0 | 11.94 | 0 | flat |
+| sub-agent counts, x 240–280 | **2.61** | +1.5 | 3.37 | +3.0 | 1x wins by 0.76 |
+| row titles, x 20–240 | **14.57** | +1.0 | 15.86 | +3.5 | **1x wins by 1.29** |
+
+So the split is clean and it is not a registration artefact: **supersampling
+helps every drawn shape and hurts every string.** Fixing gap #100 upstream would
+recover the registration and leave that split exactly where it is.
+
+The reason text loses is the same mechanism the dilation and gamma experiments
+found from the other side (`## The floor`, above). Measured over the eighteen
+visible row titles:
+
+| | reference | 1x | 2x |
+|---|---|---|---|
+| mean ink px per title | 685 | 640 (−6.6%) | 662 (−3.4%) |
+| mean string width | 148.5 | 148.3 | 150.6 |
+| mean left inset | 6.6 | 5.5 | 2.8 |
+
+2x closes **half** the ink deficit — the thing three investigations correctly
+identified as the visible difference between fontstash's Regular and CoreText's
+stem-darkened semibold. It also makes the strings **2.3px wider on average**,
+because fontstash measures and advances at 33px and the result is halved, which
+is not the same as advancing at 16.5px. Extra ink laid down along a string
+whose advances are drifting increases non-overlap on both sides of every glyph,
+and the metric charges for it. That is the dilation result again, arrived at by
+a completely different route, and it is now the third independent confirmation
+that **the last few points of every text region are per-glyph placement, not
+coverage, not weight, and not sampling.**
+
+The floor's premise — that the residual is rasterization PHASE, and that
+matching Puffin's sampling would collapse it — is therefore wrong. Two
+renderers laying the same string down at different advances do not have a
+phase difference you can sample your way out of; supersampling gives hanabi
+Puffin's edge softness and leaves the letters in different places, crisper.
+
+### What shipped anyway
+
+The 2x path is in both shoot scripts behind `HANABI_SHOOT_2X=1`, off by
+default, because it is worse overall and because one measurement should not be
+able to change every number in the workstream by accident. It is worth keeping
+for two reasons: the row-mark result is a real 1.25-point win that gap #92
+explicitly ruled out ("Drawing the shape bigger and letting the downscale
+soften it — **there is no downscale**"), and there is now one. And
+`HANABI_UI_SCALE` is a working browser-style zoom for the app, which it was
+not before finding 1.
+
+- **Class** — `TEDIOUS` (three days of the workstream's central assumption,
+  priced) + `WORKAROUND` (#97, #99)
+- **Gaps filed?** — **#97** (the 5px text margin does not scale), **#98** (no
+  supersampled capture: `ui_scale` is a layout zoom and they are not the same
+  thing), **#99** (`on_draw_fg` hands you a scaled rect and no scale).
+

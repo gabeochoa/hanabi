@@ -121,9 +121,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const float sw =
-            static_cast<float>(afterhours::graphics::get_screen_width());
+            hanabi::viewport::width();
         const float sh =
-            static_cast<float>(afterhours::graphics::get_screen_height());
+            hanabi::viewport::height();
 
         // Panel geometry, computed BEFORE the backdrop so the backdrop click
         // handler can hit-test the cursor against the panel rect (see below).

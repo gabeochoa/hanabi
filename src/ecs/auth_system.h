@@ -31,9 +31,9 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const float sw =
-            static_cast<float>(afterhours::graphics::get_screen_width());
+            hanabi::viewport::width();
         const float sh =
-            static_cast<float>(afterhours::graphics::get_screen_height());
+            hanabi::viewport::height();
 
         // Dimmed backdrop. Not click-to-dismiss: auth is a deliberate decision,
         // the user leaves via the explicit escape button (mirrors a modal login).
