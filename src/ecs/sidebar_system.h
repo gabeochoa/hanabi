@@ -450,6 +450,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kSbStripH = 28.0f;     // "VIEWS" header strip
     static constexpr float kSbViewsTopPad = 4.0f;
     static constexpr float kSbViewRowH = 32.0f;   // view row pitch
+    // The selected fill is shorter than the pitch and rounded; both measured
+    // off the reference (fill y69..97 inside a row starting at 68, first row
+    // x3..276 against a middle of x0..278).
+    static constexpr float kSbViewFillInset = 3.0f;
+    // The pitch stays 32 even though the reference's own is ~32.2: it is a
+    // SwiftUI layout captured at 2x and halved, so its rows sit on fractional
+    // rows that no integer pitch matches -- 32 puts Blocked and Review exactly
+    // right and Archived 1px high, 32.2 the other way round. 32 wins because
+    // this constant ALSO sets where the session list starts, and a fractional
+    // pitch moved every row of the list a pixel down: sidebar 10.89% -> 13.01%,
+    // list 14.25% -> 17.18%. Six view rows are not worth twenty list rows.
+    static constexpr float kSbViewFillRadius = 5.0f;
     static constexpr int kSbViewRows = 6;
     static constexpr float kSbRuleH = 4.0f;       // 3px gap + a 1px hairline
     static constexpr float kSbSearchH = 32.0f;    // 6px gap + a 26px field
@@ -1568,9 +1580,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool active = lit == view;
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f),
-                                         pixels(folded ? 30.0f
-                                                       : kSbViewRowH)})
+                // Unfolded: the FILL is shorter than the row's pitch. The
+                // reference's selected fill is 29px inside a 32px pitch, so it
+                // is sized 29 and the missing 3 are given back as margin --
+                // which keeps every later row on the 32px grid while leaving
+                // 1px of window colour above the fill and 2px below.
+                .with_size(ComponentSize{
+                    percent(1.0f),
+                    pixels(folded ? 30.0f : kSbViewRowH - kSbViewFillInset)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -1580,14 +1597,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // glyph land on the same vertical line as the toggle above.
                 // Unfolded: kSbInset is the ONE left inset the whole sidebar
                 // shares, and kCountRightPad puts every count on one right edge.
-                .with_padding(Padding{.top = pixels(4),
+                // 6/4, not 4/5. The fill lost 3px of height above, and the
+                // row's content is centred inside what is left, so the whole
+                // row rode up with it. Re-derived by sweep against the
+                // reference's own label rows: at 6/4 Blocked lands 142..152
+                // and Review 174..184, both exact.
+                .with_padding(Padding{.top = pixels(6),
                                       .right = pixels(kBadgeRightPad),
-                                      .bottom = pixels(folded ? 4.0f : 5.0f),
+                                      .bottom = pixels(folded ? 4.0f : 4.0f),
                                       .left = pixels(folded ? 0.0f
                                                             : kSbInset)})
-                .with_margin(Margin{.top = pixels(folded ? 1.0f : 0.0f),
+                .with_margin(Margin{.top = pixels(1.0f),
                                     .right = pixels(0),
-                                    .bottom = pixels(folded ? 1.0f : 0.0f),
+                                    .bottom = pixels(folded ? 1.0f : 2.0f),
                                     .left = pixels(0)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::sidebar_bg())
@@ -1598,9 +1620,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                              : theme::hover_over(
                                                    theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
-                // Puffin's selected row is a full-bleed rectangle, edge to
-                // edge, with square corners.
-                .with_roundness(folded ? 0.3f : 0.0f)
+                // Puffin's selected row runs the full width -- x0..278, the
+                // whole sidebar -- but its corners are ROUNDED, not square:
+                // measured, the fill's first row spans x3..276 and its middle
+                // x0..278, which is a radius of about 5. The comment that used
+                // to sit here claimed square corners and was simply wrong.
+                //
+                // afterhours takes a FRACTION, not a radius: it resolves to
+                // min(w,h) * 0.5 * roundness, so on a 29px-tall fill 5px is
+                // 5/14.5. Expressed as that division rather than as 0.34, so
+                // it still means 5px if the row height ever changes.
+                .with_roundness(folded ? 0.3f
+                                       : kSbViewFillRadius /
+                                             ((kSbViewRowH - kSbViewFillInset) *
+                                              0.5f))
                 .with_debug_name("smart_item"));
 
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(

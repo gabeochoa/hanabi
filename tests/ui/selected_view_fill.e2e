@@ -1,0 +1,34 @@
+# The selected view's fill is 29px inside a 32px row, and its corners are round.
+#
+# Both were wrong, and the code asserted the second one out loud: a comment
+# over the row read "Puffin's selected row is a full-bleed rectangle, edge to
+# edge, with square corners". Full-bleed is right -- the fill really does run
+# x0..278, the whole sidebar. Square is not. Measured off the reference, the
+# fill's top row spans x3..276 where its middle spans x0..278, which is a
+# corner radius of about 5.
+#
+# And it is 29px tall inside a 32px pitch, where hanabi drew all 32 -- two
+# full-width rows of pure difference under every selected view, the largest
+# contiguous block left in the region after the focus ring went.
+#
+# The 3px comes back as margin rather than being taken off the pitch, because
+# kSbViewRowH also sets where the SESSION LIST starts: a pitch change moves
+# twenty list rows to fix six view rows, and it was measured doing exactly that
+# (list 14.25% -> 17.18%).
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
+
+# Home is the first smart_item and the one the window opens selected, so the
+# first match is the row whose fill this is about.
+assert_ui smart_item h=29
+
+# Its top edge, which is where the 1px of margin above it puts it. The row
+# below it must therefore start at 101 -- 69 + 29 + 2 of margin -- which is the
+# 32px pitch preserved.
+assert_ui smart_item y=69
+
+# The width is unchanged and full-bleed: the fill is not inset horizontally,
+# only vertically. The layout says 280, the whole sidebar, and it paints
+# x0..278 -- boxes rasterize one pixel bigger and one up-left than asked for
+# (gap #80), so the last column is the divider's.
+assert_ui smart_item w=280

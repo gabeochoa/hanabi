@@ -1749,3 +1749,53 @@ a semibold because it is the correct render, never because of a parity number.
   (they keep "6m"/"5h" stable across runs *within* a day). Shoot the before and
   the after in the same session, or quote the region you changed.
 
+
+---
+
+## The selected view's fill (no branch — done on main)
+
+### 1. A comment asserted the thing it was wrong about
+
+- Over the smart-view row: *"Puffin's selected row is a full-bleed rectangle,
+  edge to edge, with square corners."* Half right. It IS full-bleed — the fill
+  really does run x0..278, the whole sidebar, which is why nobody questioned
+  the sentence. The corners are **rounded**, radius ~5: the fill's top row
+  spans x3..276 where its middle spans x0..278.
+- That is the second comment on this workstream that documented an intention
+  the code did not achieve and nobody re-read (see the `.with_padding(12)` that
+  had never done anything, gap #85, and Home's badge whose own comment said
+  what the number should be next to a `-1`). **A confident comment is where you
+  should look first, not last** — it is the thing that stops the next reader
+  measuring.
+
+### 2. The fill was 32px in a 32px pitch; the reference's is 29
+
+- Two full-width rows of pure difference under every selected view — the
+  largest contiguous block left in the region once the focus ring went.
+- The 3px comes back as **margin**, not off the pitch, and that distinction was
+  worth measuring: `kSbViewRowH` also sets where the session list starts, so a
+  pitch change moves twenty list rows to fix six view rows. Tried it: pitch
+  32.2 fixed the one view row that 32 gets wrong and took **list 14.25% →
+  17.18%, sidebar 10.89% → 13.01%**.
+
+### 3. The reference's own pitch is not an integer, and cannot be matched
+
+- Its rows sit at 83, 115, 147, 179, 211, 244 — 32, 32, 32, 32, **33**. It is a
+  SwiftUI layout captured at 2x and halved, so its rows land on half-pixels. At
+  pitch 32 Blocked and Review are exact and Archived is 1px high; at 32.2 the
+  other way round. There is no integer pitch that matches all six, and the
+  fractional one costs more elsewhere than it wins here.
+- **Class** — `IMPOSSIBLE`, small. Worth knowing before someone spends an hour
+  on the last row.
+
+### 4. Shrinking the fill moved the text, and the text was already 1px high
+
+- Content is centred in the row, so taking 3px off the fill rode the whole row
+  up — VIEWS got *worse* (5.83% → 6.07%) on a change whose geometry was exact.
+  Re-derived the padding by sweeping it against the reference's own label rows:
+  6/4 rather than 4/5 puts Blocked at 142..152 and Review at 174..184, both
+  exact.
+- **The lesson is the order**: fix the box, then re-derive everything centred
+  inside it. Measuring the box alone said the change was right while the region
+  said it was wrong, and the region was right.
+- Net: VIEWS **5.83% → 5.07%**, sidebar 11.10% → 10.89%.
