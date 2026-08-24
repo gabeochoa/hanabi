@@ -31,6 +31,7 @@
 
 #include "../ui/theme.h"
 #include "components.h"
+#include "sidebar_footer_geometry.h"
 #include "ui_imports.h"
 
 namespace ecs::footer_status {
@@ -53,19 +54,9 @@ inline bool network_active(const AppComponent& app) {
            app.kickoffPending || app.settingsPending || app.authBeginPending;
 }
 
-// The action cluster is three 22px buttons centred on panelW-70 / -46 / -22,
-// so the leftmost begins at panelW-81; the count ends kActionGap short of it.
-constexpr float kActionsLeft = 81.0f;
-constexpr float kActionGap = 10.0f;
-constexpr float kDot = 6.0f;
-constexpr float kDotGap = 6.0f;
-// afterhours insets label text 5px from its box on every alignment, with no
-// way off (afterhours_gaps.md #84).
-constexpr float kAhTextInset = 5.0f;
-// Below this the version label and the count would collide, so the count is
-// dropped rather than overlapped. Only reachable mid-expand-tween: the folded
-// rail returns before the footer is drawn at all.
-constexpr float kMinPanelW = 210.0f;
+// The band's geometry constants and its two snapped placements live in
+// sidebar_footer_geometry.h, which has no graphics in it so a unit test can
+// call them: `tests/unit/test_footer_geometry.cpp`.
 
 // The dev-only transport label. The deleted strip appended "  ·  backend: X"
 // to its left cluster under HANABI_DEBUG and nothing else in the UI prints
@@ -87,7 +78,7 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
 
     if (debug_backend()) {
         // Beside the version label, which is the other thing in this band that
-        // is the app talking about itself. 10 is the version's own left inset.
+        // is the app talking about itself, one 8px gap past the version's ink.
         const std::string be = "backend: " + app.backend_label;
         div(ctx, mk(parent, 18),
             ComponentConfig{}
@@ -96,8 +87,10 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
                     pixels(theme::text_px(be, theme::type::SM) + kAhTextInset),
                     pixels(bandH)})
                 .with_absolute_position()
-                .with_translate(10.0f + theme::text_px("v0.0.0", theme::type::SM)
-                                    + 8.0f,
+                .with_translate(label_box_x(
+                                    kFooterPadX
+                                    + theme::text_px("v0.0.0", theme::type::SM)
+                                    + 8.0f),
                                 top)
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -127,7 +120,7 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
             .with_label(count)
             .with_size(ComponentSize{pixels(textW + kAhTextInset), pixels(bandH)})
             .with_absolute_position()
-            .with_translate(textLeft - kAhTextInset, top)
+            .with_translate(label_box_x(textLeft), top)
             .with_transparent_bg()
             .with_custom_text_color(theme::text_faint())
             .with_font_size(theme::type::SM)
@@ -139,12 +132,28 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
     // The light hugs the count's MEASURED left edge rather than a fixed slot,
     // which is why the pair reads as one object instead of a dot adrift in the
     // band. Same correction the strip's right cluster already carried.
+    //
+    // Both of its coordinates are SNAPPED to whole pixels, and that is what
+    // makes it round. afterhours never rounds a position -- grid snapping is
+    // off in hanabi (`preload.cpp`) and only ever snapped SIZES anyway -- so a
+    // fractional origin reaches the rasterizer, which has no antialiasing
+    // (gap #92) and resolves a 6px box at y=932.5 into FIVE rows. The shipped
+    // light was 6 wide and 5 tall: an ellipse, because x happened to land
+    // whole and y was the band's odd 10.5px inset. Its x is worse than a
+    // constant -- it is derived from `text_px` of a string whose length
+    // changes with the catalog, so which axis loses a pixel depends on how
+    // many sessions there are. Gap #130.
+    //
+    // floor, not round: the band's own centre is y935 and the count's ink
+    // centre is y934, because a label's ascent is taller than its descent.
+    // Flooring the half lands the light on the TEXT rather than on the box.
+    const float dotY = dot_y(top, bandH);
+    const float dotX = dot_x(textLeft);
     div(ctx, mk(parent, 17),
         ComponentConfig{}
             .with_size(ComponentSize{pixels(kDot), pixels(kDot)})
             .with_absolute_position()
-            .with_translate(textLeft - kDotGap - kDot,
-                            top + (bandH - kDot) * 0.5f)
+            .with_translate(dotX, dotY)
             .with_custom_background(network_active(app) ? theme::status_active()
                                                         : theme::text_faint())
             .with_roundness(1.0f)

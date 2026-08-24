@@ -5557,3 +5557,186 @@ sprite's weight becomes a draw-time parameter rather than an asset decision.
 
 CLASS: MISSING
 
+### #130 — Nothing rounds a widget's ORIGIN, so a shape on a half pixel silently loses a row (or a column, depending on the caller's arithmetic)
+
+**What was wanted.** A 6px round activity light in the sidebar footer, centred
+in the band beside the session count.
+
+**What happens.** It came out **six wide and five tall**. The band's content
+runs y922..948, so the centring arithmetic is `922 + (27 - 6) / 2 = 932.5`, and
+a 6px box at y=932.5 rasterizes to rows 933..937 — 4/6/6/6/4 pixels. At an
+integer y the same box draws six rows, 4/6/6/6/6/4, and is round. Half a pixel
+of position costs a sixth of the shape.
+
+Nothing in the stack rounds it. `AutoLayout::compute_relative_positions` has
+grid snapping, hanabi turns it off (`preload.cpp`), and it only ever snapped
+`computed[Axis]` — the SIZE — never `computed_rel`, so even switched on it
+would not have touched this. The float origin reaches
+`draw_rectangle_rounded`, which emits float triangles to sgl with MSAA
+hardcoded off (#92), and the rasterizer resolves a shape whose extremes land
+exactly on pixel boundaries however the vertex arithmetic happens to fall — the
+asymmetry between the lost top and bottom row is not a rule anyone can predict,
+it is float precision at the fan's extreme vertex.
+
+**Two things make this worse than an off-by-one.**
+
+1. **It is one axis at a time, so a circle becomes an ellipse rather than
+   moving.** A shape that MOVED half a pixel would be invisible. This one
+   changes proportion, and it changes it on whichever axis the caller's
+   arithmetic happened to make fractional. Here x was whole and y was not.
+2. **The fractional part can be data-dependent.** This light's x is
+   `text_px("<N> sessions") ` subtracted from a right edge, so it changes with
+   the catalog: the same build draws a round light on one machine's session
+   count and a 5-wide one on another's. That is a bug that does not reproduce.
+
+**Why the obvious escapes do not work.**
+
+- **`with_skip_grid_snap` / `set_grid_snapping(true)`** — the wrong axis of the
+  problem entirely: both are about the computed SIZE of non-pixel dimensions,
+  and this is a pixel-dimensioned widget at a fractional POSITION.
+- **Make the band an even height so the halves come out whole** — the band's
+  height is the footer's 28px minus its 1px rule, which is Puffin's own
+  `FooterMetrics.height`. Changing it to make one child's centring divide
+  evenly is letting a 6px dot set the height of a piece of chrome.
+- **Draw it in `on_draw_fg` instead** — `CustomDrawFn` is handed the widget's
+  own `RectangleType`, so it inherits exactly the same fractional origin, and
+  #102 says it is handed it already scaled.
+- **`rect_aa` (the escape #106 documents)** — that computes a partly covered
+  pixel's opaque colour over a known background, and it is axis-aligned only.
+  It would soften the light's edge, which is not the complaint: the complaint
+  is that one of its two axes is a pixel short.
+- **Round the size instead of the position** — a 6px box at 932.5 and a 7px box
+  at 932.5 are both wrong; it is the origin that is off the grid.
+
+**The workaround, and its cost.** `std::floor` on both coordinates, at the
+call site, in `src/ecs/sidebar_footer_geometry.h`. Two lines. The costs are
+that (a) every caller who draws a small shape has to know this, and there is
+nothing in the API to suggest it; (b) `floor` versus `round` is now a design
+decision the caller has to justify — this footer floors, because the band's
+centre is a half pixel below the count's ink centre and flooring is what lands
+the light on the text; and (c) **no harness in the repo can regression-test
+it.** `assert_ui` reads x/y/w/h and rounds them (#86), so it reports 933 for
+an unsnapped 932.5 and 932 for an unsnapped 932.4 — it cannot tell a snapped
+origin from an unsnapped one. The property had to be pulled into a header with
+no graphics in it and tested as arithmetic
+(`tests/unit/test_footer_geometry.cpp`), which is a file that exists only
+because of this gap.
+
+**Minimal upstream fix.** Snap absolute translates to whole DEVICE pixels in
+`compute_relative_positions` — device, not logical, so it stays correct at
+`ui_scale 2` where #100 already shows the difference matters — with
+`with_skip_grid_snap` (or a sibling opt-out) as the escape for a caller who is
+deliberately animating sub-pixel. Failing that, a `snap_px()` in the layout
+header so the arithmetic at least has a name and shows up in a search.
+
+CLASS: SURPRISING
+
+---
+
+### #131 — A widget's hover highlight IS its hit rectangle, so a big target with a small chip needs the whole hover fill re-implemented
+
+**What was wanted.** Puffin's sidebar footer buttons. Each is an
+`Image(systemName:).frame(width: 24, height: 28).contentShape(Rectangle())` —
+a hit target the full height of the footer band — carrying
+`.hoverHighlight(inset: 2, vertical: 2, cornerRadius: 4)`, which draws its
+chip 2px inside that on both axes. So the target is 24x28 and the chip is
+20x24, and Puffin's source says in as many words why the two differ:
+*"Icon-sized, not a row: `hoverHighlight`'s own `maxWidth: .infinity` is built
+for a list row, and applied here it would stretch this button to fill the rest
+of the footer."*
+
+**What happens.** `with_custom_hover_bg` paints the widget's own rect. There is
+one rectangle and it is both things, so a caller picks: a hit target the size
+of the chip, or a chip the size of the target. hanabi's footer buttons are
+22x22 in a 27px band — the chip is right and the target is 5px short of the
+band, which is 18% of the button's height and all of it at the edges, where a
+pointer travelling down the sidebar arrives.
+
+**Why the obvious escapes do not work.**
+
+- **A bigger transparent parent with the button inside it** — the parent is
+  what the pointer is over, so the hover state now belongs to the parent and
+  `with_custom_hover_bg` on the CHILD never fires. Moving the fill to the
+  parent puts it back at the target's size, which is where it started.
+- **`with_ignore_pointer_events` on a chip drawn over a bigger button** — this
+  works for the pointer and not for the paint: the chip is a second widget, so
+  it needs the button's hover state at BUILD time to know whether to exist, and
+  see below.
+- **`with_on_draw_bg`** — this is the escape that works, and it is a bigger
+  bill than it looks. `RenderPrimitive::CustomDrawFn` is
+  `std::function<void(RectangleType)>`: it gets the rect and nothing else, no
+  hover state, no theme, no interaction phase. So the caller reads
+  `ctx.was_hot(id)` itself while building, closes over the answer, and hand-
+  draws the fill — which means re-implementing the hover fill (colour, corner
+  radius, and whatever afterhours' own hover animation does) for every button
+  that wants an inset chip, off a hover state that is a frame stale by
+  construction. `feat/vis-sb3` reached the same conclusion from the other
+  direction for the selected-view fill (#107).
+
+**The workaround, and its cost.** None taken. hanabi's footer buttons keep the
+22x22 that makes the CHIP right and leaves the target 5px short at the top and
+bottom of the band. The trade was made deliberately: the chip is in every
+frame anyone looks at and the missing 5px is in none, and no reference capture
+in this workstream shows a hover state at all, so the half that was chosen is
+the half that can be verified.
+
+**Minimal upstream fix.** An inset on the highlight —
+`with_hover_bg_inset(float h, float v)` — applied to the rect
+`RenderPrimitive` builds for the hover fill and to nothing else. It changes no
+hit testing, no layout, and no existing caller, and it is the one field
+SwiftUI's own `hoverHighlight` needed to be reusable between a list row and a
+20pt glyph.
+
+CLASS: MISSING
+
+---
+
+### #132 — There is no tooltip and no accessible name, so an icon-only button is unlabelled in every sense
+
+**What was wanted.** Puffin's four footer elements, each of which carries a
+`.help()`: the version label ("About Puffin"), `info.circle` (the same),
+`ant` (`BugReport.buttonHint`) and `gearshape` ("Settings"). Two of them also
+carry an explicit `.accessibilityLabel`.
+
+**What happens.** There is no tooltip anywhere in afterhours — no
+`with_tooltip`, no `help`, no title, no hover-delay timer, nothing under any
+spelling; the string `tooltip` does not appear in `vendor/afterhours/src`. Nor
+is there an accessible name: hanabi's footer buttons are built
+`.with_label(" ")` — a literal space, because the widget wants a label and the
+drawing is a sprite in `on_draw_fg` — so the only text those three controls
+have anywhere in the tree is a space. A reader who does not recognise a
+magnifier has no way to find out what it does, and nothing else in the frame
+says.
+
+This is not a parity nicety. Three unlabelled glyphs are the entire right half
+of this band, and hanabi's two are `plus` and `search` against Puffin's
+`info.circle` and `ant` — the pair that is a deliberate product divergence
+(REFERENCE.md). The divergence is defensible precisely because hanabi's two do
+something a reader wants; a control nobody can name does not.
+
+**Why the obvious escapes do not work.**
+
+- **Put the word in the button** — a 24px slot in a 280px column holding three
+  of them. That is the layout Puffin's own comment records this footer moving
+  AWAY from.
+- **Build one out of a hover-triggered absolute div** — possible, and it is a
+  hover-delay timer, a z-order above every sibling (#93's trailing-edge
+  problem, one layer up), a measured text box (#103), a screen-edge flip, and
+  a rule for dismissal, per surface, in app code. That is a component, not a
+  workaround, and every consumer of afterhours would write it again.
+- **The OS's own tooltip** — there is no per-widget rect the platform knows
+  about; afterhours draws into one surface and the window is one control.
+
+**The workaround, and its cost.** None. hanabi's footer buttons are
+unlabelled, and so is every other icon-only control in the app — the tab
+strip's `+` and pin, the search row's filter, the collapse toggle. The cost is
+recorded here rather than paid: it is the same missing feature every time, and
+it wants building once, upstream, not five times in hanabi.
+
+**Minimal upstream fix.** `with_tooltip(std::string)` on `ComponentConfig`,
+rendered by the existing overlay layer on a hover dwell, plus an
+`accessible_name` that defaults to the label and can be set when the label is
+a placeholder — which is exactly the pair SwiftUI's `.help()` sets in one call.
+
+CLASS: MISSING
+

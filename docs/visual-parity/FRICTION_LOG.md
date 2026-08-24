@@ -3541,3 +3541,292 @@ four in one command.
 
 ---
 
+## The sidebar footer (feat/vis-footer)
+
+Footer **8.06% -> 7.99%** structural on both references, headroom over the
+floor **+2.21 -> +2.14** on `01_home` and **+2.19 -> +2.12** on `02_thread`.
+In frame points, 0.1757 -> 0.1741 on 01 and 0.0698 -> 0.0692 on 02.
+
+That is a small number and it is the honest one. **The useful output of this
+round is the anatomy**: the region that was "worst in the app by headroom" is,
+correctly bounded and correctly attributed, two thirds somebody else's and a
+declared feature, and this entry is mostly the arithmetic that shows it.
+
+### The anatomy of the +2.19, priced against the floor
+
+778 structural diff pixels over the region's 9,650 shared ones. Where they are:
+
+| piece | px | share | over its own floor | what it is |
+|---|---:|---:|---:|---|
+| the session list's last row, and the rule under it (y911..921) | 303 | **39%** | +132 | **not the footer's.** See below |
+| the session count + activity light | 285 | **37%** | +150 | hanabi's; Puffin draws nothing in that 160px |
+| `plus` against `info.circle` | 76 | 10% | +14 | declared product divergence |
+| `search` against `ant` | 77 | 10% | +16 | declared product divergence |
+| `gear` against `gearshape` | 37 | 5% | **AT FLOOR** | the only matched pair |
+| the version label | 0 | 0% | — | declared: v0.5.5 is not a number hanabi can become |
+
+The region's floor is 5.85%, so its 8.06% is **213 pixels** of headroom. Read
+the table against that and there is no defect in it: 132 of the 213 are the
+list's text, roughly 150 are a feature Puffin does not have, and the two
+mismatched icons are 30 between them. The one pair that IS comparable was the
+only thing in the band worth touching, and it is now at its floor.
+
+(The per-rectangle floors deliberately do not sum to the region's. Each is
+computed on its own boundary, and a boundary picks up its neighbour's edge
+under an 0.8px blur: `foot/count`'s floor of 3.70% is 135 pixels, which is
+exactly one row of 135 columns — the footer's own hairline at y921, half a
+pixel above the rectangle's top edge. A floor is a property of the rectangle
+you drew, not only of what is inside it.)
+
+### 39% of this region is the session list, and the region boundary is why
+
+`compare.py` cuts `footer` at `H * 0.96` = y911. The footer's own rule is at
+**y921**. So ten rows of the list's last visible row are scored as footer, and
+they are 303 of its 778 pixels — text, in the region with the app's smallest
+denominator, which is the combination that makes a number look alarming.
+
+This is not new and it is not a metric bug: `feat/vis-tabs3` already noticed
+"203 more sit in rows y917..921 ... it belongs to whoever owns the list". What
+is new is that it is now 39% rather than 32%, because everything else in the
+band got smaller, and that **nobody has ever subtracted it before quoting the
+footer's headroom.** The footer band alone — y922..948, the 28px Puffin
+reserves — is 468 pixels and 0.1057 frame points.
+
+The region boundary was left alone deliberately. Moving it to y921 would move
+the `list` region's boundary in the same edit, under an agent who is live in
+that code, and every list figure in this workstream with it. `ceiling.py` now
+carries `foot/listbleed` as a named rectangle in its default partition
+instead, so the split is one command away and nobody has to rediscover it.
+
+### `ceiling.py` was pricing declared surface, and it ranked an unspendable rectangle top
+
+The tool this round was told to reach for first said the version label was
+**+5.00 reachable** — the largest single number in the footer, and the first
+place its own ranking sends you.
+
+Every pixel of that rectangle is masked out of the score. `compare.py`
+declares `(8, 926, 60, 944)` as "sidebar footer version string", because
+v0.5.5 is not a number hanabi can become, and `ceiling.py` did not know: it
+called `diff_mask` and `floor_by_region` directly and never looked at
+`KNOWN_DIVERGENCES`. A tool whose entire purpose is to rank work by
+*reachable* size was ranking an unreachable rectangle first.
+
+Fixed, and the fix is in all three columns — the score, the ceiling, and the
+**floor**, which is the one that is easy to forget. A floor measured over
+surface the score does not look at is a floor for nobody, and it is subtracted
+from a masked score to produce "headroom", so the two halves of that
+subtraction were being measured over different surfaces. `--no-exclusions`
+reproduces the old output exactly, and a rectangle that is entirely declared
+now prints `ALL DECLARED -- unspendable` rather than three plausible numbers.
+
+The same inconsistency exists in `compare.py`'s own `--floor` column and is
+NOT fixed here: its per-region score is masked and its per-region floor is
+not. It matters most where the declared share is largest — `main` is **85.3%
+declared**, so its printed floor of 0.69–1.05 is overwhelmingly the
+rasterization cost of a transcript viewport nobody is being asked to move.
+Left for whoever owns that region to decide, because changing it moves every
+region's headroom in one edit and this branch is the footer's.
+
+### The activity light was six wide and five tall
+
+The one real defect in the band, and neither the metric (0.0018 frame points)
+nor a 1x screenshot reports it.
+
+hanabi's network light is a 6x6 box with `roundness 1.0` — a disc. It rendered
+rows 933..937: **4/6/6/6/4**. Six wide, five tall, and lopsided. The cause is
+one half pixel: the band's content runs y922..948, so centring a 6px dot is
+`922 + (27 - 6) / 2 = 932.5`, and afterhours never rounds a position. Grid
+snapping is off in hanabi and only ever snapped SIZES anyway, so the fraction
+reaches a rasterizer with MSAA hardcoded off (#92) and one row falls off an
+edge that lands exactly on a pixel boundary. At an integer y the same box
+draws 4/6/6/6/6/4 and is round. Gap **#130**.
+
+Two things about it generalise:
+
+- **It is one axis at a time, so the shape changes proportion rather than
+  moving.** A half-pixel translation is invisible; a circle that is a sixth
+  short on one axis is a different drawing. Which axis depends on which of the
+  caller's two expressions happened to come out whole.
+- **The fractional part here was data-dependent.** The light's x is
+  `text_px("20 sessions")` subtracted from a right edge, so the count of
+  sessions in the catalog decides whether it loses a column instead. That is a
+  bug that reproduces on one machine's fixture and not another's, and it is
+  why the fix snaps both axes and the test sweeps forty x values.
+
+**It costs 8 diff pixels** (285 -> 293 over the count's rectangle) and it is
+right anyway. The reference has no light there at all, so every pixel hanabi
+draws is a difference by construction and the metric will always prefer the
+smaller, wronger shape — this is trap #1 with no other half to find, because
+there is nothing to correct it *towards*.
+
+### The gear is the only button that can be measured, and it was a size too small
+
+`SidebarColumn.sidebarFooter`'s three buttons are `info.circle`, `ant` and
+`gearshape`; hanabi's are `plus`, `search` and `gear`. Only the third pair
+means the same thing, and REFERENCE.md already records why the other two must
+not be closed. What that leaves is one comparable icon, and it was carrying
+**37 of the buttons' 190 pixels against its neighbours' 76 and 77** — the
+matched one costing half what the mismatched ones do, which is the ratio
+`feat/vis-tabs3` found and the sanity check on the whole idea.
+
+Measured off `ref/01_home.png`, the three reference glyphs are **11x11, 9x12
+and 11x12** and read as one size, because SF Symbols normalises optically.
+Lucide normalises by its 24-unit box, so hanabi's one nominal 13px gave `plus`
+and `search` at 12x12 and `gear` at **10x12**: the gear carries more internal
+padding than the other two and came out visibly smaller in the same cluster.
+Swept:
+
+| nominal | plus | search | **gear** |
+|---|---:|---:|---:|
+| 11 | 80 | 79 | 61 |
+| 12 | 85 | 83 | 61 |
+| **13 (shipped)** | 76 | 77 | 37 |
+| **14** | 75 | 82 | **22** |
+| 15 | 77 | 101 | 37 |
+| 16 | 87 | 118 | 56 |
+
+**gear 37 -> 22 at 14px**, where its box becomes 12x12 — level with its two
+neighbours and against the reference's 11x12. `plus` and `search` stay at 13,
+deliberately: sizing one icon set's glyph to a *different* icon set's box is
+measuring the fixture, which is the same claim `feat/vis-tabs3` declined to
+make about the tab strip's `+`. Per-icon `px` in the button table, with the
+optical-sizing reason written above it.
+
+### A blit and its label need two inks HERE too, and the earlier sweep could not see it
+
+`feat/vis-tabs3` swept this band's colour axis and got a NEGATIVE result:
+`text_faint` (100,100,112) beats `text_secondary` (142,142,154) 4.44% to 4.58%,
+and the best colour available is worth 0.11 points. That result is correct and
+it is **one constant for the whole band**, which is the thing that hides the
+answer.
+
+Split per element and re-swept analytically (recovering per-pixel coverage from
+one render, which is exact for a blend):
+
+| ink | plus | search | gear | all three |
+|---|---:|---:|---:|---:|
+| **text_faint (100,100,112)** | **76** | **77** | **37** | **190** |
+| (120,120,139) | 78 | 76 | 49 | 203 |
+| Chrome.mutedText (140,140,166) | 79 | 84 | 68 | 231 |
+| (160,160,190) | 89 | 94 | 81 | 264 |
+
+Monotonic, and — the part worth having — **it is monotonic on the GEAR too**,
+the one icon whose shape is right. So this is not the two mismatched icons
+hiding a real colour gap: a sprite blit genuinely overshoots here, at every
+ink above the shipped one, on a pair that matches. `text_faint` stays, and now
+it is measured on a matched pair rather than on an average over three.
+
+The text is the other way round, and by the same rule. Measured on the
+reference by (pixel − background), the only coverage-independent read: its
+version label's mean ink is **54.9** above the (23,23,35) it sits on, and
+hanabi's at `text_faint` was **37.2** — 68%, and visibly the dimmer of the two
+side by side. 1.476x of text_faint's own (77,77,77) delta is (114,114,125);
+`text_secondary` lands (119,119,119), inside six levels on every channel, and
+it follows the light theme where an eleventh hardcoded token would not.
+hanabi's version label now measures **54.3** against the reference's 54.9.
+
+So the footer joins the smart-view row: **two inks where Puffin's source uses
+one**, for the same reason and in the same direction — the blit takes the
+lower constant, the text takes the higher one. REFERENCE.md's rule ("move a
+BLIT to the source's token, and leave TEXT wherever it measures") needed one
+amendment for this band: the blit's right token here is *below* the source's,
+not at it, because these glyphs are 10pt where the smart-view row's are 13.
+
+### The version label was five pixels right of the reference's, in a rectangle nothing can score
+
+Puffin's footer is `.padding(.horizontal, 10)`, so its version ink begins at
+x=10 and the reference confirms it: "v0.5.5" runs x10..36. hanabi's box was AT
+10 and its ink at **15**, because afterhours insets a label's text by a
+hardcoded 5px on every alignment with no way off (#84) — the gap this file has
+cited four times, arriving once more in the one place where no harness could
+report it.
+
+`compare.py` declares that rectangle. The move cost and bought exactly **0.000
+structural points**, measured both ways. The only reading available is
+`ceiling.py --no-exclusions`, which is now a supported way to ask:
+
+| build | foot/version, unmasked |
+|---|---|
+| main | 12.78% |
+| + the 5px | 11.30% |
+| + the ink | **10.86%** |
+
+**A declared rectangle is not a rectangle nobody should work in.** It is a
+rectangle whose *content* cannot converge — v0.5.5 against v0.1.0 — and
+everything else about it still can: where it starts, how bright it is, what
+size it sets. Both of this branch's visible improvements are inside one, and a
+reader who trusted the region score would have concluded there was nothing
+there. That is the mirror of the status bar's lesson: a rectangle over chrome
+does not cover the displacement the chrome causes, and a rectangle over a
+string does not cover where the string is drawn.
+
+### The count is the price of information Puffin does not show, and here is the price
+
+285 pixels, **0.0644 frame points on `01_home` and 0.0256 on `02_thread`** —
+the two numbers differ by 2.5x because 01 declares its transcript viewport and
+02 does not, so the same pixels are a different fraction of a different
+denominator. Quote the reference with the number.
+
+`feat/vis-statusmove` priced this at 0.025 when it moved the count here and
+bought 0.636 of composer register for it. That was 02's number and it still
+holds exactly. Nothing since has made it cheaper, and nothing in this round
+tried to: every lever that reduces it is a lever that makes hanabi's own
+status quieter or smaller than its own typography, which is fitting a metric
+against an element the metric has nothing to compare with. **The reference has
+no ink in that 160px, so the count's score is a pure function of how much ink
+hanabi puts there and the optimum is zero.**
+
+Declared in REFERENCE.md rather than in `compare.py`, and the distinction is
+the point: the bar for a `compare.py` entry is "no change to hanabi's design
+can close it", and deleting the count would close it. It is kept because it is
+worth keeping, not because it is unspendable, and a score that stops charging
+for it would stop being able to tell anyone what it costs.
+
+### Two tests, one of which could not be a test
+
+**`tests/ui/sidebar_footer_starts_where_puffins_does.e2e`** pins the version
+label's box at x=5 (the ink at 10, plus afterhours' 5) and the three buttons on
+the reference's own 24px pitch. Verified to fail without the fix — reverting
+`label_box_x` to the identity gives
+
+```
+[E2E ERROR] assert_ui (line 42): assert_ui 'sb_version': x=5 but got 10
+```
+
+It takes its window size from `# env:`, not `# settings:`, for the reason the
+statusmove entry records: the runner writes the settings blob and the uitest
+binary sizes its surface from `HANABI_WIN_W/H`, so a bottom-anchored assertion
+declared only in the blob measures against 760 and fails looking exactly like a
+layout bug you just wrote.
+
+**`tests/unit/test_footer_geometry.cpp`** holds the property `assert_ui`
+cannot: that the light's origin is on a whole pixel. The harness ROUNDS what it
+reports, so it reads 933 for an unsnapped 932.5 and 932 for an unsnapped 932.4
+— it can pin where the light is and can never pin that it is round. Verified
+to fail: reverting the two `std::floor`s and `label_box_x` gives 57 failures,
+`FAIL: fs::dot_y(922.0f, 27.0f) == 932.0f`, 19 x `FAIL: whole(y)`, 36 x
+`FAIL: whole(fs::dot_x(text_left))`, and both `label_box_x` checks. That file
+exists only because of gap #86, and it is the second one in this repo to
+(`test_tab_colors.cpp` was the first).
+
+**One existing assertion had to move**: `composer_reaches_the_window_floor.e2e`
+read `assert_ui sb_activity_dot y=933` and now reads 932. It caught the change
+before I updated it, which is the only evidence worth having that it was a real
+assertion and not a decoration.
+
+### For the next person
+
+- **Subtract the list before you quote this region.** 39% of `footer` is the
+  session list's last row, because the region cut is `H*0.96` and the footer's
+  rule is ten rows lower. `ceiling.py` prints the split.
+- **The footer band itself is finished, short of a product decision.** 468
+  pixels: 293 a feature Puffin lacks, 153 two icons that are deliberately not
+  Puffin's, 22 the one matched glyph at its floor. There is no third thing.
+- **Work inside a declared rectangle when the reference tells you to.** The
+  content is what cannot converge; the position, the size and the ink still
+  can, and `ceiling.py --no-exclusions` will price them.
+- **A shape on a half pixel is a different shape, not a moved one** (#130).
+  Snap both axes of anything under about 10px, and remember that an axis
+  derived from `text_px` has a fractional part that changes with the data.
+
+---

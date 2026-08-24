@@ -47,7 +47,13 @@ assert_ui composer_bar y=851 h=98
 # Puffin reserves for its own bottom chrome: 949 - 28 + 1 = 922. It is inside
 # the sidebar's 280px column, not spanning the window.
 assert_ui sb_session_count y=922
-assert_ui sb_activity_dot y=933
+# 932, not the 933 this line read until feat/vis-footer: the light's origin is
+# SNAPPED to a whole pixel now. At the band's true centre of 932.5 afterhours
+# drew a 6px box five rows tall — six wide and five high, a circle that was not
+# round — because it never rounds a position and the rasterizer has no
+# antialiasing (gaps #130, #92). This assertion cannot see that property; it
+# rounds. `tests/unit/test_footer_geometry.cpp` holds it.
+assert_ui sb_activity_dot y=932
 
 # And it says the same thing it said in the strip.
 assert_ui_text "20 sessions" hidden=false

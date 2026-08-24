@@ -1253,8 +1253,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // child: the scroll panel above it is sized in pixels, and a flow child
     // after it would be pushed off the bottom by a single px of rounding.
     //
-    // The footer's ink stays `text_faint`, and that is a MEASURED decision
-    // rather than the absence of one.
+    // The footer's BLIT ink stays `text_faint`, and that is a MEASURED
+    // decision rather than the absence of one. Its TEXT does not -- see the
+    // version label below.
     //
     // Puffin gives the version label and all three glyph buttons one token
     // (`SidebarColumn.sidebarFooter` -> `PuffinTheme.Chrome.mutedText`), and on
@@ -1262,23 +1263,37 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // (`Models.swift:593`; navi is `defaultValue` and its headerBg is the
     // (23,23,35) the frame paints). hanabi's nearest token is `text_secondary`
     // (142,142,154), two units off in luminance -- so the obvious move is to
-    // use it, and it makes the footer WORSE: 4.08% -> 4.58%.
+    // use it for the lot, and it makes the footer WORSE: 4.08% -> 4.58%.
     //
     // The reason is that a colour constant is not what lands on screen. Over
     // this footer's ink the reference's mean (pixel - background) is 54.8 and
-    // its brightest sample is 119 above background; hanabi's sprite blits and
-    // 11px text reach full coverage, so setting (142,142,154) puts hanabi's
-    // brightest at 139 and its mean at 93.6 -- overshooting the reference by
-    // twice as much as `text_faint` (100,100,112) undershoots it. Puffin's
-    // 9pt/10pt SF Symbols never get to their own colour; hanabi's marks do.
+    // its brightest sample is 119 above background; hanabi's sprite blits
+    // reach full coverage, so setting (142,142,154) puts hanabi's brightest at
+    // 139 -- overshooting the reference by more than `text_faint` (100,100,112)
+    // undershoots it. Puffin's 9pt/10pt SF Symbols never get to their own
+    // colour; hanabi's blits do.
     //
     // Swept analytically across the whole plausible range (recolouring the ink
     // by its recovered per-pixel coverage, which is exact for a blend), the
-    // BEST colour available scores 4.32% against text_faint's 4.44% in the same
-    // harness. The entire colour axis of this footer is worth 0.11 points,
-    // because what actually costs is that two of the three glyphs are different
-    // ICONS -- see REFERENCE.md, "The sidebar footer's three buttons". An
-    // eleventh palette token to buy a tenth of a point is not a trade.
+    // BEST single colour available scores 4.32% against text_faint's 4.44% in
+    // the same harness -- 0.11 points for the whole axis, because what
+    // actually costs is that two of the three glyphs are different ICONS (see
+    // REFERENCE.md, "The sidebar footer's three buttons").
+    //
+    // `feat/vis-footer` re-ran that sweep PER ELEMENT, which is the part the
+    // average hid. The blits are monotonically worse at every ink above
+    // text_faint -- including the gear, the one glyph whose shape matches, so
+    // this is a real property of a blit and not the two mismatched icons
+    // hiding a colour gap:
+    //
+    //     ink                       plus  search  gear
+    //     text_faint  (100,100,112)   76      77    37
+    //     mutedText   (140,140,166)   79      84    68
+    //
+    // The 11px TEXT runs the other way and gets its own constant, one line
+    // per element, which is the smart-view row's two-ink rule arriving in this
+    // band. An eleventh palette token to buy a tenth of a point is still not a
+    // trade; two existing tokens for two different kinds of ink is.
 
     void render_footer(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const LayoutComponent::Rect& r) {
@@ -1307,26 +1322,79 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     pixels(hanabi::test_hooks::focus_audit() ? 200.0f : 90.0f),
                     pixels(kSbFooterH - 1.0f)})
                 .with_absolute_position()
-                .with_translate(10.0f, top + 1.0f)
+                .with_translate(
+                    footer_status::label_box_x(footer_status::kFooterPadX),
+                    top + 1.0f)
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                // `text_secondary`, where the three glyph buttons below stay
+                // on `text_faint` -- one band, two inks, for the reason the
+                // smart-view row already has two (REFERENCE.md, "hanabi paints
+                // an icon and the label beside it in TWO colours"). Puffin
+                // hands `Chrome.mutedText` to the label and all three buttons
+                // alike, and hanabi cannot: a sprite blit reaches its colour
+                // and 11px text does not.
+                //
+                // Measured on the reference by (pixel - background), the only
+                // coverage-independent read: its version label's mean ink is
+                // 54.9 above the (23,23,35) it sits on, and hanabi's at
+                // `text_faint` was 37.2 -- 68% of it, and visibly the dimmer
+                // of the two side by side. 1.476x of text_faint's own
+                // (77,77,77) delta is (114,114,125); `text_secondary` lands
+                // (119,119,119), inside six levels on every channel, and it
+                // follows the light theme where a hardcoded constant would
+                // not. `feat/vis-tabs3` swept this axis and got a NEGATIVE
+                // result, correctly, by moving the whole band at once: the
+                // blits overshoot by more than the label undershoots, so one
+                // constant for both is worse than either alone.
+                //
+                // It costs and buys exactly ZERO structural points: this rect
+                // is declared in `compare.py` ("sidebar footer version
+                // string", v0.5.5 against v0.1.0), so no harness can see it.
+                // It is here because the reference says so and the eye can,
+                // which is the only warrant a masked rectangle can have.
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_render_layer(2)
                 .with_debug_name("sb_version"));
 
-        // Three 24px actions, centred on the measured x = 210 / 234 / 258.
+        // Three actions on the reference's own 24px pitch, centred on the
+        // measured x = 210 / 234 / 258, in 22px boxes.
+        //
+        // The pitch is 24 and the checkout says 20: `FooterMetrics.buttonWidth`
+        // in ~/kt-ng2w-puffin is 20 (with a comment saying it "was 26"), while
+        // the frozen frame's three glyphs sit on x205..215, x230..238 and
+        // x253..263 -- centres 210/234/258, which only a 24px slot in a
+        // 10px-padded 280px column produces. The checkout is v0.5.2 and the
+        // reference is v0.5.5; the PNG wins on constants.
+        //
+        // `px` is per icon because SF Symbols and Lucide normalise a glyph
+        // differently: SF sizes optically, so the reference's three footer
+        // glyphs measure 11x11, 9x12 and 11x12 and read as one size, while
+        // Lucide sizes by its 24-unit box, so one nominal size here draws
+        // `plus` and `search` at 12x12 and `gear` at 10x12 -- the gear carries
+        // more internal padding than the other two and comes out visibly
+        // smaller in the same cluster. 14 puts it at 12x12, level with its
+        // neighbours and against the reference's 11x12.
+        //
+        // Only the gear is measured against a counterpart, and deliberately:
+        // it is the one pair that means the same thing. hanabi's `plus` and
+        // `search` face `info.circle` and `ant` (REFERENCE.md, "The sidebar
+        // footer's three buttons"), and sizing one icon set's glyph to a
+        // different icon set's box is measuring the fixture -- the same claim
+        // `feat/vis-tabs3` declined to make about the tab strip's `+`.
         struct FootBtn {
             const char* icon;
             const char* fallback;
             const char* name;
             int id;
+            float px;
         };
         const FootBtn btns[3] = {
-            {"plus", "+", "sb_new", 13},
-            {"search", "\xf0\x9f\x94\x8d", "sb_palette", 14},
-            {"gear", "\xe2\x9a\x99", "sb_settings_footer", 15},
+            {"plus", "+", "sb_new", 13, 13.0f},
+            {"search", "\xf0\x9f\x94\x8d", "sb_palette", 14, 13.0f},
+            {"gear", "\xe2\x9a\x99", "sb_settings_footer", 15, 14.0f},
         };
         for (int k = 0; k < 3; ++k) {
             const float cx = r.width - 70.0f + 24.0f * static_cast<float>(k);
@@ -1345,7 +1413,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_render_layer(2)
                     .with_on_draw_fg(hanabi::icons::draw_fg(
                         btns[k].icon, btns[k].fallback, theme::text_faint(),
-                        13.0f))
+                        btns[k].px))
                     .with_debug_name(btns[k].name));
             if (!hit) continue;
             if (k == 0) app.composerOpen = true;

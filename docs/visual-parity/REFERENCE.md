@@ -586,6 +586,26 @@ colour and position work that is genuinely scoreable in that band. So the
 footer region keeps scoring it, and 221 of its 643 diff pixels are these three
 buttons with two of them drawing different things on purpose.
 
+**What follows from "only the third pair matches", and it is the useful half**
+(feat/vis-footer). The gear is the ONLY button in this band that can be
+measured against a counterpart, so it is the only one whose size, ink and
+shape mean anything — and it was a size too small. Measured off
+`ref/01_home.png`, the reference's three glyphs are **11x11, 9x12 and 11x12**
+and read as one size, because SF Symbols normalises optically; Lucide
+normalises by its 24-unit box, so hanabi's one nominal 13px drew `plus` and
+`search` at 12x12 and `gear` at 10x12. At 14 the gear is 12x12, level with its
+neighbours, and it went **37 diff pixels -> 22**. Its two neighbours stay at
+13: sizing one icon set's glyph to a DIFFERENT icon set's box is measuring the
+fixture, the same claim `feat/vis-tabs3` declined to make about the tab
+strip's `+`.
+
+**And the reference's button pitch is 24, where the checkout says 20.**
+`FooterMetrics.buttonWidth` in `~/kt-ng2w-puffin` is 20 with a comment saying
+it "was 26"; the frozen frame's three glyphs centre on **210 / 234 / 258**,
+which only a 24px slot in a 10px-padded 280px column produces. Another
+instance of the v0.5.2 rider: read the source for the rule, take the constant
+off the PNG. hanabi's centres were already 210/234/258.
+
 Corollary, measured while establishing the above and worth knowing before
 anyone reaches for the footer again: **the footer's whole colour axis is worth
 0.11 points.** Puffin's footer ink is `mutedText` (140,140,166) and hanabi's is
@@ -595,6 +615,96 @@ anyone reaches for the footer again: **the footer's whole colour axis is worth
 hanabi's sprite blits do. Swept across every plausible ink, the best available
 scores 4.32% against text_faint's 4.44% in the same harness. The full working is
 in FRICTION_LOG.md under `## Tab strip and sidebar footer (feat/vis-tabs3)`.
+
+**Amended by `feat/vis-footer`: that sweep moved ONE constant, and this band
+needs two.** The negative result above is correct and it is the average over a
+label and three blits, which is exactly the shape of the smart-view row's
+finding one section down. Split per element and re-swept, the blits are
+monotonically worse at every ink above `text_faint` — **including the gear**,
+the one glyph whose shape matches, which is what says this is a real property
+of a blit and not the two mismatched icons hiding a colour gap:
+
+| ink | plus | search | gear |
+|---|---:|---:|---:|
+| `text_faint` (100,100,112) | **76** | **77** | **37** |
+| `Chrome.mutedText` (140,140,166) | 79 | 84 | 68 |
+
+The TEXT runs the other way. By (pixel − background), the reference's version
+label's mean ink is **54.9** above the (23,23,35) it sits on and hanabi's at
+`text_faint` was **37.2** — 68% of it. `text_secondary` lands it at 54.3.
+So the version label is `text_secondary` and the three buttons are
+`text_faint`: **two inks where `sidebarFooter` uses one**, same rule and same
+direction as the smart-view row, and one amendment to that rule — the blit's
+right token HERE is *below* the source's, not at it, because these glyphs are
+10pt where the smart-view row's are 13.
+
+This change scores nothing: the version's rectangle is declared. Its evidence
+is `ceiling.py --no-exclusions`, which reads the label at 12.78% on `main`,
+11.30% after its 5px position fix and **10.86%** after the ink.
+
+### A declared rectangle is not a rectangle nobody should work in
+
+The footer's version string is the case that makes the distinction, and it
+cost this workstream two visible defects that sat in every capture for months.
+
+What a declaration says is that the rectangle's CONTENT cannot converge —
+v0.5.5 is not a number hanabi can become. It says nothing about where the
+content is drawn, how big it is, or what colour it lands in, and all three of
+those were wrong: hanabi's version ink began at x=15 against the reference's
+x=10 (afterhours' hardcoded 5px label inset, gap #84, applied to a box that
+was itself at 10), and it landed at 68% of the reference's ink.
+
+Neither could be caught by any number in this workstream, because the score
+masks that rectangle and `scripts/ceiling.py` used to price it as **+5.00
+reachable** — the largest single figure in the region, pointing at surface
+where every pixel is unspendable. `ceiling.py` honours the declarations now
+and prints `ALL DECLARED -- unspendable`; `--no-exclusions` is the supported
+way to measure inside one.
+
+This is the status bar's lesson with the sign flipped. There, a rectangle over
+chrome did not cover the displacement the chrome caused. Here, a rectangle over
+a string does not cover where the string is drawn.
+
+### hanabi's footer says `● N sessions` and Puffin's says nothing there
+
+Puffin's `sidebarFooter` is `HStack { Text(version); Spacer(minLength: 8);
+three 20pt buttons }`, so in a 280px column about 160px in the middle is empty.
+hanabi draws a network activity light and a session count in it. **This is a
+divergence, it is deliberate, and it is not declared in `compare.py`.**
+
+Its price, measured on the shipped build: **285 structural diff pixels, 0.0644
+frame points on `01_home` and 0.0256 on `02_thread`.** The two differ by 2.5x
+because 01 declares its transcript viewport and 02 does not, so the same
+pixels are a different fraction of a different denominator — quote the
+reference with the number or the figure means nothing.
+
+Three things worth knowing before anyone reaches for it:
+
+- **It was bought, not spent.** `feat/vis-statusmove` moved it here from a
+  full-width bottom strip and priced the trade on 02 at 0.025 against 0.636 of
+  composer register. That is the same 0.025 this row still measures.
+- **The reference has NO ink in that 160px, so the count's score is a pure
+  function of how much ink hanabi puts there, and the optimum is zero.** Every
+  lever that improves it — a smaller type size, a dimmer ink, a shorter string,
+  a smaller light — makes hanabi's own status quieter than hanabi's own
+  typography, to fit a metric that has nothing to compare it with. Do not.
+- **It stays out of `compare.py` because the bar is "no change to hanabi's
+  design can close it" and deleting the count would close it.** It is kept
+  because it is worth keeping, and a score that stopped charging for it would
+  stop being able to say what it costs.
+
+### The `footer` region is 39% session list, and the boundary is why
+
+`compare.py` cuts `footer` at `H * 0.96` = y911; the footer's own rule is at
+**y921**. Ten rows of the list's last visible row are therefore scored as
+footer — **303 of the region's 778 diff pixels** — in the region with the
+app's smallest denominator, which is what makes the number look alarming.
+The footer band alone, y922..948, is 468 pixels.
+
+Subtract it before quoting this region's headroom. `scripts/ceiling.py` prints
+`foot/listbleed` as a named rectangle in its default partition. The region
+boundary itself is left alone on purpose: moving it moves `list`'s boundary in
+the same edit, and every list figure in this workstream with it.
 
 ### The row mark's vocabulary is Puffin's, not `docs/state-model.md`'s
 `docs/state-model.md` specifies a colour-blind-safe legend of its own — red
