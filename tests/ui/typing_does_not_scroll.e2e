@@ -11,7 +11,14 @@ expect_no_text #0:
 
 # Focus the composer and type, then press Home: the caret moves, the thread
 # stays where it was.
-click 646 674
+# Focus the composer BY NAME. This was `click 646 674` — a literal point four
+# pixels inside the field's top edge — and feat/vis-statusmove moved the whole
+# composer 26px down (hanabi reserved a status strip at the window's floor that
+# Puffin has no equivalent of; layout_system.h). The point then landed on the
+# transcript, the typing went nowhere, and six scripts in this directory failed
+# on one edit. `click_ui` takes the widget's centre, so it cannot break on
+# layout again.
+click_ui composer_reply_input
 wait_frames 4
 type "still at the bottom"
 wait_frames 4

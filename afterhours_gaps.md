@@ -5263,3 +5263,92 @@ assert_ui <name> border=<n>            # the sixth field, beside w/h/hidden
 that" change in every app that uses this harness is currently untestable.
 
 CLASS: TEDIOUS
+
+### #120 — A text field's PLACEHOLDER colour is not a property of the field: it is whatever `ctx.theme.font_muted` holds when the field is built
+
+**What was wanted.** hanabi's composer hint in Puffin's colour. Puffin draws
+"Message Agentcloud… (↵)" in `mutedText` (140,140,166); hanabi drew "Message
+hanabi…" at (94,94,106) measured off the two frames, the largest single colour
+gap left in the composer band.
+
+**What happens.** `text_input` hardcodes the hint's ink to one global field:
+
+```cpp
+// vendor/afterhours/src/plugins/ui/text_input/component.h:188
+const bool show_placeholder =
+    display_text.empty() && !config.placeholder.empty();
+field_label.label = show_placeholder ? config.placeholder : display_text;
+if (show_placeholder)
+  field_label.explicit_text_color = ctx.theme.font_muted;
+else if (config.custom_text_color.has_value())
+  field_label.explicit_text_color = config.custom_text_color;
+```
+
+`ComponentConfig` has `with_placeholder(std::string)` and no
+`with_placeholder_color`. So a field's TYPED text is configurable per widget
+(`custom_text_color`, the `else if`) and its HINT is not — the two branches of
+one `if`, one of which reads the caller and one of which reads a global.
+
+That global is shared by every muted thing in the frame: section captions,
+timestamps, disabled labels, the sidebar's own faint text. Any app whose hint
+should not be the same colour as its dimmest body text has to move all of them
+together or accept the wrong hint.
+
+**Why the obvious escapes do not work.**
+
+- **`with_custom_text_color`.** Reached only by the `else if`, i.e. only once
+  the field has real text in it. It sets the colour of what the user types,
+  which is a different string in a different state.
+- **Draw the hint yourself as an absolutely-positioned `on_draw_fg` child over
+  an empty field.** This is what hanabi did before `with_placeholder` existed
+  and it is worse: the overlay does not know the field's h-scroll or its caret,
+  it has to be removed on the first keystroke by the caller, and it cannot be
+  clipped to the field without re-deriving the field's inner rect (#93, #97).
+- **Set `ctx.theme.font_muted` for the whole pane.** Available, and it is a
+  frame-wide edit for one label — the pane's captions and timestamps move with
+  it. hanabi's main pane already re-asserts `font_muted` every frame precisely
+  because it is global (#90).
+
+**The workaround, and its cost.** Save `ctx.theme.font_muted`, set it, build
+the one `text_input`, restore it:
+
+```cpp
+const auto savedMuted = ctx.theme.font_muted;
+ctx.theme.font_muted = theme::text_secondary();
+auto inputRes = afterhours::ui::imm::text_input(ctx, mk(...), draft, cfg);
+ctx.theme.font_muted = savedMuted;
+```
+
+**This works, and #90 says it should not, so the distinction matters.** #90's
+claim is that `ctx.theme` is one global struct read at RENDER time, which makes
+a set/restore around a build call useless. That is true of `Theme::Usage::*`
+values, which are resolved late. It is NOT true of this line: it *copies a
+concrete colour into the entity* during the imm build, so the value that
+matters is the one live at the call, and the window is exactly one call wide.
+Verified by measurement, not by reading — the hint's ink moved and nothing else
+in the pane did.
+
+Cost: four lines and a paragraph of comment at every call site that wants a hint
+in its own colour, and a save/restore that is silently load-bearing — delete the
+restore and the rest of the pane's muted text changes colour, in a way no test
+in the harness can see (#61: `assert_ui` has no colour predicate).
+
+**Minimal upstream fix.** One field and one line, symmetrical with the branch
+directly below it:
+
+```cpp
+// component_config.h
+std::optional<Color> placeholder_color;
+ComponentConfig &with_placeholder_color(Color c) {
+  placeholder_color = c; return *this;
+}
+
+// text_input/component.h:194
+if (show_placeholder)
+  field_label.explicit_text_color =
+      config.placeholder_color.value_or(ctx.theme.font_muted);
+```
+
+Backwards compatible: unset keeps today's behaviour exactly.
+
+CLASS: TEDIOUS

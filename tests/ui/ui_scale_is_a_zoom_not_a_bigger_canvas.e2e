@@ -4,7 +4,7 @@
 # multiplies every pixels() value in the tree — sizes, paddings, absolute
 # translate, and explicit font sizes. hanabi ALSO computes several rectangles
 # for itself from the window size (the sidebar column, the tab strip, the
-# transcript pane, the composer strip, the status bar — layout_system.h), and
+# transcript pane, the composer strip — layout_system.h), and
 # hands them back to the tree as pixels(). Read the DEVICE resolution for that
 # and every one of those rectangles is scaled a second time: at ui_scale 2 the
 # composer's y doubles to twice the window height and the strip leaves the
@@ -20,8 +20,8 @@
 # So this asserts the property that distinguishes a zoom from a bigger canvas:
 # at ui_scale 2 in a 2200x1520 window, the same furniture is in the same
 # PLACE, at exactly twice the size. Every number below is 2x the number the
-# 1x build puts there — sidebar 280 -> 560, status bar 26 tall so its top is
-# 1520-52, composer x at the sidebar's edge.
+# 1x build puts there — sidebar 280 -> 560, composer x at the sidebar's edge,
+# composer 98 tall so its top is 1520-196.
 #
 # Verified to fail without the fix: with viewport.h's width()/height()
 # returning the raw device size, composer_bar renders at y=2792 with w=3840 in
@@ -32,6 +32,13 @@
 #   assert_ui 'composer_bar':   w=1640 but got 3840
 #   assert_ui 'composer_bar':   y=1272 but got 2792
 #   assert_ui 'status_bar_bg':  y=1468 but got 2988
+#
+# The composer's y is 1324 now, not 1272, and the status bar is gone: hanabi
+# reserved 26 logical px at the window's floor for a strip Puffin has no
+# equivalent of, and feat/vis-statusmove deleted it (layout_system.h; the
+# information moved to sidebar_footer_status.h). The composer runs to the
+# floor instead, which is what `h=196` below pins — 1324 + 196 = 1520, the
+# window's own height.
 #
 # and the transcript check times out with nothing but the sidebar visible.
 # (`sidebar w=560` passes either way — the sidebar's own width does not come
@@ -58,13 +65,16 @@ assert_ui sb_footer_rule y=1464
 # of the window: 2200 - 560 = 1640.
 assert_ui composer_bar x=560 w=1640
 
-# And it is above the status bar, not below the window. This is the assertion
-# that goes red without the fix.
-assert_ui composer_bar y=1272
+# And it is ON the window, not below it. This is the assertion that goes red
+# without the fix. 1324 + 196 = 1520: the strip's bottom edge IS the window's
+# floor, which is the second thing this line pins now that nothing is reserved
+# beneath it.
+assert_ui composer_bar y=1324 h=196
 
-# The status bar sits on the window's floor: 26 logical px tall, so its top is
-# 1520 - 52.
-assert_ui status_bar_bg y=1468
+# The sidebar's live footer cluster scales with everything else rather than
+# being laid out against the device size: the session count's box is 2x its
+# logical height and sits in the footer band, not off the bottom.
+assert_ui sb_session_count y=1466
 
 # The thread really is rendered — the geometry above is of a live pane, not of
 # an empty one that happens to measure correctly.

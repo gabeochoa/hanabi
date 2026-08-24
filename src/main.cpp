@@ -56,7 +56,6 @@
 #include "ecs/sidebar_system.h"
 #include "ecs/settings_system.h"
 #include "ecs/shortcuts_system.h"
-#include "ecs/status_bar_system.h"
 #include "ecs/tab_bar_system.h"
 #include "ecs/theme_rotation_system.h"
 #include "ui/theme.h"
@@ -354,7 +353,6 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::SidebarSystem>());
     sm.register_update_system(std::make_unique<ecs::MainPaneSystem>());
     sm.register_update_system(std::make_unique<ecs::TabBarSystem>());
-    sm.register_update_system(std::make_unique<ecs::StatusBarSystem>());
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
@@ -562,8 +560,11 @@ static void app_frame() {
     }
 
     // Reflect the current blocked count onto the menu-bar title + status row.
-    // Same derivation as status_bar_system.h (count of ThreadTag::Blocked) so
-    // the two stay in agreement. menubar_set_blocked no-ops when unchanged.
+    // `ecs::model::in_blocked_view` is the ONE rule -- Blocked OR Failed, the
+    // same predicate the sidebar's Blocked badge counts and Puffin's own
+    // `case .blocked` filter uses. This read its own `tag == Blocked` until
+    // feat/vis-statusmove, so the menu bar said 3 where the badge said 6.
+    // menubar_set_blocked no-ops when unchanged.
     // Also service requestNewTask here (open composer) so the menu action lands
     // even on a frame where no system consumed it.
     {
@@ -615,7 +616,7 @@ static void app_frame() {
 
             int blocked = 0;
             for (const auto& s : app.sessions)
-                if (s.tag == api::ThreadTag::Blocked) ++blocked;
+                if (ecs::model::in_blocked_view(s)) ++blocked;
             menubar_set_blocked(blocked);
 
             // Phase G extra: donate threads to Spotlight (CoreSpotlight). Only

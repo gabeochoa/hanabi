@@ -54,8 +54,7 @@ FLOOR_OFFSETS = ((0.5, 0.0), (0.0, 0.5), (0.5, 0.5))
 # --- Declared divergences ---------------------------------------------------
 #
 # Some of what this script measures is not a design difference and never will
-# be. hanabi paints a status strip along the bottom of its main pane and Puffin
-# has no equivalent surface at all; the reference frame's open thread has no
+# be. The reference frame's open thread has no
 # fixture in Puffin's mock backend, so Puffin draws a one-line "no transcript"
 # placeholder where hanabi draws a real conversation; Puffin's reference came
 # through the macOS window server and carries the traffic lights and the
@@ -76,10 +75,10 @@ FLOOR_OFFSETS = ((0.5, 0.0), (0.0, 0.5), (0.5, 0.5))
 # or the two frames are showing different content, and no change to hanabi's
 # design can close it.** A band where both draw something and the two disagree
 # stays in the score, however badly it reads -- the sidebar footer is the
-# example to hold onto. hanabi puts "N blocked on you" and a session count
-# there and Puffin puts its version label and three glyph buttons, which is a
-# real, arguable, closeable difference of what belongs at the foot of a
-# sidebar. It is not declared. (The version STRING is, because v0.5.5 is not a
+# example to hold onto, and the one that closed: hanabi puts a session count
+# and an activity light there and Puffin puts its version label and three glyph
+# buttons, which is a real, arguable difference about what belongs at the foot
+# of a sidebar. It is not declared. (The version STRING is, because v0.5.5 is not a
 # thing hanabi can become; the row it sits in is not.)
 #
 # The rectangles are pixels in the REFERENCE frame's own coordinates, because
@@ -95,15 +94,19 @@ DIVERGENCE_FRAME = (1180, 949)
 # 02_thread.png. (The version string's rect is shared; its CONTENT is not --
 # 01 reads v0.5.5 and 02 reads v0.5.6, because Puffin was rebuilt between the
 # two captures. Neither is a number hanabi can become, which is the point.)
+# CLOSED, 2026-08-24 (feat/vis-statusmove), and the removal is the point.
+# "bottom status bar" -- [(283, 922, 1180, 949)] -- used to head this list,
+# worth 0.233 structural points, on the reasoning that hanabi paints a strip
+# Puffin structurally lacks. That was sound for the strip's own 27 rows and
+# silent about the expensive half: the 26px it RESERVED pushed the composer,
+# its meta row, its pills and its rule 26px above the reference's, and no
+# rectangle over the strip covered any of that. A divergence you can design
+# your way out of is not unspendable, and hanabi designed its way out -- the
+# strip is gone and its information is in the sidebar footer, where Puffin
+# keeps its own. There is nothing left to exclude, and leaving the rectangle
+# in would now hide live composer surface: exactly the staleness the
+# `<-- STALE? excludes nothing` guard was added to catch.
 _CAPTURE_DIVERGENCES = [
-    (
-        "bottom status bar",
-        [(283, 922, 1180, 949)],
-        "hanabi paints a status strip along the bottom of the MAIN pane "
-        "(not the window -- see layout_system.h); Puffin's only bottom "
-        "chrome is the sidebar-width SidebarColumn.sidebarFooter, so "
-        "right of the sidebar there is nothing to compare it against",
-    ),
     (
         "sidebar footer version string",
         [(8, 926, 60, 944)],

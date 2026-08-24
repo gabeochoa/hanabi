@@ -3047,3 +3047,200 @@ Ten captures across five builds, every A/B pair shot back to back, every pair
 `## Transcript fixture` entry 10 predicted would fire on someone did not fire
 here either — same 320/310-minute stamps, same hour of the day. It is still one
 wall-clock hour from doing so and `HANABI_MOCK_NOW` is still the cheap fix.
+
+---
+
+## The status bar's 26px (feat/vis-statusmove)
+
+### 1. The duplicate had already gone wrong, and that is what decided the design question
+
+- **What I wanted** — to know whether hanabi's bottom strip should move to the
+  sidebar footer (where Puffin keeps its only bottom chrome), be overlaid so it
+  stops reserving height, or be kept and declared.
+- **What I found before writing any code** — hanabi was drawing the same fact
+  twice with two different numbers, in every capture this workstream has taken.
+  The strip said **"3 blocked on you"**. The sidebar's Blocked row, 800px away
+  in the same frame, badged **6**. The strip counted `s.tag ==
+  ThreadTag::Blocked`; the badge counts `ecs::model::in_blocked_view`, which is
+  `Blocked || Failed` — Puffin's own `case .blocked` rule, and the one the
+  reference's own badge of six confirms. `main.cpp` had inherited the strip's
+  copy for the macOS menu bar, so the menu bar said 3 as well.
+- **Why that settles it.** "Do not delete the information" was the constraint,
+  and the information is not in the strip: it is on the badge, correctly, and
+  in `menubar.mm`'s `status_for_blocked` in words, system-wide. What the strip
+  held was a second rendering of it, and a wrong one. Deleting a duplicate that
+  contradicts the original is not deleting a feature.
+- **The general lesson, and it is cheap.** Before deciding where a piece of
+  chrome should live, grep for every other place the app states the same fact.
+  Two of the three answers here were already in the codebase, one of them in
+  `REFERENCE.md`'s own "Where Puffin puts 'N blocked on you'" section, written
+  by an earlier branch and never acted on. The third was a bug.
+- **Class** — `PROCESS`.
+
+### 2. A rectangle over chrome does not cover the displacement that chrome causes
+
+- `compare.py` declared "bottom status bar" `(283, 922, 1180, 949)` at 0.233
+  structural points, on the correct reasoning that Puffin has no such surface.
+  What no rectangle covered was the **26px the strip reserved**, which pushed
+  the composer, its meta row, its pills and its rule out of register: **0.630
+  points**, 2.7x the declared entry, and undeclarable — the same band carries
+  ordinary closeable differences and a rectangle over the lot would hide them.
+- **The strip's cheapness was the trap.** Its fill was `theme::sidebar_bg()` —
+  (23,23,35), the identical colour Puffin's empty window paints there — so the
+  entry priced at 0.233 and read as settled. Everything expensive about the
+  strip was somewhere the rectangle did not reach.
+- Before declaring chrome, ask what the chrome MOVES. That question has no
+  entry in the exclusion table and it was worth three times the entry.
+- **Class** — `PROCESS`.
+
+### 3. Points and rates, in the direction that looks like a regression
+
+Shot back to back on one binary (two captures of each build, byte-identical to
+each other, so the mock's wall-clock divider did not move):
+
+| | before | after |
+|---|---|---|
+| whole frame, structural | 5.00% | **4.38%** |
+| shared surfaces | 4.82% | **4.21%** |
+| `main` | 3.10% | **2.20%** |
+| `footer` | 5.26% **AT FLOOR** | **8.19%** (+2.32 over floor) |
+| composer band alone (y≥845) | 0.825 frame pts | **0.342** |
+
+The footer's rate nearly doubled and it is not a regression: in frame points —
+the currency that adds — the footer went 0.064 → 0.089 and `main` went 2.186 →
+1.550. The count costs **0.025**, the register buys **0.636**, a 25:1 trade.
+The rate moved because that region is 1.1% of the frame, so 270px of new ink is
+three points of it. `feat/vis-divergences` wrote down that points and rates are
+different currencies; this is the first time the difference has pointed the
+wrong way, and anyone reading the region table alone would have reverted this.
+
+### 4. Two separate metric changes on one capture, reported apart
+
+`compare.py`'s "bottom status bar" entry is DELETED, not edited: the divergence
+closed, and a rectangle left over the band would now hide live composer surface
+— exactly what the `<-- STALE? excludes nothing` guard exists to catch, and it
+would not have fired, because the composer under it does differ.
+
+On the *same* baseline capture, metric change alone: whole frame 5.00% → 5.00%
+(unchanged — the headline does not use exclusions), shared surfaces 4.70% →
+**4.82%**, `main` 2.87% → **3.10%**. Then the app change, on the new script:
+4.82% → **4.21%**. Quoting 4.70% against 4.21% would have credited the app with
+0.11 points that were the script.
+
+The full four-way, because it also shows why the entry had to GO rather than
+stay:
+
+| | old script | new script |
+|---|---|---|
+| baseline binary | shared **4.70%**, main 2.87% | shared 4.82%, main 3.10% |
+| final binary | shared 4.31%, main **2.27%** | shared **4.21%**, main **2.20%** |
+
+The old script on the NEW binary reads `main` 2.27% against the new script's
+2.20% — a rectangle sitting over 27 rows of live, differing composer surface,
+flattering the score by 0.07 points and hiding whatever is under it. It would
+not have tripped the `<-- STALE? excludes nothing` guard either, because what
+is under it now *does* differ. That guard catches a rectangle over agreement;
+nothing catches a rectangle over disagreement, which is the more dangerous one.
+
+### 5. The scripted runner ignores `window_height` in `# settings:`, silently
+
+Every bottom-anchored assertion I wrote against the reference's own 949px
+window measured against 760 instead. `run_ui_tests.sh` writes the `# settings:`
+blob to the isolated HOME, but the uitest binary sizes its offscreen surface
+from `HANABI_WIN_W`/`HANABI_WIN_H`, so the height in the blob reaches nothing.
+The failure is a wrong number, not an error — `composer_bar y=851 but got 662`
+— and it looks exactly like a layout bug you just introduced.
+
+`ui_scale_is_a_zoom_not_a_bigger_canvas.e2e` is the only script in the
+directory that passes both, in an `# env:` line, which is why it is the only
+one whose bottom-anchored numbers were ever right. The new test does the same
+and says why in a comment above the settings line.
+
+### 6. Six tests broke on one 26px move, all on the same literal coordinate
+
+`click 646 674` appeared in six scripts, copied forward, four pixels inside the
+composer field's top edge. Moving the composer down 26px put that point on the
+transcript; the typing went nowhere and every script failed on a symptom
+(`Text not found: 'enter should reply here'`) that says nothing about the
+cause. They are `click_ui composer_reply_input` now — the widget's centre, by
+name — which is both a correct translation of the intent and immune to the next
+person's layout change. The runner already had `click_ui` and five other
+scripts already used it.
+
+### 7. A placeholder's colour is not a property of the widget, and the escape gap #90 forbids works anyway
+
+hanabi's composer hint inks at (94,94,106) against the reference's (141,141,165)
+— the largest colour gap left in the band. `text_input` hardcodes
+`field_label.explicit_text_color = ctx.theme.font_muted` and has no
+`with_placeholder_color`, so the hint wears whatever the pane last left in one
+global field: `text_faint`. Gap #120.
+
+Gap #90 says a per-widget colour is a frame-wide edit because `ctx.theme` is
+read at RENDER time — and a save/restore around the build call works here
+anyway, because this particular line **copies a concrete colour into the entity
+during the imm build** rather than resolving a `Theme::Usage::*` at render
+time. The window is exactly one call wide. Worth knowing which half of #90 you
+are up against before concluding you cannot scope a colour.
+
+**And the same swap that made the footer WORSE makes this one better.**
+`text_faint` → `text_secondary` cost the sidebar footer 0.5 points
+(`feat/vis-tabs3`) because Puffin's 9pt SF Symbols never reach their own colour
+while hanabi's sprite blits do, so matching the token overshoots. Here both
+apps' 13px body text reaches full coverage — the reference's own peak is
+(141,141,165) against a (140,140,166) token — so matching it is right. The rule
+is not "never match Puffin's token". It is "measure what LANDS, not what is
+declared", and the answer differs by type size within one app.
+
+It is worth 68 of the hint row's 962 differing pixels, and the reason it is
+small is that the two strings differ: brighter ink lands on the reference's
+glyphs for the shared `Message ` and on bare background after it. Kept for the
+colour, not the 68px.
+
+### 8. What is left in the composer band, measured, with the real divergences named
+
+3,829 differing pixels, down from 9,268. Profiled by column against the
+reference:
+
+| what | px | share | closeable? |
+|---|---|---|---|
+| the pill row, x 892..1098 | 1,861 | 48% | **NO** — Puffin's three disclosure pills (Tools / Thinking / Deliveries, `AgentcloudChatView.swift:197`) against hanabi's one fold-mode pill. A real feature difference. |
+| the placeholder, x 366..517 | 894 | 23% | **mostly NO** — "Message Agentcloud… (↵)" against "Message hanabi…". The app's own name, and the ↵ hint cannot be drawn at all: Roboto has no U+21B5 and a missing codepoint paints nothing (gap #48), and a placeholder cannot carry a drawn glyph because the widget owns the string. |
+| the model + meter, x 360..512 | 774 | 20% | **NO** — "Opus 5 (high)" and a 48x5 track at 0% against "Server default (High) ~61 tokens". The mock reports no denominator, so the meter cannot draw; `context_bar_needs_a_denominator.e2e` exists to stop anyone inventing one. |
+| the send disc, x 1082..1101 | 247 | 6% | **partly** — see below. |
+
+The input box's own four edges, the hairline at y=851 and the box's interior
+now contribute **nothing**: the register is exact. That is the whole of what
+this branch was for, and it is visible as an absence in the row profile.
+
+**The send disc, measured and left alone deliberately.** Both discs span
+y=899..916. hanabi's is x=1083..1101 and the reference's is x=1082..1099, so
+hanabi's is 1px wider and 2px right — `kSendDia = 19` with a comment reading
+"Puffin's is a 19px CIRCLE", and the reference draws 18. hanabi's fill is
+`disabled_bg()` (44,44,50) with a light arrow; the reference's is (82,82,100)
+with a DARK arrow, i.e. Puffin does not dim a send button it will not honour
+and hanabi does. That last one is a product statement, not a defect, and
+changing it means either a new token or dropping the disabled semantics — so it
+is written down here rather than swapped for 0.02 points. hanabi's disc is also
+a visible OCTAGON where the reference's is a circle, at a corner radius of
+exactly half the side; that is the renderer's segment count and belongs
+upstream.
+
+### 9. Cropping the band was how I found the dot touching the digits
+
+The first build put the activity light 1px from the "2" of "20 sessions",
+because a right-aligned label sits 5px inside its own box (gap #84) and I had
+measured the gap from the box rather than from the ink. The metric could not
+see it — 0.003 points — and it is the first thing the eye lands on. `--regions`
+would never have said. Both traps in the brief are the same trap: look at the
+band.
+
+### 10. Deleting a surface deletes everything gated on it, including the thing nobody looks at
+
+The strip appended `  ·  backend: mock` under `HANABI_DEBUG`, and nothing else
+in the UI prints `app.backend_label` — grepped, after the strip was already
+gone. An env-gated dev affordance is exactly the kind of information that
+survives a "do not delete the information" review by not being noticed, because
+it is invisible in every capture and every user's app. It is in the footer
+beside the version now, same gate, and the default capture is **byte-identical**
+to the one taken before it was added, which is the only proof worth having that
+a conditional costs nothing.

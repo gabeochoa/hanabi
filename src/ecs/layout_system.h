@@ -45,20 +45,25 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         float sidebarW = layout.sidebarAnimWidth;
         if (sidebarW > w * 0.5f) sidebarW = w * 0.5f;
 
-        float barH = layout.statusBarHeight;
+        // No band is reserved at the window's floor. hanabi used to carve 26px
+        // off the bottom of the main column for a status strip; Puffin has no
+        // such surface (`MainWindowShell`'s root is an HStack — sidebar beside
+        // content — and its only bottom chrome is the sidebar-width
+        // `SidebarColumn.sidebarFooter`), so the strip pushed hanabi's whole
+        // composer 26px above where the reference puts it. The strip is gone
+        // and its information lives in the sidebar footer now
+        // (`sidebar_footer_status.h`); the composer runs to the window's floor,
+        // as Puffin's does.
         float tabH = layout.tabStripHeight;
-        float contentH = h - barH;
-        if (contentH < 0) contentH = 0;
+        float contentH = h;
 
         float mainX = sidebarW;
         float mainW = w - sidebarW;
         if (mainW < 0) mainW = 0;
 
-        // Composer strip: pinned at the bottom of the main pane, directly above
-        // the status bar. Carved OUT of `main` (which shrinks by its height) so
-        // the content area and the composer never overlap. Same
-        // dedicated-rect + absolute-render pattern as the status bar (which
-        // renders reliably at the bottom every frame).
+        // Composer strip: pinned at the bottom of the main pane. Carved OUT of
+        // `main` (which shrinks by its height) so the content area and the
+        // composer never overlap.
         float compH = layout.composerHeight;
         float mainH = contentH - tabH - compH;
         if (mainH < 0) mainH = 0;
@@ -67,11 +72,6 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         layout.tabStrip = {mainX, 0, mainW, tabH};
         layout.main = {mainX, tabH, mainW, mainH};
         layout.composer = {mainX, tabH + mainH, mainW, compH};
-        // The status bar spans the MAIN pane only. Puffin's sidebar owns its
-        // own bottom strip (version + actions) and runs to the window's floor,
-        // so a full-width bar would paint over it. The main pane's geometry is
-        // unchanged: it was already sized against contentH.
-        layout.statusBar = {mainX, contentH, mainW, barH};
     }
 };
 

@@ -342,10 +342,15 @@ Measured on `ref/01_home.png` against a `main`-built hanabi on 2026-08-24:
 | declared | struct pts | why it can never close |
 | --- | --- | --- |
 | transcript viewport | **3.183** | the reference's open thread has no Puffin mock fixture |
-| bottom status bar | 0.233 | hanabi has a status strip; Puffin has no equivalent surface |
 | titlebar traffic lights | 0.063 | the reference has window decoration; hanabi's capture is offscreen |
+| window top bevel | 0.105 | same cause |
 | rounded window corners | 0.031 | same cause |
 | sidebar footer version string | 0.014 | v0.5.5 against v0.1.0 |
+
+**`bottom status bar` (0.233 pts) was in this table until 2026-08-24 and is
+CLOSED, not moved** — see "The status bar's 26px" below. The numbers in the
+block that follows are the ones it was measured with; re-read them with the
+entry gone.
 
 ```
 WHOLE FRAME      raw 5.93%   structural 7.39%     <- the historical number
@@ -376,21 +381,19 @@ is not declared, and the `footer` region still scores it.
 Two things follow from that rule, and both are worth knowing before you read a
 number:
 
-- **hanabi's composer sits ~27px higher than Puffin's** — its box bottom is at
-  y=903 against Puffin's y=930 — because the status bar consumes the bottom
-  26px of the main pane. Nothing but deleting the bar closes that, so by the
-  letter of the rule it qualifies. It is **not** declared anyway: the same band
-  carries the chip row, the placeholder and the send affordance, all of which
-  are ordinary closeable differences, and a rectangle over the lot would hide
-  them. Shifting hanabi's composer band down 27px takes it from 9.74% to 3.15%,
-  so roughly two thirds of what that band reads is position and one third is
-  design. Quote both halves or neither.
-- **The status bar is cheaper than it looks.** It spans the main pane only
-  (`layout_system.h` — a full-width bar would paint over the sidebar footer),
-  and its fill is `theme::sidebar_bg()`, which is (23,23,35), the same colour
-  Puffin's empty window paints there. The fill costs nothing. What the 0.233
-  points actually buy is one hairline row at y=923 and seven rows of "● 20
-  sessions" on the right.
+- **A rectangle over chrome does not cover the DISPLACEMENT that chrome
+  causes, and the displacement is the expensive half.** This is the lesson the
+  status bar taught, and it generalises: the declared rectangle covered the
+  strip's own 27 rows for 0.233 points while the 26px it *reserved* pushed the
+  composer, its meta row, its pills and its rule out of register for **0.63**
+  points — nearly three times as much, none of it inside any rectangle, and
+  none of it declarable, because a difference you can design your way out of is
+  not unspendable. Before declaring chrome, ask what the chrome MOVES.
+- **The status bar was cheaper than it looked, and that was the trap.** Its
+  fill was `theme::sidebar_bg()` — (23,23,35), the identical colour Puffin's
+  empty window paints there — so the fill cost literally zero and the entry
+  read as small. The 0.233 points were one hairline row and seven rows of "● 20
+  sessions". Everything expensive about the strip was somewhere else.
 
 ### The big one: this reference cannot measure the transcript
 
@@ -412,10 +415,72 @@ a Puffin fixture — any of the `mock-*` ids in `MockBackend.swift` will do
 (`mock-blocked-1` and `mock-subagents-1` are the richest). That is a re-capture,
 which is Gabe's to run; ask, do not drive the app.
 
+## The status bar's 26px — CLOSED, 2026-08-24 (feat/vis-statusmove)
+
+hanabi no longer paints a status strip. `layout_system.h` reserves nothing at
+the window's floor, the composer runs to it exactly as Puffin's does, and
+`src/ecs/status_bar_system.h` is deleted. What the strip carried lives in
+`src/ecs/sidebar_footer_status.h`, drawn into `SidebarColumn`'s counterpart —
+the sidebar footer, which is the only bottom-anchored chrome Puffin has.
+
+**Why this was a design decision and not a pixel chase.** The strip's own 27
+rows were declared in `compare.py` and worth 0.233 points. The 26px it
+RESERVED was worth 0.64, was not declared, and could not honestly have been:
+the composer band it displaced is full of ordinary closeable differences, and
+a rectangle over the lot would have hidden them. So the choice was between
+declaring something undeclarable and designing the strip away. Puffin's answer
+was already on the table — put it in the sidebar footer — so hanabi took it.
+
+**Nothing was deleted, and one thing was fixed.**
+
+| what the strip carried | where it is now |
+| --- | --- |
+| `● N sessions` + the network activity light | the sidebar footer, right-aligned against the action cluster |
+| `N blocked on you` | already on the sidebar's Blocked row as a badge (and rolled into Home's), which is where Puffin puts it; and stated in words on the macOS menu bar by `menubar.mm`'s `status_for_blocked` |
+| `backend: mock` under `HANABI_DEBUG` | the sidebar footer, beside the version label, same gate. Nothing else in the UI prints `backend_label`, so it would have been lost with the strip |
+
+The blocked phrase was the SECOND and THIRD rendering of one fact, and the
+copies disagreed. The strip counted `s.tag == ThreadTag::Blocked` and drew
+**3**; the badge counts `ecs::model::in_blocked_view` — Blocked OR Failed, the
+rule Puffin's own `case .blocked` filter uses and the rule the reference's own
+badge of six confirms — and drew **6**. Both numbers were on screen at once,
+800px apart, in every capture this workstream has taken. `main.cpp` had
+inherited the wrong copy for the menu bar too; it reads the model now. A
+private re-derivation of a rule the shared model owns is the exact defect
+`sidebar_system.h` already calls out one file over: *"two rules for one
+question, and the one the reader saw was the one the tests did not cover."*
+
+**What it bought, and what it cost**, shot back to back on one binary against
+`ref/02_thread.png` (both sides on the post-change `compare.py`, so the metric
+is held still):
+
+| | before | after |
+| --- | --- | --- |
+| whole frame, structural | 5.00% | **4.38%** |
+| shared surfaces | 4.82% | **4.21%** |
+| `main` | 3.10% (+1.68 over floor) | **2.20%** (+0.78) |
+| `footer` | 5.26% (AT FLOOR) | **8.19%** (+2.32) |
+| the composer band alone (y≥845) | 0.825 frame pts | **0.342** |
+
+**Read the footer row as points, not as a rate.** In the one currency that
+adds, the footer went 0.064 → 0.089 frame points and `main` went 2.186 →
+1.550: the count costs **0.025** and the register buys **0.636**, a 25:1 trade.
+The footer's *rate* nearly doubled only because that region is 1.1% of the
+frame, so 270 pixels of new ink move it three points. This is the "points and
+rates are different currencies" note from the divergences work, and it is the
+first time it has mattered in the direction that looks like a regression.
+
+**The footer's +2.31 over floor is honest and it stays in the score.** Puffin
+draws nothing between its version label and its buttons; hanabi now draws
+`● 20 sessions` there. That is a real, arguable difference about what belongs
+at the foot of a sidebar — exactly the kind the bar for a `compare.py` entry
+says must keep being scored. It is not declared.
+
 ## Where Puffin puts "N blocked on you"
 
 Worth writing down because hanabi's status bar has been assumed to have no
-counterpart, and it half does.
+counterpart, and it half does. (This section is what the decision above was
+made from — it was already in this file, and reading it was most of the work.)
 
 - **The blocked count: Puffin shows it once, as a badge.**
   `SmartView.attentionCounts` (`Views/HomeSessionList.swift`) rolls every
@@ -437,6 +502,11 @@ counterpart, and it half does.
   alone, holding the version label and three glyph buttons — and its comment
   records that those moved there **from a titlebar accessory**, not from a
   status bar Puffin used to have.
+- **Its footer has room, and Puffin leaves it empty.** `sidebarFooter` is
+  `HStack { Text(version); Spacer(minLength: 8); three 20pt buttons }` at
+  `.padding(.horizontal, 10)`, so in a 280px column the version ends near x=50
+  and the buttons begin near x=210: ~160px of nothing in the middle. That is
+  where hanabi's session count went.
 
 
 ## Declared divergences — differences that are NOT bugs

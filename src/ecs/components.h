@@ -737,8 +737,7 @@ struct LayoutComponent : public afterhours::BaseComponent {
     Rect sidebar;
     Rect tabStrip;    // tab strip across the top of the main pane
     Rect main;        // transcript / smart-view content (below the tab strip)
-    Rect composer;    // chat input strip, pinned above the status bar
-    Rect statusBar;
+    Rect composer;    // chat input strip, pinned at the main pane's floor
 
     // Sidebar collapse model. `collapsed` picks the thin rail width; the
     // animated width is `sidebarAnimWidth`, tweened toward the target each
@@ -758,7 +757,6 @@ struct LayoutComponent : public afterhours::BaseComponent {
     // itself; the difference is the clear band.
     float tabStripHeight = 67.0f;
     float tabStripTabHeight = 34.0f;
-    float statusBarHeight = 26.0f;
     float composerHeight = 98.0f;  // chat input strip height (0 hides it)
 };
 

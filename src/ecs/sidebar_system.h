@@ -32,6 +32,7 @@
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "thread_model.h"
+#include "sidebar_footer_status.h"
 #include "../keys.h"
 #include "ui_imports.h"
 
@@ -1247,6 +1248,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             else if (k == 1) app.paletteOpen = true;
             else app.showSettings = true;
         }
+
+        // The live cluster — activity light + session count — where hanabi's
+        // deleted bottom strip's information now lives. sidebar_footer_status.h.
+        footer_status::render(ctx, parent, app, r.width, top + 1.0f,
+                              kSbFooterH - 1.0f);
     }
 
     // The single hairline parting the sidebar from the main pane.

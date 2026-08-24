@@ -1,0 +1,62 @@
+# The composer runs to the window's floor, and the status it displaced is in
+# the sidebar footer.
+#
+# hanabi used to carve 26px off the bottom of the MAIN column for a full-width
+# status strip ("N blocked on you" left, "N sessions" right). Puffin has no
+# such surface: `MainWindowShell`'s root is an HStack — sidebar beside content
+# — and its only bottom-anchored chrome is `SidebarColumn.sidebarFooter`, a
+# 28pt safeAreaInset on the sidebar column alone. So hanabi's composer, its
+# meta row, its pills and its rule all sat 26px above the reference's, and the
+# whole band was scored against the wrong rows. That was 0.63 structural
+# points of ref/02_thread.png, and it was the largest single term left in the
+# composer band — bigger than anything about the composer's own design.
+#
+# This pins the geometry that fixed it and the placement that paid for it.
+#
+# The window is the reference's own 1180x949, so these are the reference's own
+# coordinates. 851 is where ref/02_thread.png draws the composer's hairline
+# (PUFFIN_SPEC.md, and REFERENCE.md's measured table). 851 + 98 = 949: the
+# strip's bottom edge IS the window's floor, with nothing reserved under it.
+#
+# Verified to fail without the fix: restoring `contentH = h - barH` in
+# layout_system.h and re-running gives
+#
+#   assert_ui 'composer_bar': y=851 but got 825          (line 41)
+#   assert_ui timed out after 30 frames                  (lines 46, 47)
+#   assert_ui_text timed out after 30 frames             (line 50)
+#
+# — 26 exactly, and the three timeouts are the footer half neutered with it:
+# `sb_session_count`, `sb_activity_dot` and the string do not exist on that
+# build, because the count is drawn by the strip instead.
+#
+# The window size comes from `# env:`, not from `# settings:`: the scripted
+# runner writes the settings blob but the uitest binary sizes its offscreen
+# surface from HANABI_WIN_W/H, so a height declared only in the blob is
+# silently ignored and every bottom-anchored assertion here would be measured
+# against the runner's default 760.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark"}
+# env: HANABI_WIN_W=1180 HANABI_WIN_H=949
+
+wait_frames 30
+
+# Nothing is reserved beneath the composer.
+assert_ui composer_bar y=851 h=98
+
+# The information the strip carried is in the sidebar footer, in the band
+# Puffin reserves for its own bottom chrome: 949 - 28 + 1 = 922. It is inside
+# the sidebar's 280px column, not spanning the window.
+assert_ui sb_session_count y=922
+assert_ui sb_activity_dot y=933
+
+# And it says the same thing it said in the strip.
+assert_ui_text "20 sessions" hidden=false
+
+# The blocked count is NOT in the footer, and that is the decision rather than
+# an omission: the sidebar already badges it on the Blocked row — where Puffin
+# puts it too — and menubar.mm states it in words on the macOS menu bar. The
+# strip was the second and third rendering of one fact, and the two disagreed:
+# it counted `tag == Blocked` and said 3 where the badge counts
+# `ecs::model::in_blocked_view` (Blocked OR Failed, Puffin's own rule) and says
+# 6. This is the surviving one, on the fixture the whole suite shares.
+assert_ui_text "6" hidden=false

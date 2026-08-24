@@ -4596,6 +4596,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // as 45px tall because the wrap owns the border and centres the field
         // inside it. See afterhours_gaps.md #65.
         constexpr float kFieldH = 29.0f;
+        // The PLACEHOLDER's ink, scoped by save/restore. text_input hardcodes
+        // `field_label.explicit_text_color = ctx.theme.font_muted` (vendor
+        // text_input/component.h:194) and offers no with_placeholder_color, so
+        // the hint wears whatever the pane last left in font_muted --
+        // `text_faint` (100,100,112). Puffin's is `mutedText` (140,140,166):
+        // measured over the two frames' hint rows, the reference's ink peaks at
+        // (141,141,165) and hanabi's at (94,94,106), the largest colour gap
+        // left in the composer band. text_secondary (142,142,154) is the
+        // nearest token and it is two units off Puffin's.
+        //
+        // Save/restore works here even though gap #90 says a per-widget colour
+        // is a frame-wide edit, and the distinction is worth keeping: #90 is
+        // about `Theme::Usage::*` values RESOLVED at render time, and this one
+        // line COPIES a concrete colour into the entity during the imm build.
+        // So the window is the build call, and it is exactly one call wide.
+        // (afterhours_gaps.md #120.)
+        //
+        // Worth 68 of the hint row's 962 differing pixels -- small, and the
+        // reason it is small is that the two strings differ ("Message
+        // Agentcloud... (^)" against "Message hanabi..."), so brighter ink
+        // lands on the reference's glyphs for the shared prefix and on bare
+        // background after it. It is kept because it is the colour Puffin's
+        // source names, not because of the 68px.
+        //
+        // NOTE this is the same swap that made the SIDEBAR FOOTER worse
+        // (REFERENCE.md, "The sidebar footer's three buttons"): there Puffin's
+        // 9pt SF Symbols never reach their own colour and hanabi's sprite blits
+        // do, so matching the token overshoots. Here both apps' 13px body text
+        // reaches full coverage -- the reference's own peak is (141,141,165)
+        // against a (140,140,166) token -- so matching the token is right. The
+        // rule is not "never match Puffin's token"; it is "measure what lands".
+        const auto savedMuted = ctx.theme.font_muted;
+        ctx.theme.font_muted = theme::text_secondary();
         auto inputRes = afterhours::ui::imm::text_input(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
@@ -4607,6 +4640,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_corner_radius(7.0f)
                 .with_debug_name("composer_reply_input"));
+        ctx.theme.font_muted = savedMuted;
 
         // Screenshot affordance: HANABI_TEST_FOCUS_COMPOSER=1 force-focuses the
         // composer field so a capture can photograph the caret WITH text in it

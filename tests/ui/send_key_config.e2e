@@ -21,7 +21,14 @@
 expect_text "needs a decision"
 
 # ---- Default: Return sends -----------------------------------------------
-click 646 674
+# Focus the composer BY NAME. This was `click 646 674` — a literal point four
+# pixels inside the field's top edge — and feat/vis-statusmove moved the whole
+# composer 26px down (hanabi reserved a status strip at the window's floor that
+# Puffin has no equivalent of; layout_system.h). The point then landed on the
+# transcript, the typing went nowhere, and six scripts in this directory failed
+# on one edit. `click_ui` takes the widget's centre, so it cannot break on
+# layout again.
+click_ui composer_reply_input
 wait_frames 4
 type "return should send this"
 wait_frames 4
@@ -43,7 +50,7 @@ click_ui settings_close
 wait_frames 8
 
 # ---- Now Return does NOT send --------------------------------------------
-click 646 674
+click_ui composer_reply_input
 wait_frames 4
 type "return must not send this"
 wait_frames 4
@@ -64,7 +71,7 @@ wait_frames 6
 click_ui settings_close
 wait_frames 8
 
-click 646 674
+click_ui composer_reply_input
 wait_frames 4
 expect_text "Enter to send"
 key ENTER
