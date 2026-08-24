@@ -5,12 +5,22 @@
 # whatever the app was set to. "XHigh" is now something only the picker can put
 # on screen, so the assertion cannot pass on the old placeholder.
 #
+# CHANGED (composer visual parity): the level is parenthesised onto the model
+# instead of wearing the word "Effort:" and a pill of its own. Puffin's strip
+# reads "Opus 5 (high)" as one run of words — its `ModelChipLabel` is the model
+# name followed by `Text(" (\(effort))")` at 70% opacity — and hanabi's two
+# pickers now draw as that same run, butted together, each half still opening
+# its own list. The assertions moved with the words: what they are for is that
+# the chip carries the level the picker was told, and "(XHigh)" says that as
+# well as "Effort: XHigh" did. The parentheses are load-bearing in the
+# assertion too — without them "High" would also match inside "XHigh".
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
 expect_text "needs a decision"
 
 # The ladder's own default, until someone picks otherwise.
-expect_text "Effort: High"
+expect_text "(High)"
 expect_no_text "Opus 4.8 (xhigh)"
 
 click_ui composer_effort
@@ -25,14 +35,14 @@ wait_frames 10
 
 # The popover is gone and the chip carries the choice.
 expect_no_text "as much as the model serves"
-expect_text "Effort: XHigh"
+expect_text "(XHigh)"
 
 # Not a one-way trip: the ladder goes back down.
 click_ui composer_effort
 wait_frames 8
 click_ui effort_row_0
 wait_frames 10
-expect_text "Effort: Low"
+expect_text "(Low)"
 
 # Escape puts the picker away without choosing anything.
 click_ui composer_effort
@@ -41,4 +51,4 @@ expect_text "middle of the ladder"
 key ESCAPE
 wait_frames 8
 expect_no_text "middle of the ladder"
-expect_text "Effort: Low"
+expect_text "(Low)"

@@ -1532,7 +1532,7 @@ a semibold because it is the correct render, never because of a parity number.
   line changed.
 - **Class** — `TEDIOUS`. Nothing was broken; it had simply never been measured.
 
-### 2. Colouring one placeholder moved the main pane — gap #90
+### 2. Colouring one placeholder moved the main pane — gap #90 (theme)
 
 - The placeholder's colour can only be set through `ctx.theme.font_muted`
   (text_input ignores per-widget colours, gap #17), and `ctx.theme` is one
@@ -1556,3 +1556,75 @@ a semibold because it is the correct render, never because of a parity number.
   risk of moving a label that is currently correct.
 - **Class** — noted, not taken.
 
+---
+
+## Composer strip (feat/vis-composer2)
+
+1. **The region score cannot see this theme's work, and the reason is a
+   feature.** hanabi carries a 26px status bar (`statusBarHeight`, "6 blocked on
+   you" / "20 sessions") at the bottom of the main column; Puffin has none, and
+   its composer runs to the window's bottom edge. So hanabi's composer sits
+   exactly 26px high and *every* pixel in the band is compared against the wrong
+   row. Measured: the band scores 12.40% as the harness scores it and 6.28% when
+   hanabi's rule is aligned to the reference's, so the offset alone is 6.1 points
+   of the band. Pasting the finished band 26px lower and re-running `compare.py`
+   prices it in the real metric: `main` 5.92% → 5.30%, overall 7.26% → 6.82%.
+   That number belongs to whoever owns the sidebar, not to this theme — Puffin
+   puts the same information in its sidebar footer, which the reference has and
+   hanabi's `footer` region already scores.
+
+2. **Profile the band aligned to its own landmark, not as the harness scores
+   it.** The whole first pass — full-width rule, Puffin's column, the input box
+   landing on x=357..1072 to the pixel — moved the headline from 7.39% to 7.38%.
+   The same pass moved the band from 9.65% to 8.09% once measured against
+   itself. A 30-line numpy script that crops both frames from the hairline down
+   and sweeps a vertical shift found the 26 immediately and then reported every
+   change honestly for the rest of the session. Anything else in this band is
+   measuring the status bar.
+
+3. **A row-by-row diff finds colour bugs that eyes and region totals both
+   miss.** After the geometry matched, two rows of the aligned band were 79%
+   wrong across 710px: the input box's top and bottom borders. hanabi drew them
+   in `theme::border()` (62,62,72) where the reference is (45,45,59) — Puffin
+   uses `mutedText.opacity(0.25)` for the field and full-strength `hairline`
+   only for the rule above, and hanabi had one colour doing both jobs.
+   Switching that one element to `theme::border_soft()` took the band from
+   7.98% to 6.28%: **one colour was 40% of everything left.** It is invisible
+   side by side and it is the largest single term.
+
+4. **PUFFIN_SPEC.md's composer numbers are right; the brief's are eyeballed.**
+   The brief put the hairline "at about y=846"; it is at y=851, which is what
+   the spec already said. Worth 5px of chasing before I profiled it myself.
+   Conversely the spec's `track x=360..404, 45x6` for the meter is wrong — the
+   reference's is 48x5 at x=441..489, which is also what Puffin's source says
+   (`.frame(width: 48, height: 5)`). Trust the source, then the pixels, then
+   the prose.
+
+5. **Two rows of every 1px edge can never match, and it is not a bug.** The
+   reference is a 2x capture downsampled, so its 1pt borders land as one strong
+   row plus one half-strength row — (45,45,59) at y=884 then (32,32,45) at
+   y=885. hanabi at 1x paints one crisp row. The second row is off by ~28 on a
+   threshold of 24, so it counts as wrong, on all four edges of the input box
+   and the top and bottom of every pill. That is ~1.6 points of this band that
+   no code can close without drawing a fake antialiasing row. It is the same
+   thing `compare.py`'s "floor ~2.3% — retina downsample" is warning about, and
+   it should be said per-region, not only in the headline.
+
+6. **A negative margin escapes a parent's padding, and I did not use it.** The
+   composer bar owned the gutter, which made the hairline a child of the padded
+   box and only as wide as the reading column. `with_margin(Margin{.left =
+   pixels(-gutter)})` on the divider works — verified, `composer_divider` comes
+   out x=280 w=820, identical to the restructure. I moved the gutter onto each
+   content row instead, because a negative margin is undocumented behaviour in a
+   vendored library we cannot patch and cannot pin, and because the restructure
+   is what Puffin actually does (`Divider()` is a sibling of the padded
+   composer). The cost was a signature change on `render_attachments` to carry
+   the gutter down. Worth knowing the shortcut exists; worth not taking it.
+
+7. **The mock fixture reports no context budget, so the meter never draws.**
+   Puffin's strip shows a 48x5 track and `0%`; hanabi shows `~112 tokens` and no
+   track at all, because `usage.has_denominator()` is false on the mock and
+   `configuredContextBudget` is 0. The meter's geometry is now Puffin's, and no
+   capture can show it. Anything that wants that part of the strip compared has
+   to give the mock a budget first — and `context_bar_needs_a_denominator.e2e`
+   exists precisely to stop us inventing one.

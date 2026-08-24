@@ -4113,6 +4113,9 @@ CLASS: WORKAROUND
 
 ### #85 — Padding on a label-only element is silently ignored
 
+*(See also #91, which found the same wall from the composer and states it more
+completely: padding is one of three ways a label refuses to be laid out.)*
+
 **What was wanted.** A smart-view row's label to start 12px after its icon,
 where the reference draws it. The row asked for exactly that:
 
@@ -4289,6 +4292,11 @@ of by transcribed pixels, and a rectangle stops being a number somebody has to
 remember to re-measure.
 
 CLASS: TEDIOUS
+### #91 — A label is not a layout participant: padding cannot inset it, `children()` cannot measure it, and the one field that moves it is not on `ComponentConfig`
+
+*(#85 is the same family, found independently one theme over and kept because
+it carries the proof — `pixels(12)` and `pixels(40)` render byte-identical
+frames. This entry is the fuller statement of the same thing.)*
 
 ---
 
@@ -4374,4 +4382,77 @@ whole frame to reach one placeholder.
 theme edit lasts exactly as long as the subtree that made it.
 
 CLASS: FOOTGUN
+
+
+---
+
+**What was wanted.** Puffin's composer strip, which is four text runs and a
+pill: `Opus 5` then `(high)` butted onto it, a meter, `0%`, and a capsule
+carrying a 9pt icon 3pt before its label inside 6pt of padding
+(`AgentcloudChatView.StripMetrics`, `ToggleChip`). Three ordinary asks — size a
+widget to the words in it, put a gap of N between two runs, and start a label N
+pixels in from its own box.
+
+**What happens.** None of the three is expressible.
+
+- `with_padding` never reaches the text. `rendering.h` draws a label with
+  `Vector2Type margin_px{5.f, 5.f}` — a literal, clamped only to 40% of the box
+  — and that is the *only* inset a label gets. The padding sizes and positions
+  the BOX; the words stay at +5 from its left edge whatever you passed. A pill
+  given 19px of left padding to make room for an icon draws the icon straight
+  through the first letter, which is exactly what the first attempt here did.
+- `children()` sizing cannot see a label. `_sum_children_axis_for_child_exp`
+  sums child *elements*, and a label is a component on the widget, not a child.
+  A `button` with a label and no children asks for `children()` and gets a width
+  that has nothing to do with its text: `Server default` at 11px measures 55px
+  wide and came out in a 112px box, which put a 52px hole in the middle of a run
+  of words that is supposed to read as one phrase.
+- `HasLabel::text_x_offset` is precisely the missing knob — `label_rect.x +=
+  hasLabel.text_x_offset` in both render paths — and `ComponentConfig` has no
+  setter for it. Only `text_input`'s own internals ever write it.
+
+**Why the obvious escapes do not work.**
+
+- **Leading spaces in the label string** move the text, and are measured in
+  whatever face is active at draw time, so the inset is a different number on
+  every font and every scale — and it lands *inside* the string every
+  `expect_text` assertion and every accessibility reader sees.
+- **A wrapper div holding an icon div and a label button** lays out correctly
+  and gives up the hit target: the capsule's border, its padding and the icon
+  all stop being clickable, so the pill answers to a click on its words only.
+  Puffin's whole capsule is the button.
+- **Putting the icon at the RIGHT of the label** does work, because the free
+  space in a label's box is all at the trailing end. It is also not the design;
+  the icon leads in all three of Puffin's pills.
+- **`with_alignment(Center)`** does not help — it centres inside the same
+  hard-coded margin, so it moves both edges and buys no inset on either.
+
+**The workaround, and its cost.** Every text run in the strip is measured with
+hanabi's own `theme::text_px` (fontstash bounds through the active face) and
+given an explicit `pixels(...)` width, and every gap between runs is written net
+of the 5 the library will spend regardless — the composer names that as
+`kLabelInset` so the arithmetic reads as arithmetic. The pill's icon is blitted
+by `on_draw_fg` into space reserved by hand, and its label is pushed clear by
+reaching past `ComponentConfig` and writing `HasLabel::text_x_offset` on the
+entity after the widget exists.
+
+The cost is three things. Every gap in that row is now `wanted - 5`, so the
+numbers in the source are not the numbers in the design and only a comment
+connects them. The offset write is a public field on a vendored component with
+no setter and no test covering it, so an afterhours bump that renames or
+re-purposes it fails at compile time if we are lucky and silently mis-lays the
+pill if we are not. And the whole thing has to be repeated, by hand, at every
+call site in every project that wants an icon in a button.
+
+**Minimal upstream fix.** Two additions, neither of which changes an existing
+render path. Expose the field that already exists —
+`ComponentConfig::with_text_offset(float x, float y = 0)` writing
+`HasLabel::text_x_offset`/`text_y_offset` — and make `Dim::Children` fall back
+to the measured label when a widget has a `HasLabel` and no child elements,
+which is what every caller already means by `children()` on a button. The
+padding-versus-label question then answers itself: `children()` returns
+`measure_text + padding`, and the label's inset is the padding, not a literal
+in the renderer.
+
+CLASS: WORKAROUND
 
