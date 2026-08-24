@@ -16,6 +16,7 @@
 
 #include "../test_hooks.h"
 #include "../util/format.h"
+#include "tab_colors.h"
 #include "tab_model.h"
 #include "../keys.h"
 #include "ui_imports.h"
@@ -31,64 +32,7 @@
 
 namespace ecs {
 
-namespace tab_colors {
-// Two levels, not three. The review that produced the old ladder was right
-// that a ~15L active/inactive delta is near-invisible, but it solved that by
-// tinting three planes at different values, and the reference does the
-// opposite: everything is one background and the ACTIVE tab is the only thing
-// that is a different colour at all.
-//
-//              dark          hex        role
-//   strip_bg   window_bg     #171723    the one background
-//   inactive   window_bg     #171723    the same — hairline + text only
-//   active     selected_bg   #2E3A58    the only filled surface in the strip
-//
-// The ACTIVE tab fills with selected_bg (#2E3A58 on the reference) — the SAME
-// fill the selected sidebar row uses, which is what makes "this is the current
-// thing" read the same in both places. The strip and the INACTIVE tabs are both
-// the window colour, so an inactive tab is invisible except for its hairline
-// and its text: on the reference there is no recessed well behind it. On hover
-// an inactive tab gets a faint additive wash over its own fill (theme::over,
-// gap #13 — a subtle tint, never a solid block).
-inline afterhours::Color strip_bg() { return theme::window_bg(); }
-inline afterhours::Color tab_active() { return theme::selected_bg(); }
-inline afterhours::Color tab_inactive() { return theme::window_bg(); }
-inline afterhours::Color tab_hover() {
-    return theme::over(theme::hover_bg(), theme::window_bg());
-}
-inline afterhours::Color tab_text() { return theme::text_secondary(); }
-// The reference's active-tab title is pure white on the selected fill, a step
-// brighter than text_primary; light mode keeps its own ink.
-inline afterhours::Color tab_text_act() {
-    return theme::g_mode == theme::Mode::Dark
-               ? afterhours::Color{255, 255, 255, 255}
-               : theme::text_primary();
-}
-inline afterhours::Color close_hover() {
-    return theme::over(theme::hover_bg(), theme::panel_bg());
-}
-inline afterhours::Color border() { return theme::border(); }
-inline afterhours::Color tab_outline() { return theme::divider(); }
-inline afterhours::Color accent() { return theme::accent(); }
-inline constexpr float kTabCorner = 4.0f;
-inline constexpr float kTabBorderPx = 1.0f;
-// afterhours rasterizes a w*h box at (x,y) as (w+1)*(h+1) pixels anchored at
-// (x-1,y-1), so a tab whose OUTER edge must land on the reference's measured
-// 220x34 at (284,32) is asked for as 219x33 at (285,33) (gap #80).
-inline constexpr float kRasterGrow = 1.0f;
-// Gap #81. The corner bits are named for the OPPOSITE corner: the enum is
-// TOP_LEFT=0..BOTTOM_RIGHT=3 and the sokol backend reads the same bitset as
-// 3=TL 2=TR 1=BL 0=BR. Naming the bottom two is what rounds the top two on
-// screen. Do not "fix" this to read top_left/top_right; it renders inverted.
-inline std::bitset<4> tab_corners_top_round_bottom_square() {
-    using afterhours::ui::imm::CornerState;
-    return afterhours::ui::imm::RoundedCorners()
-        .all_sharp()
-        .bottom_left(CornerState::ROUND)
-        .bottom_right(CornerState::ROUND)
-        .get();
-}
-}  // namespace tab_colors
+// The strip's palette lives in tab_colors.h so tests can reach it.
 
 struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -528,6 +472,31 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("tab_label"));
             // Pin glyph, DRAWN: the font silently drops a pushpin codepoint
             // (gap #48), so it is a shape in the tab's left gutter.
+            //
+            // Its ink is NOT the tab's title colour. `TabStrip.swift:506` gives
+            // `pin.fill` its own `.foregroundColor(mutedText)` and its own
+            // `.opacity(0.7)`, overriding the chip's foreground, so the mark is
+            // the same colour whether or not the tab is current -- and the
+            // reference agrees to two units on both tabs at once: mutedText
+            // (140,140,166) at 0.7 over the inactive fill predicts (105,105,127)
+            // and measures (107,107,127); over the active fill it predicts
+            // (112,115,143) and measures (114,117,143). A rule out of the source
+            // and a constant out of the pixels, landing on each other.
+            //
+            // What was here passed `txt`, so the active tab's pin came out pure
+            // white -- 209 above its own background where the reference is 71.
+            // Every pixel of that mark was a diff pixel on brightness alone.
+            //
+            // The alpha goes to the GPU rather than being resolved here. That
+            // is worth stating because the atlas path two functions away has to
+            // push its own blend pipeline and says sgl's default has blending
+            // off -- so the assumption that a translucent SHAPE needs the same
+            // treatment is an easy one, and it is wrong. Probed by drawing this
+            // mark both ways and diffing the two captures: pre-composited with
+            // `theme::over` and handed straight through, the pixels are
+            // identical, because the UI render pass has the blend pipeline
+            // loaded (`backends/sokol/backend.h:403`). Straight through, then --
+            // one less thing that has to know what it is sitting on.
             if (tab.pinned)
                 div(ctx, mk(uiRoot, 960 + static_cast<int>(i)),
                     ComponentConfig{}
@@ -539,8 +508,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_transparent_bg()
                         .with_roundness(0.0f)
                         .with_render_layer(baseLayer + 1)
-                        .with_on_draw_fg([txt](RectangleType rc) {
-                            hanabi::glyph::pin(rc, txt);
+                        .with_on_draw_fg([](RectangleType rc) {
+                            hanabi::glyph::pin(rc, tab_colors::pin_ink());
                         })
                         .with_debug_name("tab_pin"));
 
@@ -645,7 +614,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         "plus", "+",
                         plusHovered ? tab_colors::tab_text_act()
                                     : tab_colors::tab_text(),
-                        15.0f))
+                        15.0f, tab_colors::kPlusYBias))
                     .with_debug_name("tab_new"));
             if (plusBtn) app.composerOpen = true;
         }
