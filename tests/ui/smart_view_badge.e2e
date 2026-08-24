@@ -1,0 +1,47 @@
+# The smart-view count is a badge, and the label is the size the reference draws.
+#
+# Three things this locks, all measured off ref/01_home.png and all wrong
+# before:
+#
+#   1. Home carries a badge at all. Its count is blocked + review -- the
+#      reference client's rule verbatim (SmartView.attentionCounts returns
+#      [.home: blocked + review, ...]) -- and hanabi passed -1, so the row
+#      that is selected the moment the window opens drew nothing.
+#   2. The badge is a 17x17 ring with the digit centred in it, not a bare
+#      number. Asked for 16: every box rasterizes one pixel bigger than
+#      requested (gap #80).
+#   3. The label starts at x=37 and is drawn at 16.8px. It used to start at
+#      x=31 at 13px, because the 12px left padding the row asked for was
+#      silently ignored -- padding on a label-only div does nothing
+#      (gap #85) -- and nobody could see the difference between "the padding
+#      is applied" and "the padding is not applied" without measuring.
+#
+# The window is the reference's own 1180x949 so these are the reference's own
+# coordinates and not a second set that has to be kept in step with them.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
+
+# Home's badge. Addressed by its text so it is THIS badge and not the first
+# one in the tree: 9 is blocked (6) + review (3) on the fixture, and no other
+# widget on screen carries a bare "9".
+assert_ui_text "9" w=16
+assert_ui_text "9" h=16
+# x is the LAYOUT rect, which sits one pixel right of where the box lands on
+# screen: every box rasterizes one pixel bigger and one pixel up-left than
+# asked for (gap #80). 256 here is the measured 255 in the reference.
+assert_ui_text "9" x=256
+assert_ui_text "9" hidden=false
+
+# The label column. First match is Home's, which is the row the window opens
+# on. The layout puts it at 31; the ink lands at 37 -- afterhours' hardcoded
+# 5px text inset (gap #75) plus the glyph's own left bearing. 37 is where the
+# reference draws it.
+assert_ui sv_label x=31
+
+# NOT asserted here, deliberately: that Pinned and Archived carry no badge.
+# The scripted DSL can only ask about a widget it can name, and "no widget
+# exists" is exactly what it cannot express -- assert_ui retries until it
+# times out, which fails for the right reason by accident and would fail the
+# same way if the whole sidebar disappeared. An assertion that cannot tell
+# those apart is not evidence. The rule is covered by reading, in the comment
+# over the row.

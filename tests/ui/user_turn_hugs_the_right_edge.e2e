@@ -14,7 +14,7 @@
 #   2. SHRINK-TO-FIT, CAPPED. 412 is this message's own wrapped width, not the
 #      column's. A bubble that stopped hugging its text would be 644 (the cap,
 #      kBubbleCap) or 736 (the column). afterhours cannot express "as wide as
-#      my text but no wider than N" — see afterhours_gaps.md #84 — so this
+#      my text but no wider than N" — see afterhours_gaps.md #87 — so this
 #      width is computed by hanabi in user_box() and handed to the layout as a
 #      literal pixels(). That makes it exactly the kind of number that rots
 #      silently, and exactly the kind worth asserting.

@@ -43,9 +43,13 @@ class MockClient : public Client {
         // twice — the override (with the fresher updated_at/preview) wins.
         for (auto& s : sessions) {
             if (is_overridden(s.summary.id)) continue;
+            fill_sub_agent_counts(s);
             out.push_back(s.summary);
         }
-        for (auto& s : created_) out.push_back(s.summary);
+        for (auto& s : created_) {
+            fill_sub_agent_counts(s);
+            out.push_back(s.summary);
+        }
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),
                   [](const SessionSummary& a, const SessionSummary& b) {
@@ -56,11 +60,16 @@ class MockClient : public Client {
 
     Result<Session> get_session(const std::string& id) override {
         for (auto& s : created_) {
-            if (s.summary.id == id) return Result<Session>::success(s);
+            if (s.summary.id == id) {
+                fill_sub_agent_counts(s);
+                return Result<Session>::success(s);
+            }
         }
         for (auto& s : seed()) {
-            if (s.summary.id == id)
+            if (s.summary.id == id) {
+                fill_sub_agent_counts(s);
                 return Result<Session>::success(s);
+            }
         }
         return Result<Session>::failure("no such session: " + id);
     }
@@ -393,6 +402,18 @@ class MockClient : public Client {
         for (char& c : s)
             if (c == '\n' || c == '\r') c = ' ';
         return s;
+    }
+
+    // The sidebar's sub-agent count, derived from the transcript's own
+    // children so the two surfaces can never disagree. "Running" is the only
+    // live state; Done and Blocked have both stopped, and a blocked child is
+    // exactly the one a settled-coloured count should not claim is working.
+    static void fill_sub_agent_counts(Session& s) {
+        s.summary.sub_agent_count = static_cast<int>(s.sub_agents.size());
+        int live = 0;
+        for (const auto& a : s.sub_agents)
+            if (a.state == SubAgentState::Running) ++live;
+        s.summary.sub_agent_running_count = live;
     }
 
     // True when a created_ entry shadows a seed row of the same id (a replied-

@@ -3952,7 +3952,57 @@ CLASS: WORKAROUND
 
 ---
 
-### #84 — A box cannot be sized to its own text AND capped: `Dim::Text` measures unwrapped, and `max_width` clamps nothing but itself
+### #84 — Right-aligned label text can never sit flush to its box (hardcoded 5px inset)
+
+**What was wanted.** A sub-agent count on a sidebar row, right-aligned against
+the row's right edge, the way the reference client draws it.
+
+**What the library does.** Every alignment insets the text by a constant that
+callers cannot see or change. `rendering.h`:
+
+```cpp
+constexpr float kInset = 5.f;                       // line 890
+float x = rect.x + kInset;                          // Left
+...
+else if (alignment == TextAlignment::Right)
+  x = rect.x + rect.width - kInset - line_w;        // Right
+```
+
+`ComponentConfig` has no margin, inset or padding knob that reaches this, so
+`TextAlignment::Right` means "5px shy of the right edge" and nothing else. The
+same constant governs Left and Center, which is fine for those — a 5px gutter
+on the left of a left-aligned label is invisible. On the right it is a
+5px hole between the digits and the edge they are supposed to be flush with.
+
+**This is not theoretical, and it is not new.** Every right-aligned count
+already in hanabi's sidebar — the smart-view badges (Home/Blocked/Review), the
+folder counts — lands its right edge at x=263 where the reference puts it at
+x=271. The 8px has been visible in the parity captures the whole time and read
+as "the counts sit a bit left", which is exactly what a hardcoded inset plus a
+glyph's own side bearing looks like.
+
+**Why the obvious escapes do not work.**
+
+- **Shrinking the parent's right padding** moves every sibling in the row, not
+  just the label — the star and mute slots go with it.
+- **Making the slot 5px wider** does nothing: the inset is measured from the
+  slot's own right edge, so the text moves left with it.
+- **`with_translate`** takes an absolute position, not a delta, so using it
+  here means re-deriving the row's laid-out x in the caller, which is the
+  layout engine's job and wrong the moment anything beside it changes width.
+
+**The workaround, and its cost.** Left-align in a slot sized to the measured
+text **plus** `kInset`. The inset then lands on the left of the slot, where
+there is nothing to be flush with, and the text's right edge falls exactly on
+the slot's — which, for the row's last child, is the row's right edge. It is
+exact and it costs one measurement the layout will immediately redo, but it
+encodes the library's private constant (`kAhTextInset` in `sidebar_system.h`)
+in app code, so a change to `kInset` upstream silently moves hanabi's counts.
+
+**Minimal upstream fix.** Honour a per-component inset/margin on
+`ComponentConfig` and default it to the current 5px; or simply stop insetting
+the Right case, where the inset has no reader-facing purpose.
+### #87 — A box cannot be sized to its own text AND capped: `Dim::Text` measures unwrapped, and `max_width` clamps nothing but itself
 
 **What was wanted.** Puffin's user turn, verbatim from
 `Sources/Views/AgentcloudTranscriptView.swift`:
@@ -4058,7 +4108,58 @@ CLASS: WORKAROUND
 
 ---
 
-### #85 — A row cannot baseline-align its children, so every avatar-beside-text row carries a magic top offset
+### #85 — Padding on a label-only element is silently ignored
+
+**What was wanted.** A smart-view row's label to start 12px after its icon,
+where the reference draws it. The row asked for exactly that:
+
+```cpp
+div(ctx, mk(row.ent(), 2),
+    ComponentConfig{}
+        .with_label(label)
+        .with_size(ComponentSize{pixels(svLabelW), pixels(22)})
+        .with_padding(Padding{.left = pixels(12)})   // does nothing
+        ...
+```
+
+and its comment did the arithmetic out loud: *"Puffin puts the label ink at
+x=37: kSbInset 9 + icon 16 + a 12px pad on the label = 37."*
+
+**What happens.** The text lands at x=31 — the div's own left edge plus the
+hardcoded 5px text inset (gap #75), with the padding contributing nothing.
+Proven by changing the value: **`pixels(12)` and `pixels(40)` produce a
+byte-identical frame.** Padding is applied when laying out an element's
+CHILDREN; a label is not a child, it is drawn into the element's rect by
+`position_text_ex`, which reads the rect and the alignment and never the
+padding.
+
+The cost is not the six pixels. It is that the code, its author and its comment
+all believed the padding was applied, and nothing in the build or the run said
+otherwise — the label sat 6px left of the reference for the entire parity
+effort while a comment in the same file asserted it was correct. A silent no-op
+on a value someone computed is worse than a compile error and worse than a
+crash.
+
+**Why the obvious escapes do not work.**
+
+- **`with_margin`** is the same story one level out: it spaces the element from
+  its siblings, not the text from the element.
+- **Sizing the label div smaller and letting alignment place it** only works for
+  Right and Center, and both of those are already 5px off for the same reason
+  (gap #84).
+- **Nesting the label in a padded parent** works, and costs an entity per label.
+
+**The workaround, and its cost.** An empty div of the measured width before the
+label — the same move this file already makes vertically (`spacer`, "afterhours
+has no margin between column children"), now also horizontally (`spacer_x`).
+Two entities per row instead of one, and every measured gap in the design
+becomes a widget that exists only to be empty.
+
+**Minimal upstream fix.** Either honour `Padding` in `position_text_ex` — the
+rect is right there — or, better, refuse it: make `with_padding` on an element
+that has a label and no children a warn-once, the way `resolve_weighted` now
+warns on an unresolvable font weight. Silence is what made this cost a day.
+### #88 — A row cannot baseline-align its children, so every avatar-beside-text row carries a magic top offset
 
 **What was wanted.** A 20px avatar beside a 35px bubble, sitting on the bubble's
 first line of text rather than floating in the middle of it.
@@ -4111,7 +4212,79 @@ CLASS: FOOTGUN
 
 ---
 
-### #86 — NOT A GAP: right-aligning a child needs no spacer, and this is worth writing down
+### #86 — A capture cannot say where anything landed: the screenshot path emits pixels and nothing else, so every geometric fact about a frame is bisected back out of the PNG
+
+**What was wanted.** A list of rectangles, in the parity capture's own
+coordinates, naming the surfaces where hanabi and Puffin draw structurally
+different things — the transcript viewport, the status strip, the composer box.
+Each one has to be drawn tightly around a real element: too small and it leaks
+difference into the score, too large and it swallows signal that could have been
+worked on. The engine knows all of it. `layout.composer` is a `Rect` computed in
+`layout_system.h`, and every div in `status_bar_system.h` carries a
+`with_debug_name` chosen for exactly this kind of question.
+
+**What happens.** `run_headless_screenshot` writes a PNG. That is the entire
+output of a capture. There is no companion file, no stdout table, no flag that
+says "and also tell me the resolved rect of every named element you just drew".
+So the way to find the composer's top edge is to load the PNG in Pillow, pick a
+background colour, and walk rows counting non-background pixels until a run
+appears — which is how the numbers in `scripts/compare.py`'s divergence table
+were established: y=825 is hanabi's composer divider because row 825 has 720
+non-background pixels and rows 790..824 have none. The same bisection had to be
+repeated for the reference frame, where it is unavoidable (it is a PNG of
+another app), and for hanabi, where it is not.
+
+Three costs, all paid this session. Each rectangle took a scripted row-scan and
+a judgement call about where to cut. The scan found the boundary in hanabi's
+capture and NOT in the source, so the first version of the transcript rectangle
+ran to y=855 and quietly ate Puffin's full-width composer rule at y=850 — caught
+by re-reading the profile, not by anything the tool said. And because the
+numbers are transcribed pixels rather than derived ones, they are stale the
+moment a layout constant moves, with nothing to notice.
+
+**Why the obvious escapes do not work.**
+
+- **`assert_ui` in the scripted `.e2e` DSL** does resolve a `debug_name` to a
+  live rect — but it lives in the UI-test runner, on a separate binary and a
+  separate invocation from `--screenshot`, and it asserts rather than reports.
+  Getting a table out of it means writing one assertion per element, guessing
+  the number, and reading it off the failure text. It also cannot run in the
+  same process as the capture, so nothing guarantees the two frames agree.
+- **Walking the tree after layout** is gap #74: `ClearUIComponentChildren`
+  empties `UIComponent::children` at the top of every frame, so a resolved
+  subtree is only reachable as a flat set of names decided in advance. #74 asks
+  for the parent/child edges back; this asks for something weaker and more
+  useful at capture time — the flat name→rect table, which already survives the
+  frame boundary and merely has no way out of the process.
+- **Reading the layout struct directly** covers `layout_system.h`'s six rects
+  and nothing else. The composer's inner divider, the chip row and the status
+  bar's own clusters are all built inside their systems from local constants,
+  which is where the interesting boundaries are.
+- **Printing rects from app code** is a rebuild per hypothesis (~2 min of
+  `main.o` on this box, the same toll #74 records) and leaves debug printf in
+  systems other agents are editing on other branches.
+
+**The workaround, and its cost.** Bisect the PNG. `scripts/compare.py` now
+carries five hand-measured rectangles pinned to a `DIVERGENCE_FRAME` of
+1180x949, with two guards standing in for the derivation that should not have
+been necessary: the table refuses to apply at all if the reference is not that
+exact size, and any rectangle that turns out to exclude zero differing pixels
+prints `<-- STALE? excludes nothing`. Those guards are real value — they are
+also thirty lines of scaffolding whose only job is to detect that a transcribed
+number has gone out of date, which is a problem a derived number does not have.
+
+**Minimal upstream fix.** One flag on the capture path that dumps the frame's
+resolved geometry as it is written: for every entity with a `UIComponentDebug`
+name, its name and its `rect()`, as JSON, next to the PNG. The data is already
+in hand at that moment — `rect()` survives the frame boundary, which is the
+half of the tree #74 says still works — and it needs no new bookkeeping, only
+an exit. Any parity harness downstream then addresses surfaces by name instead
+of by transcribed pixels, and a rectangle stops being a number somebody has to
+remember to re-measure.
+
+CLASS: TEDIOUS
+
+### #89 — NOT A GAP: right-aligning a child needs no spacer, and this is worth writing down
 
 Filed deliberately as a negative result, because two of the three things this
 theme set out to probe turned out to be things afterhours does correctly, and a

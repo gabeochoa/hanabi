@@ -147,10 +147,32 @@ struct SessionSummary {
     // it in the list, it just never raises a notification. Deliberately not
     // synced — which machine you want quiet on is a property of the machine.
     bool muted = false;
+
+    // --- Sub-agents, as a COUNT the list row can draw --------------------
+    // How many child sessions this thread spawned, and how many of those are
+    // still working. Two integers rather than the children themselves,
+    // because the sidebar only ever renders "1" or "1/3" and holding a vector
+    // per row would put the whole child catalog behind every list refresh.
+    //
+    // The pair, not a single number, is what makes the row readable: the
+    // denominator only appears when some but not all children are live (see
+    // ecs::model::sub_agent_label), and the live/settled distinction is what
+    // the colour encodes. A single "count" could not say either.
+    //
+    // BOTH backends fill these. The mock counts Session::sub_agents. The
+    // agentcloud adapter folds them out of the session list itself: every
+    // child session is its own row in the `list` reply carrying a `parent`
+    // session id (the durable parent link — agentcloud spec 024, projected
+    // into the catalog by spec 036 DEC-9), so the adapter tallies children
+    // onto their parent and drops the child rows. The generic http adapter
+    // reports no parentage and leaves both at 0, which renders as no column.
+    int sub_agent_count = 0;
+    int sub_agent_running_count = 0;
 };
 
-// A sub-agent (child worker) running under a session. Visualized ONLY in the
-// transcript sub-agent panel (never the sidebar), per docs/decisions.md.
+// A sub-agent (child worker) running under a session. The transcript's
+// sub-agent panel renders these in full; the sidebar renders only their COUNT
+// (see SessionSummary::sub_agent_count), never the sub-agents themselves.
 enum class SubAgentState {
     Running,
     Done,
