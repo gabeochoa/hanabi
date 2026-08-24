@@ -236,7 +236,7 @@ capture it, freeze it, and add it to this list.
 `feat/vis-titles`. It joins the tab bar and the row-mark column. Six rounds
 concluded the eighteen row titles were the rasterizer and left them alone; the
 seventh found that the last +1.73 was one pixel of horizontal position
-(afterhours ignores a label's padding — gaps #85, #91, #140), fixed it, and
+(afterhours ignores a label's padding — gaps #85, #91, #109), fixed it, and
 then measured what remained DIRECTLY rather than inferring it. This section is
 that measurement, so the eighth round does not happen.
 

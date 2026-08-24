@@ -1072,7 +1072,7 @@ thinner glyphs from a Regular face.
 > is no heavier face to reach for and CoreText's stem darkening is the whole of
 > it. *"strings whose start … match"* — they did not. Every one of the
 > nineteen started exactly one pixel left of the reference's, which is a
-> silently-ignored `Padding` (gaps #85, #91, #140) and not a rasterizer, and
+> silently-ignored `Padding` (gaps #85, #91, #109) and not a rasterizer, and
 > which was worth the region's entire remaining headroom. Re-measured with the
 > full ink band, the deficit is **11.5%**, uniform across all nineteen rows
 > (0.858–0.904). See `## The row titles (feat/vis-titles)`.
@@ -3678,7 +3678,7 @@ title in the list six pixels right. `render_snippet`, forty lines above the
 defect, already documents the margin (*"The indent is a margin, which moves the
 element and its text together"*), so one function in this codebase knew and the
 gap doc said not to. #85 shipped an empty `sb_spacer_x` div per row instead.
-Correction filed as gap #140, with the audit.
+Correction filed as gap #109, with the audit.
 
 The audit is the part to carry forward: **twenty labels in hanabi set
 horizontal padding**, nine of them on elements whose own label is the thing

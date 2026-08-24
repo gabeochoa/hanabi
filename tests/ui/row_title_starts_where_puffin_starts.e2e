@@ -27,7 +27,7 @@
 # moves: a 1px left Margin, with the element's width reduced by 1 so the row's
 # column arithmetic and its ellipsis budget are unchanged. Margin moves the
 # element and the text is drawn from the element's rect, so the text goes with
-# it -- the escape gap #85 rules out in its first bullet and gap #140 corrects.
+# it -- the escape gap #85 rules out in its first bullet and gap #109 corrects.
 #
 #   kRowLeftInset 9 + kGlyphW 13 + kRowTitleLead 1 = 23
 #

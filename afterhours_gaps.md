@@ -5559,7 +5559,7 @@ CLASS: MISSING
 
 ---
 
-### #140 — #85's escape list rules out `with_margin`, and `with_margin` is the fix; the ignored padding it warns about was still live 2,200 lines down the same file and cost a whole region
+### #109 — #85's escape list rules out `with_margin`, and `with_margin` is the fix; the ignored padding it warns about was still live 2,200 lines down the same file and cost a whole region
 
 **This is not a new wall.** #85 (*"Padding on a label-only element is silently
 ignored"*) and #91 describe the mechanism exactly and correctly. This entry is
