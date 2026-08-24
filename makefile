@@ -427,7 +427,12 @@ $(TEST_DIR)/test_settings: tests/unit/test_settings.cpp src/settings.cpp $(API_S
 
 # Headless e2e: real app logic (state model, glyphs, smart views, tabs, backend
 # defaults) against the mock + the real afterhours ECS core. No graphics linked.
-$(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp $(API_SRCS) | $(TEST_DIR)
+# TEST_HDRS, like every other target here: this one was the exception, and a
+# header-only change left `make test` silently running the PREVIOUS binary --
+# so an agent neutering its own fix to prove the test could fail watched it
+# come back green. A test that cannot fail is not evidence, and a test that
+# cannot even be rebuilt is worse.
+$(TEST_DIR)/test_e2e: tests/e2e/test_e2e.cpp $(API_SRCS) $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_e2e..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) $(API_LINK) -o $@
 

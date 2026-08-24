@@ -38,12 +38,17 @@ core. The sidebar/main-pane/tab systems delegate their pure decisions to
 
 - **Session list** loads from the mock, sorted newest-first, expected sample
   threads (`t1`/`t4`/`t13`) present.
-- **State model + glyphs**: `is_attention()` true only for `Attention`;
-  `glyph_for()` precedence Blocked→triangle, Review→diamond, Done→dot, bare
-  Attention→triangle, and running/parked/archived→none. Verified on the actual
-  mock seed too.
-- **Smart-view filtering**: Blocked = `tag==Blocked` (count 2), Review =
-  `state==Ready` / agent-verified (count 2), Starred = `starred` (count 3).
+- **State model + marks**: `is_attention()` true only for `Attention`;
+  `mark_for()` precedence — failure first (cross when the agent testified,
+  a red dot when only an outcome did), then anything that wants you (blocked,
+  review, bare Attention, bare Ready → bang), then a live run (arc), then a
+  `working` claim with no run behind it (live-blue dot), and finally settled
+  (calm dot, or a calm chevron when the thread has sub-agents). The run owns
+  the slot: the chevron never outranks a status. Verified on the actual mock
+  seed too, row by row against the parity reference.
+- **Smart-view filtering**: Blocked = `tag==Blocked || tag==Failed` — a failed
+  run rides with blocked, as it does in Puffin — Review = `state==Ready` /
+  agent-verified, Starred = `starred`.
 - **Tab model**: opening a thread adds a tab; opening an already-open thread
   FOCUSES it (no duplicate, exactly one active); closing the active tab falls
   back to the neighbor; closing the last tab drops to Home + clears transcript.

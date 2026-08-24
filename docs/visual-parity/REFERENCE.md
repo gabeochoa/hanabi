@@ -130,6 +130,32 @@ a fill means, which count goes in a badge, what the real inset is — and NOT
 about what any particular pixel in `ref/` is. When the two disagree, the PNG is
 the reference and the checkout has moved on. Say which one you used.
 
+### ...but the checkout is v0.5.2 and the reference is v0.5.5
+
+`~/kt-ng2w-puffin/VERSION` says **0.5.2**. `ref/01_home.png`'s own footer says
+**v0.5.5**, and no newer Puffin source exists on this machine (every `~/kt-*`
+and `~/w/puffin-*` tree with a `VERSION` reads 0.5.2 or older). Three versions
+is enough to move real things, and it has:
+
+- **The session row's leading mark.** The checkout's `SessionRowView` draws a
+  7pt `Circle()` on every childless row and a `chevron` on every row with
+  sub-agents — two shapes, with the state carried entirely in the COLOUR. The
+  reference draws five shapes (arc, dot, bang, cross, chevron) in three
+  colours. Read the checkout's `statusDot` as gospel and you will conclude
+  hanabi should throw its glyph vocabulary away.
+- **The mock catalog.** Five of the reference's twenty rows are not in the
+  checkout's `Mock/MockBackend.swift` at all.
+
+So read the source for the **rule**, not for the **shapes**. The rule is stable
+across the gap and the two agree wherever they overlap — `TabStatus.swift`'s "a
+live status always wins ... only `idle` reaches for the thread's own colour" is
+exactly the precedence the v0.5.5 capture draws, one axis up. And when you need
+a fact the checkout cannot show you, pair the capture's rows against the
+checkout's fixture: 15 of the 20 rows are in both, each with its state declared
+in Swift, which turns "what does this glyph mean" into a lookup instead of a
+guess.
+
+
 ## Never read a colour off the reference by its brightest pixel
 
 Small text has no solid interior: a sidebar count is 3–4px of antialiased
@@ -292,3 +318,42 @@ counterpart, and it half does.
   alone, holding the version label and three glyph buttons — and its comment
   records that those moved there **from a titlebar accessory**, not from a
   status bar Puffin used to have.
+
+
+## Declared divergences — differences that are NOT bugs
+
+Things hanabi does deliberately that the reference does not do, or does
+differently. Do not "fix" these toward the capture; they are the product
+deciding something, and the parity score is expected to pay for them.
+
+### The "hide automated rows" filter (hanabi has it; Puffin has none)
+
+A real catalog mixes human conversations with scheduled ones ("Schedule: …",
+"…-tick"). hanabi's search row carries an opt-in toggle that hides them, keyed
+on the title's SHAPE (`is_automated` in `sidebar_system.h`). Puffin has no such
+control and its list always shows everything.
+
+This is a divergence in the FILTER only. It used to be a divergence in the ROW
+too — an automated row drew a different, quieter glyph and a dimmed title, with
+nobody asking for it — and that part is gone as of `feat/vis-glyphs`. The
+reference draws `kicker-tick` exactly like the two live runs on either side of
+it (same blue arc, same title colour), because a scheduled thread that is
+running is a thread that is running: how it was STARTED is not its status. The
+removed rule also decided a row's whole appearance from a string match on its
+title, so renaming a thread changed what the list said about it, and a blocked
+cron tick — the row that most wants a human — read as the quietest thing on
+screen.
+
+Keep the filter. It is the honest form of the idea: the reader says "not now",
+rather than the client deciding some threads matter less than others.
+
+### The row mark's vocabulary is Puffin's, not `docs/state-model.md`'s
+
+`docs/state-model.md` specifies a colour-blind-safe legend of its own — red
+up-triangle for blocked, green diamond for review, blue dot for done — derived
+from an analysis of ~200 real threads. The shipped sidebar has not drawn that
+legend for some time, and as of `feat/vis-glyphs` the shared model does not
+either: `ecs::model::mark_for` speaks the reference's vocabulary. Shape still
+carries the status independently of colour, so the colour-blind property the
+doc was protecting survives; the shapes themselves are the reference's.
+

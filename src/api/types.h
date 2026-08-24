@@ -30,10 +30,26 @@ enum class Role {
 //
 //   Attention  — DONE or WAITING-ON-YOU. The only state that earns a dot+bold.
 //   Ready      — agent-verified, ready for the user to review (no test step).
-//   Running    — self-running / in progress. Dimmed and quiet, never nudges.
+//   Running    — a run is LIVE right now (isProcessing / resolved kind
+//                "running"). Dimmed and quiet, never nudges.
+//   Working    — the agent's own last testimony said it was working, but NO
+//                run is live. Distinct from Running because the two are
+//                different facts and the list says so: a thread whose run has
+//                ended must not wear a spinner. The wire carries both halves
+//                separately — a `status.state` of "working" and a `running`
+//                flag — and collapsing them was hanabi telling the reader a
+//                run was live when it was not.
 //   Parked     — muted. Greyed, never counts, never nudges.
 //   Archived   — retired. Greyed, low-signal.
-//   Unknown    — no state info (default for the generic http adapter).
+//   Unknown    — no state info (default for the generic http adapter). On a
+//                thread that has a tag, this means the TAG is the whole of
+//                what is known: nothing testified, only an outcome landed.
+//
+// APPEND-ONLY. These are persisted to the on-disk session cache as their
+// integer values (disk_cache.cpp `{"state", static_cast<int>(...)}`), so
+// inserting a member in the middle silently reinterprets every cached row —
+// yesterday's Running reads back as today's Working. New members go at the
+// end, whatever the reading order would prefer.
 enum class ThreadState {
     Unknown,
     Attention,
@@ -41,14 +57,27 @@ enum class ThreadState {
     Running,
     Parked,
     Archived,
+    Working,
 };
 
 // At most one tag chip is shown per row, and only when relevant.
+//
+// Failed is the fifth member of the vocabulary the backend actually speaks
+// (`status.state` is one of working / waiting / blocked / done / failed —
+// Puffin models the same five in `Wire/Vocabulary.swift:StatusState`).
+// hanabi carried four of them and folded failure into Blocked, which made a
+// run that DIED read as a run that is waiting for you: the same row, the same
+// glyph, the opposite ask. A failed thread still rides in the Blocked smart
+// view (see ecs::model::in_blocked_view) — Puffin puts it there too — it just
+// stops claiming to be a decision you owe someone.
+//
+// APPEND-ONLY, for the same reason ThreadState is.
 enum class ThreadTag {
     None,
     Blocked,
     Review,
     Done,
+    Failed,
 };
 
 // Local-first sync state for anything with a "on this device" vs "confirmed on

@@ -1628,3 +1628,124 @@ a semibold because it is the correct render, never because of a parity number.
    capture can show it. Anything that wants that part of the strip compared has
    to give the mock a budget first — and `context_bar_needs_a_denominator.e2e`
    exists precisely to stop us inventing one.
+
+## Row state glyphs (feat/vis-glyphs)
+
+### 1. The Puffin checkout on this machine is three versions behind the frozen reference
+
+- **What I wanted** — the state→glyph rule, read out of Puffin's source the way
+  REFERENCE.md says to, instead of guessed off the capture.
+- **What happened** — `~/kt-ng2w-puffin` is **v0.5.2** (`VERSION`); the frozen
+  reference's own footer reads **v0.5.5**. Between them the row mark changed
+  shape vocabulary entirely — the checkout's `SessionRowView` draws a `Circle()`
+  for every childless row and a `chevron` for every row with sub-agents, full
+  stop, while the capture draws arcs, bangs, crosses, chevrons and dots in three
+  colours. The checkout's mock fixture has changed too: five of the capture's
+  twenty rows (`two workers still out`, `two shards died`, `needs a decision
+  before it can go on`, `finished, and wants you to read it`, `parent — nothing
+  to report`) are not in it at all. No newer Puffin source exists on this box —
+  every other `~/kt-*` and `~/w/puffin-*` tree with a `VERSION` reads 0.5.2 or
+  older.
+- **Cost** — an hour, most of it spent doubting the pixels because the source
+  said something else. And it nearly cost the whole finding: the obvious
+  conclusion from `SessionRowView` alone is "Puffin has two shapes and hanabi
+  should too", which is wrong.
+  What rescued it was reading the source for the RULE rather than the SHAPES,
+  and pairing the capture's rows against the checkout's fixture states row by
+  row — 15 of the 20 rows are in both, each with its state declared in Swift,
+  so the mapping falls out of the pair. Every conclusion below is one the
+  v0.5.2 source and the v0.5.5 pixels agree on.
+- **Class** — `FOOTGUN`
+- **Gap filed?** — not an afterhours gap. Written into REFERENCE.md instead, so
+  the next agent reads the caveat before spending the hour.
+
+### 2. A screenshot cannot tell you a `working` claim from a live run — the source can, and it is emphatic
+
+- **What I wanted** — to know why two rows draw a steady blue dot where four
+  others draw a spinner, when hanabi's fixture calls all six `Running`.
+- **What happened** — the answer is in Puffin's `HomeSessionList.swift`, and it
+  is not subtle: *"A `working` claim with no run behind it is a corpse: spec 029
+  measured a 925-session fleet at 132 claiming `working` against 3 that really
+  were."* The wire carries both halves — a `status.state` of `working` and a
+  separate `running` flag — and Puffin buckets the claim-without-a-run as
+  *finished*, not running. hanabi's adapter mapped `state == "working"` straight
+  to `ThreadState::Running` without ever reading `running`, so a stalled thread
+  wore a live spinner. On the fleet number above that is ~14% of a catalog
+  lying, not two fixture rows.
+- **Cost** — one new state (`ThreadState::Working`), and a knock-on: the
+  sub-agent count's "live" tally counted stalled children too, so a subtree
+  where nothing had moved still read `1/3`. Fixed with the count's own test.
+- **Class** — `FOOTGUN` (hanabi's, not afterhours')
+- **Gap filed?** — no. This is a domain-model bug the parity work surfaced,
+  which is the forcing function doing its job.
+
+### 3. Drawn shapes have no antialiasing, and it is worth more of the diff than being right
+
+- **What I wanted** — five small marks that match a client drawing the same
+  shapes as vector glyphs.
+- **What happened** — afterhours' sokol backend pins `sample_count = 1` in both
+  its windowed and headless setup, and `sgl` antialiases nothing itself, so
+  every mark has binary edges against a reference whose every curve carries two
+  or three levels of partial coverage. Text is unaffected (it comes from an
+  antialiased atlas), which is why the aliasing reads as "the shapes look like
+  pixel art" rather than "the app looks low-res".
+- **Cost** — the honest ceiling for this whole theme. Measured per row on the
+  reference's twenty: a mark that is the RIGHT shape in the RIGHT place still
+  differs over ~90 px, a wrong one over ~106. Nine wrong glyphs were therefore
+  worth ~150 px of a 24,240 px list-region diff before I started. Result:
+  **list 14.32% → 14.20%, overall 7.39% → 7.38%**, with 20 of 20 marks now
+  correct. Placement tuning off the reference's own pixel rows (the bang was two
+  rows short and a pixel right; the dot a pixel small) was worth more than the
+  shape fixes: 2117 → 1884 px in the glyph column, of which ~1800 is the
+  aliasing floor.
+- **Class** — `WORKAROUND`
+- **Gap filed?** — yes, `afterhours_gaps.md` #92.
+
+### 4. `make test` runs a STALE test binary after a header-only change
+
+- **What I wanted** — to watch a new assertion go red against a neutered fix,
+  which is the only thing that makes it evidence.
+- **What happened** — the first neuter came back green. The test targets depend
+  on `tests/**/*.cpp` and `$(API_SRCS)` only (`makefile:430`), with no header
+  dependency and no `-MD` for them, so gutting `src/ecs/thread_model.h` — the
+  file the test exists to assert — leaves `output/tests/test_e2e` "up to date"
+  and make silently re-runs yesterday's binary. This is the same family as the
+  known "make will not relink after you restore a binary over output/" hazard,
+  and it fails in the direction that costs you the most: it says PASS.
+- **Cost** — nearly published a test I had "verified" against its own fix.
+  `rm -f output/tests/test_e2e` before every neuter run. All four neuters
+  (failure branch removed / chevron removed / working spins like a live run /
+  fixture reverted) go red once the binary is actually rebuilt.
+- **Class** — `FOOTGUN`
+- **Gap filed?** — no; it is hanabi's makefile. Worth a `-MD`/`-MP` on the test
+  rules, which is a two-line change in a file this branch has no business
+  touching.
+
+### 5. A CHECK macro and a braced initializer do not mix
+
+- **What I wanted** — `CHECK(mark_for(s) == Mark{Glyph::Bang, Tone::Live})`.
+- **What happened** — 29 instances of `error: too many arguments provided to
+  function-like macro invocation`: the preprocessor splits on the comma inside
+  the braces before C++ ever sees it. Double parens fix it.
+- **Class** — `TEDIOUS`
+- **Gap filed?** — no. Worth knowing before writing a test file full of them.
+
+### 6. The capture is not reproducible across midnight
+
+- **What I wanted** — to compare a before number taken at 23:48 with an after
+  number taken at 00:25.
+- **What happened** — the overall figure went UP (7.38% → 7.45%) on a change
+  that touches nothing outside the sidebar, and the `main` region moved 6.10% →
+  6.21%. The mock's message timestamps are relative to `now`, so crossing local
+  midnight made the open transcript grow a **"Today" date divider** and pushed
+  every bubble under it down a row. Re-measuring the baseline binary in the same
+  minute put it at 7.47% / `main` 6.21% — identical `main`, and the real change
+  is sidebar 11.90 → 11.83, list 14.32 → 14.20.
+- **Cost** — one rebuild of the baseline to get a like-for-like pair, and a
+  reminder that any before/after separated by hours is measuring the clock as
+  well as the code.
+- **Class** — `FOOTGUN`
+- **Gap filed?** — no; it is the fixture's relative ages, which are deliberate
+  (they keep "6m"/"5h" stable across runs *within* a day). Shoot the before and
+  the after in the same session, or quote the region you changed.
+

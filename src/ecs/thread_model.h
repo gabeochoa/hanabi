@@ -24,22 +24,84 @@ inline bool is_attention(api::ThreadState s) {
     return s == api::ThreadState::Attention;
 }
 
-// Shape-per-status glyph shown at the left of an attention-worthy sidebar row.
-// Status is readable by SHAPE, not color alone:
-//   Blocked / needs-you  -> Triangle (red,   most urgent)
-//   Review (agent-verified) -> Diamond (green)
-//   Done                 -> Dot      (blue)
-//   working / parked / archived / calm -> None
-enum class Glyph { None, Triangle, Diamond, Dot };
+// ---- The row's state mark -------------------------------------------------
+//
+// EVERY session row opens with exactly one mark, and it is not decoration: it
+// is the whole of what the list says about that thread's run. Two axes carry
+// it — a SHAPE and a TONE — because a status read by colour alone is a status
+// half the readers cannot read.
+//
+// The rule is Puffin's, and it is worth stating as a sentence before it is
+// stated as code: THE RUN OWNS THE SLOT. Whatever the thread is doing wins
+// the mark; the fold chevron — the only thing here that is about the row
+// rather than the run — takes the slot only when the run has nothing left to
+// say. Puffin's own source puts it the same way one axis down, where the mark
+// was still only a colour: "A live status always wins: attention, awaiting and
+// working are what the dot exists to say... Only `idle` — nothing to report —
+// reaches for the thread's own colour" (`Views/TabStatus.swift`,
+// `rowColor(threadAccent:)`), and `SessionRowView` gives the chevron to
+// `childCount > 0` rows only. The reference capture applies that same
+// precedence to the SHAPE, which is what this reproduces:
+//
+//   failed, and the agent said so   -> Cross    alert   (the run died)
+//   failed, nothing testified       -> Dot      alert   (only an outcome)
+//   wants you (blocked / review)    -> Bang     live    (a decision is owed)
+//   a run is live right now         -> Arc      live    (and it spins)
+//   working, but no live run        -> Dot      live    (last word, not a run)
+//   settled, has sub-agents         -> Chevron  calm    (nothing to say; opens)
+//   settled                         -> Dot      calm
+//
+// Why blocked and review share one mark: they are one question — "does this
+// need me?" — and the reference draws them identically, same shape and same
+// colour, on all six of its waiting rows. hanabi used to spend a shape on the
+// difference and spend the CROSS on it, which said "this run died" about a
+// thread that was only waiting for an answer.
+//
+// Why failure splits by state: the tag says what happened, the state says
+// whether the thread itself reported it. `Attention + Failed` is the agent
+// testifying that it failed; `Unknown + Failed` is a run that ended badly and
+// never said a word, which is a weaker fact and draws the weaker shape. That
+// is the same split the reference draws (a cross on the two rows whose agent
+// reported the failure, a plain red dot on the diff-gate row that only has an
+// outcome), and it needs no new state to say it.
+enum class Glyph { Dot, Arc, Bang, Cross, Chevron };
 
-// Precedence mirrors the design mock's ordering: blocked, then review, then
-// done, then a bare Attention state (waiting-on-you) also earns the triangle.
-inline Glyph glyph_for(const api::SessionSummary& s) {
-    if (s.tag == api::ThreadTag::Blocked) return Glyph::Triangle;
-    if (s.tag == api::ThreadTag::Review) return Glyph::Diamond;
-    if (s.tag == api::ThreadTag::Done) return Glyph::Dot;
-    if (s.state == api::ThreadState::Attention) return Glyph::Triangle;
-    return Glyph::None;
+// What the mark is saying, independent of its shape. Kept separate from the
+// palette on purpose: this layer is graphics-free, so it names the MEANING and
+// the renderer owns the three colours.
+//   Live  — the run is alive or the thread wants you (the accent)
+//   Alert — the run failed (the danger colour)
+//   Calm  — nothing to report (muted)
+enum class Tone { Live, Alert, Calm };
+
+struct Mark {
+    Glyph shape = Glyph::Dot;
+    Tone tone = Tone::Calm;
+
+    bool operator==(const Mark&) const = default;
+};
+
+inline Mark mark_for(const api::SessionSummary& s) {
+    // Failure first: a dead run is not a pending decision, however the row is
+    // otherwise tagged.
+    if (s.tag == api::ThreadTag::Failed)
+        return {s.state == api::ThreadState::Attention ? Glyph::Cross
+                                                       : Glyph::Dot,
+                Tone::Alert};
+    // Then anything asking for the reader. `Attention` covers the http
+    // adapter's title-derived needs-you rows, which carry no tag at all, and
+    // `Ready` covers the agentcloud adapter's agent-verified ones.
+    if (s.tag == api::ThreadTag::Blocked || s.tag == api::ThreadTag::Review ||
+        s.state == api::ThreadState::Attention ||
+        s.state == api::ThreadState::Ready)
+        return {Glyph::Bang, Tone::Live};
+    if (s.state == api::ThreadState::Running) return {Glyph::Arc, Tone::Live};
+    if (s.state == api::ThreadState::Working) return {Glyph::Dot, Tone::Live};
+    // Settled: the only case where the slot is free for the fold chevron. A
+    // childless settled row keeps the dot, so the chevron still means "this
+    // one opens" — give every settled row a chevron and a collapsed parent is
+    // indistinguishable from a leaf until you click it.
+    return {s.sub_agent_count > 0 ? Glyph::Chevron : Glyph::Dot, Tone::Calm};
 }
 
 // ---- Sub-agent count, as the row draws it ---------------------------------
@@ -78,7 +140,13 @@ inline bool sub_agents_live(const api::SessionSummary& s) {
 // Home is a digest (not a simple filter) so it has no single predicate; the
 // three filterable smart views do:
 inline bool in_blocked_view(const api::SessionSummary& s) {
-    return s.tag == api::ThreadTag::Blocked;
+    // A failed thread rides with Blocked rather than getting a shelf of its
+    // own: it is still a thread that stopped and wants a person. Puffin's
+    // shelf carves the same way — `case .blocked: return live.filter { kind
+    // == .blocked || kind == .failed }` in `HomeSessionList.swift` — and the
+    // reference's Blocked badge counts six, which is only true if the two
+    // failed rows are in it.
+    return s.tag == api::ThreadTag::Blocked || s.tag == api::ThreadTag::Failed;
 }
 inline bool in_review_view(const api::SessionSummary& s) {
     return s.state == api::ThreadState::Ready;  // agent-verified
