@@ -173,7 +173,11 @@ Preload& Preload::make_singleton() {
         theme.focus_ring_thickness = 1.0f;
         theme.focus_ring_offset = 0.0f;
 
-        ui::imm::UIStylingDefaults::get().set_grid_snapping(true);
+        // afterhours_gaps.md #71 — the snap unit is round(4 * window_height /
+        // 720) and it quantizes child POSITIONS, not just sizes, so a 32px row
+        // pitch becomes 30 at a 949-tall window and drifts 2px per row.
+        // skip_grid_snap opts a widget's SIZE out; nothing opts a position out.
+        ui::imm::UIStylingDefaults::get().set_grid_snapping(false);
     }
 
     return *this;

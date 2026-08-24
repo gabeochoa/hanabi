@@ -139,3 +139,43 @@ The pattern worth noticing: Puffin's controls are mostly **outlines on the
 window colour**, where hanabi's are **filled panels**. That one difference
 accounts for a large share of the composer's diff, and it is a theme-level
 decision rather than a per-widget one.
+
+---
+
+## Session list, measured off ref/01_home.png
+
+Row geometry (19 rows visible, first glyph centre y=314.5):
+
+| | value |
+|---|---|
+| row pitch | **32.0** exactly (first title centre 316, 18th 891.5; 575.5/18 = 31.97) |
+| glyph centre | x=15.0-15.5, and **1.5px ABOVE** the row's midline |
+| title first ink | x=28-29 |
+| title size | **~16.5px** (ink bbox 102/125/99/148 for rows 0/1/4/10; ascender-to-descender 13px) |
+| title colour | **(238,238,247) on EVERY row** — attention is not encoded in title brightness |
+| title weight | semibold; the reference's title ink is 17% denser than Roboto Regular at the same size |
+| count column | right-aligned, right edge x=269 |
+
+Row markers — seven shapes, three hues, all 8-10px:
+
+| shape | colour | rows in the reference |
+|---|---|---|
+| arc, open at the LOWER LEFT (ink runs ~190deg over the top and round to ~85deg), r=4.8, stroke 1.8 | (150,192,255) | 0-3, running |
+| filled dot r=4.0 | (155,195,255) | 4, 5 |
+| bang `!` — 2.3px stem cy-6..cy+1, dot r=1.4 at cy+4.5 | (164,208,255) | 6, 8, 9, 11, 12, 13 |
+| cross `✕` 8x8, stroke 2 | (226,93,97) | 7, 15 |
+| filled dot r=3.7 | (145,145,170) | 10, 14 |
+| filled dot r=3.7 | (221,91,95) | 17 |
+| chevron `>` 5x8, stroke 1.9 | (148,148,173) | 16, 18 |
+
+**The mapping is not a function of anything hanabi stores.** Rows 0-5 are all
+`Running/None` and Puffin splits them arc/arc/arc/arc/dot/dot; rows 6-8, 11, 15
+and 17 are all `Attention/Blocked` and Puffin splits them bang/cross/bang,
+bang/cross/red-dot; rows 10, 16 and 18 are all `Unknown/None` and Puffin splits
+them dot/chevron/chevron. Four shapes is the ceiling on `(ThreadState,
+ThreadTag)`; the rest needs data the client does not have.
+
+**Counts** appear on 7 of 19 rows and are sub-agent counts: `1` where the
+session has one sub-agent, `1/3` for `coordinating 3 shard workers`, which has
+three of which one is Done. The mock already carries this on `Session`;
+`api::SessionSummary`, which is all the sidebar sees, does not.
