@@ -297,58 +297,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // Transcript header — mirrors the mock's .hdr: the thread title (larger,
-    // primary) stacked above a muted metadata subtitle ("N messages · age").
-    // Uses ONE content inset (kContentInset) shared with the body + composer so
-    // the title's left edge lines up with the messages beneath it. A stacked
-    // column (title over sub) rather than the smart-view's side-by-side header,
-    // so the subtitle reads as metadata about THIS thread, not a right-aligned
-    // count.
-    static void transcript_header(UIContext<InputAction>& ctx, Entity& parent,
-                                  const std::string& title,
-                                  const std::string& sub) {
-        auto col = div(ctx, mk(parent, 1),
-            ComponentConfig{}
-                // Height fits its children exactly: top 12 + title 22 + gap 2 +
-                // sub 18 + bottom 8 = 62 (was 52 with 22px pad -> a 30px content
-                // box that the 42px of title+gap+sub overflowed every frame ->
-                // layout-warn spam + solve_violations churn).
-                .with_size(ComponentSize{percent(1.0f), pixels(62)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(JustifyContent::Center)
-                .with_padding(Padding{.top = pixels(12),
-                                      .right = pixels(kContentInset),
-                                      .bottom = pixels(8),
-                                      .left = pixels(kContentInset)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("transcript_header"));
-        div(ctx, mk(col.ent(), 1),
-            ComponentConfig{}
-                .with_label(fmtutil::ellipsize(title, 64))
-                .with_size(ComponentSize{percent(1.0f), pixels(22)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::SPOTLIGHT)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("transcript_title"));
-        if (!sub.empty()) {
-            div(ctx, mk(col.ent(), 2),
-                ComponentConfig{}
-                    .with_label(sub)
-                    .with_size(ComponentSize{percent(1.0f), pixels(16)})
-                    .with_margin(Margin{.top = pixels(2)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("transcript_sub"));
-        }
-    }
-
     // Top-of-transcript "loading older messages" pill: a small accent ring +
     // caption in a rounded chip, horizontally centered near the top of the
     // pane. Overlay (absolute on the parent) so it floats over the content
@@ -2821,49 +2769,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, float paneW, float paneH) {
-        std::string title = "Select a thread";
-        if (app.openSession) {
-            std::string t = normalize_title(app.openSession->summary.title);
-            if (t.empty()) {
-                if (const auto* ls = app.find_summary(app.openSession->summary.id))
-                    t = normalize_title(ls->title);
-            }
-            if (t.empty()) t = app.openSession->summary.id;
-            title = t.empty() ? "(untitled)" : t;
-        } else if (app.transcriptState == LoadState::Loading) {
-            title = "Loading\xe2\x80\xa6";
-        } else if (app.transcriptState == LoadState::Error) {
-            title = "Error";
-        }
-        // Transcript header (mirrors the mock's .hdr): the thread title on one
-        // line + a muted metadata subtitle ("N messages · age") beneath — NOT a
-        // bare count, and NOT a second big H1 that just repeats the tab. This is
-        // the single "what am I looking at" anchor for the pane.
-        if (app.openSession) {
-            // Header subtitle = just the age (+ optional "refreshing…"). The
-            // message COUNT was dropped here (Gabe: "we don't need this at the
-            // top … i don't think we care about how many messages") — the count,
-            // if anyone wants it, rides in the tab title instead (see tab_bar).
-            std::string sub;
-            const std::string age =
-                show_times()
-                    ? fmtutil::relative_time(app.openSession->summary.updated_at)
-                    : std::string();
-            if (!age.empty())
-                sub = age;
-            // Local-first read state (idea #1): when a cached/stale copy is
-            // already painted AND a background refresh is in flight for THIS
-            // thread, say so — the read is served instantly from the local
-            // copy (never a spinner), with the server revalidate happening
-            // quietly. Makes "you're seeing your local copy, refreshing" visible.
-            if (!app.transcriptLoadingId.empty() &&
-                app.transcriptLoadingId == app.openSession->summary.id)
-                sub = sub.empty() ? "refreshing\xe2\x80\xa6"
-                                  : (sub + "  \xc2\xb7  refreshing\xe2\x80\xa6");
-            transcript_header(ctx, parent, title, sub);
-        }
-        // (No header when there's no open thread — the welcome hero below is the
-        // whole surface; a "Select a thread" bar would just duplicate it.)
+        // No transcript header. Puffin's pane begins at the first message: the
+        // tab strip is the only thing above the transcript, and the thread's
+        // identity lives in the tab caption. hanabi used to derive a display
+        // title here and draw it over a muted age; both are gone for visual
+        // parity (the commit message says what that costs a reader).
 
         if (app.transcriptState == LoadState::Error) {
             note(ctx, parent,
@@ -2903,10 +2813,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool canReply =
             app.client &&
             (app.client->supports_send() || app.client->supports_stream());
-        // Header is the stacked transcript_header (title + metadata sub); its
-        // total height (52 content + 14 top + 8 bottom pad) is ~74px. Subtract
-        // that so the scroll list starts cleanly beneath the header.
-        constexpr float kHeaderH = 62.0f;
+        // No header above the scroll list any more (Puffin's pane starts at the
+        // first message), so the list gets the whole pane height. Kept as a
+        // named zero because three call sites below position overlays relative
+        // to the top of the scroll list, and they should keep reading "below
+        // whatever the header is" rather than hard-coding 0.
+        constexpr float kHeaderH = 0.0f;
         float listH = paneH - kHeaderH;
         if (listH < 20.0f) listH = 20.0f;
 
@@ -3397,27 +3309,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("virt_spacer"));
             pendingSpacer = 0.0f;
         };
-        // Short-thread bottom anchor: when the whole transcript fits in the
-        // viewport there is nothing to scroll, and afterhours stacks a column
-        // from the top — so a two-message thread floated at the top of the pane
-        // with a few hundred px of dead space above the composer. A chat log
-        // reads bottom-up: the newest line sits just above the input and the
-        // conversation grows upward off the top. A leading spacer of the whole
-        // slack gives exactly that, and it keeps the transition into a
-        // scrollable thread seamless (the last line stays where it was).
-        // Skipped while content is growing (streaming) or shifting (load-older)
-        // so the anchor math isn't fighting a spacer that resizes underneath it.
-        if (totalH < viewH - 40.0f && !streamingHere && !app.loadingOlder &&
-            app.anchorPending.empty()) {
-            div(ctx, mk(col, 29999),
-                ComponentConfig{}
-                    .with_size(ComponentSize{
-                        percent(1.0f),
-                        pixels(viewH - totalH - kTranscriptBottomPad - 6.0f)})
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_debug_name("sparse_balance"));
-        }
+        // NO short-thread bottom anchor. hanabi used to insert a leading spacer
+        // of the whole slack so a two-message thread sat just above the
+        // composer, chat-log style. Puffin does not: its two-message thread
+        // starts directly under the tab strip with the dead space BELOW. The
+        // spacer is gone so a short thread top-anchors the way the reference
+        // does. (Long threads are unaffected — they never had one.)
         sub_agent_panel(ctx, col, app);
         for (const auto& it : items) {
             const float top = y;
@@ -3527,7 +3424,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // shift the scroll content / fight the anchor math. kHeaderH offsets it
         // below the title header.
         if (app.loadingOlder) {
-            loading_older_pill(ctx, parent, paneW, 62.0f + 6.0f);
+            loading_older_pill(ctx, parent, paneW, kHeaderH + 6.0f);
         }
         if (app.findOpen)
             find_bar(ctx, parent, app, paneW, app.findCount, findQ);
@@ -5029,6 +4926,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kTurnGapBot = 4.0f;
     static constexpr float kAuthorH = 15.0f;
     static constexpr float kAuthorGap = 3.0f;
+
+    // What the assistant turn's meta row has to say, if anything. The relative
+    // time that used to lead this row is gone (Puffin stamps no turn), so the
+    // row now carries only STATE — the run subtitle and, while a turn is
+    // arriving, "streaming…". Empty means the row is not drawn at all.
+    static std::string turn_meta_text(const api::Message& m, bool isLive) {
+        std::string s = m.subtitle;
+        const std::string live = isLive ? "streaming\xe2\x80\xa6" : std::string();
+        if (live.empty()) return s;
+        return s.empty() ? live : (s + "  \xc2\xb7  " + live);
+    }
+
+    // THE ONE predicate for "does this turn have an author row". bubble_height,
+    // the body's start-Y and the draw all ask it, so the measure and the draw
+    // cannot disagree about an 18px row (see src/ui/measure_probe.h).
+    static bool has_author_row(const api::Message& m, bool isLive,
+                               bool showAuthor) {
+        return showAuthor && !turn_meta_text(m, isLive).empty();
+    }
     static constexpr float kBodyPad = 2.0f;
     static constexpr float kUserPadV = 14.0f;
     static constexpr float kFoldBtnH = 26.0f;
@@ -5458,7 +5374,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // + the assistant bubble's own vertical padding, which the draw
         // applies as with_padding on the bubble the body now lives in.
         float h = kTurnGapTop + 8.0f +
-                  (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) +
+                  (has_author_row(m, isLive, showAuthor)
+                       ? (kAuthorH + kAuthorGap)
+                       : 0.0f) +
                   kBubblePadTop + bodyH + kBubblePadBot +
                   kTurnGapBot + kMsgActionsGap + kMsgActionsH;
         AppComponent* app = app_singleton();
@@ -6495,27 +6413,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             [](Entity&) {});
         turn.ent().get<afterhours::HasColor>().skip_hover_override = true;
 
-        // Author row: colored name bound TIGHT above its body, subtle
-        // right-aligned timestamp on the same row. Shown only on the FIRST
+        // Meta row above the body: STATE only, right-aligned, on the first
         // assistant message of a turn (V2 grouping) — continuation fragments
-        // suppress the repeated name. The timestamp rides on the author row, so
-        // when suppressed the fragment is just its body (tight continuation).
-        if (showAuthor) {
-        // Chat redesign #2: DROP the per-turn green "hanabi" author label — it
-        // was the strongest "log viewer" tell (both design critics flagged it).
-        // Modern chat (ChatGPT/Claude/Gemini) makes the assistant plain
-        // left-aligned document text; the right-aligned user bubble is the only
-        // role marker needed. We keep only a faint, right-aligned timestamp on
-        // the first message of a turn so exchanges still have a time anchor
-        // (and, if present, the run subtitle) — no colored name.
-        // "streaming…" survives the timestamps preference: it says the turn
-        // is still arriving, which is state, not a stamp.
-        std::string ts = isLive ? std::string("streaming\xe2\x80\xa6")
-                                : (show_times()
-                                       ? fmtutil::relative_time(m.created_at)
-                                       : std::string());
-        if (!m.subtitle.empty())
-            ts = m.subtitle + (ts.empty() ? "" : ("  \xc2\xb7  " + ts));
+        // suppress it. It used to lead with a relative time; Puffin stamps no
+        // turn, so the time is gone and the row exists only when the run has a
+        // subtitle or is still arriving. When it has nothing to say it is not
+        // emitted at all, and has_author_row is what both the measure and this
+        // draw ask so the 18px cannot drift.
+        const bool authorRow = has_author_row(m, isLive, showAuthor);
+        if (authorRow) {
+        const std::string ts = turn_meta_text(m, isLive);
         auto arow = div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kAuthorH)})
@@ -6527,25 +6434,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("asst_arow"));
-        if (!ts.empty()) {
-            div(ctx, mk(arow.ent(), 2),
-                ComponentConfig{}
-                    .with_label(ts)
-                    .with_size(ComponentSize{children(), pixels(kAuthorH)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::MICRO)
-                    .with_alignment(TextAlignment::Right)
-                    .with_roundness(0.0f)
-                    .with_debug_name("asst_ts"));
-        }
-        }  // showAuthor
-        // Body starts below the turn's top margin + author row (when shown):
+        div(ctx, mk(arow.ent(), 2),
+            ComponentConfig{}
+                .with_label(ts)
+                .with_size(ComponentSize{children(), pixels(kAuthorH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name("asst_ts"));
+        }  // authorRow
+        // Body starts below the turn's top margin + meta row (when shown):
         // cull the body's off-screen line-segments (intra-message
         // virtualization). Must mirror bubble_height's author-row term exactly.
         const float bodyStartY =
             itemTopY + (kTurnGapTop + 8.0f) +
-            (showAuthor ? (kAuthorH + kAuthorGap) : 0.0f) + kBubblePadTop;
+            (authorRow ? (kAuthorH + kAuthorGap) : 0.0f) + kBubblePadTop;
         // The body lives inside a left-aligned bubble now (the reference draws
         // the assistant's answer on its own dark surface, not as bare column
         // text). Its padding is the same two constants bubble_height adds.

@@ -3472,3 +3472,44 @@ a card.
 `assert_ui_text "<text>" under=sidebar y=306`, resolved by walking up the
 UIComponent parent chain to a debug-named ancestor — plus an error rather than
 a silent pick when the match is ambiguous: "3 elements match, name one".
+### #74 — The resolved layout tree cannot be walked after layout: `UIComponent::children` is cleared every frame before app code runs
+
+**What I wanted.** One number: how tall did the assistant turn's meta row come
+out at. Removing that row made the measure and the draw disagree by 2px
+(`bubble_height` charges `kAuthorH + kAuthorGap = 18`; the drawn turn lost 20),
+and the way to settle a question like that is to read the resolved heights of
+the turn and of each of its children and see which one does not add up.
+
+**What I tried.** The existing probe (#68) already finds an element by debug
+name and reads `UIComponent::rect()`, so I extended its walk one level down:
+for each `asst_turn#<i>`, iterate `UIComponent::children` and print each child's
+resolved `y`, `height` and `computed_margin`.
+
+**What happened.** The loop printed nothing, on every frame, while the parent it
+was iterating printed a real rect. `ClearUIComponentChildren`
+(`plugins/ui/systems.h`) empties `cmp.children` at the top of every frame so the
+immediate-mode pass can re-parent from scratch, and app code only ever runs
+AFTER that. So the parent→child edges of the tree that was just laid out do not
+exist by the time anything can look at them: `rect()` survives the frame
+boundary, the structure does not. There is no `parent_id` to walk upward from
+either, and `UIComponentDebug` carries a name but no relationship.
+
+The practical consequence is that a resolved subtree is only addressable as a
+flat set of debug names you thought to assign in advance. You cannot ask "what
+is inside this element", you cannot sum a parent's children to find which one
+disagrees with it, and a debug name you did not add before the build is a
+rebuild away — on this app, 2 minutes of `main.o` per hypothesis.
+
+**The workaround, and its cost.** I answered the question with a camera instead
+of the library: rendered the same thread twice, once with the row forced on and
+once with it suppressed, and measured the y of the first assistant bubble's fill
+in both PNGs (189 vs 169). That is how the row's true 20px footprint was
+established. Four full rebuilds (~2 min each) plus a pixel scan to read one
+height the engine already knows. The 2px itself is still unexplained, because
+"which child is wrong" is exactly the question that cannot be asked.
+
+**Minimal upstream fix.** Keep the previous frame's structure alongside the
+previous frame's rects — either don't clear `children` until the new tree is
+built (double-buffer it), or expose a read-only `resolved_children(id)` /
+`resolved_parent(id)` on the laid-out snapshot. Either one turns "diff two
+screenshots" back into a loop.

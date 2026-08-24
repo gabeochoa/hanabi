@@ -14,8 +14,10 @@
 expect_text "Reconciled 4,812 accounts"
 expect_no_text Copy
 
-# Park the pointer over the first assistant message.
-mouse_move 600 470
+# Park the pointer over the first assistant message. It sits at the TOP of the
+# pane now (y=166..236): the pane has no title header and no longer bottom-
+# anchors a short thread, so this point moved up from 470.
+mouse_move 600 200
 wait_frames 3
 expect_text "Copy"
 
