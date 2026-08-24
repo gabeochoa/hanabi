@@ -4002,12 +4002,8 @@ in app code, so a change to `kInset` upstream silently moves hanabi's counts.
 **Minimal upstream fix.** Honour a per-component inset/margin on
 `ComponentConfig` and default it to the current 5px; or simply stop insetting
 the Right case, where the inset has no reader-facing purpose.
-<<<<<<< HEAD
-
 ---
 
-=======
->>>>>>> feat/vis-turns
 ### #87 — A box cannot be sized to its own text AND capped: `Dim::Text` measures unwrapped, and `max_width` clamps nothing but itself
 
 **What was wanted.** Puffin's user turn, verbatim from
@@ -4109,10 +4105,7 @@ only thing anyone ever wants it to mean, and `min(intrinsic, cap)` falls out.
 The second half is one more line: re-run `calculate_those_with_children` for a
 `children()`-sized parent whose child was clamped, or clamp before the parent
 reads the child rather than after.
-<<<<<<< HEAD
 
-=======
->>>>>>> feat/vis-turns
 
 CLASS: WORKAROUND
 
@@ -4169,12 +4162,8 @@ becomes a widget that exists only to be empty.
 rect is right there — or, better, refuse it: make `with_padding` on an element
 that has a label and no children a warn-once, the way `resolve_weighted` now
 warns on an unresolvable font weight. Silence is what made this cost a day.
-<<<<<<< HEAD
-
 ---
 
-=======
->>>>>>> feat/vis-turns
 ### #88 — A row cannot baseline-align its children, so every avatar-beside-text row carries a magic top offset
 
 **What was wanted.** A 20px avatar beside a 35px bubble, sitting on the bubble's
@@ -4223,10 +4212,7 @@ against `user_bubble y=131`), which at least makes the rot loud.
 a child with a label contributes its own first-line ascent and a child without
 one falls back to its top edge. The renderer already knows the ascent — it is
 what `draw_text_in_rect` positions against.
-<<<<<<< HEAD
 
-=======
->>>>>>> feat/vis-turns
 
 CLASS: FOOTGUN
 
@@ -4304,11 +4290,8 @@ remember to re-measure.
 
 CLASS: TEDIOUS
 
-<<<<<<< HEAD
 ---
 
-=======
->>>>>>> feat/vis-turns
 ### #89 — NOT A GAP: right-aligning a child needs no spacer, and this is worth writing down
 
 Filed deliberately as a negative result, because two of the three things this
@@ -4345,9 +4328,6 @@ a footgun, not a missing feature, and one line of documentation on
 `with_justify_content` would retire it.
 
 CLASS: TEDIOUS
-<<<<<<< HEAD
-
-
 ---
 
 ### #90 — `ctx.theme` is one global struct read at RENDER time, so a per-widget colour is a frame-wide edit
@@ -4394,5 +4374,4 @@ whole frame to reach one placeholder.
 theme edit lasts exactly as long as the subtree that made it.
 
 CLASS: FOOTGUN
-=======
->>>>>>> feat/vis-turns
+
