@@ -1016,3 +1016,65 @@ friction is mostly in the measuring, not the library.
    question and the "is the open thread highlighted" question in about two
    minutes, with no need to touch the live app. Nothing in `REFERENCE.md`
    mentions it; it should.
+
+---
+
+## The typeface question, settled (no branch — measured and discarded)
+
+The bold-face run left an open lead: it measured SF Regular at 15.5px as worth
+0.75 points on the list region, and recommended re-tuning `LIST_ROW` down from
+16.5. That measurement was taken against the **RAW** region table, which was the
+only one the tool printed at the time. Re-run against STRUCTURAL, the lead
+closes: **the current Roboto at 16.5 is already the optimum.**
+
+Nine arms, one binary, `HANABI_UI_FONT` + `HANABI_LIST_ROW_PX` patched in for
+the sweep and then discarded:
+
+| arm | overall STRUCT |
+|---|---|
+| **Roboto 16.5 (shipping)** | **7.39%** |
+| SF 15.0 | 7.45% |
+| SF 15.5 | 7.44% |
+| SF 16.0 | 7.60% |
+| SF 16.5 | 7.59% |
+| SF 17.0 | 7.55% |
+| Roboto 15.5 | 7.56% |
+| Roboto 16.0 | 7.51% |
+| Roboto 17.0 | 7.60% |
+
+SF is better in every region except the list — search 7.94 → 7.41, main 6.10 →
+5.98, tabbar 4.35 → 4.26 — and worse in the list by a full point (14.31 →
+15.29), which is 63% of the sidebar's height and swamps the rest.
+
+### Why the list punishes the reference's own typeface
+
+Measured on the ten visible row titles, the reference's string widths and
+hanabi's Roboto strings agree to within 1–2px (130/128, 152/150, 126/127,
+124/124, 246/245, 231/230). **SF at 15.5 is consistently 10–20px short** on the
+same strings (117, 134, 114, 113, 226, 207): fontstash takes SFNS.ttf's default
+variable instance, which is not the optical size or weight Puffin renders, and
+there is no way to select a named instance. Roboto at 16.5 was fitted to those
+widths — it is a compensation fit, and it compensates well.
+
+### What is actually left, and it is not a font
+
+The reference's title column holds **10,125 ink pixels; hanabi's holds 8,180** —
+a 19% deficit, on strings whose start, end and vertical extent all match. Puffin
+renders semibold through CoreText with macOS stem darkening; fontstash draws
+thinner glyphs from a Regular face.
+
+But **adding ink makes the score worse, monotonically**: dilating only the title
+column takes the list from 14.31% to 16.11 / 17.98 / 19.80 / 21.66 at 25 / 40 /
+60 / 100% blend. The ink is not in the same *places* — advances diverge across a
+string, so extra weight lands on glyphs that are already a pixel or two out of
+register and increases non-overlap on both sides.
+
+**So: the last few points of every text region are a rasterizer difference, not
+a typeface or a size or a weight.** No font choice available to us closes it,
+the metric actively punishes the change that would look most correct, and the
+right call is the one the bold-face run reached from the other direction — ship
+a semibold because it is the correct render, never because of a parity number.
+
+- **Class** — `TEDIOUS` (our metric) + `IMPOSSIBLE` (the rasterizer)
+- **Gap filed?** — no new one. #82 (cannot measure text at a weight) and #77
+  (no bundled bold) already cover the library's half. The rest is CoreText.
