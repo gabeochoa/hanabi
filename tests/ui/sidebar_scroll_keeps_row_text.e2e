@@ -20,7 +20,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "stickers broke — concluded, D1136…"
-expect_no_text "oncall sweep finished — 3 rows ne…"
+expect_no_text "oncall sweep finished — 3 rows nee…"
 
 click_ui sb_show_more
 wait_frames 6
@@ -33,4 +33,4 @@ wait_frames 6
 
 # Whatever is under the cursor now, SOMETHING must still be lettered: this row
 # is far enough down the list to be on screen only after the scroll.
-expect_text "oncall sweep finished — 3 rows ne…"
+expect_text "oncall sweep finished — 3 rows nee…"
