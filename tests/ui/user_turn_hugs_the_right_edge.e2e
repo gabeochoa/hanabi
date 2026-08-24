@@ -39,5 +39,9 @@ assert_ui user_row x=322 w=736
 assert_ui user_bubble x=646 w=412 h=35
 
 # Beside the bubble, 6px clear of it and 6px down from its top.
-assert_ui user_avatar x=620 y=137 w=20 h=20
-assert_ui user_bubble y=131
+# The two y's moved 4px down with the transcript's top inset (8 -> 12, which is
+# Puffin's own `EdgeInsets(top: 12, ...)`) on feat/vis-fixture; the 6px
+# relationship between them is what this pair is actually asserting and it is
+# unchanged.
+assert_ui user_avatar x=620 y=141 w=20 h=20
+assert_ui user_bubble y=135

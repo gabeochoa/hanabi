@@ -2334,3 +2334,166 @@ row bleeding in above the footer's own rule, which belongs to the list.
   workstream.
 - **Class** — `TEDIOUS` (our tooling), and the most expensive single line of
   documentation in this project.
+
+---
+
+## Transcript fixture (feat/vis-fixture)
+
+1. **Matching the words was worth +0.04 points, and it was still the right
+   call.** The theme was "stop measuring content and start measuring design":
+   `ref/02_thread.png` has Puffin's `mock-outcome-2` open, hanabi's r9 is the
+   same row with a reply hanabi wrote for itself, and `shoot_hanabi_02.sh`
+   defaulted to r5 because r5 was the nearest-SHAPED thread hanabi had. Porting
+   Puffin's transcript into r9 verbatim moved `main` from **4.49% (r5) to
+   4.53% (r9)**. Not a win — and not a loss either. What it bought is that
+   every point left is now attributable: before, "hanabi's reply is one
+   paragraph and Puffin's is four lines with a fence" was an unanswerable
+   confound sitting on top of everything else. Afterwards, four separate
+   findings came out of the same pane in an afternoon (entries 2, 3, 6, 7),
+   worth 0.73 points between them. **The fixture was not costing points, it was
+   costing attribution.**
+   - **Class** — `TEDIOUS`
+
+2. **The hover Copy row was reserving 24px per turn, and this is the reference
+   that could finally see it.** `feat/vis-turns` measured exactly this in its
+   entry 9 — hanabi reserves `kMsgActionsH + kMsgActionsGap` under every
+   message where Puffin overlays its copy button — and did NOT build the
+   overlay, on the honest grounds that zeroing the two constants moved 01 by
+   **0.00%** because the reference was empty everywhere hanabi's rows landed.
+   On 02 the same experiment moves `main` from **4.53% to 3.91%**: 0.62
+   points, the largest single item in the region and about six times the next
+   one. The earlier decision was right on the evidence it had; the evidence
+   changed. **Re-run the experiments a previous theme declined, when the
+   reference under them changes.**
+   - **Class** — `TEDIOUS` (our tooling)
+
+3. **Two of the three wins were four-pixel constants, and both came out of
+   Puffin's source rather than out of the diff.** The transcript's scroll inset
+   was 8 against Puffin's `EdgeInsets(top: 12, ...)`, which put every row in
+   the pane 4px high — a sweep of hanabi's whole main pane says that offset
+   alone is **1.45 points across the turns band**. The air between two turns
+   was 18-19px against Puffin's 24, which it states twice (`bubbleBreathing =
+   9` a side, `itemSpacing = 6` between) and comments once ("two messages sit
+   24pt apart"). Neither is visible as a *difference* in a diff image — the
+   whole pane just sits wrong — and neither is guessable from the PNG, because
+   an offset and a size read the same in a per-region percentage.
+   - **Class** — `TEDIOUS`
+
+4. **hanabi had no run-outcome divider, and building one was easy for a reason
+   worth naming: it is the third one.** Puffin closes a run with
+   `runSeparator` — rule / the server's own word / rule, red only for
+   `failed`. hanabi drew nothing at all: a dead run and a quiet one ended the
+   same way. The brief expected "a centred label in a rule" to be hard in
+   afterhours. It is not, because `date_divider` and `new_divider` already
+   solved it, and both carry the same two scars in their comments — no
+   flex-grow (gap #18) so the rule widths are computed by hand, and
+   `percent(1.0)` in a NoWrap row eats its siblings (gap #53). The third one
+   took twenty minutes by copying the second. **A library gap that has already
+   been paid for three times is cheap on the fourth and still costs the same
+   every time.**
+
+5. **The model, not the layout, was where the outcome had nowhere to go.**
+   Puffin's transcript is a list of ROWS with kinds, one of which is
+   `runFinished`; hanabi's is a list of `api::Message` with an author. A run
+   ending is not a message and has no author, and adding `Role::RunOutcome`
+   would have made every switch over Role — author label, bubble fill, tool
+   piling, the find index, the minimap mark — grow a case for something that
+   is not a speaker. It rides on the message it follows instead
+   (`Message::run_outcome`, a free string, Puffin's own choice so an outcome
+   this build predates still prints). **The cost is stated in the header and
+   is real: a run that produced no message cannot be drawn.** Nothing emits
+   one today.
+
+6. **A change that provably moves hanabi ONTO Puffin's constants made the
+   score worse.** hanabi's fenced code was 11px in `text_secondary`
+   (142,142,154); Puffin's is `monospacedSystemFont(ofSize: 12)` in
+   `palette.plain`, #E6EDF3, which is hanabi's `text_primary` to within 6/255.
+   Making that change costs **+0.06 points** (3.76 → 3.82), because hanabi's
+   code rows sit at y 221/240 and Puffin's at 207/235: brighter ink that is
+   not registered disagrees with the background it lands on twice over. Kept
+   anyway — the reference's code block is white-on-dark evidence and hanabi's
+   was a grey footnote — and reported, because a metric that punishes a
+   correct change is a metric to quote carefully. **The pixel score finds
+   gaps; it does not adjudicate them.**
+   - **Class** — `FOOTGUN`
+
+7. **The mono font's size is quantized somewhere below the call, so a 1px type
+   change is silently a no-op.** Same string, same element, same line of code,
+   only `theme::type` changed, ink measured off the capture:
+
+   | requested | rendered ink |
+   |---|---|
+   | `SM` (11) | x 387..668 |
+   | `MD` (12) | x 387..668 |
+   | `BODY` (13) | x 387..725 |
+   | `LG` (14) | x 387..725 |
+
+   Two pairs, each collapsing exactly. The colour change in the same edit DID
+   render, so the rebuild is not in question. I could not find the mechanism:
+   `with_font(name, Size)` sets `font_size_explicitly_set`, `rendering.h`'s
+   explicit branch passes the size through untouched, and the sokol backend
+   hands `font_size * dpi` straight to `fonsSetSize`. **Not filed as a gap,
+   because a gap that misattributes is worse than none** — but anyone porting
+   a type scale should measure the ink rather than trust the constant, and 12
+   is left in the source with a comment saying it renders as 11 did.
+   - **Cost** — one build cycle to notice, three more to characterize.
+   - **Class** — `FOOTGUN`
+
+8. **Adding a thread to the fixture broke three tests, and every one of them
+   was a fair break.** `list_navigation_opens` asserted on a sentence of the
+   reply this theme replaced — re-pointed at the ported reply, and deliberately
+   at a phrase short enough to sit inside ONE rendered line, because the
+   transcript emits one label per WRAPPED line and `expect_text` is a substring
+   match per label, so a phrase that straddles a wrap can never match.
+   `select_word_and_line` and `user_turn_hugs_the_right_edge` are coordinate
+   tests that moved with the rhythm (−24 for the overlay, +10 turn air, +4
+   inset). Both were re-derived by rendering the thread at the script's OWN
+   window size and scanning the PNG, which is what their own comments tell the
+   next person to do. **No find tally moved** — the ported text adds no new
+   match for any query the suite searches for.
+
+9. **The same binary scores r5 WORSE than before (4.49 → 5.09) and that is not
+   a regression.** Puffin's 24pt of inter-turn air and 12px inset are right for
+   any thread; r5's own rows happened to sit closer to the reference's rows
+   under the old rhythm, because r5's content is a different shape. A per-thread
+   number is a property of the PAIR, not of the app. Quote `main` with the
+   thread it was shot on, always.
+
+10. **Every A/B in this theme was shot back to back and every pair was
+    bit-identical** (`ImageChops.difference(...).getbbox()` is `None` for two
+    runs of one binary, on r5 and on r9). The clock trap `feat/vis-turns` entry
+    11 documented did not fire — the ported stamps are 320 and 310 minutes,
+    which straddle no midnight at the hour this ran — but it is one wall-clock
+    hour from doing so, and the fixture is now the reference's own timings, so
+    it will fire on someone. The cheap fix remains a `HANABI_MOCK_NOW` epoch
+    override.
+
+### Where the remaining 3.80% is
+
+Measured on the final binary against `ref/02_thread.png`, r9 both sides.
+The turns band (y 71..340) is 8.6% of it and everything below the divider,
+down to the composer, is **0.00%**.
+
+| | reference | hanabi | note |
+|---|---|---|---|
+| user bubble | x 817..1097, y 97..127 | x 837..1097, y 95..129 | 20px narrower for the SAME string, and 4px taller |
+| assistant bubble | x 363..1030, y 154..276 | x 362..1031, y 154..290 | top exact; 14px taller, all of it the fence |
+| fence, first code row | y 207 | y 221 | hanabi's block spends 18px more above its first line |
+| fence, code rows | 28px apart | 17px apart | and 11px less between them |
+| run-outcome rule | y 298 | y 311 | follows the bubble |
+| composer band | — | — | 9.47%, unchanged by this theme and not its business |
+
+The user bubble's width is the typeface (settled and discarded in "The
+typeface question"), and the two fence numbers pull in opposite directions:
+hanabi's block is chrome-heavy and line-tight, Puffin's is chrome-light and
+line-loose, and they very nearly cancel. Nothing left in this pane is worth
+more than ~0.2 points, and the next real one is the composer's 27px.
+
+**One last number, for the harness.** The final pair differs from the
+second-to-last build by **exactly one row of pixels** — y=210, x 369..1025,
+the hairline under an unlabelled fence's now-empty header — and that row is
+worth 0.02 structural points on `main` (3.82 → 3.80). Two shots of each
+binary, `getbbox()` `None` within each pair. When the harness is used the way
+`REFERENCE.md` says, it resolves a single hairline; when it is not, two shots
+of one unmodified binary read 4.19% and 4.66%.
+

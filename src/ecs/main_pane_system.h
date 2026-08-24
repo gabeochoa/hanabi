@@ -1803,7 +1803,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
     struct Item {
         enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider,
-                    DateDivider, Thinking } kind;
+                    DateDivider, Thinking, RunOutcome } kind;
         int lo = 0;
         int hi = 0;
         float height = 0.0f;
@@ -2307,6 +2307,102 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Center)
                 .with_roundness(0.0f)
                 .with_debug_name("date_divider_label"));
+        rule(3);
+    }
+
+    // ---------------- Run-outcome divider ----------------------------------
+    // A run ending is the one thing in a transcript that is not somebody
+    // speaking, and Puffin draws it as such: a hairline across the column with
+    // the server's own word for how the run ended centred in it
+    // (`AgentcloudTranscriptView.runSeparator`, an `HStack(spacing: 8)` of
+    // rule / 9pt text / rule with 2pt of vertical padding). Without it a run
+    // that DIED and a run that is merely quiet look identical — the thread
+    // just stops, and the reader has to infer from the sidebar's tag that
+    // nothing is coming.
+    //
+    // Only a failure is red. Puffin's own comment records why: painting
+    // everything that was not `completed` in the danger colour made the user's
+    // own deliberate stop read as an error, and so would any outcome invented
+    // after this build. Anything else prints in the faint text colour, and the
+    // word is the backend's own string rather than an enum, so an outcome
+    // hanabi has never heard of still reads.
+    static constexpr float kRunOutcomeH = 22.0f;
+
+    // Puffin's `TranscriptGrouping.drawsOutcome`: a completed run is only
+    // announced when it is the last thing in the thread. Mid-thread, a
+    // successful run ending is noise — the next turn is the announcement.
+    static bool draws_outcome(const std::string& outcome, bool isLast) {
+        if (outcome.empty()) return false;
+        return outcome != "completed" || isLast;
+    }
+
+    static bool outcome_is_failure(const std::string& outcome) {
+        return outcome == "failed" || outcome == "error";
+    }
+
+    // The rule is DRAWN and the word is a real text element, for the reasons
+    // date_divider gives: Roboto has no Box Drawing block (gaps #48), and text
+    // painted in on_draw_fg never reaches the visible-text registry, so a
+    // divider drawn wholesale is invisible to every assertion about it.
+    static void run_outcome_divider(UIContext<InputAction>& ctx, Entity& parent,
+                                    int id, const std::string& outcome,
+                                    float rowW) {
+        const theme::Color ink = outcome_is_failure(outcome)
+                                     ? theme::status_blocked()
+                                     : theme::text_faint();
+        float lw = 30.0f;
+        if (auto* fm = afterhours::EntityHelper::get_singleton_cmp<
+                afterhours::ui::FontManager>())
+            lw = afterhours::measure_text(fm->get_active_font(),
+                                          outcome.c_str(), theme::type::MICRO,
+                                          1.0f)
+                     .x;
+        constexpr float kGap = 8.0f;  // Puffin's HStack(spacing: 8)
+
+        auto row = div(ctx, mk(parent, 8800 + id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kRunOutcomeH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("run_outcome_divider"));
+        // Explicit widths, never percent(1.0): a percent child in a NoWrap row
+        // resolves against the whole ROW and shoves its siblings out (gap #53).
+        // The word is centred, so each rule takes half of what it leaves.
+        float ruleW = (rowW - lw - 2.0f * kGap) * 0.5f;
+        if (ruleW < 8.0f) ruleW = 8.0f;
+        const auto rule = [&](int childId) {
+            div(ctx, mk(row.ent(), childId),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(ruleW),
+                                             pixels(kRunOutcomeH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([](RectangleType r) {
+                        const float cy = r.y + r.height * 0.5f;
+                        afterhours::draw_line_ex(
+                            afterhours::vec2{r.x, cy},
+                            afterhours::vec2{r.x + r.width, cy}, 1.0f,
+                            theme::border());
+                    })
+                    .with_debug_name("run_outcome_rule"));
+        };
+        rule(1);
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(outcome)
+                .with_size(ComponentSize{pixels(lw + 2.0f * kGap),
+                                         pixels(kRunOutcomeH)})
+                .with_transparent_bg()
+                .with_custom_text_color(ink)
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name("run_outcome_label"));
         rule(3);
     }
 
@@ -2843,7 +2939,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(theme::panel_bg())
                 // Symmetric gutters center the reading column; a small extra
                 // 6px is trimmed on the right for the overlay scrollbar strip.
-                .with_padding(Padding{.top = pixels(8),
+                // The top inset is Puffin's: its transcript ScrollView pads
+                // its content `EdgeInsets(top: 12, leading: 16, bottom: 12,
+                // trailing: 16)`, and hanabi's 8 left the first turn sitting
+                // 4px high against `ref/02_thread.png` — a constant offset
+                // applied to every row in the pane, and worth 1.45 structural
+                // points across the turns band on its own.
+                .with_padding(Padding{.top = pixels(12),
                                       .right = pixels(gutter),
                                       .bottom = pixels(10),
                                       .left = pixels(gutter)})
@@ -3066,6 +3168,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                        it.height);
                 totalH += it.height;
                 items.push_back(it);
+                // The run this message closed, announced under it. Its own
+                // item rather than height folded into the bubble, so the
+                // virtualizer can skip it and the minimap counts it as the
+                // separate thing it is.
+                if (draws_outcome(m.run_outcome, i == n - 1)) {
+                    Item ro;
+                    ro.kind = Item::RunOutcome;
+                    ro.lo = i;
+                    ro.height = kRunOutcomeH;
+                    totalH += ro.height;
+                    items.push_back(ro);
+                }
                 ++i;
             }
         }
@@ -3351,6 +3465,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case Item::DateDivider:
                     date_divider(ctx, col, it.lo, msgs[it.lo].created_at,
                                  colW);
+                    break;
+                case Item::RunOutcome:
+                    run_outcome_divider(ctx, col, it.lo,
+                                        msgs[it.lo].run_outcome, colW);
                     break;
                 case Item::Thinking:
                     render_thinking_block(ctx, col, it.lo, msgs[it.lo], app,
@@ -5061,8 +5179,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // old loose feed (~18-24px turn gaps → ~100px dead space) to a dense ~10px
     // rhythm matching the Navi web chat.
     static constexpr int kFoldLines = 40;
+    // The air around a turn. Puffin's transcript spends 24pt between two
+    // messages and says so twice: `bubbleBreathing = 9` padded above and below
+    // every row, plus the `LazyVStack`'s `itemSpacing = 6` between them
+    // (`AgentcloudTranscriptView`), and its own comment — "the air belongs to
+    // the conversation, not to the stack: two messages sit 24pt apart while
+    // the machinery between them stays tight". hanabi has no stack spacing, so
+    // the 24 is carried by the two margins alone: 10 below a turn and 14 above
+    // the next one (kTurnGapTop + the 8 an assistant turn adds; a user turn
+    // adds 10 and so breathes 2px more, which is hanabi's own asymmetry and
+    // predates this).
+    //
+    // It used to be 4 + 14, with a 24px hover row reserved under every message
+    // making up the difference and then some — 43px of real air against
+    // Puffin's 24. The row is an overlay now (see message_actions), so the air
+    // has to be stated rather than left over.
     static constexpr float kTurnGapTop = 6.0f;
-    static constexpr float kTurnGapBot = 4.0f;
+    static constexpr float kTurnGapBot = 10.0f;
     static constexpr float kAuthorH = 15.0f;
     static constexpr float kAuthorGap = 3.0f;
 
@@ -5499,7 +5632,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // single kUserPadV=14 here while the draw padded 8+9=17, so every
             // user message measured 3px shorter than it drew.
             return kTurnGapTop + 10.0f + kBubblePadTop + mr.height + syncH +
-                   kBubblePadBot + kTurnGapBot + kMsgActionsGap + kMsgActionsH;
+                   kBubblePadBot + kTurnGapBot;
         }
         float textW = asst_text_w(paneWidth);
         const auto& mr = measured(m, textW, isLive, index,
@@ -5517,7 +5650,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        ? (kAuthorH + kAuthorGap)
                        : 0.0f) +
                   kBubblePadTop + bodyH + kBubblePadBot +
-                  kTurnGapBot + kMsgActionsGap + kMsgActionsH;
+                  kTurnGapBot;
         AppComponent* app = app_singleton();
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
@@ -5778,7 +5911,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const auto plain = [&](size_t from, size_t to) {
             if (to > from)
                 spans.push_back(afterhours::ui::TextSpan{
-                    line.substr(from, to - from), theme::text_secondary()});
+                    line.substr(from, to - from), theme::text_primary()});
         };
         for (const hanabi::syntax::Run& r : runs) {
             if (r.off >= line.size() || r.len == 0) continue;
@@ -5822,6 +5955,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("code_block"));
         // Lang bar: uppercase language label on a slightly-raised strip with a
         // hairline bottom divider.
+        //
+        // The label is drawn only when the fence DECLARED a language. A bare
+        // ``` fence used to be captioned "CODE", which is the renderer telling
+        // the reader what they can already see, in the one place a code block
+        // has nothing to say: Puffin's `CodeBlockView.header` emits its label
+        // `if !lang.isEmpty` and nothing otherwise, and `ref/02_thread.png`'s
+        // fence — a bare one — carries no caption at all. The strip itself
+        // stays, because the copy affordance lives in it and Puffin's header
+        // holds its own height for the same reason.
         auto bar = div(ctx, mk(block.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kCodeBarH)})
@@ -5829,13 +5971,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.right = pixels(10), .left = pixels(12)})
-                .with_custom_background(theme::panel_bg())
-                .with_border_bottom(theme::border(), pixels(1))
+                // A strip with nothing on it is not a strip: an unlabelled
+                // fence's header holds only the hover copy, so it takes the
+                // block's own surface and loses the rule under it. Puffin's
+                // header has no fill or divider of its own in either case —
+                // `CodeBlockView` paints ONE background behind the whole
+                // block — and hanabi's raised strip only earns its keep when
+                // there is a language sitting on it.
+                .with_custom_background(lang.empty() ? theme::window_bg()
+                                                     : theme::panel_bg())
+                .with_border_bottom(lang.empty() ? theme::window_bg()
+                                                 : theme::border(),
+                                    pixels(1))
                 .with_roundness(0.0f)
                 .with_debug_name("code_block_bar"));
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
-                .with_label(lang.empty() ? "CODE" : lang)
+                .with_label(lang.empty() ? " " : lang)
                 .with_size(ComponentSize{pixels(120), pixels(14)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -5870,13 +6022,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("code_bar_spacer"));
             // Same in-place confirmation as a message's Copy: a press that
             // changes nothing on screen reads as a press that did nothing.
+            //
+            // Quiet at rest. Puffin's is the same affordance under the same
+            // rule — `CopyAffordance.opacity(hovering:focused:copied:)` is 0
+            // until the pointer arrives — and a fence in `ref/02_thread.png`
+            // shows nothing in that corner. The element is still emitted, so
+            // the strip's width arithmetic below does not move when the
+            // pointer does; only its label is.
             const std::string ckey = "code:" + std::to_string(id);
             const bool ccopied = recently_copied(ckey);
+            const bool cshow = ccopied ||
+                               ctx.mouse_was_in_subtree(block.ent().id);
             auto copy = button(ctx, mk(bar.ent(), 3),
                 ComponentConfig{}
-                    .with_label(ccopied ? "Copied" : "Copy")
+                    .with_label(cshow ? (ccopied ? "Copied" : "Copy") : " ")
                     .with_size(ComponentSize{pixels(copyW), pixels(15)})
-                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_background(cshow ? theme::panel_bg_2()
+                                                  : theme::panel_bg())
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                     .with_custom_text_color(ccopied ? theme::status_active()
                                                     : theme::text_secondary())
@@ -5919,13 +6081,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         SyntaxAudit audit;
         for (const auto& cl : lines) {
             const std::string shown = cl.empty() ? " " : cl;
+            // 12px mono in the plain text colour, both Puffin's:
+            // `SyntaxHighlighter.highlight` sets `monospacedSystemFont(ofSize:
+            // (12.0 * scale))` and paints unmatched code in `palette.plain`,
+            // which is #E6EDF3 on the dark theme — hanabi's text_primary is
+            // (224,224,230), the same near-white. This used to be 11px in
+            // text_secondary (142,142,154), a grey meant for captions: beside
+            // the reference the block read as a footnote rather than as the
+            // evidence the answer is quoting.
+            //
+            // Only the COLOUR of that pair is visible: 11 and 12 render
+            // identically here, and so do 13 and 14 — the requested size
+            // lands in buckets somewhere below this call, measured on this
+            // very line and written up in docs/visual-parity/FRICTION_LOG.md
+            // (Transcript fixture). The 12 is kept because it is Puffin's
+            // number and the next person to widen this type needs to know
+            // that 1px is not a step.
             auto cfg =
                 ComponentConfig{}
                     .with_label(shown)
                     .with_size(ComponentSize{percent(1.0f), pixels(kLinePitch)})
                     .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font("mono", theme::type::SM)
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font("mono", theme::type::MD)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("code_block_line");
@@ -6290,11 +6468,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // ---- Per-message actions (hover) --------------------------------------
     // afterhours has no text selection on read-only labels (see
     // afterhours_gaps.md #36), so there is no way to drag across an answer and
-    // copy it. A per-message Copy is the affordance that replaces it: reserved
-    // in the layout on every turn, painted only while the pointer is over that
-    // turn, and confirmed in place for a moment after a click.
+    // copy it. A per-message Copy is the affordance that replaces it, painted
+    // only while the pointer is over that turn and confirmed in place for a
+    // moment after a click.
+    //
+    // It is an OVERLAY on the bubble's top-right corner, which is what Puffin
+    // does (`.overlay(alignment: .topTrailing) { copyButton }`, and the button
+    // carries the bubble's own fill so it masks the text it covers). It used
+    // to be a reserved row UNDER every turn, and the air that row held was
+    // never free: 22px plus a 2px gap on every message put 43px between two
+    // turns where Puffin puts 24, so the whole transcript ran progressively
+    // further down the pane than the reference with every exchange. On
+    // `ref/01_home.png` that cost nothing measurable — the reference had no
+    // transcript to disagree with — and on `ref/02_thread.png`, which does,
+    // removing it is worth 0.62 structural points on `main`, the largest
+    // single item in the region.
+    //
+    // Absolute, so it is skipped everywhere its size would feed into its
+    // parent's and the bubble does not grow around it. Its width has to be
+    // handed in as a PIXEL value: afterhours refuses percent() on an absolute
+    // widget outright (`VALIDATE(false, "Absolute widgets should not use
+    // Percent"`), so "as wide as the thing I am overlaying" is not sayable —
+    // see afterhours_gaps.md #97.
     static constexpr float kMsgActionsH = 22.0f;
-    static constexpr float kMsgActionsGap = 2.0f;
 
     // Which message last had Copy pressed, and when — so the button can read
     // "Copied" for a beat instead of silently doing nothing visible.
@@ -6312,35 +6508,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return age < std::chrono::milliseconds(1600);
     }
 
-    void message_actions(UIContext<InputAction>& ctx, Entity& turn,
+    void message_actions(UIContext<InputAction>& ctx, Entity& host,
+                         Entity& turn, float hostW, theme::Color hostFill,
                          int index, const std::string& key,
-                         const std::string& rawText, bool alignRight,
-                         int64_t sentAt = 0) {
+                         const std::string& rawText, int64_t sentAt = 0) {
         // mouse_was_in_subtree answers "is the pointer on this turn or on
         // anything inside it" from LAST frame's hit test — the tree being built
         // right now hasn't been resolved yet. Without the subtree form, moving
         // onto the Copy button would make the turn itself stop being hot and
-        // the button would vanish under the cursor.
+        // the button would vanish under the cursor. It is asked of the TURN,
+        // not of the bubble the bar hangs on, so the whole exchange is the
+        // hover target the way it was when the bar sat under it.
         const bool copied = recently_copied(key);
         const bool show = copied || ctx.mouse_was_in_subtree(turn.id) ||
                           hanabi::test_hooks::force_hover("msg:" + key);
 
-        auto bar = div(ctx, mk(turn, 8),
+        auto bar = div(ctx, mk(host, 8),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kMsgActionsH)})
+                .with_size(ComponentSize{pixels(hostW), pixels(kMsgActionsH)})
+                .with_absolute_position(0.0f, 0.0f)
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_justify_content(alignRight ? JustifyContent::FlexEnd
-                                                 : JustifyContent::FlexStart)
-                .with_margin(Margin{.top = pixels(kMsgActionsGap)})
+                .with_justify_content(JustifyContent::FlexEnd)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("msg_actions"));
         if (!show) return;
 
-        // On a user bubble the row runs right-to-left, so the time is emitted
-        // FIRST to end up left of the button; on an assistant turn it trails.
+        // The time leads the button, so the pair reads left to right in the
+        // corner it hangs in. Both carry the bubble's own fill: they sit ON
+        // the message's first line, and Puffin's copy button backs itself the
+        // same way for the same reason.
         const std::string stamp =
             show_times() ? fmtutil::clock_time(sentAt) : std::string();
         auto time_chip = [&](int id) {
@@ -6349,19 +6548,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(stamp)
                     .with_size(ComponentSize{children(), pixels(16)})
-                    .with_margin(Margin{.right = pixels(8), .left = pixels(8)})
-                    .with_transparent_bg()
+                    .with_margin(Margin{.right = pixels(6)})
+                    .with_padding(Padding{.right = pixels(4),
+                                          .left = pixels(4)})
+                    .with_custom_background(hostFill)
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::MICRO)
                     .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.35f)
                     .with_debug_name("msg_time"));
         };
-        if (alignRight) time_chip(2);
+        time_chip(2);
 
         auto btn = div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_label(copied ? "Copied" : "Copy")
                 .with_size(ComponentSize{pixels(56), pixels(18)})
+                .with_margin(Margin{.right = pixels(4)})
                 .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
@@ -6379,7 +6582,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             copied_key() = key;
             copied_at() = std::chrono::steady_clock::now();
         }
-        if (!alignRight) time_chip(2);
         (void)index;
     }
 
@@ -6535,10 +6737,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("sync_check"));
             }
             (void)hasSync;
-            message_actions(ctx, uturn.ent(), index,
+            message_actions(ctx, bub.ent(), uturn.ent(), bubbleW,
+                            chat_colors::user_bubble(), index,
                             m.id.empty() ? ("msg" + std::to_string(index))
                                          : m.id,
-                            m.text, /*alignRight=*/true, m.created_at);
+                            m.text, m.created_at);
             return;
         }
 
@@ -6700,8 +6903,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 else app->expandedMsgs.insert(mkey);
             }
         }
-        message_actions(ctx, turn.ent(), index, mkey, m.text,
-                        /*alignRight=*/false, m.created_at);
+        message_actions(ctx, asstBubble.ent(), turn.ent(),
+                        asst_bubble_w(paneWidth), chat_colors::asst_bubble(),
+                        index, mkey, m.text, m.created_at);
     }
 
     // A System message: a quiet, centered, muted caption — conversation
