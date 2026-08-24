@@ -1409,3 +1409,43 @@ a semibold because it is the correct render, never because of a parity number.
     the only thing that makes transcript work measurable at all.
     - **Class** — `TEDIOUS` (our tooling)
 
+
+---
+
+## The search pill (no branch — done on main)
+
+### 1. The placeholder was half the contrast and two sizes small
+
+- The reference's hint stands 10px tall and its ink peaks at (163,163,168).
+  hanabi's stood 8px and peaked at (98,98,110) — **half the contrast, on the
+  one label in the sidebar whose entire job is to be noticed by someone who
+  has not found the field yet.**
+- Its copy was "Search conversations" where the reference says "Search" — the
+  field is already inside a sidebar of conversations.
+- SEARCH 7.94% → 4.94% structural, the largest single move of the night per
+  line changed.
+- **Class** — `TEDIOUS`. Nothing was broken; it had simply never been measured.
+
+### 2. Colouring one placeholder moved the main pane — gap #90
+
+- The placeholder's colour can only be set through `ctx.theme.font_muted`
+  (text_input ignores per-widget colours, gap #17), and `ctx.theme` is one
+  global struct the RENDERER reads. Setting it in the sidebar brightened every
+  muted label in the frame: `main` moved 0.14 points on a change that touched
+  no main-pane code.
+- Caught only because a parity number moved in a region I had not touched.
+  Without the harness this ships as "the timestamps look a bit brighter now"
+  and nobody ever connects it to a search box.
+- **Cost** — a line in `main_pane_system.h` that has no interest in the search
+  field, plus the knowledge that every system must defensively re-assert every
+  theme field it cares about, forever.
+- **Class** — `FOOTGUN`, filed as #90.
+
+### 3. Where the last 5% of the pill is, and why I stopped
+
+- The magnifier is 3px left of the reference's (14..23 against 17..26). Moving
+  it means trading the field's left padding against the icon slot's width,
+  because the slot's width is also what positions the hint text — and the hint
+  is now exact (33..72, both). Three pixels on a ten-pixel glyph, against a
+  risk of moving a label that is currently correct.
+- **Class** — noted, not taken.

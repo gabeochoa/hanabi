@@ -51,7 +51,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.secondary = theme::panel_bg_2();
         ctx.theme.surface = theme::panel_bg_2();
         ctx.theme.font = theme::text_primary();
-        ctx.theme.font_muted = theme::text_faint();
+        // The search field's placeholder colour has to be smuggled through
+        // the THEME: text_input forces its own colours and ignores the
+        // per-widget ones (gap #17), and font_muted is the one it reads for a
+        // placeholder. ctx.theme is a single global struct read at RENDER
+        // time, not at build time, so this is not scoped to this system --
+        // setting it here brightens every muted label in the frame unless the
+        // next system re-asserts its own. MainPaneSystem now does; measured,
+        // because when it did not the main pane's score moved 0.14 points on
+        // a change that touched only the sidebar (gap #90).
+        ctx.theme.font_muted = kSearchHintFg;
         ctx.theme.focus = theme::accent();
 
         // Apply a pending star-toggle request (set by a row's star affordance).
@@ -721,6 +730,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // for never moved anything and the label sat 6px left of the reference for
     // the whole parity effort.
     static constexpr float kViewLabelGap = 6.0f;
+    // The search pill's hint. Measured: the reference's placeholder stands
+    // 10px tall where hanabi's stood 8, and its ink peaks at (163,163,168)
+    // where hanabi's peaked at (98,98,110) -- half the contrast, on the one
+    // label in the sidebar whose whole job is to be noticed by someone who
+    // has not found the field yet.
+    static constexpr float kSearchPx = 15.5f;
+    static constexpr theme::Color kSearchHintFg{168, 168, 174, 255};
     static constexpr float kBadgeRightPad = kCountRightPad - 1.0f;
 
     static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
@@ -1316,11 +1332,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(field.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(18), pixels(18)})
+                // 13, not 18: the slot's width is what puts the hint text at
+                // x=33 where the reference has it; at 18 it started at 38.
+                .with_size(ComponentSize{pixels(13), pixels(18)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
+                // 11px, not 13: the reference's magnifier is 10px wide
+                // (x 17..26) where hanabi's was 12.
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 13.0f,
+                    "search", "\xf0\x9f\x94\x8d", kSearchHintFg, 11.0f,
                     -1.0f))
                 .with_debug_name("sb_search_icon"));
 
@@ -1354,11 +1374,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(searchTextW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
-                                                 : theme::text_faint())
-                .with_font_size(theme::type::ROW)
+                                                 : kSearchHintFg)
+                .with_font_size(kSearchPx)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_placeholder("Search conversations")
+                // "Search", not "Search conversations": the reference's own
+                // copy, and the shorter one -- the field is already inside a
+                // sidebar of conversations.
+                .with_placeholder("Search")
                 .with_debug_name("sb_search_text"));
         s_searchInputId = searchRes.ent().id;
 

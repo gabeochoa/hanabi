@@ -4331,3 +4331,50 @@ a footgun, not a missing feature, and one line of documentation on
 
 CLASS: TEDIOUS
 
+
+---
+
+### #90 — `ctx.theme` is one global struct read at RENDER time, so a per-widget colour is a frame-wide edit
+
+**What was wanted.** The search field's placeholder in the reference's colour —
+one label, in one system.
+
+**What happens.** `text_input` ignores per-widget colours and reads the theme
+(gap #17), and the field's placeholder specifically reads `theme.font_muted`.
+So the only way to colour it is `ctx.theme.font_muted = <colour>` — and
+`ctx.theme` is a single mutable struct on the UI context that the RENDERER
+reads, long after the system that set it has returned. There is no push/pop, no
+scope, and no per-subtree override.
+
+The consequence is not theoretical. Setting `font_muted` in `SidebarSystem` to
+colour one placeholder moved the **main pane's** score by 0.14 points on a
+change that touched no main-pane code, because every muted label in the frame
+picked it up. Restoring the value at the end of the sidebar's `for_each_with`
+does not help either: by then nothing has been drawn yet.
+
+This is why four systems in hanabi open with the same five lines
+(`ctx.theme.secondary = …; ctx.theme.surface = …; ctx.theme.font = …`) — each
+is defending itself against whatever the previous one left behind. Miss a field
+and you inherit it silently; that is what happened here, and the only reason it
+was caught is that a parity number moved.
+
+**Why the obvious escapes do not work.**
+
+- **Per-widget colour** is what `with_custom_text_color` is, and the widgets
+  that need this are exactly the ones that ignore it (gap #17).
+- **Save and restore around the call** cannot work: the write is consumed at
+  render, not at build.
+- **A second theme** is not addressable — `UIContext` has one `theme` member.
+
+**The workaround, and its cost.** Every system re-asserts every theme field it
+cares about, every frame, forever. hanabi now sets `font_muted` in
+`MainPaneSystem` too — a line in a file that has no interest in the search
+field, which exists solely because the sidebar had to shout its colour at the
+whole frame to reach one placeholder.
+
+**Minimal upstream fix.** Either honour the per-widget colours in `text_input`
+(gap #17's ask, which subsumes this), or give the context a scoped theme —
+`ctx.push_theme(t) / pop_theme()` recorded into the render command stream, so a
+theme edit lasts exactly as long as the subtree that made it.
+
+CLASS: FOOTGUN
