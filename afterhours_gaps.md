@@ -3513,3 +3513,165 @@ previous frame's rects — either don't clear `children` until the new tree is
 built (double-buffer it), or expose a read-only `resolved_children(id)` /
 `resolved_parent(id)` on the laid-out snapshot. Either one turns "diff two
 screenshots" back into a loop.
+### #80 — Every box rasterizes one pixel bigger and one pixel up-left than you asked for
+
+**What was wanted.** A tab whose outer edge lands on the reference's measured
+geometry: 220x34 at (284, 32), with its bottom border on the row directly above
+the strip hairline.
+
+**What the library does.** A `w x h` box translated to `(x, y)` paints
+`(w+1) x (h+1)` pixels anchored at `(x-1, y-1)`. Asking for 220x34 at (284, 32)
+painted x=283..503 and y=31..65 — one row of stray fill above every tab and one
+column left of it. The rounded-rect fill and `draw_rectangle_rounded_lines`
+agree with each other, so the shape is self-consistent; it simply is not the
+rect that was requested, and nothing in the config (`with_size`,
+`with_translate`, border width) accounts for the difference.
+
+**Cost as a number.** 416 diff pixels on the single row y=31 — 0.65 points of
+the tab bar's region score, from one off-by-one. Every measured rectangle in
+the app carries the same error; the tab bar is just where it was measured.
+
+**Workaround.** Author the design rect, then hand the library
+`(w-1) x (h-1)` at `(x+1, y+1)`. In hanabi that is `tab_colors::kRasterGrow`,
+a named 1.0f whose only job is to undo the library. Hit-testing still uses the
+true outer rect, so the two now disagree by a pixel on every edge.
+
+**Minimal upstream fix.** Rasterize a `w x h` box as `w x h` pixels at
+`(x, y)`. Failing that, say in the API which convention is meant (inclusive
+end coordinates? half-open?) so an app can compensate once, centrally, instead
+of per widget.
+
+CLASS: WORKAROUND
+
+---
+
+### #81 — The per-corner rounding bits are named for the OPPOSITE corner
+
+**What was wanted.** The reference's tab is a folder tab: top corners rounded,
+bottom corners square, standing on the strip's hairline. `RoundedCorners`
+advertises exactly this.
+
+**What the library does.** `RoundedCorners`' enum is
+`TOP_LEFT=0, TOP_RIGHT=1, BOTTOM_LEFT=2, BOTTOM_RIGHT=3`. The sokol backend
+reads the same `std::bitset<4>` under its own documented layout,
+`3=TL, 2=TR, 1=BL, 0=BR` — an exact mirror. Every corner you name is applied to
+its diagonal opposite. On top of that, the two helpers whose names match the
+intent are themselves wrong: `top_round()` sets TOP_LEFT, TOP_RIGHT **and
+BOTTOM_RIGHT** to ROUND (only BOTTOM_LEFT sharp), and `bottom_round()` mirrors
+the same bug. Compose the two faults and `top_round()` renders top-left,
+bottom-left and bottom-right rounded with a square top-right — an asymmetric
+bracket that looks like a rasterizer glitch rather than a wrong bitset, which
+is exactly how it gets diagnosed.
+
+**Cost as a number.** A previous round of this work tried top-only rounding,
+saw the bracket, concluded "the outline/edge path glitches on sharp bottom
+corners", and shipped fully-rounded pills instead — the tab shape stayed wrong
+for an entire round, and the comment recording that false conclusion is still
+in the file's history. Rediscovering it cost ~35 minutes of reading the backend.
+
+**Workaround.** Name the bottom two corners to round the top two:
+`RoundedCorners().all_sharp().bottom_left(ROUND).bottom_right(ROUND)`. Wrapped
+in `tab_colors::tab_corners_top_round_bottom_square()` with a comment telling
+the next reader not to "fix" it.
+
+**Minimal upstream fix.** One of the two layouts has to move. Making the
+backend read `0=TL, 1=TR, 2=BL, 3=BR` matches the public enum and costs four
+lines. Whichever way it goes, `top_round()`/`bottom_round()` need to set the
+two corners their names promise.
+
+CLASS: FOOTGUN
+
+---
+
+### #75 — Text is inset by a hardcoded 5px margin that no caller can turn off
+
+**What was wanted.** A tab title starting exactly 26px from the tab's left edge
+(12px when unpinned) — the reference's measured inset.
+
+**What the library does.** `draw_text_in_rect` builds
+`Vector2Type margin_px{5.f, 5.f}` as a literal and passes it to
+`position_text_ex`, which offsets the glyph run by it. Nothing on
+`ComponentConfig` reaches that value. Padding the parent to 26 put the title at
++33; zeroing the label child's own padding changed nothing, because the child's
+padding was never the offset.
+
+**Cost as a number.** 7px of drift on every tab title (5px margin + ~2px first
+glyph bearing), and ~25 minutes to find, most of it spent ruling out padding.
+See also #69, which names the same renderer-only inset from the wrapped-label
+side; this is the single-line path.
+
+**Workaround.** Author every left pad as `design_inset - 5.0f`, with a named
+`kTextMarginPx` constant so the subtraction is explained rather than magic. The
+design number in the source is now not the design number.
+
+**Minimal upstream fix.** Honour the element's own padding for text instead of
+adding a private margin on top of it — or at minimum expose the margin on
+`ComponentConfig` so it can be set to zero.
+
+CLASS: WORKAROUND
+
+---
+
+### #76 — An unpadded element is not unpadded: it silently gets a fraction of the SCREEN
+
+**What was wanted.** A label child that fills its parent's content box exactly,
+so the parent's padding is the only thing positioning the text.
+
+**What the library does.** `component_init` treats "every padding side is
+`Dim::None`" as "caller expressed no opinion" and substitutes `Spacing::sm`,
+which is `screen_pct(0.02f)` — a fraction of the WINDOW, not of the element.
+So a child you never padded is padded, and by an amount that changes when the
+window is resized. `imm_components.h` knows this (the toggle widget zeroes
+padding explicitly with a comment explaining why) but the trap is not in the
+public docs.
+
+**Cost as a number.** ~15 minutes chasing the wrong suspect for #75's 7px, and
+a latent resize bug in every nested element in the app that never set padding.
+Sibling of #71: both are cases where a measured layout only holds at the window
+size it was measured at.
+
+**Workaround.** `with_padding(Padding{.top = pixels(0), .left = pixels(0),
+.bottom = pixels(0), .right = pixels(0)})` on any child that must not be
+padded. All four sides are required — a partially-specified Padding still trips
+the default.
+
+**Minimal upstream fix.** Default to zero, and make the theme's spacing an
+opt-in (`with_padding(Spacing::sm)`) rather than an opt-out. If the default has
+to stay, make it element-relative so it at least survives a resize.
+
+CLASS: FOOTGUN
+
+---
+
+### #77 — There is no bold, and `with_font_weight` fails silently rather than saying so
+
+**What was wanted.** The reference's ACTIVE tab title is bold white; its
+inactive titles are regular. Weight is the only thing distinguishing the
+current tab's label from the rest.
+
+**What the library does.** `ComponentConfig::with_font_weight` exists and
+resolves to a registered `"<font>@<weight>"` font, **falling back to the base
+font** when that name is not registered. hanabi ships three Regular faces
+(Roboto, JetBrains Mono, Atkinson Hyperlegible) and no Bold, so the call
+compiles, runs, logs nothing, and draws regular text. There is no synthetic
+emboldening and no stroke-weight knob to fake one with. Same silent-fallback
+shape as #48, one level up: #48 drops a glyph the face cannot draw, this drops
+a WEIGHT the app never registered.
+
+**Cost as a number.** The active tab's title can never converge. Its text zone
+is 1072 diff pixels — 1.68 points of the tab bar's region score — and while
+most of that is the fixture's different title string, the weight is the part
+that would still be wrong if the strings matched. Every "emphasis" in the
+reference design (active tab, selected row, section headers) is the same
+problem.
+
+**Workaround.** None available in code. Raising the active title to pure white
+buys some contrast and is not the same signal. Escaping this means shipping a
+Bold TTF and registering it as a weight variant — an asset decision, not a
+library one, so it is deliberately not taken here.
+
+**Minimal upstream fix.** Make an unresolvable weight loud: log once, or return
+a resolution failure the app can assert on. Better still, synthesize bold from
+the regular face when no bold is registered, as most text stacks do.
+
+CLASS: IMPOSSIBLE

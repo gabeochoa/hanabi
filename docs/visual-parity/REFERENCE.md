@@ -27,9 +27,17 @@ difference.
 Shoot hanabi with the same tab open:
 
 ```json
-{"window_width":1180,"window_height":949,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+{"window_width":1180,"window_height":949,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
 ```
 
 Measured on the same binary, same minute: Home digest **47.9% structural**, one
 thread open **12.5%**. Same code, same palette — the whole difference was what
 was on screen.
+
+The same trap, one region down: `ref/01_home.png` has **two** tabs open and
+**both are pinned**. Shooting a single unpinned tab scores the tab bar at
+25.3% — a second tab's worth of empty strip, plus a filled active tab sitting
+where the reference has an outlined inactive one, plus two missing pin glyphs.
+Restoring the second pinned tab in the blob above takes the region to 5.5% with
+no code change at all. Anything you measure in the tab bar before that is
+measuring the fixture.
