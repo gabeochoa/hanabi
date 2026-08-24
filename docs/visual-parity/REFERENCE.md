@@ -25,8 +25,9 @@ under everyone else. These files do not move.
   | user bubble fill | **(62,56,111)** — the same indigo as 01's |
   | user bubble TEXT | (237,237,245) — near-white text ON the indigo |
   | assistant bubble | x 362..1031, y 153..276, fill (33,33,54) |
-  | fenced code fill | (51,68,60) |
-  | run-outcome divider | x 362..1097, y 296..303, rule (48,48,62) |
+  | fenced code fill | (19,19,27) — **not** the (51,68,60) this row read until 2026-08-24, which was a sample taken on a green syntax run rather than on the surface |
+  | fenced code chips | **per LINE, and only the LAST one hugs its text**: x 384..1018 y 204..224, then x 374..435 y 225..245. 21px each, stacked with no gap. 1018 is the bubble's own inner edge, so every line but the last runs the full width — see below |
+  | run-outcome divider | x 362..1097, rule on y 299, peak (48,48,62), which is `mutedText` at `.opacity(0.25)` (~(53,53,65)) spread over three rows by the downsample |
   | composer meta row | x 358..1099, y 861..889 |
   | composer input | x 357..1100, y 885..930 |
 
@@ -231,6 +232,22 @@ unambiguously show a **G**. So the source is authoritative about *rules* — wha
 a fill means, which count goes in a badge, what the real inset is — and NOT
 about what any particular pixel in `ref/` is. When the two disagree, the PNG is
 the reference and the checkout has moved on. Say which one you used.
+
+**The rider has now cost 12,000 pixels once, so here is the expensive
+instance.** `CodeBlockView` in the checkout is
+`VStack { … }.frame(maxWidth: .infinity).background(codeBackground)
+.clipShape(RoundedRectangle(cornerRadius: 8))` — one full-width rounded panel
+behind a fence — and `SyntaxHighlighter.highlight` sets no background attribute
+at all, so on the source's evidence there is nothing else it could be.
+`ref/02_thread.png` draws no panel: at y230, x374..435 is (19,19,27) and
+x436..1018 is the bubble's (33,33,54). What it draws is one band per LINE, full
+width for every line but the last and hugging the last — TextKit's line-fragment
+background, stretched to the container edge by each line's terminating newline
+and not by the last line, which has none. Building the panel the source
+describes is **12,495 px wrong** against that frame; building what the frame
+shows is nearly exact. Both readings are faithful to an authority. Only the PNG
+says which authority is this build's. (feat/vis-pane, FRICTION_LOG
+`## The transcript pane, round two`.)
 
 ### ...but the checkout is v0.5.2 and the reference is v0.5.5
 
@@ -533,20 +550,26 @@ It is two viewports now. Keep it above one.
 
 ---
 
-### The user bubble is 20px narrower than the reference's, and that is the typeface
+### The user bubble is 45px narrower than the reference's, and that is the typeface
 
 Measured on the ported thread, where both apps hold the same 42-character
-sentence: Puffin's bubble is x 817..1097 and hanabi's is x 837..1097. Same
+sentence: Puffin's bubble is x 817..1097 and hanabi's is x 863..1097. Same
 nominal 13px body, same 12/13px horizontal padding, same right edge — the
 string simply sets narrower in Roboto than in SF. The same fact runs the other
-way inside the fence: hanabi's JetBrains Mono sets the code line 281px wide
-against SF Mono's 249px.
+way inside the fence: the reference's mono line inks 419px wide against
+hanabi's 280.
+
+**This row read "20px" until 2026-08-24 (feat/vis-pane) and the number was
+stale**, taken before the fixture was ported. Re-measured on r9 it is 45, which
+is a quarter of everything left in the transcript rather than a handful of
+pixels down one edge. The conclusion is unchanged; what changed is what it is
+worth, and anyone re-opening the typeface question should weigh it against 45.
 
 Do not close this by widening the bubble. A bubble is shrink-to-fit, so its
 width is its text's width, and forcing it to Puffin's number would mean padding
 the box away from its own content — the one property the shape exists to have.
 The typeface itself was measured and discarded as a change on its own terms
 (FRICTION_LOG, "The typeface question, settled"). It is not a declared
-divergence in `compare.py` either: it is a handful of pixels down one edge, and
-declaring rectangles over text is how a metric stops measuring text.
+divergence in `compare.py` either: declaring rectangles over text is how a
+metric stops measuring text.
 

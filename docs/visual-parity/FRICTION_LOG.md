@@ -2792,3 +2792,258 @@ not before finding 1.
   supersampled capture: `ui_scale` is a layout zoom and they are not the same
   thing), **#99** (`on_draw_fg` hands you a scaled rect and no scale).
 
+
+---
+
+## The transcript pane, round two (feat/vis-pane)
+
+**`main` 4.50% → 2.87% structural on `ref/02_thread.png` / r9, both sides shot
+back to back and every A/B pair bit-identical (`getbbox()` `None`). Headroom
+over the floor: +3.09 → +1.45. Nothing outside `main` moved.**
+
+### 1. Where the +3.09 actually was
+
+The first thing worth doing was refusing to guess. `main` is 787,566 pixels and
+its whole diff was 36,974 of them, so a band-by-band sweep at 10px resolution
+prices every part of the pane against its own floor in one pass and says which
+paragraph to read. It took two minutes and it is the reason nothing in this
+theme was a hunch.
+
+| band | what is there | struct px | share |
+|---|---|---|---|
+| y190..250 | **the fenced code block** | **12,766** | **34.5%** |
+| y251..280 | the prose line under the fence, and the bubble's bottom | 5,843 | 15.8% |
+| y91..131 | the user turn: avatar and bubble | 3,779 | 10.2% |
+| y161..181 | the prose line above the fence | 1,943 | 5.3% |
+| y281..311 | the run-outcome divider | 1,688 | 4.6% |
+| y791..949 | the composer — **not this theme's** | 10,955 | 29.6% |
+| everything else in the pane | | 0 | 0% |
+
+Two things fell out of that table before any code was read. **The fence was a
+third of the region** — more than the composer, more than everything else in
+the transcript put together. And **every band that is not a turn or the
+composer is EXACTLY zero**: the pane's own furniture, its gutters, its top
+inset and the whole 480px between the divider and the composer are pixel-exact
+already. There is nothing left in this pane that is not a message.
+
+### 2. The fence's dark surface is per-line, and only the LAST line hugs its text
+
+This is the finding, and it is a correction to the entry above this one.
+
+`## The code fence` measured the reference's two chips as x384..1018 and
+x374..435, concluded "per-LINE, not a panel", and built per-line chips that hug
+their own text. Half right. The short line hugs; **the long one is 635px of
+surface behind 419px of text, and runs to the bubble's own inner edge.** The
+earlier pass measured `"exit 65"`'s chip, generalised from it, and never
+checked the number it was generalising to — 635 was even quoted in that entry's
+own text, as the reference's mono line WIDTH, in the paragraph that concluded
+the mono face is 2.3x too narrow. It is not a text width. It is a chip.
+
+The rule is TextKit's and the fixture shows it. The fence's content is
+`"error: …\nexit 65"`: the first line is terminated by a newline and the last
+is not, and a background attribute drawn over a line fragment is stretched to
+the container's trailing edge by the newline glyph. **Every line but the last
+is full width.**
+
+Two notes on provenance, because they pull opposite ways here:
+
+- **Puffin's source says PANEL, and I did not follow it.** `CodeBlockView` is
+  `VStack { … }.frame(maxWidth: .infinity).background(codeBackground)
+  .clipShape(RoundedRectangle(cornerRadius: 8))` — one full-width rounded
+  surface behind the whole block, and `SyntaxHighlighter.highlight` sets no
+  background attribute at all. The frozen frame contradicts it flatly: at
+  y230, x374..435 is (19,19,27) and x436..1018 is the bubble's (33,33,54). The
+  checkout is v0.5.2 and the reference is v0.5.5. **Priced, because "follow the
+  source" would have been the defensible choice and it is the expensive one:** a
+  full-width panel over both lines is 27,132 px of dark where the reference has
+  14,637, so 12,495 px wrong — very slightly worse than the hugging chips this
+  replaced. Two readings of the same authority, a 12,000-pixel gap between
+  them, and only the PNG can tell you which.
+- **The same disagreement runs through the vertical.** `CodeBlockView` spends
+  8px above its text and 8+4 below inside a `VStack(spacing: 6)`; run that
+  arithmetic and the prose under the fence lands at y263. The reference puts it
+  at y254, above the block's own stated bottom padding. hanabi's constants are
+  measured off the frame — 15px of margin above, 1 below — and say so in their
+  comment, because a reader who checks them against the Swift will find they
+  disagree and deserves to know that was deliberate.
+
+**What it was worth.** Full-width chips for every line but the last, plus a
+21px code line pitch against the prose's 16 (the reference's chips are 21 tall
+and stack with no gap; sharing one constant with prose had the fence five
+pixels a line tight), plus the margins above: the fence band went **12,766 →
+3,017 px** and `main` went **4.50% → 3.09%**.
+
+### 3. A 656px hairline the metric could not see, in the strip a previous pass had already removed
+
+The entry above says an unlabelled fence's empty header strip was "skipped
+entirely when there is no language". Its three CHILDREN were. The bar itself
+was still emitted at `pixels(kCodeBarBareH)` = zero height — **and a
+zero-height div still paints its border.** It carried
+`with_border_bottom(code_bg(), 1)`, so hanabi drew a 1px rule of the fence's
+own dark colour clean across the assistant bubble at y190, where the reference
+draws nothing.
+
+**It cost 0.00 structural points, and it is the clearest thing in the
+before/after crop.** A single row of (19,19,27) on (33,33,54) is 14/255; the
+0.8px structural blur spreads it and the 12/255 tolerance eats what is left, so
+the comparison never sees it. That is REFERENCE.md's "a wrong thing can score as
+right" from a new angle — not a wrong colour inside tolerance, but a *right*
+colour on a shape one pixel too thin for the metric's own smoothing to survive.
+**The only reason I found it is that I cropped both frames and looked at them
+before I ran anything**, which is the instruction in the brief and the one that
+paid.
+
+It also cannot be regression-tested. Filed as **gap #104**: `assert_ui` reads
+x/y/w/h/hidden/text and a border is none of them, there is no "this element is
+absent" assertion, and a 0-height bar and a missing bar have identical
+geometry — so the one class of change this project makes constantly, deleting
+chrome the reference does not draw, is the one class it cannot hold. This strip
+has now been removed twice.
+
+### 4. The run-outcome rule: a colour and a position, and neither pays alone
+
+The rule sat at y296 in `theme::border()` (62,62,72); the reference has it at
+y299 in (48,48,62). That band was 1,688 structural pixels — after the fence,
+the largest single item left, and unlike everything else around it almost none
+of it was floor (0.07–0.45 against 17.45).
+
+Puffin's colour is not a token hanabi had: `runSeparator` fills its rules with
+`Color(mutedText).opacity(0.25)`, which over the window ground resolves to
+about (53,53,65). The reference's peak reads (48,48,62) because the 2x
+downsample spreads a 1px line over three rows — summed over the ground those
+three rows carry 30 units of ink and one crisp row at (53,53,65) carries 29,
+which is the same line drawn two ways. `border()` carries 39.
+
+Moved and recoloured **together**: **1,688 → 100 px, 0.19 points, AT FLOOR.**
+This is the trap this region has sprung twice, taken deliberately from the
+start: the position alone leaves a line 14/255 out of tolerance in the right
+place, the colour alone puts an in-tolerance line three rows from where it
+belongs, and each half on its own is worth approximately nothing. I did not
+measure the halves separately, because the two previous entries already paid
+for that lesson in both directions and a third confirmation is not worth a
+build.
+
+The date divider took the same colour, unmeasured and on purpose: no reference
+frame contains one, and two greys of rule in one pane is a defect a reader sees
+and this metric cannot.
+
+### 5. Two experiments a previous theme had closed, re-run because the ground moved — both stayed closed, and one of them for a new reason
+
+`## Transcript fixture` entry 2 is the standing rule here: re-run what a
+previous theme declined when the reference under it changes. Both of these
+changed.
+
+**The mono size.** The brief says three sweeps have ended at the shipping value
+and not to sweep again, and it is right — but the last sweep was **confounded**
+and it is worth saying how. It scored 12/16/18/19/20 while the chip HUGGED its
+text, so every step moved the ink and the surface behind it together, and the
+surface is twenty-one rows deep against the ink's nine. With the chip now sized
+by the block, a size change moves only the ink: a genuinely different
+experiment, and the first one that isolates the thing everyone has been trying
+to measure. One value, not a sweep — `BODY` (13), the only step the old sweep
+skipped and the only one between 12's 270px of ink and 16's 730 against the
+reference's 419. **2.87% → 2.90%.** Worse, and now worse for a reason nobody can
+attribute to the chip. Reverted. Ink at 13 is 335px against 12's 280 and the
+reference's 420, so it closes a third of the width and loses more than that in
+placement — the same trade the 2x capture found, one face down.
+
+**The body ink's brightness.** hanabi's transcript text is `text_primary`
+(224,224,230) and Puffin's is `lightText` (237,237,242) — the same token in
+Puffin serves the user bubble, the assistant bubble and the avatar's glyph, and
+hanabi is 13/255 under it on all three, right on the metric's 12/255 tolerance
+edge. Measured off the frames: the reference's prose peaks at (249..253) where
+hanabi's plateaus at exactly 224, and the reference's user-bubble text peaks at
+(246,246,252) against hanabi's (220,219,227). It looks like an easy point.
+**It is worth 0.00.** `main` reads 2.87% before and 2.87% after, raw 2.67% both,
+and only the main pane's pixels move at all (`getbbox()` is confined to the
+pane, so `text_primary` is not what the sidebar draws its rows with — worth
+knowing before anyone reaches for it). Reverted, because a global palette token
+should not be moved for a parity match in one pane that pays nothing.
+
+The reason it pays nothing is the third finding in a row pointing the same way:
+brighter ink only scores where both frames HAVE ink, and hanabi's glyphs are
+not where Puffin's are. This is the dilation result, the gamma result and the
+2x result again, arrived at from the colour axis this time. **The last of every
+text region is placement. It has now been confirmed four ways.**
+
+### 6. A space I was sure had been eaten, and had not
+
+In the first side-by-side crop hanabi's fence plainly read `matched'fbmacos…`
+against the reference's `matched 'fbmacos…`, and the mechanism was sitting
+right there in the library: `draw_runs_in_rect` advances its pen by
+`measure_text`, and `measure_text` returns fontstash's ink BOX rather than the
+advance it also returns, so a run ending in a space should lose it.
+
+It does not. Measured properly — the ink start of every word on the line, which
+in a monospace face is a ruler — hanabi's cells run 5.00, 5.33, 4.875, 5.00,
+4.875 px and the styled boundary is the 4.875 one: **1px tight over eight
+character cells, not one space.** The reference's own boundary is 7.75 against
+its 7.33 average, i.e. slightly wide. The whole apparent defect was a 5px space
+next to a 7.7px one at a face 1.5x smaller, at 2x magnification.
+
+I nearly filed it. The reason I did not is `## Transcript fixture` entry 7's
+rule — a gap that misattributes is worse than none — and the check that caught
+it was arithmetic on the glyph cells rather than a second look at the crop.
+**A pixel crop is the right tool for finding a candidate and the wrong tool for
+confirming one.**
+
+The underlying library defect is real and is filed as **gap #103**, on the
+evidence that actually holds it up: `theme::text_px("exit 65")` returns 30px
+where the advance is 35, so the last chip — the one that still hugs — is drawn
+5px short, and a quarter of its 20px shortfall against the reference is this
+rather than the face. The two `measure_text` overloads in the same backend file
+disagree about what the width of a string is; one takes `bounds[2]-bounds[0]`
+and one takes the advance.
+
+### 7. What is left, and why I am leaving it
+
+`main` at 2.87%, floor 0.83–1.41, and the composer is 30% of what remains and
+is not this theme's.
+
+| what | struct px | is it closeable |
+|---|---|---|
+| the composer band | 10,955 | someone else's region |
+| prose under the fence | 4,178 | ~2,500 of it is floor; the rest is placement |
+| the user turn | 3,779 | the typeface (declared in REFERENCE.md), plus 2px of bubble height |
+| the fence's ink | 3,017 | the mono face; §5 |
+| prose above the fence | 1,943 | ~1,000 floor, rest placement |
+| the divider | 100 | AT FLOOR |
+
+The user turn is the only line in that table I want to expand, because
+REFERENCE.md's number for it is now wrong. It says the user bubble is **20px**
+narrower than the reference's. On the ported fixture, measured today, it is
+**45**: x818..1097 against x863..1097, for the same 42-character sentence, with
+the avatar carried along beside it. The direction and the cause are unchanged
+and the conclusion stands — a bubble is shrink-to-fit, so its width is its
+text's width, and padding it out to Puffin's number would take away the one
+property the shape exists to have. But it is a quarter of the transcript's
+remaining diff rather than a handful of pixels down one edge, and anyone
+weighing the typeface question again should weigh it against 45.
+
+### 8. Things checked and found already right, so nobody checks them twice
+
+Every one of these was a candidate in the brief and none of them is a gap:
+
+- **The space between turns.** The assistant bubble's top is y154 against the
+  reference's y153, and the first prose line inks at y164 in both.
+- **The assistant bubble's own padding, and its corner radius.** inkdiff pairs
+  the two bubbles at x374 w646 vs w645, h103 vs h103 — one pixel of width over
+  a 646px box, and the rounding is indistinguishable.
+- **Where the pane's content starts and ends vertically.** Bands y71..91 and
+  y311..791 are 0.00 in both frames. The 12px scroll inset from
+  `## Transcript fixture` is still right.
+- **Anything hanabi draws that Puffin does not, or vice versa.** Nothing, once
+  the hairline in §3 was gone. Every non-zero band in the pane contains a
+  message.
+- **The avatar's disc.** 20px, same fill, 6px left of the bubble and 6px below
+  its top — settled two themes ago and still exact. Its GLYPH is dimmer than
+  the reference's (peak 201 against 247), which is §5's `text_primary` again
+  and is worth the same 0.00.
+
+### 9. The harness behaved
+
+Ten captures across five builds, every A/B pair shot back to back, every pair
+`ImageChops.difference(...).getbbox()` `None`. The fixture-clock trap that
+`## Transcript fixture` entry 10 predicted would fire on someone did not fire
+here either — same 320/310-minute stamps, same hour of the day. It is still one
+wall-clock hour from doing so and `HANABI_MOCK_NOW` is still the cheap fix.

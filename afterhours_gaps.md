@@ -5105,3 +5105,161 @@ the second argument behaves exactly as it does today.
 
 CLASS: WORKAROUND
 
+
+---
+
+### #103 — `measure_text` returns the ink BOX, not the advance, so every hug-to-text box is short by its own side bearings
+
+**What was wanted.** A code line's chip sized to exactly the surface the
+reference draws behind that line. hanabi computes it the only way #87 leaves
+open — measure the string, add the padding, set `pixels()`:
+
+```cpp
+const float chipW = std::ceil(theme::text_px(shown.c_str(), theme::type::MD))
+                    + 2.0f * kCodeChipPadX;
+```
+
+**What happens.** The chip comes out short of the text it is hugging, by an
+amount that depends on which characters the string starts and ends with, and by
+a whole space if it ends with one. `theme::text_px` bottoms out in the Metal
+backend's `measure_text`, which is:
+
+```cpp
+fonsTextBounds(ctx, 0, 0, text, nullptr, bounds);
+float w = (bounds[2] - bounds[0]) / dpi;      // <- the INK box
+```
+
+`bounds` is fontstash's glyph-quad union: `minx`/`maxx` are updated from
+`q.x0`/`q.x1` per glyph, so they describe where the ink is, not where the pen
+ends up. The advance is the function's own RETURN value — `advance = x - startx`
+— and it is discarded. So the measurement drops the first glyph's left side
+bearing, the last glyph's right side bearing, and the full advance of any
+trailing space (a space contributes a zero-width quad at the pen, so it moves
+`maxx` no further than the glyph before it did).
+
+Measured on `ref/02_thread.png`'s fence, mono at 12px, whose advance is 5.0px
+flat:
+
+| | |
+|---|---|
+| `"exit 65"`, 7 glyphs | advance width **35px** |
+| `theme::text_px` says | **30px** |
+| chip drawn (measure + 2x6 padding) | 42px |
+| chip that the advance would have drawn | 47px |
+| the reference's chip | 62px |
+
+So a quarter of that chip's shortfall against Puffin is this, and the rest is
+the face. The same 5px is missing from every other box in the app that hugs a
+string, and nobody would find it by looking: a box that is 5px tighter than its
+text still contains its text, because the missing width is bearing and
+whitespace by construction.
+
+The same measurement drives `draw_runs_in_rect`'s pen: it advances
+`x += weighted_width(run.text, run.weight)` between styled runs, so a
+syntax-highlighted line's coloured runs each start slightly left of where the
+same string would put them unstyled. On this fence that is 1px over the eight
+character cells between `matched` and `'fbmacos…'` — small because mono
+bearings are small, and it scales with the run count and with the face.
+
+**Why the obvious escapes do not work.**
+
+- **Add a fudge to the measurement.** The error is per-string, not constant:
+  it is the two side bearings of the particular first and last glyphs plus any
+  trailing space. `"exit 65"` loses 5px and `"WM"` loses under one.
+- **Measure `text + "x"` and subtract `"x"`.** Recovers the trailing side
+  bearing and not the leading one, and gets the trailing-space case wrong in
+  the other direction, because `"exit 65x"`'s box now ends at the `x`'s ink.
+- **Use the other measurement helper.** `measure_text_line` in
+  `text_measure.h` and the single-argument overload in `font_helper.h:60` DO
+  use `fonsTextBounds`'s return value, i.e. the advance. They are not reachable
+  from `ComponentSize` sizing or from `draw_runs_in_rect`, both of which call
+  the `Vector2Type` overload for the height as well as the width. **The two
+  overloads in the same file disagree about what "the width of this string"
+  means**, which is the part worth fixing whatever else happens.
+- **`Dim::Text`.** #87: it measures unwrapped and cannot be capped, and it goes
+  through the same `measure_text`.
+
+**The workaround, and its cost.** None taken. The honest correction is to add
+the advance back, and hanabi cannot compute it: it has no reachable API that
+reports it for a string it is about to draw. hanabi's fence now sidesteps the
+question for every line but the last — those are `percent(1.0f)`, which the
+reference wants anyway — so the defect is confined to one chip per block and
+costs 5px there. Every other hug-to-text box in the app still carries it
+un-measured.
+
+**Minimal upstream fix.** In `backends/sokol/font_helper.h`, take the advance:
+
+```cpp
+float adv = fonsTextBounds(ctx, 0, 0, text, nullptr, bounds);
+float w = adv / dpi;                       // was (bounds[2] - bounds[0]) / dpi
+```
+
+That is the value the single-argument overload twenty lines above already
+returns, so the change makes the file self-consistent rather than introducing a
+new convention. Anything that genuinely wants the ink box — a focus ring drawn
+tight to the glyphs, say — wants a separate `measure_text_ink()` and does not
+have one today either.
+
+CLASS: WORKAROUND
+
+---
+
+### #104 — A scripted test cannot assert that an element is ABSENT, or that a border was painted, so removing chrome is unverifiable
+
+**What was wanted.** A test that goes red if hanabi's unlabelled code fence
+grows its language bar back.
+
+The bar was being emitted at zero height for a fence with no language, and a
+zero-height div still paints its border: `with_border_bottom(code_bg(), 1)`
+drew a 1px rule of the fence's own dark colour clean across the assistant
+bubble — 656 pixels of surface `ref/02_thread.png` has nothing at. It survived
+a previous change that set out to remove exactly this strip, because that
+change removed the bar's CHILDREN and left the bar.
+
+**What happens.** Neither the defect nor the fix can be expressed.
+
+- `assert_ui <name> x/y/w/h/hidden/text` is the whole vocabulary (#61 has the
+  colour half of this). A border is none of those six: it is not the rect, it
+  does not change the rect, and it has no text.
+- There is no negative assertion. `ui_commands.h` has `assert_ui`,
+  `assert_ui_text`, `expect_text`, `expect_focused`, `expect_checkbox`,
+  `expect_slider`, `expect_input_text`, `expect_input_selection`,
+  `expect_selected_text` — every one of them names an element and asserts
+  something about it, and every one FAILS when the element is not there. So
+  "this element should not exist" is exactly the shape the harness cannot say,
+  and it is the shape every piece of removed chrome has.
+- The two states are geometrically identical anyway. A bar at `h=0` and no bar
+  at all produce the same layout for everything around them, so even a
+  y-coordinate test on the block's first line passes in both worlds.
+
+**Why the obvious escapes do not work.**
+
+- **Assert the bar with `h=0` and invert the expectation by hand.** There is no
+  inversion; a passing assertion cannot be spelled as a failure.
+- **Assert on `dump_ui`.** It prints; the runner has no way to match against
+  what it printed.
+- **Give the bar a debug name per state and assert the other one.** Renaming
+  the element hides the problem rather than testing it, and the failure mode
+  being guarded against is precisely "an element nobody meant to emit is being
+  emitted".
+- **Screenshot the frame and diff it.** That is what `docs/visual-parity` does
+  and it is a different harness, run by hand, outside `make test`.
+
+**The workaround, and its cost.** The removal is held by the parity captures
+and by a paragraph in the test file saying it is not held by the test. Cost:
+the one class of change this project makes constantly — deleting chrome the
+reference does not draw — is the one class it cannot regression-test, and this
+particular strip has now been removed twice.
+
+**Minimal upstream fix.** Two small commands, both of which the runner already
+has the machinery for:
+
+```
+assert_ui_absent <debug_name>          # fails if the element exists this frame
+assert_ui <name> border=<n>            # the sixth field, beside w/h/hidden
+```
+
+`assert_ui_absent` is the general one and worth more: every "we stopped drawing
+that" change in every app that uses this harness is currently untestable.
+
+CLASS: TEDIOUS

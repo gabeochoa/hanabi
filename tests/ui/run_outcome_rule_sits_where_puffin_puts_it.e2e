@@ -1,0 +1,33 @@
+# The run-outcome divider's rule lands on the reference's row, and in the
+# reference's grey.
+#
+# Both halves are needed and neither pays on its own -- the trap
+# docs/visual-parity/REFERENCE.md names from both sides. Before this the rule
+# was three rows high of where ref/02_thread.png draws it AND painted in
+# theme::border() (62,62,72) against the reference's (48,48,62), and that band
+# of the transcript cost 1,559 structural diff pixels. Moved and recoloured
+# together it costs 64.
+#
+# The colour is Puffin's own: `AgentcloudTranscriptView.runSeparator` fills its
+# rules with `Color(mutedText).opacity(0.25)`, which over the window ground
+# resolves to about (53,53,65). The reference's rule peaks at (48,48,62) spread
+# across three rows by the 2x downsample -- summed over the ground those three
+# rows carry 30 units of ink and one crisp row at (53,53,65) carries 29, which
+# is the same line.
+#
+# Only the POSITION is assertable here: the harness reads x/y/w/h/hidden/text
+# and never a colour (afterhours_gaps.md #61), and the rule is drawn in
+# on_draw_fg besides. The colour is held by the pixels in docs/visual-parity.
+#
+# The y is absolute and re-derived by rendering r9 at this window's own size
+# and reading the element back, which is what the other coordinate tests in
+# this suite tell the next person to do. It moves when anything above it in
+# the transcript moves, and that is the point: the rhythm above it is what the
+# reference is being compared against.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark"}
+
+# Row top 289, 22 tall, so the rule is centred on y=300 in the element's own
+# space and paints the frame's row 299 -- the reference's row.
+assert_ui run_outcome_divider y=289 h=22
+assert_ui_text "failed" hidden=false

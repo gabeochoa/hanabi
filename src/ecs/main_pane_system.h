@@ -2291,7 +2291,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         afterhours::draw_line_ex(
                             afterhours::vec2{r.x, cy},
                             afterhours::vec2{r.x + r.width, cy}, 1.0f,
-                            theme::border());
+                            transcript_rule());
                     })
                     .with_debug_name("date_divider_rule"));
         };
@@ -2327,6 +2327,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // word is the backend's own string rather than an enum, so an outcome
     // hanabi has never heard of still reads.
     static constexpr float kRunOutcomeH = 22.0f;
+    // Air above the divider row, on top of the turn's own kTurnGapBot.
+    //
+    // Measured, not derived: with the rule centred in a 22px row the reference
+    // wants it at y299 and hanabi put it at y296. Puffin's separator is a
+    // stack ITEM -- `bubbleBreathing = 9` under the bubble plus
+    // `itemSpacing = 6` before the next row plus its own
+    // `.padding(.vertical, 2)` -- where hanabi's turn gap is one number, so
+    // there is no single Puffin constant this equals. The 3 is the difference
+    // between the two arithmetics on the frozen frame.
+    static constexpr float kRunOutcomeGapTop = 3.0f;
+
+    // Every rule hanabi draws inside a transcript.
+    //
+    // Puffin draws all three of its own in one colour and one alpha --
+    // `Color(PuffinTheme.Color.mutedText).opacity(0.25)`, at
+    // AgentcloudTranscriptView.swift:919, :2245 and :2250 -- and hanabi was
+    // using `theme::border()` (62,62,72) for them. Over the window ground that
+    // quarter-opacity muted grey resolves to about (53,53,65), and the
+    // reference's own rule peaks at (48,48,62) spread across three rows by the
+    // 2x downsample, which is the same line: summed over the ground, the
+    // reference's three rows carry 30 units of ink and a crisp 1px at (53,53,65)
+    // carries 29. border() carries 39 and reads as a harder line than Puffin's.
+    //
+    // Only the run-outcome rule is scoreable -- it is the one rule in
+    // `ref/02_thread.png` -- but the date and new-message dividers take it too,
+    // because two greys of rule in one pane is a defect a reader sees and a
+    // metric cannot.
+    static theme::Color transcript_rule() {
+        theme::Color c = theme::text_secondary();
+        c.a = 64;  // Puffin's .opacity(0.25)
+        return c;
+    }
 
     // Puffin's `TranscriptGrouping.drawsOutcome`: a completed run is only
     // announced when it is the last thing in the thread. Mid-thread, a
@@ -2366,6 +2398,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::Center)
+                .with_margin(Margin{.top = pixels(kRunOutcomeGapTop)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("run_outcome_divider"));
@@ -2387,7 +2420,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         afterhours::draw_line_ex(
                             afterhours::vec2{r.x, cy},
                             afterhours::vec2{r.x + r.width, cy}, 1.0f,
-                            theme::border());
+                            transcript_rule());
                     })
                     .with_debug_name("run_outcome_rule"));
         };
@@ -3176,7 +3209,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     Item ro;
                     ro.kind = Item::RunOutcome;
                     ro.lo = i;
-                    ro.height = kRunOutcomeH;
+                    ro.height = kRunOutcomeH + kRunOutcomeGapTop;
                     totalH += ro.height;
                     items.push_back(ro);
                 }
@@ -5264,14 +5297,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // The per-line chip's horizontal padding. Measured off the reference's
     // short line: "exit 65" is 7 mono glyphs and its chip runs x374..435.
     static constexpr float kCodeChipPadX = 6.0f;
-    static constexpr float kCodeVMargin = 8.0f;  // margin above + below block
-    static constexpr float kCodePadV = 6.0f;     // top+bottom padding inside body
+    // A code line's own row height, and it is NOT kLinePitch.
+    //
+    // The reference's two chips are 21px each and stack with no gap between
+    // them (`ref/02_thread.png`: x384..1018 y204..224, then x374..435
+    // y225..245). Prose in the same bubble is on hanabi's 16px kLinePitch, and
+    // sharing one constant put the fence's ink five pixels a line tighter than
+    // the frame it is being compared with. The two rhythms are separate in
+    // Puffin too -- prose is `scaledFont(size: 13)` laid out by SwiftUI and
+    // code is an `NSFont.monospacedSystemFont` inside an AttributedString --
+    // so they have no reason to share a number here either.
+    static constexpr float kCodeLinePitch = 21.0f;
+    // Air ABOVE the block and INSIDE its top, and none at all below.
+    //
+    // Measured, not derived: prose ink ends at y176 in the reference, the
+    // first chip starts at y204 and the last ends at y245, and the prose under
+    // the fence starts inking at y254. That is 28px of air above the chips and
+    // 9 below, and the checkout's own arithmetic does not reproduce it --
+    // `CodeBlockView` spends 8 above and 8+4 below inside a `VStack(spacing:
+    // 6)`, which would put the prose below the fence at y263. The frozen frame
+    // is v0.5.5 and the checkout is v0.5.2 (REFERENCE.md), so the PNG wins on
+    // pixels: hanabi spends its whole allowance above the block, where the
+    // reference spends it.
+    static constexpr float kCodeVMarginTop = 15.0f;
+    static constexpr float kCodeVMarginBot = 2.0f;
+    static constexpr float kCodePadVTop = 6.0f;
+    static constexpr float kCodePadVBot = 0.0f;
     // Total height of a code block with `nLines` inner lines.
     static float code_block_h(int nLines, bool labelled = true) {
         if (nLines < 1) nLines = 1;
-        return kCodeVMargin + (labelled ? kCodeBarH : kCodeBarBareH) +
-               (static_cast<float>(nLines) * kLinePitch + 2.0f * kCodePadV) +
-               kCodeVMargin;
+        return kCodeVMarginTop + (labelled ? kCodeBarH : kCodeBarBareH) +
+               (static_cast<float>(nLines) * kCodeLinePitch + kCodePadVTop +
+                kCodePadVBot) +
+               kCodeVMarginBot;
     }
 
     // ---- Markdown pipe-tables -------------------------------------------
@@ -5954,20 +6012,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_size(ComponentSize{
                     percent(1.0f),
-                    pixels(code_block_h(n, !lang.empty()) -
-                           2.0f * kCodeVMargin)})
+                    pixels(code_block_h(n, !lang.empty()) - kCodeVMarginTop -
+                           kCodeVMarginBot)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(kCodeVMargin),
-                                    .bottom = pixels(kCodeVMargin)})
+                .with_margin(Margin{.top = pixels(kCodeVMarginTop),
+                                    .bottom = pixels(kCodeVMarginBot)})
                 // TRANSPARENT, and no border. The reference's fence is not a
-                // panel: measured row by row, its dark surface hugs each code
-                // LINE -- the long error line's chip runs x384..1018 and the
-                // "exit 65" line's runs x374..435, in the same block. Puffin
-                // puts the background on the highlighted text itself
-                // (`SyntaxHighlighter.highlight` returns an AttributedString
-                // and the view draws ONE background behind the whole thing;
-                // what reaches the screen is per-line because the text is).
+                // panel: measured row by row, its dark surface is per LINE,
+                // and the two lines are not the same width -- the long error
+                // line's chip runs x384..1018 and the "exit 65" line's runs
+                // x374..435, in the same block. 1018 is the bubble's own inner
+                // edge, so the first chip is FULL WIDTH and only the last one
+                // hugs its words. See kCodeChipFullWidth below for why that is
+                // a rule and not an accident.
                 //
                 // A panel here was wrong twice over: it painted window_bg,
                 // which punched a hole clean through the bubble behind it, and
@@ -5989,35 +6047,34 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // fence — a bare one — carries no caption at all. The strip itself
         // stays, because the copy affordance lives in it and Puffin's header
         // holds its own height for the same reason.
-        // The bar exists only for a LANGUAGE. An unlabelled fence has nothing
-        // to put on a strip -- Puffin's `CodeBlockView.header` emits its label
-        // `if !lang.isEmpty` and its copy button floats -- and a zero-height
-        // one is worse than none: its three children overflow it every frame
-        // and each writes a layout warning, three per frame forever.
+        // The bar exists only for a LANGUAGE, and when there is none it is not
+        // emitted AT ALL -- not even at zero height.
+        //
+        // A zero-height div still paints its border, and this one's was
+        // `border_bottom(code_bg(), 1)`. That drew a 1px rule of the fence's
+        // own dark colour clean across the bubble at y190, above a block whose
+        // reference has nothing there: 656 pixels of surface the reference
+        // does not draw. It survived a rebuild that set out to remove exactly
+        // this strip, because that change removed the bar's CHILDREN and left
+        // the bar. The structural metric could not see it either -- a single
+        // row of (19,19,27) on (33,33,54) is 14/255, and the 0.8px blur takes
+        // it under the 12/255 tolerance before the comparison happens. It is
+        // visible to a reader and invisible to the score, which is the trap
+        // REFERENCE.md names from the other side.
+        Entity* barEnt = nullptr;
+        if (!lang.empty()) {
         auto bar = div(ctx, mk(block.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{
-                    percent(1.0f),
-                    pixels(lang.empty() ? kCodeBarBareH : kCodeBarH)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kCodeBarH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.right = pixels(10), .left = pixels(12)})
-                // A strip with nothing on it is not a strip: an unlabelled
-                // fence's header holds only the hover copy, so it takes the
-                // block's own surface and loses the rule under it. Puffin's
-                // header has no fill or divider of its own in either case —
-                // `CodeBlockView` paints ONE background behind the whole
-                // block — and hanabi's raised strip only earns its keep when
-                // there is a language sitting on it.
-                .with_custom_background(lang.empty() ? theme::code_bg()
-                                                     : theme::panel_bg())
-                .with_border_bottom(lang.empty() ? theme::code_bg()
-                                                 : theme::border(),
-                                    pixels(1))
+                .with_custom_background(theme::panel_bg())
+                .with_border_bottom(theme::border(), pixels(1))
                 .with_roundness(0.0f)
                 .with_debug_name("code_block_bar"));
-        if (!lang.empty())
+        barEnt = &bar.ent();
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_label(lang)
@@ -6032,7 +6089,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Copy button (right of the lang label): copies the whole block to the
         // clipboard (mock's `.copy`). A spacer pushes it flush-right (no
         // flex-grow — gap #18 — so size the lang label fixed + a flexer).
-        if (!lang.empty()) {
+        {
             // Compute the spacer width EXPLICITLY (afterhours has no flex-grow —
             // gap #18 — so a percent(1.0) spacer in a NoWrap row resolves to the
             // FULL parent width and overflows, flooding the log). Bar content
@@ -6092,15 +6149,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 copied_at() = std::chrono::steady_clock::now();
             }
         }
+        }  // if (!lang.empty()) -- the whole bar
         // Code body: mono rows, no wrap (pre-formatted).
+        //
+        // The right padding is kLabelInsetX, not a design number: the block's
+        // own box overhangs the bubble's visual inner edge by exactly that,
+        // because kBubbleCfgPadX gives back the inset afterhours takes off a
+        // label's rect. Spending it here puts a full-width chip's right edge
+        // on x1018, which is where the reference's is.
         auto body = div(ctx, mk(block.ent(), 2),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(kCodePadV),
-                                      .right = pixels(10),
-                                      .bottom = pixels(kCodePadV),
+                .with_padding(Padding{.top = pixels(kCodePadVTop),
+                                      .right = pixels(kLabelInsetX),
+                                      .bottom = pixels(kCodePadVBot),
                                       .left = pixels(12)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -6130,17 +6194,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // (Transcript fixture). The 12 is kept because it is Puffin's
             // number and the next person to widen this type needs to know
             // that 1px is not a step.
-            // Sized to its OWN text plus a chip's padding, not to the block:
-            // this is the surface the reference draws, and it stops where the
-            // words do. Measured rather than flex-sized, because a box cannot
-            // be told to hug its text (afterhours_gaps.md #87).
+            // The chip's WIDTH is not "hug the words" -- that is only true of
+            // the LAST line. In the reference the two lines of one fence carry
+            // chips of x384..1018 and x374..435: the first runs to the
+            // bubble's own inner edge and the second stops after "65". The
+            // rule behind it is TextKit's, and it is visible in the fixture:
+            // the fence's text is "error: ...\nexit 65", so line one is
+            // terminated by a newline and line two is not, and a background
+            // attribute drawn over a line fragment is stretched to the
+            // container's trailing edge by that newline glyph. Every line but
+            // the last is therefore full width.
+            //
+            // hanabi has no line fragments, so it states the rule directly.
+            // This is worth 12,053 diff pixels on `main` -- a third of the
+            // whole region -- because a chip that hugs a 53-character mono
+            // line is 276px against the reference's 635 and gets the
+            // difference wrong twenty-one rows deep.
+            const bool lastLine = (li + 1 == static_cast<int>(lines.size()));
             const float chipW =
                 std::ceil(theme::text_px(shown.c_str(), theme::type::MD)) +
                 2.0f * kCodeChipPadX;
             auto cfg =
                 ComponentConfig{}
                     .with_label(shown)
-                    .with_size(ComponentSize{pixels(chipW), pixels(kLinePitch)})
+                    .with_size(ComponentSize{
+                        lastLine ? pixels(chipW) : percent(1.0f),
+                        pixels(kCodeLinePitch)})
                     .with_custom_background(theme::code_bg())
                     .with_custom_text_color(theme::text_primary())
                     .with_font("mono", theme::type::MD)
@@ -6159,9 +6238,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ++li;
         }
         // Test-only (HANABI_SYNTAX_AUDIT=1): what was actually coloured, in the
-        // lang bar, because a script can read a label and never a colour.
-        if (hanabi::test_hooks::syntax_audit())
-            div(ctx, mk(bar.ent(), 4),
+        // lang bar, because a script can read a label and never a colour. An
+        // unlabelled fence has no bar to put it in and no test asks for one.
+        if (barEnt != nullptr && hanabi::test_hooks::syntax_audit())
+            div(ctx, mk(*barEnt, 4),
                 ComponentConfig{}
                     .with_label(audit.summary())
                     .with_size(ComponentSize{children(), pixels(14)})

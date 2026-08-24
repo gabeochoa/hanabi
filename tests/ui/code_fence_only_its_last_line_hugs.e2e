@@ -1,0 +1,55 @@
+# A fenced code block draws its own surface per LINE -- and only the LAST line
+# hugs its words.
+#
+# The fence used to fill with theme::window_bg(). Inside an assistant bubble,
+# which fills with something else, that is a hole clean through the bubble: the
+# reader sees one bubble, a gap, and another bubble. It survived because the
+# parity metric could not see it -- window_bg (23,23,35) is within 12 of the
+# bubble's (33,33,54), so a full-width rectangle of the wrong colour scored as
+# a match.
+#
+# The reference draws (19,19,27), a step DARKER than the bubble rather than a
+# step lighter. Measured on ref/02_thread.png, its two chips are x384..1018 and
+# x374..435: the long error line runs to the bubble's own inner edge and only
+# "exit 65" stops after its words. This test used to assert that BOTH hugged,
+# because the short line was measured and the long one was assumed to follow
+# it; the long line is 635px of surface behind 419px of text and the assumption
+# cost 12,053 diff pixels on `main`, a third of the whole region.
+#
+# The rule behind the asymmetry is TextKit's, and the fixture shows it: the
+# fence's text is "error: ...\nexit 65", so the first line is terminated by a
+# newline and the last is not, and a background attribute drawn over a line
+# fragment is stretched to the container's trailing edge by that newline glyph.
+# Every line but the last is full width.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark"}
+
+# The block itself paints nothing -- it is a column of chips, not a panel. A
+# zero-height assertion would be ambiguous with "not rendered", so this asserts
+# the two things a panel would contradict.
+assert_ui code_block hidden=false
+
+# The LAST line hugs: 42px of surface for seven mono glyphs.
+assert_ui_text "exit 65" w=42
+
+# Every line before it does not. 638 is the block's content width -- the same
+# number whatever the line says -- and it is fifteen times the last line's.
+# Under the old "every chip hugs its text" rule this read 276.
+assert_ui_text "error: no signing identity matched 'fbmacos-apps-inhouse'" w=638
+
+# NOT asserted with expect_text: a STYLED label is invisible to it. Both of
+# these lines carry syntax runs, and the renderer draws the runs INSTEAD of
+# the label, so the plain-text index `expect_text` searches never sees them --
+# it reports the sidebar's rows and nothing from the transcript. The same
+# blind spot as gap #61 one layer over: the harness can read what a widget
+# was told to say, and not what it drew.
+#
+# Nor is the OTHER half of this session's fence work assertable here. An
+# unlabelled fence used to emit its language bar at zero height, and a
+# zero-height div still paints its border: `border_bottom(code_bg(), 1)` drew a
+# 1px rule of the fence's own colour clean across the bubble, 656 pixels of
+# surface the reference does not have. The bar is not emitted at all now, and
+# neither state is reachable from here -- `assert_ui` reads x/y/w/h/hidden/text
+# and a border is none of them, there is no "this element is absent" assertion
+# to catch the bar going away, and a 0-height bar and a missing bar have the
+# same geometry. It is held by the pixels in docs/visual-parity instead.
