@@ -3173,7 +3173,7 @@ hanabi's composer hint inks at (94,94,106) against the reference's (141,141,165)
 — the largest colour gap left in the band. `text_input` hardcodes
 `field_label.explicit_text_color = ctx.theme.font_muted` and has no
 `with_placeholder_color`, so the hint wears whatever the pane last left in one
-global field: `text_faint`. Gap #120.
+global field: `text_faint`. Gap #105.
 
 Gap #90 says a per-widget colour is a frame-wide edit because `ctx.theme` is
 read at RENDER time — and a save/restore around the build call works here
@@ -3244,3 +3244,300 @@ it is invisible in every capture and every user's app. It is in the footer
 beside the version now, same gate, and the default capture is **byte-identical**
 to the one taken before it was added, which is the only proof worth having that
 a conditional costs nothing.
+
+---
+
+## The sidebar, round three (feat/vis-sb3)
+
+Sidebar **10.64% -> 10.18%** structural on `ref/02_thread.png`, headroom over
+the floor **+1.71 -> +1.24**. Search is at floor. The session list's whole
+glyph column is now BELOW its own floor and can be closed.
+
+### Read this first: the floor is computable for any rectangle, not just the seven named regions
+
+`compare.py --floor` prints a floor per REGION, and that is what let two
+regions be declared finished. The same arithmetic works on any rectangle you
+name, and that is the half nobody had: a paste test alone says "the glyph
+column is worth 0.73 points" and cannot tell you that 0.73 is roughly what a
+perfect copy of it scores anyway.
+
+`scripts/ceiling.py` (new) prints both, per rectangle:
+
+| rectangle | main | ceiling | floor | verdict |
+|---|---|---|---|---|
+| views/icons | 13.56% | 0.00% | 4.57–8.55 | +5.01 |
+| views/labels | 3.46% | 0.00% | 1.77–3.22 | +0.24 |
+| views/badges | 9.19% | 0.00% | 1.72–3.64 | +5.55 |
+| search | 4.26% | 0.38% | 1.54–3.17 | +1.09 |
+| list/marks | 7.63% | 0.02% | 3.22–5.38 | +2.25 |
+| list/titles | 17.21% | 0.04% | 10.54–14.64 | +2.57 |
+| list/counts | 3.37% | 0.05% | 1.60–2.63 | +0.75 |
+
+**That table is the anatomy of the +1.71** and it reorders the work
+completely. The list's eighteen row titles are 12.8 of the region's 13.6 points
+and everyone knows it — but they are only **+2.57 over their own floor**, and
+that residual is the same CoreText-against-fontstash deficit four previous
+rounds measured. Meanwhile a 34x26 pixel filter icon was carrying **+1.09**,
+83% of an entire region's headroom, and a column of eighteen 9px marks was
+carrying +2.25. Neither had ever been priced against its own floor.
+
+Same table after this branch:
+
+| rectangle | main | sb3 | |
+|---|---|---|---|
+| list/marks | 7.63% | **1.95%** | AT FLOOR — done |
+| search | 4.26% | **3.20%** | floor is 3.17 |
+| views/badges | 9.19% | 6.54% | +2.90 left |
+| views/icons | 13.56% | 12.44% | +3.89 left, and blocked — gap #108 |
+| list/titles | 17.21% | 17.21% | untouched, unreachable |
+
+### The filter affordance was the wrong drawing, and the source said so in as many words
+
+hanabi drew Lucide's `sliders-horizontal` — three rules with a knob riding each
+one, which is a settings control. Puffin draws
+`Image(systemName: "line.3.horizontal.decrease")`, right there in
+`SidebarColumn.searchRow`. Three rules, decreasing, no knobs.
+
+Measured off the frozen PNG at half coverage: **12 / 10 / 7 wide, ~1.3px thick,
+one centre x, 3.25px pitch.** Lucide's own `list-filter` is NOT a substitute —
+its bars run 18/10/4, so its bottom rule is half the length it should be. Drawn
+from primitives instead.
+
+**SEARCH 4.26% -> 3.46% on that one icon** — 88% of its measured ceiling, which
+is a hit rate this workstream has not seen. The reason is worth stating,
+because it is the counterexample to the `feat/vis-list2` finding that a
+correct fix wins a fraction of its ceiling: **that finding is about TEXT.** A
+ceiling assumes the reference's own rasterization comes with the fix, and for
+a string it never does — but a rule is a rectangle, and hanabi can put a
+rectangle exactly where Puffin put one. Shapes pay their ceiling; strings do
+not.
+
+The previous round had a hand-drawn version here and replaced it with the
+sprite, correctly, because the hand-drawn one laid down 39px of ink against 95
+and in a colour 90 levels too dark. The lesson is not "don't hand-draw"; it is
+that neither version had been measured against the reference's actual glyph.
+
+### Antialiasing you paint yourself — and it corrects gap #92's own escape list
+
+Gap #92 says primitives cannot be antialiased, lists the escapes, and rules out
+"a second, dimmer pass" because the fill path cannot alpha-blend a shape over a
+shape. That is true and it is the wrong reason to stop.
+
+**A partly covered pixel is not a translucent pixel.** Over a background whose
+colour is known, coverage `c` composites to the OPAQUE colour
+`bg + c*(fg - bg)`, which the caller can compute. No blending is involved at
+any point. And coverage of an axis-aligned rectangle is separable, so a
+fractional rect is at most nine solid rectangles — three column bands by three
+row bands. That is `hanabi::glyph::rect_aa`.
+
+What it bought, on the bang — the mark on six of the eighteen visible rows, and
+the one carrying the most ink error in the column:
+
+| | x14 | x15 | x16 | total |
+|---|---|---|---|---|
+| reference | 0.44 | 0.97 | 0.50 | 1.91 |
+| hanabi, hard 2.3px stroke | 1.00 | 1.00 | 1.00 | 3.00 |
+| hanabi, `rect_aa` | 0.47 | 1.00 | 0.47 | 1.94 |
+
+Every row of the stroke and every row of the tittle now agrees with the
+reference's to within 0.05 coverage. **list 13.79% -> 13.57% on that one
+mark.**
+
+Three limits, filed as gap #106, and the second is the one that will bite
+someone:
+
+1. **Axis-aligned only.** The arc, the cross and the chevron in the same
+   vocabulary cannot have it, so the sidebar now draws two soft-edged marks
+   beside three hard ones.
+2. **It bakes the background in.** `draw_mark` had to grow a `bg` parameter and
+   the session row had to hoist its hover-fill decision above the glyph slot to
+   pass it. A caller that forgets gets a halo **under the pointer and nowhere
+   else** — a state no reference captures and no screenshot test shoots.
+3. **Nothing non-flat.** A gradient, an image or a translucent surface behind
+   the glyph breaks it silently.
+
+### Every mark was drawn to the reference's OUTER extent, which is 30–85% too much ink
+
+The whole vocabulary, measured against the frozen PNG:
+
+| mark | rows | ref ink | hanabi ink | over |
+|---|---|---|---|---|
+| bang | 6 | 14.8 | 30.0 | **x2.03** |
+| chevron | 1 | 10.8 | 20.0 | x1.85 |
+| cross | 2 | 17.6 | 30.0 | x1.70 |
+| arc | 4 | 24.5 | 38.0 | x1.55 |
+| dot | 4 | 33.5 | 44.0 | x1.31 |
+
+Not a placement error — `feat/vis-list2` already swept placement and got 0.01
+points for it. **A sizing error with one cause: the constants were derived from
+where the reference's ink ENDS, and the reference's ink ends in a soft
+fringe.** Without antialiasing (gap #92) a mark drawn to that outer extent
+fills the fringe solid. The right target when you cannot antialias is the
+reference's **half-coverage silhouette**, which is what a vector renderer's
+shape actually is; the fringe outside it is coverage you are structurally
+unable to produce, so reaching for it only adds ink.
+
+Re-derived that way: dot r 3.9 -> 3.4, cross half-extent 3.9 -> 3.0 and stroke
+2.0 -> 1.6, chevron half-height 4.2 -> 3.6 and stroke 2.0 -> 1.6, arc ring
+3.0..4.8 -> 3.3..4.6. Every one helps, and they compose: **list 13.93% ->
+13.79%.**
+
+This is the dilation experiment from `## The floor` arriving from the other
+side. That one added ink and the score got monotonically worse; this one
+removes ink hanabi should never have had and the score gets monotonically
+better. The deficit under a TEXT region is not coverage weight — but the
+surplus over a SHAPE region is.
+
+### The running arc's gap was in the wrong quadrant, and the source could not tell me
+
+hanabi drew the spinner arc with its gap in the LOWER LEFT, under a comment
+saying so. The reference puts it at the **TOP**. At a glance hanabi's mark
+reads as a hook or a question mark where the reference's reads as a bowl — on
+four of the eighteen visible rows, and they are the four rows that are running.
+
+Measured on all four, which are identical to the pixel: centre (15.0, mid−0.5),
+ink over **290 degrees**, gap **70 degrees wide centred on 275.5** — five
+degrees clockwise of straight up. In afterhours' convention (0 = three
+o'clock, increasing clockwise) that is −49 to 240 against the shipped −170 to
+85.
+
+**Which source I used, and why.** The PNG, alone.
+`~/kt-ng2w-puffin`'s `SessionRowView.statusDot` is a 7pt filled `Circle()` with
+no arc anywhere in it — the five-shape vocabulary arrived after v0.5.2, exactly
+as REFERENCE.md warns. Read the checkout here and you would conclude hanabi
+should draw a dot. (The brief's path for that file is also stale: it is
+`Sources/Views/HomeSessionList.swift:1037`, not `SessionRowView.swift`, which
+does not exist.)
+
+Worth 0.13 points across list and search. Ship it anyway — it is a spinner and
+it now looks like one.
+
+### A blit reaches its colour and 9pt text never does, so one token cannot serve both
+
+Puffin hands ONE colour to the whole smart-view row — `SmartViewSidebar` line
+297, `Chrome.mutedText` for the icon and the label together — so hanabi using
+one constant for both looks like the faithful reading. It is not.
+
+`kViewLabelFg` (150,150,175) was measured off the LABEL. It is ten levels above
+Puffin's actual token (140,140,166) *because* that is what it takes for
+antialiased 9pt text to read like the reference's. Hand those ten levels to a
+sprite blit, which reaches its colour in full, and every view icon peaks 15–22
+levels above the reference's. **Two ink constants in one row is the faithful
+implementation of one colour**, and this is the sidebar footer's colour
+finding (REFERENCE.md) generalized: there, moving footer text to the nearest
+token made it worse; here, moving the icons to the true token makes them right.
+Same fact, opposite direction, because one is text and one is a blit.
+
+**views 4.53% -> 4.41%.**
+
+And a warning attached to it: the score keeps improving as the icon ink
+darkens **past** the measured value — 4.42% at the true token, 4.39 at 135,
+4.34 at 130, 4.31 at 125, monotonically. That is the metric paying for less
+ink, the same way it pays for smaller text, and the only defensible place to
+stop is the constant Puffin's own source names. Everything below it is fitting.
+
+### The badge was a pixel low, and nothing about the row could fix it
+
+The smart-view count badge measured ring y140..156 against the reference's
+y139..155 — one pixel down — while the label, the icon and the row's whole
+content were exactly on the reference's. So every lever that moves the row was
+a regression somewhere else, and the row's padding was already swept to 6/4
+against the reference's own label rows in an earlier round.
+
+The lever that works is a **margin on the badge alone**: under
+`AlignItems::Center` the row splits what is left, so 2px of bottom margin under
+a 16px badge in a 22px content box is a 1px rise. Measured back: ring
+y139..155, digit y143..150, both exactly the reference's rows.
+
+**views/badges 8.88% -> 6.54%** — the largest single move in the region, from
+one pixel.
+
+Its digit was also two sizes small: `theme::type::SM` gave 7px of ink by 4
+against the reference's 8 by 6, twelve lit pixels against thirty-two. At 14.0px
+it is 8 tall and reaches its own colour. Its ink was re-measured by the
+(pixel − fill) ratio across every digit pixel of the 6 and 3 badges —
+0.641/0.803 and 0.643/0.804, **agreeing to two thousandths on two independent
+badges**, which is what says a read is the colour and not the coverage — and
+came back ten levels of red brighter than the constant.
+
+What is left there is the digit at 5 columns against the reference's 6 and 20
+lit pixels against 32, which is Roboto against SF at 8px. The rows match
+exactly; the strokes cannot.
+
+### Three things I could not reach, priced so nobody re-derives them
+
+**The selected view's fill — gap #107.** It is 1.3px too tall and its corner
+radius is 3.5 where the reference's is **8**. (The earlier round read the
+radius as ~5 from "the fill's first row spans x3..276"; that row is the
+SECOND. The corner keeps curving for six more rows, and r=8 fits the whole
+profile to a pixel.) It cannot be fixed because the fill IS the row's
+background box, so its height, position and radius are the same numbers as the
+row's padding and pitch. Everything tried, views 4.41% before each:
+
+| change | views |
+|---|---|
+| radius 5 → 8 | 4.44% |
+| radius 5 → 11 | 4.48% |
+| margin top 1→2, padding top 6→5 (drop the fill, hold the content) | 5.36% |
+| inset 3→4, top 1→2, pad 6→5 | 4.81% |
+| inset 4.3, top 1.7, pad 5.3 (the measured 27.7px height) | 5.13% |
+
+The radius alone gets worse because the fill is *also* a pixel high and the
+corner is where the two errors meet — trap #1, in its purest form. And the
+other half cannot be applied: the fractional margins that would give the fill
+its real height are also the six rows' pitch, so the rows drift.
+`with_on_draw_bg` is the real answer and it means re-implementing the selected
+and hover fills by hand for six rows plus the folded rail, for 0.37 points.
+Measured, unspent, filed.
+
+**The view icons' stroke — gap #108.** They carry 1.24–1.57x the reference's
+ink inside bounding boxes that already agree to a pixel, so it is stroke:
+Lucide draws at `stroke-width="2"` on a 24 grid, SF Symbols at this weight is
+nearer 1.5. Not the size — swept, 14px 4.48%, 15px 4.45%, **16px 4.41%**, 17px
+4.54%, so the shipping size is already optimal. Not the colour — that half is
+fixed above. The only fix is regenerating the atlas, which is one sheet shared
+with the tab strip and the footer, and **both of those are AT FLOOR**.
+
+**The sub-agent count column.** Its "1" measures 1.3px left of the reference's
+and one row taller. Swept size x position — 13.5/9.0, 12.5/9.0, 12.5/7.7,
+13.0/7.7, 12.5/6.7, 13.5/7.7, 13.5/7.0 — and **nothing beats the shipping
+value**; every move that puts the stem on the reference's column costs 0.02.
+0.55 of ceiling, 0.75 over floor, and it is one digit of text. Left alone.
+`kBadgeRightPad` was decoupled from `kCountRightPad` while establishing that:
+they are two columns in two different lists and they measure out differently,
+and one constant could not be right for both.
+
+### No new test, and that is a finding
+
+Every fact this branch changes is a pixel fact — a gap's angular position, a
+stroke's coverage, an ink's twelve levels — and the scripted harness cannot see
+pixels. `assert_ui` reads x/y/w/h/hidden/text and nothing else, which is
+gap #86 already filed from the other direction. The 80 scripted tests all still
+pass, including `selected_view_fill` and `smart_view_badge`, because nothing
+this branch touches is expressible in what they can assert.
+
+So the guard is the parity harness, run by hand, and here are the numbers a
+regression would show: search 3.20 (floor 3.17), list/marks 1.95 (floor
+3.22–5.38), views/badges 6.54, sidebar 10.18. `scripts/ceiling.py` prints all
+four in one command.
+
+### For the next person
+
+- **Price a rectangle against its own floor before you touch it.**
+  `scripts/ceiling.py`. Four rounds of work on this sidebar priced ceilings
+  only, and a ceiling cannot tell a 12-point element that is 2 points from
+  perfect apart from a 1-point element that is 1 point from perfect.
+- **Shapes pay their ceiling; strings pay a tenth of it.** Sort your candidates
+  by which they are before you sort them by size.
+- **Where hanabi is over-inked, the metric and the truth agree.** Every
+  ink-reduction in this branch helped, and they composed. That is the opposite
+  of the text case and it is why the mark column reached its floor.
+- **The list's glyph column is finished.** 1.95% against a floor of 3.22–5.38.
+  It has now been worked four times; it does not need a fifth.
+- Left in the sidebar: the badges (+2.90, mostly an 8px digit), the icons
+  (+3.89, blocked on the atlas), the fill's corners (0.37, blocked on #111) and
+  the eighteen row titles (+2.57, blocked on the typeface). **Nothing else in
+  this region is above two pixels.**
+
+---
+

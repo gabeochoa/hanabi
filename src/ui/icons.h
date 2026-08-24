@@ -14,6 +14,8 @@
 // text, so chrome never disappears or crashes. Callers pass both the icon name
 // and the legacy glyph; whichever path is available wins (atlas preferred).
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <string>
@@ -257,6 +259,91 @@ inline void radio(RectangleType rect, bool selected, theme::Color c,
     if (selected)
         afterhours::draw_circle(static_cast<int>(cx), static_cast<int>(cy),
                                 r - viewport::px(2.0f), c);
+}
+
+// An axis-aligned rectangle with fractional edges, antialiased by hand.
+//
+// afterhours does not antialias primitives (afterhours_gaps.md #92), so a
+// 1.95px-wide stroke rasterizes to one hard column (half the reference's ink)
+// or two (a third over) — and the reference's own is 0.44 / 0.97 / 0.50 across
+// three columns. Neither hard answer is that shape.
+//
+// A partly covered pixel is only a colour, though: over a KNOWN flat
+// background it composites to bg + c*(fg-bg). Coverage of an axis-aligned
+// rectangle is separable — cov(x,y) = fx(x)*fy(y) — so the whole thing is at
+// most nine solid rectangles: three column bands by three row bands.
+//
+// It works here and only here because what is behind these glyphs is one flat
+// colour. Anything over a gradient, an image or another widget's fill has to
+// go back to hard edges.
+inline void rect_aa(float x0, float y0, float x1, float y1, theme::Color fg,
+                    theme::Color bg) {
+    struct Band {
+        float lo, hi, cov;
+    };
+    auto split = [](float a, float b, Band out[3]) {
+        const int i0 = static_cast<int>(std::floor(a));
+        const int i1 = static_cast<int>(std::ceil(b));
+        int n = 0;
+        if (i1 - i0 == 1) {
+            out[n++] = {a, b, b - a};
+            return n;
+        }
+        if (a > static_cast<float>(i0))
+            out[n++] = {static_cast<float>(i0), static_cast<float>(i0 + 1),
+                        static_cast<float>(i0 + 1) - a};
+        const float bodyLo = std::ceil(a), bodyHi = std::floor(b);
+        if (bodyHi > bodyLo) out[n++] = {bodyLo, bodyHi, 1.0f};
+        if (b < static_cast<float>(i1))
+            out[n++] = {static_cast<float>(i1 - 1), static_cast<float>(i1),
+                        b - static_cast<float>(i1 - 1)};
+        return n;
+    };
+    Band cols[3], rows[3];
+    const int nc = split(x0, x1, cols), nr = split(y0, y1, rows);
+    for (int r = 0; r < nr; ++r) {
+        for (int c = 0; c < nc; ++c) {
+            const float k = cols[c].cov * rows[r].cov;
+            if (k <= 0.004f) continue;
+            const theme::Color mix{
+                static_cast<unsigned char>(bg.r + k * (fg.r - bg.r)),
+                static_cast<unsigned char>(bg.g + k * (fg.g - bg.g)),
+                static_cast<unsigned char>(bg.b + k * (fg.b - bg.b)), 255};
+            afterhours::draw_rectangle(
+                RectangleType{cols[c].lo, rows[r].lo, cols[c].hi - cols[c].lo,
+                              rows[r].hi - rows[r].lo},
+                mix);
+        }
+    }
+}
+
+// The search row's filter affordance: three horizontal rules, decreasing.
+//
+// This is SF Symbols' `line.3.horizontal.decrease`, which Puffin names in as
+// many words -- `SidebarColumn.searchRow`'s Menu label is
+// `Image(systemName: "line.3.horizontal.decrease")`. hanabi drew Lucide's
+// `sliders-horizontal` instead: the same three rules with a knob riding each
+// one, which is a settings control, not a filter. Lucide's own `list-filter`
+// is not a substitute either -- its bars run 18/10/4 where the reference's run
+// 12/10/7, so its bottom rule is half the length it should be.
+//
+// Every number is measured off `ref/02_thread.png` at half coverage: rules 12,
+// 10 and 7 wide, ~1.3px thick, centred on one x, at a 3.25px pitch.
+inline void filter_rules(RectangleType rect, theme::Color c, theme::Color bg) {
+    const float u = viewport::px(1.0f);
+    const float cx = rect.x + rect.width * 0.5f;
+    // The reference's stack is centred 0.65px above the affordance's own
+    // middle. Measured, not chosen: its three rules sit at y279.1, 282.4 and
+    // 285.6 in a 20px box whose centre is y283.
+    const float cy = rect.y + rect.height * 0.5f - 0.65f * u;
+    const float pitch = 3.25f * u;
+    const float t = 1.3f * u;
+    const float w[3] = {12.0f * u, 10.0f * u, 7.0f * u};
+    for (int i = 0; i < 3; ++i) {
+        const float yc = cy + static_cast<float>(i - 1) * pitch;
+        rect_aa(cx - w[i] * 0.5f, yc - t * 0.5f, cx + w[i] * 0.5f,
+                yc + t * 0.5f, c, bg);
+    }
 }
 
 // A pushpin, for a pinned tab. Roboto has no pin codepoint and a missing one

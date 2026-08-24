@@ -4611,7 +4611,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // about `Theme::Usage::*` values RESOLVED at render time, and this one
         // line COPIES a concrete colour into the entity during the imm build.
         // So the window is the build call, and it is exactly one call wide.
-        // (afterhours_gaps.md #120.)
+        // (afterhours_gaps.md #105.)
         //
         // Worth 68 of the hint row's 962 differing pixels -- small, and the
         // reason it is small is that the two strings differ ("Message
