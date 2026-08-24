@@ -1016,3 +1016,67 @@ friction is mostly in the measuring, not the library.
    question and the "is the open thread highlighted" question in about two
    minutes, with no need to touch the live app. Nothing in `REFERENCE.md`
    mentions it; it should.
+
+## Known divergences (feat/vis-divergences) — 2026-08-24
+
+1. **Half the score was the reference's own empty state, and it had been quoted
+   for days.** `ref/01_home.png` has thread `6cb2dacc-…` open — a real session
+   id, not a `mock-*` fixture — so Puffin's mock backend falls through to
+   `MockBackend.swift:936` and draws one line, "No fixture transcript for … yet."
+   hanabi draws a full conversation in the same 897x749 viewport. That is 3.18
+   of the 7.39 structural points. It is the exact trap `REFERENCE.md` already
+   warns about under "Compare LIKE FOR LIKE", one level down: we fixed the
+   *tab* state and never checked whether the open tab had anything in it. The
+   general lesson is cheap and worth stealing: before scoring a region, look at
+   what the REFERENCE has in it, not only at what hanabi has.
+
+2. **The status bar was 3x cheaper than the brief assumed, because someone had
+   already half-fixed it.** The premise handed to this branch was "a full-width
+   painted bar, ~14 rows of near-100% difference across 1180px, landing in both
+   `footer` and `main`". By the time it was measured, `6761336` had already
+   narrowed `layout.statusBar` to the main pane, hanabi had grown a sidebar
+   footer that mirrors Puffin's, and the bar's fill was `theme::sidebar_bg()` —
+   (23,23,35), the identical colour Puffin's empty window paints there, so the
+   fill costs literally zero. Real cost: 0.233 points, one hairline row plus
+   seven rows of right-cluster text. **Measure the premise before you act on
+   it**; three of the four claims in it had aged out inside a day.
+
+3. **Excluding surface makes the rate go UP, and it will be read as a
+   regression.** The declared rectangles cover 62.5% of the frame's *area* but
+   only 47% of its *difference*, because most of that area is black agreeing
+   with black. Take it out and structural goes 7.39% -> 10.37%. The arithmetic
+   is right and the number is more honest, but nobody's first reaction is "ah,
+   the denominator". `compare.py` now says so in its own output; the same
+   sentence is in `REFERENCE.md`. Anyone adding a large mostly-empty rectangle
+   to that table should expect the same and say it up front.
+
+4. **Points and rates are different currencies and the table needs both.** An
+   entry's cost is quoted in *points of the whole frame* (comparable across
+   entries, addable, stable) while the headline is a *rate over what is left*
+   (not addable, moves when any rectangle changes). Quoting one where the other
+   is meant is the easiest mistake here. The per-entry costs also do not sum to
+   the declared total — the traffic-light rectangle and the top-left corner
+   overlap, and the mask counts the shared pixels once.
+
+5. **A hand-measured rectangle needs a staleness alarm or it silently rots.**
+   The rectangles are pixels in the reference's coordinates, so a closed
+   divergence, a nudged layout or a re-shot reference all leave an exclusion
+   sitting over live surface, hiding real signal. Two guards, both cheap: the
+   table is skipped entirely (loudly) unless the reference is exactly
+   1180x949, and any entry that turns out to exclude zero differing pixels
+   prints `<-- STALE? excludes nothing`. Neither existed before; both should
+   have been the first thing written, not the last.
+
+6. **`--diff` greys the declared surface rather than dropping it.** An
+   exclusion you cannot see on the diff image is an exclusion nobody audits,
+   and the first question anyone asks of one of these rectangles is whether it
+   is drawn around the right thing. Worth the four lines.
+
+7. **`compare.py` has no home in `make test`.** The suite is C++ binaries plus
+   the scripted `.e2e` DSL; there is nowhere for a Python assertion to live, so
+   the exclusion arithmetic is pinned by `compare.py --selftest` instead — 
+   hermetic 100x100 frames, run by hand. It is genuinely tested (three
+   deliberate breakages all go red: numerator-only subtraction, a rectangle off
+   the frame, an entry with no reason) but nothing runs it on a schedule. A
+   `scripts/*.py --selftest` sweep at the end of `run_tests.sh` would be one
+   line and would cover this and anything after it.
