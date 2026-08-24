@@ -831,19 +831,66 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // (live / alert / calm) are one 8px circle in three colours, the bang is a
     // 9px stroke over a 2px tittle, the cross spans 8px corner to corner, and
     // the chevron is 8px tall and 4px wide with its vertex to the right.
-    static void draw_mark(RectangleType rect, Mark m) {
-        // Puffin centres the glyph 1.5px above the row's midline and 1px right
-        // of where a 13px slot's own centre falls; both are measured, and
-        // without them every glyph reads a row-half low.
-        const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(1.0f);
-        const float cy = rect.y + rect.height * 0.5f - hanabi::viewport::px(1.5f);
+    // Every mark's geometry, re-derived against the reference's own HALF-
+    // COVERAGE silhouette rather than by eye. afterhours does not antialias
+    // primitives (afterhours_gaps.md #92), so hanabi's marks are hard-edged
+    // where Puffin's have a soft fringe -- which means a mark drawn to the
+    // reference's OUTER extent lands 30-85% more ink on screen than it has.
+    // Drawn to its half-coverage extent instead, the ink lands about right and
+    // the silhouette still matches.
+    static constexpr float kArcInner = 3.3f;
+    static constexpr float kArcOuter = 4.6f;
+    // The bang, measured by per-pixel coverage rather than by silhouette: the
+    // reference's stroke is 1.95px wide and runs from 5.5px above the mark's
+    // centre to 2.46 below it, and its tittle is the same width, 2.28 tall,
+    // centred 5.26 below.
+    static constexpr float kBangT = 1.95f;
+    static constexpr float kBangTop = 5.5f;
+    static constexpr float kBangBot = 2.46f;
+    static constexpr float kBangDotY = 5.26f;
+    static constexpr float kBangDotH = 2.28f;
+    static constexpr float kDotR = 3.4f;
+    static constexpr float kCrossH = 3.0f;
+    static constexpr float kCrossT = 1.6f;
+    static constexpr float kChevH = 3.6f;
+    static constexpr float kChevW = 2.0f;
+    static constexpr float kChevT = 1.6f;
+
+    // Where the mark's centre sits relative to the slot's own. Puffin draws it
+    // above the row's midline and right of a 13px slot's centre; both are
+    // measured, and without them every glyph reads a row-half low.
+    static constexpr float kMarkDx = 0.0f;
+    static constexpr float kMarkDy = -1.0f;
+
+    // `bg` is what this row is actually painting on: the bang is the one mark
+    // drawn with hand-composited antialiasing (gap #92 has no other way out),
+    // and a fringe pre-mixed against the wrong colour is a visible halo. The
+    // row's own fill changes under the pointer, so the caller passes it rather
+    // than this assuming the sidebar's.
+    static void draw_mark(RectangleType rect, Mark m, theme::Color bg) {
+        const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
+        const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
         const theme::Color c = mark_color(m.tone);
         switch (m.shape) {
             case Glyph::Arc: {
-                // The gap is the LOWER LEFT quadrant: ink runs from ~190deg
-                // (left) up over the top, down the right and round to ~85deg.
-                afterhours::draw_ring_segment(cx, cy, hanabi::viewport::px(3.0f), hanabi::viewport::px(4.8f),
-                                              -170.0f, 85.0f, 28, c);
+                // The gap is at the TOP, and this is the one thing in the
+                // glyph column that was not a pixel-nudge: hanabi drew the gap
+                // in the LOWER LEFT, so the mark read as a hook where the
+                // reference draws a bowl.
+                //
+                // Measured on all four running rows of `ref/02_thread.png`,
+                // which are identical to the pixel: ink covers 290 degrees and
+                // the 70-degree gap is centred on 275.5, five degrees clockwise
+                // of straight up. Angles run clockwise from three o'clock, so
+                // that is -49 to 240.
+                //
+                // Puffin's source cannot settle this. `SessionRowView.statusDot`
+                // in the v0.5.2 checkout is a 7pt filled `Circle()` -- the five
+                // shapes arrived after it (REFERENCE.md), so the frozen PNG is
+                // the only authority for the arc's geometry and every number
+                // above comes off it.
+                afterhours::draw_ring_segment(cx, cy, hanabi::viewport::px(kArcInner), hanabi::viewport::px(kArcOuter),
+                                              -49.0f, 240.0f, 28, c);
                 break;
             }
             case Glyph::Dot: {
@@ -851,31 +898,42 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // at this size lands the dot half a pixel off and reads as a
                 // lumpy polygon. A zero-inner-radius ring segment is the same
                 // shape with a float centre.
-                afterhours::draw_ring_segment(cx, cy, 0.0f, hanabi::viewport::px(3.9f), 0.0f,
+                afterhours::draw_ring_segment(cx, cy, 0.0f, hanabi::viewport::px(kDotR), 0.0f,
                                               360.0f, 28, c);
                 break;
             }
             case Glyph::Bang: {
-                // Measured off the reference row by row: a 9px stroke, one
-                // clear row of gap, then a 3px tittle, all on the same x as
-                // the dots' centre. The old numbers drew it two rows short
-                // with a 1px tittle, which read as a thin dash at a glance.
-                const float bx = cx - hanabi::viewport::px(1.0f);
-                afterhours::draw_line_ex(
-                    afterhours::vec2{bx, cy - hanabi::viewport::px(5.0f)},
-                    afterhours::vec2{bx, cy + hanabi::viewport::px(3.0f)}, hanabi::viewport::px(2.3f), c);
-                afterhours::draw_ring_segment(bx, cy + hanabi::viewport::px(6.0f), 0.0f,
-                                              hanabi::viewport::px(1.5f), 0.0f, 360.0f, 16, c);
+                // The most common mark in the list -- six of the eighteen
+                // visible rows -- and it was carrying twice the reference's
+                // ink: three hard columns at full strength where the reference
+                // measures 0.44 / 0.97 / 0.50, a 1.95px stroke with a fringe
+                // down each side. It also sat a pixel left of every other mark
+                // in the column, from a `- px(1)` nobody had re-measured.
+                //
+                // Both axes of both parts are read off `ref/02_thread.png` by
+                // per-pixel coverage, and laid down through `rect_aa`, which
+                // paints the fringe itself (afterhours has no primitive
+                // antialiasing -- gap #92). A bang and its tittle are the two
+                // marks in this vocabulary that are axis-aligned, so they are
+                // the two that can have it.
+                const float u = hanabi::viewport::px(1.0f);
+                const float half = kBangT * 0.5f * u;
+                hanabi::glyph::rect_aa(cx - half, cy - kBangTop * u, cx + half,
+                                       cy + kBangBot * u, c, bg);
+                hanabi::glyph::rect_aa(cx - half, cy + kBangDotY * u - kBangDotH * 0.5f * u,
+                                       cx + half,
+                                       cy + kBangDotY * u + kBangDotH * 0.5f * u,
+                                       c, bg);
                 break;
             }
             case Glyph::Cross: {
-                const float h = hanabi::viewport::px(3.9f);
+                const float h = hanabi::viewport::px(kCrossH);
                 afterhours::draw_line_ex(afterhours::vec2{cx - h, cy - h},
                                          afterhours::vec2{cx + h, cy + h},
-                                         hanabi::viewport::px(2.0f), c);
+                                         hanabi::viewport::px(kCrossT), c);
                 afterhours::draw_line_ex(afterhours::vec2{cx + h, cy - h},
                                          afterhours::vec2{cx - h, cy + h},
-                                         hanabi::viewport::px(2.0f), c);
+                                         hanabi::viewport::px(kCrossT), c);
                 break;
             }
             case Glyph::Chevron: {
@@ -884,13 +942,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // the reference's row chevron is a stroked ">" and a solid
                 // wedge at this size reads as a play button. Drawn here rather
                 // than shared, because the folder one is deliberately filled.
-                const float h = hanabi::viewport::px(4.2f);   // half-height, measured
-                const float w = hanabi::viewport::px(2.0f);   // half-width
+                const float h = hanabi::viewport::px(kChevH);   // half-height, measured
+                const float w = hanabi::viewport::px(kChevW);   // half-width
                 const afterhours::vec2 top{cx - w, cy - h};
                 const afterhours::vec2 tip{cx + w, cy};
                 const afterhours::vec2 bot{cx - w, cy + h};
-                afterhours::draw_line_ex(top, tip, hanabi::viewport::px(2.0f), c);
-                afterhours::draw_line_ex(tip, bot, hanabi::viewport::px(2.0f), c);
+                afterhours::draw_line_ex(top, tip, hanabi::viewport::px(kChevT), c);
+                afterhours::draw_line_ex(tip, bot, hanabi::viewport::px(kChevT), c);
                 break;
             }
         }
@@ -1514,16 +1572,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
                 .with_roundness(0.3f)
-                // Lucide's sliders-horizontal. The three rules that used to be
-                // drawn here came with a comment saying the atlas had no such
-                // sprite and "is generated elsewhere" -- it is generated by
-                // scripts/gen_icons.py, in this repo, and adding one was a
-                // line. The drawn version also laid down 39px of ink against
-                // the reference's 95, and in text_faint, which is 90 levels
-                // darker than the reference's glyph.
-                .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "sliders", "\xe2\x89\xa1",
-                    hidingAuto ? theme::accent() : kSearchFilterFg, 15.0f))
+                // SF Symbols' `line.3.horizontal.decrease`, which is what
+                // Puffin actually draws here -- `SidebarColumn.searchRow`
+                // names it. hanabi blitted Lucide's `sliders-horizontal`: the
+                // same three rules with a knob on each, which is a settings
+                // control rather than a filter, and 60% more ink than the
+                // reference's (59.6 against 37.2 by coverage). The rules are
+                // drawn rather than atlased because Lucide's `list-filter` is
+                // not this drawing either -- 18/10/4 against the reference's
+                // measured 12/10/7.
+                .with_on_draw_fg([fg = hidingAuto ? theme::accent()
+                                                  : kSearchFilterFg](
+                                     RectangleType r) {
+                    hanabi::glyph::filter_rules(r, fg, theme::sidebar_bg());
+                })
                 .with_debug_name("sb_search_filter"));
         if (filt) {
             if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
@@ -2361,12 +2423,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("chat_row"));
 
+        bool rowHot = false;
         // Bake the hover wash into the row's BASE fill whenever the pointer is
         // anywhere in the row's subtree, so the fill never flickers as hot moves
         // between the row and its star (see note above).
         {
-            const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
-                                ctx.mouse_was_in_subtree(row.ent().id);
+            rowHot = ctx.mouse_in_subtree(row.ent().id) ||
+                     ctx.mouse_was_in_subtree(row.ent().id);
             if (rowHot) {
                 if (row.ent().has<afterhours::HasColor>())
                     row.ent()
@@ -2394,8 +2457,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_font_size(FontSize::Small)
                 .with_roundness(0.0f)
-                .with_on_draw_fg([mark](RectangleType rect) {
-                    draw_mark(rect, mark);
+                .with_on_draw_fg([mark, rowHot](RectangleType rect) {
+                    draw_mark(rect, mark,
+                              rowHot ? theme::hover_over(theme::sidebar_bg())
+                                     : theme::sidebar_bg());
                 })
                 .with_debug_name("row_glyph"));
 
