@@ -1,0 +1,41 @@
+# The composer's hairline runs the WHOLE pane; the input is inset inside it.
+#
+# These are two halves of one shape and they were both wrong the same way. The
+# composer bar carried its own horizontal padding, so the 1px rule that opens
+# the strip was a child of the padded box and came out only as wide as the
+# reading column — a 720px rule floating in an 820px pane, which reads as a
+# card sitting on the transcript rather than as a footer under it. Puffin's
+# `Divider()` is a SIBLING of the padded composer (AgentcloudChatView), so its
+# rule spans the pane and only the content is inset. The fix moves the gutter
+# off the bar and onto each content row, and there is no way to see from the
+# code alone that it stayed moved: put the padding back on the bar and every
+# other thing in the strip still looks right.
+#
+# The inset itself is the second half. Puffin centres a 768pt column
+# (`AgentcloudTranscriptView.columnWidth`) and pads 12 inside it; hanabi had
+# guessed 720 with no inset, which put every horizontal edge in the strip 12px
+# in from the reference. At this window the pane is 820 wide, so the content is
+# 820 - 2*((820-768)/2 + 12) = 744, and the input is that less the 19px send
+# disc and its 9px gap.
+#
+# WHY LITERALS AND NOT ARITHMETIC: assert_ui compares against a number, and a
+# number is the point — these are the measurements taken off
+# docs/visual-parity/ref/01_home.png, scaled to this window's pane. A test that
+# recomputed them from the same constants the view uses would pass whatever the
+# view did.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+# The pane, for the numbers below to be read against.
+assert_ui composer_divider x=280
+
+# The rule: the full pane, not the reading column.
+assert_ui composer_divider w=820
+
+# The content: inset inside that rule, on Puffin's 768 + 12.
+assert_ui composer_input_wrap x=318
+assert_ui composer_input_wrap w=716
+
+# 46, not 45: a 1px border draws ON the box edge, so 46 paints the 47 rows the
+# reference's box paints (y=884 through y=930).
+assert_ui composer_input_wrap h=46

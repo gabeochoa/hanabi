@@ -3614,13 +3614,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // like an attachment and vanished on send would be the worst of the three
     // options.
     void render_attachments(UIContext<InputAction>& ctx, Entity& parent,
-                            AppComponent& app) {
+                            AppComponent& app, float gutter) {
         if (app.composerAttachments.empty()) return;
 
         auto strip = div(ctx, mk(parent, 4),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f),
                                          pixels(attachments_h(app))})
+                // The gutter is carried per-row now that the composer bar has
+                // none of its own (it gave it up so the hairline could span
+                // the pane), so this block asks for the same inset the meter
+                // row and the input row do.
+                .with_padding(Padding{.right = pixels(gutter),
+                                      .left = pixels(gutter)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -3928,29 +3934,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             kickoff ? (canSend && hasText && !app.kickoffPending)
                     : (canSend && hasText);
 
-        // Center the composer under the 720px reading column (same gutter as
-        // the transcript scroll). Falls back to kContentInset on a narrow pane.
-        constexpr float kReadCol = 720.0f;
-        float composerGutter = (paneW - kReadCol) * 0.5f;
+        // Center the composer's CONTENT under the reading column. Two numbers,
+        // not one, because Puffin's composer is a column inside a column: the
+        // pane centres a 768pt band (`AgentcloudTranscriptView.columnWidth`,
+        // which the transcript uses too) and the composer then insets itself
+        // 12pt inside that band (`.padding(.horizontal, 12)` on its VStack).
+        // The earlier single 720 was a guess off the picture and put every
+        // horizontal edge in this strip ~12px in from the reference: measured
+        // on ref/01_home.png the input box is x=357..1072 and the pill row ends
+        // at x=1099, which is 768/2 either side of the pane centre less the 12.
+        // Written as the two constants it came from so the next person reading
+        // it can check them against Puffin's source rather than against a
+        // downsample.
+        constexpr float kReadCol = 768.0f;
+        constexpr float kColInset = 12.0f;
+        float composerGutter = (paneW - kReadCol) * 0.5f + kColInset;
         if (composerGutter < kContentInset) composerGutter = kContentInset;
 
         auto barCfg = ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(composerH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                // Center the composer under the 720px reading column (matches
-                // the transcript gutters) so the input lines up with the
-                // messages instead of spanning the full pane. Same gutter math
-                // as render_transcript's scroll padding.
+                // NO padding on the bar itself, and the gutter carried by each
+                // content row instead. The bar used to own it, which made the
+                // hairline below a child of the padded box and therefore only
+                // as wide as the reading column — a 720px rule floating in a
+                // 899px pane. Puffin's `Divider()` is a SIBLING of the padded
+                // composer, so its rule runs the whole pane width and the
+                // strip reads as a footer rather than as a card. Moving the
+                // padding down one level is the only way to get both from one
+                // flex column.
                 //
-                // No top padding: Puffin's composer opens with a hairline rule
-                // flush to the top of the strip, and everything below is
-                // measured from that rule (spec: rule at y=851, meter row at
-                // y=861, input at y=885).
+                // No top padding either: Puffin's composer opens with that
+                // rule flush to the top of the strip, and everything below is
+                // measured from it (measured on the reference: rule y=851,
+                // pill row y=861..878, input box y=884..930).
                 .with_padding(Padding{.top = pixels(0),
-                                      .right = pixels(composerGutter),
+                                      .right = pixels(0),
                                       .bottom = pixels(0),
-                                      .left = pixels(composerGutter)})
+                                      .left = pixels(0)})
                 .with_custom_background(theme::panel_bg())
                 .with_roundness(0.0f)
                 // Render ABOVE the content (layer 2 > the content's default/1)
@@ -3978,8 +4000,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // A hairline top border sold via a 1px divider row so the composer
         // reads as a distinct footer strip separated from the message column.
-        // Flush to the top of the strip (Puffin's rule is at y=851, the strip's
-        // first pixel); the 9px breathing space belongs to the meter row below.
+        // Flush to the top of the strip (the reference's rule is at y=851, the
+        // strip's first pixel); the 9px breathing space belongs to the meter
+        // row below. percent(1.0f) of an UNPADDED bar, so it spans the whole
+        // pane the way Puffin's does — see the padding note above.
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(1)})
@@ -3992,14 +4016,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (below) and the send button (further down) turn on it.
         const bool steerMode = !kickoff && app.should_steer_open();
 
-        // Meta row ABOVE the input: the context meter at the top LEFT and the
-        // control chips at the top RIGHT — Puffin's arrangement (spec: meter
-        // track at the strip's top left, three pills at the top right, both
-        // centred on y=869, i.e. 18px below the rule).
+        // Meta row ABOVE the input: the model label and the capacity meter at
+        // the left, the control pills at the right — Puffin's arrangement
+        // (measured on the reference: the label starts at x=359, the meter
+        // track is 48x5 at x=441, and the pill row ends at x=1099, all of them
+        // centred on y=869).
+        //
+        // The gutter lives here rather than on the bar so the hairline above
+        // can span the pane; the extra 2px is Puffin's own
+        // `StripMetrics.horizontalPadding`, which insets the strip inside the
+        // composer's 12 and is what puts the last pill's edge at 1099 instead
+        // of at the content edge.
         auto meta = div(ctx, mk(bar.ent(), 3),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(18)})
                 .with_margin(Margin{.top = pixels(9)})
+                .with_padding(Padding{.right = pixels(composerGutter + 2.0f),
+                                      .left = pixels(composerGutter + 2.0f)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -4035,48 +4068,83 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_rightmeta"));
 
+        // afterhours draws a widget's label at a HARD-CODED 5px inset from the
+        // widget's own rect — `Vector2Type margin_px{5.f, 5.f}` inside
+        // rendering.h's draw_text_in_rect — and `with_padding` never reaches
+        // it: padding sizes and positions the BOX, the words stay at +5. A
+        // children()-sized widget with a label and no child elements has
+        // nothing to sum, either, so it cannot measure itself from its text.
+        //
+        // So every text run in this row is measured and sized by hand, and
+        // every gap between runs is stated NET of the inset the library will
+        // not let us set. kLabelInset is that constant, named so the arithmetic
+        // below reads as arithmetic rather than as magic numbers.
+        // See afterhours_gaps.md #90.
+        constexpr float kLabelInset = 5.0f;
+        const auto run_box = [](const std::string& s, float trailing) {
+            return theme::text_px(s, theme::type::SM) + kLabelInset + trailing;
+        };
+
+        // The model, as PLAIN TEXT rather than a pill.
+        //
+        // This looked like losing an affordance and is not. Puffin's
+        // `modelLabel` is a `Button` with `.buttonStyle(.plain)` around a bare
+        // `Text` — clickable, opens the harness popover, and carries a comment
+        // saying the chevron was REMOVED on purpose: "nothing else in this
+        // strip carries one, so the one chevron read as the only control in a
+        // row of labels rather than as an affordance". The pill treatment in
+        // this strip belongs to the toggles on the right; a bordered capsule
+        // here said "toggle" about a thing that opens a list. It still opens
+        // the same popover on the same click and still answers to
+        // `composer_model`, so every scripted test reaches it unchanged.
+        //
+        // No trailing room in the box: the effort run butts straight onto it,
+        // and its own 5px inset is the word space between them.
         const std::string currentModel = Settings::get().get_default_model();
+        const std::string modelText = hanabi::models::display_name(currentModel);
         auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
             ComponentConfig{}
-                .with_label(hanabi::models::display_name(currentModel))
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_padding(Padding{.top = pixels(2), .right = pixels(9),
-                                      .bottom = pixels(2), .left = pixels(9)})
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_label(modelText)
+                .with_size(ComponentSize{pixels(run_box(modelText, 0.0f)),
+                                         pixels(18)})
+                .with_transparent_bg()
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_alignment(TextAlignment::Left)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_corner_radius(9.0f)
                 .with_debug_name("composer_model"));
         if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
         if (app.escape == EscapeIntent::CloseModelPicker)
             app.modelPopoverOpen = false;
         render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
 
-        // The effort chip, right of the model: how hard the model is asked to
-        // think on the work you start next.
+        // The effort, parenthesised directly onto the model the way Puffin
+        // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
+        // `Text(name)` then `Text(" (\(effort))").opacity(0.7)`, which is why
+        // the reference reads "Opus 5 (high)" as a single run of words.
+        //
+        // Two widgets rather than one, because hanabi's model and effort are
+        // two SEPARATE pickers where Puffin's are one popover. Butted together
+        // and drawn a shade fainter, they are the same run of text on screen;
+        // each half still opens its own list, and `composer_effort` stays the
+        // name the effort test clicks.
         const std::string currentEffort = Settings::get().get_default_effort();
+        const std::string effortText =
+            "(" + hanabi::effort::display_name(currentEffort) + ")";
         auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
             ComponentConfig{}
-                .with_label("Effort: " +
-                            hanabi::effort::display_name(currentEffort))
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_margin(Margin{.left = pixels(4)})
-                .with_padding(Padding{.top = pixels(2), .right = pixels(9),
-                                      .bottom = pixels(2), .left = pixels(9)})
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_label(effortText)
+                .with_size(ComponentSize{
+                    pixels(run_box(effortText, kLabelInset)), pixels(18)})
+                .with_transparent_bg()
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_alignment(TextAlignment::Left)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_corner_radius(9.0f)
                 .with_debug_name("composer_effort"));
         if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
         if (app.escape == EscapeIntent::CloseEffortPicker)
@@ -4084,22 +4152,43 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         render_effort_popover(ctx, parent, app, effortChip.ent(),
                               currentEffort);
 
-        // The tool-fold chip, right of effort: how much of a tool call this
+        // The tool-fold chip, at the right: how much of a tool call this
         // thread shows by default. Only where there is a thread to set it on —
         // on the welcome screen there is no session to key the mode to.
+        //
+        // ICON IN THE PILL. Puffin's three pills each lead with a 9pt SF
+        // Symbol (`wrench.and.screwdriver`, `brain`, `tray.and.arrow.down`) 3pt
+        // before the label, inside 6pt of horizontal padding — see
+        // `ToggleChip` and `StripMetrics`. hanabi has one pill where Puffin has
+        // three, but the pill TREATMENT is the thing being matched, and a
+        // bordered capsule of bare words was the visible difference.
+        //
+        // The icon is blitted rather than laid out, because a `button` holds
+        // one string and no child elements. Reserving its space needs BOTH
+        // halves of the workaround: the box is measured by hand, and the label
+        // is pushed off the pill's left edge through `HasLabel::text_x_offset`
+        // — a public field on the vendored component that `ComponentConfig`
+        // exposes no setter for, so it is written after the widget exists. The
+        // renderer adds its own 5px on top of the offset, which is why the
+        // offset is the inset MINUS that. afterhours_gaps.md #90.
         if (app.openSession) {
+            constexpr float kPillPad = 6.0f;
+            constexpr float kPillIcon = 10.0f;
+            constexpr float kPillIconGap = 3.0f;
+            constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
             const hanabi::fold::Mode currentFold = fold_mode(app);
+            const std::string foldText =
+                "Tools: " + hanabi::fold::chip_label(currentFold);
             auto foldChip = button(ctx, mk(rightMeta.ent(), 3),
                 ComponentConfig{}
-                    .with_label("Tools: " +
-                                hanabi::fold::chip_label(currentFold))
-                    .with_size(ComponentSize{children(), pixels(18)})
+                    .with_label(foldText)
+                    .with_size(ComponentSize{
+                        pixels(kPillTextX +
+                               theme::text_px(foldText, theme::type::SM) +
+                               kPillPad),
+                        pixels(18)})
                     .with_margin(Margin{.left = pixels(4)})
-                    .with_padding(Padding{.top = pixels(2),
-                                          .right = pixels(9),
-                                          .bottom = pixels(2),
-                                          .left = pixels(9)})
-                    .with_custom_background(theme::panel_bg())
+                    .with_transparent_bg()
                     .with_border(theme::border(), pixels(1.0f))
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                     .with_custom_text_color(theme::text_secondary())
@@ -4108,7 +4197,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_corner_radius(9.0f)
+                    .with_on_draw_fg([](RectangleType rr) {
+                        hanabi::icons::draw_at(
+                            "layers", rr.x + kPillPad + kPillIcon * 0.5f,
+                            rr.y + rr.height * 0.5f, kPillIcon,
+                            theme::text_secondary());
+                    })
                     .with_debug_name("composer_fold"));
+            if (foldChip.ent().has<afterhours::ui::HasLabel>())
+                foldChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kPillTextX - kLabelInset;
             if (foldChip) app.foldPopoverOpen = !app.foldPopoverOpen;
             if (app.escape == EscapeIntent::CloseFoldPicker)
                 app.foldPopoverOpen = false;
@@ -4166,14 +4264,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // it would present a stale number as a live one.
                 if (usage.stale) label += " \xc2\xb7 stale";
                 // Puffin's order, left to right: the track first, then the
-                // figure (spec: track x=360..404, 45x6; figure starts x=413).
+                // figure. Measured on the reference: the track is 48x5 at
+                // x=441..489 — 10px after the model label — and the figure
+                // starts 4px later at x=493. Its `contextMeter` is a 48x5
+                // `Capsule` in an `HStack(spacing: 4)`, and the 10 is the
+                // strip's own `StripMetrics.spacing`.
                 if (budget > 0) {
                     const float frac =
                         std::min(1.0f, static_cast<float>(tok) /
                                            static_cast<float>(budget));
                     div(ctx, mk(leftMeta.ent(), 13),
                         ComponentConfig{}
-                            .with_size(ComponentSize{pixels(45), pixels(6)})
+                            .with_size(ComponentSize{pixels(48), pixels(5)})
+                            // 10 from the text that precedes it — Puffin's
+                            // `StripMetrics.spacing` — less the 5 the effort
+                            // run's box already carries past its last glyph.
+                            .with_margin(Margin{.left = pixels(5)})
                             .with_custom_background(theme::panel_bg_2())
                             .with_roundness(0.5f)
                             .with_on_draw_fg([frac](RectangleType rr) {
@@ -4190,8 +4296,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 div(ctx, mk(leftMeta.ent(), 12),
                     ComponentConfig{}
                         .with_label(label)
-                        .with_size(ComponentSize{children(), pixels(16)})
-                        .with_margin(Margin{.left = pixels(budget > 0 ? 8 : 0)})
+                        // Measured, not children()-sized, for the reason in
+                        // the kLabelInset note: a label is not a child and a
+                        // children()-sized box cannot see it.
+                        .with_size(ComponentSize{
+                            pixels(run_box(label, kLabelInset)), pixels(16)})
+                        // Puffin's figure sits 4 after the meter; 4 is inside
+                        // the 5 the label's own inset already spends, so the
+                        // margin is nothing. With no meter to follow, it takes
+                        // the strip's 10 less that same inset.
+                        .with_margin(Margin{.left = pixels(budget > 0 ? 0 : 5)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_faint())
                         .with_font_size(theme::type::SM)
@@ -4233,22 +4347,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("composer_selected"));
         }
 
-        render_attachments(ctx, bar.ent(), app);
+        render_attachments(ctx, bar.ent(), app, composerGutter);
 
-        auto row = div(ctx, mk(bar.ent(), 2),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(45)})
-                .with_margin(Margin{.top = pixels(6)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("composer_row"));
-
-        // Puffin's input is an OUTLINED box 45px tall on the window colour,
-        // with a 19px circular send button 9px to its right (spec: input
-        // y=885..930, circle x=1082..1100 centred on the input's mid-line).
+        // Puffin's input is an OUTLINED box on the window colour, with a 19px
+        // circular send button 9px to its right. Measured on the reference: the
+        // box is x=357..1072 (716 wide) and y=884..930, and the send disc is
+        // x=1082..1100 centred on the box's mid-line. 716 is exactly what the
+        // gutter above leaves once the disc and its gap are taken off, so the
+        // width is arithmetic rather than a second constant to keep in step.
         //
         // NOTE (afterhours_gaps.md #17, and #64 below it): text_input STILL
         // owns two things this box wants. Its font size is derived from the
@@ -4259,7 +4365,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // padding is what the widget decides.
         constexpr float kSendDia = 19.0f;
         constexpr float kSendGap = 9.0f;
-        constexpr float kInputH = 45.0f;
+        // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
+        // 46 rows and the reference's paints 47 (y=884 through y=930).
+        constexpr float kInputH = 46.0f;
+
+        auto row = div(ctx, mk(bar.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kInputH)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_padding(Padding{.right = pixels(composerGutter),
+                                      .left = pixels(composerGutter)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_row"));
+
         float inputW = paneW - (composerGutter * 2.0f) - kSendDia - kSendGap;
         if (inputW < 120.0f) inputW = 120.0f;
 
@@ -4273,8 +4395,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // An OUTLINE on the strip colour, not a filled pill: Puffin's
                 // input interior is the window colour and only the 1px border
                 // says where the field is.
+                //
+                // border_soft, not border. Puffin draws this one outline with
+                // `mutedText.opacity(0.25)` and its full-strength `hairline`
+                // only on the rule above, and the two are far enough apart to
+                // measure: on the reference the rule is (57,57,70) and the
+                // field's edge is (45,45,59). hanabi's `border` matches the
+                // first and is 17 levels too bright for the second, which put
+                // ~710px of wrong-coloured edge on four rows — the largest
+                // single term left in this strip once the geometry lined up.
                 .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_border(theme::border_soft(), pixels(1.0f))
                 .with_corner_radius(7.0f)
                 .with_debug_name("composer_input_wrap"));
 
