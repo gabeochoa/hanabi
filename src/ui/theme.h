@@ -561,6 +561,7 @@ constexpr float LG = 14.0f;          // transcript h2 / large labels
 constexpr float TITLE = 13.5f;       // digest card title
 constexpr float BODY = 13.0f;        // smart-view row label
 constexpr float ROW = 12.5f;         // thread-row title, tab label
+constexpr float LIST_ROW = 16.5f;   // session-list row title (Puffin-measured)
 constexpr float MD = 12.0f;          // folder name, section body
 constexpr float SUBROW = 11.5f;      // sub-agent sub-row title
 constexpr float SM = 11.0f;          // counts, status bar, sub-labels

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <ctime>
 #include <string>
 #include <unordered_map>
@@ -483,6 +484,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kRowLeftInset = kSbInset;
     static constexpr float kGlyphW = 13.0f;   // leading status glyph slot
     static constexpr float kRowTitlePad = 6.0f;
+    // Ellipsize by MEASURED width, not by a chars-times-average-advance
+    // budget: the estimate is calibrated to one font at one size, so it either
+    // clips a title early or overflows the column when either changes.
+    // Only the rows in the viewport reach this, so the cost is bounded by
+    // viewport height rather than by list size.
+    static std::string fit_to_width(const std::string& text, float px,
+                                    float maxW) {
+        if (maxW <= 0.0f) return std::string();
+        if (theme::text_px(text, px) <= maxW) return text;
+        const float ell = theme::text_px("\xe2\x80\xa6", px);
+        size_t n = text.size();
+        while (n > 0) {
+            --n;
+            while (n > 0 && (static_cast<unsigned char>(text[n]) & 0xC0) == 0x80)
+                --n;  // never cut a UTF-8 sequence in half
+            if (theme::text_px(text.substr(0, n), px) + ell <= maxW) break;
+        }
+        return text.substr(0, n) + "\xe2\x80\xa6";
+    }
+
     // The collapsedFolders sentinel that folds the VIEWS section. Reusing that
     // set keeps this out of AppComponent, which several systems share.
     static constexpr const char* kViewsKey = "__views__";
@@ -615,33 +636,30 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- status glyph (shape-per-status) ----
-    // The compact sidebar rows no longer carry a text tag chip. Instead EVERY
-    // row gets a leading indicator slot of the SAME size, so no row looks
-    // "unlabeled". Attention-worthy rows get a SHAPE-per-status glyph (status
-    // readable by SHAPE, not color alone, mirroring the mock); calm rows get a
-    // small neutral resting dot rather than a blank slot:
-    //   Blocked / needs-you -> RED UP-TRIANGLE  (most urgent)
-    //   Review (agent-verified) -> GREEN DIAMOND (square rotated 45 deg)
-    //   Done -> BLUE DOT (filled circle)
-    //   Running / in-progress -> HOLLOW RING (accent) — self-running, quiet
-    //   parked / archived / calm -> small FAINT neutral dot (calm)
+    // EVERY row gets a leading indicator slot of the same size, so no row looks
+    // unlabeled. The shapes and the three hues are Puffin's, measured off
+    // ref/01_home.png (see PUFFIN_SPEC.md "Session list"): an open arc while a
+    // thread runs, a bang when it wants you, a cross when something failed, a
+    // grey dot at rest.
     //
-    // NOTE (defect #9 — glyph vocabulary parity on real data): the pure
-    // ecs::model::glyph_for maps only the tag/attention families (Blocked ->
-    // Triangle, Review -> Diamond, Done -> Dot) and returns None for
-    // everything else — including ThreadState::Running. On the MOCK, running
-    // rows also carry a tag so they still glyph; but on the REAL backend the
-    // digest-derivation (http_client.cpp derive_state) produces plain
-    // Running/Attention/Done states with NO tag, so a real Running session
-    // fell through to None and rendered as the same faint calm dot as an
-    // Unknown row. That collapsed real data to ~2 visible glyphs (triangle +
-    // grey square) while the mock showed 4. We fix the mapping HERE (in the
-    // owned sidebar file) by widening the sidebar's own glyph vocabulary with a
-    // Running ring, resolved AFTER the shared model so blocked/review/done
-    // precedence is unchanged — the shared tested logic still owns the
-    // tag/attention cases; the sidebar only ADDS the state-only Running case
-    // that the pure model intentionally leaves neutral.
-    enum class SbGlyph { None, Triangle, Diamond, Dot, Ring, Automated };
+    // Puffin draws SEVEN markers and this draws four, because the mapping is
+    // not a function of what hanabi stores: six reference rows are all
+    // (Attention, Blocked) and Puffin gives three of them a bang, two a cross
+    // and one a red dot. Four is the ceiling on (ThreadState, ThreadTag).
+    //
+    // Defect #9 (glyph vocabulary on real data) still holds: ecs::model's pure
+    // glyph_for covers only the tag families and returns None for a bare
+    // ThreadState::Running, which is exactly what the real backend's
+    // derive_state produces. The state fallback below is resolved AFTER the
+    // shared model, so the tested tag precedence is untouched and the sidebar
+    // only ADDS the state-only cases.
+    enum class SbGlyph { Calm, Bang, Cross, Arc, Automated };
+    static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
+    static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
+    static constexpr theme::Color kGlyphCalm{146, 146, 171, 255};
+    // Puffin gives EVERY session-row title the same near-white; the list does
+    // not encode attention in the title's brightness the way hanabi did.
+    static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
 
     // Precedence: the shared, headlessly-tested ecs::model::glyph_for owns the
     // tag/attention families (blocked -> triangle, review -> diamond, done ->
@@ -653,28 +671,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // backend's review-state rows read the same as the mock's tagged ones.
     static SbGlyph glyph_for(const api::SessionSummary& s) {
         switch (ecs::model::glyph_for(s)) {
-            case ecs::model::Glyph::Triangle: return SbGlyph::Triangle;
-            case ecs::model::Glyph::Diamond: return SbGlyph::Diamond;
-            case ecs::model::Glyph::Dot: return SbGlyph::Dot;
+            case ecs::model::Glyph::Triangle:
+                // The model folds two cases into Triangle. Puffin draws a cross
+                // for the tagged one and a bang for a bare Attention state, and
+                // that is the only split hanabi's data can carry.
+                return s.tag == api::ThreadTag::Blocked ? SbGlyph::Cross
+                                                        : SbGlyph::Bang;
+            case ecs::model::Glyph::Diamond: return SbGlyph::Bang;
+            case ecs::model::Glyph::Dot: return SbGlyph::Calm;
             case ecs::model::Glyph::None: break;  // fall through to state map
         }
         // State-only fallback (no tag): give real-data states a distinct glyph
         // so the sidebar vocabulary is as rich on real data as on the mock.
         switch (s.state) {
-            case api::ThreadState::Running: return SbGlyph::Ring;
-            case api::ThreadState::Ready: return SbGlyph::Diamond;
-            default: return SbGlyph::None;
+            case api::ThreadState::Running: return SbGlyph::Arc;
+            case api::ThreadState::Ready: return SbGlyph::Bang;
+            default: return SbGlyph::Calm;
         }
     }
     using Glyph = SbGlyph;
 
     static theme::Color glyph_color(Glyph g) {
         switch (g) {
-            case Glyph::Triangle: return theme::tag_blocked_fg();  // red
-            case Glyph::Diamond: return theme::tag_ready_fg();     // green
-            case Glyph::Dot: return theme::tag_done_fg();          // blue
-            case Glyph::Ring: return theme::accent();              // running
-            default: return theme::text_faint();  // Automated/None/calm — quiet
+            case Glyph::Cross: return kGlyphAlert;
+            case Glyph::Bang:
+            case Glyph::Arc: return kGlyphActive;
+            default: return kGlyphCalm;  // Calm / Automated
         }
     }
 
@@ -710,64 +732,51 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static void draw_glyph(RectangleType rect, Glyph g) {
-        const float cx = rect.x + rect.width * 0.5f;
-        const float cy = rect.y + rect.height * 0.5f;
-        if (g == Glyph::None) {
-            // Calm rows: a small, faint resting bullet so the row still reads
-            // as intentionally-labeled (calm), not blank/broken. Smaller than
-            // the 4px Done dot and drawn in the faint token so it never
-            // competes with a real status.
-            afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 2.4f,
-                                      theme::text_faint());
-            return;
-        }
+        // Puffin centres the glyph 1.5px above the row's midline and 1px right
+        // of where a 13px slot's own centre falls; both are measured, and
+        // without them every glyph reads a row-half low.
+        const float cx = rect.x + rect.width * 0.5f + 1.0f;
+        const float cy = rect.y + rect.height * 0.5f - 1.5f;
         const theme::Color c = glyph_color(g);
         switch (g) {
-            case Glyph::Triangle: {
-                // Up-pointing equilateral-ish triangle, ~9px tall / 10px wide.
-                const float half_w = 5.0f;
-                const float half_h = 4.5f;
-                afterhours::draw_triangle(
-                    afterhours::vec2{cx, cy - half_h},          // apex (top)
-                    afterhours::vec2{cx - half_w, cy + half_h}, // bottom-left
-                    afterhours::vec2{cx + half_w, cy + half_h}, // bottom-right
-                    c);
+            case Glyph::Arc: {
+                // The gap is the LOWER LEFT quadrant: ink runs from ~190deg
+                // (left) up over the top, down the right and round to ~85deg.
+                afterhours::draw_ring_segment(cx, cy, 3.0f, 4.8f, -170.0f,
+                                              85.0f, 28, c);
                 break;
             }
-            case Glyph::Diamond: {
-                // Diamond = a 4-sided regular poly with vertices at
-                // top/bottom/left/right. draw_poly's first vertex sits at
-                // angle 0 (pointing right), so with rotation 0 the four
-                // vertices already land at right/up/left/down -> a diamond.
-                // (Rotating 45 deg would instead give an axis-aligned square.)
-                // Circumradius ~5.6 gives an ~8px diamond, matching the mock.
-                afterhours::draw_poly(afterhours::vec2{cx, cy}, 4, 5.6f, 0.0f,
-                                      c);
+            case Glyph::Calm: {
+                // draw_circle_v truncates its centre to int (gap #78), which
+                // at this size lands the dot half a pixel off and reads as a
+                // lumpy polygon. A zero-inner-radius ring segment is the same
+                // shape with a float centre.
+                afterhours::draw_ring_segment(cx, cy, 0.0f, 3.7f, 0.0f, 360.0f,
+                                              28, c);
                 break;
             }
-            case Glyph::Dot: {
-                // 8px filled circle.
-                afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 4.0f, c);
+            case Glyph::Bang: {
+                afterhours::draw_line_ex(afterhours::vec2{cx, cy - 6.0f},
+                                         afterhours::vec2{cx, cy + 1.0f}, 2.3f,
+                                         c);
+                afterhours::draw_ring_segment(cx, cy + 4.5f, 0.0f, 1.4f, 0.0f,
+                                              360.0f, 16, c);
                 break;
             }
-            case Glyph::Ring: {
-                // Hollow ~8px ring (accent): a self-running / in-progress
-                // thread. Hollow so it never reads as the filled blue Done
-                // dot — same size, different fill, so real Running rows get a
-                // distinct glyph instead of collapsing into the calm dot.
-                afterhours::draw_ring(cx, cy, 2.4f, 4.0f, 24, c);
+            case Glyph::Cross: {
+                const float h = 3.9f;
+                afterhours::draw_line_ex(afterhours::vec2{cx - h, cy - h},
+                                         afterhours::vec2{cx + h, cy + h}, 2.0f,
+                                         c);
+                afterhours::draw_line_ex(afterhours::vec2{cx + h, cy - h},
+                                         afterhours::vec2{cx - h, cy + h}, 2.0f,
+                                         c);
                 break;
             }
             case Glyph::Automated: {
-                // Cron / scheduled row: a "repeat" sprite from the Lucide atlas
-                // (gap #20 — the atlas now carries an "automated" glyph). It
-                // reads as "machine / recurring job" far more clearly than the
-                // old drawn hollow square, while staying quiet in the faint
-                // token. Falls back to the drawn ~6px hollow square if the atlas
-                // can't load, so a missing texture never leaves the slot blank.
                 if (hanabi::icons::draw_at("automated", cx, cy, 12.0f, c))
                     break;
-                const float h = 2.6f;  // half-side (fallback)
+                const float h = 2.6f;
                 const afterhours::vec2 tl{cx - h, cy - h};
                 const afterhours::vec2 tr{cx + h, cy - h};
                 const afterhours::vec2 bl{cx - h, cy + h};
@@ -779,8 +788,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 afterhours::draw_line_ex(bl, tl, t, c);
                 break;
             }
-            default:
-                break;
         }
     }
 
@@ -2049,7 +2056,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          const api::SessionSummary& s,
                                          AppComponent& app, bool archived,
                                          float panelW) {
-        bool attn = is_attention(s.state);
         bool selected = app.selectedId == s.id;
         // Defect #5: cron / scheduled rows are visually de-emphasized (not
         // hidden). Detect purely by title shape ("Schedule:" prefix / "-tick"
@@ -2134,20 +2140,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 })
                 .with_debug_name("row_glyph"));
 
-        // Title color (V5): a normal thread row's title uses the SAME token as
-        // the VIEWS-section rows (Home/Blocked/Review/Starred/Archived), which
-        // render their label in text_secondary() when unselected (see
-        // smart_item's `txt = active ? primary : secondary`). Earlier this file
-        // dimmed running/parked rows to text_faint(), which is darker than the
-        // VIEWS token — so the thread list read noticeably darker than the
-        // views above it. Unify the base to text_secondary() so the thread
-        // titles match the VIEWS rows exactly. Attention rows still brighten to
-        // primary (the mock's bold-on-attention intent). Only the DELIBERATELY
-        // de-emphasized families stay faint: archived (a low-signal, separate
-        // smart view) and automated/cron rows (defect #5 — quiet metadata).
-        theme::Color titleColor = theme::text_secondary();
-        if (attn) titleColor = theme::text_primary();
-        else if (archived) titleColor = theme::text_faint();
+        // Title colour: ONE near-white for every live row. Puffin does not
+        // encode attention in a title's brightness — measured, every row in the
+        // reference list is (238,238,247) — so the previous
+        // secondary/primary/faint split was a hanabi invention that also read
+        // as three fonts. Attention still shows in the glyph. Only the
+        // deliberately de-emphasized families stay faint.
+        theme::Color titleColor = kRowTitleFg;
+        if (archived) titleColor = theme::text_faint();
         // Defect #5: automated/cron rows always read as quiet metadata — a
         // faint title — so real conversations stand out even inside a bucket.
         // (Applied last so it de-emphasizes regardless of the state above.)
@@ -2209,18 +2209,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // proportional glyph is ~6.0px; budget at /6.1. The label widget also
         // hard-clips at its pixel width, so a hair-generous char budget just
         // lets the text use the full column instead of ellipsizing early.
-        size_t titleChars = static_cast<size_t>((rowTitleW - kRowTitlePad) / 6.1f);
-        if (titleChars < 4) titleChars = 4;
-        if (titleChars > 48) titleChars = 48;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(strip_parked_prefix(s.title),
-                                               titleChars))
+                .with_label(fit_to_width(strip_parked_prefix(s.title),
+                                         theme::type::LIST_ROW,
+                                         rowTitleW - kRowTitlePad))
                 .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
                 .with_padding(Padding{.left = pixels(kRowTitlePad)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
-                .with_font_size(theme::type::ROW)
+                .with_font_size(theme::type::LIST_ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("row_title"));

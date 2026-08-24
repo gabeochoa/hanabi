@@ -3365,6 +3365,37 @@ Better: snap the child's FINAL position from an unsnapped accumulator (the code
 already distinguishes the two and snaps both), so a column of N children drifts
 by at most one unit total rather than one unit per child.
 
+**RESOLVED (feat/vis-list) — the global lever costs nothing, and the assumption
+above was never measured.** The diagnosis stands in full; the "workaround and
+its cost" paragraph does not. `set_grid_snapping(false)` was flipped in
+`preload.cpp` and every region re-scored against ref/01_home.png:
+
+| region | snap on | snap off |
+|---|---|---|
+| views | 8.89% | 8.85% |
+| search | 8.02% | 7.59% |
+| list | 19.21% | 16.50% |
+| footer | 5.26% | 5.26% |
+| tabbar | 25.30% | 25.30% |
+| main | 4.75% | 4.74% |
+| STRUCTURAL | 10.71% | 9.84% |
+
+Nothing regressed. The up-to-5px moves are real, but they move elements off a
+grid nobody designed to and onto the pixel numbers already written in the code,
+so every region carrying a measured number got closer. Session-row pitch is now
+exactly 32 at 949px tall, with all 18 row centres inside 1px of the reference
+(previously 33.5px of accumulated drift by row 18). Snapping is off app-wide.
+
+Elements really do move, even though no region got worse: at 1100x760 the
+transcript body rose 12px, which broke the two coordinate-addressed transcript
+tests (`select_word_and_line`, `tracker_links`). Both instruct in their own
+comments to re-measure rather than nudge, and both were re-measured.
+
+The upstream fix is still worth making: an app should not have to choose between
+"positions I asked for" and "grid alignment I did not", and the four rows of
+that table are the whole argument for honouring `skip_grid_snap` on the position
+path.
+
 ---
 
 ### #72 — A focus ring is painted at rest, on whatever happens to be first
@@ -3675,3 +3706,97 @@ a resolution failure the app can assert on. Better still, synthesize bold from
 the regular face when no bold is registered, as most text stacks do.
 
 CLASS: IMPOSSIBLE
+### #78 — `draw_circle_v` truncates its centre to whole pixels
+
+**A filled circle cannot be placed on a half pixel: `draw_circle_v` takes float
+coordinates and casts them to `int` before drawing.**
+
+**What the design asks for.** Puffin's resting session-row marker is a 7px
+filled dot centred at x=15.5 in a 13px glyph slot — a half-pixel centre, which
+is what any glyph slot of even width gives you.
+
+**What happens.** The float centre is thrown away one call in:
+
+```
+inline void draw_circle_v(Vector2Type center, float radius, Color color) {
+  draw_circle(static_cast<int>(center.x), static_cast<int>(center.y), radius,
+              color);
+}
+```
+
+`draw_circle` then fans 32 unantialiased segments from that integer centre. At
+r=3.7 the result is a lumpy heptagon sitting a pixel left of where it was asked
+for, against a clean circle in the reference. The error is invisible at r=20 and
+dominant at r=4, which is the size UI dots actually are.
+
+**Why the obvious escapes do not work.**
+
+- **Pre-rounding the centre does not help** — the point is to land ON the half
+  pixel, not to pick which side of it to fall off.
+- **`draw_circle_lines` has the identical cast**, so an outlined dot is no
+  escape either.
+- **`draw_poly` takes a float centre** but draws a regular polygon with a
+  vertex at angle 0, so at 4-6px it reads as a polygon, which is the symptom.
+
+**The workaround, and its cost.** `draw_ring_segment(cx, cy, 0.0f, r, 0.0f,
+360.0f, 28, c)` — a zero-inner-radius annular sector is the same filled disc,
+and that path uses `centerX`/`centerY` as floats throughout with a
+caller-chosen segment count. One line, and it works. The cost is that the
+primitive with the obvious name is the broken one, so every future caller writes
+`draw_circle_v` first and only discovers this by looking at a screenshot.
+
+**Minimal upstream fix.** Delete the cast: add a float overload of
+`draw_circle` (or change `draw_circle_v` to build the fan directly, which is
+what `draw_ring_segment` already does correctly six functions away) and make the
+segment count radius-adaptive, as `draw_ring_segment` already does when it is
+passed `segments < 4`.
+
+---
+
+### #79 — A label cannot be told to fit a width; the caller must ellipsize blind
+
+**There is no "truncate this label to fit its box". A label that is too wide is
+hard-clipped mid-glyph, so the caller must shorten the string first — and the
+only handle the caller has is a character count.**
+
+**What the design asks for.** Puffin's session rows ellipsize at the column
+edge: `stickers broke — concluded, D113637…`. Whatever the title, the ellipsis
+lands at the same x.
+
+**What happens.** `with_label` renders and the widget clips at its pixel width,
+mid-glyph, with no ellipsis. To get one, the app truncates before the call —
+and afterhours exposes no text measurement in the config path, so hanabi's
+sidebar carried an average-advance budget:
+
+```
+size_t titleChars = static_cast<size_t>((rowTitleW - kRowTitlePad) / 6.1f);
+```
+
+`6.1` is Roboto's mean lowercase advance at 12.5px. It is not wrong so much as
+it is a constant that silently encodes a font AND a size. Changing the row title
+to the Puffin-measured 16.5px clipped four titles a word early, with nothing to
+say why — the budget shrank because the divisor did not grow.
+
+**Why the obvious escapes do not work.**
+
+- **Scaling the divisor by the size ratio is still wrong**, because mean advance
+  is per-FACE, not per-size-times-a-constant: the same scaling that fits Roboto
+  over-truncates a narrower face.
+- **Letting it clip** is what afterhours does by default, and a half-rendered
+  glyph at the column edge is worse than an ellipsis.
+- **Sizing the label by `Dim::Children`** measures the full string and overflows
+  the row, which then trips the layout-overflow warning and `solve_violations`
+  every frame.
+
+**The workaround, and its cost.** An 18-line `fit_to_width` in the sidebar that
+calls `theme::text_px` (which wraps `measure_text_internal`, the same fontstash
+bounds the renderer uses) and walks back on UTF-8 boundaries until the string
+plus an ellipsis fits. It is correct at any size and any face. The cost is that
+it is the third place in hanabi that re-derives text metrics the layout engine
+already computes, and every one of them pays a measure-per-frame per row —
+bounded here only because the list renders viewport-many rows.
+
+**Minimal upstream fix.** A `TextOverflow::Ellipsis` on `ComponentConfig`,
+resolved inside the renderer where the font, the size and the final rect are all
+already in hand. Failing that, expose the measurement the layout already does so
+callers stop guessing at advances.
