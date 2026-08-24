@@ -457,7 +457,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // in PIXELS (label = panelW − left − reserved), so the count box always
     // starts at the same x regardless of section. This is the best we can do
     // without flex-grow, and it makes the count families flush to one edge.
-    static constexpr float kCountColW = 30.0f;   // count box width
     static constexpr float kCountRightPad = 9.0f;  // inset from panel right
     // Folded (rail) icon column: one left inset + one slot width shared by the
     // header collapse toggle AND every smart-view icon, so glyphs (which
@@ -520,16 +519,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                           : 0.0f) +
                kSbRuleH + kSbSearchH + kSbListGap;
     }
-    // A count's LEFT edge (== its column start x) is the same for every
-    // section: panelW − kCountRightPad − kCountColW. Given a section's own
-    // left inset, the label column width is that start-x minus the left inset
-    // (minus any fixed leading slot such as a chevron/icon).
-    static float label_col_w(float panelW, float leftInset, float leadSlot) {
-        float w = panelW - kCountRightPad - kCountColW - leftInset - leadSlot;
-        if (w < 30.0f) w = 30.0f;
-        return w;
-    }
-
     // ---- text helpers ----
 
 
@@ -657,8 +646,83 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
     static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
     static constexpr theme::Color kGlyphCalm{146, 146, 171, 255};
+    // The sub-agent count's two colours, both measured off the reference
+    // capture (docs/visual-parity/ref/01_home.png) the way the glyph colours
+    // above were. A count is antialiased text with no solid interior, so
+    // neither could be read straight off a peak pixel: the hue comes from the
+    // RATIO of (pixel - background) across samples, which is independent of
+    // coverage, and the magnitude from the brightest sample.
+    //
+    // The live colour is NOT kGlyphActive. The reference's running glyph and
+    // its running count measure to two different blues on the same row —
+    // the count is the more saturated of the two — so the row draws two, and
+    // reusing the glyph's would have been a visible miss on the one row that
+    // matters most.
+    static constexpr theme::Color kCountLive{120, 169, 255, 255};
+    // Settled matches the calm glyph exactly, which is the reference's own
+    // muted text; measured (130,130,153) and (137,137,160) both sit on this
+    // colour's ray out of the row background.
+    static constexpr theme::Color kCountSettled = kGlyphCalm;
+    // Breathing room between the title's ellipsis and the count's digits.
+    static constexpr float kCountTextPad = 6.0f;
+    // afterhours insets label text by a hardcoded 5px from its box on EVERY
+    // alignment, with no way to switch it off (vendor is read-only —
+    // afterhours_gaps.md #84). Right-aligning the count therefore lands its
+    // digits 5px shy of the row's right edge, and the reference puts them
+    // flush against it — the same 5px by which every count already in this
+    // sidebar (the smart-view badges, the folder counts) sits left of where
+    // Puffin draws it.
+    //
+    // The way out without touching the vendor: LEFT-align inside a slot sized
+    // to the text PLUS that inset. The inset then falls on the left, where
+    // there is nothing to be flush with, and the text's right edge lands
+    // exactly on the slot's — which, as the row's last child, is the row's.
+    static constexpr float kAhTextInset = 5.0f;
+    // Measured off the reference: its count digits stand 8px tall where the
+    // row title's stand 11, and the title is LIST_ROW (16.5).
+    static constexpr float kCountFontPx = 13.5f;
     // Puffin gives EVERY session-row title the same near-white; the list does
     // not encode attention in the title's brightness the way hanabi did.
+    // ---- the smart-view count badge ----
+    // Measured off the reference: the count is not a bare number, it is a
+    // 17x17 ring with the digit centred in it, right edge at panelW −
+    // kCountRightPad. All three colours are the SAME hue at three coverages —
+    // the ratio of (pixel − background) is (0.596, 0.778, 1.000) at every
+    // sample, ring and fill and digit alike, which is how you read a colour
+    // off a 1px antialiased stroke (REFERENCE.md: never by peak pixel).
+    //
+    // Given as flat colours over the sidebar rather than as alpha, because
+    // the badge also sits on the SELECTED row's fill and afterhours composites
+    // a border against the element's own background, not the one behind it.
+    static constexpr theme::Color kBadgeFill{43, 50, 69, 255};
+    static constexpr theme::Color kBadgeRing{79, 96, 129, 255};
+    static constexpr theme::Color kBadgeText{152, 198, 255, 255};
+    // Asked for 16, not 17: every box rasterizes one pixel bigger and one
+    // pixel up-left than requested (gap #80), so a 16px request lands as the
+    // measured 17. The lost pixel on the right is given back by shortening
+    // this row's right padding by one, below — the badge is the row's last
+    // child, so its right edge IS the row's content edge.
+    static constexpr float kBadgeD = 16.0f;
+    // The reference pads the digits by 5pt on each side; one digit lands on
+    // the square case above, two need the capsule.
+    static constexpr float kBadgePadX = 5.0f;
+    // The smart-view label: measured off the reference, ink starting at x=37
+    // and standing 11px tall for "Blocked" over a 49px run. hanabi drew it at
+    // theme::type::BODY (13), which is 9px tall over 39px -- barely half the
+    // ink, which is most of what the VIEWS region was still scoring.
+    static constexpr float kViewLabelPx = 16.8f;
+    // Ink colour, read by the (pixel - background) ratio rather than by peak
+    // pixel (REFERENCE.md): 0.907 / 0.907 / 1.000, i.e. blue-tinted, where
+    // theme::text_secondary is a neutral grey.
+    static constexpr theme::Color kViewLabelFg{150, 150, 175, 255};
+    // The gap between the icon slot and the label. It is a SPACER, not the
+    // label's padding: padding on a label-only div is silently ignored
+    // (afterhours_gaps.md #85), which is why the 12px pad this row used to ask
+    // for never moved anything and the label sat 6px left of the reference for
+    // the whole parity effort.
+    static constexpr float kViewLabelGap = 6.0f;
+    static constexpr float kBadgeRightPad = kCountRightPad - 1.0f;
+
     static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
 
     // Precedence: the shared, headlessly-tested ecs::model::glyph_for owns the
@@ -848,6 +912,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // afterhours has no margin between column children and no way to say "the
     // next child starts 4px lower", so every measured gap in the Puffin layout
     // is an empty div that exists only to occupy height.
+    // The same idea one axis over, for a Row: afterhours has no margin between
+    // row children either, so a measured horizontal gap is an empty div.
+    void spacer_x(UIContext<InputAction>& ctx, Entity& parent, int id,
+                  float w) {
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(w), pixels(1)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sb_spacer_x"));
+    }
+
     void spacer(UIContext<InputAction>& ctx, Entity& parent, int id, float h) {
         div(ctx, mk(parent, id),
             ComponentConfig{}
@@ -1397,9 +1473,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Home's count is what is WAITING: the blocked rows plus the ones done
         // and unread. Home itself is a digest, not a filter, so this is the
-        // one view whose number is a sum rather than a membership count.
+        // one view whose number is a sum rather than a membership count. That
+        // is the reference's rule verbatim -- `SmartView.attentionCounts`
+        // returns `[.home: blocked + review, .blocked: blocked, .review:
+        // review]` -- and it is why the reference badges Home with 9 over a
+        // Blocked of 6 and a Review of 3. This comment described the rule
+        // before the row was wired; the row passed -1 and drew nothing.
         smart_item(ctx, container.ent(), 1, "home", "\xe2\x8c\x82", "Home",
-                   SmartView::Home, -1, app, folded, panelW, lit);
+                   SmartView::Home, blocked + review, app, folded, panelW, lit);
         // Settings sits between Home and Blocked in Puffin. It is a sheet, not
         // a view, so it carries no count and never reads as selected.
         if (!folded)
@@ -1409,11 +1490,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    lit);
         smart_item(ctx, container.ent(), 4, "review", "\xe2\x9c\x93", "Review",
                    SmartView::Review, review, app, folded, panelW, lit);
+        // Pinned and Archived carry NO badge, in either client: the badge
+        // means "this many things are waiting on you", and a pin is a
+        // bookmark, not a queue (`SmartView.showsAttentionBadge` is true for
+        // home/blocked/review and false for pinned/archived/settings). The
+        // counts are still computed above -- other things read them.
         smart_item(ctx, container.ent(), 5, "star", "\xe2\x98\x85", "Pinned",
-                   SmartView::Starred, starred, app, folded, panelW, lit);
+                   SmartView::Starred, -1, app, folded, panelW, lit);
         // "archive" now has a real Lucide sprite in the atlas; \xe2\x96\xa4 stays as fallback.
         smart_item(ctx, container.ent(), 6, "archive", "\xe2\x96\xa4",
-                   "Archived", SmartView::Archived, archived, app, folded,
+                   "Archived", SmartView::Archived, -1, app, folded,
                    panelW, lit);
     }
 
@@ -1441,7 +1527,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (pointer_click(ctx, row.ent())) app.showSettings = true;
-        const theme::Color txt = theme::text_secondary();
+        const theme::Color txt = kViewLabelFg;
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -1451,16 +1537,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "gear", "\xe2\x9a\x99", txt, 16.0f, -1.0f))
                 .with_debug_name("sv_icon"));
-        float labelW = panelW - kSbInset - kCountRightPad - 16.0f - 12.0f;
+        // Same geometry as smart_item's label, for the same measured reasons:
+        // a real spacer rather than an inert padding (gap #85), the reference's
+        // 16.8px rather than BODY, and its blue-tinted ink.
+        spacer_x(ctx, row.ent(), 7, kViewLabelGap);
+        float labelW = panelW - kSbInset - kCountRightPad - 16.0f -
+                       kViewLabelGap;
         if (labelW < 20.0f) labelW = 20.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label("Settings")
                 .with_size(ComponentSize{pixels(labelW), pixels(22)})
-                .with_padding(Padding{.left = pixels(12)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
-                .with_font_size(theme::type::BODY)
+                .with_font_size(kViewLabelPx)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
@@ -1488,7 +1578,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // Unfolded: kSbInset is the ONE left inset the whole sidebar
                 // shares, and kCountRightPad puts every count on one right edge.
                 .with_padding(Padding{.top = pixels(4),
-                                      .right = pixels(kCountRightPad),
+                                      .right = pixels(kBadgeRightPad),
                                       .bottom = pixels(folded ? 4.0f : 5.0f),
                                       .left = pixels(folded ? 0.0f
                                                             : kSbInset)})
@@ -1516,8 +1606,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.view = view;
         }
 
-        theme::Color txt =
-            active ? theme::text_primary() : theme::text_secondary();
+        // kViewLabelFg, not theme::text_secondary: the reference's inactive
+        // view label is blue-tinted, measured by the (pixel - background)
+        // ratio rather than by peak pixel. text_secondary is a neutral grey
+        // and reads visibly duller beside it.
+        theme::Color txt = active ? theme::text_primary() : kViewLabelFg;
 
         // Folded rail: a smart view whose count > 0 gets a small attention dot
         // at the icon's top-right corner (Blocked = red, others = accent), so
@@ -1575,7 +1668,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // pushed flush to the row's right edge (afterhours has no flex-grow, so
         // a percent label would leave the count packed mid-row, not aligned).
         // Row content = panelW − row pad (kSbInset + kCountRightPad).
-        // label = content − icon(16) − count(kCountColW). Puffin puts the label
+        // label = content − icon(16) − the count's own width. Puffin puts the label
         // ink at x=37: kSbInset 9 + icon 16 + a 12px pad on the label = 37.
         //
         // No-overflow (defect: layout-warn spam): if icon+label+count exceed
@@ -1584,39 +1677,59 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // clamp the label into an overflow; the label then takes the full
         // remaining width. Uses a small label floor so we only keep the count
         // while it genuinely fits.
-        const float kSvContent = panelW - kSbInset - kCountRightPad;
+        //
+        // The count slot is sized to its OWN text plus kAhTextInset and then
+        // left-aligned, not a fixed 30px box that is right-aligned: afterhours
+        // insets every alignment by a hardcoded 5px that no caller can reach
+        // (afterhours_gaps.md #84), so a right-aligned count can never be
+        // flush. A fixed 30px box compounded it -- a one-digit count sat 5px
+        // in from a box already wider than the digit needed. Both errors are
+        // on the same side, which is why every badge in this sidebar has been
+        // landing left of where Puffin draws it.
+        const float kSvContent = panelW - kSbInset - kBadgeRightPad;
         const float kSvLabelMin = 30.0f;
+        const std::string countText = std::to_string(count);
+        // A capsule, not a fixed circle: the reference pads its digits by 5pt
+        // each side, so a two-digit count is wider than it is tall and a fixed
+        // square would clip it. One digit works out to the measured 17x17.
+        float svBadgeW = kBadgeD;
+        if (count > 9)
+            svBadgeW = std::ceil(theme::text_px(countText.c_str(),
+                                                theme::type::SM)) +
+                       2.0f * kBadgePadX;
         bool svShowCount =
-            count > 0 && (kSvContent - 16.0f - kSvLabelMin) >= kCountColW;
-        float svLabelW = kSvContent - 16.0f - (svShowCount ? kCountColW : 0.0f);
+            count > 0 && (kSvContent - 16.0f - kSvLabelMin) >= svBadgeW;
+        float svLabelW = kSvContent - 16.0f - kViewLabelGap -
+                         (svShowCount ? svBadgeW : 0.0f);
         if (svLabelW < 16.0f) svLabelW = 16.0f;
+        if (!folded) spacer_x(ctx, row.ent(), 7, kViewLabelGap);
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(label)
                 .with_size(ComponentSize{pixels(svLabelW), pixels(22)})
-                .with_padding(Padding{.left = pixels(12)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
-                .with_font_size(theme::type::BODY)
+                .with_font_size(kViewLabelPx)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
 
         if (svShowCount) {
-            // Count column: fixed width, right-aligned. Its right edge lands at
-            // panelW − kCountRightPad because the label above is sized to push
-            // it flush to the row edge (unified column; see the count geometry
-            // note). This makes all three count families flush to one edge.
+            // A square box at full roundness is a circle: afterhours derives a
+            // corner radius of min(w,h) * 0.5 * roundness, so 17x17 at 1.0 is
+            // r=8.5. Centred text needs no slot-sizing trick — the hardcoded
+            // 5px inset that makes Right alignment useless (gap #84) is
+            // symmetric under Center, so it cancels.
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
-                    .with_label(std::to_string(count))
-                    .with_size(ComponentSize{pixels(kCountColW), pixels(22)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(active ? theme::text_primary()
-                                                   : theme::text_faint())
+                    .with_label(countText)
+                    .with_size(ComponentSize{pixels(svBadgeW), pixels(kBadgeD)})
+                    .with_custom_background(kBadgeFill)
+                    .with_border(kBadgeRing, pixels(1))
+                    .with_custom_text_color(kBadgeText)
                     .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_roundness(0.0f)
+                    .with_alignment(TextAlignment::Center)
+                    .with_roundness(1.0f)
                     .with_debug_name("sv_count"));
         }
     }
@@ -1777,11 +1890,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // same x for every group. leftInset = head left pad (10); leadSlot =
         // the 16px chevron. At narrow widths the trailing count is dropped
         // (not clamped into an overflow) so the NoWrap header never overflows
-        // + churns solve_violations — see label_col_w / the row width note.
+        // + churns solve_violations — see the row width note.
+        //
+        // Count slot sized to its own text plus kAhTextInset and left-aligned,
+        // for the reason spelled out over the smart-view count: right-aligned
+        // text can never be flush (afterhours_gaps.md #84).
         const float kHeadContent = panelW - 10.0f - kCountRightPad;
-        bool headShowCount = (kHeadContent - 16.0f - 30.0f) >= kCountColW;
+        const std::string headCountText = std::to_string(count);
+        const float headCountW =
+            std::ceil(theme::text_px(headCountText.c_str(), theme::type::SM)) +
+            kAhTextInset;
+        bool headShowCount = (kHeadContent - 16.0f - 30.0f) >= headCountW;
         float headNameW = headShowCount
-                              ? label_col_w(panelW, 10.0f, 16.0f)
+                              ? (kHeadContent - 16.0f - headCountW)
                               : (kHeadContent - 16.0f);
         if (headNameW < 16.0f) headNameW = 16.0f;
         div(ctx, mk(head.ent(), 4),
@@ -1797,12 +1918,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (headShowCount)
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
-                .with_label(std::to_string(count))
-                .with_size(ComponentSize{pixels(kCountColW), pixels(18)})
+                .with_label(headCountText)
+                .with_size(ComponentSize{pixels(headCountW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
+                .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("folder_count"));
 
@@ -2205,8 +2326,29 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool showBell =
             s.muted && (rowContent - kGlyphW - kTitleMin -
                         (showStar ? kStarW : 0.0f)) >= kBellW;
+        // The sub-agent count is claimed only by a thread that HAS sub-agents,
+        // and it is measured to its own text rather than given a fixed column
+        // — the same bargain the mute mark strikes, for the same reason. A
+        // fixed slot wide enough for "1/3" would have taken ~20px off every
+        // title in the list to serve the third of rows that spawn anything,
+        // and a row of ellipsized titles is a worse list than one without
+        // counts. A bare "1" costs ~6px, on its own row, and nothing else
+        // moves. Checked LAST so it is the first column dropped as the
+        // sidebar narrows (the collapse tween sweeps 280 -> 52 and every
+        // intermediate width has to fit without overflowing).
+        const std::string countLabel = ecs::model::sub_agent_label(s);
+        float countW = 0.0f;
+        if (!countLabel.empty()) {
+            countW = std::ceil(theme::text_px(countLabel.c_str(),
+                                              kCountFontPx)) +
+                     kAhTextInset;
+            if ((rowContent - kGlyphW - kTitleMin - (showStar ? kStarW : 0.0f) -
+                 (showBell ? kBellW : 0.0f)) < countW)
+                countW = 0.0f;
+        }
+        bool showCount = countW > 0.0f;
         float reserved = kGlyphW + (showStar ? kStarW : 0.0f) +
-                         (showBell ? kBellW : 0.0f);
+                         (showBell ? kBellW : 0.0f) + countW;
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
         // Ellipsize to the title column's width. At ROW size (12.5px) an avg
@@ -2217,7 +2359,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(fit_to_width(strip_parked_prefix(s.title),
                                          theme::type::LIST_ROW,
-                                         rowTitleW - kRowTitlePad))
+                                         rowTitleW - kRowTitlePad -
+                                             (showCount ? kCountTextPad : 0.0f)))
                 .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
                 .with_padding(Padding{.left = pixels(kRowTitlePad)})
                 .with_transparent_bg()
@@ -2336,6 +2479,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("row_star_slot"));
+        }
+
+        // The sub-agent count: how many threads this one spawned, and how many
+        // are still working. RIGHTMOST, in the slot the removed relative-time
+        // column used to hold — the reference draws it flush to the row's
+        // right edge, and it is data rather than an affordance, so it belongs
+        // outside the star the way the timestamp did.
+        //
+        // A plain div, not a button: the count is a fact about the row, and
+        // making it clickable would give the row a second hit target that
+        // steals hot from it (the star already costs one).
+        if (showCount) {
+            const bool live = ecs::model::sub_agents_live(s);
+            theme::Color countColor = live ? kCountLive : kCountSettled;
+            if (archived || automated) countColor = theme::text_faint();
+            div(ctx, mk(row.ent(), 6),
+                ComponentConfig{}
+                    .with_label(countLabel)
+                    .with_size(ComponentSize{pixels(countW), pixels(20)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(countColor)
+                    .with_font_size(kCountFontPx)
+                    // LEFT, not Right — see kAhTextInset. The slot is sized to
+                    // the text plus that inset, so left-aligning puts the
+                    // digits flush against the slot's (and the row's) right
+                    // edge, which is what right-aligning could not do.
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("row_subagent_count"));
         }
 
         // Right-click opens the row's context menu at the cursor. Always

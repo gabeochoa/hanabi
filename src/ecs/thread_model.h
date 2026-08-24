@@ -42,6 +42,38 @@ inline Glyph glyph_for(const api::SessionSummary& s) {
     return Glyph::None;
 }
 
+// ---- Sub-agent count, as the row draws it ---------------------------------
+//
+// Semantics are Puffin's (`ChildActivity.label`), deliberately, because the
+// two clients are read side by side and a row that means a different thing in
+// each is worse than a row that shows nothing:
+//
+//   no children            -> "" (the column is not drawn at all)
+//   all children live      -> "3"    in the live colour
+//   some children live     -> "1/3"  in the live colour
+//   no child live          -> "3"    in the settled colour
+//
+// The denominator earns its place only in the mixed case: when every child is
+// working, "3/3" says nothing "3" did not. A bare number is therefore
+// ambiguous between "all live" and "none live" BY DESIGN — the colour, not
+// the digits, carries that, which is what keeps the column narrow enough to
+// sit on a crowded row.
+inline std::string sub_agent_label(const api::SessionSummary& s) {
+    if (s.sub_agent_count <= 0) return "";
+    const int total = s.sub_agent_count;
+    const int live = s.sub_agent_running_count;
+    if (live > 0 && live < total)
+        return std::to_string(live) + "/" + std::to_string(total);
+    return std::to_string(total);
+}
+
+// Whether the count should read as live (some child is still working) rather
+// than settled. Drives the colour, which is the only thing distinguishing the
+// two bare-number cases above.
+inline bool sub_agents_live(const api::SessionSummary& s) {
+    return s.sub_agent_count > 0 && s.sub_agent_running_count > 0;
+}
+
 // ---- Smart-view membership predicates ----
 // Home is a digest (not a simple filter) so it has no single predicate; the
 // three filterable smart views do:

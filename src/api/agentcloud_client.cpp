@@ -358,9 +358,42 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
     std::vector<json> rows(msg["sessions"].begin(), msg["sessions"].end());
     std::stable_sort(rows.begin(), rows.end(), by_last_seq_desc);
 
+    // --- children fold into their parent's count, and leave the list ------
+    // Every session the server knows is its own row here, spawned sub-agents
+    // included, each carrying the id of the thread that spawned it in
+    // `parent` (agentcloud's durable parent link, spec 024, projected into
+    // the catalog by spec 036 DEC-9 precisely so "a client can badge or group
+    // children"). Rendered as-is that puts every sub-agent in the sidebar as
+    // a peer of the thread that owns it — which is noise, and not what the
+    // reference client does with them.
+    //
+    // So one pass tallies each child onto its parent, and the child rows are
+    // then dropped. Two passes over the reply, no per-row lookup: this runs
+    // on a catalog of a couple of thousand rows every poll.
+    struct ChildTally {
+        int total = 0;
+        int running = 0;
+    };
+    std::unordered_map<std::string, ChildTally> tally;
+    for (const json& s : rows) {
+        const std::string parent = str_or(s, "parent", "");
+        if (parent.empty()) continue;
+        // The child's own state, read exactly as a top-level row's would be,
+        // so "running" means the same thing in the count as in the glyph.
+        SessionSummary child;
+        apply_state(s, child);
+        ChildTally& t = tally[parent];
+        ++t.total;
+        if (child.state == ThreadState::Running) ++t.running;
+    }
+
     std::vector<SessionSummary> out;
     out.reserve(rows.size());
     for (const json& s : rows) {
+        // A child is counted, not listed. Note this drops a child whose
+        // parent is not in this reply too: it is still a sub-agent, and the
+        // sidebar showing it as a root thread was the thing being fixed.
+        if (!str_or(s, "parent", "").empty()) continue;
         SessionSummary sum;
         sum.id = str_or(s, "session_id", "");
         if (sum.id.empty()) continue;  // unaddressable; nothing could open it
@@ -387,6 +420,10 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
         const std::string workspace = str_or(s, "workspace", "");
         sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
         apply_state(s, sum);
+        if (auto it = tally.find(sum.id); it != tally.end()) {
+            sum.sub_agent_count = it->second.total;
+            sum.sub_agent_running_count = it->second.running;
+        }
         out.push_back(std::move(sum));
     }
     return out;

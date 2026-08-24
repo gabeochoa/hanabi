@@ -1017,6 +1017,250 @@ friction is mostly in the measuring, not the library.
    minutes, with no need to touch the live app. Nothing in `REFERENCE.md`
    mentions it; it should.
 
+---
+
+## The typeface question, settled (no branch — measured and discarded)
+
+The bold-face run left an open lead: it measured SF Regular at 15.5px as worth
+0.75 points on the list region, and recommended re-tuning `LIST_ROW` down from
+16.5. That measurement was taken against the **RAW** region table, which was the
+only one the tool printed at the time. Re-run against STRUCTURAL, the lead
+closes: **the current Roboto at 16.5 is already the optimum.**
+
+Nine arms, one binary, `HANABI_UI_FONT` + `HANABI_LIST_ROW_PX` patched in for
+the sweep and then discarded:
+
+| arm | overall STRUCT |
+|---|---|
+| **Roboto 16.5 (shipping)** | **7.39%** |
+| SF 15.0 | 7.45% |
+| SF 15.5 | 7.44% |
+| SF 16.0 | 7.60% |
+| SF 16.5 | 7.59% |
+| SF 17.0 | 7.55% |
+| Roboto 15.5 | 7.56% |
+| Roboto 16.0 | 7.51% |
+| Roboto 17.0 | 7.60% |
+
+SF is better in every region except the list — search 7.94 → 7.41, main 6.10 →
+5.98, tabbar 4.35 → 4.26 — and worse in the list by a full point (14.31 →
+15.29), which is 63% of the sidebar's height and swamps the rest.
+
+### Why the list punishes the reference's own typeface
+
+Measured on the ten visible row titles, the reference's string widths and
+hanabi's Roboto strings agree to within 1–2px (130/128, 152/150, 126/127,
+124/124, 246/245, 231/230). **SF at 15.5 is consistently 10–20px short** on the
+same strings (117, 134, 114, 113, 226, 207): fontstash takes SFNS.ttf's default
+variable instance, which is not the optical size or weight Puffin renders, and
+there is no way to select a named instance. Roboto at 16.5 was fitted to those
+widths — it is a compensation fit, and it compensates well.
+
+### What is actually left, and it is not a font
+
+The reference's title column holds **10,125 ink pixels; hanabi's holds 8,180** —
+a 19% deficit, on strings whose start, end and vertical extent all match. Puffin
+renders semibold through CoreText with macOS stem darkening; fontstash draws
+thinner glyphs from a Regular face.
+
+But **adding ink makes the score worse, monotonically**: dilating only the title
+column takes the list from 14.31% to 16.11 / 17.98 / 19.80 / 21.66 at 25 / 40 /
+60 / 100% blend. The ink is not in the same *places* — advances diverge across a
+string, so extra weight lands on glyphs that are already a pixel or two out of
+register and increases non-overlap on both sides.
+
+**So: the last few points of every text region are a rasterizer difference, not
+a typeface or a size or a weight.** No font choice available to us closes it,
+the metric actively punishes the change that would look most correct, and the
+right call is the one the bold-face run reached from the other direction — ship
+a semibold because it is the correct render, never because of a parity number.
+
+- **Class** — `TEDIOUS` (our metric) + `IMPOSSIBLE` (the rasterizer)
+- **Gap filed?** — no new one. #82 (cannot measure text at a weight) and #77
+  (no bundled bold) already cover the library's half. The rest is CoreText.
+
+---
+
+## sub-agent count column (feat/sidebar-counts) — 2026-08-24
+
+1. **The brief's semantics for `1/3` were wrong, and only the source could say
+   so.** The handoff read it as "three sub-agents of which one is done".
+   Puffin's `ChildActivity.label(total:running:)` says the opposite: the
+   numerator is the RUNNING count, the denominator only appears when some but
+   not all are live, and a bare number is ambiguous between "all live" and
+   "none live" — the COLOUR resolves it. Two of the seven reference rows are
+   only explicable under the real rule. Reading `SessionRowView.swift` and
+   `ChildActivity.swift` took five minutes and changed what got built; the
+   screenshot alone would have produced a plausible, wrong feature.
+
+2. **The reference client does not have this field at all, which is the whole
+   design.** `AgentcloudSessionSummary` carries `parent` — one id — and Puffin
+   derives counts by indexing the catalog (`indexChildren`, `childCounts`).
+   Nothing is denormalized onto a row. Worth knowing before designing ours:
+   hanabi's list type could not take that shape without changing which rows
+   the sidebar shows, but the *wire* fact it rests on — every child is its own
+   row carrying `parent` — turned out to be exactly what let hanabi's real
+   backend fill a count too, instead of shipping a mock-only display.
+
+3. **`docs/visual-parity/ref/01_home.png` cannot be trusted for colour by peak
+   pixel, and thin glyphs make that bite.** A count is 3-4px of antialiased
+   stroke with no solid interior, so its brightest pixel is nowhere near its
+   true colour: the running count peaks at (114,161,243) where the running
+   *glyph* on the same row peaks at (154,197,255), and reusing the glyph's
+   constant would have been visibly wrong. What works is the RATIO of
+   (pixel − background) across samples, which is coverage-independent and was
+   consistent to three decimal places across two samples. That gave
+   (120,169,255) for live and confirmed the settled colour is exactly the
+   existing `kGlyphCalm`. This trick should be in `REFERENCE.md`; every future
+   small-text colour match needs it.
+
+4. **afterhours cannot right-align text flush to its box — filed as gap #84.**
+   `rendering.h` insets every alignment by a hardcoded `kInset = 5.f` with no
+   `ComponentConfig` knob reaching it, so `TextAlignment::Right` means "5px
+   shy". The workaround is to LEFT-align in a slot sized to the text plus that
+   inset. The cost of not knowing this earlier: **every right-aligned count
+   already in hanabi's sidebar has the same 8px error** — the smart-view
+   badges land at x=263 where the reference puts them at x=271, and have for
+   the whole parity effort. Fixing those is a separate, larger change than
+   this branch, but it is now measured and written down.
+
+5. **The "worth 1.08pp" estimate was measured off the count COLUMN, and the
+   column is not the digits.** Masking x=[238,278] out of the list region does
+   move it 1.03pp — but restricting the diff to the reference's actual count
+   ink shows only ~718 differing pixels, ~0.4pp of the list at absolute best,
+   and most of that 1.03pp is truncated title tails and the selected row.
+   Drawing the counts pixel-correctly recovered 4 of those 718. **A region's
+   share of a diff is not the same as what filling that region can win**, and
+   for thin text the difference is two orders of magnitude. Future estimates
+   for text-sized elements should be made against the ink, not the bounding
+   box, or they will keep promising points that are not there.
+
+6. **`make` will not relink after you restore a binary over `output/`.** Doing
+   `git stash; make; cp output/hanabi.exe /tmp/base.exe; git stash pop; make`
+   silently produces nothing on the second `make` — the .exe is newer than
+   every source. It looks exactly like a successful no-op build, and the next
+   screenshot is of the OLD binary. `touch src/api/types.h` first. Cost me one
+   round of measurements I nearly believed.
+
+---
+
+## Smart-view badges and labels (no branch — done on main)
+
+### 1. The count is a badge, and reading the source said so before the pixels did
+
+- **What I wanted** — to know why the VIEWS region would not go under 8%.
+- **What happened** — I had been reading the counts as bare numerals with an
+  alignment error. They are not. `SmartViewSidebar.badgeView` draws a
+  `tintedPill`: *"the accent as a low-alpha fill, a hairline of the same accent
+  as its border, and the digits in that accent rather than white"* — with a
+  paragraph of history explaining that a solid pill was tried and reverted.
+  The measurement agreed exactly: ring, fill and digit are the SAME hue at
+  three coverages, ratio (0.596, 0.778, 1.000) at every sample.
+- **Worth** — VIEWS 8.07% → 7.58% for the badge alone, and it is the difference
+  between a control that looks designed and one that looks unstyled.
+- **Class** — `TEDIOUS` avoided by reading the source first.
+
+### 2. Home's badge had a comment describing it and a `-1` where the number goes
+
+- hanabi's code said *"Home's count is what is WAITING: the blocked rows plus
+  the ones done and unread"* and then passed `-1`, which draws nothing. The
+  reference's rule is that comment verbatim —
+  `[.home: blocked + review, .blocked: blocked, .review: review]` — and the
+  reference badges Home with 9 over a Blocked of 6 and a Review of 3.
+- The row that is **selected the moment the window opens** was missing its
+  badge, and a comment two lines up said what it should be.
+- **Class** — `FOOTGUN` (hanabi's own). Second time this pattern has cost us:
+  see `kHeaderH` being a named constant in one place and a bare `62.0f` in
+  another.
+
+### 3. A `.with_padding(12)` that had never done anything — gap #85
+
+- **What I wanted** — the label 6px further right.
+- **What happened** — the row already asked for it, and had done for the whole
+  effort. Padding on a label-only div is ignored: `pixels(12)` and `pixels(40)`
+  render **byte-identical frames**. The comment beside it did the arithmetic
+  (`9 + 16 + 12 = 37`) and shipped 31.
+- **Cost** — the six pixels were cheap; the twenty minutes spent not believing
+  the measurement, because the code said the opposite, were not.
+- **Class** — `FOOTGUN`, filed as gap #85 with a request that it warn rather
+  than obey silently.
+
+### 4. The label was two sizes too small and nobody could see it
+
+- The reference's view label is 11px tall over a 49px run for "Blocked";
+  hanabi drew 9px over 39px at `theme::type::BODY` (13). The right size is
+  16.8 — a 29% error, sitting in plain sight in every screenshot, invisible
+  because "a bit small" is not a thing the eye reports and there was no
+  measurement that would have caught it. It was **twice the ink** of the badge
+  and the alignment put together: VIEWS 7.54% → 6.59%.
+- **Class** — `TEDIOUS`, and an argument for measuring type against the
+  reference rather than picking from a scale.
+
+---
+
+## Known divergences (feat/vis-divergences) — 2026-08-24
+
+1. **Half the score was the reference's own empty state, and it had been quoted
+   for days.** `ref/01_home.png` has thread `6cb2dacc-…` open — a real session
+   id, not a `mock-*` fixture — so Puffin's mock backend falls through to
+   `MockBackend.swift:936` and draws one line, "No fixture transcript for … yet."
+   hanabi draws a full conversation in the same 897x749 viewport. That is 3.18
+   of the 7.39 structural points. It is the exact trap `REFERENCE.md` already
+   warns about under "Compare LIKE FOR LIKE", one level down: we fixed the
+   *tab* state and never checked whether the open tab had anything in it. The
+   general lesson is cheap and worth stealing: before scoring a region, look at
+   what the REFERENCE has in it, not only at what hanabi has.
+
+2. **The status bar was 3x cheaper than the brief assumed, because someone had
+   already half-fixed it.** The premise handed to this branch was "a full-width
+   painted bar, ~14 rows of near-100% difference across 1180px, landing in both
+   `footer` and `main`". By the time it was measured, `6761336` had already
+   narrowed `layout.statusBar` to the main pane, hanabi had grown a sidebar
+   footer that mirrors Puffin's, and the bar's fill was `theme::sidebar_bg()` —
+   (23,23,35), the identical colour Puffin's empty window paints there, so the
+   fill costs literally zero. Real cost: 0.233 points, one hairline row plus
+   seven rows of right-cluster text. **Measure the premise before you act on
+   it**; three of the four claims in it had aged out inside a day.
+
+3. **Excluding surface makes the rate go UP, and it will be read as a
+   regression.** The declared rectangles cover 62.5% of the frame's *area* but
+   only 47% of its *difference*, because most of that area is black agreeing
+   with black. Take it out and structural goes 7.39% -> 10.37%. The arithmetic
+   is right and the number is more honest, but nobody's first reaction is "ah,
+   the denominator". `compare.py` now says so in its own output; the same
+   sentence is in `REFERENCE.md`. Anyone adding a large mostly-empty rectangle
+   to that table should expect the same and say it up front.
+
+4. **Points and rates are different currencies and the table needs both.** An
+   entry's cost is quoted in *points of the whole frame* (comparable across
+   entries, addable, stable) while the headline is a *rate over what is left*
+   (not addable, moves when any rectangle changes). Quoting one where the other
+   is meant is the easiest mistake here. The per-entry costs also do not sum to
+   the declared total — the traffic-light rectangle and the top-left corner
+   overlap, and the mask counts the shared pixels once.
+
+5. **A hand-measured rectangle needs a staleness alarm or it silently rots.**
+   The rectangles are pixels in the reference's coordinates, so a closed
+   divergence, a nudged layout or a re-shot reference all leave an exclusion
+   sitting over live surface, hiding real signal. Two guards, both cheap: the
+   table is skipped entirely (loudly) unless the reference is exactly
+   1180x949, and any entry that turns out to exclude zero differing pixels
+   prints `<-- STALE? excludes nothing`. Neither existed before; both should
+   have been the first thing written, not the last.
+
+6. **`--diff` greys the declared surface rather than dropping it.** An
+   exclusion you cannot see on the diff image is an exclusion nobody audits,
+   and the first question anyone asks of one of these rectangles is whether it
+   is drawn around the right thing. Worth the four lines.
+
+7. **`compare.py` has no home in `make test`.** The suite is C++ binaries plus
+   the scripted `.e2e` DSL; there is nowhere for a Python assertion to live, so
+   the exclusion arithmetic is pinned by `compare.py --selftest` instead — 
+   hermetic 100x100 frames, run by hand. It is genuinely tested (three
+   deliberate breakages all go red: numerator-only subtraction, a rectangle off
+   the frame, an entry with no reason) but nothing runs it on a schedule. A
+   `scripts/*.py --selftest` sweep at the end of `run_tests.sh` would be one
+   line and would cover this and anything after it.
 ## Composer strip (feat/vis-composer2)
 
 1. **The region score cannot see this theme's work, and the reason is a
