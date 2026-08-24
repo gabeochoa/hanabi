@@ -766,6 +766,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // pixel (REFERENCE.md): 0.907 / 0.907 / 1.000, i.e. blue-tinted, where
     // theme::text_secondary is a neutral grey.
     static constexpr theme::Color kViewLabelFg{150, 150, 175, 255};
+    static constexpr theme::Color kViewLabelActiveFg{251, 250, 255, 255};
     // The gap between the icon slot and the label. It is a SPACER, not the
     // label's padding: padding on a label-only div is silently ignored
     // (afterhours_gaps.md #85), which is why the 12px pad this row used to ask
@@ -787,7 +788,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr theme::Color kSearchFilterFg{200, 200, 206, 255};
     static constexpr float kBadgeRightPad = kCountRightPad - 1.0f;
 
-    static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
+    // (247,247,255), measured off the reference's own row titles: same hue
+    // ratio as hanabi already had (1.000/1.000/0.986) but nine levels
+    // brighter. The eye does not report "nine levels dim"; inkdiff.py does.
+    static constexpr theme::Color kRowTitleFg{247, 247, 255, 255};
 
     // Tone -> ink. The three colours the marks are drawn in, and the only
     // place the model's meanings become pixels.
@@ -1741,7 +1745,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // view label is blue-tinted, measured by the (pixel - background)
         // ratio rather than by peak pixel. text_secondary is a neutral grey
         // and reads visibly duller beside it.
-        theme::Color txt = active ? theme::text_primary() : kViewLabelFg;
+        // The SELECTED view's label is near-white and slightly violet --
+        // (251,250,255), measured over its own fill rather than the window
+        // colour. theme::text_primary reads 224 at its peak against the
+        // reference's 251. (The reference also draws it semibold; that half is
+        // gap #77 and not available to us.)
+        theme::Color txt = active ? kViewLabelActiveFg : kViewLabelFg;
 
         // Folded rail: a smart view whose count > 0 gets a small attention dot
         // at the icon's top-right corner (Blocked = red, others = accent), so

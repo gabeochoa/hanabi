@@ -2286,3 +2286,51 @@ Footer, unchanged at 4.08%: 221 px of glyph buttons, of which the two mismatched
 icons are a product difference rather than a defect, and 203 px of session-list
 row bleeding in above the footer's own rule, which belongs to the list.
 
+
+---
+
+## The floor (no branch — done on main)
+
+### The metric's floor for text is 8–12%, not 0.2%, and that was the whole story
+
+- **What I wanted** — to know whether the session list's 14% was thirteen
+  points of work or two.
+- **What I did** — resampled the reference onto a grid offset by half a pixel.
+  Identical design, identical everything, one difference: the rasterization
+  phase, which is precisely what differs between two renderers drawing the same
+  letter. Then scored it against the original.
+
+  | region | floor | hanabi | real headroom |
+  |---|---|---|---|
+  | list | 8.41–11.83 | 14.07 | **+2.24** |
+  | sidebar | 6.25–8.93 | 10.64 | +1.71 |
+  | search | 1.54–3.17 | 4.26 | +1.09 |
+  | views | 2.31–3.88 | 4.53 | +0.65 |
+  | main | 0.83–1.41 | 4.49 | +3.08 |
+  | tabbar | 1.25–3.02 | 2.03 | **AT FLOOR** |
+  | footer | 1.61–5.87 | 5.26 | **AT FLOOR** |
+
+- **Why nobody had this.** Both `compare.py`'s header and `REFERENCE.md` said
+  the structural floor was **0.23%**. That number came from downsampling one
+  frame two ways — which changes edge coverage but keeps every glyph on the
+  same grid. It measured the wrong thing, and it has been quoted at the top of
+  every measurement in this workstream.
+- **What it cost.** Three separate investigations — the bold-face sweep, the
+  session-list round two, and my own — each independently concluded "the rest
+  is the rasterizer" and each stopped there, because none could say how much of
+  it was. Two of them spent a day proving it. Two more regions have since been
+  worked on that were already at floor.
+- **Two remedies tried and killed with numbers**, both of which sound right:
+  dilating the ink (list 14.07 → 16.11 at 25% blend, monotonically worse) and
+  gamma-lifting the antialiased coverage, which is what a 2x downsample
+  actually does (14.07 → 14.19 → 14.34 → 14.96 as gamma drops). The deficit is
+  not coverage weight. It is sub-pixel phase, and nothing hanabi can do reaches
+  it.
+- **The root cause was in a code comment the whole time.** `main.cpp`'s
+  `run_headless_screenshot`: *"this HEADLESS capture path renders into a fixed
+  w*h offscreen texture at 1x — the Metal backend does not supersample it… a
+  crisp @2x headless capture needs an upstream change."* Nobody connected that
+  paragraph to the parity numbers, in either direction, for the whole
+  workstream.
+- **Class** — `TEDIOUS` (our tooling), and the most expensive single line of
+  documentation in this project.

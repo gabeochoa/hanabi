@@ -88,6 +88,24 @@ row below it. Two shots of one unmodified binary three minutes apart measured
 4.19% and 4.66% on `main`. Diff the two hanabi PNGs against each other before
 you believe any difference between them.
 
+## The score has a FLOOR, and for text it is most of the score
+
+Run `compare.py --regions --floor`. It resamples the reference onto a grid
+offset by half a pixel — **identical design, different rasterization phase** —
+and prints what that scores, per region, beside your number. That is what two
+different renderers cost you before anybody has drawn anything differently.
+
+Measured on `02_thread.png`: overall **2.2–3.3%**, and in the session list
+**8.4–11.8%**. So a list sitting at 14% is not thirteen points of unfinished
+work; it is two. Three separate investigations concluded "the rest is the
+rasterizer" and none could say how much of it was, because this file and
+`compare.py` both claimed the structural floor was 0.2%. That figure came from
+downsampling one frame two ways, which changes edge coverage but keeps every
+glyph on the same grid — it measured the wrong thing.
+
+The column prints `AT FLOOR` when a region is at or under it. **A region at
+floor is done.** Do not spend a day proving otherwise; two people already have.
+
 `--regions` prints two columns per region: **STRUCT first — that is the one to
 drive** — and RAW beside it. Until 2026-08-24 the table printed RAW only, while
 the two summary lines above it said to drive STRUCTURAL, so every per-region

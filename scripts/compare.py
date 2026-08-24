@@ -12,7 +12,7 @@ real and uninteresting; a tolerance of 12/255 ignores it and still catches a
 wrong colour, a wrong position or a wrong glyph.
 
   usage: compare.py <puffin.png> <hanabi.png> [--diff out.png] [--regions]
-                    [--no-exclusions] [--selftest]
+                    [--no-exclusions] [--floor] [--selftest]
 """
 import sys
 from PIL import Image, ImageChops, ImageFilter
@@ -28,11 +28,27 @@ TOL = 12
 #
 # So there are two numbers. RAW is the literal per-pixel answer. STRUCTURAL
 # blurs both by 0.8px first, which forgives sub-pixel glyph edges while still
-# catching a wrong colour, a wrong position or a wrong size -- on that same
-# identical-source pair it reads 0.23%, so it has room to mean something.
-# Quote both; a claim of parity needs the structural number to be small AND
-# the raw number to have stopped falling.
+# catching a wrong colour, a wrong position or a wrong size.
+#
+# STRUCTURAL HAS A FLOOR TOO, AND IT IS NOT 0.2%. That figure came from
+# downsampling one frame two ways, which changes edge coverage but keeps every
+# glyph on the same grid. Two different rasterizers do not: they put the same
+# letter down at a different sub-pixel PHASE, and blurring by 0.8px does not
+# forgive that. Measured by taking the reference and resampling it onto a grid
+# offset by half a pixel -- identical design, different phase -- the structural
+# score reads 2.2-3.3% overall and 8.4-11.8% in the session list.
+#
+# That is the honest floor, and `--floor` prints it per region beside the
+# score. It matters because for most of this workstream the list sat at ~14%
+# and read as thirteen points of unfinished work; against a floor of ~9-12 it
+# is two to five. Three separate investigations concluded "the rest is the
+# rasterizer" and none of them could say how much of it was, because the
+# header said the floor was a fifth of a percent.
 STRUCT_BLUR = 0.8
+
+# Half a pixel, in each axis and both: the phase differences two rasterizers
+# actually produce. The floor is reported as a range over these three.
+FLOOR_OFFSETS = ((0.5, 0.0), (0.0, 0.5), (0.5, 0.5))
 
 
 # --- Declared divergences ---------------------------------------------------
@@ -239,6 +255,30 @@ def report_divergences(entries, excl, smask, mask, frame_px):
         print(f"  {'':24} {reason}")
 
 
+def floor_by_region(ref, regions):
+    """What an IDENTICAL design would score, rasterized at a different phase.
+
+    Two renderers never put a glyph on the same sub-pixel grid, and an 0.8px
+    blur does not forgive that — so a text-dense region has a floor of several
+    percent that no design change can reach under. This measures it from the
+    reference itself: resample onto a half-pixel-offset grid, which changes
+    nothing but the phase, and score the result against the original.
+
+    Returns {region: (lo, hi)} over FLOOR_OFFSETS.
+    """
+    per = {name: [] for name in regions}
+    base = ref.filter(ImageFilter.GaussianBlur(STRUCT_BLUR))
+    for dx, dy in FLOOR_OFFSETS:
+        moved = ref.transform(ref.size, Image.AFFINE, (1, 0, dx, 0, 1, dy),
+                              resample=Image.BICUBIC)
+        m = diff_mask(base, moved.filter(ImageFilter.GaussianBlur(STRUCT_BLUR)))
+        for name, box in regions.items():
+            sub = m.crop(box)
+            per[name].append(100.0 * sub.histogram()[255]
+                             / max(1, sub.width * sub.height))
+    return {n: (min(v), max(v)) for n, v in per.items()}
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if "--selftest" in sys.argv:
@@ -318,7 +358,11 @@ def main():
         # and `main` is exactly that region. The trailing note says how much of
         # the region was declared, so a small figure over a nearly-excluded
         # region can never read as parity.
-        print(f"  {'region':<12} {'STRUCT':>7}  {'RAW':>7}")
+        floors = floor_by_region(a, regions) if "--floor" in sys.argv else None
+        head = f"  {'region':<12} {'STRUCT':>7}  {'RAW':>7}"
+        if floors:
+            head += f"   {'FLOOR':>12}"
+        print(head)
         for name, box in regions.items():
             e = excl.crop(box)
             gone = e.histogram()[255]
@@ -331,7 +375,17 @@ def main():
             bar = "#" * int(p / 2)
             share = 100.0 * gone / area
             note = f"  ({share:.1f}% declared)" if share >= 0.1 else ""
-            print(f"  {name:<12} {p:6.2f}%  {rp:6.2f}%  {bar}{note}")
+            if floors:
+                lo, hi = floors[name]
+                # "headroom" is the honest remaining work: how far the score is
+                # above what an identical design would score anyway. At or
+                # under the floor, there is nothing here to find.
+                head_room = p - hi
+                tag = f"   {lo:5.2f}-{hi:5.2f}"
+                tag += "  AT FLOOR" if head_room <= 0 else f"  +{head_room:.2f}"
+                print(f"  {name:<12} {p:6.2f}%  {rp:6.2f}%{tag}{note}")
+            else:
+                print(f"  {name:<12} {p:6.2f}%  {rp:6.2f}%  {bar}{note}")
 
     if "--diff" in sys.argv:
         out = sys.argv[sys.argv.index("--diff") + 1]
