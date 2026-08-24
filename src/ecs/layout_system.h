@@ -18,8 +18,8 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
     }
 
     void for_each_with(Entity&, LayoutComponent& layout, float dt) override {
-        float w = static_cast<float>(afterhours::graphics::get_screen_width());
-        float h = static_cast<float>(afterhours::graphics::get_screen_height());
+        float w = hanabi::viewport::width();
+        float h = hanabi::viewport::height();
 
         // --- Sidebar width animation ---
         float target =

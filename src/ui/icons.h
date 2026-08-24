@@ -23,6 +23,7 @@
 
 #include "icons_atlas.h"
 #include "theme.h"
+#include "viewport.h"
 
 // Pull in the sokol draw helpers (draw_texture_pro / load_texture / TextureType)
 // the same way theme.h does (drawing_helpers.h is included transitively there,
@@ -116,11 +117,15 @@ draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
             color, draw_px, y_bias, rect](RectangleType widget) {
         TextureType* atlas = AtlasTexture::get().ensure();
         if (atlas != nullptr && rect.has_value()) {
-            // Center a draw_px x draw_px blit inside the widget rect.
-            const float d = draw_px;
+            // Center a draw_px x draw_px blit inside the widget rect. The
+            // rect arrives already scaled by afterhours; the sprite's own size
+            // and optical bias are literals it never sees, so they are scaled
+            // here (viewport::px, a no-op at ui_scale 1).
+            const float d = viewport::px(draw_px);
             RectangleType dest{
                 widget.x + (widget.width - d) * 0.5f,
-                widget.y + (widget.height - d) * 0.5f + y_bias, d, d};
+                widget.y + (widget.height - d) * 0.5f + viewport::px(y_bias),
+                d, d};
             // Push a blend-enabled pipeline so the atlas' transparent pixels
             // don't blit as opaque black (sgl's default pipeline has blending
             // off — see the AtlasTexture note / afterhours_gaps.md).
@@ -145,11 +150,13 @@ draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
         // atlas, add a `// TODO(icon-atlas): <name> sprite missing` at the call
         // site so we can come back and cut the real Lucide sprite.
         if (!fallback_glyph.empty()) {
+            const float fpx = viewport::px(draw_px);
             afterhours::draw_text(
                 fallback_glyph.c_str(),
-                widget.x + widget.width * 0.5f - draw_px * 0.5f,
-                widget.y + widget.height * 0.5f - draw_px * 0.5f + y_bias,
-                draw_px, color);
+                widget.x + widget.width * 0.5f - fpx * 0.5f,
+                widget.y + widget.height * 0.5f - fpx * 0.5f +
+                    viewport::px(y_bias),
+                fpx, color);
         }
     };
 }
@@ -166,7 +173,7 @@ inline bool draw_at(std::string_view name, float cx, float cy, float px,
     auto rect = src_rect(name);
     TextureType* atlas = AtlasTexture::get().ensure();
     if (atlas == nullptr || !rect.has_value()) return false;
-    const float d = px;
+    const float d = viewport::px(px);
     RectangleType dest{cx - d * 0.5f, cy - d * 0.5f, d, d};
     sgl_push_pipeline();
     sgl_load_pipeline(AtlasTexture::get().blend_pipeline());
@@ -199,12 +206,12 @@ inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
                     float halfExtent = 3.6f) {
     const float cx = rect.x + rect.width * 0.5f;
     const float cy = rect.y + rect.height * 0.5f;
-    const float w = halfExtent;
-    const float h = halfExtent * 0.7f;
+    const float w = viewport::px(halfExtent);
+    const float h = viewport::px(halfExtent * 0.7f);
     // 1.6, because afterhours does not antialias primitives (gaps.md #92): a
     // thinner stroke drops to a hairline of hard-edged pixels rather than
     // getting lighter, which is what a vector renderer would do.
-    const float t = 1.6f;
+    const float t = viewport::px(1.6f);
     if (collapsed) {
         afterhours::draw_line_ex(afterhours::vec2{cx - h, cy - w},
                                  afterhours::vec2{cx + h, cy}, t, c);
@@ -226,11 +233,13 @@ inline void arrow_up(RectangleType rect, theme::Color c, float extent = 4.5f,
                      float thickness = 1.6f) {
     const float cx = rect.x + rect.width * 0.5f;
     const float cy = rect.y + rect.height * 0.5f;
-    const float top = cy - extent;
-    const float bot = cy + extent;
-    const float head = extent * 0.95f;  // half-width of the arrowhead
+    const float e = viewport::px(extent);
+    const float top = cy - e;
+    const float bot = cy + e;
+    const float head = e * 0.95f;  // half-width of the arrowhead
     afterhours::draw_line_ex(afterhours::vec2{cx, top + head * 0.4f},
-                             afterhours::vec2{cx, bot}, thickness, c);
+                             afterhours::vec2{cx, bot},
+                             viewport::px(thickness), c);
     afterhours::draw_triangle(afterhours::vec2{cx - head, top + head},
                               afterhours::vec2{cx + head, top + head},
                               afterhours::vec2{cx, top}, c);
@@ -243,10 +252,11 @@ inline void radio(RectangleType rect, bool selected, theme::Color c,
                   float radius = 4.0f) {
     const float cx = rect.x + rect.width * 0.5f;
     const float cy = rect.y + rect.height * 0.5f;
-    afterhours::draw_ring(cx, cy, radius - 1.0f, radius, 24, c);
+    const float r = viewport::px(radius);
+    afterhours::draw_ring(cx, cy, r - viewport::px(1.0f), r, 24, c);
     if (selected)
         afterhours::draw_circle(static_cast<int>(cx), static_cast<int>(cy),
-                                radius - 2.0f, c);
+                                r - viewport::px(2.0f), c);
 }
 
 // A pushpin, for a pinned tab. Roboto has no pin codepoint and a missing one
@@ -266,13 +276,14 @@ inline void pin(RectangleType rect, theme::Color c) {
     // What was here drew the shaft 2 wide and hung it off the cap's LEFT half
     // (x+1 of a 6-wide cap), so the mark leaned, and it had no taper. Four wide
     // and centred is both the reference's shape and a pushpin's.
-    const float x = rect.x + 1.0f;
-    const float y = rect.y + (rect.height - 10.0f) * 0.5f;
-    afterhours::draw_rectangle(RectangleType{x, y, 6.0f, 2.0f}, c);
-    afterhours::draw_rectangle(RectangleType{x + 1.0f, y + 2.0f, 4.0f, 3.0f}, c);
-    afterhours::draw_rectangle(RectangleType{x, y + 5.0f, 6.0f, 2.0f}, c);
-    afterhours::draw_rectangle(RectangleType{x + 1.0f, y + 7.0f, 4.0f, 1.0f}, c);
-    afterhours::draw_rectangle(RectangleType{x + 2.0f, y + 8.0f, 2.0f, 2.0f}, c);
+    const float u = viewport::px(1.0f);   // one logical pixel, in device px
+    const float x = rect.x + u;
+    const float y = rect.y + (rect.height - 10.0f * u) * 0.5f;
+    afterhours::draw_rectangle(RectangleType{x, y, 6 * u, 2 * u}, c);
+    afterhours::draw_rectangle(RectangleType{x + u, y + 2 * u, 4 * u, 3 * u}, c);
+    afterhours::draw_rectangle(RectangleType{x, y + 5 * u, 6 * u, 2 * u}, c);
+    afterhours::draw_rectangle(RectangleType{x + u, y + 7 * u, 4 * u, u}, c);
+    afterhours::draw_rectangle(RectangleType{x + 2 * u, y + 8 * u, 2 * u, 2 * u}, c);
 }
 
 }  // namespace hanabi::glyph

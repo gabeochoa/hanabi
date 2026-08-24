@@ -1,0 +1,71 @@
+# ui_scale is a ZOOM, not a bigger canvas.
+#
+# afterhours runs hanabi in Adaptive scaling mode, where theme.ui_scale
+# multiplies every pixels() value in the tree — sizes, paddings, absolute
+# translate, and explicit font sizes. hanabi ALSO computes several rectangles
+# for itself from the window size (the sidebar column, the tab strip, the
+# transcript pane, the composer strip, the status bar — layout_system.h), and
+# hands them back to the tree as pixels(). Read the DEVICE resolution for that
+# and every one of those rectangles is scaled a second time: at ui_scale 2 the
+# composer's y doubles to twice the window height and the strip leaves the
+# window entirely, the sidebar's full-height column becomes twice the window
+# tall and carries its footer off the bottom edge, and the transcript is laid
+# out in a pane twice as wide as the one it is drawn into. The app renders,
+# reports no error, and is missing its whole bottom third.
+#
+# src/ui/viewport.h is the fix: width()/height() are the window in LOGICAL
+# pixels — device / ui_scale — which is the unit pixels() speaks. Every one of
+# hanabi's own measurements goes through them.
+#
+# So this asserts the property that distinguishes a zoom from a bigger canvas:
+# at ui_scale 2 in a 2200x1520 window, the same furniture is in the same
+# PLACE, at exactly twice the size. Every number below is 2x the number the
+# 1x build puts there — sidebar 280 -> 560, status bar 26 tall so its top is
+# 1520-52, composer x at the sidebar's edge.
+#
+# Verified to fail without the fix: with viewport.h's width()/height()
+# returning the raw device size, composer_bar renders at y=2792 with w=3840 in
+# a 1520-tall, 2200-wide window, sb_footer_rule at y=2984 and status_bar_bg at
+# y=2988 — the four assertions below read
+#
+#   assert_ui 'sb_footer_rule': y=1464 but got 2984
+#   assert_ui 'composer_bar':   w=1640 but got 3840
+#   assert_ui 'composer_bar':   y=1272 but got 2792
+#   assert_ui 'status_bar_bg':  y=1468 but got 2988
+#
+# and the transcript check times out with nothing but the sidebar visible.
+# (`sidebar w=560` passes either way — the sidebar's own width does not come
+# through layout_system.h's arithmetic. It is asserted anyway, because it is
+# the reference the other four are measured against.)
+#
+# The rest of the suite is the other half of the contract: it runs with
+# HANABI_UI_SCALE unset, where the knob is a hard no-op.
+
+# settings: {"window_width":2200,"window_height":1520,"open_tabs":["r5"],"active_tab":"r5","theme":"dark"}
+# env: HANABI_UI_SCALE=2.0 HANABI_WIN_W=2200 HANABI_WIN_H=1520
+
+wait_frames 30
+
+# The sidebar is 280 logical px wide, so 560 device px — not 280 in a 2200px
+# window (a thin rail in a big canvas), and not 1120 (scaled twice).
+assert_ui sidebar w=560
+
+# Its footer rule is still ON the window, near the bottom. Scaled twice, the
+# sidebar column is 3040 tall and this lands at y=2984, off the frame.
+assert_ui sb_footer_rule y=1464
+
+# The composer strip starts at the sidebar's trailing edge and spans the rest
+# of the window: 2200 - 560 = 1640.
+assert_ui composer_bar x=560 w=1640
+
+# And it is above the status bar, not below the window. This is the assertion
+# that goes red without the fix.
+assert_ui composer_bar y=1272
+
+# The status bar sits on the window's floor: 26 logical px tall, so its top is
+# 1520 - 52.
+assert_ui status_bar_bg y=1468
+
+# The thread really is rendered — the geometry above is of a live pane, not of
+# an empty one that happens to measure correctly.
+expect_text "the build box is at 96% disk"

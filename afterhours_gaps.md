@@ -4802,3 +4802,230 @@ here for about an hour and shipped a `pinInk` local that existed for no reason.
 
 CLASS: NOT A GAP
 
+
+---
+
+### #97 — The renderer's private 5px text margin is in DEVICE pixels, so every label slides toward its leading edge as `ui_scale` rises
+
+**What was wanted.** To render hanabi's UI at 2x and reduce it to 1x, so that
+its glyphs and Puffin's are sampled the same way and the parity metric's
+8–12% text floor becomes measurable. `theme.ui_scale = 2.0` in Adaptive mode is
+the supported way to ask for that: it multiplies every `pixels()` value in the
+tree, explicit font sizes included, so a 2360x1898 render at scale 2 is the
+same UI at twice the size.
+
+**What happens.** Every label lands 2.5px to the left of where the 1x build put
+it, and at scale 3 it lands 3.3px left. Gap #75 already named the cause —
+`draw_text_in_rect` builds `Vector2Type margin_px{5.f, 5.f}` as a literal and
+hands it to `position_text_ex`, which offsets the glyph run by it, and nothing
+on `ComponentConfig` reaches the value. What #75 did not say, because at the
+time there was only one scale, is that **the literal is never multiplied by
+`ui_scale`**. It is 5 DEVICE pixels at every zoom level, which is
+`5 / ui_scale` logical pixels — so it is not an inset at all, it is a
+scale-dependent one, and it moves the text relative to its own box every time
+the app zooms.
+
+Four render scales of the same build, measuring the "Settings" nav label's ink
+start in device pixels and dividing by the scale to get logical pixels:
+
+| ui_scale | label starts at | `5/s` | residual |
+|---|---|---|---|
+| 1.0 | 37.000 | 5.000 | 32.00 |
+| 1.5 | 34.667 | 3.333 | 31.33 |
+| 2.0 | 34.000 | 2.500 | 31.50 |
+| 3.0 | 33.333 | 1.667 | 31.67 |
+
+The residual is flat to within 0.7px across a 3x range — that is the first
+glyph bearing — so the drift is exactly `5/s` and nothing else. The same
+measurement across the eighteen visible session-row titles: the left inset goes
+from 5.5px at 1x to 2.8px at 2x, against the reference's 6.6px.
+
+The same literal also sets `max_text_size.x = container.width - 2 * margin_px.x`,
+so an auto-fitted label gets 10 device pixels more room to grow into at scale 2
+than the same label had at scale 1 — the fitted size is scale-dependent too.
+`rendering.h:681` and the sibling `{5.f, 5.f}` at `:640`, `:846` and `:2186`
+are all the same constant.
+
+**Why the obvious escapes do not work.**
+
+- **Author every left pad as `design_inset - 5.0f`** — #75's workaround, and it
+  is what hanabi does. It is only correct at one scale. At scale 2 the
+  compensation over-corrects by 2.5px in the opposite direction, so a build
+  tuned for 1x is wrong at 2x and vice versa; there is no pad that is right at
+  both.
+- **Compensate by scale in app code** — the correction is
+  `5 * (1 - 1/ui_scale)` per label, which means every one of the app's ~200
+  label call sites grows a term that depends on a global, for a margin the
+  caller never asked for.
+- **Set the margin to zero** — there is no way to; that is #75.
+- **Use `text_x_offset`** — `HasLabel::text_x_offset` is applied before the
+  margin, not instead of it (`rendering.h:1616`), it is not on
+  `ComponentConfig` (#91), and it too is a raw float nobody scales.
+- **Avoid the zoom** — then the app has no zoom, and the capture cannot be
+  supersampled. Which is the point.
+
+**The workaround, and its cost.** For the capture: none — the drift is accepted
+and reported. Measured against `ref/01_home.png`, the misregistration is worth
+**+1.49 points on the VIEWS region and roughly +1.3 on the row titles**, which
+is more than everything a 2x capture gains elsewhere. Removing it with a
+sub-pixel shift sweep (so the comparison is at each capture's best offset)
+recovers all of the VIEWS regression — 6.02% back to 3.85%, against 1x's 3.66%
+— which is how we know the rest of the 2x result is not a registration
+artefact. For the app: hanabi's zoom is usable but every label is up to 2.5px
+off its designed inset, in a direction that depends on the zoom level.
+
+**Minimal upstream fix.** Resolve the margin through the scaling cascade the
+same way the font size beside it already is. `position_text_ex`'s callers
+already have `cmp.resolved_scaling_mode` and `theme.ui_scale` in hand two lines
+earlier (`rendering.h:2177-2180`); passing `Vector2Type{px(5), px(5)}` instead
+of `{5.f, 5.f}` is a one-line change per call site and a no-op at scale 1. The
+better version is still #75's: honour the element's own padding and drop the
+private margin entirely.
+
+CLASS: WORKAROUND
+
+---
+
+### #98 — There is no supersampled capture: `ui_scale` is a LAYOUT zoom, and a zoom is not a supersample
+
+**What was wanted.** hanabi's parity references are Puffin captured at 2x on a
+retina panel and reduced to 1x. To compare like for like, hanabi's own headless
+capture needs to render the same 1x layout into a 2x buffer and be reduced the
+same way — supersampling, in the ordinary sense: the geometry is unchanged and
+only the sampling rate goes up.
+
+**What happens.** afterhours has no way to express that. `graphics::Config`
+carries `display`, `width`, `height`, `target_fps`, `flags` and `title`; there
+is no render scale, no framebuffer scale, and no sample count (the sample count
+is pinned at 1 in both setup paths — that is #92). `Config.hidpi` exists but is
+honoured only by the raylib backend, and hanabi is on Metal/sokol.
+
+The only lever that does anything is `theme.ui_scale`, and it is a different
+operation. It multiplies `pixels()` values **before layout**, so the UI is
+re-laid-out at the larger size and every string is re-measured, re-fitted and
+re-advanced at the larger font size. That is a browser zoom. A supersample
+would leave the layout alone and scale the transform.
+
+The difference is not academic; it is the whole result of this branch. Rendered
+at 2360x1898 with `ui_scale 2.0` and reduced to 1180x949 with LANCZOS, measured
+over the eighteen visible session-row titles against `ref/01_home.png`:
+
+| | reference | hanabi 1x | hanabi 2x-reduced |
+|---|---|---|---|
+| mean ink px per title | 685 | 640 | 662 |
+| mean string width | 148.5 | 148.3 | **150.6** |
+
+The ink weight improves — half the deficit against CoreText's stem-darkened
+render closes, which is the visible win. But the strings come out **2.3px wider
+on average**, because fontstash measured and advanced them at 33px and the
+result was halved, which is not the same as advancing at 16.5px. A true
+supersample would have reproduced the 1x advances exactly and only softened the
+edges. Scored at each capture's own best sub-pixel offset, so registration is
+not in it, the row-title column goes **14.57% → 15.86%**: the zoom costs more
+in placement than it gains in weight.
+
+Nothing in the frame that is not text improves or regresses this way — the
+hand-drawn row marks go **6.92% → 5.67%**, a 1.25-point win, because a shape
+has no advances to get wrong and the reduction is the antialiasing #92 says
+does not exist. So the two operations are separable in principle and the
+library conflates them.
+
+**Why the obvious escapes do not work.**
+
+- **Render into a 2x texture without `ui_scale`** — the original `main.cpp`
+  comment's version, and it is right: the layout just uses the extra room (a
+  thin sidebar in a big canvas). Confirmed; not retried here.
+- **`ui_scale` plus a 2x framebuffer** — what this branch built. It works, it
+  is a correct zoom, and it is measured above: not a supersample.
+- **Scale the sgl transform by 2 around the whole frame** — `sgl` matrix
+  helpers are not exposed through the graphics facade, the UI plugin issues its
+  own draw calls, and the text path bakes the font atlas at a size chosen from
+  the resolved font size, so a transform scale would blit 1x glyph bitmaps at
+  2x and look worse than 1x.
+- **Turn on MSAA instead** — not reachable either, and it is #92; MSAA also
+  does nothing for text, which is atlas-sampled.
+- **Patch the backend** — `vendor/afterhours` is read-only here: ~20 projects
+  vendor it.
+
+**The workaround, and its cost.** `HANABI_SHOOT_2X=1` on both shoot scripts
+does the zoom-and-reduce, and it is **off by default because it is worse
+overall** (shared-surface structural 9.12% → 9.68% on `01_home`, 5.84% → 6.00%
+on `02_thread`). It is kept because it is the only way to see the row-mark win,
+and because having measured it is what stops the fourth investigation from
+concluding "the rest is the rasterizer" and reaching for it again. Cost: the
+parity harness has no like-for-like capture and, per the measurement above,
+cannot get one from this library.
+
+**Minimal upstream fix.** A `render_scale` on `graphics::Config` (default 1.0)
+that multiplies the offscreen target's dimensions and the view transform,
+leaving the layout's logical size alone — the offscreen path already builds its
+own `sg_desc` and `sgl_context_desc_t`, so it is where the two dimensions are
+chosen and the only place that needs to know. Pair it with #92's sample count,
+which is the other half of the same struct.
+
+CLASS: IMPOSSIBLE
+
+---
+
+### #99 — `on_draw_fg` is handed a SCALED rect and no scale, so every shape the library cannot draw silently stays 1x when the app zooms
+
+**What was wanted.** hanabi draws a lot of its own chrome, because the library
+cannot: five row-state marks (#92 — no antialiased primitives), a mute ring, an
+attention triangle, a disclosure chevron, a send arrow, a pushpin and a radio
+(#48 — the font has no arrows, no geometric shapes, no box-drawing), plus every
+icon-atlas blit (#13/#15 — the default pipeline has blending off). All of them
+go through `.with_on_draw_fg(cb)` or an immediate-mode helper. At `ui_scale
+2.0` they should be twice the size, like everything else.
+
+**What happens.** They stay exactly 1x, inside a frame where everything around
+them has doubled. An 8px dot is an 8px dot in a 32px row.
+
+The callback's signature is `std::function<void(RectangleType)>`. The rect it
+receives has been through the whole scaling cascade and is correct. Every
+number **inside** the callback — a radius, a stroke width, a sprite's blit
+size, an optical y-bias, a hand-positioned sub-rect — is a literal in app code
+that the library never sees and therefore never scales. There is no scale
+argument, no second parameter, no context object, and `HasUIModifiers::scale`
+is applied to the widget's own transform rather than exposed to the callback.
+
+It is not visually obvious either. Everything is in the right PLACE, because
+the rect is right; the marks are just small. On a first 2x capture of this app
+it read as "the icons are a bit light" for several minutes.
+
+**Why the obvious escapes do not work.**
+
+- **Read the global theme inside the callback** — `imm::ThemeDefaults::get()
+  .theme.ui_scale`, which is what hanabi now does (`viewport::px`). It works
+  and it is a no-op at scale 1, but it is wrong for any widget that overrides
+  its own scaling mode: `with_scaling_mode(ScalingMode::Proportional)` means
+  that widget's `pixels()` are NOT scaled, and the global read cannot know
+  that. The correct value is `resolved_scaling_mode == Adaptive ? ui_scale :
+  1.0f`, which lives on the widget's `UIComponent` — reachable from a system,
+  not from inside the callback, which has no entity.
+- **Capture the scale when the callback is built** — the callbacks are built
+  every frame in immediate mode, so this is the same read one line earlier, and
+  it has the same defect plus a stale-by-one-frame window on a zoom change.
+- **Derive it from the rect** — the rect is scaled, but so is the slot it came
+  from; there is no unscaled reference to divide by.
+- **Size everything from the rect instead of from literals** — works for a mark
+  that fills its slot and not for one measured off a reference, which is all of
+  hanabi's: the arc is 4.8px at a 13px slot because the reference's arc is
+  4.8px, not because it is 0.37 of a slot.
+
+**The workaround, and its cost.** `hanabi::viewport::px(v)` — `v * ui_scale`,
+read from the global theme — wrapped around 25 literals in `src/ui/icons.h` and
+`src/ecs/sidebar_system.h`. Two costs. Every future `on_draw_fg` has to
+remember, and forgetting is invisible at the only scale anyone tests at; and
+the app can no longer use per-widget `Proportional` overrides anywhere near a
+drawn glyph without the two disagreeing. Worth it: the marks are the one part
+of the frame a supersampled capture measurably improves, 6.92% → 5.67% against
+`ref/01_home.png`.
+
+**Minimal upstream fix.** Pass the resolved scale to the callback —
+`std::function<void(RectangleType, float)>`, or a small `DrawContext{rect,
+scale}` if the signature is worth keeping stable. The renderer has
+`cmp.resolved_scaling_mode` and `ctx.theme.ui_scale` in hand at the call site,
+so it is the one place that can answer correctly, and a callback that ignores
+the second argument behaves exactly as it does today.
+
+CLASS: WORKAROUND

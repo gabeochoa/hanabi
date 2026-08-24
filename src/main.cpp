@@ -25,6 +25,7 @@
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
+#include "test_hooks.h"
 #include "util/capture_clock.h"
 #include "util/notify_events.h"
 #include "util/quiet_hours.h"
@@ -147,6 +148,14 @@ static void setup_app_state() {
     styling.set_default_font(afterhours::ui::UIComponent::DEFAULT_FONT,
                              afterhours::ui::pixels(14.0f));
     styling.set_scaling_mode(afterhours::ui::ScalingMode::Adaptive);
+
+    // Supersampled capture (HANABI_UI_SCALE, see src/test_hooks.h). Unset is a
+    // hard no-op: theme.ui_scale is left at its 1.0 default and nothing below
+    // this line behaves differently, so every windowed run and the whole
+    // scripted UI suite are unaffected.
+    if (const float uis = hanabi::test_hooks::ui_scale(); uis != 1.0f) {
+        afterhours::ui::imm::ThemeDefaults::get().theme.ui_scale = uis;
+    }
 
     // App singleton: build the client from the environment (mock by default).
     auto& appEntity = EntityHelper::createEntity();
@@ -977,13 +986,26 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     hanabi::links::headless() = true;
 
     // NOTE on hi-DPI: the WINDOWED app already runs high_dpi=true, so the real
-    // window is crisp on Retina. This HEADLESS capture path, however, renders
-    // into a fixed w*h offscreen texture at 1x — the Metal backend does not
-    // supersample it (Config.hidpi is honored only by the raylib backend). We
-    // do NOT patch vendored afterhours; a crisp @2x headless capture needs an
-    // upstream change (see afterhours_gaps.md). Rendering into a 2x-sized
-    // texture does NOT help: the adaptive UI just lays out at the larger
-    // logical size (thin sidebar in a big canvas), it doesn't supersample.
+    // window is crisp on Retina. This HEADLESS capture path renders into a
+    // fixed w*h offscreen texture and the Metal backend does not supersample
+    // it — `Config.hidpi` is honored only by the raylib backend, and there is
+    // no render-scale or sample-count on `graphics::Config` at all
+    // (afterhours_gaps.md #98, #92). We do NOT patch vendored afterhours.
+    //
+    // What DOES work, and the old note here said it did not: pass a 2x w/h AND
+    // set HANABI_UI_SCALE=2.0 (src/test_hooks.h). In Adaptive scaling mode —
+    // which is what setup_app_state selects — theme.ui_scale multiplies every
+    // pixels() value including explicit font sizes, so the result is the same
+    // UI at twice the size rather than a thin sidebar in a big canvas. That is
+    // what `HANABI_SHOOT_2X=1 scripts/shoot_hanabi.sh` captures and reduces
+    // with LANCZOS.
+    //
+    // It is a layout ZOOM, not a supersample, and for the parity metric that
+    // distinction is the whole answer: the strings are re-advanced at the
+    // larger size rather than sampled more finely, so a 2x-reduced capture
+    // scores WORSE on every text region and better on every drawn shape. Do
+    // not make it the default; the numbers are in
+    // docs/visual-parity/FRICTION_LOG.md, "Capturing at 2x (feat/vis-hidpi)".
     graphics::Config gcfg{};
     gcfg.display = graphics::DisplayMode::Headless;
     gcfg.width = w;

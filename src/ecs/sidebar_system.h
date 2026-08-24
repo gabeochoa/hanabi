@@ -810,14 +810,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static void draw_mute_mark(RectangleType rect, theme::Color c) {
         // Sits toward the slot's right with a gap before the star, matching how
         // the star insets itself from the timestamp.
-        const float cx = rect.x + rect.width - 12.0f;
-        const float cy = rect.y + rect.height * 0.5f - 1.0f;
-        const float r = 5.0f;
+        const float cx = rect.x + rect.width - hanabi::viewport::px(12.0f);
+        const float cy = rect.y + rect.height * 0.5f - hanabi::viewport::px(1.0f);
+        const float r = hanabi::viewport::px(5.0f);
         afterhours::draw_circle_lines(static_cast<int>(cx),
                                       static_cast<int>(cy), r, c);
         const float d = r * 0.72f;
         afterhours::draw_line_ex(afterhours::vec2{cx - d, cy + d},
-                                 afterhours::vec2{cx + d, cy - d}, 1.5f, c);
+                                 afterhours::vec2{cx + d, cy - d},
+                                 hanabi::viewport::px(1.5f), c);
     }
 
     // Draw the status mark centered inside `rect` (the on-screen rect of the
@@ -834,15 +835,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Puffin centres the glyph 1.5px above the row's midline and 1px right
         // of where a 13px slot's own centre falls; both are measured, and
         // without them every glyph reads a row-half low.
-        const float cx = rect.x + rect.width * 0.5f + 1.0f;
-        const float cy = rect.y + rect.height * 0.5f - 1.5f;
+        const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(1.0f);
+        const float cy = rect.y + rect.height * 0.5f - hanabi::viewport::px(1.5f);
         const theme::Color c = mark_color(m.tone);
         switch (m.shape) {
             case Glyph::Arc: {
                 // The gap is the LOWER LEFT quadrant: ink runs from ~190deg
                 // (left) up over the top, down the right and round to ~85deg.
-                afterhours::draw_ring_segment(cx, cy, 3.0f, 4.8f, -170.0f,
-                                              85.0f, 28, c);
+                afterhours::draw_ring_segment(cx, cy, hanabi::viewport::px(3.0f), hanabi::viewport::px(4.8f),
+                                              -170.0f, 85.0f, 28, c);
                 break;
             }
             case Glyph::Dot: {
@@ -850,8 +851,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // at this size lands the dot half a pixel off and reads as a
                 // lumpy polygon. A zero-inner-radius ring segment is the same
                 // shape with a float centre.
-                afterhours::draw_ring_segment(cx, cy, 0.0f, 3.9f, 0.0f, 360.0f,
-                                              28, c);
+                afterhours::draw_ring_segment(cx, cy, 0.0f, hanabi::viewport::px(3.9f), 0.0f,
+                                              360.0f, 28, c);
                 break;
             }
             case Glyph::Bang: {
@@ -859,22 +860,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // clear row of gap, then a 3px tittle, all on the same x as
                 // the dots' centre. The old numbers drew it two rows short
                 // with a 1px tittle, which read as a thin dash at a glance.
-                const float bx = cx - 1.0f;
-                afterhours::draw_line_ex(afterhours::vec2{bx, cy - 5.0f},
-                                         afterhours::vec2{bx, cy + 3.0f}, 2.3f,
-                                         c);
-                afterhours::draw_ring_segment(bx, cy + 6.0f, 0.0f, 1.5f, 0.0f,
-                                              360.0f, 16, c);
+                const float bx = cx - hanabi::viewport::px(1.0f);
+                afterhours::draw_line_ex(
+                    afterhours::vec2{bx, cy - hanabi::viewport::px(5.0f)},
+                    afterhours::vec2{bx, cy + hanabi::viewport::px(3.0f)}, hanabi::viewport::px(2.3f), c);
+                afterhours::draw_ring_segment(bx, cy + hanabi::viewport::px(6.0f), 0.0f,
+                                              hanabi::viewport::px(1.5f), 0.0f, 360.0f, 16, c);
                 break;
             }
             case Glyph::Cross: {
-                const float h = 3.9f;
+                const float h = hanabi::viewport::px(3.9f);
                 afterhours::draw_line_ex(afterhours::vec2{cx - h, cy - h},
-                                         afterhours::vec2{cx + h, cy + h}, 2.0f,
-                                         c);
+                                         afterhours::vec2{cx + h, cy + h},
+                                         hanabi::viewport::px(2.0f), c);
                 afterhours::draw_line_ex(afterhours::vec2{cx + h, cy - h},
-                                         afterhours::vec2{cx - h, cy + h}, 2.0f,
-                                         c);
+                                         afterhours::vec2{cx - h, cy + h},
+                                         hanabi::viewport::px(2.0f), c);
                 break;
             }
             case Glyph::Chevron: {
@@ -883,13 +884,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // the reference's row chevron is a stroked ">" and a solid
                 // wedge at this size reads as a play button. Drawn here rather
                 // than shared, because the folder one is deliberately filled.
-                const float h = 4.2f;   // half-height, measured
-                const float w = 2.0f;   // half-width
+                const float h = hanabi::viewport::px(4.2f);   // half-height, measured
+                const float w = hanabi::viewport::px(2.0f);   // half-width
                 const afterhours::vec2 top{cx - w, cy - h};
                 const afterhours::vec2 tip{cx + w, cy};
                 const afterhours::vec2 bot{cx - w, cy + h};
-                afterhours::draw_line_ex(top, tip, 2.0f, c);
-                afterhours::draw_line_ex(tip, bot, 2.0f, c);
+                afterhours::draw_line_ex(top, tip, hanabi::viewport::px(2.0f), c);
+                afterhours::draw_line_ex(tip, bot, hanabi::viewport::px(2.0f), c);
                 break;
             }
         }
@@ -906,14 +907,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                     float px) {
         const float cx = rect.x + rect.width * 0.5f;
         const float cy = rect.y + rect.height * 0.5f;
-        const float hw = px * 0.5f;          // half-width of the triangle base
-        const float hh = px * 0.44f;         // half-height (apex above center)
+        const float dp = hanabi::viewport::px(px);
+        const float hw = dp * 0.5f;          // half-width of the triangle base
+        const float hh = dp * 0.44f;         // half-height (apex above center)
         const afterhours::vec2 apex{cx, cy - hh};
         const afterhours::vec2 bl{cx - hw, cy + hh};
         const afterhours::vec2 br{cx + hw, cy + hh};
         // Outlined triangle (3 stroked edges) so it reads as a warning sign,
         // not a solid alert. ~1.4px stroke matches the Lucide line weight.
-        const float t = 1.4f;
+        const float t = hanabi::viewport::px(1.4f);
         afterhours::draw_line_ex(apex, bl, t, c);
         afterhours::draw_line_ex(bl, br, t, c);
         afterhours::draw_line_ex(br, apex, t, c);
@@ -1260,7 +1262,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_rail_divider(UIContext<InputAction>& ctx, Entity& uiRoot,
                              LayoutComponent& layout) {
         const float h =
-            static_cast<float>(afterhours::graphics::get_screen_height());
+            hanabi::viewport::height();
         const float x = layout.sidebar.x + layout.sidebar.width - 1.0f;
         div(ctx, mk(uiRoot, 1900),
             ComponentConfig{}
@@ -1788,7 +1790,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     if (railDot) {
                         const float cx = rect.x + rect.width * 0.5f + 8.0f;
                         const float cy = rect.y + rect.height * 0.5f - 7.0f;
-                        afterhours::draw_circle_v(afterhours::vec2{cx, cy}, 3.2f,
+                        afterhours::draw_circle_v(afterhours::vec2{cx, cy},
+                                                  hanabi::viewport::px(3.2f),
                                                   dotColor);
                     }
                 })

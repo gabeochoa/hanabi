@@ -31,6 +31,20 @@ content is deterministic and can be matched.
 | logical size | 1180 x 949 (Puffin's own window; hanabi is told to match) |
 | captured at | 2x, downsampled to 1x — never upscale hanabi to meet it |
 
+**Nor should you render hanabi at 2x to meet it, which is the other half of the
+same instinct and now has a number.** `feat/vis-hidpi` built exactly that —
+`HANABI_SHOOT_2X=1` on both shoot scripts renders the same UI into a 2360x1898
+texture at `theme.ui_scale = 2.0` and reduces it with LANCZOS — and it scores
+**worse**: shared-surface structural 9.12% → 9.68% on `01_home`, 5.84% → 6.00%
+on `02_thread`, with the session list going the wrong way (14.02% → 14.60%).
+It is worse on every text region and better on every drawn shape, and that
+split holds after correcting for registration. afterhours has no supersample,
+only a layout zoom (gap #98), so a 2x render re-measures and re-advances every
+string at 33px rather than sampling the 16.5px layout more finely: the ink
+weight gets closer to Puffin's and the letters land in different places, which
+the metric charges for. The 1x capture is the default and should stay it.
+Full working in `FRICTION_LOG.md` under `## Capturing at 2x (feat/vis-hidpi)`.
+
 ## Palette
 
 Puffin uses **one background** for the whole window. There is no separate panel

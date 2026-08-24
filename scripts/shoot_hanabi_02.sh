@@ -31,6 +31,14 @@
 # to back and diff the two hanabi PNGs against each other first: if they
 # differ anywhere you did not touch, the clock moved and the comparison is
 # void.
+#
+# ---------------------------------------------------------------------------
+# 2x CAPTURE (HANABI_SHOOT_2X=1) -- opt-in, off by default, and identical in
+# meaning to the same knob on shoot_hanabi.sh: render the SAME UI into a
+# 2360x1898 texture at theme.ui_scale = 2.0 (afterhours' Adaptive scaling --
+# a zoom, not a bigger canvas) and reduce to 1180x949 with LANCZOS, the way
+# the reference was reduced. Both paths write the same 1180x949 file.
+# ---------------------------------------------------------------------------
 # ===========================================================================
 set -uo pipefail
 
@@ -47,19 +55,42 @@ fi
 H="$(mktemp -d /tmp/hanabi_shoot02_home.XXXXXX)"
 trap 'rm -rf "$H"' EXIT
 mkdir -p "$H/Library/Application Support/hanabi"
+
+# Render size: 1x by default, 2x when HANABI_SHOOT_2X=1 (see the header).
+W1X=1180
+H1X=949
+if [ "${HANABI_SHOOT_2X:-0}" = "1" ]; then
+    WPX=$((W1X * 2)); HPX=$((H1X * 2)); UIS=2.0
+    RAW="${OUT%.png}.raw2x.png"
+else
+    WPX=$W1X; HPX=$H1X; UIS=1.0
+    RAW="$OUT"
+fi
+
 cat > "$H/Library/Application Support/hanabi/settings.json" <<JSON
-{"window_width":1180,"window_height":949,"open_tabs":["$TAB"],"active_tab":"$TAB","pinned_tabs":[],"theme":"dark"}
+{"window_width":$WPX,"window_height":$HPX,"open_tabs":["$TAB"],"active_tab":"$TAB","pinned_tabs":[],"theme":"dark"}
 JSON
 
-rm -f "$OUT"
-env HOME="$H" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
-    HANABI_CONFIG="/tmp/none_$$" "$EXE" --screenshot "$OUT" \
+rm -f "$OUT" "$RAW"
+env HOME="$H" HANABI_WIN_W="$WPX" HANABI_WIN_H="$HPX" HANABI_UI_SCALE="$UIS" \
+    HANABI_BACKEND=mock \
+    HANABI_CONFIG="/tmp/none_$$" "$EXE" --screenshot "$RAW" \
     > "/tmp/hanabi_shoot02_$$.log" 2>&1 &
 pid=$!
 for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
 kill -9 "$pid" 2>/dev/null
 wait "$pid" 2>/dev/null
 pkill -9 -f "^$EXE" >/dev/null 2>&1
+
+if [ "${HANABI_SHOOT_2X:-0}" = "1" ]; then
+    if ! /usr/bin/python3 "$ROOT/scripts/downsample.py" "$RAW" "$OUT" \
+            "$W1X" "$H1X"; then
+        echo "FAIL: 2x downsample" >&2
+        tail -20 "/tmp/hanabi_shoot02_$$.log" >&2
+        exit 1
+    fi
+    rm -f "$RAW"
+fi
 
 dim="$(/usr/bin/file "$OUT" 2>/dev/null | sed -nE 's/.*, ([0-9]+ x [0-9]+),.*/\1/p')"
 if [ "$dim" != "1180 x 949" ]; then
