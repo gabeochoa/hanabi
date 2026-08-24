@@ -237,14 +237,14 @@ inline void radio(RectangleType rect, bool selected, theme::Color c,
 // paints NOTHING (gap #48), so the mark is drawn: a round head, a shaft down
 // from it, and a short crossbar where the head meets the shaft.
 inline void pin(RectangleType rect, theme::Color c) {
-    const float cx = rect.x + rect.width * 0.5f;
-    const float top = rect.y + rect.height * 0.5f - 5.0f;
-    afterhours::draw_circle(static_cast<int>(cx), static_cast<int>(top + 3.0f),
-                            3.0f, c);
-    afterhours::draw_rectangle(
-        RectangleType{cx - 0.5f, top + 5.0f, 1.5f, 5.0f}, c);
-    afterhours::draw_rectangle(
-        RectangleType{cx - 3.0f, top + 5.0f, 6.0f, 1.5f}, c);
+    // Thumbtack in profile, traced off the reference: flat cap, narrow shaft,
+    // wide flange, needle. A 7x10 mark drawn from the rect's top-left.
+    const float x = rect.x + 1.0f;
+    const float y = rect.y + (rect.height - 10.0f) * 0.5f;
+    afterhours::draw_rectangle(RectangleType{x, y, 6.0f, 2.0f}, c);
+    afterhours::draw_rectangle(RectangleType{x + 1.0f, y + 2.0f, 2.0f, 3.0f}, c);
+    afterhours::draw_rectangle(RectangleType{x, y + 5.0f, 6.0f, 2.0f}, c);
+    afterhours::draw_rectangle(RectangleType{x + 2.0f, y + 7.0f, 2.0f, 3.0f}, c);
 }
 
 }  // namespace hanabi::glyph

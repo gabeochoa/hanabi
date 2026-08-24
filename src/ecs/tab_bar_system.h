@@ -9,6 +9,7 @@
 // Mirrors floatinghotel/src/ecs/tab_bar_system.h.
 
 #include <algorithm>
+#include <bitset>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -56,15 +57,37 @@ inline afterhours::Color tab_hover() {
     return theme::over(theme::hover_bg(), theme::window_bg());
 }
 inline afterhours::Color tab_text() { return theme::text_secondary(); }
-inline afterhours::Color tab_text_act() { return theme::text_primary(); }
+// The reference's active-tab title is pure white on the selected fill, a step
+// brighter than text_primary; light mode keeps its own ink.
+inline afterhours::Color tab_text_act() {
+    return theme::g_mode == theme::Mode::Dark
+               ? afterhours::Color{255, 255, 255, 255}
+               : theme::text_primary();
+}
 inline afterhours::Color close_hover() {
     return theme::over(theme::hover_bg(), theme::panel_bg());
 }
 inline afterhours::Color border() { return theme::border(); }
+inline afterhours::Color tab_outline() { return theme::divider(); }
 inline afterhours::Color accent() { return theme::accent(); }
-// Measured off the reference: the tab's corner is 6px, not a fraction of its
-// height.
-inline constexpr float kTabCorner = 6.0f;
+inline constexpr float kTabCorner = 4.0f;
+inline constexpr float kTabBorderPx = 1.0f;
+// afterhours rasterizes a w*h box at (x,y) as (w+1)*(h+1) pixels anchored at
+// (x-1,y-1), so a tab whose OUTER edge must land on the reference's measured
+// 220x34 at (284,32) is asked for as 219x33 at (285,33) (gap #73).
+inline constexpr float kRasterGrow = 1.0f;
+// Gap #74. The corner bits are named for the OPPOSITE corner: the enum is
+// TOP_LEFT=0..BOTTOM_RIGHT=3 and the sokol backend reads the same bitset as
+// 3=TL 2=TR 1=BL 0=BR. Naming the bottom two is what rounds the top two on
+// screen. Do not "fix" this to read top_left/top_right; it renders inverted.
+inline std::bitset<4> tab_corners_top_round_bottom_square() {
+    using afterhours::ui::imm::CornerState;
+    return afterhours::ui::imm::RoundedCorners()
+        .all_sharp()
+        .bottom_left(CornerState::ROUND)
+        .bottom_right(CornerState::ROUND)
+        .get();
+}
 }  // namespace tab_colors
 
 struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
@@ -435,7 +458,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // A pinned tab spends its left gutter on the pin, so the title
             // starts further in. Both numbers are measured off the reference:
             // pin at left+12, title at left+26 (left+12 when unpinned).
-            const float padL = tab.pinned ? 26.0f : 12.0f;
+            // afterhours' draw_text_in_rect insets every string by a
+            // hardcoded 5px margin with no way to zero it (gap #75), so the
+            // padding we author is the design inset minus that margin.
+            const float kTextMarginPx = 5.0f;
+            const float padL =
+                (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx;
             // Ellipsize the title to the room the tab actually has: ~7px/char
             // at ROW size, minus left pad + (× reserve when shown).
             float rightReserve = showClose ? 26.0f : 8.0f;
@@ -448,9 +476,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             auto tabBtn = button(ctx, mk(uiRoot, 910 + static_cast<int>(i)),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(tabW), pixels(tabH)})
+                    .with_size(ComponentSize{
+                        pixels(tabW - tab_colors::kRasterGrow),
+                        pixels(tabH - tab_colors::kRasterGrow)})
                     .with_absolute_position()
-                    .with_translate(tabX, tabY)
+                    .with_translate(tabX + tab_colors::kRasterGrow,
+                                    tabY + tab_colors::kRasterGrow)
                     .with_custom_background(bg)
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
@@ -458,18 +489,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_padding(Padding{.left = pixels(padL),
                                           .right = pixels(showClose ? 24 : 8)})
                     .with_click_activation(ClickActivationMode::Press)
-                    // Round ALL FOUR corners. The mixed top_round()/sharp-bottom
-                    // path still renders a jagged bracket artifact on inactive
-                    // tabs even with the gap #25 FILL fix — the outline/edge
-                    // path glitches on the sharp bottom corners. all_round()
-                    // never hits the degenerate branch (every radius > 0), so
-                    // the tab reads as a clean rounded chip.
                     .with_corner_radius(tab_colors::kTabCorner)
-                    // An inactive tab is the window colour, exactly like the
-                    // strip behind it: the 1px outline is the only thing that
-                    // says where it starts and ends.
-                    .with_border(isActive ? bg : tab_colors::border(),
-                                 pixels(1))
+                    .with_rounded_corners(
+                        tab_colors::tab_corners_top_round_bottom_square())
+                    .with_border(isActive ? bg : tab_colors::tab_outline(),
+                                 pixels(tab_colors::kTabBorderPx))
                     .with_render_layer(baseLayer)
                     // The ACTIVE tab carries a fixed name: "which tab is
                     // current" is a thing tests need to assert, and the accent
@@ -484,8 +508,18 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(fmtutil::ellipsize(
                         model::tab_label_for(app, tab.sessionId), labelBudget))
-                    .with_size(ComponentSize{percent(1.0f), pixels(tabH)})
+                    .with_size(ComponentSize{
+                        percent(1.0f),
+                        pixels(tabH - tab_colors::kRasterGrow)})
                     .with_transparent_bg()
+                    // An unpadded child is NOT unpadded: afterhours applies
+                    // Spacing::sm (a fraction of the SCREEN) when every side is
+                    // Dim::None, which slid the title right and made the inset
+                    // window-size dependent. Zero it explicitly (gap #76).
+                    .with_padding(Padding{.top = pixels(0),
+                                          .left = pixels(0),
+                                          .bottom = pixels(0),
+                                          .right = pixels(0)})
                     .with_custom_text_color(txt)
                     .with_font_size(theme::type::ROW)
                     .with_alignment(TextAlignment::Left)

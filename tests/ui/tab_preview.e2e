@@ -2,10 +2,16 @@
 #
 # The point of preview mode is that browsing a list does not leave a tab behind
 # per glance, so the assertions are about SLOTS: the preview marker and the
-# active tab both sit at slot 0 (x=284) while three different threads are
-# looked at in turn, and only once a tab has been kept does the next glance get
-# a slot of its own beside it (x=508). Tabs are 220 wide on a 4px pitch, inset
-# 4px from the pane edge, so slot 1 starts at 284+224.
+# active tab both sit at slot 0 while three different threads are looked at in
+# turn, and only once a tab has been kept does the next glance get a slot of
+# its own beside it. Tabs are 220 wide on a 4px pitch, inset 4px from the pane
+# edge, so slot 0's outer edge is x=284 and slot 1's is 284+224=508.
+#
+# tab_active asserts 285 / 509, one MORE than those. afterhours rasterizes a
+# box one pixel up and to the left of where it is asked for (afterhours_gaps.md
+# #73), so a tab whose drawn edge must land on 284 is positioned at 285 — and
+# the harness reads the position, not the pixels. The preview marker is placed
+# straight off the slot origin and is not compensated, so it still reads 288.
 #
 # Rows are clicked by coordinate because the harness cannot name one row of a
 # list (afterhours_gaps.md #55): the band starts at y=380 with 24px rows, so
@@ -20,7 +26,7 @@ wait_frames 10
 click 140 386
 wait_frames 8
 assert_ui tab_preview x=288
-assert_ui tab_active x=284
+assert_ui tab_active x=285
 
 # A second thread REUSES that tab rather than opening another — the marker and
 # the accent are both still on slot 0, so there is exactly one tab and it is
@@ -28,7 +34,7 @@ assert_ui tab_active x=284
 click 140 410
 wait_frames 8
 assert_ui tab_preview x=288
-assert_ui tab_active x=284
+assert_ui tab_active x=285
 
 # Clicking the tab you are already reading is the second look, and the second
 # look keeps it. The next glance can no longer take that slot: it opens beside
@@ -38,4 +44,4 @@ wait_frames 8
 click 140 434
 wait_frames 8
 assert_ui tab_preview x=512
-assert_ui tab_active x=508
+assert_ui tab_active x=509
