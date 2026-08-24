@@ -12,6 +12,10 @@
 # re-derivation produces for D948120 in this thread at 1100x760; if the layout
 # moves, this fails loudly rather than passing on empty space.
 #
+# Re-measured on feat/vis-list: the link's ink bbox is now x=432..477,
+# y=453..462. It rose 8px when grid snapping went off (gap #71) — the body no
+# longer sits on a 4px grid it never asked for.
+#
 # The browser is never launched: a headless render has nobody to hand it to,
 # so the open is recorded and the transcript's own confirmation is what is
 # asserted here (src/ui/link_detect.h).
@@ -21,8 +25,8 @@
 
 expect_text "Built the config diff"
 
-mouse_move 456 465
+mouse_move 456 457
 wait_frames 4
-click 456 465
+click 456 457
 wait_frames 10
 expect_text "Opened D948120"

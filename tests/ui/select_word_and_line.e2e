@@ -10,16 +10,17 @@ expect_no_text selected
 
 # Inside "ledger" on the first account line: six characters.
 # The y here is a measured text-line centre, not a guess -- the three body
-# lines sit at 457 / 473 / 489 (they moved when the tab strip grew to the
-# reference's 67px and the body gained a bubble). A coordinate click is brittle by nature (see
+# lines sit at 445 / 461 / 477, and "ledger" on the middle one spans x=399..428.
+# They rose 12px when grid snapping went off (gap #71); before that they were at
+# 457 / 473 / 489. A coordinate click is brittle by nature (see
 # afterhours_gaps.md: there is no way to ask where a piece of text landed), so
 # if this starts selecting the wrong word, re-measure rather than nudge.
-double_click 415 473
+double_click 415 461
 wait_frames 6
 expect_text "6 selected"
 
 # The whole line is much longer than one word.
-triple_click 415 473
+triple_click 415 461
 wait_frames 6
 expect_no_text "6 selected"
 expect_text "61 selected"

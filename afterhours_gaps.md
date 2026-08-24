@@ -3378,6 +3378,11 @@ so every region carrying a measured number got closer. Session-row pitch is now
 exactly 32 at 949px tall, with all 18 row centres inside 1px of the reference
 (previously 33.5px of accumulated drift by row 18). Snapping is off app-wide.
 
+Elements really do move, even though no region got worse: at 1100x760 the
+transcript body rose 12px, which broke the two coordinate-addressed transcript
+tests (`select_word_and_line`, `tracker_links`). Both instruct in their own
+comments to re-measure rather than nudge, and both were re-measured.
+
 The upstream fix is still worth making: an app should not have to choose between
 "positions I asked for" and "grid alignment I did not", and the four rows of
 that table are the whole argument for honouring `skip_grid_snap` on the position
