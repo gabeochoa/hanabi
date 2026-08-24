@@ -20,9 +20,10 @@ under everyone else. These files do not move.
 
   | | |
   |---|---|
-  | user turn | x 792..1097, y 95..129 — right-aligned, 35px tall, shrink-to-fit |
-  | avatar | centred near x=801, fill (52,46,103) |
-  | user bubble fill | (237,237,245) — near-white, dark text |
+  | user turn | avatar x 791..811, bubble x 817..1097, y 95..129 — right-aligned, 35px tall, shrink-to-fit |
+  | avatar | a 20px disc, x 791..811 y 101..121, same fill as the bubble |
+  | user bubble fill | **(62,56,111)** — the same indigo as 01's |
+  | user bubble TEXT | (237,237,245) — near-white text ON the indigo |
   | assistant bubble | x 362..1031, y 153..276, fill (33,33,54) |
   | fenced code fill | (51,68,60) |
   | run-outcome divider | x 362..1097, y 296..303, rule (48,48,62) |
@@ -38,11 +39,54 @@ under everyone else. These files do not move.
   A torn frame does not agree with a reference taken six hours earlier to two
   decimal places. Do not try to re-shoot it while that job is running.
 
-Compare against them:
+  **Correction, 2026-08-24 (feat/vis-turns).** The row above read "user bubble
+  fill (237,237,245) — near-white, dark text" when this section was written.
+  It is not: (237,237,245) is the TEXT, and the fill is (62,56,111), the same
+  indigo 01 draws. Counted over the bubble's own rect (x 818..1097, y 95..129,
+  9800px): the indigo is **61.4%** of it and (237,237,245) is **3 pixels**.
+  Left in as a warning rather than quietly fixed, because the misreading is an
+  easy one — a single-pixel sample inside a bubble lands on a glyph about as
+  often as on the fill — and acting on it would have inverted hanabi's user
+  bubble to white-on-dark, away from the reference rather than towards it.
+  Sample a region and take the mode, never a pixel.
+
+  **The other three numbers in that table were right, and they confirm
+  Puffin's source independently.** The avatar disc measures 20px across
+  (`BubbleAvatar.diameter = 20`), it sits 6px left of the bubble (the user
+  row's `HStack(spacing: 6)`) and 6px below its top (`.padding(.top, 6)`).
+  Three constants read out of `AgentcloudTranscriptView.swift`, three
+  confirmations off a frame the source was not consulted for. When the source
+  and a measurement agree to the pixel, the constant is settled.
+
+  **02's version string reads v0.5.6 where 01's reads v0.5.5** — Puffin was
+  rebuilt between the two captures. Nothing else in the two frames' shared
+  chrome differs: the traffic lights, all four window corners and the status
+  band are byte-identical, which is a second, independent check that 02 is a
+  coherent frame and not a torn one.
+
+Shoot hanabi in each state with the script that matches it — `shoot_hanabi.sh`
+writes 01's two-pinned-tab blob and `shoot_hanabi_02.sh` writes 02's single
+unpinned one. Do not edit either to shoot the other state; several agents run
+them at once.
 
 ```bash
-/usr/bin/python3 ~/w/vis/compare.py ~/w/vis/ref/01_home.png <your_shot.png> --regions --diff /tmp/d.png
+scripts/shoot_hanabi.sh    /tmp/hb01.png          # 01: t9 + t2, both pinned
+scripts/shoot_hanabi_02.sh /tmp/hb02.png          # 02: r5, one unpinned tab
+/usr/bin/python3 scripts/compare.py docs/visual-parity/ref/01_home.png /tmp/hb01.png --regions --diff /tmp/d.png
 ```
+
+`02_thread.png` declares the four capture divergences and **not** the
+transcript one — that is what it was captured for. Its declared cost is 0.25
+structural points against 01's 4.75, so on 02 the transcript is a surface the
+two apps genuinely share and every pixel of it is scoreable.
+
+**Shoot both sides of an A/B back to back.** The mock fixture's timestamps are
+wall-clock-relative and the transcript inserts a date divider where the
+calendar day changes between two messages, so around local midnight the
+divider moves — or vanishes — between one capture and the next, shifting every
+row below it. Two shots of one unmodified binary three minutes apart measured
+4.19% and 4.66% on `main`. Diff the two hanabi PNGs against each other before
+you believe any difference between them.
 
 `--regions` prints two columns per region: **STRUCT first — that is the one to
 drive** — and RAW beside it. Until 2026-08-24 the table printed RAW only, while

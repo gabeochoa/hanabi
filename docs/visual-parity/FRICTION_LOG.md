@@ -1262,6 +1262,9 @@ a semibold because it is the correct render, never because of a parity number.
    `scripts/*.py --selftest` sweep at the end of `run_tests.sh` would be one
    line and would cover this and anything after it.
 
+
+---
+
 ---
 
 ## Transcript turns (feat/vis-turns)
@@ -1277,8 +1280,16 @@ a semibold because it is the correct render, never because of a parity number.
 
 2. **The score is dominated by vertical registration, not by shape.** The 2x2,
    all on `main`, STRUCTURAL, all four cells taken on the **pre-divergence**
+   `compare.py` against `01_home.png` (see entries 10 and 11 — the scorer and
+   the reference both changed under this branch, and these four are not
+   comparable with any figure quoted after them; they were also taken minutes
+   apart rather than back to back, so read them as directional only):
+
+---
+
    `compare.py` (see entry 10 — the scorer changed under this branch and these
    are not comparable with a figure quoted after it):
+
 
    |                    | opens on a System caption | opens on a user turn |
    |--------------------|---------------------------|----------------------|
@@ -1384,6 +1395,101 @@ a semibold because it is the correct render, never because of a parity number.
    tests until there is a frame that can see it.
    - **Class** — `WORKAROUND` (not taken)
 
+10. **The scorer changed mid-theme, and then the reference did.** Two things
+    landed on `main` while this branch was building. First
+    `feat/vis-divergences`: `compare.py` now subtracts declared divergences,
+    the largest being **`transcript viewport`, the whole rect
+    (283,71)–(1180,820)** — every pixel this theme touched. Then
+    `ref/02_thread.png`: a second frozen frame whose open thread has a real
+    Puffin fixture, on which that rect is NOT declared. So the theme went from
+    unmeasurable to measurable inside one session. The measurable answer, taken
+    cleanly (below), is that the four source-derived constants are worth
+    **0.01 structural points** — on 01 and on 02 alike.
+    - **Class** — `TEDIOUS` (our tooling)
+
+11. **The mock fixture's clock moves the transcript, and it silently faked a
+    0.60-point win.** `mins_ago`/`hrs_ago` in `mock_client.h` are relative to
+    the wall clock, and the transcript inserts a date divider wherever the
+    calendar day changes between two messages. It was 00:09 local. `r5`'s
+    messages are 9, 6 and 1 minutes old, so they straddled midnight, and the
+    "Today" divider was above the assistant reply in one capture, below it in
+    the next, and gone in the one after that — moving every row under it.
+
+    Measured the naive way, one build then the other a few minutes apart,
+    `main` read **5.89% → 5.29%** and the constants looked like a 0.60-point
+    win. Rebuilt both binaries first and shot them back to back, twice each:
+
+    | | run 1 | run 2 |
+    |---|---|---|
+    | base constants | 4.19% | 4.19% |
+    | source constants | 4.18% | 4.18% |
+
+    Each binary is bit-reproducible against itself (`getbbox()` on the
+    difference of its two runs is `None`), so the pair is trustworthy and the
+    honest figure is **0.01 points**. The 0.60 was the divider. Two shots of
+    one *unmodified* binary three minutes apart read 4.19% and 4.66%.
+
+    **Any A/B on this harness must shoot both sides back to back and diff the
+    two hanabi PNGs against each other before reading the score.** Nothing in
+    the tooling warns you; the numbers look perfectly stable one at a time.
+    Written into `REFERENCE.md` and the header of `scripts/shoot_hanabi_02.sh`.
+    - **Cost** — a wrong result reported, then caught. It was caught only
+      because the *geometry* dump disagreed with the score: two shots that
+      should have differed in four constants had their whole message order
+      changed. Dump the bands, not just the percentage.
+    - **Class** — `FOOTGUN`
+    - **Gap filed?** — no; ours, not afterhours'. The cheap fix is a
+      `HANABI_MOCK_NOW` epoch override so the fixture is deterministic; the
+      cheaper one is the back-to-back rule.
+
+12. **The 02 brief's "near-white user bubble" was a single-pixel sample that
+    landed on a glyph.** The handoff said 02's user bubble is
+    `(237,237,245)` — near-white with dark text — and asked for hanabi's to
+    match. Counted over the bubble's own rect (x 818..1097, y 95..129, 9800
+    px), the fill is **(62,56,111) at 61.4%** — the same indigo as 01 — and
+    `(237,237,245)` is **3 pixels**, which is the near-white TEXT. Acting on it
+    would have inverted hanabi's user bubble away from the reference. Corrected
+    in `REFERENCE.md` in place rather than quietly, because the mistake is easy
+    and worth inoculating against: inside a text bubble a random pixel is on a
+    glyph about as often as on the fill. **Sample a region and take the mode.**
+    - **Class** — `FOOTGUN`
+
+13. **02 answers the geometry questions 01 could only be argued about — and it
+    confirms Puffin's source to the pixel.** The three constants this theme
+    took from `AgentcloudTranscriptView.swift` are all directly measurable in
+    02: the avatar disc is x 791..811 (**20px**, `BubbleAvatar.diameter = 20`),
+    it sits **6px** left of the bubble (the row's `HStack(spacing: 6)`) and
+    **6px** below its top (`.padding(.top, 6)`). Three source constants, three
+    independent confirmations off a frame the source was not consulted for.
+    That is the strongest argument for the read-the-source rule in this
+    workstream so far — stronger than the 0.01 points it scored.
+
+14. **Even on 02, the transcript score is content, not design.** Against 02,
+    hanabi's user turn already has the right shape where shape is checkable:
+    bubble right edge **1097**, assistant bubble **362..1031**, avatar 20px —
+    all exact. Sweeping hanabi's whole main pane vertically against the
+    reference shows the score is flat to ±0.04 points across an 8px shift, so
+    vertical registration is not what the 4.1% is made of either. It is that
+    `r5`'s reply is one 31px paragraph and 02's is a 124px bubble with a fenced
+    code block in it. Choosing the thread is worth more than any geometry work:
+    `r5` scores `main` at 4.66% and `t2` at 8.55%, same binary, same minute.
+    - **Class** — `TEDIOUS`
+
+15. **The declared-divergence table needed a second entry set for 02, and four
+    of the five entries were identical.** `KNOWN_DIVERGENCES` is keyed on the
+    reference's basename, so `02_thread.png` matched nothing and had *no*
+    exclusions — including the four that are properties of how the two apps
+    are captured (traffic lights, window corners, status band, version string)
+    and are therefore true of every reference shot this way. Verified rather
+    than assumed before sharing them: all four rects are byte-identical
+    between 01 and 02. Lifted into a `_CAPTURE_DIVERGENCES` list both
+    references splice in; 02 takes those four and **not** the transcript one,
+    which is the entire reason it exists. 01's declared cost is 4.75 points,
+    02's is 0.25. `--selftest` PASSes.
+    - **Class** — `TEDIOUS`
+
+---
+
 10. **The scorer changed mid-theme, and this theme is now entirely inside a
     declared-unspendable region.** `feat/vis-divergences` landed while this
     branch was building: `compare.py` now subtracts five declared divergences,
@@ -1449,3 +1555,4 @@ a semibold because it is the correct render, never because of a parity number.
   is now exact (33..72, both). Three pixels on a ten-pixel glyph, against a
   risk of moving a label that is currently correct.
 - **Class** — noted, not taken.
+

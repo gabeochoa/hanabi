@@ -5444,6 +5444,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // top row of the bubble is inset 6.9px from its left edge, which is the
     // chord of a radius-10 arc at half a pixel down and nothing else.
     static constexpr float kBubbleCorner = 10.0f;  // px, not a fraction
+    // These three were taken from the Swift and then confirmed, to the pixel,
+    // against a reference the source was not consulted for: in
+    // ref/02_thread.png the avatar disc is x 791..811 (20 across), its left
+    // edge is 6 clear of the bubble at x 817, and its top is 6 below the
+    // bubble's at y 95. When the source and an independent measurement agree
+    // exactly, the constant is settled and the next reader need not re-derive
+    // it.
     static constexpr float kAvatarD = 20.0f;      // BubbleAvatar.diameter
     static constexpr float kAvatarGap = 6.0f;     // the user row's HStack spacing
     static constexpr float kAvatarTop = 6.0f;     // BubbleAvatar .padding(.top, 6)
