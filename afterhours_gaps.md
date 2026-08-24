@@ -4060,3 +4060,78 @@ that has a label and no children a warn-once, the way `resolve_weighted` now
 warns on an unresolvable font weight. Silence is what made this cost a day.
 
 CLASS: FOOTGUN
+
+---
+
+### #86 — A capture cannot say where anything landed: the screenshot path emits pixels and nothing else, so every geometric fact about a frame is bisected back out of the PNG
+
+**What was wanted.** A list of rectangles, in the parity capture's own
+coordinates, naming the surfaces where hanabi and Puffin draw structurally
+different things — the transcript viewport, the status strip, the composer box.
+Each one has to be drawn tightly around a real element: too small and it leaks
+difference into the score, too large and it swallows signal that could have been
+worked on. The engine knows all of it. `layout.composer` is a `Rect` computed in
+`layout_system.h`, and every div in `status_bar_system.h` carries a
+`with_debug_name` chosen for exactly this kind of question.
+
+**What happens.** `run_headless_screenshot` writes a PNG. That is the entire
+output of a capture. There is no companion file, no stdout table, no flag that
+says "and also tell me the resolved rect of every named element you just drew".
+So the way to find the composer's top edge is to load the PNG in Pillow, pick a
+background colour, and walk rows counting non-background pixels until a run
+appears — which is how the numbers in `scripts/compare.py`'s divergence table
+were established: y=825 is hanabi's composer divider because row 825 has 720
+non-background pixels and rows 790..824 have none. The same bisection had to be
+repeated for the reference frame, where it is unavoidable (it is a PNG of
+another app), and for hanabi, where it is not.
+
+Three costs, all paid this session. Each rectangle took a scripted row-scan and
+a judgement call about where to cut. The scan found the boundary in hanabi's
+capture and NOT in the source, so the first version of the transcript rectangle
+ran to y=855 and quietly ate Puffin's full-width composer rule at y=850 — caught
+by re-reading the profile, not by anything the tool said. And because the
+numbers are transcribed pixels rather than derived ones, they are stale the
+moment a layout constant moves, with nothing to notice.
+
+**Why the obvious escapes do not work.**
+
+- **`assert_ui` in the scripted `.e2e` DSL** does resolve a `debug_name` to a
+  live rect — but it lives in the UI-test runner, on a separate binary and a
+  separate invocation from `--screenshot`, and it asserts rather than reports.
+  Getting a table out of it means writing one assertion per element, guessing
+  the number, and reading it off the failure text. It also cannot run in the
+  same process as the capture, so nothing guarantees the two frames agree.
+- **Walking the tree after layout** is gap #74: `ClearUIComponentChildren`
+  empties `UIComponent::children` at the top of every frame, so a resolved
+  subtree is only reachable as a flat set of names decided in advance. #74 asks
+  for the parent/child edges back; this asks for something weaker and more
+  useful at capture time — the flat name→rect table, which already survives the
+  frame boundary and merely has no way out of the process.
+- **Reading the layout struct directly** covers `layout_system.h`'s six rects
+  and nothing else. The composer's inner divider, the chip row and the status
+  bar's own clusters are all built inside their systems from local constants,
+  which is where the interesting boundaries are.
+- **Printing rects from app code** is a rebuild per hypothesis (~2 min of
+  `main.o` on this box, the same toll #74 records) and leaves debug printf in
+  systems other agents are editing on other branches.
+
+**The workaround, and its cost.** Bisect the PNG. `scripts/compare.py` now
+carries five hand-measured rectangles pinned to a `DIVERGENCE_FRAME` of
+1180x949, with two guards standing in for the derivation that should not have
+been necessary: the table refuses to apply at all if the reference is not that
+exact size, and any rectangle that turns out to exclude zero differing pixels
+prints `<-- STALE? excludes nothing`. Those guards are real value — they are
+also thirty lines of scaffolding whose only job is to detect that a transcribed
+number has gone out of date, which is a problem a derived number does not have.
+
+**Minimal upstream fix.** One flag on the capture path that dumps the frame's
+resolved geometry as it is written: for every entity with a `UIComponentDebug`
+name, its name and its `rect()`, as JSON, next to the PNG. The data is already
+in hand at that moment — `rect()` survives the frame boundary, which is the
+half of the tree #74 says still works — and it needs no new bookkeeping, only
+an exit. Any parity harness downstream then addresses surfaces by name instead
+of by transcribed pixels, and a rectangle stops being a number somebody has to
+remember to re-measure.
+
+CLASS: TEDIOUS
+
