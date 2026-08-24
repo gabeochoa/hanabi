@@ -204,8 +204,19 @@ void apply_state(const json& s, SessionSummary& out) {
         } else if (state == "waiting") {
             out.state = ThreadState::Attention;
             out.tag = attention == "review" ? ThreadTag::Review : ThreadTag::Blocked;
+        } else if (state == "failed") {
+            // The fifth state this bag can carry, and the one hanabi used to
+            // drop on the floor: with no branch here a failed session fell
+            // through to the resolved_status fallback below and came back as
+            // Ready — a dead run presented as an asset waiting to be reviewed.
+            out.state = ThreadState::Attention;
+            out.tag = ThreadTag::Failed;
         } else if (state == "working") {
-            out.state = ThreadState::Running;
+            // "working" is the agent's TESTIMONY; `running` is whether a run is
+            // actually live. They are different facts and the row draws them
+            // differently (a spinner only for the live one), so believe both
+            // rather than promoting every "working" to a live run.
+            out.state = running ? ThreadState::Running : ThreadState::Working;
         } else if (state == "done") {
             // "done" plus an explicit review request is the one case where a
             // finished thread still wants the reader.

@@ -578,13 +578,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return fmtutil::display_title(title);  // shared canonical impl
     }
 
-    // ---- automated / scheduled row detection (defect #5: cron noise) -------
+    // ---- automated / scheduled row detection -------------------------------
     // A real backend mixes human conversations with scheduled/cron sessions
     // ("Schedule: nightly backfill", "kicker-tick", "continuous-triage-tick").
-    // Those aren't real conversations but they inflate the buckets and read as
-    // peers of human threads. We DON'T hide them (the user may want them) — we
-    // just de-emphasize them (dimmer title + a small "gear-ish" automated glyph
-    // in the status slot) so the eye skips them when scanning for real work.
+    // This answers ONE question, for ONE caller: the search row's explicit
+    // "hide automated rows" toggle, which the reader turns on when they want
+    // them gone.
+    //
+    // It used to also de-emphasize every such row unasked — a fainter title
+    // and a separate "automated" glyph in the status slot — and that was a
+    // guess with no design behind it. Puffin draws `kicker-tick` exactly like
+    // every other row (ref/01_home.png, row 3: the same blue arc as the two
+    // live runs around it), because a scheduled thread that is RUNNING is a
+    // thread that is running; how it was started is not its status. Worse, the
+    // rule decided a row's whole appearance from the SHAPE OF ITS TITLE, so
+    // renaming a thread changed what the list said about it, and a blocked
+    // cron tick — the one that most wants you — read as the quietest row on
+    // screen. An opt-in filter is the honest form of the same idea: the reader
+    // says "not now", rather than the client deciding some threads matter less.
     //
     // Heuristic (kept deliberately small + conservative so it can't over-match
     // a real conversation title): a session is "automated" if its title starts
@@ -631,29 +642,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static int blocked_count(const AppComponent& app) {
         int n = 0;
         for (const auto& s : app.sessions)
-            if (s.tag == api::ThreadTag::Blocked) ++n;
+            if (ecs::model::in_blocked_view(s)) ++n;
         return n;
     }
 
-    // ---- status glyph (shape-per-status) ----
-    // EVERY row gets a leading indicator slot of the same size, so no row looks
-    // unlabeled. The shapes and the three hues are Puffin's, measured off
-    // ref/01_home.png (see PUFFIN_SPEC.md "Session list"): an open arc while a
-    // thread runs, a bang when it wants you, a cross when something failed, a
-    // grey dot at rest.
+    // ---- status mark (shape + tone, straight from the shared model) -------
+    // EVERY row gets a leading indicator slot of the same size, so no row
+    // looks unlabeled. WHICH mark a row wears is not decided here: the pure,
+    // headlessly-tested ecs::model::mark_for owns the whole rule (see the long
+    // note there), and this file only knows how to draw the five shapes and
+    // what the three tones are worth in pixels. The sidebar used to hold a
+    // second, richer mapping of its own that re-derived the model's answer —
+    // two rules for one question, and the one the reader saw was the one the
+    // tests did not cover.
     //
-    // Puffin draws SEVEN markers and this draws four, because the mapping is
-    // not a function of what hanabi stores: six reference rows are all
-    // (Attention, Blocked) and Puffin gives three of them a bang, two a cross
-    // and one a red dot. Four is the ceiling on (ThreadState, ThreadTag).
-    //
-    // Defect #9 (glyph vocabulary on real data) still holds: ecs::model's pure
-    // glyph_for covers only the tag families and returns None for a bare
-    // ThreadState::Running, which is exactly what the real backend's
-    // derive_state produces. The state fallback below is resolved AFTER the
-    // shared model, so the tested tag precedence is untouched and the sidebar
-    // only ADDS the state-only cases.
-    enum class SbGlyph { Calm, Bang, Cross, Arc, Automated };
+    // The shapes and the three hues are Puffin's, measured off
+    // ref/01_home.png: an open arc while a run is live, a bang when the thread
+    // wants you, a cross when it died, a chevron on a settled thread that
+    // opens, a dot for everything else.
+    using Glyph = ecs::model::Glyph;
+    using Mark = ecs::model::Mark;
     static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
     static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
     static constexpr theme::Color kGlyphCalm{146, 146, 171, 255};
@@ -696,60 +704,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // not encode attention in the title's brightness the way hanabi did.
     static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
 
-    // Precedence: the shared, headlessly-tested ecs::model::glyph_for owns the
-    // tag/attention families (blocked -> triangle, review -> diamond, done ->
-    // dot). If that yields a real glyph, use it. Only when the model says
-    // "None" do we consult the sidebar-local state fallback so a self-running
-    // thread (state=Running, no tag — the shape a real backend returns) gets
-    // its own distinct RING instead of collapsing into the calm dot. Ready
-    // (agent-verified, no tag) also earns the review diamond here so the real
-    // backend's review-state rows read the same as the mock's tagged ones.
-    static SbGlyph glyph_for(const api::SessionSummary& s) {
-        switch (ecs::model::glyph_for(s)) {
-            case ecs::model::Glyph::Triangle:
-                // The model folds two cases into Triangle. Puffin draws a cross
-                // for the tagged one and a bang for a bare Attention state, and
-                // that is the only split hanabi's data can carry.
-                return s.tag == api::ThreadTag::Blocked ? SbGlyph::Cross
-                                                        : SbGlyph::Bang;
-            case ecs::model::Glyph::Diamond: return SbGlyph::Bang;
-            case ecs::model::Glyph::Dot: return SbGlyph::Calm;
-            case ecs::model::Glyph::None: break;  // fall through to state map
+    // Tone -> ink. The three colours the marks are drawn in, and the only
+    // place the model's meanings become pixels.
+    static theme::Color mark_color(ecs::model::Tone t) {
+        switch (t) {
+            case ecs::model::Tone::Alert: return kGlyphAlert;
+            case ecs::model::Tone::Live: return kGlyphActive;
+            case ecs::model::Tone::Calm: break;
         }
-        // State-only fallback (no tag): give real-data states a distinct glyph
-        // so the sidebar vocabulary is as rich on real data as on the mock.
-        switch (s.state) {
-            case api::ThreadState::Running: return SbGlyph::Arc;
-            case api::ThreadState::Ready: return SbGlyph::Bang;
-            default: return SbGlyph::Calm;
-        }
-    }
-    using Glyph = SbGlyph;
-
-    static theme::Color glyph_color(Glyph g) {
-        switch (g) {
-            case Glyph::Cross: return kGlyphAlert;
-            case Glyph::Bang:
-            case Glyph::Arc: return kGlyphActive;
-            default: return kGlyphCalm;  // Calm / Automated
-        }
+        return kGlyphCalm;
     }
 
-    // Draw the status glyph centered inside `rect` (the on-screen rect of the
-    // small glyph slot). Uses afterhours' real shape primitives — filled
-    // triangle, a 4-sided poly rotated 45 deg for the diamond, and a circle —
-    // so the three attention statuses are visually distinct by SHAPE, not just
-    // color. EVERY row draws SOMETHING in this slot: an attention row gets its
-    // shape-glyph, a calm row gets a small NEUTRAL dot (not blank), so no row
-    // reads as "unlabeled / second-class". The calm dot is deliberately small
-    // and faint (a resting bullet), distinct in both size and color from the
-    // blue Done dot, so shape+color still separates the four states:
-    //   Triangle (red)   blocked / waiting-on-you
-    //   Diamond  (green) ready for review
-    //   Dot 4px  (blue)  done
-    //   Ring 4px (accent) running / in-progress (hollow, so it never reads as
-    //                     the filled blue Done dot)
-    //   Dot 2.4px(faint) calm  (parked / archived / no signal)
     // The mute mark: a small ring with a slash through it, the universal
     // "silenced". The icon atlas has no bell (see the smart-view note below),
     // and an emoji bell is not in the UI font, so it is drawn from primitives.
@@ -766,14 +731,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                  afterhours::vec2{cx + d, cy - d}, 1.5f, c);
     }
 
-    static void draw_glyph(RectangleType rect, Glyph g) {
+    // Draw the status mark centered inside `rect` (the on-screen rect of the
+    // small glyph slot). Uses afterhours' real shape primitives, so the five
+    // statuses are distinct by SHAPE as well as by colour. Every row draws
+    // SOMETHING here — a settled row gets the plain dot, never a blank — so no
+    // row reads as unlabeled or second-class.
+    //
+    // Geometry is measured off ref/01_home.png, glyph by glyph: the three dots
+    // (live / alert / calm) are one 8px circle in three colours, the bang is a
+    // 9px stroke over a 2px tittle, the cross spans 8px corner to corner, and
+    // the chevron is 8px tall and 4px wide with its vertex to the right.
+    static void draw_mark(RectangleType rect, Mark m) {
         // Puffin centres the glyph 1.5px above the row's midline and 1px right
         // of where a 13px slot's own centre falls; both are measured, and
         // without them every glyph reads a row-half low.
         const float cx = rect.x + rect.width * 0.5f + 1.0f;
         const float cy = rect.y + rect.height * 0.5f - 1.5f;
-        const theme::Color c = glyph_color(g);
-        switch (g) {
+        const theme::Color c = mark_color(m.tone);
+        switch (m.shape) {
             case Glyph::Arc: {
                 // The gap is the LOWER LEFT quadrant: ink runs from ~190deg
                 // (left) up over the top, down the right and round to ~85deg.
@@ -781,20 +756,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                               85.0f, 28, c);
                 break;
             }
-            case Glyph::Calm: {
+            case Glyph::Dot: {
                 // draw_circle_v truncates its centre to int (gap #78), which
                 // at this size lands the dot half a pixel off and reads as a
                 // lumpy polygon. A zero-inner-radius ring segment is the same
                 // shape with a float centre.
-                afterhours::draw_ring_segment(cx, cy, 0.0f, 3.7f, 0.0f, 360.0f,
+                afterhours::draw_ring_segment(cx, cy, 0.0f, 3.9f, 0.0f, 360.0f,
                                               28, c);
                 break;
             }
             case Glyph::Bang: {
-                afterhours::draw_line_ex(afterhours::vec2{cx, cy - 6.0f},
-                                         afterhours::vec2{cx, cy + 1.0f}, 2.3f,
+                // Measured off the reference row by row: a 9px stroke, one
+                // clear row of gap, then a 3px tittle, all on the same x as
+                // the dots' centre. The old numbers drew it two rows short
+                // with a 1px tittle, which read as a thin dash at a glance.
+                const float bx = cx - 1.0f;
+                afterhours::draw_line_ex(afterhours::vec2{bx, cy - 5.0f},
+                                         afterhours::vec2{bx, cy + 3.0f}, 2.3f,
                                          c);
-                afterhours::draw_ring_segment(cx, cy + 4.5f, 0.0f, 1.4f, 0.0f,
+                afterhours::draw_ring_segment(bx, cy + 6.0f, 0.0f, 1.5f, 0.0f,
                                               360.0f, 16, c);
                 break;
             }
@@ -808,19 +788,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          c);
                 break;
             }
-            case Glyph::Automated: {
-                if (hanabi::icons::draw_at("automated", cx, cy, 12.0f, c))
-                    break;
-                const float h = 2.6f;
-                const afterhours::vec2 tl{cx - h, cy - h};
-                const afterhours::vec2 tr{cx + h, cy - h};
-                const afterhours::vec2 bl{cx - h, cy + h};
-                const afterhours::vec2 br{cx + h, cy + h};
-                const float t = 1.1f;
-                afterhours::draw_line_ex(tl, tr, t, c);
-                afterhours::draw_line_ex(tr, br, t, c);
-                afterhours::draw_line_ex(br, bl, t, c);
-                afterhours::draw_line_ex(bl, tl, t, c);
+            case Glyph::Chevron: {
+                // Two strokes to a vertex on the right, NOT the filled
+                // triangle hanabi::glyph::chevron draws for folder headers:
+                // the reference's row chevron is a stroked ">" and a solid
+                // wedge at this size reads as a play button. Drawn here rather
+                // than shared, because the folder one is deliberately filled.
+                const float h = 4.2f;   // half-height, measured
+                const float w = 2.0f;   // half-width
+                const afterhours::vec2 top{cx - w, cy - h};
+                const afterhours::vec2 tip{cx + w, cy};
+                const afterhours::vec2 bot{cx - w, cy + h};
+                afterhours::draw_line_ex(top, tip, 2.0f, c);
+                afterhours::draw_line_ex(tip, bot, 2.0f, c);
                 break;
             }
         }
@@ -2101,12 +2081,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          const api::SessionSummary& s,
                                          AppComponent& app, bool archived,
                                          float panelW) {
-        // Defect #5: cron / scheduled rows are visually de-emphasized (not
-        // hidden). Detect purely by title shape ("Schedule:" prefix / "-tick"
-        // suffix). When automated, the row draws a quiet "automated" glyph and
-        // a fainter title so real conversations stand out.
-        bool automated = is_automated(s.title);
-        Glyph glyph = automated ? Glyph::Automated : glyph_for(s);
+        // The row's state mark, straight from the shared model. No row-local
+        // adjustment: a title-shaped exception here (the "-tick" one that used
+        // to live at this line) is a status decided by a filename, and it
+        // outranked the thread's real state.
+        Mark mark = ecs::model::mark_for(s);
 
         // ---- STABLE row hover (fixes the "star hover flashes the whole row")
         // The trailing star is a real clickable child of the row, and hot is a
@@ -2174,8 +2153,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_font_size(FontSize::Small)
                 .with_roundness(0.0f)
-                .with_on_draw_fg([glyph](RectangleType rect) {
-                    draw_glyph(rect, glyph);
+                .with_on_draw_fg([mark](RectangleType rect) {
+                    draw_mark(rect, mark);
                 })
                 .with_debug_name("row_glyph"));
 
@@ -2187,10 +2166,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // deliberately de-emphasized families stay faint.
         theme::Color titleColor = kRowTitleFg;
         if (archived) titleColor = theme::text_faint();
-        // Defect #5: automated/cron rows always read as quiet metadata — a
-        // faint title — so real conversations stand out even inside a bucket.
-        // (Applied last so it de-emphasizes regardless of the state above.)
-        if (automated) titleColor = theme::text_faint();
         // The row being dragged reads as lifted off the list — faint, the way a
         // semi-transparent row would, so the eye follows the drop line instead.
         if (app.rowDrag.live && app.rowDrag.sessionId == s.id)
@@ -2407,7 +2382,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (showCount) {
             const bool live = ecs::model::sub_agents_live(s);
             theme::Color countColor = live ? kCountLive : kCountSettled;
-            if (archived || automated) countColor = theme::text_faint();
+            if (archived) countColor = theme::text_faint();
             div(ctx, mk(row.ent(), 6),
                 ComponentConfig{}
                     .with_label(countLabel)

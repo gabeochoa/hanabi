@@ -4004,3 +4004,80 @@ in app code, so a change to `kInset` upstream silently moves hanabi's counts.
 the Right case, where the inset has no reader-facing purpose.
 
 CLASS: WORKAROUND
+
+---
+
+### #100 — Primitive shapes are not antialiased (MSAA is hardcoded off), so a small drawn glyph can never match a vector one
+
+**What was wanted.** A sidebar row's state mark — an 8px dot, a 9px bang, an
+8px cross, a 4x8 chevron, an open arc — drawn to match a reference client that
+renders the same shapes as vector glyphs. Small ink, at 1x, where every edge
+pixel is a large fraction of the shape.
+
+**What happens.** Every one of hanabi's marks comes out with hard, binary
+edges: a pixel is either the full colour or the background, with nothing in
+between. The reference's same shapes carry two or three levels of partial
+coverage on every curve and diagonal. Sampled out of the two captures, one
+column of the arc, `#` = full ink and `.`/`:`/`*` = partial:
+
+```
+ reference                      hanabi
+   .*:                            #####
+ .#####*                         #######
+ ###*###*                       ##     ##
+*##   .##                       ##     ##
+```
+
+The cause is one line, in both of the backend's setup paths:
+
+```cpp
+// backends/sokol/backend.h
+desc.sample_count = 1;                       // line 756, windowed (sapp_desc)
+desc.environment.defaults.sample_count = 1;  // line 796, headless
+```
+
+`sgl` has no per-primitive antialiasing of its own — `draw_line_ex` emits two
+triangles, `draw_ring_segment` a quad strip — so with the sample count pinned
+at 1 there is nothing anywhere in the pipeline to soften an edge. Text escapes
+this because it is sampled from a font atlas whose glyphs are already
+antialiased, which is why a screen of hanabi text reads as smooth while every
+shape on it reads as pixel art. The backend even documents the opposite: line
+197 says "the default sgl context here matches the swapchain (4x MSAA)", 550
+lines above the two places that set it to 1.
+
+**Why the obvious escapes do not work.**
+
+- **Drawing the shape bigger and letting the downscale soften it** — there is
+  no downscale. hanabi renders at 1x logical pixels; the retina framebuffer is
+  handled inside the backend and the shape is rasterized after that decision.
+- **Faking coverage with a second, dimmer pass** (draw the shape again at
+  +0.5px in a 40%-alpha ink) needs alpha blending of a shape over a shape,
+  which is gap #13's other half — the fill path cannot alpha-blend, and the
+  second pass lands as a solid halo rather than a soft edge.
+- **Using the icon atlas instead** works only for shapes the atlas has. It has
+  no bang, no cross, no small chevron and no arc (gap #20 is the same wall from
+  the other side), and adding them means a PNG per glyph per colour, since the
+  atlas is sampled rather than tinted per-draw.
+- **Turning MSAA on from the app** — `Config` exposes width, height, title,
+  flags and display mode; the sample count is not a field, so there is no
+  caller-side way to reach it. `vendor/` is read-only here.
+
+**The workaround, and its cost.** Accept the aliasing and spend the effort on
+placement instead: every mark in this change is positioned and sized from a
+row-by-row read of the reference's own pixels rather than from round numbers,
+so the shapes land on the right rows and the right columns even though their
+edges are hard. The cost is a permanent floor under any glyph-level parity
+work. Measured on the twenty reference rows: a mark that is the RIGHT shape in
+the RIGHT place still differs from the reference over ~90 pixels, against
+~106 for a mark that is the wrong shape entirely. In other words the aliasing
+is worth more of the diff than the correctness is — fixing nine wrong glyphs
+moved the list region 14.32% -> 14.20%, and the whole glyph column can only
+ever be worth ~1.2 points of it.
+
+**Minimal upstream fix.** Take the sample count from `Config` (default 4, which
+is what the comment already claims) and thread it into both `sapp_desc` and the
+headless `sg_desc`, plus the `sgl_context_desc_t` for offscreen targets so a
+render texture keeps matching its pass. Two struct fields and one plumb; no
+call site changes for anyone who does not set it.
+
+CLASS: WORKAROUND

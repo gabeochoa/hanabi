@@ -110,43 +110,99 @@ static void test_state_model_and_glyphs() {
     CHECK(!is_attention(ThreadState::Archived));
     CHECK(!is_attention(ThreadState::Unknown));
 
-    // Glyph precedence: Blocked>Review>Done, then bare Attention -> triangle.
-    CHECK(glyph_for(mk_sum(ThreadState::Attention, ThreadTag::Blocked)) ==
-          Glyph::Triangle);
-    CHECK(glyph_for(mk_sum(ThreadState::Ready, ThreadTag::Review)) ==
-          Glyph::Diamond);
-    CHECK(glyph_for(mk_sum(ThreadState::Attention, ThreadTag::Done)) ==
-          Glyph::Dot);
-    // Bare attention (no tag) still earns the urgent triangle.
-    CHECK(glyph_for(mk_sum(ThreadState::Attention, ThreadTag::None)) ==
-          Glyph::Triangle);
-    // Calm states carry no glyph.
-    CHECK(glyph_for(mk_sum(ThreadState::Running, ThreadTag::None)) ==
-          Glyph::None);
-    CHECK(glyph_for(mk_sum(ThreadState::Parked, ThreadTag::None)) ==
-          Glyph::None);
-    CHECK(glyph_for(mk_sum(ThreadState::Archived, ThreadTag::None)) ==
-          Glyph::None);
+    // The mark rule, in precedence order. THE RUN OWNS THE SLOT: failure, then
+    // anything asking for the reader, then the live run, then the last word a
+    // finished run left, and only a thread with nothing to say gives the slot
+    // to its fold chevron. Mirrors Puffin (Views/TabStatus.swift's "a live
+    // status always wins ... only idle reaches for the thread's own colour",
+    // and SessionRowView's chevron-only-when-childCount>0), verified glyph by
+    // glyph against docs/visual-parity/ref/01_home.png.
 
-    // Precedence: a Blocked tag wins even on a non-Attention state.
-    CHECK(glyph_for(mk_sum(ThreadState::Running, ThreadTag::Blocked)) ==
-          Glyph::Triangle);
+    // A testified failure is a cross; the same failure with nothing testified
+    // is the weaker shape, and both are alert-toned.
+    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Failed)) ==
+          Mark{Glyph::Cross, Tone::Alert}));
+    CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::Failed)) ==
+          Mark{Glyph::Dot, Tone::Alert}));
+    // Failure outranks every other reading of the row.
+    CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::Failed)) ==
+          Mark{Glyph::Dot, Tone::Alert}));
 
-    // Spot-check the mock's actual seed classifies as intended.
+    // Wants-you is ONE mark, whether it is blocked on a decision or waiting to
+    // be read: the reference draws all six of its waiting rows the same bang.
+    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Blocked)) ==
+          Mark{Glyph::Bang, Tone::Live}));
+    CHECK((mark_for(mk_sum(ThreadState::Ready, ThreadTag::Review)) ==
+          Mark{Glyph::Bang, Tone::Live}));
+    // Done-but-unlooked-at ("finished since you looked") is still an ask.
+    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Done)) ==
+          Mark{Glyph::Bang, Tone::Live}));
+    // Bare attention / bare ready, the shapes the http adapter produces.
+    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::None)) ==
+          Mark{Glyph::Bang, Tone::Live}));
+    CHECK((mark_for(mk_sum(ThreadState::Ready, ThreadTag::None)) ==
+          Mark{Glyph::Bang, Tone::Live}));
+    // A blocked tag wins over a live run: the run does not stop the ask.
+    CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::Blocked)) ==
+          Mark{Glyph::Bang, Tone::Live}));
+
+    // A live run spins. Testimony that merely SAYS working does not: the run
+    // has ended, and a spinner on it would be a lie about the present tense.
+    CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::None)) ==
+          Mark{Glyph::Arc, Tone::Live}));
+    CHECK((mark_for(mk_sum(ThreadState::Working, ThreadTag::None)) ==
+          Mark{Glyph::Dot, Tone::Live}));
+
+    // Settled: a calm dot, and a calm CHEVRON when there is a subtree to open.
+    CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::None)) ==
+          Mark{Glyph::Dot, Tone::Calm}));
+    CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::Done)) ==
+          Mark{Glyph::Dot, Tone::Calm}));
+    CHECK((mark_for(mk_sum(ThreadState::Parked, ThreadTag::None)) ==
+          Mark{Glyph::Dot, Tone::Calm}));
+    CHECK((mark_for(mk_sum(ThreadState::Archived, ThreadTag::None)) ==
+          Mark{Glyph::Dot, Tone::Calm}));
+    {
+        auto parent = mk_sum(ThreadState::Unknown, ThreadTag::None);
+        parent.sub_agent_count = 1;
+        CHECK((mark_for(parent) == Mark{Glyph::Chevron, Tone::Calm}));
+        // ...but only while the run has nothing to say. A parent that is
+        // running keeps the spinner; the chevron never outranks a status.
+        auto busy = parent;
+        busy.state = ThreadState::Running;
+        CHECK((mark_for(busy) == Mark{Glyph::Arc, Tone::Live}));
+        auto asking = parent;
+        asking.tag = ThreadTag::Blocked;
+        CHECK((mark_for(asking) == Mark{Glyph::Bang, Tone::Live}));
+    }
+
+    // The mock's own rows, which are a copy of the reference's twenty: each of
+    // these is the row the capture draws that mark on.
     api::MockClient mm;
     auto r = mm.list_sessions();
     CHECK(r.ok);
     for (const auto& s : r.value) {
-        if (s.id == "t1")  // blocked attention -> triangle
-            CHECK(glyph_for(s) == Glyph::Triangle);
-        if (s.id == "t4")  // ready/review -> diamond
-            CHECK(glyph_for(s) == Glyph::Diamond);
-        if (s.id == "t3")  // done tag -> dot
-            CHECK(glyph_for(s) == Glyph::Dot);
-        if (s.id == "t6")  // running -> none
-            CHECK(glyph_for(s) == Glyph::None);
-        if (s.id == "t10")  // calm / unknown -> none
-            CHECK(glyph_for(s) == Glyph::None);
+        if (s.id == "t1")  // "stickers broke" — blocked
+            CHECK((mark_for(s) == Mark{Glyph::Bang, Tone::Live}));
+        if (s.id == "r7")  // "two shards died" — the run died
+            CHECK((mark_for(s) == Mark{Glyph::Cross, Tone::Alert}));
+        if (s.id == "r9")  // "banyan diff gate" — failed, nothing testified
+            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Alert}));
+        if (s.id == "t4")  // "finished, and wants you to read it"
+            CHECK((mark_for(s) == Mark{Glyph::Bang, Tone::Live}));
+        if (s.id == "t3")  // "style guide written" — settled, no children
+            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Calm}));
+        if (s.id == "r5")  // "profiling the disk" — a live run
+            CHECK((mark_for(s) == Mark{Glyph::Arc, Tone::Live}));
+        if (s.id == "t9")  // "kicker-tick" — a live run like any other, and
+                           // NOT de-emphasized for the shape of its title
+            CHECK((mark_for(s) == Mark{Glyph::Arc, Tone::Live}));
+        if (s.id == "t6")  // "SKU backfill" — working, no live run
+            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Live}));
+        if (s.id == "t10")  // "parent — nothing to report" — settled, 1 child
+            CHECK((mark_for(s) == Mark{Glyph::Chevron, Tone::Calm}));
+        if (s.id == "r11")  // "PSC daily post generator" — settled leaf
+            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Calm}));
     }
 }
 
@@ -167,16 +223,23 @@ static void test_smart_view_filters() {
         if (in_review_view(s)) ++review;
         if (in_starred_view(s)) ++starred;
     }
-    // The ported fixture has: 6 blocked (t1,r7,t2,r1,r2,r9), 3 review/ready
-    // (t4,r4,t5), and no starred row at all — the fixture it mirrors has no
-    // pinned field, so the Starred view is empty until the user stars one.
+    // The ported fixture has: 6 in the Blocked shelf — three blocked
+    // (t1,t2,r1) and three failed (r7,r2,r9), which is the same six rows as
+    // before the failure state existed and the same six the reference's own
+    // Blocked badge counts. 3 review/ready (t4,r4,t5), and no starred row at
+    // all — the fixture it mirrors has no pinned field, so the Starred view is
+    // empty until the user stars one.
     CHECK(blocked == 6);
     CHECK(review == 3);
     CHECK(starred == 0);
 
-    // Blocked view is exactly the Blocked-tagged rows (not just Attention).
+    // The Blocked shelf is exactly the two stopped-and-wants-a-person tags. A
+    // failed run rides with blocked (Puffin's shelf carves the same way) but
+    // an Attention state alone does not put a row here.
     for (const auto& s : r.value)
-        if (in_blocked_view(s)) CHECK(s.tag == api::ThreadTag::Blocked);
+        if (in_blocked_view(s))
+            CHECK(s.tag == api::ThreadTag::Blocked ||
+                  s.tag == api::ThreadTag::Failed);
     // Review view is exactly agent-verified (Ready) rows.
     for (const auto& s : r.value)
         if (in_review_view(s)) CHECK(s.state == api::ThreadState::Ready);
@@ -716,8 +779,10 @@ static void test_backend_agnostic_defaults() {
     CHECK(def.tag == api::ThreadTag::None);
     CHECK(!def.starred);
     CHECK(def.folder.empty());
-    // And it carries NO status glyph (stays calm).
-    CHECK(ecs::model::glyph_for(def) == ecs::model::Glyph::None);
+    // And it draws the settled leaf's calm dot — every row has a mark, so
+    // "nothing to report" is a mark too, never a blank slot.
+    CHECK((ecs::model::mark_for(def) ==
+          ecs::model::Mark{ecs::model::Glyph::Dot, ecs::model::Tone::Calm}));
 }
 
 // ---------------------------------------------------------------------------

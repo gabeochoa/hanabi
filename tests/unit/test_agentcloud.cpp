@@ -155,10 +155,26 @@ static void test_children_fold_into_a_count_and_leave_the_list() {
     CHECK(out.size() == 1);
     CHECK(out[0].id == "p");
     CHECK(out[0].sub_agent_count == 3);
-    // Only the working child is live: done has stopped and blocked is stuck,
-    // and calling a blocked sub-agent "running" is the one thing this count
-    // must never do.
-    CHECK(out[0].sub_agent_running_count == 1);
+    // NONE of them is live, and the working one is the interesting case: it
+    // CLAIMS to be working and has no run behind it, which the server's own
+    // client calls a corpse — "spec 029 measured a 925-session fleet at 132
+    // claiming `working` against 3 that really were" (Puffin,
+    // HomeSessionList.swift, HomeGroup.of), and buckets as finished rather
+    // than running. Counting a claim as a live worker is how "1/3" ends up on
+    // a subtree where nothing has moved in a day.
+    CHECK(out[0].sub_agent_running_count == 0);
+    // The live child is the one the wire says is running, and it still counts.
+    const auto live = parse_sessions_reply(R"({"type":"sessions","sessions":[
+      {"session_id":"p","title":"coordinating","last_seq":9,
+       "status":{"state":"working"},"running":true},
+      {"session_id":"c1","title":"shard 1","last_seq":8,"parent":"p",
+       "status":{"state":"working"},"running":true},
+      {"session_id":"c2","title":"shard 2","last_seq":7,"parent":"p",
+       "status":{"state":"done"}}
+    ]})");
+    CHECK(live.size() == 1);
+    CHECK(live[0].sub_agent_count == 2);
+    CHECK(live[0].sub_agent_running_count == 1);
 }
 
 static void test_a_childless_row_carries_no_count() {
@@ -191,10 +207,13 @@ static void test_status_bag_drives_attention() {    const std::string reply = R"
       {"session_id":"review","last_seq":3,
        "status":{"state":"done","attention":"review"}},
       {"session_id":"done","last_seq":2,"status":{"state":"done"}},
-      {"session_id":"working","last_seq":1,"status":{"state":"working"}}
+      {"session_id":"working","last_seq":1,"status":{"state":"working"}},
+      {"session_id":"live","last_seq":0,"status":{"state":"working"},
+       "running":true},
+      {"session_id":"dead","last_seq":0,"status":{"state":"failed"}}
     ]})";
     const auto out = parse_sessions_reply(reply);
-    CHECK(out.size() == 4);
+    CHECK(out.size() == 6);
     CHECK(out[0].state == ThreadState::Attention);
     CHECK(out[0].tag == ThreadTag::Blocked);
     // "done" plus an explicit review ask still wants the reader.
@@ -202,7 +221,16 @@ static void test_status_bag_drives_attention() {    const std::string reply = R"
     CHECK(out[1].tag == ThreadTag::Review);
     CHECK(out[2].state == ThreadState::Ready);
     CHECK(out[2].tag == ThreadTag::Done);
-    CHECK(out[3].state == ThreadState::Running);
+    // A `working` CLAIM with no run behind it is not a run. It keeps the
+    // claim — the row still says the agent's last word was "working" — but it
+    // is not Running, so nothing draws it a spinner.
+    CHECK(out[3].state == ThreadState::Working);
+    CHECK(out[4].state == ThreadState::Running);
+    // "failed" is the fifth state the bag can carry. It used to match no
+    // branch here at all and fell through to the resolved_status fallback,
+    // which returned Ready — a dead run offered up as something to review.
+    CHECK(out[5].state == ThreadState::Attention);
+    CHECK(out[5].tag == ThreadTag::Failed);
 }
 
 static void test_falls_back_to_coarse_status_without_the_bag() {

@@ -176,12 +176,37 @@ Row markers — seven shapes, three hues, all 8-10px:
 | filled dot r=3.7 | (221,91,95) | 17 |
 | chevron `>` 5x8, stroke 1.9 | (148,148,173) | 16, 18 |
 
-**The mapping is not a function of anything hanabi stores.** Rows 0-5 are all
-`Running/None` and Puffin splits them arc/arc/arc/arc/dot/dot; rows 6-8, 11, 15
-and 17 are all `Attention/Blocked` and Puffin splits them bang/cross/bang,
-bang/cross/red-dot; rows 10, 16 and 18 are all `Unknown/None` and Puffin splits
-them dot/chevron/chevron. Four shapes is the ceiling on `(ThreadState,
-ThreadTag)`; the rest needs data the client does not have.
+**CORRECTED 2026-08-24 (feat/vis-glyphs).** This section used to end "the
+mapping is not a function of anything hanabi stores... four shapes is the
+ceiling on `(ThreadState, ThreadTag)`". That was true of the FIXTURE, not of
+the mapping: the seven markers are a function of state, and the reason six rows
+looked indistinguishable is that hanabi's fixture gave six different things the
+same `(Attention, Blocked)` pair. The rule, verified against Puffin's own
+source and its own fixture row by row:
+
+| what the thread is doing | mark |
+|---|---|
+| a run is LIVE (`running` / resolved kind `running`) | arc, live blue |
+| testimony says `working`, no live run | filled dot, live blue |
+| blocked, or waiting/review — anything that wants you | bang, live blue |
+| testimony says `failed` | cross, alert red |
+| a failed OUTCOME with no testimony behind it | filled dot, alert red |
+| settled, and it has sub-agents | chevron, calm grey |
+| settled | filled dot, calm grey |
+
+Blocked and waiting share one mark, shape and colour both: all six of the
+reference's waiting rows measure to the same (164,208,255) bang. The run always
+owns the slot — the chevron appears only when the run has nothing left to say,
+which is why `coordinating 3 shard workers` (3 sub-agents, running) draws the
+arc and `Navi PRs: oak + juno` (1 sub-agent, settled) draws the chevron. See
+the long note on `ecs::model::mark_for`.
+
+Two of those seven needed states hanabi's model did not hold — `Working` (a
+`working` claim with no run behind it, which Puffin calls a corpse and buckets
+as finished) and `Failed` (the fifth member of the wire vocabulary
+`working/waiting/blocked/done/failed`, which hanabi's own agentcloud adapter
+was dropping on the floor). Both are now in `api/types.h` and both are reachable
+from the live backend, not just the mock.
 
 **Counts** appear on 7 of 19 rows and are sub-agent counts: `1` where the
 session has one sub-agent, `1/3` for `coordinating 3 shard workers`, which has

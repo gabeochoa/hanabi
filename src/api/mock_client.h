@@ -635,8 +635,13 @@ class MockClient : public Client {
         }
         {
             Session s;
+            // Working, NOT Running: the reference's own fixture has this row
+            // as testimony that says "working" with no live run
+            // (`mock-working-1`, `resolvedKind: "testimony"`, running absent),
+            // which is why Puffin draws it a steady dot where the four rows
+            // above it get the spinner.
             s.summary = pf("t8", "triaging row 212", 6.1, "active",
-                           ThreadState::Running, ThreadTag::None,
+                           ThreadState::Working, ThreadTag::None,
                            "reading the row's history");
             s.messages = {
                 {"m1", Role::System,
@@ -652,8 +657,11 @@ class MockClient : public Client {
         }
         {
             Session s;
+            // Working, not Running, for the same reason as the row above:
+            // `mock-renamed-1` is testimony ("working") on a thread with no
+            // live run.
             s.summary = pf("t6", "SKU backfill \xe2\x80\x94 my name for it", 8,
-                           "active", ThreadState::Running, ThreadTag::None,
+                           "active", ThreadState::Working, ThreadTag::None,
                            "sweeping 412 rows for missing SKUs");
             s.messages = {
                 {"m1", Role::System,
@@ -698,8 +706,12 @@ class MockClient : public Client {
         }
         {
             Session s;
+            // Failed, not Blocked: the run DIED (two shards lost to an OOM).
+            // The reference draws it a red cross where its blocked rows get a
+            // bang, and the fixture it copies says the same thing — a testimony
+            // of "failed" rather than one of "blocked".
             s.summary = pf("r7", "two shards died", 12, "active",
-                           ThreadState::Attention, ThreadTag::Blocked,
+                           ThreadState::Attention, ThreadTag::Failed,
                            "the run failed, two shards lost");
             s.messages = {
                 {"m1", Role::System,
@@ -943,8 +955,10 @@ class MockClient : public Client {
         }
         {
             Session s;
+            // The other testified failure (`mock-failed-1`: state "failed" AND
+            // a failed outcome), and the reference's other red cross.
             s.summary = pf("r2", "import failed twice", 200, "active",
-                           ThreadState::Attention, ThreadTag::Blocked,
+                           ThreadState::Attention, ThreadTag::Failed,
                            "reproduced locally, looks like a fixture race");
             s.messages = {
                 {"m1", Role::User,
@@ -995,8 +1009,13 @@ class MockClient : public Client {
         }
         {
             Session s;
+            // Failure with NOTHING testified: the reference's `mock-outcome-2`
+            // carries a failed outcome and no status bag at all, and Puffin
+            // draws it the red DOT rather than the red cross — the weaker
+            // shape for the weaker fact. `Unknown` is exactly that here: the
+            // tag is all that is known about this thread.
             s.summary = pf("r9", "row 133 banyan diff gate", 300, "active",
-                           ThreadState::Attention, ThreadTag::Blocked,
+                           ThreadState::Unknown, ThreadTag::Failed,
                            "the gate failed, nothing landed");
             s.messages = {
                 {"m1", Role::System,
