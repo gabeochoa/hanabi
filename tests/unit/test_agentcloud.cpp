@@ -137,8 +137,56 @@ static void test_no_timestamp_on_this_wire() {
     CHECK(out[0].updated_at == 0);
 }
 
-static void test_status_bag_drives_attention() {
+static void test_children_fold_into_a_count_and_leave_the_list() {
+    // A parent and its three sub-agents, exactly as the server sends them:
+    // four rows, the children naming their parent. The sidebar must see ONE
+    // row carrying 1/3, not four peers.
     const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"p","title":"coordinating","last_seq":9,
+       "status":{"state":"working"}},
+      {"session_id":"c1","title":"shard 1","last_seq":8,"parent":"p",
+       "status":{"state":"working"}},
+      {"session_id":"c2","title":"shard 2","last_seq":7,"parent":"p",
+       "status":{"state":"done"}},
+      {"session_id":"c3","title":"shard 3","last_seq":6,"parent":"p",
+       "status":{"state":"blocked"}}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].id == "p");
+    CHECK(out[0].sub_agent_count == 3);
+    // Only the working child is live: done has stopped and blocked is stuck,
+    // and calling a blocked sub-agent "running" is the one thing this count
+    // must never do.
+    CHECK(out[0].sub_agent_running_count == 1);
+}
+
+static void test_a_childless_row_carries_no_count() {
+    // Absent parentage must read as zero, not as an unset field the row then
+    // draws a "0" for.
+    const std::string reply =
+        R"({"type":"sessions","sessions":[{"session_id":"a","last_seq":7}]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].sub_agent_count == 0);
+    CHECK(out[0].sub_agent_running_count == 0);
+}
+
+static void test_an_orphan_child_is_still_not_a_root_row() {
+    // The parent is not in this page. The child is still a sub-agent, and
+    // listing it as a top-level thread was the noise being removed -- so it
+    // is dropped, and its count goes nowhere rather than onto a stranger.
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"root","last_seq":9},
+      {"session_id":"orphan","last_seq":8,"parent":"absent"}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].id == "root");
+    CHECK(out[0].sub_agent_count == 0);
+}
+
+static void test_status_bag_drives_attention() {    const std::string reply = R"({"type":"sessions","sessions":[
       {"session_id":"blocked","last_seq":4,"status":{"state":"blocked"}},
       {"session_id":"review","last_seq":3,
        "status":{"state":"done","attention":"review"}},
@@ -528,6 +576,9 @@ int main() {
     test_null_title_falls_back_and_does_not_throw();
     test_rows_sort_newest_first_by_seq();
     test_no_timestamp_on_this_wire();
+    test_children_fold_into_a_count_and_leave_the_list();
+    test_a_childless_row_carries_no_count();
+    test_an_orphan_child_is_still_not_a_root_row();
     test_status_bag_drives_attention();
     test_falls_back_to_coarse_status_without_the_bag();
     test_unreadable_input_is_empty_not_a_crash();

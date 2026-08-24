@@ -657,6 +657,41 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
     static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
     static constexpr theme::Color kGlyphCalm{146, 146, 171, 255};
+    // The sub-agent count's two colours, both measured off the reference
+    // capture (docs/visual-parity/ref/01_home.png) the way the glyph colours
+    // above were. A count is antialiased text with no solid interior, so
+    // neither could be read straight off a peak pixel: the hue comes from the
+    // RATIO of (pixel - background) across samples, which is independent of
+    // coverage, and the magnitude from the brightest sample.
+    //
+    // The live colour is NOT kGlyphActive. The reference's running glyph and
+    // its running count measure to two different blues on the same row —
+    // the count is the more saturated of the two — so the row draws two, and
+    // reusing the glyph's would have been a visible miss on the one row that
+    // matters most.
+    static constexpr theme::Color kCountLive{120, 169, 255, 255};
+    // Settled matches the calm glyph exactly, which is the reference's own
+    // muted text; measured (130,130,153) and (137,137,160) both sit on this
+    // colour's ray out of the row background.
+    static constexpr theme::Color kCountSettled = kGlyphCalm;
+    // Breathing room between the title's ellipsis and the count's digits.
+    static constexpr float kCountTextPad = 6.0f;
+    // afterhours insets label text by a hardcoded 5px from its box on EVERY
+    // alignment, with no way to switch it off (vendor is read-only —
+    // afterhours_gaps.md #82). Right-aligning the count therefore lands its
+    // digits 5px shy of the row's right edge, and the reference puts them
+    // flush against it — the same 5px by which every count already in this
+    // sidebar (the smart-view badges, the folder counts) sits left of where
+    // Puffin draws it.
+    //
+    // The way out without touching the vendor: LEFT-align inside a slot sized
+    // to the text PLUS that inset. The inset then falls on the left, where
+    // there is nothing to be flush with, and the text's right edge lands
+    // exactly on the slot's — which, as the row's last child, is the row's.
+    static constexpr float kAhTextInset = 5.0f;
+    // Measured off the reference: its count digits stand 8px tall where the
+    // row title's stand 11, and the title is LIST_ROW (16.5).
+    static constexpr float kCountFontPx = 13.5f;
     // Puffin gives EVERY session-row title the same near-white; the list does
     // not encode attention in the title's brightness the way hanabi did.
     static constexpr theme::Color kRowTitleFg{238, 238, 247, 255};
@@ -2201,8 +2236,29 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool showBell =
             s.muted && (rowContent - kGlyphW - kTitleMin -
                         (showStar ? kStarW : 0.0f)) >= kBellW;
+        // The sub-agent count is claimed only by a thread that HAS sub-agents,
+        // and it is measured to its own text rather than given a fixed column
+        // — the same bargain the mute mark strikes, for the same reason. A
+        // fixed slot wide enough for "1/3" would have taken ~20px off every
+        // title in the list to serve the third of rows that spawn anything,
+        // and a row of ellipsized titles is a worse list than one without
+        // counts. A bare "1" costs ~6px, on its own row, and nothing else
+        // moves. Checked LAST so it is the first column dropped as the
+        // sidebar narrows (the collapse tween sweeps 280 -> 52 and every
+        // intermediate width has to fit without overflowing).
+        const std::string countLabel = ecs::model::sub_agent_label(s);
+        float countW = 0.0f;
+        if (!countLabel.empty()) {
+            countW = std::ceil(theme::text_px(countLabel.c_str(),
+                                              kCountFontPx)) +
+                     kAhTextInset;
+            if ((rowContent - kGlyphW - kTitleMin - (showStar ? kStarW : 0.0f) -
+                 (showBell ? kBellW : 0.0f)) < countW)
+                countW = 0.0f;
+        }
+        bool showCount = countW > 0.0f;
         float reserved = kGlyphW + (showStar ? kStarW : 0.0f) +
-                         (showBell ? kBellW : 0.0f);
+                         (showBell ? kBellW : 0.0f) + countW;
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
         // Ellipsize to the title column's width. At ROW size (12.5px) an avg
@@ -2213,7 +2269,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(fit_to_width(strip_parked_prefix(s.title),
                                          theme::type::LIST_ROW,
-                                         rowTitleW - kRowTitlePad))
+                                         rowTitleW - kRowTitlePad -
+                                             (showCount ? kCountTextPad : 0.0f)))
                 .with_size(ComponentSize{pixels(rowTitleW), pixels(20)})
                 .with_padding(Padding{.left = pixels(kRowTitlePad)})
                 .with_transparent_bg()
@@ -2332,6 +2389,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("row_star_slot"));
+        }
+
+        // The sub-agent count: how many threads this one spawned, and how many
+        // are still working. RIGHTMOST, in the slot the removed relative-time
+        // column used to hold — the reference draws it flush to the row's
+        // right edge, and it is data rather than an affordance, so it belongs
+        // outside the star the way the timestamp did.
+        //
+        // A plain div, not a button: the count is a fact about the row, and
+        // making it clickable would give the row a second hit target that
+        // steals hot from it (the star already costs one).
+        if (showCount) {
+            const bool live = ecs::model::sub_agents_live(s);
+            theme::Color countColor = live ? kCountLive : kCountSettled;
+            if (archived || automated) countColor = theme::text_faint();
+            div(ctx, mk(row.ent(), 6),
+                ComponentConfig{}
+                    .with_label(countLabel)
+                    .with_size(ComponentSize{pixels(countW), pixels(20)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(countColor)
+                    .with_font_size(kCountFontPx)
+                    // LEFT, not Right — see kAhTextInset. The slot is sized to
+                    // the text plus that inset, so left-aligning puts the
+                    // digits flush against the slot's (and the row's) right
+                    // edge, which is what right-aligning could not do.
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("row_subagent_count"));
         }
 
         // Right-click opens the row's context menu at the cursor. Always
