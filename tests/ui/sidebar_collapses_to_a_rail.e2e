@@ -6,10 +6,13 @@
 # The toggle lives at the right edge of that strip now, not in a header row:
 # the sidebar's top band is bare window colour where the OS traffic lights sit.
 #
+# The two clicks are the two toggles: the unfolded one sits in the VIEWS strip
+# at x=249..273, y=40..60, and the folded rail's own one at x=14..42, y=7..35.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "VIEWS"
-expect_text "Draft release notes for 4.2"
+expect_text "SKU backfill — my name for it"
 
 click 262 50
 wait_frames 25

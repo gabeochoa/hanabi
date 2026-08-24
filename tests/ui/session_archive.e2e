@@ -4,16 +4,20 @@
 # The thread must be GONE from the ordinary list afterwards, not merely joined
 # by a copy under Archived — the sidebar's Recent list and Home's recent cards
 # both render the title, and asserting only that it appeared in Archived would
-# pass with either of those still showing it. (expect_no_text takes a BARE
-# word — afterhours_gaps.md #47.)
+# pass with either of those still showing it.
 #
 # Rows and cards are addressed by coordinate because the harness has no
 # `right_click_ui <name>` (afterhours_gaps.md #55); the menu ITEM is addressed
 # by name, which is safe once the menu is open.
 #
+# The thread under test is t6, "SKU backfill — my name for it": the sixth row
+# of the activity list, whose band is y=460..492 at this window size, so 475
+# lands on it. "SKU" is the bare word that belongs to that thread and to no
+# other row, card or preview in the fixture.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Draft release notes for 4.2"
+expect_text "SKU backfill — my name for it"
 
 mouse_move 120 475
 wait_frames 3
@@ -23,13 +27,13 @@ wait_frames 4
 click_ui row_menu_archive
 wait_frames 8
 
-expect_no_text Draft
+expect_no_text SKU
 expect_text "Session archived"
 
 # Undo returns it to the list it left.
 click_ui toast_undo
 wait_frames 8
-expect_text "Draft release notes for 4.2"
+expect_text "SKU backfill — my name for it"
 expect_text "Session unarchived"
 
 # Archive it again and go looking for it under Archived, which is where the
@@ -41,17 +45,18 @@ right_click 120 475
 wait_frames 4
 click_ui row_menu_archive
 wait_frames 8
-expect_no_text Draft
+expect_no_text SKU
 
 click_text Archived
 wait_frames 8
-expect_text "Draft release notes for 4.2"
+expect_text "SKU backfill — my name for it"
 
 # An archived thread has no sidebar row left to right-click, so its card in
-# this view carries the same menu — and that menu offers the way back.
-mouse_move 650 110
+# this view carries the same menu — and that menu offers the way back. The
+# card's band is y=124..176, so 150 is inside it.
+mouse_move 650 150
 wait_frames 3
-right_click 650 110
+right_click 650 150
 wait_frames 6
 expect_text "Unarchive"
 click_ui row_menu_archive

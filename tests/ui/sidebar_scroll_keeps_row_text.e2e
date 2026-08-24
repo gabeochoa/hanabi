@@ -8,9 +8,19 @@
 # is nothing to scroll. Expanding it first is what gives the scroll something
 # to move — which is also the state the regression appeared in.
 #
+# Both titles are asserted in their SIDEBAR-ellipsized form. Every row title is
+# also painted on a Home card in the main pane, at a width that does not
+# ellipsize it, and a duplicate label satisfies expect_text wherever it is —
+# so a bare title would pass with every sidebar row blank, which is the exact
+# regression this script exists for (afterhours_gaps.md #73). The "…" is what
+# makes the assertion about the sidebar. "oncall sweep finished" is the
+# thirteenth row: past the cap, so it is on screen only once the list has been
+# expanded AND scrolled.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Tidy up the retry backoff in the s"
+expect_text "stickers broke — concluded, D1136…"
+expect_no_text "oncall sweep finished — 3 rows ne…"
 
 click_ui sb_show_more
 wait_frames 6
@@ -21,6 +31,6 @@ wait_frames 6
 scroll_wheel 0 -6
 wait_frames 6
 
-# Whatever is under the cursor now, SOMETHING must still be lettered: these two
-# rows are far enough down the list to be on screen after the scroll.
-expect_text "wire up the new empty-state illust"
+# Whatever is under the cursor now, SOMETHING must still be lettered: this row
+# is far enough down the list to be on screen only after the scroll.
+expect_text "oncall sweep finished — 3 rows ne…"

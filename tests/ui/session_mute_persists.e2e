@@ -1,9 +1,14 @@
-# A mute survives the launch that made it: this app starts with r4 already
+# A mute survives the launch that made it: this app starts with t6 already
 # silenced, and its row shows the mute at rest, with nothing hovered.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","muted":["r4"]}
+# t6 replaces r4 here. r4 is the thirteenth row of the merged fixture's
+# activity list, which is past the viewport-fill cap — it sits behind
+# "Show N more…" and has no row to carry a mark. t6 is the sixth row and is
+# rendered from the first frame.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","muted":["t6"]}
 
 mouse_move 650 400
 wait_frames 12
-expect_text "oncall sweep finished"
+expect_text "SKU backfill — my name for it"
 assert_ui row_muted hidden=false

@@ -13,9 +13,13 @@
 # `right_click_ui <name>` (afterhours_gaps.md #55); menu ITEMS and the toast's
 # own buttons are addressed by name, which is safe once they are on screen.
 #
+# The thread under test is t2, "needs a decision before it can go on": the
+# ninth row of the activity list, whose band is y=556..588 at this window size,
+# so 567 lands on it.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "oncall sweep finished"
+expect_text "needs a decision before it can go on"
 
 # ---- Mute raises a toast -------------------------------------------------
 mouse_move 120 567
@@ -37,7 +41,7 @@ click_ui toast_undo
 wait_frames 8
 expect_text "Session unmuted"
 # Still in the ordinary list: the undo unmuted, it did not archive.
-expect_text "oncall sweep finished"
+expect_text "needs a decision before it can go on"
 
 # The menu offers Mute again, which it only does for an unmuted thread — so
 # the durable flag went back too, not just the toast's wording.

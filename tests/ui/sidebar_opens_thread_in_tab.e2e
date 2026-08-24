@@ -4,18 +4,16 @@
 
 # Home, nothing open. The row's TITLE is already in the sidebar, so assert on
 # transcript content instead — otherwise the check passes without a click.
-# NOTE: expect_no_text takes a BARE single word, never a quoted string —
-# the script parser only strips quotes for expect_text, so a quoted
-# argument here is matched WITH its quote characters and can never hit.
-# afterhours_gaps.md #47.
 
 expect_text "Home"
-expect_no_text Pulled
+expect_no_text 2.1M
 
-# "Draft release notes for 4.2" sits in the sidebar list.
+# "SKU backfill — my name for it" is the sixth row of the activity list, whose
+# band is y=460..492 at this window size; "61% through 2.1M rows" is a line of
+# ITS transcript and of no other.
 click 120 475
 wait_frames 8
-expect_text "Pulled the 62 landed changes"
+expect_text "61% through 2.1M rows"
 
 # The composer switches from kickoff to reply once a thread is open.
 expect_no_text Start

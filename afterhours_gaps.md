@@ -1964,6 +1964,14 @@ entity is stable for its life, and the imm layer reuses entities across frames.
 
 ### #47 — `expect_no_text` can never fail (its argument keeps the quotes)
 
+**RESOLVED upstream** — the vendored afterhours (submodule 428047e) carries the
+one-line fix suggested at the bottom of this entry: `parse_script` now routes
+`expect_no_text` through `parse_quoted()` alongside `expect_text`. Verified on
+the merged tree: `expect_no_text "profiling the disk"` FAILS on a frame that
+paints it, and reports the label it matched. Quoted multi-word arguments are
+usable again; the "pass a bare single word" workaround below is no longer
+required, and the comments repeating it in `tests/ui/*.e2e` are stale.
+
 - **What happened.** Every negative assertion in every UI script passes,
   including this one, on a build where the tab plainly reads `new1`:
 
@@ -3401,3 +3409,66 @@ moved by the KEYBOARD, and paint the ring only then (`focus_source` is already
 carried on the context — `FocusSource::Pointer` vs `Explicit` — so the
 information exists and is thrown away at the ring). Failing that, an app-level
 "no ring until first keyboard focus" switch.
+
+---
+
+### #73 — `assert_ui_text` matches ANY element with that label, so a positional assertion can silently be about a different panel
+
+**A label that appears twice on screen makes `assert_ui_text` a coin toss, and
+there is no way to say WHICH one you meant.**
+
+**What happened.** The scripted sidebar tests assert row order by position —
+`assert_ui_text "<row title>" y=306` is how "this thread is in slot 0" is
+written, because there is no way to name one row of a list (#55) and no
+`dump_ui` registered. But hanabi paints every sidebar row title a second time,
+as a Home digest card in the main pane. `assert_ui_text` resolves its argument
+with
+
+```cpp
+ui_query()
+    .whereHasComponent<ui::HasLabel>()
+    .whereLambda([&](const Entity &e) {
+      return e.get<ui::HasLabel>().label == text &&
+             e.get<ui::UIComponent>().was_rendered_to_screen;
+    })
+    .gen_first();
+```
+
+`gen_first()` — the first entity the query happens to reach, which is entity
+creation order, not screen order and not the order the systems ran in. So
+`assert_ui_text "watchdog clean for 6h" y=…` reports the MAIN PANE card's y,
+while `assert_ui_text "profiling the disk" y=…` reports the SIDEBAR row's, in
+the same frame of the same app. Which one you get depends on which entity was
+created first across the whole run: rows inside the list's initial
+viewport-fill cap were created on frame 1 and win; rows created later, when
+"Show N more…" is clicked, lose to cards that already existed.
+
+The failure mode is not a wrong answer, it is a wrong SUBJECT. The assertion
+still passes or fails honestly — about an element the script was not talking
+about.
+
+**Why the obvious escapes do not work.**
+
+- **There is no ancestor/scope filter.** `assert_ui <name> …` scopes by debug
+  name, but every row in a list shares one debug name, so it can only ever
+  reach the first row.
+- **Adding `x=` to pin the panel does not disambiguate, it just fails.** If the
+  query returns the main-pane card, `x=21` fails on the card rather than going
+  and finding the sidebar row.
+- **`expect_text` has the same blind spot, and it is worse there**, because a
+  duplicate satisfies it: a test that asserts "the sidebar rows are still
+  lettered" passes on the Home cards alone, with every sidebar row blank.
+
+**The workaround, and its cost.** Assert only on strings that ONE panel can
+produce. The sidebar ellipsizes a title to its column width and the main pane
+does not, so the sidebar-truncated form (`"oncall sweep finished — 3 rows ne…"`)
+is unique to the sidebar and the bare title is not. That works, and it means
+the coordinate tests can only be written against rows whose titles happen to be
+longer than 36 bytes — the fixture, not the test, decides which rows are
+assertable. Change a title's length and a passing test quietly starts measuring
+a card.
+
+**Minimal upstream fix.** A scope argument on both commands —
+`assert_ui_text "<text>" under=sidebar y=306`, resolved by walking up the
+UIComponent parent chain to a debug-named ancestor — plus an error rather than
+a silent pick when the match is ambiguous: "3 elements match, name one".

@@ -16,14 +16,21 @@
 # `right_click_ui <name>` (afterhours_gaps.md #55) and no way to name one row of
 # a list; the menu ITEMS are addressed by name, which is safe once it is open.
 #
+# Both asserted titles are also painted as Home cards in the main pane, and
+# assert_ui_text takes whichever entity the query reaches first
+# (afterhours_gaps.md #73). Both of these rows are inside the list's initial
+# viewport-fill cap, so their entities predate every card and the sidebar wins;
+# a row that only appears after "Show N more…" would not, and would report the
+# card's y instead.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 # Activity order: most recently touched at the top, and the thread we are about
 # to move sitting six rows down.
 mouse_move 650 400
 wait_frames 10
-assert_ui_text "Tidy up the retry backoff in the sy…" y=306
-assert_ui_text "Draft release notes for 4.2" y=466
+assert_ui_text "profiling the disk" y=306
+assert_ui_text "SKU backfill — my name for it" y=466
 
 # Nothing has been arranged yet, so there is no order to reset.
 right_click 120 310
@@ -49,12 +56,13 @@ wait_frames 8
 
 # It landed, the row it displaced is one slot lower, and it stays put with the
 # pointer off the sidebar entirely. The thread was never opened on the way past:
-# a press that becomes a drag is not a click.
+# a press that becomes a drag is not a click. "Backfill in progress" is the
+# first line of the dragged thread's transcript and of no other.
 mouse_move 650 400
 wait_frames 8
-assert_ui_text "Draft release notes for 4.2" y=306
-assert_ui_text "Tidy up the retry backoff in the sy…" y=338
-expect_no_text "Pulled the 62 landed changes"
+assert_ui_text "SKU backfill — my name for it" y=306
+assert_ui_text "profiling the disk" y=338
+expect_no_text "Backfill in progress"
 
 # The list now reads as hand-arranged, and saying so undoes it.
 right_click 120 310
@@ -64,5 +72,5 @@ click_ui row_menu_reset_order
 wait_frames 8
 mouse_move 650 400
 wait_frames 6
-assert_ui_text "Tidy up the retry backoff in the sy…" y=306
-assert_ui_text "Draft release notes for 4.2" y=466
+assert_ui_text "profiling the disk" y=306
+assert_ui_text "SKU backfill — my name for it" y=466

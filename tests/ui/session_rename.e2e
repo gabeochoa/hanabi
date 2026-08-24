@@ -4,16 +4,21 @@
 # The old title has to be GONE afterwards, not merely joined by the new one:
 # the row, the tab and the transcript header all render it, and asserting only
 # that "Ship notes" appeared would pass with two of the three still stale.
-# (expect_no_text takes a BARE word — afterhours_gaps.md #47.)
+#
+# The thread under test is t6, "SKU backfill — my name for it": the sixth row
+# of the activity list, whose band is y=460..492 at this window size, so 475
+# lands on it. "SKU" is the bare word that belongs to that title and to no
+# other row, card or preview; "Backfill in progress" is the first line of its
+# transcript.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Draft release notes for 4.2"
+expect_text "SKU backfill — my name for it"
 
 # Open the thread first, so the rename has a tab caption to reach as well.
 click 120 475
 wait_frames 8
-expect_text "Pulled the 62 landed changes"
+expect_text "Backfill in progress"
 
 # Secondary click on the same row: the context menu opens at the cursor.
 mouse_move 120 475
@@ -33,7 +38,7 @@ key ENTER
 wait_frames 30
 
 expect_text "Ship notes"
-expect_no_text Draft
+expect_no_text SKU
 
 # A refusal is shown in the modal and nothing local changes: the server has the
 # last word on the title, so an empty one comes back rejected and the row keeps

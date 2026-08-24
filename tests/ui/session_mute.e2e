@@ -12,9 +12,14 @@
 # `right_click_ui <name>` (afterhours_gaps.md #55); the menu ITEM is addressed
 # by name, which is safe once the menu is open.
 #
+# The thread under test is t6, "SKU backfill — my name for it": the sixth row
+# of the activity list, whose band is y=460..492 at this window size, so 475
+# lands on it. "Backfill in progress" is the first line of ITS transcript and
+# appears nowhere else, so it is what says the thread did or did not open.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "Draft release notes for 4.2"
+expect_text "SKU backfill — my name for it"
 
 mouse_move 120 475
 wait_frames 3
@@ -53,7 +58,7 @@ mouse_move 650 400
 wait_frames 8
 click_ui row_muted
 wait_frames 8
-expect_no_text "Pulled the 62 landed changes"
+expect_no_text "Backfill in progress"
 
 mouse_move 120 475
 wait_frames 3
