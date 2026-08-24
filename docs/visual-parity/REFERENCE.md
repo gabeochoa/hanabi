@@ -357,3 +357,38 @@ either: `ecs::model::mark_for` speaks the reference's vocabulary. Shape still
 carries the status independently of colour, so the colour-blind property the
 doc was protecting survives; the shapes themselves are the reference's.
 
+
+### The session row's star (hanabi has it; Puffin's row has no equivalent)
+
+hanabi pins a thread from its sidebar row: a star at the row's trailing edge,
+shown when the thread is pinned and on hover when it is not. Puffin's
+`SessionRowView` has nothing of the kind — pinning lives on the row's context
+menu and on the tab, and the row's trailing items are the theme mark, the mute
+bell, the sub-agent count and the age, every one of them conditional.
+
+So the reference will always have a little more title, and on a hovered row
+hanabi will always have something the reference does not. Not a bug and not
+declared: it is drawn out of flow (`feat/vis-list2`), so at rest it costs the
+title nothing and the two lists measure like for like. It only diverges under
+the pointer, which is a state no reference captures.
+
+What this section exists to stop is the obvious "fix": giving the star a
+reserved column so it stops overlapping the title on hover. That is what hanabi
+did until `feat/vis-list2`, it cost every one of twenty titles 18px forever,
+and it ellipsized three of the reference's own titles a word early.
+
+### hanabi's list is capped and Puffin's is not — but the cap must exceed the viewport
+
+Puffin's sidebar is a `LazyVStack` that builds rows on demand, so its list is
+simply as long as the catalog. hanabi renders a bounded number and offers the
+rest behind a "Show N more…" expander, which is a real divergence and a
+deliberate one: it is the guard that keeps a 2000-session catalog cheap.
+
+The bound must be bigger than the viewport, though, and for a long time it was
+`viewportRows - 1`. That makes the scroll panel's content shorter than the
+panel by construction — the list cannot scroll at any catalog size, and the
+expander is not an escape hatch but the only way to see row nineteen. Against
+the reference it also costs a row: Puffin draws nineteen and clips a twentieth
+where hanabi drew eighteen and a button.
+
+It is two viewports now. Keep it above one.

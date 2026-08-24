@@ -218,6 +218,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar_scroll"));
         // Match the OS "natural scrolling" setting (see util/scroll_prefs.h).
         hanabi::apply_scroll_prefs(scroll.ent());
+        // Overlay scrollers, the way Puffin's list has them
+        // (`.background(OverlayScrollers())` in HomeSessionList): a bar at rest
+        // is a permanent 8px stripe down the sidebar's trailing edge, and it
+        // paints over the column rule at x=279 while it is there. afterhours
+        // has no auto-hide mode, only a `show_scrollbar` bool, so hanabi drives
+        // the bool itself — visible while the pointer is in the list, gone the
+        // moment it leaves. The list only became long enough for this to matter
+        // when the row cap stopped truncating it to less than one viewport.
+        if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            scroll.ent().get<afterhours::ui::HasScrollView>().show_scrollbar =
+                ctx.mouse_in_subtree(scroll.ent().id) ||
+                ctx.mouse_was_in_subtree(scroll.ent().id);
+        }
         // TEMPORARY scroll indicator (afterhours gap #26): thin overlay bar
         // computed from the panel's live HasScrollView metrics.
         // (scrollbar now drawn by afterhours)
@@ -232,13 +245,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const std::string q = lower(app->searchQuery);
         int shown = 0;
         // V6: fill the available vertical space instead of a fixed row cap.
-        // The scroll viewport is scrollH px tall and each row is kRowHeight px;
-        // the cap targets the viewport minus one row reserved for the
-        // "Show N more…" button so it stays visible instead of being pushed
-        // below the fold. Never drops below kBucketCap. THIS IS THE 2000-ROW
-        // GUARD: rendered rows are bounded by viewport height, not list size.
+        // The scroll viewport is scrollH px tall and each row is kRowHeight px.
+        //
+        // TWO viewports, not one. A cap of viewportRows-1 made the panel's
+        // content shorter than the panel by construction, so the sidebar's
+        // ScrollPanel had nothing to scroll: a twenty-session catalog showed
+        // eighteen rows and spent the nineteenth slot on a button saying "Show
+        // 2 more…", which costs a row to save a row. The reference just keeps
+        // going and scrolls — twenty rows, the last one clipped by the footer.
+        // Rendering two viewports' worth restores that for any list up to
+        // ~38 rows while keeping the guard: rendered rows are still bounded by
+        // viewport height and not by list size, which is the only property the
+        // cap was ever protecting.
         int viewportRows = static_cast<int>(scrollH / kRowHeight);
-        int fillCap = viewportRows - 1;  // -1 = show-more row
+        int fillCap = viewportRows * 2;
         if (fillCap < kBucketCap) fillCap = kBucketCap;
         shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                *app, q, r.width, /*archived=*/false,
@@ -2292,9 +2312,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Columns, in order:
         //   glyph slot   kGlyphW  (leading status indicator — always drawn)
         //   title        (sized in px — takes the remaining width)
-        //   star slot    18px     (RIGHTMOST; drawn on hover or when pinned,
-        //                          but ALWAYS reserved so the row does not
-        //                          reflow under the pointer)
+        //   count slot   (only on a row that has sub-agents)
+        // and, OUT OF FLOW and over the title's tail, the star.
         //
         // NO TIMESTAMP. Puffin's rows carry no time at all, so the column is
         // gone — see the commit message for what that costs the reader.
@@ -2309,8 +2328,23 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // a title floor that can exceed the box, we FIT the columns to the box:
         // keep the title at a sane minimum and DROP the optional trailing
         // columns when they would not fit, rather than overflow.
+        //
+        // THE STAR IS NOT A COLUMN. It used to be one — 18px reserved on every
+        // row whether or not anything was ever drawn in it, so that the row
+        // would not reflow when the pointer arrived. That reserve came out of
+        // the title, on all twenty rows, forever, to serve an affordance that
+        // is invisible at rest; measured against the reference it is the whole
+        // of hanabi's title-width deficit, and it truncated three of the
+        // reference's twenty titles a word or two early. Puffin reserves
+        // nothing here: SessionRowView's trailing items are all conditional
+        // and it has no star at all. So the star is now an absolutely
+        // positioned child (afterhours skips those in flow), floating over the
+        // title's trailing edge on the rows that draw one, and the title gets
+        // the full column back. Nothing reflows on hover either — an absolute
+        // child cannot move its siblings, which is a stronger guarantee than
+        // the reserved slot gave.
         const float kRowPad = kRowLeftInset + kCountRightPad;
-        const float kStarW = 18.0f;       // trailing star slot
+        const float kStarW = 18.0f;       // the floating star's own box
         const float kBellW = 18.0f;       // trailing mute slot, left of the star
         const float kTitleMin = 40.0f;    // title floor before dropping columns
         float rowContent = panelW - kRowPad;
@@ -2322,8 +2356,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // uses. Muting is on the row's context menu instead, so nothing appears
         // on hover and no row reflows; a muted row pays for its own mark.
         bool showBell =
-            s.muted && (rowContent - kGlyphW - kTitleMin -
-                        (showStar ? kStarW : 0.0f)) >= kBellW;
+            s.muted && (rowContent - kGlyphW - kTitleMin) >= kBellW;
         // The sub-agent count is claimed only by a thread that HAS sub-agents,
         // and it is measured to its own text rather than given a fixed column
         // — the same bargain the mute mark strikes, for the same reason. A
@@ -2340,13 +2373,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             countW = std::ceil(theme::text_px(countLabel.c_str(),
                                               kCountFontPx)) +
                      kAhTextInset;
-            if ((rowContent - kGlyphW - kTitleMin - (showStar ? kStarW : 0.0f) -
+            if ((rowContent - kGlyphW - kTitleMin -
                  (showBell ? kBellW : 0.0f)) < countW)
                 countW = 0.0f;
         }
         bool showCount = countW > 0.0f;
-        float reserved = kGlyphW + (showStar ? kStarW : 0.0f) +
-                         (showBell ? kBellW : 0.0f) + countW;
+        float reserved = kGlyphW + (showBell ? kBellW : 0.0f) + countW;
         float rowTitleW = rowContent - reserved;
         if (rowTitleW < 16.0f) rowTitleW = 16.0f;  // never zero/negative
         // Ellipsize to the title column's width. At ROW size (12.5px) an avg
@@ -2416,20 +2448,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        // Trailing relative-time column FIRST (so it sits to the LEFT of the
-        // ---- M5: star sits to the LEFT of the timestamp, both right-aligned.
-        // Render the STAR first, then the time column — in a Row, earlier
-        // children lay out further left, so this yields  title … [star] [time]
-        // with the timestamp flush to the row's right edge and the star just
-        // to its left. (Previously time-then-star put the star rightmost.)
+        // ---- The star, floating over the title's trailing edge -------------
+        // Absolutely positioned, so it takes no width from the title and can
+        // move nothing when it appears. It lands where the old reserved slot
+        // used to sit — immediately left of the count — so the column reads
+        // the same as before to anyone who was used to it.
+        //
+        // It paints its own 18px of row fill before the glyph. A floating
+        // affordance over a left-aligned label WILL land on the tail of a long
+        // title, and a star sharing pixels with a "g" is unreadable; the chip
+        // is the row's own current background, so it reads as the title having
+        // made room rather than as a box over it.
         if (showStar && (s.starred || rowHovered)) {
             theme::Color starColor =
                 s.starred ? theme::tag_ready_fg() : theme::text_faint();
+            const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
+                                ctx.mouse_was_in_subtree(row.ent().id);
+            const theme::Color chip = rowHot
+                ? theme::hover_over(theme::sidebar_bg())
+                : theme::sidebar_bg();
             std::string sid = s.id;
             auto star = button(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_size(ComponentSize{pixels(kStarW), pixels(20)})
+                    .with_absolute_position(
+                        pixels(panelW - kCountRightPad - countW - kStarW),
+                        pixels(6.0f))
                     // No background of its own (and no hover-bg box): the star
                     // is a bare affordance that sits in the row, NOT a boxed
                     // button. transparent lets the row's own fill show through
@@ -2439,12 +2484,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.0f)
-                    .with_on_draw_fg([starColor, st = s.starred](RectangleType r) {
+                    .with_on_draw_fg([starColor, chip,
+                                      st = s.starred](RectangleType r) {
+                        afterhours::draw_rectangle(
+                            RectangleType{r.x, r.y, r.width, r.height}, chip);
                         // Star sits toward the right of its slot but with a
-                        // deliberate GAP before the timestamp column to its
-                        // right (Gabe: "add padding between the star and time").
-                        // ~13px in from the slot's right edge leaves a clean
-                        // gap between the star glyph and the time digits.
+                        // deliberate GAP before the count column to its right
+                        // (Gabe: "add padding between the star and time").
                         const float cx = r.x + r.width - 13.0f;
                         const float cy = r.y + r.height * 0.5f - 1.0f;
                         if (!hanabi::icons::draw_at(
@@ -2465,18 +2511,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 app.requestToggleStar = sid;
                 starClicked = true;  // suppress the row's open-thread this frame
             }
-        } else if (showStar) {
-            // Reserve the star slot even when no star is shown, so the row's
-            // trailing columns stay put (no reflow on hover). This blank slot
-            // is a plain div (no HasClickListener), so it never steals hot from
-            // the row — only the live star button (above) does.
-            div(ctx, mk(row.ent(), 3),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{pixels(18), pixels(20)})
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_debug_name("row_star_slot"));
         }
 
         // The sub-agent count: how many threads this one spawned, and how many
