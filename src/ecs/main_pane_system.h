@@ -44,6 +44,11 @@ namespace ecs {
 namespace find_ops = hanabi::find_ops;
 
 struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
+    // The most cards any ONE Home section renders. See the note at the
+    // sections themselves; the value is Recent's original cap, shared so the
+    // four sections cannot drift apart again.
+    static constexpr size_t kMaxSection = 20;
+
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
@@ -1371,6 +1376,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         int shown = 0;
         bool first = true;  // tracks the first rendered section (tighter top).
+        // Every section on this pane renders at most kMaxSection cards.
+        //
+        // Recent has been capped since it was written, on the reasoning that a
+        // huge list must not build hundreds of cards. The three attention
+        // sections above it were left uncapped on the reasoning that they are
+        // empty on a calm backend -- which is true of a calm backend and says
+        // nothing about a busy one. At a 2020-session catalog they build 696
+        // cards, four entities each, and afterhours walks all 2784 in the
+        // layout and render passes of EVERY frame whether or not one of them
+        // is on screen. That, and not the sidebar, is the whole of the idle
+        // curve's slope (soak census, commit b39304b).
+        //
+        // The section HEADER still carries the true total ("Waiting on you
+        // \xc2\xb7 333"), so a cap hides rows and never a number. The cap is the
+        // one Recent already used, shared now so the four sections cannot
+        // drift apart -- and it is provably a no-op on the twenty-session
+        // fixture the suite renders, because twenty sessions cannot put
+        // twenty-one rows in any one section.
         if (!waiting.empty()) {
             const bool folded = section_label(
                 ctx, wrap, 1,
@@ -1379,8 +1402,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
             if (!folded)
-                for (const auto* s : waiting)
-                    digest_card(ctx, wrap, ++shown, *s, app, true, cardW, true);
+                for (size_t k = 0; k < waiting.size() && k < kMaxSection; ++k)
+                    digest_card(ctx, wrap, ++shown, *waiting[k], app, true,
+                                cardW, true);
         }
         if (!finished.empty()) {
             const bool folded = section_label(
@@ -1390,8 +1414,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 first, theme::tag_done_fg(), app, "finished");
             first = false;
             if (!folded)
-                for (const auto* s : finished)
-                    digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
+                for (size_t k = 0; k < finished.size() && k < kMaxSection; ++k)
+                    digest_card(ctx, wrap, ++shown, *finished[k], app, false,
+                                cardW, true);
         }
         // Self-running work: a real section with real cards (title + relative
         // age), headed "SELF-RUNNING (N)" like the mock. Rendering the actual
@@ -1404,8 +1429,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 first, theme::status_review(), app, "self_running");
             first = false;
             if (!folded)
-                for (const auto* s : selfRunning)
-                    digest_card(ctx, wrap, ++shown, *s, app, false, cardW, true);
+                for (size_t k = 0; k < selfRunning.size() && k < kMaxSection;
+                     ++k)
+                    digest_card(ctx, wrap, ++shown, *selfRunning[k], app, false,
+                                cardW, true);
         }
 
         // Recent / all conversations. A calm backend (e.g. the generic http
@@ -1446,7 +1473,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const bool folded = section_label(ctx, wrap, 2600, "Recent", first,
                                               theme::text_faint(), app,
                                               "recent");
-            constexpr size_t kMaxRecent = 20;
+            constexpr size_t kMaxRecent = kMaxSection;
             if (!folded)
                 for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
                     digest_card(ctx, wrap, ++shown, *recent[k], app, false,
