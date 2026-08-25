@@ -6266,3 +6266,68 @@ in release builds, and give `on_draw_fg` a non-owning callable overload — thos
 three fields are the per-widget allocation.
 
 CLASS: PERFORMANCE
+
+---
+
+### #155 — The first few draws cost 5-8x a warm draw and there is no way to pre-warm, so every launch pays pipeline compilation inside its first measured frame
+
+**What was wanted.** A cold-launch number that measures the app, and a way to
+move unavoidable GPU warm-up off the critical path — ideally to overlap it with
+the work the app does before it needs to draw.
+
+**What happens.** The first draws after `graphics::init` are several times more
+expensive than steady-state ones, and nothing in the graphics API acknowledges
+it. Measured on the headless one-shot path (`HANABI_STARTUP_PROF=1`, mock
+backend, five consecutive runs), separating the three settle frames from the
+first capture frame:
+
+    phase                          span         per frame
+    3 settle frames (+3ms sleep)   22-35 ms     ~6.3-10.7 ms
+    capture frame 0 (warm)          1-2 ms      ~1-2 ms
+
+So the first three draws cost **5-8x** what the same scene costs once the
+pipeline is warm. This is Metal compiling pipelines/shaders on first use, which
+is a driver cost rather than an afterhours one — but afterhours is what owns
+the surface, and it offers nothing to manage it:
+
+- no `warm_up()` / `precompile()` / `prewarm_pipelines()` on the graphics API
+- no way to submit a throwaway frame that is explicitly not presented
+- no signal that the pipeline cache is cold, so an app cannot even *report*
+  honestly that this launch will be slower than the next one
+
+The practical consequence is that **the cost lands inside whichever frame you
+happen to be measuring**. `FirstFrame` is logged at the first frame of the
+capture loop, so the warm-up either sits inside it (making the gate number
+worse) or sits in whatever ran before it (making the gate number better while
+the app is no faster). That is a metric that moves when you reorder code that
+does the same work — the worst property a gate can have.
+
+**Why the obvious escapes do not work.**
+
+- **Warm up during init** — `graphics::init` returns before anything is drawn,
+  and there is no draw call available that does not go through
+  `begin_frame`/`end_frame` and present. Drawing a warm-up frame IS a frame.
+- **Pump state without drawing** — this one DOES work, and is worth recording
+  as a non-gap: `SystemManager` exposes `tick_all()` and `render_all()`
+  separately, so an app can advance async state without a render. It does not
+  help here, because the cost being moved is the render.
+- **Measure from a later frame** — that is just choosing a flattering number.
+- **Warm the OS cache instead** — `~/…/C/com.apple.metal` persists between
+  runs, which is exactly why a first launch after a build is 38 ms of App init
+  and the next is 1 ms (gap #8). It is not something the app can do anything
+  about at launch time.
+
+**The workaround, and its cost.** None available; the cost is paid and then
+attributed by hand. What this branch did instead was make the *instrumentation*
+honest: `[hprof]` marks (src/main.cpp, gated on `HANABI_STARTUP_PROF`) now
+attribute every span between process start and `FirstFrame`, so the warm-up is
+visible as its own line rather than hiding inside whichever phase happens to
+contain it. That is documentation, not a fix — the 22-35 ms is still spent.
+
+**Minimal upstream fix.** A `graphics::prewarm()` that renders and discards one
+frame against the real pipeline state, callable right after `init` and before
+the app's own timer starts. Failing that, a `graphics::pipeline_cache_cold()`
+predicate, so an app can at least say which of its launch numbers are
+comparable to each other.
+
+CLASS: PERFORMANCE

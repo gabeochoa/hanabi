@@ -1375,7 +1375,17 @@ class MockClient : public Client {
         // HANABI_BIG_TRANSCRIPT is set (a headless perf run), so it never
         // pollutes the normal mock list. ~120 messages: alternating user /
         // long-assistant prose, interleaved tool runs (which pile), plus
-        // sub-agents — the exact shape that made the per-frame rebuild ~15-20ms.
+        // sub-agents.
+        //
+        // This comment used to end "— the exact shape that made the per-frame
+        // rebuild ~15-20ms". That number is UNVERIFIED and stale: it has no
+        // method recorded next to it and nothing in the tree still reproduces
+        // it. It is removed rather than replaced, because swapping one
+        // unsourced number for another — measured on a box at load average 28,
+        // while the transcript render path is actively being changed by
+        // somebody else — would only re-arm the same trap. What the per-frame
+        // transcript rebuild costs today belongs in docs/perf/TRANSCRIPT.md
+        // with its method beside it, measured by whoever owns that path.
         if (const char* big = std::getenv("HANABI_BIG_TRANSCRIPT");
             big && *big && std::string(big) != "0") {
             Session s;
