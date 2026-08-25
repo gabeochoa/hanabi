@@ -6800,8 +6800,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             start = nl + 1;
         }
         flush(8888);
-        hanabi::mprobe::compare("richbody", rich_body_h(shown, textW),
-                                y - probeStartY);
+        // Guarded, because the ARGUMENTS are what cost: rich_body_h(shown,
+        // textW) is a full second measure pass over the whole body -- an
+        // md_to_spans and a wrap per line -- and C++ evaluates it whether or
+        // not the probe is on. `compare` returning early was doing nothing
+        // for the price of the work it was handed.
+        if (hanabi::mprobe::on())
+            hanabi::mprobe::compare("richbody", rich_body_h(shown, textW),
+                                    y - probeStartY);
     }
 
     // ---- Per-message actions (hover) --------------------------------------
