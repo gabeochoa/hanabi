@@ -11,6 +11,7 @@
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <thread>
 #include <memory>
@@ -35,6 +36,7 @@
 #include "util/quiet_hours.h"
 #include "version.h"
 #include "ui_context.h"
+#include "ui/inline_image.h"
 #include "ui/link_detect.h"
 
 #include "../vendor/afterhours/src/ecs.h"
@@ -998,12 +1000,15 @@ static std::string hold_note(const ecs::AppComponent& app) {
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
-                  "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu",
+                  "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu "
+                  "images=%zu(%zu KB)",
                   app.sessions.size(), app.transcriptCache.size(),
                   ecs::model::pane_states().size(),
                   ecs::model::pane_states().drafts(), app.liveSubs.size(),
                   app.rowOrder.size(), app.expandedPiles.size(),
-                  afterhours::EntityHelper::get_entities().size());
+                  afterhours::EntityHelper::get_entities().size(),
+                  hanabi::inline_image::cached_count(),
+                  hanabi::inline_image::cached_bytes() / 1024);
     return std::string(buf);
 }
 
@@ -1107,6 +1112,32 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
         open_nth(static_cast<size_t>(want + k));
         close_all();
     }
+    // 7. Images. Every distinct path the composer has ever shown a chip for
+    // becomes a GPU texture in hanabi::inline_image's cache. The attachment
+    // LIST is capped at five; the cache behind it is not, and a chip removed
+    // does not unload anything. HANABI_MEM_IMAGE_DIR=<dir> attaches every .png
+    // in the directory ONE AT A TIME, clearing the list between, which is
+    // exactly what a person pasting screenshots all day does.
+    if (const char* dir = std::getenv("HANABI_MEM_IMAGE_DIR");
+        dir != nullptr && *dir != '\0') {
+        std::vector<std::string> pngs;
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+            if (e.path().extension() == ".png") pngs.push_back(e.path().string());
+        std::sort(pngs.begin(), pngs.end());
+        for (const std::string& png : pngs) {
+            const size_t slash = png.find_last_of('/');
+            app->composerAttachments.push_back(
+                {png, slash == std::string::npos ? png : png.substr(slash + 1)});
+            pump(3);
+            app->composerAttachments.clear();
+            pump(1);
+        }
+        std::printf("[ladder] attached and removed %zu images one at a time\n",
+                    pngs.size());
+        ladder.mark("+ every image attached, then removed again");
+    }
+
     ladder.mark("- after opening and closing one at a time, N times");
     // Nothing happens between this rung and the one above it. Its delta is
     // therefore the instrument's own residue, and every other delta has to
