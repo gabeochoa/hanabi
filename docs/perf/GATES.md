@@ -765,6 +765,29 @@ Cocoa. `HANABI_STRESS=resize` therefore resizes the LAYOUT only and measures
 flat; `HANABI_STRESS_RESIZE_BACKEND=1` reproduces #200 in one run. The
 render-target half of a resize stays unmeasured.
 
+### Anything only the windowed app does — with one instrument now, and no gate
+
+**`HANABI_GPU_WATCH=<n>`** prints the device's GPU byte total, the window size,
+the image-cache occupancy and the pool-failure count every n frames of the
+WINDOWED loop. It is the only memory instrument on that path. It gates nothing
+and is not in `make test`; it exists because the paragraph below was true and
+one question needed answering with a real window.
+
+`HANABI_GPU_WATCH_RESIZE=1` also drags the window through
+`metal_set_window_size` every n frames — the same NSWindow frame change a
+person's drag makes. That is how `afterhours_gaps.md` #200's scope was settled:
+73 real windowed resizes, 33 distinct sizes each visited twice about forty
+resizes apart, and the GPU total is **identical to the kilobyte on 32 of the 33**
+(the one exception reads 14 MB LOWER the second time, because its first sample
+was taken before the app had settled). A windowed resize leaks no GPU memory.
+osascript could not be used for this: it cannot resize another app's window
+without assistive access, and that is not a permission to grant on somebody's
+daily machine to settle a measurement.
+
+```bash
+HANABI_BACKEND=mock HANABI_GPU_WATCH=20 HANABI_GPU_WATCH_RESIZE=1 output/hanabi.exe
+```
+
 ### Anything only the windowed app does
 
 Every gate here runs the **headless** path. The windowed app has a Cocoa run

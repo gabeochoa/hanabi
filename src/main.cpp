@@ -82,6 +82,8 @@ struct MainRenderSystem : afterhours::System<> {
 // by the menu-bar "Show hanabi" action. Declared here (no header) to match the
 // existing extern "C" style; the windowed link pulls in the .mm definition.
 extern "C" void metal_activate_app(void);
+// The real NSWindow resize, for the windowed GPU watch below (#200).
+extern "C" void metal_set_window_size(int width, int height);
 extern "C" void metal_constrain_window_to_screen(void);
 
 namespace app_state {
@@ -557,6 +559,52 @@ static void app_frame() {
     // windowed launch can be profiled in a loop without the app running
     // forever (it otherwise never exits). Both are diagnostic-only: a normal
     // user launch (neither env set) logs nothing here and runs as before.
+    // HANABI_GPU_WATCH=<n>: print the device's GPU byte total every n frames of
+    // the WINDOWED loop. The only memory instrument that runs on this path --
+    // docs/perf/GATES.md's "Anything only the windowed app does" says every
+    // gate in this repo is headless, and a resize, a menu, a hotkey and the
+    // window-restore path are invisible to all of them. This does not gate
+    // anything; it is the one command that answers "does dragging the real
+    // window leak?" without a profiler. See afterhours_gaps.md #200.
+    {
+        static const int watch = [] {
+            const char* v = std::getenv("HANABI_GPU_WATCH");
+            return (v != nullptr && *v != '\0') ? std::atoi(v) : 0;
+        }();
+        // HANABI_GPU_WATCH_RESIZE=1 also DRAGS the window, every watch frames,
+        // through metal_set_window_size -- the same NSWindow frame change a
+        // person's drag makes, and the same one set_window_size's windowed
+        // branch calls. That is the only way to answer #200 for a real window
+        // from inside the process: osascript cannot resize it without
+        // assistive access, which is not a permission to grant on somebody's
+        // daily machine to settle a measurement.
+        static const bool watchResize = [] {
+            const char* v = std::getenv("HANABI_GPU_WATCH_RESIZE");
+            return v != nullptr && *v != '\0' && std::string(v) != "0";
+        }();
+        if (watch > 0) {
+            static long n = 0;
+            if (watchResize && n > 0 && n % watch == 0) {
+                static int step = 0;
+                ++step;
+                metal_set_window_size(900 + (step % 8) * 60,
+                                      700 + (step % 5) * 50);
+            }
+            if (n++ % watch == 0) {
+                const auto [w, h] = std::pair<int, int>{
+                    static_cast<int>(afterhours::graphics::get_screen_width()),
+                    static_cast<int>(afterhours::graphics::get_screen_height())};
+                std::printf("[gpuwatch] frame %6ld  %dx%d  GPU %8llu KB  "
+                            "images %zu (%zu KB)  poolFail %zu\n",
+                            n - 1, w, h, hanabi::gpu::device_bytes() / 1024,
+                            hanabi::inline_image::cached_count(),
+                            hanabi::inline_image::cached_bytes() / 1024,
+                            hanabi::decode_to_fit::pool_exhaustions());
+                std::fflush(stdout);
+            }
+        }
+    }
+
     static bool firstFrameLogged = false;
     if (!firstFrameLogged) {
         firstFrameLogged = true;

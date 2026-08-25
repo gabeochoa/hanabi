@@ -407,6 +407,27 @@ zero lays out as absent. hanabi is nowhere near it — four faces x fourteen siz
 x the ASCII set, and again at 6x, all fit — but nothing would say so if it were.
 `afterhours_gaps.md` #211.
 
+#### 5e-bis. Widget retirement does not orphan a texture, and could not
+
+`perf/retire` sweeps widgets nothing has built for 90 frames, which changes how
+long an image widget lives, and the obvious worry is a texture whose owning
+widget was swept and whose bytes stay resident. It cannot happen here, for a
+structural reason worth stating: **a widget never owns a texture in this app.**
+`inline_image`'s cache is a path-keyed store that owns every texture it makes;
+a widget's `on_draw_fg` closure holds a `std::string` path and asks the cache
+for the handle each frame. Retiring the widget removes a caller, not an owner.
+
+Measured anyway, with the device counter, over the three arms that change
+screen and therefore retire the most: `views` (entities swinging 169 to 283 as
+screens come and go), `churn` and `mixed`, 2000 frames each. GPU **43,600 KB in
+every bucket of every arm**, to the kilobyte, slope +0.0.
+
+The failure mode that DOES exist is the opposite one, and it is deliberate: an
+image whose widget was swept keeps its texture until the LRU evicts it, which
+is the protection window doing its job — dropping it would mean re-decoding a
+PNG on the next frame that draws it. It is bounded by the byte budget and the
+entry cap, both of which are 5a and 5c.
+
 #### 5f. The autorelease leak's smaller cousin, and one thing to know before probing
 
 `load_texture` autoreleases too: `sg_make_image` builds an
@@ -417,6 +438,16 @@ texture call as well as for `begin_frame`, and found two sites the first time it
 ran: the icon atlas's load and the image cache's eviction. Neither was leaking,
 because both are reached from inside a pooled frame loop — until the pre-warm
 started calling one of them before any frame exists.
+
+**#200 is a heap leak, not a GPU one, and the two instruments disagreeing is
+the point.** The resize arm leaks five Metal render pipelines per resize --
++4,928 KB of RSS and +65,966 live blocks per 1000 frames, 2.4x and 3.3x over
+their budgets. The GPU column on that same run reads **-8,192 KB**: it goes
+DOWN, because the arm sweeps the render target smaller, and the leaked objects
+are Objective-C descriptors on the heap that `currentAllocatedSize` does not
+count at all. A GPU gate would never have caught it and a heap gate would never
+have caught entry 5's textures. Neither instrument subsumes the other, which is
+why both columns are in the table.
 
 And, learned by crashing into it: **sokol does not free a destroyed Metal object
 until the next frame boundary.** Create and destroy in a loop with no

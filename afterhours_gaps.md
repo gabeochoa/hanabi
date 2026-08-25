@@ -6980,6 +6980,39 @@ needs a pipeline matching the target's pixel format, and a small cache keyed on
 the life of the process instead of one per resize. Then a resize is an image
 swap and the arm can gate the thing it was written for.
 
+**Postscript, 2026-08-25 (perf/gpu): headless-only CONFIRMED, both ways, and
+it is not GPU memory at all.**
+
+The scope paragraph above reasons from the code. Two measurements now back it.
+
+*A windowed resize leaks nothing.* `HANABI_GPU_WATCH=20
+HANABI_GPU_WATCH_RESIZE=1` drags a REAL window through
+`metal_set_window_size` and prints `-[MTLDevice currentAllocatedSize]` beside
+the window size. 73 resizes, 33 distinct sizes each visited twice about forty
+resizes apart: the GPU total is **identical to the kilobyte on 32 of the 33**,
+and the exception reads 14 MB LOWER the second time because its first sample
+predated settling. (osascript cannot do this — it needs assistive access, which
+is not a permission to grant on somebody's daily machine to settle a
+measurement — so the drag is driven from inside the process through the same
+NSWindow call `set_window_size`'s windowed branch makes.)
+
+*And the call graph is exhaustive rather than argued.* `load_render_texture`
+has exactly two call sites in the whole program, `backend.h:353` and
+`backend.h:813`, and both are inside `if (metal_detail::g_headless)` — the
+windowed `graphics::init` returns false two lines later with
+`@notimplemented`. `sgl_make_context` has exactly one afterhours call site,
+inside `load_render_texture`. A windowed app has ONE sokol-gl context, made
+once at `sgl_setup`.
+
+*It is a HEAP leak, not a GPU one.* The resize arm with the backend on reads
+`+4,928 KB` RSS and `+65,966` live blocks per 1000 frames — and the GPU column
+on the same run reads **-8,192 KB**. It goes DOWN, because the arm sweeps the
+render target smaller and the leaked objects are Objective-C descriptors
+(`MTLVertexDescriptor`, `MTLVertexAttributeDescriptor`) that
+`currentAllocatedSize` does not count. So a GPU-bytes gate can never catch this
+one, exactly as a malloc gate can never catch a texture. That is not a defect
+in either gate; it is why hanabi's soak now runs both.
+
 CLASS: BLOCKING (for the scenario; the workaround measures the other half)
 ### #170 — `Overflow::Scroll` clips what you built; there is no way to build less, so every consumer with a long list re-implements windowing against state the library writes AFTER the build
 
