@@ -1583,7 +1583,24 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         hanabi::breaker::report(breakOn, broke, framesRun, soakFrames,
                                 hanabi::stress::name(driver.mode),
                                 driver.work_done().c_str());
-        const int bad = hanabi::soak::verdict(samples);
+        hanabi::soak::VerdictTrends trends;
+        const int bad = hanabi::soak::verdict(samples, trends);
+        {
+            hanabi::soak::ReportInput ri;
+            ri.scenario = hanabi::stress::name(driver.mode);
+            ri.frames = framesRun > 0 ? framesRun : soakFrames;
+            ri.bucket = every;
+            const std::string work = driver.work_done();
+            ri.work = work.c_str();
+            ri.entities = EntityHelper::get_entities().size();
+            ri.tabs = hanabi::stress::Driver::live_tab_count();
+            ri.verdict = !trends.ready ? "INCONCLUSIVE"
+                                       : (bad == 0 ? "PASS" : "FAIL");
+            hanabi::soak::write_report(ri, trends.rss, trends.heap,
+                                       trends.blocks, trends.cpu,
+                                       trends.entities, hanabi::soak::budget(),
+                                       trends.fitPoints);
+        }
         if (hanabi::prof::enabled()) {
             if (auto* tmc = EntityHelper::get_singleton_cmp<
                     afterhours::ui::TextMeasureCache>())

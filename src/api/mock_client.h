@@ -23,6 +23,7 @@
 // Nothing here names or encodes any real service, product, or company.
 
 #include <algorithm>
+#include <cstdlib>
 #include <ctime>
 #include <mutex>
 #include <string>
@@ -31,6 +32,38 @@
 #include "client.h"
 
 namespace api {
+
+// THE MOCK'S CLOCK, in one place and overridable.
+//
+// Every timestamp the mock hands out is `now - N` so that the ages the rows
+// show are the same on every run — a fixture seeded with absolute epochs rots
+// every time-showing screenshot baseline within a day. That is right for a
+// capture and wrong for a DIFF: a message twelve hours old lands on a
+// different calendar day depending on what time of night the run happened,
+// so the transcript's date dividers change, and so does the widget count that
+// scripts/soak.sh's diffable report is built on.
+//
+// Caught by the report itself. Two long-soak runs a minute apart, the same
+// binary, the same arms:
+//
+//     < open widget.date_divider 2        < churn widget.date_divider 2
+//     > open widget.date_divider 1        > churn widget.date_divider 1
+//
+// which is a four-line diff saying nothing about the app.
+//
+// HANABI_MOCK_NOW=<unix epoch> pins it. UNSET BY DEFAULT, so every capture,
+// every screenshot baseline and every ordinary run behave exactly as before;
+// the soak scripts set it because they want two runs to be comparable, which
+// is a different thing from wanting them to look right.
+inline int64_t mock_now() {
+    static const int64_t pinned = [] {
+        const char* v = std::getenv("HANABI_MOCK_NOW");
+        if (v == nullptr || *v == '\0') return static_cast<int64_t>(0);
+        const long long parsed = std::atoll(v);
+        return parsed > 0 ? static_cast<int64_t>(parsed) : static_cast<int64_t>(0);
+    }();
+    return pinned != 0 ? pinned : static_cast<int64_t>(std::time(nullptr));
+}
 
 class MockClient : public Client {
   public:
@@ -209,7 +242,7 @@ class MockClient : public Client {
             plan.error = "no such session: " + session_id;
             return plan;
         }
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
         Message user;
@@ -266,7 +299,7 @@ class MockClient : public Client {
         if (!target)
             return Result<Message>::failure("no such session: " + session_id);
 
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
         // 1) the user's message.
@@ -305,7 +338,7 @@ class MockClient : public Client {
         if (!target)
             return Result<Message>::failure("no such session: " + session_id);
 
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
         // 1) the user's steering message.
@@ -458,7 +491,7 @@ class MockClient : public Client {
         // Earlier) always populate relative to when the app is actually run.
         // Deterministic within a run; the RELATIVE ordering of the seed is
         // fixed, which is all the sort/bucket logic (and the tests) rely on.
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         return now - h * 3600;
     }
 
@@ -471,7 +504,7 @@ class MockClient : public Client {
     // can land on the same day either side of a DST shift. Anchoring at noon
     // leaves twelve hours of slack in both directions.
     static int64_t local_noon_today() {
-        const std::time_t now = std::time(nullptr);
+        const std::time_t now = static_cast<std::time_t>(mock_now());
         std::tm tm{};
         if (localtime_r(&now, &tm) == nullptr) return static_cast<int64_t>(now);
         tm.tm_hour = 12;
@@ -524,7 +557,7 @@ class MockClient : public Client {
     // catalog is seeded in minutes because the rows it mirrors are, and the
     // relative ages ("6m", "5h") have to stay constant across runs.
     static int64_t mins_ago(double m) {
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         return now - static_cast<int64_t>(m * 60.0 + 0.5);
     }
 

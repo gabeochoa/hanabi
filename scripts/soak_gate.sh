@@ -91,6 +91,8 @@ cd "$ROOT"
 EXE="${HANABI_EXE:-$ROOT/output/hanabi.exe}"
 # shellcheck source=scripts/watchdog.sh
 . "$ROOT/scripts/watchdog.sh"
+# shellcheck source=scripts/fresh.sh
+. "$ROOT/scripts/fresh.sh"
 
 SOAK_FRAMES="${HANABI_SOAK_GATE_FRAMES:-2000}"
 SOAK_EVERY="${HANABI_SOAK_GATE_EVERY:-250}"
@@ -102,6 +104,12 @@ export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-1.0}"
 
 # Same isolation as measure_launch.sh: the deterministic offline catalog, and
 # no chance of picking up a real backend from someone's ~/.config/hanabi.
+# Pin the mock's clock. Without it a message twelve hours old lands on a
+# different calendar day depending on what time of night the run happened, the
+# transcript grows or loses a date divider, and the diffable report shows a
+# four-line diff about nothing. 1787000000 is 2026-08-17T00:53:20Z, chosen only
+# for being fixed. See api::mock_now.
+export HANABI_MOCK_NOW="${HANABI_MOCK_NOW:-1787000000}"
 export HANABI_BACKEND=mock
 export HANABI_CONFIG="/nonexistent/hanabi/soak-gate.json"
 export HANABI_SOAK="$SOAK_FRAMES"
@@ -121,6 +129,8 @@ if [ ! -x "$EXE" ]; then
     echo "soak_gate: $EXE not found — run 'make' first." >&2
     exit 2
 fi
+
+require_fresh_build "$EXE" || exit 2
 
 echo "=== hanabi soak gate ==="
 echo "  ${SOAK_FRAMES} frames, buckets of ${SOAK_EVERY}, mock catalog, headless"

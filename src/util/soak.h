@@ -325,6 +325,125 @@ inline Budget budget() {
     return b;
 }
 
+// ---------------------------------------------------------------------------
+// THE DIFFABLE REPORT — HANABI_SOAK_REPORT=<path>
+//
+// A soak run prints twenty lines of numbers that all move a little, so
+// comparing two runs means reading them. The point of this file is that a
+// regression should be a TEXT DIFF: run the arms, diff against a committed
+// baseline, and the diff is either empty or it names what changed.
+//
+// That only works if a clean run writes the SAME BYTES every time, which
+// rules out printing the measurements. So the report carries two kinds of
+// line and treats them completely differently:
+//
+//   THE DETERMINISTIC ONES, exact. Entity count, widget count broken down by
+//   the debug name that built it, tabs open, and what the scenario drove.
+//   These are properties of the tree and of the script, not of the machine:
+//   scripts/scaling_gate.sh measured "348 and 2985 widgets, exactly, every
+//   time" over five runs on a box under load 20. A regression that adds a
+//   widget per row, or a system that stops tearing an entity down, is one
+//   changed line here — and it is caught with no threshold at all, which is
+//   the only kind of gate that cannot drift.
+//
+//   THE MEASURED ONES, banded to `ok` / `OVER 2x` / `OVER 5x` / `OVER 10x`.
+//   Deliberately coarse. Printing "+42.3 KB" would make every run differ from
+//   every other and the diff would be noise; a band that only moves when a
+//   budget is crossed makes the file stable under everything the machine
+//   does. The precise numbers are already on stdout for whoever needs them —
+//   this file is for the comparison, not for the reading.
+//
+// Sorted, one `key value` per line, so `diff` output reads as a list of
+// changed properties rather than as a rearrangement.
+// ---------------------------------------------------------------------------
+
+inline const char* report_path() {
+    static const char* p = [] {
+        const char* v = std::getenv("HANABI_SOAK_REPORT");
+        return (v != nullptr && *v != '\0') ? v : nullptr;
+    }();
+    return p;
+}
+
+// A budget band. Coarse on purpose; see above.
+inline const char* band(double per1k, double budget) {
+    if (budget <= 0.0) return "ungated";
+    if (per1k <= budget) return "ok";
+    const double x = per1k / budget;
+    if (x < 2.0) return "OVER";
+    if (x < 5.0) return "OVER_2x";
+    if (x < 10.0) return "OVER_5x";
+    return "OVER_10x";
+}
+
+// Live widgets grouped by the debug name their ComponentConfig was built with.
+// The same walk census() does, returned rather than printed.
+inline std::vector<std::pair<std::string, int>> widget_census() {
+    std::unordered_map<std::string, int> byName;
+    for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
+        if (!ptr) continue;
+        if (!ptr->has<afterhours::ui::UIComponentDebug>()) continue;
+        ++byName[ptr->get<afterhours::ui::UIComponentDebug>().name_value];
+    }
+    std::vector<std::pair<std::string, int>> rows(byName.begin(), byName.end());
+    // By NAME, not by count: a diff should read as "this widget changed", and
+    // sorting by count reshuffles every line whenever one of them moves.
+    std::sort(rows.begin(), rows.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    return rows;
+}
+
+struct ReportInput {
+    const char* scenario = "none";
+    int frames = 0;
+    int bucket = 0;
+    const char* work = "";
+    size_t entities = 0;
+    int tabs = -1;
+    const char* verdict = "UNKNOWN";
+};
+
+inline void write_report(const ReportInput& in, const Trend& rss,
+                         const Trend& heap, const Trend& blocks,
+                         const Trend& cpu, const Trend& ent,
+                         const Budget& bud, int fitPoints) {
+    const char* path = report_path();
+    if (path == nullptr) return;
+    std::FILE* f = std::fopen(path, "w");
+    if (f == nullptr) {
+        // Loud. A report that silently did not get written turns the next
+        // diff into "no change", which is the most expensive wrong answer
+        // this file can give.
+        std::printf("[soak] COULD NOT WRITE HANABI_SOAK_REPORT to '%s'. No "
+                    "report exists,\n[soak] so any diff against it is "
+                    "meaningless.\n", path);
+        std::fflush(stdout);
+        return;
+    }
+    std::fprintf(f, "scenario %s\n", in.scenario);
+    std::fprintf(f, "frames %d\n", in.frames);
+    std::fprintf(f, "bucket %d\n", in.bucket);
+    std::fprintf(f, "fit_points %d\n", fitPoints);
+    std::fprintf(f, "work %s\n", in.work);
+    std::fprintf(f, "entities_end %zu\n", in.entities);
+    std::fprintf(f, "tabs_end %d\n", in.tabs);
+    std::fprintf(f, "band.rss %s\n", band(rss.per1k, bud.rssKbPer1k));
+    std::fprintf(f, "band.heap %s\n", band(heap.per1k, bud.heapKbPer1k));
+    std::fprintf(f, "band.blocks %s\n", band(blocks.per1k, bud.blocksPer1k));
+    std::fprintf(f, "band.cpu %s\n", band(cpu.per1k, bud.msPer1k));
+    std::fprintf(f, "band.entities %s\n", band(ent.per1k, bud.entPer1k));
+    std::fprintf(f, "verdict %s\n", in.verdict);
+    const auto rows = widget_census();
+    int total = 0;
+    for (const auto& r : rows) total += r.second;
+    std::fprintf(f, "widgets_end %d\n", total);
+    for (const auto& r : rows)
+        std::fprintf(f, "widget.%s %d\n", r.first.c_str(), r.second);
+    std::fclose(f);
+    std::printf("[soak] diffable report written to %s\n", path);
+    std::fflush(stdout);
+}
+
 // One row of the verdict table, so the printing is uniform and a new metric
 // cannot accidentally be reported in a different shape from the rest.
 inline bool judge_row(const char* label, const char* unit, const Trend& tr,
@@ -380,7 +499,15 @@ inline bool judge_row(const char* label, const char* unit, const Trend& tr,
 // probe that has stopped gating, and this one has been in exactly that
 // position: with fewer than three buckets the old code printed a sentence and
 // returned 0, so `make soak-gate` went green on a run that measured nothing.
-inline int verdict(const std::vector<Sample>& s) {
+// What verdict() measured, handed back so the report writer does not have to
+// recompute it (and cannot disagree with what was printed).
+struct VerdictTrends {
+    Trend rss, heap, blocks, cpu, entities;
+    int fitPoints = 0;
+    bool ready = false;
+};
+
+inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     const std::vector<const Sample*> pts = fit_samples(s);
 
     if (pts.size() < 2) {
@@ -398,6 +525,8 @@ inline int verdict(const std::vector<Sample>& s) {
                     "[soak] inside the measured window.\n", warm_frames());
         std::printf("[soak] ------------------------------------------------\n");
         std::fflush(stdout);
+        // reportOut stays `ready = false`, so the report writer emits
+        // INCONCLUSIVE rather than a table of zeroes that would diff clean.
         return 2;
     }
 
@@ -471,6 +600,14 @@ inline int verdict(const std::vector<Sample>& s) {
     // Dividing bytes by blocks also names the SIZE of the leaked thing, which
     // is most of the way to finding it, and that is why it was always printed.
     bad |= judge_row("heap blocks", "  ", tBlocks, bud.blocksPer1k, true) ? 1 : 0;
+
+    reportOut.rss = tRss;
+    reportOut.heap = tHeap;
+    reportOut.blocks = tBlocks;
+    reportOut.cpu = tCpu;
+    reportOut.entities = tEnt;
+    reportOut.fitPoints = tRss.points;
+    reportOut.ready = true;
 
     if (bad == 0) {
         std::printf("[soak] PASS: flat over the run.\n");
