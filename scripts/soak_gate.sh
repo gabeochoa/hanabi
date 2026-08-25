@@ -12,65 +12,93 @@
 # or live heap bytes are trending up. It costs about a second and a half.
 #
 # ---------------------------------------------------------------------------
-# WHERE THE THRESHOLDS COME FROM  (measured 2026-08-25, main @ 3bb921d,
-# gabeochoa-mac-GRQ7Y259H4 — a shared box, load averages 10 to 34 across the
-# samples below, which is the point: none of these numbers moved with it)
+# WHERE THE THRESHOLDS COME FROM  (re-measured 2026-08-25 on this branch,
+# gabeochoa-mac-GRQ7Y259H4 — a shared box; the three batches below were taken
+# at load averages ~8, ~11 and ~27, deliberately, because a gate that only
+# holds on a quiet machine is a gate that gets disabled)
 #
-# The run is HANABI_SOAK=1000 HANABI_SOAK_EVERY=250, so the verdict compares
-# the bucket ending at frame 500 with the one ending at frame 1000 — a
-# 500-frame window, 8.3 seconds of wall clock at 60fps, after 120 unmeasured
-# settle frames and two further buckets thrown away.
+# The run is 2000 frames in 250-frame buckets, so six buckets land past the
+# 500-frame warm-up and the verdict is the median of fifteen pairwise slopes
+# (src/util/trend.h). What changed from the previous tuning, and why:
 #
-#   clean main, nine consecutive runs, load averages 10 to 34
-#     RSS  per 1000 frames:   +0, +0, +32, +32, +64, +96, +96, +192 KB
-#     heap per 1000 frames:  -19, -19, -1, +13, +13, +45, +61, +77 KB
+#   * 1000 frames gave FOUR buckets, two of them inside the warm-up, so the
+#     verdict was a two-point delta and the probe said so out loud ("ONLY TWO
+#     BUCKETS"). 2000 frames costs 0.9 s more and buys a real slope, the
+#     `rising` confidence column, and a median that one bad bucket cannot
+#     move.
+#   * SMALLER BUCKETS WERE TRIED FIRST AND ARE WORSE. 1000 frames in 100-frame
+#     buckets gives five fit points and reads a clean RSS spread of 206.7 KB
+#     per 1000 frames against 0.0 at 250-frame buckets. RSS noise is a whole
+#     page arriving at once, so dividing it by a shorter window multiplies it;
+#     more buckets only helps if they are not also noisier. The way to more
+#     points on this metric is more FRAMES at the same bucket size.
 #
-#   the same binary with the autorelease pool gone — twice: once with the
-#   pool class compiled out wholesale, once with a SINGLE
-#   `const hanabi::AutoreleaseFrame framePool;` line deleted from the soak
-#   loop, which is the shape the refactor will actually take
-#     RSS  per 1000 frames:  +2784, +2816, +2848, +2912, +3040 KB
-#     heap per 1000 frames:  +2739, +2759, +2775, +2790, +2915 KB
+#   34 clean runs, three load levels (12 quiet, 12 under 10 spinners, 10 under
+#   24 spinners at load average 27), worst sample of each column:
 #
-# 512 KB per 1000 frames sits 2.7x above the worst clean sample and 5.4x below
-# the smallest defective one. The two clouds are 15x apart at their nearest
-# edges. RSS is the noisier of the two metrics by a long way — that +192 KB
-# sample came with a heap delta of -0.8 KB, so it was pages faulted in by
-# something other than the app's own allocations — which is what the single
-# retry below is for, and why heap bytes is gated alongside it rather than
-# instead of it. Growth in either is load-INSENSITIVE: a leak leaks at the same
-# rate whatever else the box is doing.
+#     RSS          +243.2 KB per 1000 frames
+#     heap bytes     +42.3 KB
+#     heap blocks    +16.0
+#     cpu time        +0.1 ms
+#     entities        +0.0
 #
-# A SHORTER RUN WAS TRIED AND REJECTED. At 600 frames / 150-frame buckets the
-# window lands at frames 300-600, where the app has not finished settling: five
-# clean runs there read up to +267 KB per 1000, half the budget, for no defect
-# at all. 1000 frames costs about a second and a half more and moves the worst
-# clean sample from +267 to +96.
+#   the same binary with ONE `const hanabi::AutoreleaseFrame framePool;` line
+#   deleted from the soak loop — the shape the regression will actually take,
+#   because that is what a refactor does to a four-line RAII object with no
+#   callers:
+#
+#     RSS         +2880.0 KB per 1000 frames    rising 1.00
+#     heap bytes  +2750.4 KB                    rising 1.00
+#     heap blocks +9996.0                       rising 1.00
+#     cpu time       -0.0 ms                    rising 0.33
+#
+#   budget      worst clean     defect     headroom over clean / under defect
+#   RSS 512          +243.2    +2880.0            2.1x / 5.6x
+#   heap 256          +42.3    +2750.4            6.1x / 10.7x
+#   blocks 1000       +16.0    +9996.0           62.5x / 10.0x
+#   cpu 1.0            +0.1        n/a           10.0x /  —
+#   entities 25         +0.0        n/a
+#
+# HEAP BLOCKS IS GATED FOR THE FIRST TIME, at 1000 per 1000 frames — one leaked
+# block a frame. It was report-only because a two-point delta over 1000 frames
+# sawtoothed by thousands; the median over 2000 frames does not, and this is
+# now the SHARPEST of the four. A leak of one 32-byte map node a frame is 32 KB
+# per 1000 frames of heap and zero KB of RSS — under both memory budgets, over
+# this one by a factor of two.
+#
+# CPU TIME, not wall clock. See src/util/soak.h::verdict: at load average 27
+# the wall column's clean spread is 1.5 ms per 1000 frames and the CPU
+# column's is 0.1. The old 3.0 ms budget was on wall and had 1.15x of headroom
+# over a clean sample taken on a busy hour. 1.0 ms on the CPU clock has 10x.
 #
 # ENTITIES is +0 on every clean run ever measured — the ECS is torn down and
 # rebuilt each frame — so 25 per 1000 frames means "not zero any more".
 #
-# FRAME TIME is deliberately loose: 3 ms per 1000 frames against clean samples
-# spanning -0.9 to +0.3. This box runs three other agents' builds, and frame
-# time is the one metric here that a busy machine moves. A gate that flakes
-# gets disabled, and a disabled gate is worse than no gate. The long-form
-# `make soak` runs the tight 0.5 ms/1000 default instead, because a
-# several-thousand-frame run has the resolution to mean it.
+# RSS IS THE LOOSEST OF THE FOUR and stays that way. It is page-granular and
+# the OS faults pages in for reasons that have nothing to do with the app: the
+# +243.2 worst sample came from the load-27 batch with a heap delta of +42 KB,
+# so ~200 KB of it was not the app allocating anything. It is kept because it
+# is the metric the reported symptom is about, and it is kept alongside the
+# other three rather than instead of them.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-EXE="$ROOT/output/hanabi.exe"
+# Overridable so a gate can be pointed at a DELIBERATELY BROKEN build
+# without rebuilding the tree — which is how every "verified red" claim in
+# the commit log was taken. See docs/perf/GATES.md.
+EXE="${HANABI_EXE:-$ROOT/output/hanabi.exe}"
 # shellcheck source=scripts/watchdog.sh
 . "$ROOT/scripts/watchdog.sh"
 
-SOAK_FRAMES="${HANABI_SOAK_GATE_FRAMES:-1000}"
+SOAK_FRAMES="${HANABI_SOAK_GATE_FRAMES:-2000}"
 SOAK_EVERY="${HANABI_SOAK_GATE_EVERY:-250}"
 export HANABI_SOAK_MAX_RSS_KB_PER1K="${HANABI_SOAK_MAX_RSS_KB_PER1K:-512}"
-export HANABI_SOAK_MAX_HEAP_KB_PER1K="${HANABI_SOAK_MAX_HEAP_KB_PER1K:-512}"
+export HANABI_SOAK_MAX_HEAP_KB_PER1K="${HANABI_SOAK_MAX_HEAP_KB_PER1K:-256}"
+export HANABI_SOAK_MAX_BLOCKS_PER1K="${HANABI_SOAK_MAX_BLOCKS_PER1K:-1000}"
 export HANABI_SOAK_MAX_ENT_PER1K="${HANABI_SOAK_MAX_ENT_PER1K:-25}"
-export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-3.0}"
+export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-1.0}"
 
 # Same isolation as measure_launch.sh: the deterministic offline catalog, and
 # no chance of picking up a real backend from someone's ~/.config/hanabi.
@@ -96,7 +124,7 @@ fi
 
 echo "=== hanabi soak gate ==="
 echo "  ${SOAK_FRAMES} frames, buckets of ${SOAK_EVERY}, mock catalog, headless"
-echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, entities +${HANABI_SOAK_MAX_ENT_PER1K}, frame time +${HANABI_SOAK_MAX_MS_PER1K} ms — all per 1000 frames"
+echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCKS_PER1K}, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms — all per 1000 frames"
 
 # One retry, and ONLY one. A leak leaks on every run (measured: 2848, 2912 and
 # 3040 KB per 1000 frames on three consecutive defective runs), so retrying

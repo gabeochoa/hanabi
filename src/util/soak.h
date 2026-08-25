@@ -293,12 +293,14 @@ inline double col_heap_kb(const Sample& x) {
 //   HANABI_SOAK_MAX_MS_PER1K         CPU-time drift,       ms per 1000 frames
 //                                    (thread CPU, not wall -- see verdict())
 //   HANABI_SOAK_MAX_ENT_PER1K        entity growth,     entities per 1000
+//   HANABI_SOAK_MAX_BLOCKS_PER1K     live malloc BLOCKS,   blocks per 1000
 // ---------------------------------------------------------------------------
 struct Budget {
     double rssKbPer1k = 2048.0;
     double heapKbPer1k = 2048.0;
     double msPer1k = 0.5;
     double entPer1k = 100.0;
+    double blocksPer1k = 20000.0;
 };
 
 inline double env_double(const char* name, double fallback) {
@@ -316,6 +318,8 @@ inline Budget budget() {
         out.heapKbPer1k = env_double("HANABI_SOAK_MAX_HEAP_KB_PER1K", out.heapKbPer1k);
         out.msPer1k = env_double("HANABI_SOAK_MAX_MS_PER1K", out.msPer1k);
         out.entPer1k = env_double("HANABI_SOAK_MAX_ENT_PER1K", out.entPer1k);
+        out.blocksPer1k =
+            env_double("HANABI_SOAK_MAX_BLOCKS_PER1K", out.blocksPer1k);
         return out;
     }();
     return b;
@@ -452,13 +456,21 @@ inline int verdict(const std::vector<Sample>& s) {
     // waiting on something) that a gate on CPU alone would hide.
     bad |= judge_row("cpu time", "ms", tCpu, bud.msPer1k, true) ? 1 : 0;
     judge_row("wall time", "ms", tMs, 0.0, false);
-    // Block COUNT stays report-only here. The allocator recycles small blocks
-    // in bursts, so the column sawtooths; the slope tames it a great deal but
-    // whether it tames it enough to gate is a measurement, and it belongs in
-    // the script that owns the budget rather than being asserted here.
-    // Dividing bytes by blocks names the SIZE of the leaked thing, which is
-    // most of the way to finding it, and that is why it is printed at all.
-    judge_row("heap blocks", "  ", tBlocks, 0.0, false);
+    // LIVE BLOCK COUNT IS GATED, which it never was before.
+    //
+    // It was report-only because "the allocator recycles small blocks in
+    // bursts, so on a short run it sawtooths by thousands either way
+    // (measured +0 to +4265 per 1000 frames across five clean runs)". That
+    // was true of a two-point delta over a 1000-frame run. It is not true of
+    // a median of fifteen pairwise slopes over 2000 frames: 34 clean runs
+    // across three load levels read a worst sample of +16.0 blocks per 1000
+    // frames, against +9996 from the pool-less binary. Three orders of
+    // magnitude of clear air, and it is the SHARPEST of the four -- a leak of
+    // one small block a frame moves this long before it moves RSS.
+    //
+    // Dividing bytes by blocks also names the SIZE of the leaked thing, which
+    // is most of the way to finding it, and that is why it was always printed.
+    bad |= judge_row("heap blocks", "  ", tBlocks, bud.blocksPer1k, true) ? 1 : 0;
 
     if (bad == 0) {
         std::printf("[soak] PASS: flat over the run.\n");
@@ -505,6 +517,31 @@ inline int verdict(const std::vector<Sample>& s) {
                     "[soak]   3. something appended to a container each frame "
                     "(an event log, a\n"
                     "[soak]      history buffer) with no bound and no drain.\n");
+    }
+    // The block gate firing ALONE is its own finding and needs its own words.
+    // It means small allocations are being retained: too small to move RSS
+    // (page-granular) and too small to move the byte budget, but a count that
+    // only ever goes up. Verified against a build that retains two ~40-byte
+    // strings a frame -- RSS +96 KB and heap +128 KB per 1000 frames, both
+    // comfortably inside budget, and blocks +2014 at 2.0x over.
+    if (tBlocks.per1k > bud.blocksPer1k &&
+        tHeap.per1k <= bud.heapKbPer1k && tRss.per1k <= bud.rssKbPer1k) {
+        std::printf("[soak] The BLOCK COUNT is climbing while both byte "
+                    "budgets are inside\n[soak] theirs. That is a leak of "
+                    "SMALL objects: %.0f blocks per 1000\n[soak] frames "
+                    "averaging %.0f bytes each.\n",
+                    tBlocks.per1k,
+                    tBlocks.per1k > 0.0 ? (tHeap.per1k * 1024.0) / tBlocks.per1k
+                                        : 0.0);
+        std::printf("[soak]\n[soak] Small and retained, in this app, is "
+                    "almost always a container keyed\n[soak] by session id "
+                    "that nothing erases -- docs/perf/MEMORY.md entry 1 is "
+                    "five\n[soak] of them at 0.2 KB a thread. RSS will not "
+                    "see that for an hour;\n[soak] this column sees it in "
+                    "twenty seconds.\n");
+        std::printf("[soak]\n[soak] `HANABI_STRESS=churn` opens and closes "
+                    "threads, which is the motion\n[soak] that fills those "
+                    "maps. Run it before reading any other arm.\n");
     }
     if (tCpu.per1k > bud.msPer1k && tRss.per1k <= bud.rssKbPer1k) {
         std::printf("[soak]\n[soak] Frame time is climbing while memory is "
