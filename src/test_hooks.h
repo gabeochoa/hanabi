@@ -119,6 +119,25 @@ inline bool card_audit() {
     return on;
 }
 
+// The last digest frame's card counts, for a gate to read.
+//
+// The on-screen label above is what a scripted UI test can assert, and it is
+// the wrong instrument for a gate: it needs an env var that changes the
+// layout to be set, and a gate that perturbs the thing it measures is a gate
+// that measures itself. These three ints are written unconditionally -- three
+// stores a frame -- and main.cpp prints them next to the FrameTiming line, so
+// `built` against `matched` is available to a shell script with nothing
+// enabled and nothing moved.
+struct CardAuditCounts {
+    int built = 0;
+    int matched = 0;
+    int first = 0;
+};
+inline CardAuditCounts& card_audit_counts() {
+    static CardAuditCounts c;
+    return c;
+}
+
 // HANABI_SYNTAX_AUDIT=1 makes a fenced code block print, in its language bar,
 // how many coloured runs of each kind it actually handed to the renderer.
 // Colour is the whole feature and the scripted harness cannot see a colour —

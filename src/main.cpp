@@ -1614,6 +1614,15 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             "FrameTiming: frames={} widgets={} min={:.2f}ms median={:.2f}ms "
             "mean={:.2f}ms max={:.2f}ms",
             ms.size(), widgets, ms.front(), median, mean, ms.back());
+        // What the last digest frame BUILT against what MATCHED. Zero on a
+        // screen that is not a digest view. scripts/digest_gate.sh reads this
+        // rather than the widget total, because the widget total is the whole
+        // window -- sidebar, tab strip, composer -- and this is the property.
+        {
+            const auto& cards = hanabi::test_hooks::card_audit_counts();
+            log_info("DigestCards: built={} matched={} first={}", cards.built,
+                     cards.matched, cards.first);
+        }
         if (split && !msU.empty()) {
             std::sort(msU.begin(), msU.end());
             std::sort(msR.begin(), msR.end());

@@ -721,6 +721,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         cardsBuilt_ = i;
         cardsMatched_ = n;
         cardsFirst_ = win.first;
+        hanabi::test_hooks::card_audit_counts() = {i, n, win.first};
         digest_audit(ctx, parent);
         scroll_cursor_into_view(scroll.ent(), listH);
     }

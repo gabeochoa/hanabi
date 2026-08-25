@@ -571,6 +571,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) soak-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) scroll-gate
+	@$(MAKE) digest-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -594,6 +595,10 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #                      count must not track the catalog (the level), and the
 #                      second half of a long scroll must cost what the first
 #                      half did (the trend). In `make test`.
+#   make digest-gate   ~9 s.  The four digest screens (Blocked / Review /
+#                      Starred / Archived), which scaling-gate never opens and
+#                      scroll-gate never reaches. Cards BUILT against sessions
+#                      MATCHED, plus the widget ratio. In `make test`.
 #   make soak          ~65 s. The long form: every stress scenario, 4000
 #                      frames each, plus an arm at a 2000-session catalog.
 #                      NOT in `make test` — run it before a release.
@@ -605,6 +610,9 @@ scaling-gate: $(MAIN_EXE) copy-resources
 
 scroll-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scroll_gate.sh
+
+digest-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/digest_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
