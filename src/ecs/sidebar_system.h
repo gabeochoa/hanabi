@@ -300,6 +300,32 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_render_layer(2)
                     .with_debug_name("sb_snippet_audit"));
 
+        // Test-only (HANABI_ROW_AUDIT=1): rows RENDERED, out of rows MATCHED.
+        // The gap between the two is virtualization, and it is invisible to a
+        // script otherwise -- "the list is capped" is a claim about rows that
+        // are not there, and the "Show N more" row that would say so rides
+        // below the fold by construction. Absolutely positioned on its own
+        // layer for the same reason the snippet audit is: a test build's extra
+        // label must not push the sidebar's column past its own height, which
+        // is a layout warning every frame (gap #53) and a different render
+        // than the one being tested.
+        if (hanabi::test_hooks::row_audit())
+            div(ctx, mk(panel.ent(), 8),
+                ComponentConfig{}
+                    .with_label("sidebar rows " + std::to_string(rowsRendered_) +
+                                " of " + std::to_string(rowsMatched_))
+                    .with_size(ComponentSize{pixels(r.width - 20.0f),
+                                             pixels(14)})
+                    .with_absolute_position()
+                    .with_translate(10.0f, r.height - 34.0f)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(2)
+                    .with_debug_name("sb_row_audit"));
+
         // No-results empty state (only meaningful with a non-empty query).
         if (!q.empty() && shown == 0) {
             div(ctx, mk(scroll.ent(), 900),
@@ -1876,6 +1902,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     std::vector<const api::SessionSummary*> members_;
     // Buffer for more_key(); see the note there.
     std::string moreKeyScratch_;
+    // What the last rendered group drew, and out of how many. Test-only
+    // (HANABI_ROW_AUDIT=1) -- read by the label at the foot of the panel.
+    int rowsRendered_ = 0;
+    int rowsMatched_ = 0;
 
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, bool folded, float panelW) {
@@ -2318,7 +2348,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         // Hide a folder with no (matching) members. With an active query this
         // is what drops non-matching folders out of the tree.
-        if (members.empty()) return 0;
+        if (members.empty()) {
+            rowsRendered_ = 0;  // the row audit, below; nothing was drawn
+            rowsMatched_ = 0;
+            return 0;
+        }
         const int total = static_cast<int>(members.size());
         const int limit = visible_limit(app, key, total, cap);
 
@@ -2535,6 +2569,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // would defeat the search.
         const int total = static_cast<int>(members.size());
         const bool expandedMore = limit >= total;
+        // For the row audit (HANABI_ROW_AUDIT=1); see the label below.
+        rowsRendered_ = limit;
+        rowsMatched_ = total;
 
         int i = 0;
         // ---- drag-to-reorder over the RENDERED band ----------------------
