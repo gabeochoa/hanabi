@@ -162,6 +162,88 @@ scroll widget.tab_new 1
 scroll widget.tab_strip 1
 scroll widget.text_input_field 2
 scroll widget.ui_root 1
+scrollall scenario scrollall
+scrollall frames 3000
+scrollall bucket 250
+scrollall fit_points 10
+scrollall work threads_opened=0 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=0
+scrollall entities_end 268
+scrollall tabs_end 0
+scrollall band.rss ok
+scrollall band.heap ok
+scrollall band.blocks ok
+scrollall band.cpu ok
+scrollall band.entities ok
+scrollall verdict PASS
+scrollall widgets_end 260
+scrollall widget.chat_row 20
+scrollall widget.composer_bar 1
+scrollall widget.composer_divider 1
+scrollall widget.composer_effort 1
+scrollall widget.composer_fold 1
+scrollall widget.composer_input_wrap 1
+scrollall widget.composer_leftmeta 1
+scrollall widget.composer_meta 1
+scrollall widget.composer_model 1
+scrollall widget.composer_reply_input 1
+scrollall widget.composer_rightmeta 1
+scrollall widget.composer_row 1
+scrollall widget.composer_send 1
+scrollall widget.composer_size 1
+scrollall widget.dc_name 20
+scrollall widget.dc_sub 20
+scrollall widget.dc_tag 5
+scrollall widget.dc_top 20
+scrollall widget.digest_card 20
+scrollall widget.home_scroll 1
+scrollall widget.home_section 4
+scrollall widget.home_section_chev 4
+scrollall widget.home_section_text 4
+scrollall widget.main_content 1
+scrollall widget.main_header 1
+scrollall widget.main_pane 1
+scrollall widget.main_title 1
+scrollall widget.row_glyph 20
+scrollall widget.row_subagent_count 7
+scrollall widget.row_title 20
+scrollall widget.sb_activity_dot 1
+scrollall widget.sb_collapse 1
+scrollall widget.sb_footer_rule 1
+scrollall widget.sb_new 1
+scrollall widget.sb_palette 1
+scrollall widget.sb_rule 1
+scrollall widget.sb_rule_wrap 1
+scrollall widget.sb_search 1
+scrollall widget.sb_search_filter 1
+scrollall widget.sb_search_icon 1
+scrollall widget.sb_search_text 1
+scrollall widget.sb_search_wrap 1
+scrollall widget.sb_session_count 1
+scrollall widget.sb_settings 1
+scrollall widget.sb_settings_footer 1
+scrollall widget.sb_spacer 2
+scrollall widget.sb_spacer_x 8
+scrollall widget.sb_version 1
+scrollall widget.sb_views_chevron 1
+scrollall widget.sb_views_head 1
+scrollall widget.sb_views_label 1
+scrollall widget.sidebar 1
+scrollall widget.sidebar_rail_divider 1
+scrollall widget.sidebar_scroll 1
+scrollall widget.skeleton_card 6
+scrollall widget.skeleton_meta 6
+scrollall widget.skeleton_title 6
+scrollall widget.smart_item 5
+scrollall widget.smart_views 1
+scrollall widget.sv_center 1
+scrollall widget.sv_count 3
+scrollall widget.sv_icon 6
+scrollall widget.sv_label 6
+scrollall widget.sv_wrap 1
+scrollall widget.tab_new 1
+scrollall widget.tab_strip 1
+scrollall widget.text_input_field 2
+scrollall widget.ui_root 1
 read scenario read
 read frames 3000
 read bucket 250
@@ -248,7 +330,7 @@ threads scenario threads
 threads frames 3000
 threads bucket 250
 threads fit_points 10
-threads work threads_opened=100 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=1
+threads work threads_opened=104 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=1
 threads entities_end 380
 threads tabs_end 1
 threads band.rss ok
@@ -385,7 +467,7 @@ tabs scenario tabs
 tabs frames 3000
 tabs bucket 250
 tabs fit_points 10
-tabs work threads_opened=190 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=1
+tabs work threads_opened=198 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=1
 tabs entities_end 304
 tabs tabs_end 1
 tabs band.rss ok
@@ -581,7 +663,7 @@ churn scenario churn
 churn frames 3000
 churn bucket 250
 churn fit_points 10
-churn work threads_opened=250 kept_tabs=0 churn_cycles=250 resizes=0 tabs_now=0
+churn work threads_opened=260 kept_tabs=0 churn_cycles=260 resizes=0 tabs_now=0
 churn entities_end 410
 churn tabs_end 0
 churn band.rss ok
@@ -723,7 +805,7 @@ resize scenario resize
 resize frames 3000
 resize bucket 250
 resize fit_points 10
-resize work threads_opened=0 kept_tabs=0 churn_cycles=0 resizes=3000 tabs_now=0
+resize work threads_opened=0 kept_tabs=0 churn_cycles=0 resizes=3120 tabs_now=0
 resize entities_end 268
 resize tabs_end 0
 resize band.rss ok
@@ -805,7 +887,7 @@ mixed scenario mixed
 mixed frames 3000
 mixed bucket 250
 mixed fit_points 10
-mixed work threads_opened=100 kept_tabs=0 churn_cycles=15 resizes=20 tabs_now=1
+mixed work threads_opened=104 kept_tabs=0 churn_cycles=16 resizes=21 tabs_now=1
 mixed entities_end 491
 mixed tabs_end 1
 mixed band.rss ok
@@ -946,7 +1028,7 @@ open scenario open
 open frames 3000
 open bucket 250
 open fit_points 10
-open work threads_opened=150 kept_tabs=150 churn_cycles=0 resizes=0 tabs_now=20
+open work threads_opened=156 kept_tabs=156 churn_cycles=0 resizes=0 tabs_now=20
 open entities_end 475
 open tabs_end 20
 open band.rss ok
@@ -1058,7 +1140,6 @@ open widget.tab_new 1
 open widget.tab_preview 20
 open widget.tab_r1 1
 open widget.tab_r10 1
-open widget.tab_r2 1
 open widget.tab_r4 1
 open widget.tab_r5 1
 open widget.tab_r6 1
@@ -1070,6 +1151,7 @@ open widget.tab_t1 1
 open widget.tab_t10 1
 open widget.tab_t2 1
 open widget.tab_t3 1
+open widget.tab_t4 1
 open widget.tab_t5 1
 open widget.tab_t6 1
 open widget.tab_t7 1
@@ -1102,7 +1184,7 @@ bigidle frames 3000
 bigidle bucket 250
 bigidle fit_points 10
 bigidle work threads_opened=0 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=0
-bigidle entities_end 461
+bigidle entities_end 452
 bigidle tabs_end 0
 bigidle band.rss ok
 bigidle band.heap ok
@@ -1110,8 +1192,8 @@ bigidle band.blocks ok
 bigidle band.cpu ok
 bigidle band.entities ok
 bigidle verdict PASS
-bigidle widgets_end 453
-bigidle widget.chat_row 26
+bigidle widgets_end 444
+bigidle widget.chat_row 23
 bigidle widget.composer_bar 1
 bigidle widget.composer_divider 1
 bigidle widget.composer_effort 1
@@ -1138,14 +1220,15 @@ bigidle widget.main_content 1
 bigidle widget.main_header 1
 bigidle widget.main_pane 1
 bigidle widget.main_title 1
-bigidle widget.row_glyph 26
-bigidle widget.row_subagent_count 5
-bigidle widget.row_title 26
+bigidle widget.row_glyph 23
+bigidle widget.row_subagent_count 4
+bigidle widget.row_title 23
 bigidle widget.sb_activity_dot 1
 bigidle widget.sb_collapse 1
 bigidle widget.sb_footer_rule 1
 bigidle widget.sb_new 1
 bigidle widget.sb_palette 1
+bigidle widget.sb_row_spacer 1
 bigidle widget.sb_rule 1
 bigidle widget.sb_rule_wrap 1
 bigidle widget.sb_search 1

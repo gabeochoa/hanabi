@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
@@ -29,6 +30,7 @@
 
 #include "../test_hooks.h"
 #include "../settings.h"
+#include "../util/prof.h"
 #include "../version.h"
 #include "../util/ellipsize.h"
 #include "../util/format.h"
@@ -300,11 +302,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_render_layer(2)
                     .with_debug_name("sb_snippet_audit"));
 
-        // Test-only (HANABI_ROW_AUDIT=1): rows RENDERED, out of rows MATCHED.
-        // The gap between the two is virtualization, and it is invisible to a
-        // script otherwise -- "the list is capped" is a claim about rows that
-        // are not there, and the "Show N more" row that would say so rides
-        // below the fold by construction. Absolutely positioned on its own
+        // Test-only (HANABI_ROW_AUDIT=1): rows RENDERED, out of rows MATCHED,
+        // and the index of the FIRST one built.
+        // The gap between the first two is virtualization, and it is invisible
+        // to a script otherwise -- "the list is capped" is a claim about rows
+        // that are not there, and the "Show N more" row that would say so rides
+        // below the fold by construction.
+        //
+        // The third number is what makes a scrolled list assertable. A window
+        // that never moves off zero and a window that follows the offset both
+        // report the same COUNT, and they differ by whether the sidebar can
+        // reach row 300 at all -- so a virtualization test with only the count
+        // to look at passes just as happily against a list that has silently
+        // stopped scrolling. Absolutely positioned on its own
         // layer for the same reason the snippet audit is: a test build's extra
         // label must not push the sidebar's column past its own height, which
         // is a layout warning every frame (gap #53) and a different render
@@ -313,7 +323,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(panel.ent(), 8),
                 ComponentConfig{}
                     .with_label("sidebar rows " + std::to_string(rowsRendered_) +
-                                " of " + std::to_string(rowsMatched_))
+                                " of " + std::to_string(rowsMatched_) +
+                                " @ " + std::to_string(rowsFirst_))
                     .with_size(ComponentSize{pixels(r.width - 20.0f),
                                              pixels(14)})
                     .with_absolute_position()
@@ -553,6 +564,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // id slot so it never collides with a capped body row (base+1..base+12).
     static constexpr int kBucketCap = 12;
     static constexpr int kMoreRowIdOffset = 199;
+    static constexpr int kSpacerAboveIdOffset = 197;
+    static constexpr int kSpacerBelowIdOffset = 198;
     // The fixed on-screen height of one session row — the MEASURED Puffin
     // pitch. Used by the fill-the-viewport cap so the list reaches the footer.
     static constexpr float kRowHeight = 32.0f;
@@ -1906,6 +1919,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // (HANABI_ROW_AUDIT=1) -- read by the label at the foot of the panel.
     int rowsRendered_ = 0;
     int rowsMatched_ = 0;
+    int rowsFirst_ = 0;
 
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, bool folded, float panelW) {
@@ -2257,15 +2271,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return is_named_folder(s.folder) ? s.folder : std::string("recent");
     }
 
-    // The collapsedFolders sentinel under which a group's "Show N more" opt-in
-    // is recorded. Written into a caller-owned buffer rather than returned by
-    // value: this is asked on the render path of every frame and a std::set
-    // lookup that allocates its own key first is a malloc per frame for a
-    // string that is the same string it was last frame.
     static const std::string& more_key(const std::string& key,
                                        std::string& scratch) {
-        scratch.assign("__more_").append(key).append("__");
-        return scratch;
+        return ecs::more_key(key, scratch);
     }
 
     // How many of a group's `total` members will actually be rendered.
@@ -2300,6 +2308,117 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return (expandedMore || total <= cap) ? total : cap;
     }
 
+    // ---- row virtualization ---------------------------------------------
+    //
+    // Which slice of a group's rows is worth BUILDING this frame.
+    //
+    // `visible_limit` above answers a product question -- how much of this
+    // list has the user asked to see. This answers the cost question: of the
+    // rows they asked for, which ones are on screen. They are different
+    // numbers and the gap between them is unbounded. A person with two
+    // thousand threads who clicks "Show 1962 more..." has asked for two
+    // thousand rows and can see about thirteen; before this, the sidebar built
+    // all two thousand, every frame, forever -- 6645 entities and 17.2 ms of
+    // CPU a frame against 461 and 1.55 for the same list capped.
+    //
+    // Rows are a fixed kRowHeight tall, so the slice is arithmetic rather than
+    // a hit test: the first row is the offset divided by the pitch. Two
+    // spacers stand in for the rows that were not built, so the content height
+    // -- and therefore the scrollbar, the clamp, and where a given row lands
+    // -- is exactly what it would be if every row were there.
+    struct RowWindow {
+        int first = 0;
+        int last = 0;
+        float above = 0.0f;
+        float below = 0.0f;
+        [[nodiscard]] bool whole(int limit) const {
+            return first == 0 && last == limit;
+        }
+    };
+
+    // Rows kept alive on each side of the viewport.
+    //
+    // The build runs before autolayout and before ease_scroll, so the offset
+    // read here is a frame stale by exactly the distance the easing is about
+    // to travel -- which is `pending` below, and is therefore covered exactly
+    // rather than guessed at. That is what lets the constant be small: it is
+    // not a fling budget, it is slack against rounding and against a row that
+    // is a fraction of a pitch taller than kRowHeight.
+    static constexpr int kOverscanRows = 3;
+    // The row ids run base+1 .. base+window, and the two spacers and the
+    // "Show N more..." row sit at base+197, base+198 and base+199. A window
+    // this size cannot reach them. It is also 12x the tallest sidebar anyone
+    // has: 190 rows at kRowHeight is a 6080 px column.
+    static constexpr int kMaxWindowRows = 190;
+    static constexpr int kFlingOverscanRows = 32;
+
+    RowWindow row_window(Entity& parent, int limit, bool uniformHeight) const {
+        RowWindow w;
+        w.last = limit;
+        // A search result carries a snippet under its row, so the rows are no
+        // longer one height and the arithmetic above does not hold. Searching
+        // is already capped at a viewport by visible_limit, so there is
+        // nothing here to win.
+        if (!uniformHeight) return w;
+        if (!parent.has<afterhours::ui::HasScrollView>()) return w;
+        const auto& sv = parent.get<afterhours::ui::HasScrollView>();
+        const float viewH = sv.viewport_size.y;
+        // Frame one: nothing has been measured yet. Build the lot; the cap
+        // still bounds it, and by frame two there is a viewport to read.
+        if (viewH <= 0.0f) return w;
+
+        // Where the view is ABOUT to be, not only where it is. The offset
+        // eases toward the target after this runs, so the rows between the two
+        // are the ones that would otherwise be missing for a frame. Bounded at
+        // kFlingOverscanRows: a fling of more than a thousand pixels in one
+        // frame is a fling, and one frame of partial fill inside it is not
+        // something a person can see -- whereas a window sized to an unbounded
+        // fling is a fling that costs what the whole list used to.
+        const float pending =
+            std::fabs(sv.scroll_target.y - sv.scroll_offset.y);
+        const int overscan =
+            kOverscanRows +
+            std::min(kFlingOverscanRows,
+                     static_cast<int>(pending / kRowHeight) + 1);
+
+        int first = static_cast<int>(sv.scroll_offset.y / kRowHeight) - overscan;
+        if (first < 0) first = 0;
+        int span = static_cast<int>(viewH / kRowHeight) + 2 + 2 * overscan;
+        if (span > kMaxWindowRows) span = kMaxWindowRows;
+        int last = first + span;
+        if (last > limit) {
+            // At the end of the list the window would otherwise shrink, so the
+            // last screenful of a long list would build fewer rows than every
+            // other screenful of it. Give the span back at the top instead:
+            // the window is then the same size wherever it sits, which is what
+            // makes "how much does a scrolled frame cost" one number and not a
+            // function of where you stopped.
+            last = limit;
+            first = last - span;
+            if (first < 0) first = 0;
+        }
+        w.first = first;
+        w.last = last;
+        w.above = static_cast<float>(first) * kRowHeight;
+        w.below = static_cast<float>(limit - last) * kRowHeight;
+        return w;
+    }
+
+    // The stand-in for rows that were not built. One entity, the exact height
+    // of the rows it replaces, so every measurement downstream of it -- the
+    // scroll view's content size, the scrollbar thumb, the y a row lands at --
+    // is the number it would have been.
+    void render_row_spacer(UIContext<InputAction>& ctx, Entity& parent, int id,
+                           float h) {
+        if (h <= 0.0f) return;
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(h)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sb_row_spacer"));
+    }
+
     // ---- folder group ----
     // Renders a collapsible folder. Returns the number of chat rows actually
     // rendered (used by the caller to drive the search no-results state).
@@ -2321,6 +2440,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // sixty times a second to render forty rows.
         std::vector<const api::SessionSummary*>& members = members_;
         members.clear();
+        hanabi::prof::Scope _pcollect("sidebar.collect");
         for (const auto& s : app.sessions) {
             bool match;
             if (archived) {
@@ -2351,6 +2471,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (members.empty()) {
             rowsRendered_ = 0;  // the row audit, below; nothing was drawn
             rowsMatched_ = 0;
+            rowsFirst_ = 0;
             return 0;
         }
         const int total = static_cast<int>(members.size());
@@ -2390,6 +2511,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // sequence -- whose first limit-P entries all lie inside the
             // sorted prefix, because the prefix holds `limit` rows and lost at
             // most P of them to the partition.
+            hanabi::prof::Scope _psort("sidebar.sort");
             if (limit < total)
                 std::partial_sort(members.begin(), members.begin() + limit,
                                   members.end(), newestFirst);
@@ -2405,7 +2527,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 model::apply_row_order(members, it->second);
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
-                            panelW, archived, headerless, cap, limit);
+                            panelW, archived, headerless, cap, limit,
+                            row_window(parent, limit, q.empty()));
     }
 
     // ---- collapsible group header (shared by folders + time-groups) ----
@@ -2528,7 +2651,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                      const std::string& name, const std::string& key,
                      const std::vector<const api::SessionSummary*>& members,
                      AppComponent& app, const std::string& q, float panelW,
-                     bool archived, bool headerless, int cap, int limit) {
+                     bool archived, bool headerless, int cap, int limit,
+                     const RowWindow& win) {
         if (members.empty()) return 0;
         // Headerless: unfoldered sessions render as a plain flat list with NO
         // folder header (per Gabe: "only keep the real folders" — no invented
@@ -2569,9 +2693,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // would defeat the search.
         const int total = static_cast<int>(members.size());
         const bool expandedMore = limit >= total;
-        // For the row audit (HANABI_ROW_AUDIT=1); see the label below.
-        rowsRendered_ = limit;
+        // For the row audit (HANABI_ROW_AUDIT=1); see the label below. This is
+        // rows BUILT, which since virtualization is the window and not the
+        // cap: the cap is a claim about what the user asked for and the window
+        // is the claim about what the frame costs, and only the second one is
+        // what the audit exists to assert.
+        rowsRendered_ = win.last - win.first;
         rowsMatched_ = total;
+        rowsFirst_ = win.first;
 
         int i = 0;
         // ---- drag-to-reorder over the RENDERED band ----------------------
@@ -2586,11 +2715,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         float bandY = 0.0f;
         bool haveBand = false;
         std::vector<std::string> renderedIds;
-        renderedIds.reserve(static_cast<size_t>(limit));
+        renderedIds.reserve(static_cast<size_t>(win.last - win.first));
 
-        for (const auto* s : members) {
-            if (i >= limit) break;
-            const int slot = i;
+        render_row_spacer(ctx, parent, base + kSpacerAboveIdOffset, win.above);
+
+        for (int idx = win.first; idx < win.last; ++idx) {
+            const auto* s = members[static_cast<size_t>(idx)];
+            // The DRAG slot is the row's place in the list; the widget ID is
+            // its place in the WINDOW. They have to be different numbers. A
+            // reorder records where a row sits among its peers, so it needs
+            // the absolute index -- but an id derived from that index would
+            // mint a fresh entity for every row scrolled past and never retire
+            // one (#115), which is the leak this change exists to avoid, dressed
+            // up as a fix. Keying on the window slot means the same handful of
+            // entities are re-used as the list moves under them, which is what
+            // an immediate-mode row is.
+            const int slot = idx;
             const int rowId = base + 1 + (++i);
             // While searching, a row carries the line it matched on, with the
             // matched words lit. Without it the list says WHICH threads
@@ -2648,6 +2788,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 if (ctx.mouse.press_moved) drag.live = true;
             }
         }
+
+        render_row_spacer(ctx, parent, base + kSpacerBelowIdOffset, win.below);
 
         if (drag.folderKey == key && !drag.sessionId.empty() && haveBand &&
             !renderedIds.empty()) {

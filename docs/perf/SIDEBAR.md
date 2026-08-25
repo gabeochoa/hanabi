@@ -74,6 +74,15 @@ document, so it goes first.
 
 ## 1. The sidebar was already virtualized. The Home pane was not.
 
+> **It was not, and this section is wrong in a way worth leaving here.** The
+> sidebar's rows were CAPPED, at two viewports, which looks identical to
+> virtualization until the user declines the cap — and the "Show N more…" row
+> that lets them decline it is the row scrolling down puts under their cursor.
+> Clicking it built 2020 rows a frame to show nineteen: 17.2 ms of CPU at a
+> 2000-session catalog. Everything measured below is still true of the frame it
+> was measured on. See `docs/perf/SCROLL.md`.
+
+
 - **What I wanted** — to find the place that walks 2000 sessions to draw 20
   rows. The row rendering is capped (`fillCap`), so something upstream of the
   cap had to be materializing the catalog: the entity count said roughly one
@@ -368,9 +377,12 @@ HANABI_SOAK_CENSUS=1  # with any HANABI_SOAK run
 HANABI_ROW_AUDIT=1
 ```
 
-Scenarios are `idle`, `scroll`, `threads`, `tabs`, `search`
-(`src/util/stress.h`). If you are adding one, section 4 is the argument for
-bothering.
+Scenarios are `idle`, `scroll`, `scrollall`, `read`, `threads`, `tabs`,
+`search` (`src/util/stress.h`). If you are adding one, section 4 is the
+argument for bothering — and `docs/perf/SCROLL.md` section 1 is the argument
+for checking that the one you already have is driving anything, which `scroll`
+was not: at 2000 sessions it allocated 7,422,153 times against `idle`'s
+7,422,071 over the same 2000 frames.
 Read the entity count first and the frame time second.
 
 Both scripts report the MINIMUM bucket per run and the MEDIAN across runs:

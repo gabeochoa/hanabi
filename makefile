@@ -548,6 +548,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/perf_transcript_slope.sh
 	@$(MAKE) soak-gate
 	@$(MAKE) scaling-gate
+	@$(MAKE) scroll-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -567,7 +568,12 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #                      the RATIO between them, never on an absolute
 #                      millisecond figure — this box is shared, and an
 #                      absolute would flake. In `make test`.
-#   make soak          ~37 s. The long form: eleven scenarios, four at a time.
+#   make scroll-gate   ~6 s.  The sidebar's list EXPANDED and swept, which is
+#                      what the bug report described. Two arms: the entity
+#                      count must not track the catalog (the level), and the
+#                      second half of a long scroll must cost what the first
+#                      half did (the trend). In `make test`.
+#   make soak          ~41 s. The long form: twelve scenarios, four at a time.
 #                      NOT in `make test` — run it before a release.
 #   make soak-report   The same run, reduced to a DIFFABLE text artifact and
 #                      diffed against docs/perf/soak-baseline.txt. A
@@ -584,6 +590,9 @@ soak-gate: $(MAIN_EXE) copy-resources
 
 scaling-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scaling_gate.sh
+
+scroll-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/scroll_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
@@ -661,8 +670,8 @@ source-checks:
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
-.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate source-checks \
-	soak-report soak-baseline stress stress-break
+.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate \
+	source-checks soak-report soak-baseline stress stress-break
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

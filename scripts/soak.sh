@@ -37,8 +37,18 @@
 # WHY EACH ARM IS HERE
 #   idle     the control. Nothing is touched. Anything that grows here grows
 #            for no reason at all, which is the strongest possible finding.
-#   scroll   the reported symptom was "scroll the sidebar up and down until it
-#            breaks". Row build + clip + layout, sixty frames down and sixty up.
+#   scroll   the sidebar's list as the app first shows it — capped at two
+#            viewports — wheeled sixty frames down and sixty up. Keep it for
+#            the clip and layout path, but know what it is NOT: at a
+#            2000-session catalog `idle` and `scroll` allocate 7,422,071 and
+#            7,422,153 times over the same 2000 frames, because the rows it
+#            slides over were going to be built either way.
+#   scrollall the reported symptom, which is the other list. "Open the program
+#            and scroll the sidebar up and down until it broke" ends at the
+#            "Show N more…" row; this arm clicks it and then sweeps the whole
+#            catalog, 96 px a frame, over a 1200-frame triangle. It is run at
+#            2000 sessions because a window that is not a window only shows at
+#            a catalog size.
 #   read     the same for the TRANSCRIPT, which is the pane with the genuinely
 #            large content.
 #   threads  opening a thread is the heaviest thing the app does: a fetch, a
@@ -99,7 +109,7 @@ FRAMES="${HANABI_SOAK_LONG_FRAMES:-3000}"
 # after sidebar virtualization a 2000-row catalog is no longer the slow arm it
 # was when this file was written.
 BIG_FRAMES="${HANABI_SOAK_BIG_FRAMES:-$FRAMES}"
-ARMS="${HANABI_SOAK_ARMS:-idle scroll read threads tabs search churn resize mixed open bigidle}"
+ARMS="${HANABI_SOAK_ARMS:-idle scroll scrollall read threads tabs search churn resize mixed open bigidle}"
 EVERY="${HANABI_SOAK_LONG_EVERY:-250}"
 JOBS="${HANABI_SOAK_JOBS:-4}"
 REPORT="${HANABI_SOAK_REPORT_OUT:-}"
@@ -114,7 +124,7 @@ GROWING=" open mixed "
 # from.
 export HANABI_SOAK_MAX_RSS_KB_PER1K="${HANABI_SOAK_MAX_RSS_KB_PER1K:-256}"
 export HANABI_SOAK_MAX_HEAP_KB_PER1K="${HANABI_SOAK_MAX_HEAP_KB_PER1K:-128}"
-export HANABI_SOAK_MAX_BLOCKS_PER1K="${HANABI_SOAK_MAX_BLOCKS_PER1K:-500}"
+export HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K="${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K:-500}"
 export HANABI_SOAK_MAX_ENT_PER1K="${HANABI_SOAK_MAX_ENT_PER1K:-25}"
 # CPU time, on the thread clock, so a parallel run does not move it.
 export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-1.0}"
@@ -144,7 +154,7 @@ require_fresh_build "$EXE" || exit 2
 echo "=== hanabi long soak ==="
 echo "  ${FRAMES} frames per arm (${BIG_FRAMES} for bigidle), buckets of ${EVERY}, ${JOBS} at a time"
 echo "  arms: ${ARMS}"
-echo "  budget per 1000 frames: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCKS_PER1K}, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms"
+echo "  budget per 1000 frames: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K}, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms"
 echo "  started $(date '+%H:%M:%S'), load $(uptime | sed -nE 's/.*load averages?: //p')"
 
 ARM_TIMEOUT="${HANABI_SOAK_ARM_TIMEOUT:-900}"

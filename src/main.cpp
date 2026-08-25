@@ -1423,6 +1423,30 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         if (breakOn.any())
             log_info("[break] armed from HANABI_STRESS_UNTIL");
 
+        // One monotonic clock for the scenario, running across the settle
+        // pass and on into the measured window without a discontinuity.
+        //
+        // The settle used to render without DRIVING, which made it a settle
+        // for the launch burst and for nothing else: every scenario's own
+        // warm-up -- the first tab `threads` opens, the first query `search`
+        // types, the whole first sweep of the list `scrollall` expands and
+        // scrolls -- landed inside the measured window. On the scroll arm that
+        // is a title memo filling with 1800 entries while the first buckets
+        // are being sampled, which reads as live blocks trending up and is
+        // just a cache arriving. Measured: the block trend across nine clean
+        // runs spanned -148 to +847 per 1000 frames with an undriven settle.
+        int driveFrame = 0;
+        const auto drive = [&]() {
+            if (appForWait != nullptr) driver.act(driveFrame, *appForWait);
+            if (const float step = driver.scroll_step(driveFrame);
+                step != 0.0f) {
+                if (!hanabi::soak::scroll_named(driver.scroll_target_name(),
+                                                step))
+                    hanabi::prof::tick("stress.scroll_target_missing");
+            }
+            ++driveFrame;
+        };
+
         // Settle first, unmeasured. A first pass on a fresh launch is the
         // launch burst, not the steady state, and averaging it in hides the
         // thing being looked for (Puffin's PERFORMANCE.md, learned the same
@@ -1436,7 +1460,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         settleCpuMs.reserve(
             static_cast<size_t>(hanabi::stress::settle_frames()));
         for (int i = 0; i < hanabi::stress::settle_frames(); ++i) {
-            const unsigned long long c0 = hanabi::prof::cpu_nanos();
+            drive();
+            const double c0 = hanabi::soak::cpu_nanos();
             {
                 const hanabi::AutoreleaseFrame framePool;
                 graphics::begin_frame();
@@ -1463,7 +1488,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         // The soak's frame-time gate is on thread CPU rather than wall clock
         // (soak.h::verdict says why), so the reading it gates on cannot be
         // behind a diagnostic flag. Two clock_gettime calls a frame.
-        unsigned long long bucketCpu = hanabi::prof::cpu_nanos();
+        double bucketCpu0 = hanabi::soak::cpu_nanos();
         for (int i = 1; i <= soakFrames; ++i) {
             if (appForWait != nullptr) driver.act(i - 1, *appForWait);
             if (const float step = driver.scroll_step(i - 1); step != 0.0f) {
@@ -1514,15 +1539,14 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                     // includes the frame it broke on rather than stopping at
                     // the last round number before it.
                     const auto now = std::chrono::steady_clock::now();
-                    const unsigned long long cpuNow = hanabi::prof::cpu_nanos();
+                    const double cpuNow = hanabi::soak::cpu_nanos();
                     const int span = i - (i / every) * every;
                     if (span > 0)
                         hanabi::soak::report(
                             samples, i,
                             std::chrono::duration<double, std::milli>(
                                 now - bucketStart).count() / span,
-                            static_cast<double>(cpuNow - bucketCpu) / 1.0e6 /
-                                span,
+                            (cpuNow - bucketCpu0) / 1e6 / span,
                             hanabi::soak::rss_kb(),
                             EntityHelper::get_entities().size());
                     break;
@@ -1530,15 +1554,14 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
             if (i % every == 0) {
                 auto now = std::chrono::steady_clock::now();
-                const unsigned long long cpuNow = hanabi::prof::cpu_nanos();
+                const double cpuNow = hanabi::soak::cpu_nanos();
                 const double ms =
                     std::chrono::duration<double, std::milli>(now - bucketStart)
                         .count() / static_cast<double>(every);
-                const double cpuMs =
-                    static_cast<double>(cpuNow - bucketCpu) / 1.0e6 /
-                    static_cast<double>(every);
+                const double cpuMs = (cpuNow - bucketCpu0) / 1e6 /
+                                     static_cast<double>(every);
                 bucketStart = now;
-                bucketCpu = cpuNow;
+                bucketCpu0 = cpuNow;
                 hanabi::soak::report(samples, i, ms, cpuMs,
                                      hanabi::soak::rss_kb(),
                                      EntityHelper::get_entities().size());
@@ -1584,7 +1607,12 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                 hanabi::stress::name(driver.mode),
                                 driver.work_done().c_str());
         hanabi::soak::VerdictTrends trends;
-        const int bad = hanabi::soak::verdict(samples, trends);
+        int bad = hanabi::soak::verdict(samples, trends);
+        // The second reading perf/scroll added: a min-of-half RATIO rather
+        // than a slope, and the two answer different questions. A slope
+        // catches a leak; a ratio between the halves catches a cost that
+        // arrived and stayed. Kept alongside, not instead of -- see soak.h.
+        bad |= hanabi::soak::trend_verdict(samples);
         {
             hanabi::soak::ReportInput ri;
             ri.scenario = hanabi::stress::name(driver.mode);

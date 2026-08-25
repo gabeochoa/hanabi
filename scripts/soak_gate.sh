@@ -98,7 +98,7 @@ SOAK_FRAMES="${HANABI_SOAK_GATE_FRAMES:-2000}"
 SOAK_EVERY="${HANABI_SOAK_GATE_EVERY:-250}"
 export HANABI_SOAK_MAX_RSS_KB_PER1K="${HANABI_SOAK_MAX_RSS_KB_PER1K:-512}"
 export HANABI_SOAK_MAX_HEAP_KB_PER1K="${HANABI_SOAK_MAX_HEAP_KB_PER1K:-256}"
-export HANABI_SOAK_MAX_BLOCKS_PER1K="${HANABI_SOAK_MAX_BLOCKS_PER1K:-1000}"
+export HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K="${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K:-1000}"
 export HANABI_SOAK_MAX_ENT_PER1K="${HANABI_SOAK_MAX_ENT_PER1K:-25}"
 export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-1.0}"
 
@@ -134,7 +134,7 @@ require_fresh_build "$EXE" || exit 2
 
 echo "=== hanabi soak gate ==="
 echo "  ${SOAK_FRAMES} frames, buckets of ${SOAK_EVERY}, mock catalog, headless"
-echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCKS_PER1K}, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms — all per 1000 frames"
+echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K}, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms — all per 1000 frames"
 
 # One retry, and ONLY one. A leak leaks on every run (measured: 2848, 2912 and
 # 3040 KB per 1000 frames on three consecutive defective runs), so retrying

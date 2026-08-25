@@ -28,6 +28,8 @@
 // grows without allocating, like a counter driving a loop.
 // ---------------------------------------------------------------------------
 
+#include <time.h>
+
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -189,6 +191,38 @@ inline void census() {
     std::fflush(stdout);
 }
 
+// CPU nanoseconds burned by THIS thread, which on the frame loop is the app's
+// own work and nothing else.
+//
+// The soak's frame-time column used to be wall clock, and on this machine wall
+// clock does not measure the app. Three other agents build here; the load
+// average during these runs ranged from 10 to 34. The same binary running the
+// same 6000-frame scroll soak read, bucket by bucket:
+//
+//   1.788  1.556  1.476  1.748  7.640  7.335  5.592  3.998  2.246  ...
+//
+// A 5x hump in the middle of a run whose memory columns did not move by a
+// kilobyte. Nothing in the app did that; another process did. The verdict row
+// built on that column is a coin, which is why its budget had to be set at
+// 3.0 ms per 1000 frames -- loose enough that the only frame-time regression
+// it can catch is one nobody needs a gate to notice.
+//
+// CLOCK_THREAD_CPUTIME_ID does not count time this thread was not running, so
+// being descheduled costs nothing and a neighbour's build is invisible. It is
+// the clock hanabi::prof already uses, and for the same reason; the soak now
+// uses it too so that "is the frame getting more expensive?" is a question
+// about the frame.
+//
+// Wall clock is KEPT and still printed. It is the number a person feels, and
+// the gap between the two columns is itself the reading that says the box was
+// busy rather than the app slow.
+inline double cpu_nanos() {
+    struct timespec ts {};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<double>(ts.tv_sec) * 1e9 +
+           static_cast<double>(ts.tv_nsec);
+}
+
 struct Sample {
     int frame = 0;
     // Wall clock per frame. What a person feels, and what a busy box moves.
@@ -208,9 +242,9 @@ inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
                    long rss, size_t ents) {
     const HeapStat h = heap_in_use();
     out.push_back(Sample{frame, ms, cpuMs, rss, ents, h});
-    std::printf("[soak] frame %6d  %7.3f ms/f wall  %7.3f cpu  RSS %7ld KB  "
-                "entities %6zu  live %8u blocks / %8zu KB\n",
-                frame, ms, cpuMs, rss, ents, h.count, h.bytes / 1024);
+    std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
+                "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB\n",
+                frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024);
     std::fflush(stdout);
 }
 
@@ -229,6 +263,32 @@ inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
 // 500 frames is exactly what the old rule discarded at the gate's 250-frame
 // buckets, so the window is unchanged where it was already tuned.
 // ---------------------------------------------------------------------------
+// util/mem_ladder.h hit the same wall harder (it read +-100%) and solved it the
+// same way. Three buckets is enough here because the buckets are already
+// averages of 250 frames each; the per-bucket lines printed above are
+// untouched, so nothing about what a reader sees changes.
+//
+// FRAME TIME IS DELIBERATELY NOT WINDOWED, and this is worth writing down
+// because the obvious tidy-up is to window it too. It was tried. The memory
+// columns are CUMULATIVE -- a leak only ever adds -- so a median window over
+// them is strictly better than one sample. Frame time is not cumulative: the
+// early buckets carry the launch burst, which on this scenario is 12 ms
+// against a steady state of 4 ms, and the old anchor at bucket 2 was catching
+// exactly that. Windowing it moved the early anchor into the steady state and
+// two runs in three then reported "frame time is trending UP" -- correctly, in
+// the sense that the `threads` scenario opens a tab every 30 frames and more
+// tabs really are slower, and uselessly, in the sense that a leak detector
+// that fails because the machine was busy is a leak detector nobody reads.
+// So frame time keeps its old anchor and its old meaning.
+struct Window {
+    double msPerFrame = 0.0;
+    double cpuMsPerFrame = 0.0;
+    double rssKb = 0.0;
+    double entities = 0.0;
+    double blocks = 0.0;
+    double bytes = 0.0;
+    int frame = 0;
+};
 
 inline int warm_frames() {
     static const int n = [] {
@@ -259,6 +319,14 @@ inline Trend trend_of(const std::vector<const Sample*>& pts,
         xy.push_back({static_cast<double>(p->frame), value(*p)});
     return hanabi::trend::theil_sen(xy);
 }
+
+// The median-of-three WINDOW machinery that used to soften the two-point
+// verdict is gone, along with the two-point verdict itself. The slope above
+// takes every bucket, so there is nothing left for a three-bucket window to
+// do; `struct Window`, `window_of`, `window_at` and `median3` were removed
+// with it rather than left as dead code somebody would later wire back in.
+// hanabi::soak::median_of (below) survives because trend_verdict uses it.
+
 
 // The column accessors, as plain functions so trend_of stays one routine
 // rather than a template instantiated five times over the same body.
@@ -293,7 +361,12 @@ inline double col_heap_kb(const Sample& x) {
 //   HANABI_SOAK_MAX_MS_PER1K         CPU-time drift,       ms per 1000 frames
 //                                    (thread CPU, not wall -- see verdict())
 //   HANABI_SOAK_MAX_ENT_PER1K        entity growth,     entities per 1000
-//   HANABI_SOAK_MAX_BLOCKS_PER1K     live malloc BLOCKS,   blocks per 1000
+//   HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K  live malloc BLOCKS, blocks per 1000
+//
+// NOT `HANABI_SOAK_MAX_BLOCKS_PER1K`, which perf/scroll already took for
+// trend_verdict's min-of-half rate below. Two budgets over the same quantity,
+// measured two different ways, cannot share one name: soak.sh exports 500 for
+// the slope and that would silently loosen the other from 250 to 500.
 // ---------------------------------------------------------------------------
 struct Budget {
     double rssKbPer1k = 2048.0;
@@ -319,7 +392,7 @@ inline Budget budget() {
         out.msPer1k = env_double("HANABI_SOAK_MAX_MS_PER1K", out.msPer1k);
         out.entPer1k = env_double("HANABI_SOAK_MAX_ENT_PER1K", out.entPer1k);
         out.blocksPer1k =
-            env_double("HANABI_SOAK_MAX_BLOCKS_PER1K", out.blocksPer1k);
+            env_double("HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K", out.blocksPer1k);
         return out;
     }();
     return b;
@@ -484,6 +557,149 @@ inline bool judge_row(const char* label, const char* unit, const Trend& tr,
 }
 
 // The verdict: is any gated metric climbing across the run?
+// ---------------------------------------------------------------------------
+// The TREND verdict (HANABI_SOAK_TREND=1). A second reading of the same
+// buckets, for the question the anchored verdict above cannot answer.
+//
+// The anchored verdict subtracts one bucket from another. That is the right
+// shape for a leak, which is cumulative and monotone: a bucket 4000 frames
+// later is 4000 frames' worth of leak higher, whatever the machine was doing.
+// It is the wrong shape for "is the frame getting more expensive", because
+// frame time is not cumulative and a single bucket is a sample of a machine
+// with three other agents on it. Set a budget loose enough not to flake and it
+// catches nothing; set it tight and it fails on a neighbour's build.
+//
+// So this one reduces each HALF of the run and compares the halves, and it
+// reduces frame time by MINIMUM rather than by mean or median. Contention and
+// downclocking only ever ADD time to a bucket -- there is no mechanism by
+// which a busy machine makes a frame cheaper -- so the minimum bucket of a
+// half is the least-polluted estimate of what the app itself costs over that
+// half. scripts/perf_ab.sh makes the same argument for the same reason.
+//
+// And it is a RATIO, not a millisecond. A millisecond threshold on this box is
+// a coin flip: the same binary read 8.27 ms on a quiet minute and 16.07 ms on
+// a busy one. A ratio between two halves measured minutes apart in the same
+// process divides most of that out, and what is left it divides out again by
+// taking minima.
+//
+// Live BLOCKS are the memory half, and they are the right memory metric for a
+// scroll: a list that mints a widget per row scrolled past, or a cache keyed
+// on the offset, adds blocks long before it adds a page of RSS. They sawtooth
+// (the allocator recycles small blocks in bursts), so the halves are reduced
+// by MEDIAN and the budget is a rate per 1000 frames rather than a bound on
+// the difference.
+struct TrendBudget {
+    double frameRatio = 1.20;
+    double blocksPer1k = 250.0;
+};
+
+inline bool trend_wanted() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_SOAK_TREND");
+        return v != nullptr && *v != '\0' && std::string(v) != "0";
+    }();
+    return on;
+}
+
+inline TrendBudget trend_budget() {
+    static const TrendBudget b = [] {
+        TrendBudget out;
+        out.frameRatio =
+            env_double("HANABI_SOAK_MAX_FRAME_RATIO", out.frameRatio);
+        out.blocksPer1k =
+            env_double("HANABI_SOAK_MAX_BLOCKS_PER1K", out.blocksPer1k);
+        return out;
+    }();
+    return b;
+}
+
+inline double median_of(std::vector<double> v) {
+    if (v.empty()) return 0.0;
+    std::sort(v.begin(), v.end());
+    const size_t n = v.size();
+    return (n % 2 == 1) ? v[n / 2] : 0.5 * (v[n / 2 - 1] + v[n / 2]);
+}
+
+// Returns 1 when the run trended upward past budget, 0 otherwise.
+inline int trend_verdict(const std::vector<Sample>& s) {
+    if (!trend_wanted()) return 0;
+    // Four buckets is two per half, which is the fewest that can be reduced at
+    // all. Six is what the gate runs.
+    if (s.size() < 4) {
+        std::printf("[soak] trend: too few buckets to compare halves (got "
+                    "%zu, need 4).\n", s.size());
+        return 0;
+    }
+    const size_t mid = s.size() / 2;
+    double firstMinMs = 0.0, lastMinMs = 0.0;
+    std::vector<double> firstBlocks, lastBlocks;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const bool early = i < mid;
+        double& m = early ? firstMinMs : lastMinMs;
+        if (m == 0.0 || s[i].cpuMsPerFrame < m) m = s[i].cpuMsPerFrame;
+        (early ? firstBlocks : lastBlocks)
+            .push_back(static_cast<double>(s[i].heap.count));
+    }
+    const double ratio = firstMinMs > 0.0 ? lastMinMs / firstMinMs : 0.0;
+    const double dBlocks = median_of(lastBlocks) - median_of(firstBlocks);
+    const int framesBetween = s.back().frame - s[mid - 1].frame;
+    const double blocksPer1k =
+        framesBetween > 0
+            ? dBlocks * 1000.0 / static_cast<double>(framesBetween)
+            : 0.0;
+    const TrendBudget bud = trend_budget();
+
+    const bool slowFail = ratio > bud.frameRatio;
+    const bool blockFail = blocksPer1k > bud.blocksPer1k;
+
+    std::printf("\n[soak] trend over %zu buckets, first half against last:\n",
+                s.size());
+    std::printf("[soak]   %-22s %12s %12s  %s\n", "metric", "measured",
+                "budget", "verdict");
+    std::printf("[soak]   %-22s %11.3fx %11.3fx  %s\n",
+                "frame cpu, min-of-half", ratio, bud.frameRatio,
+                slowFail ? "FAIL" : "ok");
+    std::printf("[soak]   %-22s %+11.1f %11.1f   %s\n",
+                "live blocks /1000f", blocksPer1k, bud.blocksPer1k,
+                blockFail ? "FAIL" : "ok");
+    std::printf("[soak]   (min-of-half cpu: %.3f ms then %.3f ms; blocks: "
+                "%.0f then %.0f)\n",
+                firstMinMs, lastMinMs, median_of(firstBlocks),
+                median_of(lastBlocks));
+
+    if (!slowFail && !blockFail) {
+        std::printf("[soak] TREND PASS: the second half of the run costs what "
+                    "the first half did.\n");
+        return 0;
+    }
+    std::printf("\n[soak] --------------- SCROLL TREND: FAIL "
+                "---------------\n");
+    if (slowFail)
+        std::printf("[soak] The frame got more expensive as the run went on, "
+                    "and this is a\n[soak] ratio of two MINIMA on the thread's "
+                    "own CPU clock -- a busy box\n[soak] cannot produce it, "
+                    "because contention only ever adds time. Under\n[soak] a "
+                    "scroll that means work proportional to how far the list "
+                    "has\n[soak] been scrolled: a widget minted per row passed "
+                    "and never retired\n[soak] (afterhours_gaps.md #115), a "
+                    "memo keyed on the offset, or a\n[soak] window that grows "
+                    "instead of sliding.\n");
+    if (blockFail)
+        std::printf("[soak] Live malloc blocks climbed. Under a scroll the "
+                    "usual cause is a\n[soak] per-row allocation that outlives "
+                    "the row: a cache keyed on session\n[soak] id with no "
+                    "bound reaches one entry per row scrolled past, which\n"
+                    "[soak] looks flat on a short list and unbounded on a real "
+                    "one.\n");
+    std::printf("[soak]\n[soak] To reproduce:  make scroll-gate\n"
+                "[soak] What it is:    docs/perf/SCROLL.md\n");
+    std::printf("[soak] ------------------------------------------------\n");
+    return 1;
+}
+
+// The verdict. Compares the LAST bucket against the SECOND (not the first:
+// the first carries lazy-init costs that are not a leak and would make every
+// run look like it improved).
 //
 // WHAT THIS PRINTS AND WHY. The old version printed six deltas and the word
 // FAIL. That is enough for whoever wrote the probe and nobody else: it names
@@ -536,7 +752,6 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     const Trend tEnt = trend_of(pts, col_ent);
     const Trend tBlocks = trend_of(pts, col_blocks);
     const Trend tHeap = trend_of(pts, col_heap_kb);
-
     const Budget bud = budget();
     const int firstFrame = pts.front()->frame;
     const int lastFrame = pts.back()->frame;
