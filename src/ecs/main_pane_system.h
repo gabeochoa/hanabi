@@ -18,6 +18,7 @@
 #include "../util/format.h"
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
+#include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
 #include "transcript_render_cache.h"
@@ -3052,15 +3053,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // it. Reaching the end advances the persisted stamp for NEXT time; the
         // line on screen stays until the thread is closed and reopened.
         const std::string& openId0 = app.openSession->summary.id;
-        struct UnreadMark {
-            bool computed = false;
-            int64_t stamp = 0;   // the persisted stamp it was computed from
-            size_t seen = 0;     // message count when it was computed
-            int first = -1;
-            int count = 0;
-        };
-        static std::unordered_map<std::string, UnreadMark> s_unread;
-        UnreadMark& mark = s_unread[openId0];
+        // The mark lives in the ONE bounded per-thread store (ecs/pane_state.h)
+        // rather than in a function-local map keyed by session id, which grew
+        // an entry per thread ever opened, was never pruned, and could not be
+        // counted from outside the function. The reference stays valid for the
+        // rest of the frame: unordered_map does not move its elements, and the
+        // entry we just touched is the most-recently-used one, so the two
+        // touch() calls further down cannot evict it.
+        model::PaneState& mark = model::pane_states().touch(openId0);
         const int64_t lastRead = Settings::get().get_last_read(openId0);
         // Recomputed when the thread is first seen, and again if messages were
         // PREPENDED (load-older shifts every index, so a held index would
@@ -3070,31 +3070,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // does not look like an external change and does not delete the line
         // the reader is looking at. Anything else — another window, a test
         // placing the boundary — is a real re-mark and is honoured.
-        if (!mark.computed || msgs.size() < mark.seen || lastRead != mark.stamp) {
-            mark.computed = true;
-            mark.stamp = lastRead;
-            mark.seen = msgs.size();
-            mark.first = -1;
-            mark.count = 0;
+        if (!mark.unreadComputed || msgs.size() < mark.unreadSeen ||
+            lastRead != mark.unreadStamp) {
+            mark.unreadComputed = true;
+            mark.unreadStamp = lastRead;
+            mark.unreadSeen = msgs.size();
+            mark.unreadFirst = -1;
+            mark.unreadCount = 0;
             if (lastRead > 0) {
                 for (int i = 0; i < n; ++i) {
                     if (msgs[static_cast<size_t>(i)].created_at > lastRead) {
-                        if (mark.first < 0) mark.first = i;
-                        ++mark.count;
+                        if (mark.unreadFirst < 0) mark.unreadFirst = i;
+                        ++mark.unreadCount;
                     }
                 }
             }
             // Everything new, on a thread that has been read before, means the
             // stamp is stale rather than the whole thread being unread.
-            if (mark.first == 0 && mark.count == n) mark.first = -1;
-        } else if (msgs.size() > mark.seen && mark.first >= 0) {
+            if (mark.unreadFirst == 0 && mark.unreadCount == n)
+                mark.unreadFirst = -1;
+        } else if (msgs.size() > mark.unreadSeen && mark.unreadFirst >= 0) {
             // Messages arrived while it was open — they are new too, and they
             // are appended, so the boundary index is unaffected.
-            mark.count += static_cast<int>(msgs.size() - mark.seen);
-            mark.seen = msgs.size();
+            mark.unreadCount += static_cast<int>(msgs.size() - mark.unreadSeen);
+            mark.unreadSeen = msgs.size();
         }
-        const int firstUnread = mark.first;
-        const int unreadCount = mark.count;
+        const int firstUnread = mark.unreadFirst;
+        const int unreadCount = mark.unreadCount;
 
         // ---- Pass 1: item list + measured heights (memoized). --------------
         std::vector<Item> items;
@@ -3342,15 +3344,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Keyed PER SESSION (not a single static) so split-view can render two
         // transcripts in one frame without their follow/scroll state clobbering
         // each other. Each pane's curId indexes its own latch.
-        static std::unordered_map<std::string, bool> s_followMap;
-        static std::unordered_map<std::string, float> s_prevOffsetMap;
-        auto followIt = s_followMap.find(curId);
-        if (followIt == s_followMap.end()) {   // first sight of this thread
-            s_followMap[curId] = true;
-            s_prevOffsetMap[curId] = -1.0f;
-        }
-        bool& s_follow = s_followMap[curId];
-        float& s_prevOffset = s_prevOffsetMap[curId];
+        // PaneState's defaults ARE the first-sight values the two maps used to
+        // be seeded with on a miss: follow armed, no previous offset yet.
+        model::PaneState& pane = model::pane_states().touch(curId);
+        bool& s_follow = pane.follow;
+        float& s_prevOffset = pane.prevOffset;
         float curOffset = 0.0f;
         float contentH = totalH;
         bool contentLaidOut = false;
@@ -3433,11 +3431,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // content will be next frame. Tracked per-session (map, not a single
         // static) so switching tabs — or rendering two panes in split-view —
         // doesn't inherit a stale velocity from the other thread.
-        static std::unordered_map<std::string, float> s_lastScrollYMap;
-        auto velIt = s_lastScrollYMap.find(curId);
-        float vel = 0.0f;
-        if (velIt != s_lastScrollYMap.end()) vel = scrollY - velIt->second;
-        s_lastScrollYMap[curId] = scrollY;
+        // A first sight has velocity 0, not -scrollY: the flag is what the
+        // map's find()-vs-end() used to say.
+        float vel = pane.haveLastScrollY ? scrollY - pane.lastScrollY : 0.0f;
+        pane.lastScrollY = scrollY;
+        pane.haveLastScrollY = true;
         // Base margin ~1 viewport each side (covers normal wheel steps), plus
         // an extension of several frames of the current velocity in the travel
         // direction (clamped so a huge jump doesn't build the whole doc).
@@ -3527,7 +3525,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // what you have already seen.
             if (newest > 0 && newest > Settings::get().get_last_read(openId0)) {
                 Settings::get().set_last_read(openId0, newest);
-                mark.stamp = newest;  // our own write, not an external re-mark
+                mark.unreadStamp = newest;  // our own write, not a re-mark
             }
         }
 
@@ -3974,17 +3972,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // session id and bind a reference to THIS thread's slot, so each thread
         // keeps its own in-progress reply (kept function-local to avoid growing
         // AppComponent; the map is small — one short string per opened thread).
-        static std::map<std::string, std::string> replyDrafts;
         const std::string draftKey =
             kickoff ? std::string("__kickoff__")
                     : (app.openSession ? app.openSession->summary.id
                                        : std::string());
-        std::string& replyDraft = replyDrafts[draftKey];
-
-        // This composer's sent-message history (Up/Down walk, below). Keyed the
-        // same way the draft is, so the two never disagree about which thread
-        // they belong to.
-        AppComponent::ComposerHistory& history = app.composerHistory[draftKey];
+        // Draft and sent-history are ONE entry in the bounded per-thread store
+        // (ecs/pane_state.h), keyed the same way they always were, so the two
+        // can never disagree about which thread they belong to -- and so the
+        // pair is bounded instead of growing forever, one entry per thread the
+        // composer ever rendered. Eviction refuses any entry holding an unsent
+        // draft, so the bound costs typing nothing.
+        model::PaneState& composerState = model::pane_states().touch(draftKey);
+        std::string& replyDraft = composerState.replyDraft;
+        model::PaneState& history = composerState;
         const auto remember_sent = [&history](const std::string& text) {
             history.sent.push_back(text);
             history.walkIndex = 0;

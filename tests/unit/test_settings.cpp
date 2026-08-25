@@ -325,6 +325,55 @@ static void test_finished_subagents_round_trips() {
     CHECK(!s.get_show_finished_subagents());
 }
 
+// --- the read-stamp map is bounded, and so is the file it writes ------------
+//
+// Reaching the bottom of a thread writes a last_read entry and rewrites the
+// WHOLE settings file. Nothing ever removed an entry, so both the map and the
+// file grew for the life of the install: measured in the app, 10,000 entries
+// is a 360 KB settings.json, +4.8 MB RSS and +0.5 ms per frame.
+//
+// The assertion is on the FILE, not on a duration: a timing threshold in a
+// test is a flake, and the file size is the thing the duration is a function
+// of. Without Settings::prune_last_read this writes ~180 KB and the count is
+// 5000.
+static void test_last_read_is_bounded() {
+    std::printf("test_last_read_is_bounded\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    s.load_save_file();
+
+    // Stamps ascend with the index, so the newest thread read is the last one.
+    for (int i = 0; i < 5000; ++i)
+        s.set_last_read("thread-" + std::to_string(i),
+                        1780000000000LL + i * 1000LL);
+
+    CHECK(s.last_read_count() == Settings::kMaxLastRead);
+    // The newest survive and the oldest are gone -- an eviction that kept the
+    // wrong end would pass a size check and be useless.
+    CHECK(s.get_last_read("thread-4999") == 1780000000000LL + 4999 * 1000LL);
+    CHECK(s.get_last_read("thread-0") == 0);
+    // The boundary: 5000 written, 2000 kept, so 3000..4999 survive.
+    CHECK(s.get_last_read("thread-3000") != 0);
+    CHECK(s.get_last_read("thread-2999") == 0);
+
+    // And the file the app rewrites on every advance stays small.
+    std::FILE* f = std::fopen(s.get_settings_path().c_str(), "rb");
+    CHECK(f != nullptr);
+    long bytes = 0;
+    if (f != nullptr) {
+        std::fseek(f, 0, SEEK_END);
+        bytes = std::ftell(f);
+        std::fclose(f);
+    }
+    std::printf("  settings.json after 5000 threads read: %ld bytes\n", bytes);
+    CHECK(bytes > 0 && bytes < 120 * 1024);
+
+    // A file written by an older build arrives over the cap and shrinks on the
+    // first load rather than waiting for the next thread to be read.
+    s.load_save_file();
+    CHECK(s.last_read_count() <= Settings::kMaxLastRead);
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -338,6 +387,9 @@ int main() {
     test_archive_overlay_round_trips();
     test_mute_round_trips();
     test_finished_subagents_round_trips();
+    // Last: it writes five thousand entries and reloads the file, so anything
+    // after it would be asserting against a settings file this test authored.
+    test_last_read_is_bounded();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

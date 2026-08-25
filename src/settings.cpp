@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <utility>
+#include <vector>
 
 #include "../vendor/nlohmann/json.hpp"
 
@@ -80,6 +82,7 @@ bool Settings::load_save_file() {
                 if (v.is_number_integer())
                     last_read_[k] = v.get<int64_t>();
         }
+        prune_last_read();
         tool_fold_.clear();
         if (j.contains("tool_fold") && j["tool_fold"].is_object()) {
             for (const auto& [k, v] : j["tool_fold"].items())
@@ -355,7 +358,33 @@ void Settings::set_last_read(const std::string& id, int64_t stamp) {
     auto it = last_read_.find(id);
     if (it != last_read_.end() && it->second == stamp) return;  // no churn
     last_read_[id] = stamp;
+    prune_last_read();
     if (auto_save_enabled) write_save_file();
+}
+
+std::size_t Settings::last_read_count() const { return last_read_.size(); }
+
+void Settings::prune_last_read() {
+    if (last_read_.size() <= kMaxLastRead) return;
+    // By STAMP, not by insertion order: the stamp is the moment the thread was
+    // last read, so "oldest" means what it should mean. nth_element rather
+    // than a sort because a load can arrive thousands over the cap at once and
+    // the ranking of the survivors is not wanted, only the cut.
+    std::vector<std::pair<int64_t, const std::string*>> byStamp;
+    byStamp.reserve(last_read_.size());
+    for (const auto& kv : last_read_)
+        byStamp.emplace_back(kv.second, &kv.first);
+    const std::size_t drop = last_read_.size() - kMaxLastRead;
+    std::nth_element(
+        byStamp.begin(), byStamp.begin() + static_cast<long>(drop),
+        byStamp.end(),
+        [](const auto& a, const auto& b) { return a.first < b.first; });
+    // Copy the ids out before erasing: the pointers are into the map's own
+    // keys and erasing invalidates the one being erased.
+    std::vector<std::string> doomed;
+    doomed.reserve(drop);
+    for (std::size_t i = 0; i < drop; ++i) doomed.push_back(*byStamp[i].second);
+    for (const std::string& id : doomed) last_read_.erase(id);
 }
 
 int Settings::get_tool_fold(const std::string& id) const {

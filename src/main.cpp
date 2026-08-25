@@ -11,6 +11,7 @@
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <thread>
 #include <memory>
@@ -30,12 +31,14 @@
 #include "util/autorelease.h"
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
+#include "util/mem_ladder.h"
 #include "util/soak.h"
 #include "util/stress.h"
 #include "util/notify_events.h"
 #include "util/quiet_hours.h"
 #include "version.h"
 #include "ui_context.h"
+#include "ui/inline_image.h"
 #include "ui/link_detect.h"
 
 #include "../vendor/afterhours/src/ecs.h"
@@ -981,11 +984,198 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The memory ladder (HANABI_MEMLADDER=1). See util/mem_ladder.h for why this
+// exists and how to read what it prints; this is only the driver — the rungs,
+// in the order a person climbs them.
+//
+// It runs INSIDE the headless capture path because that is the only place the
+// app can be driven a step at a time: the windowed path hands the loop to the
+// platform and never gives it back, and a rung is precisely "do one thing,
+// then read". Nothing here draws to a file; the process exits after the table.
+// ---------------------------------------------------------------------------
+
+// What the app is holding right now, by container. The point of naming them
+// individually is that a teardown rung that does not return its bytes is a
+// question ("what is still held?") until this line answers it.
+static std::string hold_note(const ecs::AppComponent& app) {
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+                  "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
+                  "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu "
+                  "images=%zu(%zu KB)",
+                  app.sessions.size(), app.transcriptCache.size(),
+                  ecs::model::pane_states().size(),
+                  ecs::model::pane_states().drafts(), app.liveSubs.size(),
+                  app.rowOrder.size(), app.expandedPiles.size(),
+                  afterhours::EntityHelper::get_entities().size(),
+                  hanabi::inline_image::cached_count(),
+                  hanabi::inline_image::cached_bytes() / 1024);
+    return std::string(buf);
+}
+
+static int run_mem_ladder(afterhours::SystemManager& sm) {
+    using namespace afterhours;
+
+    auto* app = [] () -> ecs::AppComponent* {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::AppComponent>()
+                     .gen();
+        return q.empty() ? nullptr : &q[0].get().get<ecs::AppComponent>();
+    }();
+    if (app == nullptr) {
+        fprintf(stderr, "[ladder] no AppComponent\n");
+        return 1;
+    }
+    auto strip_now = [] () -> ecs::TabStripComponent* {
+        auto q = EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::TabStripComponent>()
+                     .gen();
+        return q.empty() ? nullptr : &q[0].get().get<ecs::TabStripComponent>();
+    };
+
+    const auto pump = [&sm](int n) {
+        for (int i = 0; i < n; ++i) {
+            const hanabi::AutoreleaseFrame framePool;
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+        }
+    };
+
+    hanabi::memladder::Ladder ladder(pump, [app] { return hold_note(*app); });
+    const int want = hanabi::memladder::sessions();
+    const int churn = hanabi::memladder::churn();
+
+    ladder.adopt_floor("process floor, before graphics or app state");
+
+    // The list fetch is requested by the AppComponent's initial state, so
+    // clearing the request BEFORE the first frame is what makes an empty rung
+    // possible at all. Everything else about the app is live.
+    app->requestListRefresh = false;
+    ladder.mark("window + systems built, no frame yet", 0);
+    ladder.mark("+ the app running, empty: no catalog, no tab");
+
+    // 1. The catalog.
+    app->requestListRefresh = true;
+    ladder.mark("+ catalog loaded, sidebar drawing it");
+    const size_t catalogSize = app->sessions.size();
+
+    // 2. One thread. The first open pays for every lazy thing a transcript
+    // touches, so it is its own rung — averaging it into the next one would
+    // make the per-thread cost look several times larger than it is.
+    const auto open_nth = [&](size_t i) {
+        if (app->sessions.empty()) return;
+        app->requestOpenTab = app->sessions[i % app->sessions.size()].id;
+        app->view = ecs::SmartView::Chat;
+        pump(8);
+    };
+    open_nth(0);
+    ladder.mark("+ the FIRST thread open");
+
+    // 3. The rest, all left open, which is what a tab strip is.
+    for (int k = 1; k < want; ++k) open_nth(static_cast<size_t>(k));
+    ladder.mark("+ many threads open at once");
+
+    // 4. Scrolled: the dial that realizes rows the virtualiser had skipped.
+    for (int k = 0; k < 240; ++k) {
+        (void)hanabi::soak::scroll_named("transcript_scroll", k < 120 ? 24.0f : -24.0f);
+        (void)hanabi::soak::scroll_named("sidebar_scroll", k < 120 ? 18.0f : -18.0f);
+        pump(1);
+    }
+    ladder.mark("+ scrolled both panes end to end");
+
+    // 5. Give it all back. This is the rung the whole ladder is built for: the
+    // app is now in exactly the state rung 2 measured, so every byte above
+    // that reading is held per thread opened.
+    const auto close_all = [&] {
+        for (int guard = 0; guard < 4096; ++guard) {
+            auto* strip = strip_now();
+            if (strip == nullptr || strip->tabOrder.empty()) break;
+            ecs::model::close_tab(*strip, *app, strip->tabOrder.front(), 0,
+                                  true);
+            pump(1);
+        }
+        pump(4);
+    };
+    close_all();
+    ladder.mark("- every tab closed, back to the empty app");
+
+    // 6. Churn: open and close ONE at a time, `churn` times. Rung 5 answers
+    // "what do N open tabs cost"; this answers the different and nastier
+    // question "what does the Nth thread you ever opened cost after you closed
+    // it" — the shape of the complaint, which is about an app that has been
+    // running all day.
+    for (int k = 0; k < churn; ++k) {
+        // Ids the tab rung never touched, so this measures a thread the app
+        // is seeing for the FIRST time — reopening the same eight would
+        // measure a cache hit and report zero.
+        open_nth(static_cast<size_t>(want + k));
+        close_all();
+    }
+    // 7. Images. Every distinct path the composer has ever shown a chip for
+    // becomes a GPU texture in hanabi::inline_image's cache. The attachment
+    // LIST is capped at five; the cache behind it is not, and a chip removed
+    // does not unload anything. HANABI_MEM_IMAGE_DIR=<dir> attaches every .png
+    // in the directory ONE AT A TIME, clearing the list between, which is
+    // exactly what a person pasting screenshots all day does.
+    if (const char* dir = std::getenv("HANABI_MEM_IMAGE_DIR");
+        dir != nullptr && *dir != '\0') {
+        std::vector<std::string> pngs;
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+            if (e.path().extension() == ".png") pngs.push_back(e.path().string());
+        std::sort(pngs.begin(), pngs.end());
+        for (const std::string& png : pngs) {
+            const size_t slash = png.find_last_of('/');
+            app->composerAttachments.push_back(
+                {png, slash == std::string::npos ? png : png.substr(slash + 1)});
+            pump(3);
+            app->composerAttachments.clear();
+            pump(1);
+        }
+        std::printf("[ladder] attached and removed %zu images one at a time\n",
+                    pngs.size());
+        ladder.mark("+ every image attached, then removed again");
+    }
+
+    ladder.mark("- after opening and closing one at a time, N times");
+    // Nothing happens between this rung and the one above it. Its delta is
+    // therefore the instrument's own residue, and every other delta has to
+    // clear it to mean anything.
+    ladder.mark("  (the same state again -- this delta is the noise floor)");
+
+    std::printf("\n[ladder] catalog %zu sessions | %d tabs open at the peak | "
+                "%d single opens churned\n",
+                catalogSize, want, churn);
+    ladder.report();
+    ladder.compare("+ catalog loaded, sidebar drawing it",
+                   "+ scrolled both panes end to end",
+                   "- every tab closed, back to the empty app", want);
+    ladder.noise();
+    ladder.compare("- every tab closed, back to the empty app",
+                   "- every tab closed, back to the empty app",
+                   "- after opening and closing one at a time, N times", churn);
+    if (const int hold = hanabi::memladder::hold_seconds(); hold > 0) {
+        std::printf("[ladder] holding %d s at the last rung -- pid %d\n", hold,
+                    static_cast<int>(::getpid()));
+        std::fflush(stdout);
+        std::this_thread::sleep_for(std::chrono::seconds(hold));
+    }
+    graphics::close_window();
+    return 0;
+}
+
 // Headless one-shot: render the real UI to an offscreen texture and write a
 // PNG, with no window and no screen-recording permission. Used for docs and
 // smoke tests. Returns process exit code.
 static int run_headless_screenshot(const std::string& path, int w, int h) {
     using namespace afterhours;
+
+    // Rung 0 of the memory ladder, taken before graphics, app state or a
+    // single system exists. A no-op unless HANABI_MEMLADDER is set.
+    hanabi::memladder::record_floor();
 
     // One clock reading for the whole capture, so a duration that is set up in
     // one frame and rendered in a later one cannot straddle a second boundary
@@ -1040,6 +1230,10 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     log_info("Startup: {} ms", startupMs);
     fflush(stdout);
     fflush(stderr);
+
+    // The memory ladder runs INSTEAD of a capture: it needs the app empty at
+    // its second rung, and the wait-for-list block below is what fills it.
+    if (hanabi::memladder::enabled()) return run_mem_ladder(sm);
 
     // Wait for the initial session-list fetch to resolve before capturing.
     // The windowed app runs forever and keeps polling the future, so it always

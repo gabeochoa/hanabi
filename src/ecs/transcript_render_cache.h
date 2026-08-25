@@ -12,7 +12,30 @@
 // (message id + variant, wrap width): the display body (after redaction +
 // md-strip) and its wrapped-line count / measured height. A static transcript
 // is thus measured ONCE, not every frame. Keyed by width too, so a pane resize
-// correctly re-measures. Bounded by clearing when the open thread changes.
+// correctly re-measures.
+//
+// ---------------------------------------------------------------------------
+// IT HOLDS MORE THAN ONE THREAD, AND THIS IS WHY.
+//
+// It used to hold exactly one: `reset_for_thread(id)` cleared the whole map
+// whenever the id it was handed differed from the id it was handed last. That
+// is a fine bound and it was a correct one for a single pane.
+//
+// Split view renders TWO transcripts in one frame. It does it by swapping
+// app.openSession and app.splitSession around a second render_transcript call
+// (main_pane_system.h, "Left = the primary open thread"), so the one cache is
+// handed thread A, then thread B, then A again next frame — and clears itself
+// every single time. In split view the memoization did not merely degrade, it
+// was off, in exactly the mode that has twice as much to measure.
+//
+// So the store is a small LRU over per-thread maps. Two panes is the case that
+// exists; three is one spare, and it is the reason the cap is not two — a
+// tab switch while split should not evict the pane you did not touch.
+//
+// The bound is now: kMaxThreads maps, each holding one entry per MESSAGE of
+// that thread. That is proportional to the content those threads already have
+// in memory, not to the number of threads ever opened, which is what the old
+// clear-on-change was protecting against.
 //
 // TWO WIDTHS PER KEY, and that is the whole point of the WidthPair below.
 // One slot per key looked obviously right and had a NEGATIVE hit rate on every
@@ -35,8 +58,10 @@
 //
 // Pure app-layer, graphics-free (like transcript_cache.h) — no UIContext, no
 // afterhours draw. The transcript system owns the single instance.
+// ---------------------------------------------------------------------------
 
 #include <cstddef>
+#include <list>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -52,11 +77,43 @@ struct MsgRender {
 
 class TranscriptRenderCache {
   public:
+    // Threads whose measurements are kept. Two panes plus one spare.
+    //
+    // It used to keep ONE, clearing on every thread change -- and in split
+    // view that means it clears twice a frame and memoizes nothing at all.
+    // Two 60-turn threads side by side: 10.90 ms -> 8.77 ms median.
+    static constexpr std::size_t kMaxThreads = 3;
+
+    // Select the thread the following get/put calls belong to. Replaces
+    // reset_for_thread: same call site, same argument, and it no longer
+    // throws away the other pane's work.
+    void reset_for_thread(const std::string& thread_id) {
+        if (thread_id == active_) return;
+        active_ = thread_id;
+        auto it = threads_.find(thread_id);
+        if (it == threads_.end()) {
+            if (threads_.size() >= kMaxThreads) evict_lru();
+            order_.push_front(thread_id);
+            Slot s;
+            s.pos = order_.begin();
+            threads_.emplace(thread_id, std::move(s));
+            return;
+        }
+        order_.erase(it->second.pos);
+        order_.push_front(thread_id);
+        it->second.pos = order_.begin();
+    }
+
     // Fetch the cached render for `key` at wrap width `w`, or nullptr on a
     // miss (caller recomputes + put()s).
     const MsgRender* get(const std::string& key, float w) const {
-        auto it = map_.find(key);
-        if (it == map_.end()) {
+        auto slot = threads_.find(active_);
+        if (slot == threads_.end()) {
+            ++absent_;
+            return nullptr;
+        }
+        auto it = slot->second.map.find(key);
+        if (it == slot->second.map.end()) {
             ++absent_;
             return nullptr;
         }
@@ -66,15 +123,7 @@ class TranscriptRenderCache {
     }
 
     const MsgRender& put(const std::string& key, MsgRender r) {
-        return map_[key].insert(std::move(r));
-    }
-
-    // Drop everything when the open thread changes (bounds growth).
-    void reset_for_thread(const std::string& thread_id) {
-        if (thread_id != thread_) {
-            map_.clear();
-            thread_ = thread_id;
-        }
+        return threads_[active_].map[key].insert(std::move(r));
     }
 
     // ---- The hugged width of a user bubble, at a given pane width ---------
@@ -86,37 +135,54 @@ class TranscriptRenderCache {
     // ran for every user message in the thread on every frame, on-screen or
     // not, to produce a number that cannot change unless the text or the pane
     // width does. Memoized here rather than in its own container because it
-    // is keyed the same way, invalidated the same way, and reset by the same
-    // thread change — one owner, one lifetime.
+    // is keyed the same way, invalidated the same way, and evicted with the
+    // same thread -- one owner, one lifetime.
     const float* hug(const std::string& key, float paneW) const {
-        auto it = map_.find(key);
-        if (it == map_.end() || it->second.hugPaneW != paneW) return nullptr;
+        auto slot = threads_.find(active_);
+        if (slot == threads_.end()) return nullptr;
+        auto it = slot->second.map.find(key);
+        if (it == slot->second.map.end() || it->second.hugPaneW != paneW)
+            return nullptr;
         return &it->second.hugTextW;
     }
     void put_hug(const std::string& key, float paneW, float textW) {
-        auto& slot = map_[key];
+        auto& slot = threads_[active_].map[key];
         slot.hugPaneW = paneW;
         slot.hugTextW = textW;
     }
 
     // Miss BREAKDOWN, because the two kinds mean opposite things. `absent` is
-    // a cold entry — the cache working, paying once. `stale` is an entry that
+    // a cold entry -- the cache working, paying once. `stale` is an entry that
     // exists at a width neither slot holds, which on a STATIC transcript means
     // callers are cycling more widths than the pair can hold; a single
     // "misses" number cannot tell the two apart, and that is why the
-    // ping-pong above survived as long as it did.
+    // ping-pong survived as long as it did.
     std::size_t absent() const { return absent_; }
     std::size_t stale() const { return stale_; }
 
-    std::size_t size() const { return map_.size(); }
+    // Entries held for the ACTIVE thread (the number the old size() meant).
+    std::size_t size() const {
+        auto slot = threads_.find(active_);
+        return slot == threads_.end() ? 0 : slot->second.map.size();
+    }
+
+    // Entries held across every remembered thread, and how many threads.
+    std::size_t total_size() const {
+        std::size_t n = 0;
+        for (const auto& kv : threads_) n += kv.second.map.size();
+        return n;
+    }
+    std::size_t threads() const { return threads_.size(); }
+
     void clear() {
-        map_.clear();
-        thread_.clear();
+        threads_.clear();
+        order_.clear();
+        active_.clear();
     }
 
   private:
     // Two width slots, newest-first. Insert evicts the older one, so the pair
-    // holds the two most recently asked-for widths — which for the two-pass
+    // holds the two most recently asked-for widths -- which for the two-pass
     // hug measure is exactly both of them.
     struct WidthPair {
         MsgRender a;  // most recent
@@ -140,8 +206,20 @@ class TranscriptRenderCache {
         }
     };
 
-    std::unordered_map<std::string, WidthPair> map_;
-    std::string thread_;
+    struct Slot {
+        std::unordered_map<std::string, WidthPair> map;
+        std::list<std::string>::iterator pos;
+    };
+
+    void evict_lru() {
+        if (order_.empty()) return;
+        threads_.erase(order_.back());
+        order_.pop_back();
+    }
+
+    std::unordered_map<std::string, Slot> threads_;
+    std::list<std::string> order_;  // MRU front ... LRU back
+    std::string active_;
     mutable std::size_t absent_ = 0;
     mutable std::size_t stale_ = 0;
 };

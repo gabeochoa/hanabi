@@ -6266,3 +6266,113 @@ in release builds, and give `on_draw_fg` a non-owning callable overload — thos
 three fields are the per-widget allocation.
 
 CLASS: PERFORMANCE
+
+---
+
+### #125 — `load_texture` takes a path and nothing else, so a UI that draws thumbnails has to hold full-resolution pixels
+
+**What was wanted.** To show a pasted screenshot as a 64px composer chip, and
+the same image inline in a transcript at most 420px tall, without keeping
+3024x1964 pixels resident to do it.
+
+**What happens.** The whole texture API is `load_texture(const char* path)`. It
+stbi_loads the file at its natural size, uploads that, and returns a
+`TextureType` whose `width`/`height` are the file's. There is no
+max-dimension, no scale factor, no "decode to fit this box" — and no
+`load_texture_from_pixels` in the public surface either (it exists, but inside
+`metal_texture_detail::`, which is a backend implementation namespace, and it
+is absent from the raylib backend, so a consumer that used it would compile on
+one backend only).
+
+`draw_texture_pro` then scales the full-size texture down at draw time, which
+is correct and free on the GPU. The cost is entirely residency: a Retina screen
+grab is 23.7 MB of RGBA to draw a 64x64 chip, a factor of about 5,800.
+
+Measured in hanabi (`docs/perf/MEMORY.md`, entry 4): sixty 640x480 PNGs shown
+once each cost 114 MB of RSS, 1.9 MB apiece, all of it full-resolution pixels
+for images drawn no larger than a chip.
+
+**Why the obvious escapes do not work.**
+
+- **Downscale the file first and load that** — it means writing a resized copy
+  to disk for every image the user pastes, which is a cache of files to manage,
+  invalidate and clean up, in exchange for not managing a cache of textures.
+- **stbi_load it ourselves, box-filter, and call the pixel upload** — the
+  upload entry point is backend-private (above), and `stb_image` is vendored
+  under afterhours' own vendor dir with `STB_IMAGE_IMPLEMENTATION` already
+  defined in an afterhours translation unit, so a consumer linking its own copy
+  is one ODR violation away from a very confusing bug.
+- **Just cache fewer of them** — this is the workaround below, and it bounds
+  the total without touching the per-image cost. The budget has to be at least
+  as large as one frame's working set, so "five screenshots visible at once"
+  still means 119 MB with or without a cache.
+- **Draw from a smaller source rect** — `draw_texture_pro`'s source rect
+  crops, it does not resample the resident copy.
+
+**The workaround, and its cost.** hanabi's `src/ui/inline_image.h` now runs a
+32 MB LRU over decoded pixels, calling `unload_texture` on eviction and
+refusing to evict anything touched in the last sixteen accesses (so a frame
+never evicts what it is about to draw and re-decode). It holds the total flat —
+180 images cost the same as 60 — and it does not reduce the per-image cost at
+all. About 70 lines, and the 28x saving that a decode-to-fit would give is
+still on the table.
+
+**Minimal upstream fix.** One optional argument:
+`load_texture(path, max_dimension = 0)`, resampling during decode when the
+image exceeds it. stb_image_resize is already a header in the same vendor tree.
+The caller knows its draw box; the library is the only one holding the pixels.
+
+CLASS: WORKAROUND
+
+### #126 — A GPU texture is not a malloc block, and nothing in afterhours will say how many bytes it is holding
+
+**What was wanted.** To find a memory leak with the same instrument that found
+the last one.
+
+**What happens.** hanabi's soak probe (`src/util/soak.h`) reads the malloc
+zones' own `blocks_in_use` and `size_in_use`. That instrument is excellent: it
+moves the instant something is not freed, and the mean block size says what
+kind of thing leaked. It is how the Metal autorelease leak was found in one
+run.
+
+It is also completely blind to GPU memory. Over the rung that leaked 114 MB of
+textures, live malloc moved **+427 KB and +677 blocks** — nothing. Every byte
+was inside `sg_make_image`, which is an IOGPU resource, not a heap allocation.
+The only signal is process RSS, which is a single number for the whole process
+and attributes nothing.
+
+And afterhours cannot be asked. `TextureType` carries `width`, `height` and
+three sokol ids; there is no `gpu_bytes_in_use()`, no live-image count, no
+allocation callback. sokol_gfx itself keeps exactly this bookkeeping —
+`sg_frame_stats`, and the pool sizes in `sg_desc` — and afterhours' backend
+wrapper surfaces none of it.
+
+**Why the obvious escapes do not work.**
+
+- **Compute it in the consumer from `width * height * 4`** — this is what
+  hanabi does, and it is a guess: it does not know the pixel format the backend
+  chose, whether a mip chain was built (`load_texture`'s own comment says it
+  uploads a full chain), or what the driver padded the row stride to. It is
+  right to within a factor, which is enough for a budget and not enough for a
+  measurement.
+- **Read RSS before and after** — RSS is page-granular, lags by seconds, is
+  moved by everything else in the process, and does not fall on free until
+  something asks the allocator to release (and never for GPU pages). The ladder
+  in `src/util/mem_ladder.h` calls `malloc_zone_pressure_relief` for exactly
+  this reason and it does not help with textures.
+- **Use Instruments' Allocations / VM Tracker** — it can see it, and it cannot
+  be a `make test` gate, which is the whole point of having a number.
+
+**The workaround, and its cost.** hanabi tracks its own `w * h * 4` estimate
+and prints it on the ladder, and treats process RSS as the ground truth for
+anything GPU-shaped. Two instruments, one of which is trustworthy and blind and
+one of which is honest and vague, and a whole class of leak that only shows up
+as "the number is bigger and I do not know why".
+
+**Minimal upstream fix.** Expose what sokol already counts:
+`graphics::gpu_bytes_in_use()` and `graphics::gpu_image_count()`, or simply
+forward `sg_query_frame_stats()`. Ten lines in the backend wrapper, and the
+malloc-shaped instrument every consumer already has stops having a hole in it.
+
+CLASS: IMPOSSIBLE
+
