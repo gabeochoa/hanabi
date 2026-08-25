@@ -32,6 +32,7 @@
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
 #include "util/mem_ladder.h"
+#include "util/breaker.h"
 #include "util/soak.h"
 #include "util/stress.h"
 #include "util/notify_events.h"
@@ -1417,17 +1418,45 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                  hanabi::stress::name(driver.mode), soakFrames,
                  hanabi::stress::settle_frames());
 
+        const hanabi::breaker::Conditions breakOn =
+            hanabi::breaker::from_env();
+        if (breakOn.any())
+            log_info("[break] armed from HANABI_STRESS_UNTIL");
+
         // Settle first, unmeasured. A first pass on a fresh launch is the
         // launch burst, not the steady state, and averaging it in hides the
         // thing being looked for (Puffin's PERFORMANCE.md, learned the same
         // way).
+        //
+        // The settle also produces the CPU BASELINE that `cpu:<ratio>` is a
+        // ratio of. It has to come from here and not from the measured run:
+        // a baseline taken while the scenario is driving would rise with
+        // whatever the scenario costs, and the condition would never trip.
+        std::vector<double> settleCpuMs;
+        settleCpuMs.reserve(
+            static_cast<size_t>(hanabi::stress::settle_frames()));
         for (int i = 0; i < hanabi::stress::settle_frames(); ++i) {
-            const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
-            graphics::clear_background(theme::window_bg());
-            sm.run(1.0f / 60.0f);
-            graphics::end_frame();
+            const unsigned long long c0 = hanabi::prof::cpu_nanos();
+            {
+                const hanabi::AutoreleaseFrame framePool;
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
+            settleCpuMs.push_back(
+                static_cast<double>(hanabi::prof::cpu_nanos() - c0) / 1.0e6);
         }
+        const double cpuBaselineMs =
+            hanabi::breaker::median_of(std::move(settleCpuMs));
+        if (breakOn.any())
+            log_info("[break] settled CPU baseline {:.3f} ms/frame (median of "
+                     "{} settle frames)",
+                     cpuBaselineMs, hanabi::stress::settle_frames());
+
+        hanabi::breaker::Verdict broke;
+        hanabi::breaker::Streak breakStreak;
+        int framesRun = 0;
 
         auto bucketStart = std::chrono::steady_clock::now();
         // The CPU clock is sampled UNCONDITIONALLY, not behind prof::enabled().
@@ -1450,9 +1479,55 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
             }
+            const unsigned long long frameCpu = hanabi::prof::cpu_nanos() - cpu0;
             if (hanabi::prof::enabled())
-                hanabi::prof::frame_cpu(hanabi::prof::cpu_nanos() - cpu0);
+                hanabi::prof::frame_cpu(frameCpu);
             hanabi::prof::frame();
+            framesRun = i;
+
+            // The failure conditions, checked EVERY FRAME rather than every
+            // bucket, and sampling only what is armed. "It broke at 118 tabs"
+            // needs the frame the 118th tab landed on; a bucket of 250 frames
+            // would report it as somewhere in a range of twelve.
+            if (breakOn.any()) {
+                hanabi::breaker::State st;
+                st.frame = i;
+                st.cpuMs = static_cast<double>(frameCpu) / 1.0e6;
+                st.cpuBaselineMs = cpuBaselineMs;
+                if (breakOn.rssKb > 0) st.rssKb = hanabi::soak::rss_kb();
+                if (breakOn.blocks > 0 || breakOn.heapKb > 0) {
+                    // The only expensive sample here -- it walks every malloc
+                    // zone -- so it is taken only when something is armed on
+                    // it.
+                    const hanabi::soak::HeapStat h = hanabi::soak::heap_in_use();
+                    st.blocks = static_cast<long>(h.count);
+                    st.heapKb = static_cast<long>(h.bytes / 1024);
+                }
+                if (breakOn.entities > 0)
+                    st.entities =
+                        static_cast<long>(EntityHelper::get_entities().size());
+                if (breakOn.tabs > 0)
+                    st.tabs = hanabi::stress::Driver::live_tab_count();
+                broke = hanabi::breaker::test(breakOn, st, breakStreak);
+                if (broke.broke) {
+                    // Close the bucket at the break so the trajectory table
+                    // includes the frame it broke on rather than stopping at
+                    // the last round number before it.
+                    const auto now = std::chrono::steady_clock::now();
+                    const unsigned long long cpuNow = hanabi::prof::cpu_nanos();
+                    const int span = i - (i / every) * every;
+                    if (span > 0)
+                        hanabi::soak::report(
+                            samples, i,
+                            std::chrono::duration<double, std::milli>(
+                                now - bucketStart).count() / span,
+                            static_cast<double>(cpuNow - bucketCpu) / 1.0e6 /
+                                span,
+                            hanabi::soak::rss_kb(),
+                            EntityHelper::get_entities().size());
+                    break;
+                }
+            }
             if (i % every == 0) {
                 auto now = std::chrono::steady_clock::now();
                 const unsigned long long cpuNow = hanabi::prof::cpu_nanos();
@@ -1484,6 +1559,30 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                         idle.c_str(), hanabi::stress::name(driver.mode),
                         hanabi::stress::name(driver.mode));
         std::fflush(stdout);
+        // Fill in whatever the per-frame check did not sample, ONCE, so the
+        // final state line is complete. A report that prints "RSS 0 KB"
+        // because RSS happened not to be armed reads as a broken instrument.
+        if (breakOn.any()) {
+            broke.at.frame = broke.broke ? broke.at.frame : framesRun;
+            if (broke.at.rssKb == 0) broke.at.rssKb = hanabi::soak::rss_kb();
+            if (broke.at.blocks == 0 || broke.at.heapKb == 0) {
+                const hanabi::soak::HeapStat h = hanabi::soak::heap_in_use();
+                if (broke.at.blocks == 0)
+                    broke.at.blocks = static_cast<long>(h.count);
+                if (broke.at.heapKb == 0)
+                    broke.at.heapKb = static_cast<long>(h.bytes / 1024);
+            }
+            if (broke.at.entities == 0)
+                broke.at.entities =
+                    static_cast<long>(EntityHelper::get_entities().size());
+            if (broke.at.tabs == 0)
+                broke.at.tabs = hanabi::stress::Driver::live_tab_count();
+            if (broke.at.cpuBaselineMs == 0.0)
+                broke.at.cpuBaselineMs = cpuBaselineMs;
+        }
+        hanabi::breaker::report(breakOn, broke, framesRun, soakFrames,
+                                hanabi::stress::name(driver.mode),
+                                driver.work_done().c_str());
         const int bad = hanabi::soak::verdict(samples);
         if (hanabi::prof::enabled()) {
             if (auto* tmc = EntityHelper::get_singleton_cmp<
