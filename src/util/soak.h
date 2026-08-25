@@ -71,18 +71,17 @@ inline long rss_kb() {
     return static_cast<long>(info.resident_size / 1024);
 }
 
-// Drive the sidebar's scroll view by `dy` pixels.
+// Drive a NAMED scroll view by `dy` pixels.
 //
 // By debug name, because that is the one handle an out-of-tree driver has on
 // an immediate-mode widget: the entity is rebuilt every frame but `mk()` keeps
 // its id stable, so the component and its offset survive.
-inline void scroll_sidebar(float dy) {
+inline void scroll_view(const char* debugName, float dy) {
     for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
         if (!ptr) continue;
         afterhours::Entity& e = *ptr;
         if (!e.has<afterhours::ui::UIComponentDebug>()) continue;
-        if (e.get<afterhours::ui::UIComponentDebug>().name_value !=
-            "sidebar_scroll")
+        if (e.get<afterhours::ui::UIComponentDebug>().name_value != debugName)
             continue;
         if (!e.has<afterhours::ui::HasScrollView>()) continue;
         auto& sv = e.get<afterhours::ui::HasScrollView>();
@@ -91,6 +90,8 @@ inline void scroll_sidebar(float dy) {
         return;
     }
 }
+
+inline void scroll_sidebar(float dy) { scroll_view("sidebar_scroll", dy); }
 
 // Live allocation count and bytes, from the malloc zones themselves.
 //
