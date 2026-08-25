@@ -173,18 +173,59 @@ if awk "BEGIN{exit !($ER > $ENTITY_RATIO_CEILING)}"; then
 fi
 
 # ---- arm 2: the trend ------------------------------------------------------
-HANABI_SOAK_TREND=1 run "$BIG" "$TREND_FRAMES" "$TREND_EVERY" "$TREND_SETTLE"
-rc=$?
-grep -E '^\[soak\] +(frame cpu, min|live blocks|\(min-of-half)' "$LOG" | sed 's/^\[soak\]/ /'
+#
+# ONE RETRY, and only one — the same pattern and the same rationale as
+# scripts/soak_gate.sh, added because this arm was measured flaking.
+#
+# The live-block half of the trend verdict goes red on a CLEAN tree roughly one
+# run in five when the box is busy. Measured 2026-08-25 at load averages 15-38,
+# `live blocks /1000f` against its 150 budget:
+#
+#   five runs   +2.5  +3.8  +277.5  +2.5  -354.4
+#   ten runs    +490.6  +4.2  +4.2  +0.8  +478.1  +6.5  -0.4  +0.8  +9.6  +3.3
+#
+# Two failures in ten, and a spread of 845 on a quantity whose usual value is
+# about +3. It is not the estimator: it survives being refitted as a Theil-Sen
+# slope over every bucket (tried, 2 in 10), and it is not the warm-up
+# (excluding it made no difference). It is a real, occasional, one-bucket step
+# of a few hundred live blocks — something filling late, not something
+# leaking, because the run after it is flat again.
+#
+# A gate that is red one run in five gets disabled, and a disabled gate is
+# worse than no gate. A retry cannot launder a real regression: a leak leaks on
+# every attempt, which is the argument soak_gate.sh already makes and measures.
+# It takes this arm from ~20% red to ~4%.
+#
+# The step itself is unexplained and worth explaining; docs/perf/SCROLL.md's
+# owner should have the numbers above.
+TREND_ATTEMPTS="${HANABI_SCROLL_TREND_ATTEMPTS:-2}"
+trend_ok=0
+for attempt in $(seq 1 "$TREND_ATTEMPTS"); do
+    HANABI_SOAK_TREND=1 run "$BIG" "$TREND_FRAMES" "$TREND_EVERY" "$TREND_SETTLE"
+    rc=$?
+    grep -E '^\[soak\] +(frame cpu, min|live blocks|\(min-of-half)' "$LOG" | sed 's/^\[soak\]/ /'
 
-if ! grep -q 'TREND PASS\|SCROLL TREND: FAIL' "$LOG"; then
-    echo "  FAIL: the trend run ended before it reached a verdict (rc=${rc})." >&2
-    echo "        Nothing was measured, so this is not a regression — something" >&2
-    echo "        killed the process. Re-run: make scroll-gate" >&2
-    exit 1
-fi
-if grep -q 'SCROLL TREND: FAIL' "$LOG"; then
+    if ! grep -q 'TREND PASS\|SCROLL TREND: FAIL' "$LOG"; then
+        echo "  FAIL: the trend run ended before it reached a verdict (rc=${rc})." >&2
+        echo "        Nothing was measured, so this is not a regression — something" >&2
+        echo "        killed the process. Re-run: make scroll-gate" >&2
+        exit 1
+    fi
+    if grep -q 'TREND PASS' "$LOG"; then
+        trend_ok=1
+        [ "$attempt" -gt 1 ] && echo "  (trend passed on attempt ${attempt})"
+        break
+    fi
+    if [ "$attempt" -lt "$TREND_ATTEMPTS" ]; then
+        echo "  trend attempt ${attempt} failed; re-running once — this arm is"
+        echo "  known to step once in about five runs on a busy box, and a real"
+        echo "  regression fails every attempt. See the note in this script."
+    fi
+done
+if [ "$trend_ok" -eq 0 ]; then
     grep -E '^\[soak\]' "$LOG" | sed -n '/SCROLL TREND: FAIL/,$p' | sed 's/^/  /' >&2
+    echo "  the trend arm failed ${TREND_ATTEMPTS} attempts in a row, which the" >&2
+    echo "  known flake does not do." >&2
     FAIL=1
 fi
 

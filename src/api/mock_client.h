@@ -23,6 +23,7 @@
 // Nothing here names or encodes any real service, product, or company.
 
 #include <algorithm>
+#include <cstdlib>
 #include <ctime>
 #include <mutex>
 #include <string>
@@ -31,6 +32,38 @@
 #include "client.h"
 
 namespace api {
+
+// THE MOCK'S CLOCK, in one place and overridable.
+//
+// Every timestamp the mock hands out is `now - N` so that the ages the rows
+// show are the same on every run — a fixture seeded with absolute epochs rots
+// every time-showing screenshot baseline within a day. That is right for a
+// capture and wrong for a DIFF: a message twelve hours old lands on a
+// different calendar day depending on what time of night the run happened,
+// so the transcript's date dividers change, and so does the widget count that
+// scripts/soak.sh's diffable report is built on.
+//
+// Caught by the report itself. Two long-soak runs a minute apart, the same
+// binary, the same arms:
+//
+//     < open widget.date_divider 2        < churn widget.date_divider 2
+//     > open widget.date_divider 1        > churn widget.date_divider 1
+//
+// which is a four-line diff saying nothing about the app.
+//
+// HANABI_MOCK_NOW=<unix epoch> pins it. UNSET BY DEFAULT, so every capture,
+// every screenshot baseline and every ordinary run behave exactly as before;
+// the soak scripts set it because they want two runs to be comparable, which
+// is a different thing from wanting them to look right.
+inline int64_t mock_now() {
+    static const int64_t pinned = [] {
+        const char* v = std::getenv("HANABI_MOCK_NOW");
+        if (v == nullptr || *v == '\0') return static_cast<int64_t>(0);
+        const long long parsed = std::atoll(v);
+        return parsed > 0 ? static_cast<int64_t>(parsed) : static_cast<int64_t>(0);
+    }();
+    return pinned != 0 ? pinned : static_cast<int64_t>(std::time(nullptr));
+}
 
 class MockClient : public Client {
   public:
@@ -209,7 +242,7 @@ class MockClient : public Client {
             plan.error = "no such session: " + session_id;
             return plan;
         }
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
         Message user;
@@ -266,7 +299,7 @@ class MockClient : public Client {
         if (!target)
             return Result<Message>::failure("no such session: " + session_id);
 
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
         // 1) the user's message.
@@ -305,7 +338,7 @@ class MockClient : public Client {
         if (!target)
             return Result<Message>::failure("no such session: " + session_id);
 
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
         // 1) the user's steering message.
@@ -458,7 +491,7 @@ class MockClient : public Client {
         // Earlier) always populate relative to when the app is actually run.
         // Deterministic within a run; the RELATIVE ordering of the seed is
         // fixed, which is all the sort/bucket logic (and the tests) rely on.
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         return now - h * 3600;
     }
 
@@ -471,7 +504,7 @@ class MockClient : public Client {
     // can land on the same day either side of a DST shift. Anchoring at noon
     // leaves twelve hours of slack in both directions.
     static int64_t local_noon_today() {
-        const std::time_t now = std::time(nullptr);
+        const std::time_t now = static_cast<std::time_t>(mock_now());
         std::tm tm{};
         if (localtime_r(&now, &tm) == nullptr) return static_cast<int64_t>(now);
         tm.tm_hour = 12;
@@ -524,7 +557,7 @@ class MockClient : public Client {
     // catalog is seeded in minutes because the rows it mirrors are, and the
     // relative ages ("6m", "5h") have to stay constant across runs.
     static int64_t mins_ago(double m) {
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        const int64_t now = mock_now();
         return now - static_cast<int64_t>(m * 60.0 + 0.5);
     }
 
@@ -590,6 +623,119 @@ class MockClient : public Client {
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
     };
+    // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
+    //
+    // WHY THIS IS NOT ONE ASK AND ONE PARAGRAPH. It was, and that made every
+    // measurement ever taken against a big catalog a measurement of the
+    // CHEAPEST render path this app has. The hand-written twenty carry tool
+    // rows, thinking rows, code fences and failed runs; the synthetic two
+    // thousand carried a user line and one paragraph of prose, so
+    // `HANABI_STRESS_SESSIONS=2000` scaled up the part of the transcript that
+    // costs nothing and left out the part that costs everything.
+    //
+    // Puffin hit this first and its PERFORMANCE.md opens on it: everything it
+    // had measured came from a mock with "20 fixture rows" that "hides every
+    // problem below". Its fix, Tests/StressFixtures.swift, generates a turn as
+    // thinking + tool_use + tool intent + tool result + text, with a failure
+    // every seventh turn and a sub-agent delivery every fourth. This is the
+    // same shape in hanabi's own message model, and the ratios are Puffin's
+    // rather than invented so the two apps' stress catalogs are comparable.
+    //
+    // DETERMINISTIC FROM (session, turn) ALONE — no clock, no randomness, no
+    // counter. Two runs generate identical bytes, which is what
+    // scripts/soak.sh's diffable report and every scaling ratio depend on.
+    static std::vector<Message> stress_turn(int k, int t) {
+        static const char* kNouns2[] = {
+            "the quota shard", "row 212's ledger", "the retry queue",
+            "oncall handoff", "the ranking config",
+            "a cohort that will not converge", "the nightly export"};
+        static const char* kTools[] = {"bash", "read_file", "grep", "python",
+                                       "edit_file"};
+        const std::string sid = "s" + std::to_string(k);
+        const std::string tid = sid + "t" + std::to_string(t);
+        const bool failed = (t % 7 == 6);
+        std::vector<Message> out;
+
+        Message u;
+        u.id = tid + "u";
+        u.role = Role::User;
+        u.text = "turn " + std::to_string(t) + ": " + kNouns2[(k + t) % 7] +
+                 " is still moving, what changed?";
+        u.created_at = mins_ago(720 - t * 3);
+        out.push_back(std::move(u));
+
+        // A thinking row. Folded by default, so it costs the fold machinery
+        // and the disclosure chip rather than a wall of text -- which is
+        // exactly the cost a real thread carries and the old fixture had none
+        // of.
+        Message th;
+        th.id = tid + "k";
+        th.role = Role::Assistant;
+        th.subtitle = "thinking";
+        th.text = "Two readings. The cheap one is a stale cache. The honest "
+                  "one is that the derivation runs per frame, and " +
+                  std::string(kNouns2[(k + t + 3) % 7]) +
+                  " is downstream of it, so the same walk happens twice.";
+        th.created_at = mins_ago(720 - t * 3);
+        out.push_back(std::move(th));
+
+        // A tool row WITH ITS OUTPUT, its status and the node it ran on. The
+        // nested output sub-row is a second wrapped text block per turn and
+        // the status drives a glyph; neither existed in the old fixture.
+        Message tool;
+        tool.id = tid + "c";
+        tool.role = Role::Tool;
+        tool.subtitle = kTools[t % 5];
+        tool.text = std::string(kTools[t % 5]) + " " +
+                    (t % 5 == 2 ? "-rn \"retry\" worker/" : "worker/queue.rs");
+        tool.tool_result =
+            failed ? "error: no such file or directory (os error 2)\n"
+                     "  while reading worker/queue.rs at revision " +
+                         std::to_string(1000 + t)
+                   : "worker/queue.rs:" + std::to_string(40 + t) +
+                         ":    let delay = full_jitter(base, attempt);\n"
+                         "worker/queue.rs:" + std::to_string(58 + t) +
+                         ":    // CAP is 30s; see the incident writeup\n"
+                         "3 hits in 2 files";
+        tool.tool_status = failed ? "failed" : "completed";
+        tool.tool_duration_ms = 40 + (t * 17) % 900;
+        tool.tool_node = (t % 3 == 0) ? "cli:aspen" : "devvm4827";
+        tool.created_at = mins_ago(720 - t * 3);
+        out.push_back(std::move(tool));
+
+        // The reply. Every third one carries a fenced code block, because a
+        // fence is the single most expensive thing a reply can contain in this
+        // renderer and the old fixture never produced one.
+        Message a;
+        a.id = tid + "a";
+        a.role = Role::Assistant;
+        a.text = "Two readings of turn " + std::to_string(t) +
+                 ". The cheap one is a stale cache; the honest one is that the "
+                 "derivation runs per frame, which is the shape every finding "
+                 "here has taken so far.";
+        if (t % 3 == 0)
+            a.text += "\n\n```rust\nlet delay = full_jitter(base, attempt)\n"
+                      "    .min(Duration::from_secs(30));\n```\n";
+        a.created_at = mins_ago(719 - t * 3);
+        // The run's own word for how it ended, which draws a rule under the
+        // message. A seventh of runs fail -- Puffin's ratio.
+        a.run_outcome = failed ? "failed" : "completed";
+        out.push_back(std::move(a));
+
+        // A sub-agent delivery every fourth turn, which is a user-origin
+        // message the transcript renders differently.
+        if (t % 4 == 3) {
+            Message d;
+            d.id = tid + "d";
+            d.role = Role::User;
+            d.text = "subagent " + sid + "-" + std::to_string(t) +
+                     ": 14/14 green, handed back";
+            d.created_at = mins_ago(719 - t * 3);
+            out.push_back(std::move(d));
+        }
+        return out;
+    }
+
     static const std::vector<Session>& seed() {
         // A mutex rather than bare static-local init. Magic statics make the
         // FIRST build thread-safe, but this cache can REBUILD when the key
@@ -1552,25 +1698,8 @@ class MockClient : public Client {
                 // the long ones that actually cost something to lay out.
                 const int turns = (k % 17 == 0) ? 60 : (k % 5 == 0 ? 12 : 3);
                 for (int t = 0; t < turns; ++t) {
-                    Message u;
-                    u.id = "s" + std::to_string(k) + "u" + std::to_string(t);
-                    u.role = Role::User;
-                    u.text = "turn " + std::to_string(t) + ": " +
-                             kNouns[(k + t) % 7] +
-                             " is still moving, what changed?";
-                    u.created_at = mins_ago(720 - t * 3);
-                    s.messages.push_back(std::move(u));
-
-                    Message a;
-                    a.id = "s" + std::to_string(k) + "a" + std::to_string(t);
-                    a.role = Role::Assistant;
-                    a.text =
-                        "Two readings of turn " + std::to_string(t) +
-                        ". The cheap one is a stale cache; the honest one is "
-                        "that the derivation runs per frame, which is the "
-                        "shape every finding here has taken so far.";
-                    a.created_at = mins_ago(719 - t * 3);
-                    s.messages.push_back(std::move(a));
+                    for (Message& m : stress_turn(k, t))
+                        s.messages.push_back(std::move(m));
                 }
                 v.push_back(std::move(s));
             }
