@@ -92,6 +92,91 @@ static void test_disk_cache_total_and_wipe() {
     unsetenv("HANABI_CACHE_DIR");
 }
 
+// --- (1b) the content-search memo: fast, and never stale ------------------
+//
+// content_matches is asked for every non-title-matching session on every frame
+// a sidebar query is live, and it answers by reading a file. It is memoized on
+// (id, query), which is only safe if the memo can see the corpus change --
+// so what this pins is the INVALIDATION, not the speed. A stale `false` is a
+// thread that has silently dropped out of your search results, which is worse
+// than a slow search.
+static void test_content_search_memo_is_not_stale() {
+    std::printf("test_content_search_memo_is_not_stale\n");
+    std::string dir = "/tmp/hanabi_test_search_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    const auto write = [](const std::string& id, const std::string& body) {
+        api::Session s;
+        s.summary.id = id;
+        api::Message m;
+        m.id = "m1";
+        m.text = body;
+        s.messages.push_back(m);
+        api::disk_cache::save_transcript(s);
+    };
+
+    write("t1", "the retry queue is still draining");
+    write("t2", "nothing to see in this one");
+
+    CHECK(api::disk_cache::content_matches("t1", "retry"));
+    CHECK(!api::disk_cache::content_matches("t2", "retry"));
+    // Asked twice, same answer -- this is the memo's hit path.
+    CHECK(api::disk_cache::content_matches("t1", "retry"));
+    CHECK(!api::disk_cache::content_matches("t2", "retry"));
+
+    // THE INVALIDATION, and the ORDER of these lines is the test.
+    //
+    // The memo is dropped whenever the query changes, so a check that wanders
+    // off to another query first has already thrown away the entry it meant to
+    // catch going stale -- and then passes with the invalidation deleted,
+    // which is how the first draft of this test proved nothing. Nothing
+    // between the read and the rewrite may touch content_matches.
+    //
+    // A remembered MISS, against a file that now contains the word:
+    write("t2", "the retry queue moved here");
+    CHECK(api::disk_cache::content_matches("t2", "retry"));
+    // ...and a remembered HIT, against a file that no longer does:
+    write("t1", "nothing about queues at all");
+    CHECK(!api::disk_cache::content_matches("t1", "retry"));
+
+    // NARROWING. Typing extends the query, and the memo keeps the previous
+    // query's MISSES on the argument that a longer query cannot match where a
+    // shorter substring of it did not. What it must never keep is a HIT: t1
+    // contains "queues", so it matches "q" and does not match "qz", and a
+    // carried-forward hit would report the wrong one.
+    CHECK(api::disk_cache::content_matches("t1", "q"));
+    CHECK(!api::disk_cache::content_matches("t1", "qz"));
+    // The kept misses have to be right too: t2 matches every prefix of a
+    // phrase it contains, in the order a person types them.
+    CHECK(api::disk_cache::content_matches("t2", "m"));
+    CHECK(api::disk_cache::content_matches("t2", "mo"));
+    CHECK(api::disk_cache::content_matches("t2", "mov"));
+    CHECK(api::disk_cache::content_matches("t2", "move"));
+    // And a miss under a narrow query must not survive a WIDENING one, which
+    // is the direction backspacing goes: "zzq" misses, "q" hits.
+    CHECK(!api::disk_cache::content_matches("t1", "zzq"));
+    CHECK(api::disk_cache::content_matches("t1", "q"));
+
+    // The FILE is matched case-insensitively; the QUERY is not folded -- the
+    // parameter is named lowerQuery and the caller lowercases (the sidebar
+    // does). Pinned in both directions because the name is the only thing
+    // saying so, and an unfolded query silently matching nothing is the kind
+    // of bug that reads as "search is broken for capital letters".
+    CHECK(api::disk_cache::content_matches("t1", "queues"));
+    CHECK(!api::disk_cache::content_matches("t1", "QUEUES"));
+    CHECK(!api::disk_cache::content_matches("t3", "queues"));  // no transcript
+    CHECK(!api::disk_cache::content_matches("t1", ""));
+
+    // A wipe is a corpus change too, and it happens with a live memo.
+    CHECK(api::disk_cache::content_matches("t2", "retry"));
+    api::disk_cache::wipe_all();
+    CHECK(!api::disk_cache::content_matches("t2", "retry"));
+
+    unsetenv("HANABI_CACHE_DIR");
+}
+
 // --- (2) message-send queue: ordering + per-session draining --------------
 // The loader's rule: enqueue when a session is busy; dispatch the FIFO head of
 // a FREE session, one per turn. We model "busy" with sendPending/sendSessionId
@@ -416,6 +501,7 @@ int main() {
     test_message_queue_ordering();
     test_sending_for_covers_stream();
     test_newest_n_window();
+    test_content_search_memo_is_not_stale();
     test_settings_read_mock();
     test_settings_config_gate();
     test_compact_count();
