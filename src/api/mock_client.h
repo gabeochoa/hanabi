@@ -24,6 +24,9 @@
 
 #include <algorithm>
 #include <ctime>
+#include <mutex>
+#include <string>
+#include <vector>
 
 #include "client.h"
 
@@ -565,17 +568,46 @@ class MockClient : public Client {
     // once; find_mutable copies a row into created_ before touching it). So it
     // is built once and handed out by const reference.
     //
-    // The cache is keyed on HANABI_STRESS_SESSIONS rather than built blindly:
-    // the size is read from the environment, and a test that changes it
-    // mid-process would otherwise silently keep the first catalog it ever
-    // asked for. Static-local init is thread-safe (list_sessions runs under
-    // std::async), and the vector is const after that.
+    // The cache is keyed on EVERY environment variable the fixture reads, not
+    // just the catalog size. This is not defensive coding, it is a bug that
+    // already happened: the e2e runner loads a whole DIRECTORY of scripts into
+    // ONE process (main.cpp, load_scripts_from_directory) and applies each
+    // script's own `# env:` line before running it. Keying on
+    // HANABI_STRESS_SESSIONS alone froze the first script's fixture and served
+    // it to every later script, so thinking_disclosure (HANABI_THINKING_DEMO=1,
+    // HANABI_OPEN=rthink) and tool_fold_persists (HANABI_FOLD_DEMO=1,
+    // HANABI_OPEN=rfold) opened threads that did not exist in the cached
+    // catalog and timed out waiting for text that was never going to appear.
+    //
+    // It is ORDER-DEPENDENT, which is why it passed a full suite run before it
+    // failed one: whichever script runs first decides what everybody gets.
+    //
+    // Anything added to build_seed() that reads the environment MUST be added
+    // here too. That coupling is the price of the cache; the alternative was
+    // rebuilding a 2000-row catalog on every get_session().
+    static constexpr const char* kFixtureEnv[] = {
+        "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
+        "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
+        "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
+    };
     static const std::vector<Session>& seed() {
+        // A mutex rather than bare static-local init. Magic statics make the
+        // FIRST build thread-safe, but this cache can REBUILD when the key
+        // changes, and list_sessions() runs under std::async while the main
+        // thread can be in get_session() — two threads rebuilding the same
+        // vector is a data race. An uncontended lock is tens of nanoseconds
+        // against the 0.007 ms this function now costs, so it is free.
+        static std::mutex mu;
         static std::string s_key;
         static std::vector<Session> s_cache;
         static bool s_built = false;
-        const char* n = std::getenv("HANABI_STRESS_SESSIONS");
-        const std::string key = (n != nullptr) ? n : "";
+        std::string key;
+        for (const char* name : kFixtureEnv) {
+            const char* v = std::getenv(name);
+            key += (v != nullptr) ? v : "";
+            key += '\x1f';  // a separator no env value will contain
+        }
+        std::lock_guard<std::mutex> lk(mu);
         if (!s_built || key != s_key) {
             s_cache = build_seed();
             for (auto& s : s_cache) fill_sub_agent_counts(s);
