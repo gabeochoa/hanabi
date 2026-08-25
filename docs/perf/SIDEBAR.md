@@ -335,15 +335,19 @@ count is a smart view that says 6 and lists 5. 0.05 ms is not worth that.
   Entity count is exact, identical run to run, and it caught a wrong binary
   that three timing runs and a profile did not.
 
-- **The same box costs one test.** `select_word_and_line.e2e` fails
-  deterministically above load average ~10 and passes below it, on unmodified
-  master as well as on this branch. `double_click` spaces its two clicks by
-  three FRAMES; the widget receiving them gates multi-click on
-  `MULTI_CLICK_TIME = 0.4f` seconds of WALL CLOCK. Under contention four frames
-  clear 400 ms and the second click arrives as a fresh single click.
-  **afterhours_gaps.md #117**, and it cost forty minutes here — bisected all
-  the way onto master before the penny dropped. FRICTION_LOG #2 is the mirror
-  image of it from August, so the mismatch has now cost time twice.
+- **And the second-best story about not believing a number.** The suite has one
+  red test, `select_word_and_line.e2e`, on this branch and on unmodified
+  master. My first diagnosis was that the harness spaces a double-click in
+  frames while the widget measures the gap in wall clock, which is plausible,
+  fits a load-dependent failure, is the mirror of FRICTION_LOG #2 — and is
+  wrong. It is a stale coordinate: the script clicks y=225 and hanabi's own hit
+  test says the transcript's body lines are at 228/244/260, so the press never
+  lands. I had already written the wrong version into `afterhours_gaps.md` and
+  had to retract it. **afterhours_gaps.md #117** is the corrected entry, and
+  the correction is the more useful half: a mechanism that explains the symptom
+  is not the same as the mechanism, and the cheap way to tell them apart was
+  one `printf` in the hit test, which I should have run before writing anything
+  down.
 
 ---
 

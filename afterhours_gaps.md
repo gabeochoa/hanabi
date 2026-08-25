@@ -6129,71 +6129,66 @@ arithmetic every consumer currently repeats.
 
 CLASS: WORKAROUND
 
-### #117 — The scripted harness spaces a double-click in FRAMES; the widget that receives it measures the gap in WALL CLOCK
 
-**What was wanted.** `make test` to mean the same thing on a busy machine as on
-an idle one.
+### #117 — A scripted test pins screen coordinates, so it goes stale silently and its failure names nothing
 
-**What happens.** `select_word_and_line.e2e` fails, deterministically, whenever
-this Mac's load average is above roughly ten — and passes, deterministically,
-when it is not. It fails identically on unmodified master, so it is nobody's
-change; it is the harness and the widget using different units for the same
-interval.
+**What was wanted.** To know whether `make test` failing is my fault.
 
-`HandleDoubleClickCommand` (`plugins/e2e_testing/command_handlers.h`) is a
-phase machine: inject a click, wait THREE FRAMES for the auto-release, inject
-the second. `triple_click` is the same with one more round. The receiving end
-(`plugins/ui/text_input/component.h`, and again in `text_area.h`) decides
-whether two clicks are one gesture with
+**What happens.** `select_word_and_line.e2e` fails on this branch, and on
+unmodified master, and has presumably been failing for a while. Its whole
+content is two coordinates:
 
-    constexpr float MULTI_CLICK_TIME = 0.4f;
-    ... (now - s.last_click_time) < MULTI_CLICK_TIME ...
+    double_click 415 225
+    ...
+    triple_click 415 225
 
-`now` is wall clock. So the harness is counting frames and the widget is
-counting seconds, and the two agree only while a frame is short. On an idle box
-four frames is about five milliseconds and the gesture lands. Under contention
--- four other agents, a swift-frontend, load average 20-28 -- a frame can take
-well over a hundred milliseconds, four of them clear 0.4 s, and the second
-click arrives as a fresh single click. The word is never selected, the
-composer's "N selected" readout never appears, and two `expect_text`s time out.
+The script carries a careful comment about them -- "the three body lines sit at
+209 / 225 / 241", and a history of the two previous times they moved (from
+184/200/216, then from 226/242/258) -- which is a maintenance log for a
+constant that cannot check itself. Instrumenting hanabi's own hit test says the
+lines are now at **y = 228 / 244 / 260**, so the click at 225 lands in the 3px
+gap above the first one and `text_select::update` is never entered with `hot`.
+The failure it reports is `Text not found: '6 selected'`, which names the
+composer's readout: two hops from the click that missed, and no clue that a
+coordinate is stale.
 
-The failure direction is the bad one. The suite is green on the machine writing
-the code and red on the machine running everything, which is exactly backwards
-from what you want a shared CI box to tell you. FRICTION_LOG #2 recorded the
-mirror image of this in 2026-08 -- a test that passed on a loaded machine and
-failed on an idle one, "the worst possible direction" -- from the same
-mismatch. It has now cost time twice.
+This is gap #86 ("a capture cannot say where anything landed") and gap #51
+seen from the maintenance end rather than the authoring end. The reason the
+script holds a number instead of a query is that there is nothing to query;
+the reason it goes stale is that a number cannot be re-derived; and the reason
+the failure is unhelpful is that the assertion is on a downstream label rather
+than on the gesture. Filed separately because the COST is different and
+compounding: #86 is "writing this test took a bisect", this is "the test now
+lies, on master, and every future run of the suite starts by re-litigating
+whose change broke it".
 
 **Why the obvious escapes do not work.**
 
-- **Add `wait_frames` between the clicks.** Wrong way: more frames is more wall
-  clock, which is the thing already overflowing.
-- **Raise `MULTI_CLICK_TIME`.** Vendored, shared by every consumer, and it
-  encodes a HUMAN interval -- a real double-click at 2 s is not a
-  double-click.
-- **Drive the clicks closer together in the harness.** The three-frame gap is
-  there for the first click's auto-release; collapsing it breaks the gesture
-  for the opposite reason.
-- **Retry the script.** It is not flaky in the coin-flip sense. It is a
-  function of machine load, so a retry under sustained load fails again --
-  three consecutive runs, then two more on master, all red.
-- **Do it in app code.** hanabi cannot reach either half: the phase machine and
-  the constant are both vendored.
+- **Re-measure and move the number.** What the script tells you to do, and the
+  numbers here are measured, not guessed. It does not fix the class: this is
+  the fourth set of coordinates and there is no reason to think it is the last.
+  (Moving the click to 236 -- the middle of the re-measured first line -- gets
+  it into the line and still does not produce the expected selection, so the
+  word under x=415 has moved too. Two coordinates, both stale, and the script
+  can only assert on the consequence of both being right.)
+- **Assert on the gesture instead of on a downstream label.** There is nothing
+  to assert on. `assert_ui` reads x/y/w/h/hidden/text (#61); a selection is a
+  band drawn behind text and the range itself is not on any component.
+- **Query the text's position and click that.** The whole of #86: the
+  screenshot path emits pixels and nothing else, and no runtime API reports
+  where a laid-out run landed.
 
-**The workaround, and its cost.** None available; the test is simply red while
-the box is busy. The cost so far is twice believing a red suite meant a
-regression: forty minutes here (bisected onto master before the penny dropped)
-and an unknown amount in FRICTION_LOG #2.
+**The workaround, and its cost.** hanabi's is the comment: a coordinate, the
+three previous coordinates, and an instruction to re-measure by rendering the
+frame and scanning the PNG. It costs a stale test nobody can attribute -- this
+one cost forty minutes of bisecting onto master, and an entry in this file that
+had to be retracted and rewritten because the first diagnosis (a wall-clock
+multi-click window racing a frame-counted harness) was plausible, wrong, and
+would have sent the next person into the vendor.
 
-**Minimal upstream fix.** Give the e2e input layer a virtual clock, or -- much
-smaller -- have `simulate_click` accept an explicit timestamp and have the
-multi-click test read the injected one when the e2e plugin is active. Two lines
-at the constant would also do it honestly:
+**Minimal upstream fix.** The one in #86 -- have the capture/e2e layer report
+laid-out rects for text runs -- plus a `click_text "ledger"` command that
+resolves a rect by content and clicks its centre. Then the script says what it
+means, cannot go stale, and fails with the name of the thing it could not find.
 
-    // Under the e2e harness, gate multi-click on the CLICK COUNTER the
-    // injector maintains, not on wall clock.
-
-Either way the property to restore is that a scripted gesture is a function of
-the script and not of what else the machine is doing.
-
-CLASS: FOOTGUN
+CLASS: TEDIOUS
