@@ -51,6 +51,7 @@
 #include "../../vendor/afterhours/src/core/entity.h"
 #include "../../vendor/afterhours/src/plugins/ui/entity_management.h"
 #include "../../vendor/afterhours/src/plugins/ui/ui_collection.h"
+#include "mk.h"
 
 namespace hanabi::widget_epoch {
 
@@ -97,8 +98,15 @@ inline void begin_epoch() {
 inline afterhours::ui::imm::EntityParent mk(
     Entity& parent, EntityID otherID = -1,
     const std::source_location location = std::source_location::current()) {
+    // hanabi::ui::mk, not afterhours', and the reason is in src/ui/mk.h: the
+    // library's derives the call-site key by streaming the source path and the
+    // whole expanded function signature into a std::stringstream and hashing
+    // the resulting string, per widget, per frame. Same five facts, same
+    // identity map, same reuse -- 2,589 fewer allocations a frame
+    // (afterhours_gaps.md #180). The two seams stack: this one stamps the
+    // epoch, that one makes the key cheap.
     afterhours::ui::imm::EntityParent pair =
-        afterhours::ui::imm::mk(parent, otherID, location);
+        hanabi::ui::mk(parent, otherID, location);
     stamp_of(pair.first.get().id) = g_epoch;
     ++g_built_this_epoch;
     return pair;

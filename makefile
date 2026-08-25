@@ -598,6 +598,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
 	@bash scripts/perf_text_gate.sh
 	@$(MAKE) soak-gate
+	@$(MAKE) alloc-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) scroll-gate
 	@$(MAKE) retire-gate
@@ -628,6 +629,13 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #   make retire-gate   ~3 s.  Navigates five screens and a thread, then counts
 #                      the widgets nothing is building any more. A COUNT, not
 #                      a millisecond. In `make test`.
+#   make alloc-gate    ~20 s. Steady-state operator new calls PER FRAME, at
+#                      three fixtures. The only gate here that measures a
+#                      LEVEL rather than a slope, because churn does not grow
+#                      — it is just paid again every frame forever, and every
+#                      slope gate reads it as perfectly flat. The number is
+#                      deterministic to within one allocation whatever the box
+#                      is doing. In `make test`.
 #   make soak          ~45 s. The long form: thirteen scenarios, four at a time.
 #                      NOT in `make test` — run it before a release.
 #   make soak-report   The same run, reduced to a DIFFABLE text artifact and
@@ -651,6 +659,8 @@ scroll-gate: $(MAIN_EXE) copy-resources
 
 retire-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/retire_gate.sh
+alloc-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/alloc_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
@@ -729,7 +739,7 @@ source-checks:
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate \
-	retire-gate source-checks soak-report soak-baseline stress stress-break
+	retire-gate alloc-gate source-checks soak-report soak-baseline stress stress-break
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

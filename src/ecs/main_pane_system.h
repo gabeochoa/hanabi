@@ -39,6 +39,7 @@
 #include "../ui/measure_probe.h"
 #include "../keys.h"
 #include "../settings.h"
+#include "line_draw_state.h"
 #include "ui_imports.h"
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -648,7 +649,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static std::string normalize_title(const std::string& in) {
-        const std::string src = strip_parked_marker(in);
+        // The VIEW, not the owning form: strip_parked_marker's only job is to
+        // drop a leading "[P] ", and copying the whole title to do it was one
+        // malloc per card per frame for a transform that removes bytes.
+        const std::string_view src = fmtutil::display_title_view(in);
         std::string out;
         out.reserve(src.size());
         bool prev_space = false;
@@ -874,6 +878,43 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         long n = static_cast<long>(widthPx / per);
         if (n < 6) n = 6;
         return static_cast<size_t>(n);
+    }
+
+    // The card's displayed title: whitespace-normalised, "[P] " stripped, and
+    // ellipsized to the title column -- memoized on the whole argument tuple.
+    //
+    // Pure in (raw title, card width, title fraction): char_budget is pure in
+    // (width, font px) and theme::type::TITLE is a compile-time constant, so
+    // there is nothing here that can go stale behind the key. It was three
+    // heap allocations per card per frame -- the strip's copy, the normalised
+    // string, and the ellipsized result -- for an answer that is the same one
+    // every frame until the pane is resized.
+    //
+    // 128 entries: 63 cards are on screen at 1180x949 and the Home view has no
+    // animated width the way the sidebar's fold does, so the working set is
+    // the cards themselves and the tail is short. LRU rather than clear-when-
+    // full, for the reason src/util/text_cache.h gives.
+    static const std::string& card_title(const std::string& raw,
+                                         float cardWidthPx, float titleFrac) {
+        static constexpr std::size_t kCardTitleEntries = 128;
+        static hanabi::text::TextKeyCache<std::string> memo(kCardTitleEntries);
+        if (const std::string* hit = memo.find(raw, cardWidthPx, titleFrac)) {
+            hanabi::prof::tick("cache.cardtitle_hit");
+            return *hit;
+        }
+        hanabi::prof::tick("cache.cardtitle_miss");
+        const std::string norm = normalize_title(raw);
+        std::string cut;
+        if (cardWidthPx > 0.0f) {
+            // Inner width = card width - 32px L/R padding, times the title's
+            // flex fraction, minus slack for the ellipsis glyph.
+            const float titlePx = (cardWidthPx - 32.0f) * titleFrac - 6.0f;
+            cut = fmtutil::ellipsize(norm,
+                                     char_budget(titlePx, theme::type::TITLE));
+        } else {
+            cut = fmtutil::ellipsize(norm, 40);
+        }
+        return memo.put(raw, cardWidthPx, titleFrac, std::move(cut));
     }
 
     // Build the metadata line under a card title. On the mock (rich preview)
@@ -1210,16 +1251,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // REAL available title width so a wide card fills its line before
         // ellipsizing (defect #4). Fall back to the old 40-char cap only when
         // the caller didn't pass a width (keeps other call sites unchanged).
-        std::string title = normalize_title(s.title);
-        if (cardWidthPx > 0.0f) {
-            // Inner width = card width - 32px L/R padding, times the title's
-            // flex fraction, minus a little slack for the ellipsis glyph.
-            float titlePx = (cardWidthPx - 32.0f) * titleFrac - 6.0f;
-            title = fmtutil::ellipsize(title, char_budget(titlePx,
-                                                          theme::type::TITLE));
-        } else {
-            title = fmtutil::ellipsize(title, 40);
-        }
+        const std::string& title = card_title(s.title, cardWidthPx, titleFrac);
         div(ctx, mk(top.ent(), 1),
             ComponentConfig{}
                 .with_label(title)
@@ -1940,6 +1972,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.0f)
+                    // A minimap is a map: every mark in the thread is on
+                    // screen at once by design, so putting them in the tab
+                    // order means tabbing past one dot per turn to reach the
+                    // composer. It also costs a std::set node per mark per
+                    // frame in afterhours' focusable set (gap #183).
+                    .with_skip_tabbing(true)
                     .with_on_draw_fg([mark, hot](RectangleType r) {
                         hanabi::minimap::draw_mark(r, mark, hot);
                     })
@@ -2565,6 +2603,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 const std::string& text, float fontPx) {
         el.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
+        // The listener above is empty: it exists so the element gets hover and
+        // press plumbing for the drag-select, not because a paragraph is a
+        // thing you can activate. afterhours reads "has a click listener" as
+        // "is a keyboard tab stop", so without this every line of every
+        // rendered turn joined the tab order -- and, since the focusable set
+        // is a std::set rebuilt from scratch each frame, cost a red-black-tree
+        // node malloc per line per frame (afterhours_gaps.md #183). Tabbing
+        // through forty paragraphs to reach the composer was not a feature.
+        el.addComponentIfMissing<afterhours::ui::SkipWhenTabbing>();
         if (el.has<afterhours::HasColor>())
             el.get<afterhours::HasColor>().skip_hover_override = true;
         el.addComponentIfMissing<afterhours::ui::HasCursor>(
@@ -6738,27 +6785,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // widget's own fill, and this element's fill is transparent.
                 // The element's id is not known until it exists, so the draw
                 // captures it by reference through a small holder.
-                auto idHolder = std::make_shared<afterhours::EntityID>(-1);
-                cfg = cfg.with_on_draw_bg(
-                    [line = ip.visible, q = findQuery, idHolder](
-                        RectangleType r) {
-                        hanabi::text_select::draw(*idHolder, r, line,
-                                                  theme::type::BODY);
-                        if (!q.empty())
-                            hanabi::find_highlight::draw(r, line, q,
-                                                         theme::type::BODY);
-                    });
+                // mk() hands back the entity BEFORE the widget is built, and
+                // that entity is the same one every frame, so the draw state
+                // lives on it and the callbacks capture one pointer to it
+                // (ecs::LineDrawState). They used to capture the text, the
+                // query and a shared_ptr for the id -- three heap objects,
+                // cloned again by each of afterhours' three ComponentConfig
+                // copies. Assigning into the component's existing strings
+                // reuses their capacity, so a steady frame allocates none.
+                const auto ep = mk(parent, 100 + seg);
+                Entity& lineEnt = ep.first.get();
+                auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
+                ld.text = ip.visible;
+                ld.query = findQuery;
+                ld.links = lnks;
+                ld.id = lineEnt.id;
+                ecs::LineDrawState* ldp = &ld;
+                cfg = cfg.with_on_draw_bg([ldp](RectangleType r) {
+                    hanabi::text_select::draw(ldp->id, r, ldp->text,
+                                              theme::type::BODY);
+                    if (!ldp->query.empty())
+                        hanabi::find_highlight::draw(r, ldp->text, ldp->query,
+                                                     theme::type::BODY);
+                });
                 // The underline goes OVER the glyphs' own row, so it is drawn
                 // in the foreground pass; the colour alone would leave an id
                 // looking like emphasis rather than a link.
                 if (!lnks.empty())
-                    cfg = cfg.with_on_draw_fg(
-                        [line = ip.visible, lnks](RectangleType r) {
-                            hanabi::links::draw_underlines(r, line, lnks,
-                                                           theme::type::BODY);
-                        });
-                auto lineEl = div(ctx, mk(parent, 100 + seg), cfg);
-                *idHolder = lineEl.ent().id;
+                    cfg = cfg.with_on_draw_fg([ldp](RectangleType r) {
+                        hanabi::links::draw_underlines(r, ldp->text,
+                                                       ldp->links,
+                                                       theme::type::BODY);
+                    });
+                auto lineEl = div(ctx, ep, cfg);
                 selectable_text(ctx, lineEl.ent(), ip.visible,
                                 theme::type::BODY);
                 link_hotspot(ctx, lineEl.ent(), ip.visible, lnks,
@@ -6769,8 +6828,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             start = nl + 1;
         }
         flush(8888);
-        hanabi::mprobe::compare("richbody", rich_body_h(shown, textW),
-                                y - probeStartY);
+        // Guarded, because the ARGUMENTS are what cost: rich_body_h(shown,
+        // textW) is a full second measure pass over the whole body -- an
+        // md_to_spans and a wrap per line -- and C++ evaluates it whether or
+        // not the probe is on. `compare` returning early was doing nothing
+        // for the price of the work it was handed.
+        if (hanabi::mprobe::on())
+            hanabi::mprobe::compare("richbody", rich_body_h(shown, textW),
+                                    y - probeStartY);
     }
 
     // ---- Per-message actions (hover) --------------------------------------

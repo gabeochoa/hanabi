@@ -240,6 +240,12 @@ inline double cpu_nanos() {
            static_cast<double>(ts.tv_nsec);
 }
 
+// The middle of three. Used for the steady-state churn line below; the trend
+// machinery does not need it.
+inline double median3(double a, double b, double c) {
+    return a < b ? (b < c ? b : (a < c ? c : a)) : (a < c ? a : (b < c ? c : b));
+}
+
 struct Sample {
     int frame = 0;
     // Wall clock per frame. What a person feels, and what a busy box moves.
@@ -258,6 +264,20 @@ struct Sample {
     // over a ladder rung that leaked 114 MB of textures, live malloc moved
     // +427 KB. afterhours_gaps.md #126.
     long gpuKb = 0;
+    // Cumulative operator-new calls at the close of this bucket, and the
+    // per-frame rate over the bucket itself.
+    //
+    // The heap columns above are a LEAK detector: they see only what the frame
+    // failed to free. Steady-state churn is invisible to them by construction
+    // -- a frame that allocates four thousand times and frees all four
+    // thousand reads as perfectly flat, and that frame is the reported symptom
+    // ("gets slower and slower") as surely as a leak is. This column is the
+    // churn meter, and it is the one number here that is deterministic: the
+    // same build on the same catalog allocates the same number of times
+    // whatever else the machine is doing, which is what makes it gateable on a
+    // box running four other agents' builds.
+    unsigned long long allocs = 0;
+    double allocsPerFrame = 0.0;
 };
 
 // A bucket's worth of frames, closed out and printed.
@@ -265,11 +285,22 @@ inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
                    long rss, size_t ents) {
     const HeapStat h = heap_in_use();
     const long gpu = static_cast<long>(hanabi::gpu::device_bytes() / 1024);
-    out.push_back(Sample{frame, ms, cpuMs, rss, ents, h, gpu});
+    const unsigned long long allocs = prof::alloc_count();
+    const int prevFrame = out.empty() ? 0 : out.back().frame;
+    const unsigned long long prevAllocs = out.empty() ? 0 : out.back().allocs;
+    const int span = frame - prevFrame;
+    const double perFrame =
+        span > 0 ? static_cast<double>(allocs - prevAllocs) /
+                       static_cast<double>(span)
+                 : 0.0;
+    out.push_back(Sample{frame, ms, cpuMs, rss, ents, h, gpu, allocs,
+                         perFrame});
     std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
                 "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB  "
-                "GPU %7ld KB\n",
+                "GPU %7ld KB",
                 frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024, gpu);
+    if (prof::enabled()) std::printf("  allocs %9.1f /f", perFrame);
+    std::printf("\n");
     std::fflush(stdout);
 }
 
@@ -312,6 +343,7 @@ struct Window {
     double entities = 0.0;
     double blocks = 0.0;
     double bytes = 0.0;
+    double allocsPerFrame = 0.0;
     int frame = 0;
 };
 
@@ -412,6 +444,14 @@ struct Budget {
     // slack -- it is one 128x128 RGBA texture, the smallest thing whose
     // appearance every frame would be a real defect.
     double gpuKbPer1k = 64.0;
+    // A CEILING, not a slope, and the only one here that is. Everything else
+    // in this struct asks "is it growing?"; steady-state churn does not grow,
+    // it is just paid again every frame forever, so the only question that
+    // catches it is "how much?". 0 means report-only, which is the default for
+    // the same reason the block column is report-only: the number depends on
+    // the catalog and the scenario, so the ceiling belongs next to the run
+    // that set it (scripts/alloc_gate.sh), not in a header.
+    double allocsPerFrame = 0.0;
 };
 
 inline double env_double(const char* name, double fallback) {
@@ -433,6 +473,8 @@ inline Budget budget() {
             env_double("HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K", out.blocksPer1k);
         out.gpuKbPer1k =
             env_double("HANABI_SOAK_MAX_GPU_KB_PER1K", out.gpuKbPer1k);
+        out.allocsPerFrame =
+            env_double("HANABI_SOAK_MAX_ALLOCS_PER_FRAME", out.allocsPerFrame);
         return out;
     }();
     return b;
@@ -896,6 +938,42 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     reportOut.fitPoints = tRss.points;
     reportOut.ready = true;
 
+    // Steady-state churn: a LEVEL, not a slope, so it gets its own line rather
+    // than being squeezed into a table whose other rows are all per-1000-frame
+    // growth. Only meaningful with HANABI_PROF=1 -- the counter lives behind
+    // that flag -- so a run without it says so instead of printing a zero that
+    // reads like good news.
+    int churnBad = 0;
+    if (prof::enabled()) {
+        // The median of the last three buckets, or the last one on a run too
+        // short for three. The value is the same in every bucket past the
+        // warm-up to within one allocation -- the median is not smoothing
+        // noise, it is refusing to report a bucket that a killed async load
+        // happened to land in.
+        const size_t n = s.size();
+        const double churn =
+            n >= 3 ? median3(s[n - 3].allocsPerFrame, s[n - 2].allocsPerFrame,
+                             s[n - 1].allocsPerFrame)
+                   : s.back().allocsPerFrame;
+        const char* churnVerdict = "report-only";
+        char cell[64];
+        if (bud.allocsPerFrame > 0.0) {
+            if (churn > bud.allocsPerFrame) {
+                std::snprintf(cell, sizeof(cell), "FAIL  %.2fx over ceiling",
+                              churn / bud.allocsPerFrame);
+                churnBad = 1;
+            } else {
+                std::snprintf(cell, sizeof(cell), "ok  %.0f%% of ceiling",
+                              100.0 * churn / bud.allocsPerFrame);
+            }
+            churnVerdict = cell;
+        }
+        std::printf("[soak]   %-12s %11.1f  %-34s %8.0f  %s\n", "allocs/frame",
+                    churn, "operator new calls, steady state",
+                    bud.allocsPerFrame, churnVerdict);
+    }
+    bad |= churnBad;
+
     if (bad == 0) {
         std::printf("[soak] PASS: flat over the run.\n");
         std::fflush(stdout);
@@ -903,6 +981,27 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     }
 
     std::printf("\n[soak] ---------------- SOAK GATE: FAIL ----------------\n");
+    if (churnBad != 0) {
+        std::printf("[soak] The frame allocates more than it used to. Nothing "
+                    "leaked --\n[soak] every one of these is freed before the "
+                    "next frame -- and that is\n[soak] exactly why the heap "
+                    "rows above are green. What it costs is\n[soak] malloc "
+                    "traffic, forever, at 60 frames a second.\n[soak]\n"
+                    "[soak] To see WHERE, with the call sites named:\n"
+                    "[soak]   scripts/alloc_sites.sh 2000 300\n[soak]\n"
+                    "[soak] The usual causes, in the order they have actually "
+                    "turned up here:\n"
+                    "[soak]   1. a std::string built per widget per frame for "
+                    "a label, an id or\n[soak]      a debug name -- anything "
+                    "over 22 characters leaves the SSO\n[soak]      buffer "
+                    "and becomes a malloc.\n"
+                    "[soak]   2. a container rebuilt by value every frame "
+                    "instead of held and\n[soak]      reused, or one grown "
+                    "without reserve() to a size already known.\n"
+                    "[soak]   3. a std::function whose capture does not fit "
+                    "the small-object\n[soak]      buffer, cloned once per "
+                    "widget per frame.\n");
+    }
     if (tHeap.per1k > bud.heapKbPer1k || tRss.per1k > bud.rssKbPer1k) {
         std::printf("[soak] The app grew while it sat still. Nothing about "
                     "this run\n[soak] asked it to: the catalog is fixed, the "

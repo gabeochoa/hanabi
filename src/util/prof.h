@@ -27,9 +27,11 @@
 // frame loop is the only caller -- so the counters are plain, not atomic.
 // ---------------------------------------------------------------------------
 
+#include <mach-o/dyld.h>
 #include <time.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -167,6 +169,96 @@ inline unsigned long long& alloc_bytes() {
     return n;
 }
 
+// ---- Call-site attribution ----------------------------------------------
+//
+// The counter above says the idle frame allocates 4,271 times. It does not say
+// WHERE, and nothing else in the box does either:
+//
+//   * `malloc_history -allBySize` walks blocks that are LIVE right now. Run
+//     against this app mid-soak it reports Metal's device init, the sokol
+//     buffers and the mock catalog -- every one of them a one-time cost -- and
+//     not a single frame allocation, because the frame frees everything it
+//     allocates. That is the tool that found the Metal leak in one run, and it
+//     is structurally blind to churn. (`-allEvents` is not blind, and dumps
+//     every malloc and free the process ever made, in order: on a 60-frame run
+//     that is ~250,000 records to read by hand.)
+//   * `AllocScope` attributes a phase, and a phase is only as narrow as
+//     somebody thought to bracket. It cannot find a caller nobody suspected.
+//
+// So: hash the top three return addresses at every `operator new` and count.
+// Fixed table, linear probing, no allocation anywhere inside the recorder --
+// an allocating profiler of allocations recurses on its first call. Addresses
+// are printed raw with the image load address; scripts/alloc_sites.sh pipes
+// them through `atos`, which resolves the inlined header code that `dladdr`
+// (nearest exported symbol) gets wrong.
+//
+// The stack is walked through the frame-pointer chain rather than
+// __builtin_return_address(1+), which is documented to be allowed to fault:
+// arm64 always has the chain, and every hop is bounds-checked.
+inline bool sites_enabled() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_PROF_SITES");
+        return v != nullptr && *v != '\0' && std::string(v) != "0";
+    }();
+    return on;
+}
+
+#ifndef HANABI_PROF_SITE_DEPTH
+#define HANABI_PROF_SITE_DEPTH 8
+#endif
+inline constexpr size_t kSiteDepth = HANABI_PROF_SITE_DEPTH;
+inline constexpr size_t kSiteSlots = 16384;
+
+struct Site {
+    const void* pc[kSiteDepth] = {};
+    unsigned long long calls = 0;
+    unsigned long long bytes = 0;
+};
+
+inline Site* site_table() {
+    static Site table[kSiteSlots];
+    return table;
+}
+
+inline unsigned long long& site_overflow() {
+    static unsigned long long n = 0;
+    return n;
+}
+
+__attribute__((always_inline)) inline void capture_site(const void** out) {
+    for (size_t i = 0; i < kSiteDepth; ++i) out[i] = nullptr;
+    auto* fp = static_cast<void**>(__builtin_frame_address(0));
+    for (size_t i = 0; i < kSiteDepth; ++i) {
+        const auto raw = reinterpret_cast<uintptr_t>(fp);
+        if (fp == nullptr || (raw & 0x7u) != 0u) break;
+        out[i] = fp[1];
+        auto* next = static_cast<void**>(fp[0]);
+        if (next <= fp) break;
+        fp = next;
+    }
+}
+
+inline void record_site(const void* const* pc, size_t n) {
+    uintptr_t h = 0;
+    for (size_t i = 0; i < kSiteDepth; ++i)
+        h = (h ^ (reinterpret_cast<uintptr_t>(pc[i]) >> 2)) *
+            0x9E3779B97F4A7C15ull;
+    Site* table = site_table();
+    for (size_t probe = 0; probe < 32; ++probe) {
+        Site& s = table[(h + probe) & (kSiteSlots - 1)];
+        if (s.calls == 0)
+            for (size_t i = 0; i < kSiteDepth; ++i) s.pc[i] = pc[i];
+        bool same = true;
+        for (size_t i = 0; i < kSiteDepth; ++i) same = same && s.pc[i] == pc[i];
+        if (same) {
+            ++s.calls;
+            s.bytes += n;
+            return;
+        }
+    }
+    ++site_overflow();
+}
+
 // Snapshot / diff, so a phase can report its OWN allocations rather than the
 // frame's. `AllocScope` records the delta into a counter under `label`.
 struct AllocScope {
@@ -183,6 +275,44 @@ struct AllocScope {
     AllocScope(const AllocScope&) = delete;
     AllocScope& operator=(const AllocScope&) = delete;
 };
+
+// Print the busiest call sites, most calls first. Raw addresses plus the
+// image's load address: scripts/alloc_sites.sh turns them into file:line.
+inline void dump_sites() {
+    if (!sites_enabled()) return;
+    const double f = static_cast<double>(frames() > 0 ? frames() : 1);
+    Site* table = site_table();
+    std::vector<const Site*> rows;
+    for (size_t i = 0; i < kSiteSlots; ++i)
+        if (table[i].calls > 0) rows.push_back(&table[i]);
+    std::sort(rows.begin(), rows.end(),
+              [](const Site* a, const Site* b) { return a->calls > b->calls; });
+    std::printf("[sites] %zu distinct sites, %llu overflowed\n", rows.size(),
+                site_overflow());
+    // Every loaded image and where it landed, so the symbolizer can pick the
+    // right one per address: a frame inside libsystem_malloc is as much of an
+    // answer as a frame inside hanabi, and `atos -o hanabi.exe` renders it as
+    // a bare hex number.
+    for (uint32_t i = 0; i < _dyld_image_count(); ++i)
+        std::printf("[sites-image] 0x%llx %s\n",
+                    static_cast<unsigned long long>(
+                        reinterpret_cast<uintptr_t>(_dyld_get_image_header(i))),
+                    _dyld_get_image_name(i));
+    std::printf("[sites] %12s %10s %12s  %s\n", "calls", "calls/f", "B/frame",
+                "return addresses, innermost first");
+    const size_t n = rows.size() < 40 ? rows.size() : 40;
+    for (size_t i = 0; i < n; ++i) {
+        std::printf("[sites] %12llu %10.1f %12.0f ", rows[i]->calls,
+                    static_cast<double>(rows[i]->calls) / f,
+                    static_cast<double>(rows[i]->bytes) / f);
+        for (size_t d = 0; d < kSiteDepth; ++d)
+            std::printf(" 0x%llx", static_cast<unsigned long long>(
+                                       reinterpret_cast<uintptr_t>(
+                                           rows[i]->pc[d])));
+        std::printf("\n");
+    }
+    std::fflush(stdout);
+}
 
 // Report. Timed phases first (sorted by cost), then the pure counters.
 inline void dump() {
@@ -231,6 +361,7 @@ inline void dump() {
             std::printf("[prof] %-34s %12llu\n", name.c_str(), v);
     }
     std::fflush(stdout);
+    dump_sites();
 }
 
 }  // namespace hanabi::prof
@@ -244,6 +375,11 @@ void* operator new(std::size_t n) {
     if (hanabi::prof::enabled()) {
         ++hanabi::prof::alloc_count();
         hanabi::prof::alloc_bytes() += n;
+        if (hanabi::prof::sites_enabled()) {
+            const void* pc[hanabi::prof::kSiteDepth];
+            hanabi::prof::capture_site(pc);
+            hanabi::prof::record_site(pc, n);
+        }
     }
     void* p = std::malloc(n == 0 ? 1 : n);
     if (p == nullptr) throw std::bad_alloc();

@@ -7884,3 +7884,181 @@ needs to not walk into this. Better, a `graphics::flush_deleted_resources()`
 that drains the queue, so a bulk reload has something to call.
 
 CLASS: SURPRISING
+
+---
+
+### #180 — `imm::mk()` builds a stringstream and a 200-character source-location string to hash, for every widget, every frame
+
+**What was wanted.** To find out why hanabi allocates ~3,700 times per frame
+sitting still on the Home view, and ~10,000 with a thread open.
+
+**What happens.** `mk()` is what gives an immediate-mode widget a stable entity
+across frames — it is called once per widget per frame, by construction. Its
+key is derived like this (`entity_management.h:29`):
+
+```cpp
+std::stringstream pre_hash;
+pre_hash << parent.id << otherID << "file: " << location.file_name() << '('
+         << location.line() << ':' << location.column() << ") `"
+         << location.function_name() << "`: " << '\n';
+UI_UUID hash = std::hash<std::string>{}(pre_hash.str());
+```
+
+An absolute source path plus a fully expanded C++ function signature. In this
+app that is routinely 200 to 400 characters — a template-heavy render function
+prints its whole instantiation — pushed through a `stringbuf` a character at a
+time, hashed, and destroyed.
+
+Measured with a global `operator new` counter and a call-site table
+(`HANABI_PROF_SITES=1`, `src/util/prof.h`), 2000-session catalog, Home view:
+**2,589 allocations and 448 KB per frame, 47% of every allocation the process
+makes.** The cost is the string, not the hash: it is `basic_stringbuf::overflow`
+→ `string::push_back` → `string::__grow_by` all the way down.
+
+**Why the obvious escapes do not work.**
+
+- **Pass a shorter `source_location`.** The caller does not choose what
+  `std::source_location::current()` contains, and the default argument is what
+  makes the API pleasant.
+- **Cache the hash at the call site.** A `static` per call site would be wrong
+  the moment the same line runs with a different `parent` or `otherID`, which
+  is the normal case for every list.
+- **Skip `mk()` and reuse an entity id directly.** The map it maintains
+  (`existing_ui_elements`) is what `clear_existing_ui_elements()` and the whole
+  reuse contract are built on; bypassing it means reimplementing the identity
+  layer.
+
+**The workaround, and its cost.** hanabi ships its own `mk()`
+(`src/ui/mk.h`, ~40 lines) that hashes the same five facts — parent id, index,
+file, function, line:column — with no string at all, hashing the file and
+function BY POINTER (`source_location`'s strings are static, so the pointer is
+stable for the process, which is the only property a key that is never
+persisted needs). It stores into afterhours' own `existing_ui_elements` and
+resolves through afterhours' own collection holder, so a widget made by it is
+indistinguishable from one made upstream, and the swap is one `using`
+declaration reaching all 335 call sites.
+
+Cost: 3,731 → 1,426 allocations per frame at 2000 sessions (−62%), 2,721 → 946
+at 20 sessions (−65%), entity counts unchanged. And a permanent fork of a
+function whose semantics every other consumer relies on — if upstream changes
+what goes into the key, hanabi silently keeps the old one.
+
+**Minimal upstream fix.** Hash the fields instead of a rendering of them:
+`hash_combine(parent.id, otherID, (uintptr_t)location.file_name(),
+location.line(), location.column())`. No allocation, no `<sstream>`, and the
+same uniqueness — `source_location`'s pointers are static per translation
+unit. Roughly the same number of lines as the version that is there.
+
+CLASS: PERFORMANCE
+
+---
+
+### #181 — A `ComponentConfig` is copied three times on the way into a widget, so every string it carries is malloc'd three times per widget per frame
+
+**What was wanted.** After #180, to find what the remaining per-frame
+allocations on an idle Home view are.
+
+**What happens.** They are the labels, and they are allocated once each for the
+config the app builds and then again for each copy the library makes of it:
+
+```
+div(ctx, ep, ComponentConfig config = ComponentConfig())     # by value
+  init_component(ctx, ep, config, ...)                       # by reference
+    config = detail::overwrite_defaults(ctx, config, ...)    # BY VALUE -> copy
+      config = styling_defaults.merge_with_defaults(...)     #   ComponentConfig result = config -> copy
+        defaults.value().apply_overrides(result)             #   returns by value -> copy
+```
+
+Measured per widget on a Home digest card whose title is 40 characters: 4.28
+allocations per frame for that one label. `ComponentConfig` carries
+`std::string label`, `std::string debug_name`, `std::string font_name`,
+`std::vector<TextSpan> styled_label` and two `std::function` draw callbacks —
+every one of them re-allocated per copy. At 2000 sessions, Home:
+**472 allocations per frame are label copies alone**, 38% of what the app has
+left after #180.
+
+This is #138 seen from the other end. #138 counted 4.6 allocations per widget
+and named `ComponentConfig` as the shape of it; this is where they go.
+
+**Why the obvious escapes do not work.**
+
+- **Pass a shorter label.** The label is the content. A sidebar row title, a
+  card title and a transcript line are all past libc++'s 22-character
+  small-string buffer because they are sentences.
+- **Set `is_internal`.** `overwrite_defaults` skips the merge for an internal
+  config, which removes one or two of the copies — and with it the default font
+  name, the default font size, and any per-component-type defaults. On a UI
+  whose pixels are diffed against reference screenshots, that is not a
+  performance change, it is a rendering change.
+- **Build the config once and keep it.** #138's suggestion, and it does not
+  help: the copies are made *inside* `init_component`, from whatever it is
+  handed.
+- **Memoize the label string.** hanabi does (`src/util/text_memo.h`), and it
+  removes the DERIVATION, not the copies. A cached `const std::string&` handed
+  to `with_label` is still copied four times.
+
+**The workaround, and its cost.** None available in app code. hanabi removed
+everything around it instead — the derivation of the strings, the identity
+hash (#180), the wrap measurement — and left this. It is now the single
+largest remaining allocation source on the Home view and there is no app-side
+lever on it.
+
+**Minimal upstream fix.** Take the config by reference through the whole init
+path, or move it: `overwrite_defaults(ctx, ComponentConfig&& config, ...)` and
+`merge_with_defaults` mutating `result` in place rather than copy-constructing
+it. Two signatures. Alternatively `std::string_view label` with the owning copy
+made once, where it is actually stored on the entity.
+
+CLASS: PERFORMANCE
+
+---
+
+### #183 — The focusable set is a `std::set` cleared and refilled every frame, so every focusable widget costs a tree node malloc per frame
+
+**What was wanted.** To account for 634 allocations per frame that
+`HANABI_PROF_SITES=1` attributed to `HandleTabbing::for_each_with`
+(`systems.h:943`) with a thread open, and 167 on an idle Home view.
+
+**What happens.** `UIContext::focused_ids` is a `std::set<EntityID>`. It is
+cleared once a frame and then `try_to_grab(entity.id)` inserts into it for
+every widget that `can_be_focused` — which is every widget carrying a
+`HasClickListener` or `HasDragListener` and rendered to screen. A `std::set`
+insert is a red-black-tree node allocation, and clearing frees every node, so
+the whole set is rebuilt from the allocator every frame. The container never
+keeps its storage because a node-based container has none to keep.
+
+It is ~30 bytes each and it is exactly proportional to how interactive the
+screen is, which is the wrong direction for it to scale in.
+
+**Why the obvious escapes do not work.**
+
+- **Have fewer focusable widgets.** Partly available and worth doing on its own
+  merits (below), but the ones that remain are the buttons and rows, and they
+  are the point of the app.
+- **Reserve it.** There is nothing to reserve on a `std::set`.
+- **Replace the container from app code.** `focused_ids` is a public member of
+  a component, but the system that fills it is `HandleTabbing`, registered by
+  `afterhours::ui::add_singleton_components` / the plugin's system bundle, and
+  the ordering contract around `try_to_grab` and `process_tabbing` is internal.
+
+**The workaround, and its cost.** hanabi marks the widgets that were never
+meant to be tab stops with `with_skip_tabbing(true)` /
+`SkipWhenTabbing` — `can_be_focused` tests it before the insert, so a skipped
+widget costs nothing. Two places: every transcript line (whose click listener
+is an empty lambda that exists only to get hover and press plumbing for
+drag-select) and every minimap mark (one per turn, all on screen at once by
+definition). Worth 392 allocations per frame on the 480-message fixture,
+2,795 down from 3,187, and it makes Tab reach the composer instead of walking
+several hundred dots — so the workaround is an improvement in its own right,
+which is the only reason it is a comfortable one.
+
+What it does not touch is the ~430 widgets that legitimately are focusable.
+Those still cost a malloc each per frame and nothing in app code can change
+that.
+
+**Minimal upstream fix.** A sorted `std::vector<EntityID>` with `clear()`
+(which keeps capacity) and `push_back`, or any flat set. The access pattern is
+insert-many-then-query, which is the pattern a flat container is best at. The
+public shape of `focused_ids` would change; nothing else would.
+
+CLASS: PERFORMANCE
