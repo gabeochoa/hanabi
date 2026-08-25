@@ -1183,11 +1183,18 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             if (appForWait != nullptr) driver.act(i - 1, *appForWait);
             if (const float step = driver.scroll_step(i - 1); step != 0.0f)
                 hanabi::soak::scroll_sidebar(step);
-            const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
-            graphics::clear_background(theme::window_bg());
-            sm.run(1.0f / 60.0f);
-            graphics::end_frame();
+            const unsigned long long cpu0 = hanabi::prof::enabled()
+                                                ? hanabi::prof::cpu_nanos()
+                                                : 0;
+            {
+                const hanabi::AutoreleaseFrame framePool;
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
+            if (hanabi::prof::enabled())
+                hanabi::prof::frame_cpu(hanabi::prof::cpu_nanos() - cpu0);
             hanabi::prof::frame();
             if (i % every == 0) {
                 auto now = std::chrono::steady_clock::now();

@@ -27,6 +27,8 @@
 // frame loop is the only caller -- so the counters are plain, not atomic.
 // ---------------------------------------------------------------------------
 
+#include <time.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -43,6 +45,28 @@ inline bool enabled() {
         return v != nullptr && *v != '\0' && std::string(v) != "0";
     }();
     return on;
+}
+
+// THREAD CPU TIME, not wall clock, and the difference is the whole reason any
+// of these numbers can be believed. Measured on a laptop that was also running
+// two Xcode builds, Puffin, Spotlight indexing and a virus scanner at 199% CPU
+// -- load average 29 -- the app's WALL-clock frame time on the 480-message
+// fixture read 4.5 ms at its best bucket and 10.6 ms at its median, and an
+// A/B of two binaries came out with the faster one 50% slower. Wall clock on a
+// contended machine measures the machine, and no number of repetitions fixes
+// that: the contention is not noise around a true value, it is a different
+// quantity.
+//
+// CLOCK_THREAD_CPUTIME_ID counts only cycles this thread was actually given,
+// so being descheduled costs nothing. The frame loop is single-threaded, which
+// is what makes this the right clock -- GPU wait and vsync fall out of the
+// reading too, and for "how much work does the transcript do" that is the
+// question anyway.
+inline unsigned long long cpu_nanos() {
+    struct timespec ts {};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<unsigned long long>(ts.tv_sec) * 1000000000ULL +
+           static_cast<unsigned long long>(ts.tv_nsec);
 }
 
 struct Entry {
@@ -76,23 +100,29 @@ inline void tick(const char* label, unsigned long long n = 1) {
 // RAII phase timer. Accumulates into `label` on destruction.
 struct Scope {
     const char* label;
-    std::chrono::steady_clock::time_point t0;
+    unsigned long long t0 = 0;
     bool on;
-    explicit Scope(const char* l)
-        : label(l), on(enabled()) {
-        if (on) t0 = std::chrono::steady_clock::now();
+    explicit Scope(const char* l) : label(l), on(enabled()) {
+        if (on) t0 = cpu_nanos();
     }
     ~Scope() {
         if (!on) return;
-        const auto dt = std::chrono::steady_clock::now() - t0;
         Entry& e = table()[label];
         ++e.calls;
-        e.nanos += static_cast<unsigned long long>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(dt).count());
+        e.nanos += cpu_nanos() - t0;
     }
     Scope(const Scope&) = delete;
     Scope& operator=(const Scope&) = delete;
 };
+
+// Whole-frame CPU, sampled by the soak loop, so the phase totals can be read
+// as a share of a frame that is itself measured on the same clock.
+inline void frame_cpu(unsigned long long ns) {
+    if (!enabled()) return;
+    Entry& e = table()["FRAME (cpu)"];
+    ++e.calls;
+    e.nanos += ns;
+}
 
 // Report. Timed phases first (sorted by cost), then the pure counters.
 inline void dump() {
@@ -105,7 +135,8 @@ inline void dump() {
             return a.second.nanos > b.second.nanos;
         return a.second.calls > b.second.calls;
     });
-    std::printf("\n[prof] %llu frames\n", frames());
+    std::printf("\n[prof] %llu frames  (CPU time, not wall clock)\n",
+                frames());
     std::printf("[prof] %-34s %12s %10s %10s %10s\n", "phase", "calls",
                 "calls/f", "ms total", "ms/frame");
     for (const auto& [name, e] : rows) {
