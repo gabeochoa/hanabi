@@ -262,6 +262,20 @@ rung, before the app has drawn anything, and 46,224 KB for the empty app. Two
 thirds of this app's malloc-side memory is spent before it shows you anything
 (top of this file); so is 46 MB of GPU memory that nothing here could see.
 
+**Every number in this entry is against `main` at `cc9fae1`** (`perf/scroll`,
+`perf/text` and `perf/retire` merged), measured after rebasing onto it, with
+the "before" arm taken at this branch's first commit -- which adds the counter
+and changes nothing else, so both arms are the same cache read by the same
+instrument. The empty-app GPU baseline is 46,224 KB in both.
+
+**The GPU figures did not move across either rebase**, on three successive
+bases, to the kilobyte -- 82,064 / 79,440 / 49,296 KB for the three image sets
+every time. That is the expected answer and also a check on the instrument: a
+sidebar row and a text measurement are not textures, so a branch that removed
+thousands of one and memoised the other should move RSS and leave the device
+counter alone, and that is exactly what happened. The RSS figures did move, and
+are quoted against the newest floor.
+
 #### 5a. The estimate every budget was built on was 32% low
 
 `w * h * 4`. afterhours' `load_texture` builds and uploads a full box-filtered
@@ -271,7 +285,7 @@ bytes of base level and **1,638,352 bytes resident**.
 
 So the 32 MB image cache was costing 47 MB. Measured on the ladder's image
 rung, 60 640x480 PNGs attached and removed one at a time, against the empty-app
-baseline:
+baseline of 46,224 KB:
 
 | | before | after |
 | --- | ---: | ---: |
@@ -279,6 +293,7 @@ baseline:
 | the cache's own estimate | 32,400 KB | 31,999 KB |
 | device, over baseline | 48,384 KB | **35,840 KB** |
 | estimate error | +49% | +12% |
+| ladder rung peak RSS | 98,400 KB | 84,384 KB |
 
 The budget did not change; it became true. A cache that says 32 MB and costs 47
 is worse than one with no bound, because the number is what anyone sizing the
@@ -308,8 +323,9 @@ window:
 | | before | after |
 | --- | ---: | ---: |
 | per image, resident | 30,931 KB | **7,731 KB** |
+| the cache's own estimate | 92,799 KB | 30,925 KB |
 | device, over baseline | 131,264 KB | 33,216 KB |
-| ladder rung peak RSS | 198,080 KB | 100,784 KB |
+| ladder rung peak RSS | 272,000 KB | 138,176 KB |
 
 Peak RSS halves rather than quarters because the decode buffer still exists for
 the moment before the upload; it is freed *before* the upload rather than
@@ -349,6 +365,8 @@ Eighty of them through the real app:
 | --- | ---: | ---: |
 | entries held | 80 | 32 |
 | unsamplable, and believed loaded | **20** | 0 |
+| device, over baseline | 7,680 KB | 3,072 KB |
+| ladder rung peak RSS | 50,896 KB | 45,904 KB |
 
 Capped at 32 — 64 samplers less 16 reserved for the app's own atlases, halved
 again for headroom — with a `static_assert` tying the cap to the pool constant,

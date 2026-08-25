@@ -337,6 +337,14 @@ pipeline right after `build_systems`. Interleaved A/B on one binary
 | first 6 frames, CPU above warm | 5.7-6.5 ms | 5.0-6.2 ms |
 | FirstFrame min / p50, ten runs | 43 / 51 ms | 44 / 50 ms |
 
+Re-run after rebasing onto `main` at `1abdaa3`, four interleaved rounds: frame 0
+3.53-4.17x before against 2.78-3.11x after, lower in 4 of 4. The absolute
+excess reads higher on that base (9.5-11.1 ms against 8.4-9.6) and the ratio
+does not, which is the reason the ratio is the headline: the box was busier,
+and both halves of a ratio are taken seconds apart in the same process. The
+branch was rebased again onto `cc9fae1` (`perf/text`, `perf/retire`) and the
+GPU figures in `MEMORY.md` did not move by a kilobyte across either rebase.
+
 Free on the gate's own number, consistently better on the curve, and small.
 
 **The negative result is the more useful half.** A pre-warm CANNOT reduce the
