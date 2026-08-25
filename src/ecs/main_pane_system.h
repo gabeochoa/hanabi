@@ -21,6 +21,7 @@
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
+#include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
@@ -5230,8 +5231,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            float fontPx = theme::type::BODY) {
         // wrap_text honours hard newlines itself, so a blank line still counts
         // as a line the way the old hand-rolled split did.
-        const int lines =
-            static_cast<int>(wrapped_lines(text, widthPx, fontPx).size());
+        //
+        // This used to be `wrapped_lines(...).size()` -- build every line as a
+        // std::string, put them in a vector, take the size, drop the lot. The
+        // counter in src/util/wrap_count.h answers the same question over byte
+        // offsets, through the SAME measure function afterhours' wrapper uses,
+        // so the two cannot disagree about where a line breaks (and
+        // tests/unit/test_wrap_count.cpp checks that differentially against
+        // the vendored wrapper itself). afterhours_gaps.md #135.
+        hanabi::prof::Scope _p("text.count_lines");
+        hanabi::prof::tick("text.count_bytes", text.size());
+        const int lines = hanabi::text::wrapped_line_count(
+            text, text_wrap_width(widthPx), [fontPx](const std::string& s) {
+                return afterhours::ui::measure_text_line(
+                           s, afterhours::ui::UIComponent::DEFAULT_FONT, fontPx)
+                    .x;
+            });
         return lines < 1 ? 1 : lines;
     }
 
