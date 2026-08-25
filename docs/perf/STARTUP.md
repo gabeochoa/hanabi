@@ -397,3 +397,50 @@ star/mute test calls `load_save_file()` before asserting, and a reload rebuilds
 the index from the file, repairing the desync before anything looks at it. The
 new test asserts *before* the reload, which is the only place the bug is
 visible.
+
+---
+
+## A flake I nearly reported as a regression
+
+A suite run came back with `thinking_disclosure` and `tool_fold_persists`
+failing, having been 85/85 green an hour earlier. Both are driven entirely by
+one of the environment variables the mock fixture reads, and I had just put a
+**cache** in front of that fixture. It was an excellent suspect. I wrote the
+fix — key the cache on all nine env vars rather than one — saw both tests pass,
+and was one keystroke from reporting it as the cause.
+
+It was not the cause.
+
+- `scripts/run_ui_tests.sh` runs each script as its **own process** with its own
+  env, so the cache cannot leak across scripts there at all.
+- Rebuilt the **committed, single-key** version and re-ran both tests: `rc=0`,
+  both.
+- Ran each five more times on that same binary: **10/10 pass**, at load average
+  11. The suite that failed them ran at load ~28.
+- Both failure logs show `[TIMEOUT] expect_text` with only the sidebar
+  painted — the async fetch had not landed inside the harness's window.
+
+They are load-induced flakes. The cache-key change stays, because
+`build_seed()` really does read nine environment variables and keying on one
+is wrong, and `main.cpp` really does support `--e2e <directory>` which runs
+many scripts in one process — but it is **defence, not a fix**, and the commit
+says so.
+
+**The thing worth someone's attention.** The e2e settle in `run_e2e` gates on a
+**frame count** (`for i in 0..300`), while the headless capture path gates on
+**wall clock** and carries a comment explaining exactly why:
+
+> IMPORTANT: gate on WALL-CLOCK time, not a frame count. Headless frames don't
+> sleep to target_fps — the loop runs as fast as the CPU allows, so a fixed
+> frame budget elapses in a few milliseconds, far short of the real network
+> fetch.
+
+Two settle loops, one lesson learned, applied to one of them. Under load the
+main thread can burn 300 headless frames in milliseconds while the worker doing
+`list_sessions()` is starved, and the script proceeds against an unpopulated
+pane. **I did not change it**, for the reason this whole document is written
+the way it is: I could not reproduce the failure, so I could not measure a fix,
+and a fix nobody can measure is the thing this branch exists to argue against.
+The harness's own `settle finished with no transcript loaded` warning did not
+fire in either log, so the frame-count settle is a *suspect with a motive*, not
+a diagnosis.
