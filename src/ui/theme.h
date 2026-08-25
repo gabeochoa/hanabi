@@ -12,6 +12,7 @@
 // working while the whole palette becomes runtime-swappable.
 
 #include "../util/prof.h"
+#include "../util/text_cache.h"
 #include <afterhours/src/drawing_helpers.h>
 
 #include <bitset>
@@ -599,9 +600,37 @@ constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
 // context isn't ready yet (very first frame / headless before font load).
 inline float text_px(const char* s, float px) {
     if (!s || !*s) return 0.0f;
+    // MEASURED, MEMOIZED, AND NOT THE LIBRARY'S CACHE -- afterhours_gaps.md
+    // #137. afterhours ships a TextMeasureCache wired up as a singleton, and
+    // it is unusable from here: it caches `measure_text`, which returns the
+    // INK BOUNDING BOX, while this returns `measure_text_internal`, the pen
+    // ADVANCE. Probed in-app on the same string in the same frame the two
+    // differ by 2 px, consistently, and the advance is the number every
+    // layout constant in this app was tuned against -- so routing through the
+    // shared cache widens every hugged bubble by two pixels, which against a
+    // frozen pixel reference is a regression rather than an optimisation.
+    //
+    // So the app keeps its own, over its own semantics. Bounded (LRU, see
+    // src/util/text_cache.h) and dropped when the face behind DEFAULT_FONT
+    // changes, which is the failure mode a measurement memo has and a
+    // measurement call does not.
+    //
+    // The fallback below is deliberately NOT cached: it fires before the font
+    // context exists, and one bad frame's estimates would otherwise be served
+    // for the life of the process.
+    constexpr std::size_t kAdvanceEntries = 1024;
+    static hanabi::text::TextKeyCache<float> memo(kAdvanceEntries);
+    if (const float* hit = memo.find(s, px, 0.0f)) {
+        hanabi::prof::tick("cache.advance_hit");
+        return *hit;
+    }
     hanabi::prof::tick("text.text_px_uncached");
     float w = afterhours::measure_text_internal(s, px);
-    if (w > 0.0f) return w;
+    if (w > 0.0f) {
+        memo.put(s, px, 0.0f, w);
+        hanabi::prof::gauge("cache.advance_entries", memo.size());
+        return w;
+    }
     // Fallback: ~0.5em per glyph (only hit before the font context exists).
     return static_cast<float>(std::char_traits<char>::length(s)) * px * 0.5f;
 }
