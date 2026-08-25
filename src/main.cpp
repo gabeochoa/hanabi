@@ -1290,6 +1290,11 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         msU.reserve(iters);
         msR.reserve(iters);
         for (int i = 0; i < iters; ++i) {
+            // The pool is pushed BEFORE the clock starts and drains after it
+            // stops, so it costs the measurement nothing — and without it this
+            // diagnostic loop leaks a render pass per frame, which is exactly
+            // the defect the numbers it prints are used to hunt.
+            const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             auto a = std::chrono::high_resolution_clock::now();
@@ -1508,6 +1513,9 @@ static int run_e2e(const std::string& path, int w, int h) {
                 apply_stream_demo(&q[0].get().get<ecs::AppComponent>());
         }
         runner.tick(kDt);
+        // The scripted-UI suite runs 85 scripts through this loop and nothing
+        // else drains what Metal autoreleases here.
+        const hanabi::AutoreleaseFrame framePool;
         graphics::begin_frame();
         graphics::clear_background(theme::window_bg());
         sm.run(kDt);
