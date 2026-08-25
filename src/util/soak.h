@@ -160,7 +160,11 @@ inline HeapStat heap_in_use() {
 // the census is a debugging session's question, not a soak's.
 //
 // The line above the breakdown is the one that says whether the app is paying
-// for widgets nobody is drawing: LIVE against BUILT THIS FRAME. On a screen
+// for widgets nobody is drawing: LIVE against BUILT THIS FRAME. The epoch at
+// the end of it is the frame counter the stamp uses, and it is there so a
+// reader (and scripts/retire_gate.sh) can tell "nothing is stale" from "the
+// system that advances the epoch is not registered any more", which otherwise
+// produce the same zero. On a screen
 // the app has sat on those two are the same number. After navigating away from
 // one they are not, and the difference never comes back down on its own
 // (afterhours_gaps.md #115).
@@ -176,8 +180,9 @@ inline void census() {
     if (!census_wanted()) return;
     const hanabi::widget_epoch::Tally t = hanabi::widget_epoch::tally();
     std::printf("[soak] widgets: %zu live, %zu built this frame, %zu stale, "
-                "%zu unstamped (library's own)\n",
-                t.live, t.built_this_frame, t.stale, t.unstamped);
+                "%zu unstamped (library's own), epoch %u\n",
+                t.live, t.built_this_frame, t.stale, t.unstamped,
+                hanabi::widget_epoch::epoch());
     std::unordered_map<std::string, int> byName;
     int unnamed = 0;
     for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
