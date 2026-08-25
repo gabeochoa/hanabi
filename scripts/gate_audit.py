@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""scripts/gate_audit.py — break every gate on purpose, and say what it did.
+
+WHY THIS EXISTS. Two gates in this repo were found to have stopped asserting
+anything, and both were found by luck: perf_transcript_slope.sh went
+permanently green when a fix rerouted its work to a new function, and
+scaling_gate.sh asserted nothing at all for a while after sidebar
+virtualization landed. A gate that cannot fail is worse than no gate -- it
+occupies the slot, it costs the wall clock, and it is read as evidence.
+
+So this is the audit, as a program rather than as an afternoon. Each entry
+below is a DEFECT: a one-line patch to a source file (or an env var), the gate
+it should turn red, and nothing else. The harness applies it, rebuilds, runs
+the gate, records the output under /tmp/hanabi_gate_audit/, and puts the source
+back.
+
+    scripts/gate_audit.py --list
+    scripts/gate_audit.py                 # everything, ~25 minutes
+    scripts/gate_audit.py scroll.blocks soak.cpu
+
+The results table lives in docs/perf/GATES.md section 0 and this file is what
+regenerates it. When a gate's thresholds move, or a defect stops applying
+because the code it patches moved, THAT is the signal: an anchor that no longer
+matches is a gate whose subject has changed underneath it.
+
+TWO THINGS THIS HARNESS LEARNED THE HARD WAY.
+
+  * It REBUILDS after restoring. The first version put the source back and
+    left the defective binary in output/, and the next clean soak_gate.sh run
+    read 6,883 entities and 8.7 ms a frame off it. scripts/fresh.sh exists for
+    exactly this and only warns.
+  * "The gate went red" is not the result. WHICH ROW went red is the result.
+    An unbounded version of the entities defect grew the app to 151 ms a frame
+    and was killed by soak_gate's own watchdog, so what went red was "the run
+    ended before it reached a verdict" -- correct, and not the arm under test.
+    Every defect here is sized so the gate survives measuring it.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = "/tmp/hanabi_gate_audit"
+os.makedirs(OUT, exist_ok=True)
+
+SB = "src/ecs/sidebar_system.h"
+MP = "src/ecs/main_pane_system.h"
+WR = "src/ecs/widget_retire_system.h"
+TH = "src/ui/theme.h"
+
+LEAK_ANCHOR = """    void once(float) override {
+        hanabi::widget_epoch::begin_epoch();"""
+
+DEFECTS = {
+    # ---- soak_gate ------------------------------------------------------
+    "soak.bytes": dict(
+        gate="soak-gate", build="app",
+        patches=[(WR, LEAK_ANCHOR, LEAK_ANCHOR + """
+        static std::vector<std::string> g_leak;
+        g_leak.emplace_back(512, 'x');""")]),
+    "soak.entities": dict(
+        gate="soak-gate", build="app", env={"HANABI_RETIRE": "0"},
+        patches=[(SB, '        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",',
+                  '        shown += render_folder(ctx, scroll.ent(),\n'
+                  '                               900000 + 100 * static_cast<int>(\n'
+                  '                                   hanabi::widget_epoch::epoch() % 400u),\n'
+                  '                               "", "recent",')]),
+    "cover.retire_entities": dict(
+        gate="retire-gate", build="app", env={"HANABI_RETIRE": "0"},
+        patches=[(SB, '        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",',
+                  '        shown += render_folder(ctx, scroll.ent(),\n'
+                  '                               900000 + 100 * static_cast<int>(\n'
+                  '                                   hanabi::widget_epoch::epoch() % 400u),\n'
+                  '                               "", "recent",')]),
+    "cover.scaling_entities": dict(
+        gate="scaling-gate", build="app", env={"HANABI_RETIRE": "0"},
+        patches=[(SB, '        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",',
+                  '        shown += render_folder(ctx, scroll.ent(),\n'
+                  '                               900000 + 100 * static_cast<int>(\n'
+                  '                                   hanabi::widget_epoch::epoch() % 400u),\n'
+                  '                               "", "recent",')]),
+    "soak.entities_unbounded": dict(
+        gate="soak-gate", build="app", env={"HANABI_RETIRE": "0"},
+        patches=[(SB, '        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",',
+                  '        shown += render_folder(ctx, scroll.ent(),\n'
+                  '                               900000 + 40 * static_cast<int>(\n'
+                  '                                   hanabi::widget_epoch::epoch() / 25u),\n'
+                  '                               "", "recent",')]),
+    "transcript.wrap": dict(
+        gate="slope", build="app",
+        patches=[(MP, "        if (const int* hit = memo.find(text, widthPx, fontPx)) {",
+                  "        if (const int* hit = (const int*)nullptr) {")]),
+    "soak.blocks": dict(
+        gate="soak-gate", build="app",
+        patches=[(WR, LEAK_ANCHOR, LEAK_ANCHOR + """
+        static std::vector<char*> g_blocks;
+        for (int i = 0; i < 4; ++i) g_blocks.push_back(new char[24]);""")]),
+    "launch.latency": dict(
+        gate="launch", build="app",
+        patches=[(WR, LEAK_ANCHOR, LEAK_ANCHOR + """
+        static bool g_once = true;
+        if (g_once) { g_once = false; usleep(400000); }""")]),
+    "soak.cpu": dict(
+        gate="soak-gate", build="app",
+        patches=[(WR, LEAK_ANCHOR, LEAK_ANCHOR + """
+        static std::vector<int> g_walk;
+        g_walk.push_back(1);
+        volatile long g_sink = 0;
+        for (int i = 0; i < 1200; ++i)
+            for (int v : g_walk) g_sink += v;""")]),
+    # ---- scaling_gate ---------------------------------------------------
+    "scaling.widgets": dict(
+        gate="scaling-gate", build="app",
+        patches=[(SB, "        return (expandedMore || total <= cap) ? total : cap;",
+                  "        (void)expandedMore; (void)cap; return total;")]),
+    "scaling.both": dict(
+        gate="scaling-gate", build="app",
+        patches=[(SB, "        return (expandedMore || total <= cap) ? total : cap;",
+                  "        (void)expandedMore; (void)cap; return total;"),
+                 (SB, "        if (!uniformHeight) return w;",
+                  "        if (true) return w;\n        if (!uniformHeight) return w;")]),
+    "scaling.virt_only": dict(
+        gate="scaling-gate", build="app",
+        patches=[(SB, "        if (!uniformHeight) return w;",
+                  "        if (true) return w;\n        if (!uniformHeight) return w;")]),
+    # ---- scroll_gate ----------------------------------------------------
+    "scroll.level": dict(
+        gate="scroll-gate", build="app",
+        patches=[(SB, "        if (!uniformHeight) return w;",
+                  "        if (true) return w;\n        if (!uniformHeight) return w;")]),
+    "scroll.cpu": dict(
+        gate="scroll-gate", build="app",
+        patches=[(SB, "        rowsRendered_ = win.last - win.first;",
+                  "        {\n"
+                  "            static std::vector<int> seen;\n"
+                  "            for (int r = win.first; r < win.last; ++r) seen.push_back(r);\n"
+                  "            volatile long sink = 0;\n"
+                  "            for (int k = 0; k < 40; ++k)\n"
+                  "                for (int v : seen) sink += v;\n"
+                  "        }\n"
+                  "        rowsRendered_ = win.last - win.first;")]),
+    "scroll.blocks": dict(
+        gate="scroll-gate", build="app",
+        patches=[(SB, "            const int rowId = base + 1 + (++i);",
+                  "            const int rowId = base + 1 + idx;")]),
+    # ---- retire_gate ----------------------------------------------------
+    "retire.epoch": dict(
+        gate="retire-gate", build="app",
+        patches=[(WR, "        hanabi::widget_epoch::begin_epoch();\n        if (!hanabi::widget_epoch::retire_enabled()) return;",
+                  "        if (!hanabi::widget_epoch::retire_enabled()) return;")]),
+    "retire.stale": dict(gate="retire-gate", build="app", env={"HANABI_RETIRE": "0"}),
+    # ---- perf_text_gate -------------------------------------------------
+    "text.measures": dict(
+        gate="text", build="app",
+        patches=[(MP, "        if (const int* hit = memo.find(text, widthPx, fontPx)) {",
+                  "        if (const int* hit = (const int*)nullptr) {")]),
+    "text.advance_rate": dict(
+        gate="text", build="app",
+        patches=[(TH, "    if (const float* hit = memo.find(s, px, 0.0f)) {",
+                  "    if (const float* hit = (const float*)nullptr) {")]),
+    "text.memo_bound": dict(
+        gate="text", build="app",
+        patches=[(MP, "        constexpr std::size_t kLineCountEntries = 512;",
+                  "        constexpr std::size_t kLineCountEntries = 4096;")]),
+    # ---- perf_transcript_slope ------------------------------------------
+    "transcript.render_cache": dict(
+        gate="slope", build="app",
+        patches=[(MP, "            if (const auto* hit = render_cache().get(key, textW)) {",
+                  "            if (const auto* hit = (const ecs::model::MsgRender*)nullptr) {")]),
+    # ---- measure_launch -------------------------------------------------
+    "launch.rss": dict(
+        gate="launch", build="app",
+        patches=[(WR, LEAK_ANCHOR, LEAK_ANCHOR + """
+        static std::vector<std::string> g_big;
+        if (g_big.empty())
+            for (int i = 0; i < 400; ++i) g_big.emplace_back(1 << 20, 'x');""")]),
+}
+
+GATE_CMD = {
+    "soak-gate": ["bash", "scripts/soak_gate.sh"],
+    "scaling-gate": ["bash", "scripts/scaling_gate.sh"],
+    "scroll-gate": ["bash", "scripts/scroll_gate.sh"],
+    "retire-gate": ["bash", "scripts/retire_gate.sh"],
+    "text": ["bash", "scripts/perf_text_gate.sh"],
+    "slope": ["bash", "scripts/perf_transcript_slope.sh"],
+    "launch": ["bash", "scripts/measure_launch.sh"],
+}
+
+
+def run(cmd, env=None, timeout=1200):
+    e = dict(os.environ)
+    if env:
+        e.update(env)
+    p = subprocess.run(cmd, cwd=ROOT, env=e, capture_output=True, text=True,
+                       timeout=timeout)
+    return p.returncode, p.stdout + p.stderr
+
+
+def build(kind):
+    if kind == "none":
+        return True, ""
+    tgt = "uitest-build" if kind == "uitest" else "-j8"
+    rc, out = run(["make", tgt] if kind == "uitest" else ["make", "-j8"])
+    return rc == 0, out[-2000:]
+
+
+def apply(patches):
+    saved = {}
+    for path, old, new in patches:
+        full = os.path.join(ROOT, path)
+        if path not in saved:
+            saved[path] = open(full).read()
+        s = open(full).read()
+        if s.count(old) != 1:
+            for p, c in saved.items():
+                open(os.path.join(ROOT, p), "w").write(c)
+            raise SystemExit(f"anchor not unique in {path}: {old[:60]!r}")
+        open(full, "w").write(s.replace(old, new))
+    return saved
+
+
+def restore(saved):
+    for p, c in saved.items():
+        open(os.path.join(ROOT, p), "w").write(c)
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if "--list" in sys.argv:
+        for k, v in DEFECTS.items():
+            print(f"{k:28s} -> {v['gate']}")
+        return
+    names = args or list(DEFECTS)
+    results = {}
+    for name in names:
+        d = DEFECTS[name]
+        print(f"=== {name}", flush=True)
+        saved = apply(d.get("patches", []))
+        try:
+            ok, blog = build(d["build"])
+            if not ok:
+                results[name] = {"build": "FAILED", "log": blog}
+                print("  BUILD FAILED\n" + blog)
+                continue
+            rc, out = run(GATE_CMD[d["gate"]], d.get("env"))
+            results[name] = {"rc": rc, "out": out}
+            open(f"{OUT}/{name}.log", "w").write(out)
+            print(f"  rc={rc}")
+        finally:
+            restore(saved)
+            # Rebuild on the way out. Leaving a defective binary in output/ is
+            # how the next clean run reads as a catastrophic regression.
+            build(d["build"] if d["build"] != "none" else "app")
+    open(f"{OUT}/results.json", "w").write(json.dumps(results, indent=1))
+
+
+if __name__ == "__main__":
+    main()

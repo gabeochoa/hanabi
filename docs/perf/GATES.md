@@ -86,6 +86,14 @@ to reproduce it.
 
 Measured 2026-08-25 on `gabeochoa-mac-GRQ7Y259H4`, branch `perf/flake`.
 
+**It is a program, not an afternoon.** `scripts/gate_audit.py` holds every
+defect below as a one-line patch plus the gate it should turn red; `make
+gate-audit` runs the lot (~25 minutes, one rebuild per defect), and
+`make gate-audit DEFECT=scroll.blocks` runs one. Regenerate this table from it
+whenever a threshold moves or a gate is added. An anchor that stops matching is
+itself the signal: it means the code a gate is watching has moved and nobody
+told the gate.
+
 ### The table
 
 | gate · arm | defect injected | observed |

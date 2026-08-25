@@ -624,6 +624,14 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #   make stress-break  Open every thread until a frame costs 3x what it did at
 #                      rest, and report how far it got:
 #                        make stress-break UNTIL=cpu:3.0 SESSIONS=2000
+# Break every gate on purpose and record what it did. NOT in `make test` --
+# it rebuilds the app once per defect and takes ~25 minutes. Run it when a
+# threshold moves, when a gate is added, or when a fix reroutes work a gate was
+# watching: that last one is how perf_transcript_slope.sh went permanently
+# green without anyone noticing. docs/perf/GATES.md section 0.
+gate-audit: $(MAIN_EXE) copy-resources
+	@/usr/bin/python3 scripts/gate_audit.py $(DEFECT)
+
 soak-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/soak_gate.sh
 
@@ -713,7 +721,7 @@ source-checks:
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate \
-	retire-gate source-checks soak-report soak-baseline stress stress-break
+	retire-gate gate-audit source-checks soak-report soak-baseline stress stress-break
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the
