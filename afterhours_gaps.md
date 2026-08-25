@@ -72,7 +72,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #220 a scroll view's viewport is zero on frame one, and under #115 one uncapped frame is a permanent plateau
 - #221 `with_label` takes `const std::string&`, so every label is a heap allocation per widget per frame
 - #222 an absolutely-positioned child still counts in its parent's flex flow (120 log lines a frame)
-- #223 the e2e runner budgets assertions in wall-clock SECONDS, so a correct script fails on a loaded box
+- #223 the e2e runner's retry budget is named in seconds and fed by the host's `dt`, so reproducibility is the host's undocumented decision
 - #224 nothing can measure a child without building it, so a variable-height window re-implements the box model
 
 **Resolved / corrected**
@@ -7372,39 +7372,63 @@ already taken from the translate rather than the flow.
 
 CLASS: SHARP EDGE
 
-### #223 — The e2e runner bounds its assertions in WALL-CLOCK seconds, so a correct script fails on a loaded machine
+### #223 — The e2e runner's retry budget is named in seconds and fed by the host's `dt`, so whether the suite is reproducible is the HOST's decision and nothing says so
 
 **What I wanted.** To tell whether a UI-suite failure was mine.
 
-**What happened.** `tests/ui/select_word_and_line.e2e` failed on my branch. It
-also fails on a clean build of unmodified `main` in a separate worktree — 88
-passed / 1 failed, the same one, on both. The box's load average was 123 at
-the time, because another agent had leaked several dozen runaway processes.
+**What happened, and the first answer was wrong.**
+`tests/ui/select_word_and_line.e2e` failed on my branch. The box's load average
+was 123 at the time — another agent had leaked several dozen runaway processes
+— so I looked at the runner, found that every assertion's retry budget is a
+field called `wait_seconds`, and concluded the suite was failing correct
+scripts under load. That is written up in the first version of this entry and
+it is **wrong**, and the way it was caught is the only reason it is worth an
+entry at all: I built the merge-base in a separate worktree and ran the suite
+on BOTH, on a quiet box (load 6.6).
 
-The cause is in the runner: a command's retry budget is `cmd.wait_seconds`,
-set to a multiple of a nominal frame duration (`cmd.wait_seconds = 8 * frame`
-and so on), and it is compared against wall clock. `wait_frames` counts
-frames, correctly; every `expect_text` / `click_ui` / `double_click_ui` around
-it counts seconds. On a machine that is rendering at a tenth of its usual rate
-the script has not slowed down — it has run out of TIME, having executed a
-fraction of the frames the author was pinning.
+```
+  base   (main @ ef29c1a)   86 passed, 1 failed — select_word_and_line
+  branch                    88 passed, 1 failed — select_word_and_line
+```
 
-The failure message says `Text not found`, which is exactly what a genuine
-regression says, so the test is not merely flaky: it is flaky and it lies
-about why.
+Identical, quiet, reproducible. `select_word_and_line` is simply broken on
+main, the way `tracker_links.e2e` already is. Not mine, and not the load.
 
-**The workaround, and its cost.** Build the same commit in a second worktree
-and run the suite there to establish which failures are the machine's. That is
-a full submodule checkout and a full compile per investigation. hanabi's brief
-already carries "tracker_links.e2e is flaky on pristine main. Not yours." as
-tribal knowledge; this is the mechanism behind that sentence, and
-`select_word_and_line` is a second member of the same class.
+**The gap that is actually there.** `PendingE2ECommand::wait_seconds` is
+decremented by whatever `dt` the host hands `runner.tick(dt)`:
 
-**Minimal upstream fix.** Budget in FRAMES, not seconds: the runner already
-counts frames for `wait_frames`, and every retry budget is written as a
-multiple of one. A frame budget is the same amount of work on a fast machine
-and a slow one, which is the reason `stress.h` gives for counting frames and
-not seconds, quoted from Puffin, in this same repository.
+```cpp
+wait_time_ -= dt;          // runner.h
+elapsed_time_ += dt;
+```
+
+hanabi's host passes `constexpr float kDt = 1.0f / 60.0f` — a FIXED step — so
+in this app the budgets are frames wearing a seconds-shaped name, and the suite
+is reproducible on any machine. That is correct, and it is correct by a choice
+made in `src/main.cpp` that the library neither requires nor mentions. A host
+that passes real elapsed time — the obvious thing to write, and exactly what a
+field called `wait_seconds` invites — gets a suite whose assertions expire in
+wall clock while `wait_frames` between them counts frames, and correct scripts
+then fail under load with `Text not found`, which is indistinguishable from a
+genuine regression.
+
+`stress.h` in this same repository argues the general case in its header,
+quoted from Puffin: *"Every scenario terminates on a fixed COUNT, never a
+duration. A count is the same amount of work on a fast machine and a slow
+one."* The e2e runner leaves that decision to the host and does not say it is
+being made.
+
+**The workaround, and its cost.** hanabi already passes a fixed dt, so nothing
+to work around — but the shared-box cost is real anyway: `run_ui_tests.sh`
+kills a script after **60 seconds of WALL clock** (`TIMEOUT=60`, rc 124), which
+is genuinely load-sensitive and is what took out an unrelated script during the
+load spike. And establishing that a failure is not yours costs a worktree, a
+submodule checkout and a full compile, every time.
+
+**Minimal upstream fix.** Rename the field to `wait_frames_` and count ticks,
+or document at `tick(dt)` that the runner's determinism is the caller's
+responsibility and that a fixed step is what the harness expects. The rename is
+better: it makes the right thing the only thing.
 
 CLASS: SHARP EDGE
 

@@ -278,23 +278,40 @@ add.
 
 ## Footguns hit while doing this
 
-### The UI suite fails correct scripts on a loaded box, and says "Text not found"
+### A failure that is not yours costs a worktree to prove, and I got it wrong first
 
-`tests/ui/select_word_and_line.e2e` failed on this branch. It also fails on a
-clean build of unmodified `main` in a separate worktree — 88 passed / 1 failed,
-the same one, on both, at a load average of 123.
+`tests/ui/select_word_and_line.e2e` failed on this branch. The box's load
+average was 123 — another agent had leaked several dozen runaway processes —
+and the runner budgets every assertion's retries in a field called
+`wait_seconds`, so I wrote it up as the suite failing correct scripts under
+load, and filed a gap saying so.
 
-The runner budgets each assertion's retries in **wall-clock seconds**
-(`cmd.wait_seconds = 8 * frame`), while `wait_frames` between them counts
-FRAMES. On a machine rendering at a tenth of its usual rate the script has not
-slowed down — it has run out of time having executed a fraction of the frames
-the author pinned. Filed as **#223**; `stress.h`'s own header explains why a
-count beats a duration, quoted from Puffin, in this same repository.
+Then I built the merge-base in a second worktree and ran the whole suite on
+both, on a quiet box (load 6.6):
 
-`tracker_links.e2e` is already known-flaky on pristine main. This is the
-mechanism, and `select_word_and_line` is a second member of the class. **Before
-believing a UI-suite failure is yours, build the merge-base in a second
-worktree and run it there.** It costs a submodule checkout and one compile.
+```
+  base   (main @ ef29c1a)   86 passed, 1 failed — select_word_and_line
+  branch                    88 passed, 1 failed — select_word_and_line
+```
+
+Identical. It is simply broken on main, the way `tracker_links.e2e` already
+is, and the load had nothing to do with it. Gap **#223** is rewritten around
+what is actually there: `wait_seconds` is decremented by whatever `dt` the
+host passes, hanabi passes a fixed 1/60 so the budgets are frames wearing a
+seconds-shaped name, and a host that passed real elapsed time would get the
+suite I wrongly described. A latent trap, not an active one.
+
+The lesson is the cheap half: **before believing a UI-suite failure is yours,
+build the merge-base in a second worktree and run it there.** It costs a
+submodule checkout and one compile, and it is the difference between a
+sentence that is true and a sentence that is plausible. Two of the three
+things I concluded from a loaded box in this branch turned out to be wrong;
+this one and the interleaving in section 6 are both here because of it.
+
+(The genuinely load-sensitive part is `run_ui_tests.sh`'s own `TIMEOUT=60`
+seconds of wall clock, which kills a script outright with rc 124. That is what
+took out an unrelated script during the spike, and it says rc=124 rather than
+`Text not found`, so it does not lie about why.)
 
 ### `scripts/run_ui_tests.sh <one-script>` runs the whole suite
 
