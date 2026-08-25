@@ -1972,6 +1972,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.0f)
+                    // A minimap is a map: every mark in the thread is on
+                    // screen at once by design, so putting them in the tab
+                    // order means tabbing past one dot per turn to reach the
+                    // composer. It also costs a std::set node per mark per
+                    // frame in afterhours' focusable set (gap #183).
+                    .with_skip_tabbing(true)
                     .with_on_draw_fg([mark, hot](RectangleType r) {
                         hanabi::minimap::draw_mark(r, mark, hot);
                     })
@@ -2597,6 +2603,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 const std::string& text, float fontPx) {
         el.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
+        // The listener above is empty: it exists so the element gets hover and
+        // press plumbing for the drag-select, not because a paragraph is a
+        // thing you can activate. afterhours reads "has a click listener" as
+        // "is a keyboard tab stop", so without this every line of every
+        // rendered turn joined the tab order -- and, since the focusable set
+        // is a std::set rebuilt from scratch each frame, cost a red-black-tree
+        // node malloc per line per frame (afterhours_gaps.md #183). Tabbing
+        // through forty paragraphs to reach the composer was not a feature.
+        el.addComponentIfMissing<afterhours::ui::SkipWhenTabbing>();
         if (el.has<afterhours::HasColor>())
             el.get<afterhours::HasColor>().skip_hover_override = true;
         el.addComponentIfMissing<afterhours::ui::HasCursor>(
