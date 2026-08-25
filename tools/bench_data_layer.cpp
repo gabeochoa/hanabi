@@ -119,6 +119,35 @@ int main(int argc, char** argv) {
     std::printf("  %-46s %8.3f ms\n",
                 "trim_to_cap(1 GiB) — under cap, no-op", tc);
 
+    // CORRECTNESS, not speed: the estimate must never let the cache sit over
+    // its cap for longer than the base code would. Set a cap far BELOW what is
+    // on disk and check the very next call evicts, even though the preceding
+    // calls were all cheap skips.
+    //
+    // NOTE, and it is a real pre-existing finding rather than a regression:
+    // trim_to_cap has a FLOOR and can return with the cache still over cap.
+    // Every transcript gets trimmed to keep_tail messages, and once they all
+    // are there is nothing left to reclaim -- the loop exits over cap. At 2000
+    // files x 40 messages against a cap of a quarter the corpus this lands at
+    // 2,802,000 B against a 2,690,500 B cap. The BASE disk_cache.cpp produces
+    // that same number to the byte, so the estimate changes nothing here; the
+    // assertion below is therefore "no worse than a full scan would be".
+    {
+        const std::uint64_t onDisk = api::disk_cache::total_bytes();
+        const std::uint64_t tinyCap = onDisk / 4;
+        const std::uint64_t freed = api::disk_cache::trim_to_cap(tinyCap);
+        const std::uint64_t nowOnDisk = api::disk_cache::total_bytes();
+        std::printf("  cap enforcement: %llu B on disk, cap %llu B -> freed "
+                    "%llu B, now %llu B  [%s]\n",
+                    (unsigned long long)onDisk, (unsigned long long)tinyCap,
+                    (unsigned long long)freed,
+                    (unsigned long long)nowOnDisk,
+                    freed > 0 ? "evicted" : "DID NOT EVICT -- BUG");
+        // The estimate's contract is "never SKIP a trim that was due". Freeing
+        // nothing at all when the cache is 4x its cap would mean it did.
+        if (freed == 0) return 3;
+    }
+
     // ── 2. the stream's per-frame classification ────────────────────────────
     // The websocket loop has already parsed each frame into a json object, then
     // calls classify_live_frame(msg.dump()) -- serialising the whole object

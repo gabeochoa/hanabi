@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <utility>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -46,8 +47,14 @@ static fs::path flat_cache_base() {
     return {};
 }
 
+// Defined below with the rest of the cache-size estimate; declared here
+// because switching namespace switches DIRECTORY, and an estimate taken in one
+// cache says nothing about another.
+namespace { void invalidate_cache_size_estimate(); }
+
 void set_namespace(const std::string& key) {
     g_namespace = key.empty() ? std::string() : ns_token(key);
+    invalidate_cache_size_estimate();
     if (g_namespace.empty()) return;
 
     // ONE-TIME MIGRATION: before namespacing, the cache lived flat directly in
@@ -202,6 +209,47 @@ std::string transcript_file(const std::string& id) {
                              .string();
 }
 
+// ---- cache-size estimate, so the common case does not touch the disk ------
+//
+// trim_to_cap() used to call total_bytes() FIRST -- before it knew whether
+// anything needed evicting -- and total_bytes() walks the whole cache
+// directory with a file_size() stat per entry. The default cap is 1 GiB, so on
+// essentially every save the answer is "under cap, nothing to do" and the walk
+// was pure cost, on the FRAME THREAD (LoaderSystem::save_and_trim runs in the
+// frame loop, not on the fetch's worker).
+//
+// MEASURED (tools/bench_data_layer.cpp, CLOCK_THREAD_CPUTIME_ID):
+//     200 cache files    0.674 ms per save
+//    2000 cache files    5.904 ms per save   (~3.2 us/file)
+//
+// The estimate below is deliberately an OVER-estimate, which is what makes it
+// safe: it adds every byte written and never subtracts one. Overwriting a
+// large transcript with a small one, or deleting a file outside a trim, both
+// make the real total SMALLER than the estimate. So "estimate <= cap" proves
+// "real total <= cap", and a trim that is genuinely needed can never be
+// skipped. The reverse -- scanning when we did not have to -- is just the old
+// behaviour, and it is what happens on the first call and after any eviction.
+//
+// It also re-scans unconditionally every kForceScanEvery calls, so drift from
+// anything that writes to the cache dir behind our back self-corrects.
+std::mutex g_size_mu;
+std::uint64_t g_scanned_total = 0;     // total_bytes() at the last real scan
+std::uint64_t g_written_since = 0;     // bytes written since that scan
+bool g_have_scan = false;
+unsigned g_since_force = 0;
+constexpr unsigned kForceScanEvery = 64;
+
+void note_cache_bytes_written(std::size_t n) {
+    std::lock_guard<std::mutex> lk(g_size_mu);
+    g_written_since += static_cast<std::uint64_t>(n);
+}
+
+void invalidate_cache_size_estimate() {
+    std::lock_guard<std::mutex> lk(g_size_mu);
+    g_have_scan = false;
+    g_written_since = 0;
+}
+
 // Atomic-ish write: write to a temp file then rename, so a crash mid-write
 // never leaves a half-written cache file that fails to parse.
 bool write_file(const std::string& path, const std::string& content) {
@@ -219,6 +267,7 @@ bool write_file(const std::string& path, const std::string& content) {
         fs::remove(tmp, ec);
         return false;
     }
+    note_cache_bytes_written(content.size());
     return true;
 }
 
@@ -445,6 +494,9 @@ std::size_t wipe_all() {
         std::error_code rm;
         if (fs::remove(p, rm) && !rm) ++removed;
     }
+    // The estimate counts bytes written and never bytes removed, so a wipe
+    // leaves it wildly high. Drop it; the next trim_to_cap does a real scan.
+    invalidate_cache_size_estimate();
     return removed;
 }
 
@@ -655,7 +707,26 @@ std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
     const std::string dir = cache_dir();
     if (dir.empty()) return 0;
 
+    // Can we prove we are under cap without touching the disk? The estimate
+    // over-counts (see note_cache_bytes_written), so "estimate <= cap" implies
+    // "real <= cap" and a needed trim can never be skipped.
+    {
+        std::lock_guard<std::mutex> lk(g_size_mu);
+        if (g_have_scan && g_since_force < kForceScanEvery &&
+            g_scanned_total + g_written_since <= cap_bytes) {
+            ++g_since_force;
+            return 0;
+        }
+    }
+
     const std::uint64_t before = total_bytes();
+    {
+        std::lock_guard<std::mutex> lk(g_size_mu);
+        g_scanned_total = before;
+        g_written_since = 0;
+        g_have_scan = true;
+        g_since_force = 0;
+    }
     if (before <= cap_bytes) return 0;  // already under cap
 
     // Gather all transcript files (never sessions.json) with eviction metadata.
@@ -709,6 +780,13 @@ std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
     }
 
     const std::uint64_t after = total_bytes();
+    {
+        std::lock_guard<std::mutex> lk(g_size_mu);
+        g_scanned_total = after;
+        g_written_since = 0;
+        g_have_scan = true;
+        g_since_force = 0;
+    }
     return (before > after) ? (before - after) : 0;
 }
 
