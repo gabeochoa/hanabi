@@ -90,18 +90,18 @@ Measured 2026-08-25 on `gabeochoa-mac-GRQ7Y259H4`, branch `perf/flake`.
 
 | gate · arm | defect injected | observed |
 | --- | --- | --- |
-| **measure_launch** · FirstFrame | `usleep(400000)` once on the first frame | `FirstFrame: 470 ms` — `FAIL: FirstFrame 470 ms >= 250 ms` |
+| **measure_launch** · FirstFrame | 400 ms of sleep once, on the first frame | `FirstFrame: 470 ms` — `FAIL: FirstFrame 470 ms >= 250 ms` |
 | **measure_launch** · peak RSS | retain 400 × 1 MB strings at startup | `Peak RSS: 457 MB` — `FAIL: peak RSS 457 MB >= 250 MB` |
 | **soak_gate** · RSS | retain one 512-byte string per frame | `RSS +661.3 KB /1000f  budget 512  FAIL 1.3x over` |
 | **soak_gate** · heap bytes | same | `heap bytes +657.5 KB  budget 256  FAIL 2.6x over` |
-| **soak_gate** · heap blocks | `new char[24]` × 4 per frame, retained | `heap blocks +3985.6  budget 1000  FAIL 4.0x over` |
-| **soak_gate** · entities | sidebar folder base id keyed on the epoch, unbounded, `HANABI_RETIRE=0` | `entities +33500.0  budget 25  FAIL` (frame 250 → 1500: 25,125 → 108,875 entities, 23.6 → 151.4 ms) |
+| **soak_gate** · heap blocks | `new char[24]` × 4 per frame, retained | `heap blocks +3985.6  budget 100  FAIL` — and at the budget of 1000 it was set at, a 512-byte-per-frame leak read exactly `+1000.0  ok` |
+| **soak_gate** · entities | sidebar folder base id keyed on `epoch / 25`, so the set grows without bound, `HANABI_RETIRE=0` | `entities +2680.0  budget 25  FAIL 107.2x over budget` |
 | **soak_gate** · cpu time | a per-frame walk over a vector that grows by one each frame | `cpu time +3.5 ms  budget 1.0  FAIL 3.5x over` (2.4 → 7.7 ms/frame across the run) |
 | **scaling_gate** · widgets | the sidebar's cap AND its row window both removed | `widgets 373 → 6618 = 17.74x  budget 1.50x  FAIL` |
 | **scaling_gate** · frame time | same | `min ms/f 1.44 → 16.55 = 11.49x  budget 2.50x  FAIL` |
 | **scroll_gate** · level (entities) | `row_window()` returns the whole list | `entities, list expanded 381 → 6626 = 17.39x  budget 1.60x  FAIL` |
-| **scroll_gate** · trend, frame cpu | a per-frame walk over an index of every row visited | `frame cpu, min-of-half 1.24x  budget 1.15x  FAIL` |
-| **scroll_gate** · trend, blocks | row ids keyed on the row INDEX, not the window slot (#115) | `live blocks /1000f +276.9  budget 40  FAIL` |
+| **scroll_gate** · trend, frame cpu | a per-frame walk over an index of every row visited, forty times a frame | `frame cpu, min-of-half 1.221x  budget 1.150x  FAIL` |
+| **scroll_gate** · trend, blocks | row ids keyed on the row INDEX, not the window slot (#115) | `live blocks /1000f +276.9  budget 40  FAIL` (its level arm goes too: `2.94x`) |
 | **retire_gate** · epoch | `begin_epoch()` removed from `WidgetRetireSystem::once` | `epoch 1 after 1200 frames  FAIL` |
 | **retire_gate** · stale | `HANABI_RETIRE=0` | `stale widgets 774  budget 0  FAIL` |
 | **retire_gate** · live/built | `HANABI_RETIRE=0` | `live / built 2.15x  ceiling 1.50x  FAIL` |
@@ -112,12 +112,23 @@ Measured 2026-08-25 on `gabeochoa-mac-GRQ7Y259H4`, branch `perf/flake`.
 | **perf_transcript_slope** · allocations slope | the transcript render cache's `get` forced to miss | `allocations/frame 8636.7 → 24112.8  slope 36.8/msg  limit 12  FAIL` |
 | **perf_transcript_slope** · render-cache rate | same | `0 hit / 342.8 miss = 0.0%  limit 95.0%  FAIL` (both sizes) |
 | **perf_transcript_slope** · wrap calls, level | the line-count memo's `find` forced to miss | **added by this branch** — `wrap calls/frame 81.4  limit 5.0  FAIL` |
-| **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL` |
+| **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, so the set SATURATES, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL`, with every slope row above it reading `ok` |
 | **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |
 | **check_autorelease** | one `AutoreleaseFrame` use deleted from `src/main.cpp` | *(see below)* |
 | **check_label_padding** | a label given a padding the baseline does not allow | *(see below)* |
 | **check_watchdogs** | an unredirected backgrounded `sleep` added to a script | *(see below)* |
 | **compare.py --selftest** | the exclusion arithmetic altered | *(see below)* |
+
+One row is worth reading twice. The **entities** injection above was first
+built with no bound at all — a fresh set of widgets every frame — and the run
+grew to 108,875 entities and **151 ms a frame** by frame 1500 and was killed by
+the gate's own 120-second watchdog. The gate then reported
+`FAIL: the run ended before it reached a verdict (rc=137), twice` — which is
+correct, and is NOT the entities arm firing. A defect large enough to time the
+run out is invisible to every arm the run never reached. That is why the row
+above uses `epoch / 25`: a defect has to be small enough for the gate to
+survive measuring it, and "the gate went red" is only evidence when you check
+WHICH row went red.
 
 ### The four gates that did NOT go red, and what was done about each
 
