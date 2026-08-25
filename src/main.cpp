@@ -1100,28 +1100,51 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         // (afterhours_gaps #21). The mock resolves both synchronously.
         constexpr auto kMaxWait = std::chrono::seconds(10);
         auto deadline = std::chrono::steady_clock::now() + kMaxWait;
-        while (std::chrono::steady_clock::now() < deadline) {
-            bool listReady = appForWait->listState != ecs::LoadState::Loading &&
-                             appForWait->listState != ecs::LoadState::Idle;
+        // Is everything the capture needs actually here?
+        auto ready = [&] {
+            const bool listReady =
+                appForWait->listState != ecs::LoadState::Loading &&
+                appForWait->listState != ecs::LoadState::Idle;
             // A transcript is "pending" only when a thread is actually open and
             // its fetch hasn't resolved. No open thread => nothing to wait for.
-            bool transcriptPending =
+            const bool transcriptPending =
                 !appForWait->selectedId.empty() &&
                 (appForWait->transcriptState == ecs::LoadState::Loading ||
                  appForWait->transcriptState == ecs::LoadState::Idle);
-            if (listReady && !transcriptPending) break;
+            return listReady && !transcriptPending;
+        };
+        // The sleep BACKS OFF rather than sitting at 8 ms. Two bugs it fixes,
+        // both measured:
+        //
+        //  1. The old loop slept AFTER the render and re-checked at the top,
+        //     so the iteration that actually resolved the fetch still paid a
+        //     full 8 ms sleep before anyone noticed. Every launch bought one
+        //     sleep it had no use for.
+        //  2. The 8 ms floor was sized for a network backend, but the mock
+        //     resolves list_sessions() in 0.118 ms. The mock path took 3
+        //     iterations x 8 ms = 24 ms of pure sleep on every headless launch
+        //     and every screenshot, which is every scripted test in the suite.
+        //
+        // 1,2,4,8,8,... reaches the old cadence in four iterations, so a real
+        // network fetch of a few hundred ms polls essentially as before (~40
+        // renders over 300 ms vs ~37), while the mock pays 3 ms instead of 24.
+        int sleepMs = 1;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (ready()) break;
             ++settleFrames;
             const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
-            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            // Ask again before sleeping: this render is usually the one that
+            // resolved it, and the old shape slept anyway.
+            if (ready()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            if (sleepMs < 8) sleepMs *= 2;
         }
         if (hprof)
-            log_info("  [hprof] settle loop ran {} frames (each followed by an "
-                     "8 ms sleep)",
-                     settleFrames);
+            log_info("  [hprof] settle loop ran {} frames", settleFrames);
         hmark("settle-wait loop");
 
         // Perf/screenshot affordance: HANABI_OPEN=<id> opens a specific thread
