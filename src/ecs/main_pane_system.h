@@ -39,6 +39,7 @@
 #include "../ui/measure_probe.h"
 #include "../keys.h"
 #include "../settings.h"
+#include "line_draw_state.h"
 #include "ui_imports.h"
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -6769,27 +6770,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // widget's own fill, and this element's fill is transparent.
                 // The element's id is not known until it exists, so the draw
                 // captures it by reference through a small holder.
-                auto idHolder = std::make_shared<afterhours::EntityID>(-1);
-                cfg = cfg.with_on_draw_bg(
-                    [line = ip.visible, q = findQuery, idHolder](
-                        RectangleType r) {
-                        hanabi::text_select::draw(*idHolder, r, line,
-                                                  theme::type::BODY);
-                        if (!q.empty())
-                            hanabi::find_highlight::draw(r, line, q,
-                                                         theme::type::BODY);
-                    });
+                // mk() hands back the entity BEFORE the widget is built, and
+                // that entity is the same one every frame, so the draw state
+                // lives on it and the callbacks capture one pointer to it
+                // (ecs::LineDrawState). They used to capture the text, the
+                // query and a shared_ptr for the id -- three heap objects,
+                // cloned again by each of afterhours' three ComponentConfig
+                // copies. Assigning into the component's existing strings
+                // reuses their capacity, so a steady frame allocates none.
+                const auto ep = mk(parent, 100 + seg);
+                Entity& lineEnt = ep.first.get();
+                auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
+                ld.text = ip.visible;
+                ld.query = findQuery;
+                ld.links = lnks;
+                ld.id = lineEnt.id;
+                ecs::LineDrawState* ldp = &ld;
+                cfg = cfg.with_on_draw_bg([ldp](RectangleType r) {
+                    hanabi::text_select::draw(ldp->id, r, ldp->text,
+                                              theme::type::BODY);
+                    if (!ldp->query.empty())
+                        hanabi::find_highlight::draw(r, ldp->text, ldp->query,
+                                                     theme::type::BODY);
+                });
                 // The underline goes OVER the glyphs' own row, so it is drawn
                 // in the foreground pass; the colour alone would leave an id
                 // looking like emphasis rather than a link.
                 if (!lnks.empty())
-                    cfg = cfg.with_on_draw_fg(
-                        [line = ip.visible, lnks](RectangleType r) {
-                            hanabi::links::draw_underlines(r, line, lnks,
-                                                           theme::type::BODY);
-                        });
-                auto lineEl = div(ctx, mk(parent, 100 + seg), cfg);
-                *idHolder = lineEl.ent().id;
+                    cfg = cfg.with_on_draw_fg([ldp](RectangleType r) {
+                        hanabi::links::draw_underlines(r, ldp->text,
+                                                       ldp->links,
+                                                       theme::type::BODY);
+                    });
+                auto lineEl = div(ctx, ep, cfg);
                 selectable_text(ctx, lineEl.ent(), ip.visible,
                                 theme::type::BODY);
                 link_hotspot(ctx, lineEl.ent(), ip.visible, lnks,
