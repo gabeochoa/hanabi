@@ -1,0 +1,86 @@
+# Arrow keys walk EVERY card in a windowed digest list, not the built ones.
+#
+# The window builds sixteen of Blocked's eighty-one cards. The keyboard cursor
+# is the one thing in this pane that must not agree with it: a person arrowing
+# down a list has asked to reach the end of the list, and a cursor that walks
+# only what is on screen stops dead at row sixteen with sixty-five rows below
+# it and no way to say so.
+#
+# So render_digest keeps two passes: one over every matched row (which builds
+# listRows_ and sums listY_, and is what the cursor and the scroll-into-view
+# read) and one over the window (which builds cards). This pins that they have
+# not been collapsed into one — the tempting simplification, and the one that
+# reads correct because the screen looks right until you press Down seventeen
+# times.
+#
+# It is also the half of the fix that no other assertion covers. The window's
+# own test (digest_is_windowed.e2e) drives the mouse wheel, which moves the
+# scroll offset directly; this drives the cursor, which moves the scroll offset
+# only if the cursor knew where a row it never built was going to be.
+#
+# Twenty-five Downs takes the cursor ten rows past the bottom of the first
+# window. Numbers are a function of the window height, which is why this pins
+# one. Re-measure rather than nudge.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_STRESS_SESSIONS=300 HANABI_CARD_AUDIT=1 HANABI_VIEW=blocked
+
+expect_text "Blocked on you"
+expect_text "digest cards 16 of 81 @ 0"
+
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 20
+
+# The cursor is on row 25, which the first window never built, and the list
+# came to it. A cursor that walked only the built cards stops at row 16 and
+# this reads "@ 0" forever — the count above stays perfectly right while the
+# bottom four fifths of the list are unreachable from the keyboard.
+expect_text "digest cards 19 of 81 @ 10"
