@@ -13,6 +13,14 @@ costs that live on the GPU where a malloc counter has no visibility at all, and
 costs that are written to disk and survive the restart that resets everything
 else.
 
+**The GPU half is no longer blind** — entry 5 adds `src/util/gpu_mem.h`, which
+reads `-[MTLDevice currentAllocatedSize]` through the device sokol already
+created, and the soak gate reports and gates it. Entry 5 is also where the
+worst finding in this file is, and it is not a leak: the image cache was
+allowed four times more textures than the GPU has sampler slots for, and past
+that ceiling afterhours returns textures that report their real dimensions and
+cannot be drawn.
+
 Written the way `docs/visual-parity/FRICTION_LOG.md` is: what was wanted, what
 happened, what it cost, numbers inline. A number is worth more than an
 adjective.
@@ -221,11 +229,185 @@ the KB column and run each more than once.
   frame, which is far worse than the memory it saves.
 - **What the bound costs the user** — an image not drawn in a while is
   re-decoded next time it appears: one slow frame on the scroll back to it.
-- **Not fixed** — hanabi holds full-resolution pixels to draw a 64px chip,
-  because afterhours' `load_texture` takes a path and nothing else. That is 28x
-  more saving and it is upstream's: `afterhours_gaps.md` #125.
+- **Not fixed then, fixed in entry 5b** — hanabi held full-resolution pixels to
+  draw a 64px chip, because afterhours' `load_texture` takes a path and nothing
+  else. `afterhours_gaps.md` #125. It is 4x rather than the 28x claimed here:
+  one texture serves both the chip and the 420pt inline view, so the reduction
+  is bounded by the LARGER box, not the chip.
+- **Also not fixed then:** the 32 MB budget above was counted in `w * h * 4` and
+  was really costing 47 MB, and the 512-entry cap it sat behind was eight times
+  what the GPU can represent. Both in entry 5.
 
-### 5. What is correctly bounded, and left alone
+### 5. The GPU side, which every instrument in this file was blind to
+
+This is entry 4's "not fixed" line, done — and three other things found on the
+way, two of them worse than the one that was being looked for.
+
+**The instrument first, because there was not one.** A GPU texture is not a
+malloc block, so `soak.h` cannot see it and `mem_ladder.h` sees only RSS, which
+is one page-granular number for the whole process that attributes nothing.
+`src/gpu_mem.mm` asks the driver instead: sokol already hands out the
+`MTLDevice` it created (`sg_mtl_device`), so `-[MTLDevice currentAllocatedSize]`
+is every GPU byte the process holds — the font atlas, the glyph textures, the
+offscreen render target and sokol's own buffers included, none of which
+afterhours reports and none of which hanabi creates.
+
+It reports two numbers of deliberately different kinds. `device_bytes()` is
+ground truth and cannot say whose bytes they are; `hanabi::gpu::ledger` is
+hanabi's own count, taken where hanabi asks, and knows the caller but not the
+driver. A flat ledger under a climbing device is a leak hanabi does not own.
+
+**What the number said immediately.** 45,616 KB of GPU memory at the window
+rung, before the app has drawn anything, and 46,224 KB for the empty app. Two
+thirds of this app's malloc-side memory is spent before it shows you anything
+(top of this file); so is 46 MB of GPU memory that nothing here could see.
+
+#### 5a. The estimate every budget was built on was 32% low
+
+`w * h * 4`. afterhours' `load_texture` builds and uploads a full box-filtered
+**mip chain** at image creation — sokol has no runtime mipmap generation, so
+the levels have to be supplied up front. A 640x480 RGBA8 image is 1,228,800
+bytes of base level and **1,638,352 bytes resident**.
+
+So the 32 MB image cache was costing 47 MB. Measured on the ladder's image
+rung, 60 640x480 PNGs attached and removed one at a time, against the empty-app
+baseline:
+
+| | before | after |
+| --- | ---: | ---: |
+| images held | 27 | 20 |
+| the cache's own estimate | 32,400 KB | 31,999 KB |
+| device, over baseline | 48,384 KB | **35,840 KB** |
+| estimate error | +49% | +12% |
+
+The budget did not change; it became true. A cache that says 32 MB and costs 47
+is worse than one with no bound, because the number is what anyone sizing the
+app will believe. The residual 12% is Metal's own alignment and padding, which
+is the honest floor for an estimate computed from outside the driver.
+
+#### 5b. Decode to the size it is drawn at — 4x, and the pixels are identical
+
+`afterhours_gaps.md` #125, closed on hanabi's side. A Retina screen grab is
+3024x1964: 31.6 MB resident, to draw an image the transcript caps at 420 points
+tall in a 644-point column.
+
+**Why it is safe is a stronger claim than "close enough".** afterhours already
+box-filters every uploaded image into a mip chain, and the GPU already samples
+a reduced level when it draws minified. The pixels on screen were never coming
+from the base level. `src/ui/decode_to_fit.h` does the same halving with the
+same 2x2 box filter *before* the upload and stops keeping the levels above the
+one that gets sampled. Verified rather than argued: `hanabi::downscale::halve`
+was run against the vendored `build_mip_chain` over 3024x1964, 640x480,
+1023x777 and the degenerate 2000x3 — **39 levels, zero mismatches**. The only
+level that no longer exists is one this app never samples, at any `ui_scale`
+afterhours permits.
+
+Twenty 3024x1964 PNGs through the ladder, four surviving in the protection
+window:
+
+| | before | after |
+| --- | ---: | ---: |
+| per image, resident | 30,931 KB | **7,731 KB** |
+| device, over baseline | 131,264 KB | 33,216 KB |
+| ladder rung peak RSS | 198,080 KB | 100,784 KB |
+
+Peak RSS halves rather than quarters because the decode buffer still exists for
+the moment before the upload; it is freed *before* the upload rather than
+after, so the full-resolution copy and the new chain are never both live.
+
+Both frozen references are byte-identical across the change (md5
+`b2946f20559c46232a7bafd5455bf96e`, `4a3b0fa2059a24e79b4355aad2570210`;
+`compare.py` 6.26% raw / 7.35% structural on 01 and 3.80% / 4.00% on 02, before
+and after). Expected rather than reassuring — neither reference contains an
+inline image, so that scores the chrome. The claim about the image is the
+bit-exact mip comparison above.
+
+#### 5c. The bound that bytes cannot express: 512 textures against a pool of 64
+
+The worst thing found here, and it was found while rehearsing a gate.
+
+sokol allocates every GPU object from **fixed pools** — images 128, samplers
+64, views 256 — set at `sg_setup`, which afterhours calls with a
+default-constructed `sg_desc` and no hook. `load_texture` makes one of each per
+texture, so **samplers are the binding constraint at 64**. Measured in a process
+that had done exactly what hanabi's launch does: the sampler pool ran out after
+**61** loads and the image pool after 124.
+
+And `load_texture_from_pixels` checks the image and the view and **not the
+sampler**. Past the 61st texture it returns a `TextureType` with the file's real
+dimensions, a valid image, a valid view and `sampler_id == 0` — which
+`inline_image::available`, the composer chip and `bubble_height`'s image term
+all read as loaded.
+
+The image cache's entry cap was **512**. The byte budget could not have caught
+that and it is worth being clear why: bounding bytes does not bound objects,
+and the way to hold 512 textures is for them to be small. A 96x96 avatar is
+49 KB, so 32 MB is six hundred of them and the byte budget never fires at all.
+Eighty of them through the real app:
+
+| | before | after |
+| --- | ---: | ---: |
+| entries held | 80 | 32 |
+| unsamplable, and believed loaded | **20** | 0 |
+
+Capped at 32 — 64 samplers less 16 reserved for the app's own atlases, halved
+again for headroom — with a `static_assert` tying the cap to the pool constant,
+and `decode_to_fit` rejecting an unsamplable texture at the one seam every
+texture in hanabi comes through. `afterhours_gaps.md` #210.
+
+#### 5d. A texture leak does not grow. It plateaus, and then images stop.
+
+The other consequence of a fixed pool, and it is a warning about this whole
+class of gate. A texture leaked every frame in the soak loop grew GPU memory to
+264,048 KB and then sat **flat to the kilobyte for 800 frames**, because the
+image pool was full and every further allocation failed. A slope-based leak
+detector sees a texture leak for about two seconds and then goes green — and
+the soak's own 120-frame settle pass is almost exactly long enough to hide the
+whole of it.
+
+The gate is still worth having (it reads +0.0 KB on clean runs and 11,028x over
+budget on that leak, with the settle disabled so the window opens in time), but
+the honest statement is that it catches the first two seconds of a texture leak
+and nothing after.
+
+#### 5e. What is bounded, checked with the new instrument
+
+| | bound | verdict |
+| --- | --- | --- |
+| glyph atlas | one **fixed** 2048x2048 R8 image, 4 MB, at init | bounded, and it never grows: 94 glyphs at fifty sizes moved the device counter 0 KB |
+| icon atlas | one texture behind a state guard | correct |
+| offscreen render target | `set_window_size` unloads before reloading; the windowed path never resizes it | correct |
+| `inline_image` cache | 32 MB of true GPU bytes **and** 32 entries | correct as of 5a/5c; it was neither before |
+| every soak arm | `threads`, `tabs`, `read`, `search`, 1500 frames over a 2000-session catalog | GPU 43,600 KB in every bucket of every arm, to the kilobyte |
+
+**The glyph atlas's failure mode is not memory, it is layout, and it is
+silent.** Past the point where it fills, `measure_text` returns a wrong width
+and then zero: the 94-character ASCII string measures 5933 px at 144 pt, 230 px
+at 192 pt and **0.0 at 288 pt**, with no error and no log. Every wrap, hug and
+ellipsize in this app is computed from `measure_text`, so a string that measures
+zero lays out as absent. hanabi is nowhere near it — four faces x fourteen sizes
+x the ASCII set, and again at 6x, all fit — but nothing would say so if it were.
+`afterhours_gaps.md` #211.
+
+#### 5f. The autorelease leak's smaller cousin, and one thing to know before probing
+
+`load_texture` autoreleases too: `sg_make_image` builds an
+`MTLTextureDescriptor` and friends. 2000 load+unload pairs leak 646 KB of live
+heap bare against 420 KB pooled — **113 bytes a load** that only a pool
+reclaims. `scripts/check_autorelease.py` now requires a pool in scope for a
+texture call as well as for `begin_frame`, and found two sites the first time it
+ran: the icon atlas's load and the image cache's eviction. Neither was leaking,
+because both are reached from inside a pooled frame loop — until the pre-warm
+started calling one of them before any frame exists.
+
+And, learned by crashing into it: **sokol does not free a destroyed Metal object
+until the next frame boundary.** Create and destroy in a loop with no
+`begin_frame` between and it exhausts an internal id pool and trips an assert in
+`_sg_mtl_alloc_pool_slot`. A texture is not freed when you destroy it; it is
+freed when you next draw. That also means a cache eviction is over budget by one
+entry until the frame ends. `afterhours_gaps.md` #212.
+
+### 6. What is correctly bounded, and left alone
 
 Checked, and no change made. A bounded cache is not a bug.
 
@@ -238,7 +420,7 @@ Checked, and no change made. A bounded cache is not a bug.
 | `Settings` `starred`/`muted`/`archived`/`tool_fold`/`row_order` | one entry per deliberate act on one thread | user-intent, correctly unbounded |
 | `AppComponent::composerAttachments` | 5, the cap the orchestrator's own message route enforces | correct — the *texture cache behind it* was the bug (entry 4) |
 
-### 6. What measured as noise
+### 7. What measured as noise
 
 Blunt, because the point of a noise floor is to be allowed to say this.
 

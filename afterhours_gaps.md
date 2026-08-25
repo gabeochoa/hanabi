@@ -7723,3 +7723,131 @@ so an app that wants a hundred thumbnails can ask for them.
 
 CLASS: FOOTGUN
 
+---
+
+### #211 — The glyph atlas is a fixed 2048², nothing registers fontstash's overflow callback, and the symptom is `measure_text` returning a wrong number
+
+**What was wanted.** To know whether the font atlas is bounded, and to be told
+if the app ever fills it.
+
+**What happens.** It is bounded, admirably: `backends/sokol/backend.h:104`
+creates one `sfons` atlas of 2048x2048 R8 — 4 MB, once, at init — and it never
+grows. Measured with the device counter: rasterising 94 glyphs at fifty sizes
+from 8 to 400 pt moves `-[MTLDevice currentAllocatedSize]` by **0 KB**. A whole
+category of leak simply does not exist here, and that is worth writing down.
+
+The problem is what happens at the ceiling. fontstash raises `FONS_ATLAS_FULL`
+through `stash->handleError` (`vendor/fontstash/fontstash.h:1131`), afterhours
+never calls `fonsSetErrorCallback`, and the default handler is null. So the
+glyph is dropped, and — this is the part that matters — **the measurement is
+dropped with it**. Measuring the 94-character printable-ASCII string against
+one face:
+
+    size 144 pt   width 5933.0
+    size 192 pt   width  230.0
+    size 288 pt   width    0.0
+
+No error, no log, no exception, no return code. `measure_text` is what every
+wrap, every hug-to-text and every ellipsize in a consumer is computed from
+(#103, #116, #135, #136 are all about it), so a string that measures zero is
+laid out as absent. This is not a rendering artefact that a user squints at; it
+is silent, arbitrary layout corruption whose only visible cause is that
+somebody used a big font.
+
+hanabi is not close to the ceiling — four faces x fourteen sizes x the ASCII
+set, and again at 2x, 3x, 4x and 6x, all fit with a reference measurement
+unchanged to the pixel. A consumer with CJK, or with a document viewer that
+offers a font-size slider, is a different story, and neither would find out
+from the library.
+
+**Why the obvious escapes do not work.**
+
+- **Register the callback yourself** — `fonsSetErrorCallback` needs the
+  `FONScontext`, which lives in `metal_detail::g_fons_ctx`, a backend-private
+  static with no accessor.
+- **Ask how full the atlas is** — nothing reports it. There is no
+  `atlas_usage()`, no glyph count, and the atlas image id is not exposed
+  either, so a consumer cannot even read its dimensions back.
+- **Detect it from the outside by sanity-checking widths** — this is the only
+  thing available and it is guesswork: a consumer would have to measure a
+  canary string every frame and compare it against a value it recorded earlier,
+  which costs a measure per frame to detect a condition that should be one
+  branch inside the library.
+- **Ask for a bigger atlas** — 2048x2048 is hard-coded two lines above the
+  `sfons_create` call, and #210 is the same complaint about sokol's pools:
+  there is no `graphics::Config` field for any of it.
+
+**The workaround, and its cost.** None taken. hanabi measured its own headroom
+(above) and recorded the result rather than defending against a condition it
+cannot detect. The cost is that if hanabi ever ships a font-size setting or a
+non-Latin script, the first symptom will be labels laying out at zero width and
+nothing in the app or the library will say why.
+
+**Minimal upstream fix.** Three lines and a field. Call
+`fonsSetErrorCallback` in the backend's init with a handler that `log_error`s
+`FONS_ATLAS_FULL` once — that alone turns silent corruption into a message with
+a name. Then put the atlas dimensions on `graphics::Config` beside the pool
+sizes #210 asks for.
+
+CLASS: FOOTGUN
+
+---
+
+### #212 — Destroying a GPU object does not free it until the next frame, and doing enough of that without one trips an assert inside sokol
+
+**What was wanted.** To measure the cost of a texture load: create one, destroy
+it, repeat, and watch the counters.
+
+**What happens.** The process dies:
+
+    Assertion failed: (_sg.mtl.idpool.free_queue_top > 0),
+      function _sg_mtl_alloc_pool_slot, file sokol_gfx.h, line 14937
+
+sokol's Metal backend does not release a destroyed object immediately — it
+defers to a frame boundary, so the GPU cannot still be reading it. A loop that
+creates and destroys textures **with no `begin_frame` between them** therefore
+never returns a slot, and sokol asserts rather than reporting anything a caller
+can act on. `unload_texture` returns void and `sg_destroy_image` returns void,
+so there is no signal at any layer that the resource is still held.
+
+Nothing in afterhours says this. `unload_texture`'s neighbours in
+`drawing_helpers.h` are careful about not leaking a view when an image fails,
+which reads as a file that has thought about resource lifetime — and the one
+lifetime fact a consumer needs is not there.
+
+The consequences reach past the crash:
+
+- **A cache eviction does not reclaim anything until the next frame is drawn.**
+  A consumer bounding a texture cache by bytes (as hanabi does) evicts and
+  immediately loads the replacement, so for the rest of that frame BOTH are
+  resident and the real peak is over the budget by one entry. Nothing in the
+  API lets the caller wait for, or force, the drain.
+- **Any warm-up, migration or bulk reload outside the frame loop is a landmine**
+  — which is a real shape: a pre-warm, a theme switch that reloads an atlas, a
+  hi-DPI change that recreates every texture.
+- **A probe cannot be written the obvious way.** The measurement above had to
+  be restructured to draw an empty frame per iteration, which is not what it
+  was trying to measure.
+
+**Why the obvious escapes do not work.**
+
+- **Call `sg_destroy_image` yourself and wait** — the deferred queue is
+  `_sg.mtl.idpool`, private, and there is no drain entry point.
+- **Draw a frame after every destroy** — this is the workaround, and it means
+  the cost of freeing a texture is a whole frame.
+- **Just do not destroy many at once** — "many" is `SG_NUM_INFLIGHT_FRAMES`
+  worth of pool, a number the consumer cannot see (#210).
+
+**The workaround, and its cost.** hanabi's eviction happens inside the frame
+loop, where the drain follows naturally, and its one out-of-frame texture load
+(the pre-warm) creates without destroying. Both are true by accident of where
+the code sits rather than by design, and nothing would catch either changing.
+The cost of the probe was an hour and a crash whose message names a static in
+another library.
+
+**Minimal upstream fix.** A sentence in `unload_texture`'s comment saying the
+release is deferred to the next frame, which is the whole of what a consumer
+needs to not walk into this. Better, a `graphics::flush_deleted_resources()`
+that drains the queue, so a bulk reload has something to call.
+
+CLASS: SURPRISING

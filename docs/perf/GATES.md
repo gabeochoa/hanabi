@@ -87,13 +87,14 @@ It also reports **`rising`**: the fraction of bucket pairs that went up. A leak
 adds on every bucket and reads 1.00; noise is a coin and reads ~0.50. That
 column is what tells a reader whether to believe the slope above it.
 
-Five things are gated, all **per 1000 frames**:
+Six things are gated, all **per 1000 frames**:
 
 | metric | budget / 1000 frames | why this one |
 | --- | --- | --- |
 | RSS | +512 KB | the reported symptom itself; also the noisiest, so the loosest |
 | live malloc bytes | +256 KB | moves the instant something is not freed, where RSS lags by whole pages |
-| **live malloc blocks** | **+1000** | one leaked block a frame. The sharpest of the five |
+| **live malloc blocks** | **+1000** | one leaked block a frame. The sharpest of the malloc columns |
+| **GPU bytes** | **+64 KB** | the malloc counters are blind to a texture; the tightest here, and it can be |
 | entities | +25 | an ECS that is not being torn down |
 | frame CPU | +1.0 ms | `CLOCK_THREAD_CPUTIME_ID`, not wall — see below |
 
@@ -140,6 +141,26 @@ robustness of a median is a function of how many points it has.
 of 206.7 KB per 1000 frames, against 0.0 at 250-frame buckets. RSS noise is a
 whole page arriving at once, so a shorter window multiplies it. On that metric
 the way to more points is more frames.
+
+**What set 64 KB for GPU bytes,** which is the tightest number in this gate by
+two orders of magnitude. Three clean runs read `+0.0, +0.0, +0.0` KB — exactly
+zero, three times, and not by luck. Nothing in a steady-state frame allocates
+GPU memory: textures are made when an image, an icon atlas or a font atlas is
+first needed and then held, the render target is made once, and the settle pass
+has already paid all of it. Confirmed across four scenarios rather than one —
+`threads`, `tabs`, `read` and `search`, 1500 frames each over a 2000-session
+catalog, GPU 43,600 KB in every bucket of every arm, to the kilobyte. So unlike
+every other column here this one has no noise for the budget to absorb, and
+64 KB is not slack: it is one 128x128 RGBA texture, the smallest thing whose
+appearance every frame would be a real defect.
+
+The number comes from `-[MTLDevice currentAllocatedSize]`, read through the
+device sokol already created (`src/gpu_mem.mm`), so it counts the font atlas,
+the glyph textures, the offscreen render target and sokol's own buffers as well
+as anything hanabi loaded. The gate is **skipped loudly** when no Metal device
+answers — "not measured — NO DEVICE" rather than a column of +0.0 — because a
+zero that means "no accounting" and a zero that means "nothing leaked" are the
+same glyph, and reading the first as a pass is how a gate stops gating.
 
 **What set the old 512 KB.**  Nine consecutive clean runs read
 `+0, +0, +32, +32, +64, +96, +96, +192` KB of RSS growth per 1000 frames, and
@@ -210,6 +231,35 @@ frame, 282 bytes each" is a description of the bug: six autoreleased Metal
 objects and a few small companions, per frame, forever. A 32-byte block would
 be a map node; a megabyte one would be a buffer. The number tells you where to
 look before you have run a single profiler.
+
+### GPU: reproducing a failure, and the ceiling that makes it hard
+
+One line in the soak loop, the shape a per-frame cache miss takes:
+
+```cpp
+{ TextureType leak = afterhours::load_texture("/some/file.png"); (void)leak; }
+```
+
+```
+  [soak]   GPU bytes  +705800.0 KB   +2540880.0 KB   64   FAIL  11028.1x over budget
+```
+
+**But read this before trusting that gate.** A runaway texture leak does *not*
+grow without bound. It grows to 264,048 KB and stops dead, flat to the kilobyte
+for the remaining 800 frames, because sokol's image pool is a **fixed 128
+entries** and every allocation past it fails. So a slope gate catches a texture
+leak only during the ~124 frames it takes to exhaust the pool — and this gate's
+own 120-frame settle pass is almost exactly long enough to hide the whole of
+it. The rehearsal above had to run with `HANABI_STRESS_SETTLE=0` and 20-frame
+buckets to see anything at all.
+
+Past that ceiling the failure changes shape entirely: images stop loading and
+the app draws nothing where they were. Worse, the **sampler** pool is 64 and
+runs out first, and afterhours does not check it — between the 61st texture and
+the 124th, `load_texture` returns a texture with valid dimensions, a valid
+image and no sampler, which every "did it load?" test in this app reads as
+success. `afterhours_gaps.md` #210; `docs/perf/MEMORY.md` entry 5c has the
+measurement and the fix.
 
 ### Naming the leaking allocation
 
@@ -349,6 +399,18 @@ like from the outside.
 ## 3. The autorelease source check — the four lines that look like nothing
 
 `scripts/check_autorelease.py`, run by `make source-checks`.
+
+**Widened 2026-08-25 to cover texture loads, not just frames.** `sg_make_image`
+builds an `MTLTextureDescriptor` and friends, so `load_texture` hands back
+autoreleased objects the same way `begin_frame` does — measured at 113 bytes a
+load (2000 load+unload pairs: 646 KB of live heap unpooled against 420 KB
+pooled). Small per call and unbounded per process, which is the same shape as
+the original bug four orders of magnitude down. The check found two sites the
+first time it ran, and the rule it enforces is the point of them: both were
+reached only from inside a frame loop and neither was leaking, until a pre-warm
+started calling one of them before any frame existed. A function that touches
+Metal owns its own pool, because it cannot know whose scope it will be called
+in.
 
 `hanabi::AutoreleaseFrame` has no callers, returns nothing, and reads as dead
 code. It is the entire fix for the bug that started all of this. Someone
@@ -666,15 +728,29 @@ this box it cannot be: the measurement noise is larger than the signal. Fixing
 that needs a quiet machine, not a better gate. If one ever exists, set
 `HANABI_SOAK_MAX_MS_PER1K=0.5` there and it will mean something.
 
-### A leak that is not on the heap
+### ~~A leak that is not on the heap~~ — GPU memory is now counted; the rest is not
 
-Both memory metrics come from the malloc zones and from `mach_task_basic_info`.
-A leak of GPU memory, of file descriptors, of Mach ports, or of anything in a
-`vm_allocate`d region that is never touched again will move neither much.
-`sg_*` resources (textures, buffers, pipelines) are the realistic case: sokol
-allocates them on the GPU and hanabi creates them from the font atlas and the
-icon atlas. Nothing in this project counts them. A gate would need sokol's own
-`sg_query_stats`, which afterhours does not surface.
+**Superseded for textures.** This section used to say nothing in the project
+counted `sg_*` resources and that a gate would need `sg_query_stats`, which
+afterhours does not surface. It does not need it: sokol hands out the
+`MTLDevice` it created, so `-[MTLDevice currentAllocatedSize]` answers directly
+and counts everything, including the resources created inside afterhours that
+it would never report. That is the GPU column above, and
+`docs/perf/MEMORY.md` entry 5 is what it found.
+
+Two caveats replace it, both real. The gate sees a texture leak for about two
+seconds before the pool ceiling flattens it (above). And the device counter is
+a total: it says how many bytes, never whose — `hanabi::gpu::ledger` exists to
+answer the second question for hanabi's own textures, and a flat ledger under a
+climbing device is a leak hanabi does not own.
+
+**Still uncounted:** file descriptors, Mach ports, and anything in a
+`vm_allocate`d region that is never touched again. Also **object COUNT** as
+distinct from bytes — sokol's pools are fixed (images 128, samplers 64, views
+256) and exhausting one is not a memory failure at all, it is a silent
+correctness failure. Nothing gates that; the image cache is capped below the
+pool instead, with a `static_assert`, which is a promise rather than a
+measurement.
 
 ### A window resize, because the headless resize path leaks worse than the app
 
