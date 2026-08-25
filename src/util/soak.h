@@ -28,6 +28,8 @@
 // grows without allocating, like a counter driving a loop.
 // ---------------------------------------------------------------------------
 
+#include <time.h>
+
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -187,22 +189,55 @@ inline void census() {
     std::fflush(stdout);
 }
 
+// CPU nanoseconds burned by THIS thread, which on the frame loop is the app's
+// own work and nothing else.
+//
+// The soak's frame-time column used to be wall clock, and on this machine wall
+// clock does not measure the app. Three other agents build here; the load
+// average during these runs ranged from 10 to 34. The same binary running the
+// same 6000-frame scroll soak read, bucket by bucket:
+//
+//   1.788  1.556  1.476  1.748  7.640  7.335  5.592  3.998  2.246  ...
+//
+// A 5x hump in the middle of a run whose memory columns did not move by a
+// kilobyte. Nothing in the app did that; another process did. The verdict row
+// built on that column is a coin, which is why its budget had to be set at
+// 3.0 ms per 1000 frames -- loose enough that the only frame-time regression
+// it can catch is one nobody needs a gate to notice.
+//
+// CLOCK_THREAD_CPUTIME_ID does not count time this thread was not running, so
+// being descheduled costs nothing and a neighbour's build is invisible. It is
+// the clock hanabi::prof already uses, and for the same reason; the soak now
+// uses it too so that "is the frame getting more expensive?" is a question
+// about the frame.
+//
+// Wall clock is KEPT and still printed. It is the number a person feels, and
+// the gap between the two columns is itself the reading that says the box was
+// busy rather than the app slow.
+inline double cpu_nanos() {
+    struct timespec ts {};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<double>(ts.tv_sec) * 1e9 +
+           static_cast<double>(ts.tv_nsec);
+}
+
 struct Sample {
     int frame = 0;
     double msPerFrame = 0.0;
+    double cpuMsPerFrame = 0.0;
     long rssKb = 0;
     size_t entities = 0;
     HeapStat heap;
 };
 
 // A bucket's worth of frames, closed out and printed.
-inline void report(std::vector<Sample>& out, int frame, double ms, long rss,
-                   size_t ents) {
+inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
+                   long rss, size_t ents) {
     const HeapStat h = heap_in_use();
-    out.push_back(Sample{frame, ms, rss, ents, h});
-    std::printf("[soak] frame %6d  %7.3f ms/f  RSS %7ld KB  entities %6zu  "
-                "live %8u blocks / %8zu KB\n",
-                frame, ms, rss, ents, h.count, h.bytes / 1024);
+    out.push_back(Sample{frame, ms, cpuMs, rss, ents, h});
+    std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
+                "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB\n",
+                frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024);
     std::fflush(stdout);
 }
 
@@ -235,6 +270,7 @@ inline void report(std::vector<Sample>& out, int frame, double ms, long rss,
 // So frame time keeps its old anchor and its old meaning.
 struct Window {
     double msPerFrame = 0.0;
+    double cpuMsPerFrame = 0.0;
     double rssKb = 0.0;
     double entities = 0.0;
     double blocks = 0.0;
@@ -251,6 +287,7 @@ inline double median3(double a, double b, double c) {
 inline Window window_of(const Sample& x) {
     Window w;
     w.msPerFrame = x.msPerFrame;
+    w.cpuMsPerFrame = x.cpuMsPerFrame;
     w.rssKb = static_cast<double>(x.rssKb);
     w.entities = static_cast<double>(x.entities);
     w.blocks = static_cast<double>(x.heap.count);
@@ -266,6 +303,8 @@ inline Window window_at(const std::vector<Sample>& s, size_t end) {
     const Sample& z = s[end];
     Window w;
     w.msPerFrame = median3(x.msPerFrame, y.msPerFrame, z.msPerFrame);
+    w.cpuMsPerFrame =
+        median3(x.cpuMsPerFrame, y.cpuMsPerFrame, z.cpuMsPerFrame);
     w.rssKb = median3(static_cast<double>(x.rssKb), static_cast<double>(y.rssKb),
                       static_cast<double>(z.rssKb));
     w.entities = median3(static_cast<double>(x.entities),
@@ -405,7 +444,11 @@ inline int verdict(const std::vector<Sample>& s) {
                              ? 1000.0 / static_cast<double>(frames_between)
                              : 0.0;
 
-    const double dMs = b.msPerFrame - a.msPerFrame;   // unwindowed, see above
+    // CPU, not wall: see cpu_nanos() above. Unwindowed, and the anchor is still
+    // bucket 2, for the reason the comment on Window gives -- frame time is not
+    // cumulative and the early buckets carry the launch burst.
+    const double dMs = b.cpuMsPerFrame - a.cpuMsPerFrame;
+    const double dWallMs = b.msPerFrame - a.msPerFrame;
     const double dRssKb = wb.rssKb - wa.rssKb;
     const double dEnt = wb.entities - wa.entities;
     const long dBlocks = static_cast<long>(wb.blocks - wa.blocks);
@@ -432,7 +475,12 @@ inline int verdict(const std::vector<Sample>& s) {
     bad |= judge_row("heap bytes", "KB", dHeapKb * per1k, bud.heapKbPer1k, true)
                ? 1 : 0;
     bad |= judge_row("entities", "  ", dEnt * per1k, bud.entPer1k, true) ? 1 : 0;
-    bad |= judge_row("frame time", "ms", dMs * per1k, bud.msPer1k, true) ? 1 : 0;
+    bad |= judge_row("frame cpu", "ms", dMs * per1k, bud.msPer1k, true) ? 1 : 0;
+    // Wall clock is reported and never gated. It is the number a person feels,
+    // and a wall row far above the CPU row is this box being busy, not this app
+    // being slow -- which is the single most useful thing to know when a
+    // frame-time verdict looks wrong.
+    judge_row("frame wall", "ms", dWallMs * per1k, 0.0, false);
     // Block COUNT is reported, never gated: the allocator recycles small
     // blocks in bursts, so on a short run it sawtooths by thousands either way
     // (measured +0 to +4265 per 1000 frames across five clean runs). It is

@@ -1430,6 +1430,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         }
 
         auto bucketStart = std::chrono::steady_clock::now();
+        double bucketCpu0 = hanabi::soak::cpu_nanos();
         for (int i = 1; i <= soakFrames; ++i) {
             if (appForWait != nullptr) driver.act(i - 1, *appForWait);
             if (const float step = driver.scroll_step(i - 1); step != 0.0f) {
@@ -1452,11 +1453,16 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             hanabi::prof::frame();
             if (i % every == 0) {
                 auto now = std::chrono::steady_clock::now();
+                const double cpuNow = hanabi::soak::cpu_nanos();
                 const double ms =
                     std::chrono::duration<double, std::milli>(now - bucketStart)
                         .count() / static_cast<double>(every);
+                const double cpuMs = (cpuNow - bucketCpu0) / 1e6 /
+                                     static_cast<double>(every);
                 bucketStart = now;
-                hanabi::soak::report(samples, i, ms, hanabi::soak::rss_kb(),
+                bucketCpu0 = cpuNow;
+                hanabi::soak::report(samples, i, ms, cpuMs,
+                                     hanabi::soak::rss_kb(),
                                      EntityHelper::get_entities().size());
             }
         }
