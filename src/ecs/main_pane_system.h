@@ -3469,6 +3469,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // spacer is gone so a short thread top-anchors the way the reference
         // does. (Long threads are unaffected — they never had one.)
         sub_agent_panel(ctx, col, app);
+        {
         hanabi::prof::Scope _p2("transcript.pass2_build");
         for (const auto& it : items) {
             const float top = y;
@@ -3513,6 +3514,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
         flush_spacer(99999);
+        }
 
         // Mark the thread read once the newest message is actually on screen.
         // Not on open — that would clear the divider you opened the thread to
@@ -3562,8 +3564,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // The rail. Rendered after the pin above so a click on it wins the
         // frame it happens in, exactly as the jump-to-bottom button does.
-        minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
-                     kHeaderH, listH, totalH, viewH, scrollY, s_follow);
+        {
+            hanabi::prof::Scope _pm("transcript.minimap");
+            minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
+                         kHeaderH, listH, totalH, viewH, scrollY, s_follow);
+        }
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to
         // the bottom-right of the transcript pane, shown only when the user is
