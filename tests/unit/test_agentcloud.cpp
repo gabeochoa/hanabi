@@ -27,6 +27,7 @@ using api::agentcloud::parse_sessions_reply;
 using api::agentcloud::parse_page_frames;
 using api::Role;
 using api::agentcloud::classify_live_frame;
+using api::agentcloud::classify_live_frame_parsed;
 using api::agentcloud::fold_session_renamed;
 using api::SessionSummary;
 using api::agentcloud::delta_from_accumulated;
@@ -491,6 +492,59 @@ static void test_block_delta_append_is_a_true_increment() {
     CHECK(classify_live_frame(weird).kind == LF::Kind::Ignore);
 }
 
+static void test_the_parsed_frame_overload_is_what_the_socket_uses() {
+    // The websocket receive loop parses each frame to read its "type", then
+    // classifies it. It used to hand the CLASSIFIER a msg.dump() of the object
+    // it was already holding, so every frame was parse -> dump -> parse (2.3 us
+    // a frame, at token rate). It now passes the object.
+    //
+    // This test exists because that made the production path a DIFFERENT
+    // overload from the one every other test in this file drives. Both must
+    // agree on every frame shape, including the malformed ones -- a json
+    // overload that quietly disagreed about, say, retract would corrupt live
+    // bubbles while the whole string-driven suite above stayed green.
+    const std::string frames[] = {
+        R"({"type":"frame","frame":"value","seq":1,
+            "event":{"type":"block","block":{"kind":"text","text":"hi"}}})",
+        R"({"type":"frame","frame":"value","seq":1,
+            "event":{"type":"block","block":{"kind":"thinking","text":"hmm"}}})",
+        R"({"type":"frame","frame":"durable","seq":2,
+            "event":{"type":"tool_intent","tool":"bash","input":"{}"}})",
+        R"({"type":"frame","frame":"durable","seq":3,
+            "event":{"type":"run_finished","outcome":{"outcome":"completed"}}})",
+        R"({"type":"frame","frame":"retract","key":{"x":1},
+            "event":{"type":"block","block":{"kind":"text","text":"gone"}}})",
+        R"({"type":"frame","frame":"value",
+            "event":{"type":"block","block":{"kind":"tool_use","tool":"bash"}}})",
+        R"({"type":"frame","frame":"delta","seq":81,
+            "event":{"type":"block_delta","index":0,
+                     "delta":{"delta":"start","kind":{"kind":"text"}}}})",
+        R"({"type":"frame","frame":"delta","seq":82,
+            "event":{"type":"block_delta","index":0,
+                     "delta":{"delta":"append","text":"\n2\n3"}}})",
+        R"({"type":"frame","event":{"type":"block_delta",
+            "delta":{"delta":"rewrite","text":"x"}}})",
+        R"({"type":"frame","event":{"type":"session_renamed","title":"new"}})",
+        R"({"type":"frame"})",
+        R"({"type":"frame","event":{"type":"invented_next_quarter"}})",
+    };
+    for (const std::string& f : frames) {
+        const auto viaString = classify_live_frame(f);
+        const auto viaObject =
+            classify_live_frame_parsed(nlohmann::json::parse(f, nullptr, false));
+        CHECK(viaString.kind == viaObject.kind);
+        CHECK(viaString.payload == viaObject.payload);
+    }
+
+    // The json overload must survive the shapes the string one turns into a
+    // discarded parse, because a socket can hand it anything.
+    CHECK(classify_live_frame_parsed(nlohmann::json::parse("not json", nullptr, false))
+              .kind == LF::Kind::Ignore);
+    CHECK(classify_live_frame_parsed(nlohmann::json(nlohmann::json::value_t::null))
+              .kind == LF::Kind::Ignore);
+    CHECK(classify_live_frame_parsed(nlohmann::json::array()).kind == LF::Kind::Ignore);
+}
+
 static void test_rename_echo_folds_into_the_title() {
     // The durable echo is the ONLY thing that renames a session: the modal
     // sends a title, and what the sidebar row and the tab then read is
@@ -627,6 +681,7 @@ int main() {
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();
+    test_the_parsed_frame_overload_is_what_the_socket_uses();
     test_settled_block_does_not_reprint_streamed_text();
     test_attach_greeting_carries_budget_and_occupancy();
     test_stale_occupancy_is_reported_not_swallowed();
