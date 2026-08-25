@@ -20,8 +20,18 @@
 # WHY EACH ARM IS HERE
 #   idle     the control. Nothing is touched. Anything that grows here grows
 #            for no reason at all, which is the strongest possible finding.
-#   scroll   the reported symptom was "scroll the sidebar up and down until it
-#            breaks". Row build + clip + layout, sixty frames down and sixty up.
+#   scroll   the sidebar's list as the app first shows it — capped at two
+#            viewports — wheeled sixty frames down and sixty up. Keep it for
+#            the clip and layout path, but know what it is NOT: at a
+#            2000-session catalog `idle` and `scroll` allocate 7,422,071 and
+#            7,422,153 times over the same 2000 frames, because the rows it
+#            slides over were going to be built either way.
+#   scrollall the reported symptom, which is the other list. "Open the program
+#            and scroll the sidebar up and down until it broke" ends at the
+#            "Show N more…" row; this arm clicks it and then sweeps the whole
+#            catalog, 96 px a frame, over a 1200-frame triangle. It is run at
+#            2000 sessions because a window that is not a window only shows at
+#            a catalog size.
 #   threads  opening a thread is the heaviest thing the app does: a fetch, a
 #            transcript rebuild, a tab. One every 30 frames, forever.
 #   tabs     eight tabs, then round-robin between them. Catches anything the
@@ -36,7 +46,7 @@ cd "$ROOT"
 EXE="$ROOT/output/hanabi.exe"
 
 FRAMES="${HANABI_SOAK_LONG_FRAMES:-4000}"
-ARMS="${HANABI_SOAK_ARMS:-idle scroll threads tabs bigidle}"
+ARMS="${HANABI_SOAK_ARMS:-idle scroll scrollall threads tabs bigidle}"
 EVERY="${HANABI_SOAK_LONG_EVERY:-500}"
 
 # The long form gates HARDER than the short one, and can: over 4000 frames the
@@ -94,6 +104,10 @@ for arm in $ARMS; do
     sessions=""
     case "$arm" in
         bigidle) scenario="idle"; sessions=2000 ;;
+        # A window that is not a window is invisible on the twenty-row
+        # fixture: twenty rows fit in a viewport, so every one of them is on
+        # screen and there is nothing to leave out.
+        scrollall) sessions=2000 ;;
     esac
 
     echo
