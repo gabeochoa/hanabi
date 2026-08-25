@@ -140,4 +140,100 @@ inline Tally tally() {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// The sweep.
+//
+// A widget is retired when nothing has built it for `grace` frames. Retiring
+// is TWO operations, and they must happen together:
+//
+//   1. Erase the call-site hash that points at it. `imm::existing_ui_elements`
+//      is a hash -> EntityID map that lives forever, and afterhours RECYCLES
+//      EntityIDs -- so an entry left pointing at a destroyed entity is not a
+//      slow leak, it is the next `mk()` from that call site being handed a
+//      different widget's entity. This is the dangerous half.
+//   2. Mark the entity for cleanup. afterhours' own post-update bridge calls
+//      `cleanup()` at the end of the update phase, so a widget retired at the
+//      top of a frame is destroyed before that frame renders. Nothing draws a
+//      half-dead widget, and nothing hanabi wrote has to reach into the
+//      library's destruction order.
+//
+// The loop is over THE MAP, not over the entity collection, and that is what
+// makes it safe rather than merely correct: the map is by definition the set
+// of entities `mk` currently owns. An entity that has a stale stamp but is no
+// longer in the map (or never was) is not ours to destroy, and this cannot
+// touch it. It also costs O(live widgets) instead of O(all entities), and only
+// on the frames that sweep.
+//
+// The map is scanned by VALUE rather than reverse-indexed by hash on purpose:
+// hanabi never sees the hash `mk()` computed, and re-deriving it would mean
+// copying the library's private string format and silently mismatching the day
+// it changes.
+// ---------------------------------------------------------------------------
+
+inline bool env_flag(const char* name, bool fallback) {
+    const char* v = std::getenv(name);
+    if (v == nullptr || *v == '\0') return fallback;
+    return *v != '0';
+}
+
+inline unsigned env_uint(const char* name, unsigned fallback) {
+    const char* v = std::getenv(name);
+    if (v == nullptr || *v == '\0') return fallback;
+    const int parsed = std::atoi(v);
+    return parsed > 0 ? static_cast<unsigned>(parsed) : fallback;
+}
+
+// An off switch, because a fix with no off switch cannot be A/B'd and cannot
+// be bisected past. scripts/retire_gate.sh runs the same binary both ways.
+inline bool retire_enabled() {
+    static const bool on = env_flag("HANABI_RETIRE", true);
+    return on;
+}
+
+// Frames a widget may go unbuilt before it is retired. 90 is a second and a
+// half: long enough that a popover toggled off and on, or a tab flicked to and
+// back, keeps its entity and its state; short enough that a screen you have
+// left stops costing anything while you are still looking at the next one.
+inline unsigned grace_frames() {
+    static const unsigned n = env_uint("HANABI_RETIRE_GRACE", 90);
+    return n;
+}
+
+// Frames between sweeps. The sweep is cheap but not free, and retiring is
+// never urgent -- a widget that has been dead for 90 frames can be dead for 15
+// more. This divides the sweep's own cost by 15 and costs 15 frames of
+// latency.
+inline unsigned sweep_every() {
+    static const unsigned n = env_uint("HANABI_RETIRE_EVERY", 15);
+    return n;
+}
+
+struct SweepResult {
+    size_t considered = 0;
+    size_t retired = 0;
+};
+
+inline size_t g_retired_total = 0;
+
+inline SweepResult retire_stale(unsigned grace) {
+    SweepResult out;
+    auto& owned = afterhours::ui::imm::existing_ui_elements;
+    auto& collection = afterhours::ui::UICollectionHolder::get().collection;
+    out.considered = owned.size();
+    for (auto it = owned.begin(); it != owned.end();) {
+        const EntityID id = it->second;
+        const unsigned stamp = stamp_read(id);
+        if (stamp == 0u || g_epoch - stamp <= grace) {
+            ++it;
+            continue;
+        }
+        stamp_of(id) = 0u;
+        collection.markIDForCleanup(id);
+        it = owned.erase(it);
+        ++out.retired;
+    }
+    g_retired_total += out.retired;
+    return out;
+}
+
 }  // namespace hanabi::widget_epoch

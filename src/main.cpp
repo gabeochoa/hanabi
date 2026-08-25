@@ -66,7 +66,7 @@
 #include "ecs/shortcuts_system.h"
 #include "ecs/tab_bar_system.h"
 #include "ecs/theme_rotation_system.h"
-#include "ecs/widget_epoch_system.h"
+#include "ecs/widget_retire_system.h"
 #include "ui/theme.h"
 
 // A no-op render system so begin/clear happen in app_frame.
@@ -338,8 +338,9 @@ static void build_systems(afterhours::SystemManager& sm) {
 
     // Ahead of every `mk()` in the frame, and after the bridge that clears the
     // children lists: the epoch this system opens is what every widget built
-    // below is stamped with. src/ui/widget_epoch.h.
-    sm.register_update_system(std::make_unique<ecs::WidgetEpochSystem>());
+    // below is stamped with, and the sweep it runs first retires the widgets
+    // of screens nothing has built for a while. src/ui/widget_epoch.h.
+    sm.register_update_system(std::make_unique<ecs::WidgetRetireSystem>());
 
     // Data + layout must run before UI-creating systems.
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
