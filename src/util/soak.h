@@ -142,20 +142,83 @@ inline void report(std::vector<Sample>& out, int frame, double ms, long rss,
     std::fflush(stdout);
 }
 
-// The verdict. Compares the LAST bucket against the SECOND (not the first:
-// the first carries lazy-init costs that are not a leak and would make every
-// run look like it improved).
+// The MEDIAN of a window of buckets, per column.
+//
+// A bucket is one instantaneous reading of a process with async workers that
+// rebuilds its whole widget tree every frame, so it carries whatever transient
+// allocation happened to be outstanding when the sample landed. Comparing one
+// bucket against one other bucket therefore reports the noise as loudly as the
+// signal: three consecutive runs of the identical scenario read +704, +656 and
+// +416 KB of RSS growth and +5194, +4962 and +4395 live blocks -- a 40%
+// spread, from a run that is measuring whether a number grew at all.
+//
+// util/mem_ladder.h hit the same wall harder (it read +-100%) and solved it the
+// same way. Three buckets is enough here because the buckets are already
+// averages of 250 frames each; the per-bucket lines printed above are
+// untouched, so nothing about what a reader sees changes.
+//
+// FRAME TIME IS DELIBERATELY NOT WINDOWED, and this is worth writing down
+// because the obvious tidy-up is to window it too. It was tried. The memory
+// columns are CUMULATIVE -- a leak only ever adds -- so a median window over
+// them is strictly better than one sample. Frame time is not cumulative: the
+// early buckets carry the launch burst, which on this scenario is 12 ms
+// against a steady state of 4 ms, and the old anchor at bucket 2 was catching
+// exactly that. Windowing it moved the early anchor into the steady state and
+// two runs in three then reported "frame time is trending UP" -- correctly, in
+// the sense that the `threads` scenario opens a tab every 30 frames and more
+// tabs really are slower, and uselessly, in the sense that a leak detector
+// that fails because the machine was busy is a leak detector nobody reads.
+// So frame time keeps its old anchor and its old meaning.
+struct Window {
+    double msPerFrame = 0.0;
+    double rssKb = 0.0;
+    double entities = 0.0;
+    double blocks = 0.0;
+    double bytes = 0.0;
+    int frame = 0;
+};
+
+inline double median3(double a, double b, double c) {
+    return a < b ? (b < c ? b : (a < c ? c : a)) : (a < c ? a : (b < c ? c : b));
+}
+
+// The three buckets ending at `end` (inclusive index), reduced by median.
+inline Window window_at(const std::vector<Sample>& s, size_t end) {
+    const Sample& x = s[end - 2];
+    const Sample& y = s[end - 1];
+    const Sample& z = s[end];
+    Window w;
+    w.msPerFrame = median3(x.msPerFrame, y.msPerFrame, z.msPerFrame);
+    w.rssKb = median3(static_cast<double>(x.rssKb), static_cast<double>(y.rssKb),
+                      static_cast<double>(z.rssKb));
+    w.entities = median3(static_cast<double>(x.entities),
+                         static_cast<double>(y.entities),
+                         static_cast<double>(z.entities));
+    w.blocks = median3(static_cast<double>(x.heap.count),
+                       static_cast<double>(y.heap.count),
+                       static_cast<double>(z.heap.count));
+    w.bytes = median3(static_cast<double>(x.heap.bytes),
+                      static_cast<double>(y.heap.bytes),
+                      static_cast<double>(z.heap.bytes));
+    w.frame = y.frame;  // the middle of the window
+    return w;
+}
+
+// The verdict. Compares the LAST window against an EARLY one (never the first
+// bucket alone: it carries lazy-init costs that are not a leak and would make
+// every run look like it improved).
 inline int verdict(const std::vector<Sample>& s) {
-    if (s.size() < 3) {
+    if (s.size() < 6) {
         std::printf("[soak] too few buckets to judge a trend\n");
         return 0;
     }
-    const Sample& a = s[1];
-    const Sample& b = s.back();
-    const double dMs = b.msPerFrame - a.msPerFrame;
-    const double dRss = static_cast<double>(b.rssKb - a.rssKb);
-    const long dEnt = static_cast<long>(b.entities) -
-                      static_cast<long>(a.entities);
+    const Window a = window_at(s, 3);            // buckets 2-4
+    const Window b = window_at(s, s.size() - 1);  // the last three
+    // See the note above window_at: the memory columns are windowed, frame
+    // time keeps the original bucket-2-against-last anchor.
+    const double dMs = s.back().msPerFrame - s[1].msPerFrame;
+    const double dRss = b.rssKb - a.rssKb;
+    const long dEnt = static_cast<long>(b.entities - a.entities);
     const int frames_between = b.frame - a.frame;
     // Per 1000 frames -- ~17 seconds of wall clock at 60fps, which is the
     // scale the report is about ("slower every second").
@@ -170,10 +233,8 @@ inline int verdict(const std::vector<Sample>& s) {
                 dRss, dRss * per1k);
     std::printf("[soak]   entities    %+7ld     (%+.0f per 1000 frames)\n",
                 dEnt, static_cast<double>(dEnt) * per1k);
-    const long dBlocks = static_cast<long>(b.heap.count) -
-                         static_cast<long>(a.heap.count);
-    const long dBytes = static_cast<long>(b.heap.bytes) -
-                        static_cast<long>(a.heap.bytes);
+    const long dBlocks = static_cast<long>(b.blocks - a.blocks);
+    const long dBytes = static_cast<long>(b.bytes - a.bytes);
     std::printf("[soak]   live blocks %+7ld     (%+.0f per 1000 frames)\n",
                 dBlocks, static_cast<double>(dBlocks) * per1k);
     std::printf("[soak]   live bytes  %+7ld KB  (%+.0f KB per 1000 frames)\n",

@@ -264,6 +264,21 @@ Blunt, because the point of a noise floor is to be allowed to say this.
   Only the first scales with threads opened rather than with widgets on screen,
   and it is capped at 2000 entries (entry 2). The remainder tracks the widget
   high-water mark and the catalog, both of which are one-time.
+- **The soak probe's own RSS column.** Giving `soak.h`'s verdict the same
+  median treatment tightened the live-block column from a 18% spread across
+  three identical runs (5194 / 4962 / 4395) to 3% (3768 / 3888 / 3840). It did
+  nothing for RSS (704 / 656 / 416 before, 400 / 336 / 800 after), because RSS
+  is page-granular and lags the allocation by a long way — the ladder's fix for
+  that is `malloc_zone_pressure_relief`, which the soak cannot call mid-run
+  without perturbing the steady state it exists to measure. Read the soak's
+  block column, not its RSS column.
+- **Windowing the soak's FRAME TIME column.** Tried, reverted, and the comment
+  in `soak.h` says why: the memory columns are cumulative so a median window is
+  strictly better, and frame time is not. Moving its early anchor out of the
+  launch burst made two runs in three report "frame time is trending UP" —
+  correctly, because the `threads` scenario opens a tab every 30 frames and
+  more tabs really are slower, and uselessly, because a leak detector that
+  fails when the machine is busy is a leak detector nobody reads.
 - **The 55 MB residue above the texture budget** (entry 4). It is Metal's own
   allocator high-water mark, and it is flat: 60 images and 180 images cost the
   same. Not worth chasing from this side of the API.
