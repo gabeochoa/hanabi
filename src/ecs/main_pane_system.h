@@ -743,6 +743,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // catalog has been seen at its largest. clear() keeps the capacity.
     std::vector<float> pitches_;
     std::vector<const api::SessionSummary*> digestRows_;
+    std::vector<const api::SessionSummary*> homeWaiting_, homeFinished_,
+        homeRunning_, homeRecent_;
     std::string subScratch_;
 
     // The cards this frame BUILT, against the sessions that matched, and the
@@ -1404,7 +1406,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // on a calm/real backend the attention buckets are all empty, so Home
         // must lead straight with an "all caught up" line + RECENT rather than
         // three dead headers stacked above the list.
-        std::vector<const api::SessionSummary*> waiting, finished, selfRunning;
+        // Reused across frames, like the digest's own collect and the
+        // sidebar's members_: these were four locals that malloc'd their way
+        // up from empty on every frame of a screen that shows eighty cards.
+        std::vector<const api::SessionSummary*>& waiting = homeWaiting_;
+        std::vector<const api::SessionSummary*>& finished = homeFinished_;
+        std::vector<const api::SessionSummary*>& selfRunning = homeRunning_;
+        waiting.clear();
+        finished.clear();
+        selfRunning.clear();
+        {
+        hanabi::prof::Scope _tpart("home.partition");
+        hanabi::prof::AllocScope _apart("home.partition.allocs");
         for (const auto& s : app.sessions) {
             if (s.state == api::ThreadState::Attention) {
                 if (s.tag == api::ThreadTag::Blocked)
@@ -1413,6 +1426,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     finished.push_back(&s);
             }
             if (s.state == api::ThreadState::Running) selfRunning.push_back(&s);
+        }
         }
         const bool anyAttention =
             !waiting.empty() || !finished.empty() || !selfRunning.empty();
@@ -1489,7 +1503,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Recent folder holds the full set). Skip archived AND anything already
         // surfaced in a section above (Attention/Running), so a [P]/done/running
         // card isn't shown twice.
-        std::vector<const api::SessionSummary*> recent;
+        std::vector<const api::SessionSummary*>& recent = homeRecent_;
+        recent.clear();
+        {
+        hanabi::prof::Scope _trec("home.recent");
+        hanabi::prof::AllocScope _arec("home.recent.allocs");
         for (const auto& s : app.sessions) {
             if (ecs::model::is_archived(s)) continue;
             if (s.state == api::ThreadState::Attention ||
@@ -1497,10 +1515,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 continue;
             recent.push_back(&s);
         }
-        std::sort(recent.begin(), recent.end(),
-                  [](const api::SessionSummary* a, const api::SessionSummary* b) {
-                      return a->updated_at > b->updated_at;
-                  });
+        }
+        {
+        // Recent shows at most kMaxSection cards, so the ordering that has to
+        // be RIGHT is the ordering of the first twenty -- and a full sort of
+        // the whole catalog to find them is the same shape as building a card
+        // per session to show twenty of them, one line down instead of one
+        // pane over. partial_sort is O(n log k) where the sort was
+        // O(n log n), and it leaves the tail unordered, which is exactly the
+        // part nothing reads.
+        hanabi::prof::Scope _tsort("home.sort");
+        const auto by_recency = [](const api::SessionSummary* a,
+                                   const api::SessionSummary* b) {
+            return a->updated_at > b->updated_at;
+        };
+        const size_t keep = std::min(recent.size(), kMaxSection);
+        std::partial_sort(recent.begin(),
+                          recent.begin() + static_cast<long>(keep),
+                          recent.end(), by_recency);
+        }
         if (!anyAttention) {
             list_extent(2.0f + 30.0f + 6.0f);
             div(ctx, mk(wrap, 800),
