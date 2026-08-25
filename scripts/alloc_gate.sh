@@ -35,7 +35,7 @@
 # each figure the steady-state bucket of a 600-frame run, reproduced across
 # runs to the unit)
 #
-#   arm         main @ 9ba8bb2   this branch    ceiling   headroom
+#   arm         main @ ddb391c   this branch    ceiling   headroom
 #   home20              2550.0         827.0       1000      +21%
 #   home2000            3535.0        1197.0       1450      +21%
 #   thread480           6687.0        2740.0       3300      +20%

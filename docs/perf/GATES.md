@@ -27,6 +27,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | gate | command | in `make test`? | wall clock |
 | --- | --- | --- | --- |
 | soak | `make soak-gate` | yes | ~3 s |
+| allocation | `make alloc-gate` | yes | ~20 s |
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
 | scroll | `make scroll-gate` | yes | ~6 s |
 | source checks | `make source-checks` | yes | <1 s |
@@ -678,6 +679,72 @@ line at all). Re-running the arm on its own is the first move, every time.
 
 ---
 
+## 5. The allocation gate — how many times does one frame call malloc?
+
+`scripts/alloc_gate.sh`, reading the `allocs/frame` line `src/util/soak.h`
+prints under `HANABI_PROF=1`.
+
+**Why it is not one of the gates above.** Every other runtime gate in this file
+measures a SLOPE. A frame that allocates four thousand times and frees all four
+thousand is flat on all of them — flat RSS, flat live blocks, flat entity
+count — and it is the reported symptom just as surely as a leak is. When this
+gate was written the app allocated 3,535 times per frame standing still on the
+Home view with a 2000-session catalog, and the soak gate read −0.6 KB of heap
+growth per thousand frames. Both numbers were correct.
+
+**Why an absolute ceiling, here, on this box.** Because the number is
+DETERMINISTIC. Not low-variance: identical, to within one allocation, on every
+run and in every bucket of a run, while the same binary's wall-clock frame time
+moved between 1.6 ms and 6.5 ms with the machine's load during the same
+measurements. Everything in this file that is expressed as a ratio is a
+workaround for a measurement that moves; this one does not move.
+
+| arm | main @ ddb391c | after | ceiling |
+| --- | ---: | ---: | ---: |
+| `home20` — the 20-session fixture, Home | 2,550.0 | 827.0 | 1,000 |
+| `home2000` — Home over 2000 sessions | 3,535.0 | 1,197.0 | 1,450 |
+| `thread480` — a 480-message thread over 2000 | 6,687.0 | 2,740.0 | 3,300 |
+
+~20% of headroom on each. Not for noise — there is none. For a feature that
+legitimately adds a widget or a label, which should cost a few allocations and
+not five hundred.
+
+Text measurement is deliberately NOT gated here even though it is a large share
+of the total: `scripts/perf_text_gate.sh` gates it directly, and two gates on
+one property is one gate nobody maintains.
+
+### Reproducing a failure
+
+Two rehearsals, both real reverts rather than a lowered ceiling.
+
+```bash
+# (a) the whole branch: build at the commit that adds only the instrument
+#     home20 2550 (255%), home2000 3535 (244%), thread480 6681 (202%) — all FAIL
+
+# (b) ONE LINE, which is the shape the regression will really take.
+#     src/ui/widget_epoch.h, point the app's mk wrapper back at the library's:
+sed -i '' 's|hanabi::ui::mk(parent, otherID, location);|afterhours::ui::imm::mk(parent, otherID, location);|' \
+    src/ui/widget_epoch.h
+make -j8 && make alloc-gate
+```
+
+(b) compiles, renders identically, changes no pixel, and reads:
+
+```
+  arm             allocs/f    ceiling  of ceil   verdict
+  home20            2466.0       1000     247%   FAIL
+  home2000          3361.0       1450     232%   FAIL
+  thread480         5803.0       3300     176%   FAIL
+```
+
+A one-line change inside a wrapper whose stated job is something else entirely,
+costing two thousand mallocs a frame forever. That is what this gate is for.
+
+The failure text names the four causes this project has actually had and the
+command that lists the call sites; `docs/perf/ALLOCATIONS.md` is the full map.
+
+---
+
 ## Where the stress harness is, and what it adds
 
 `docs/perf/STRESS.md` is the other half of this file: the twelve scenarios,
@@ -831,6 +898,13 @@ The soak gate can say "10 blocks a frame, 282 bytes each". It cannot say
 twenty seconds of run time and a human reading symbol names — not something
 that can sit in `make test`. The recipe is above; the gate deliberately points
 at it rather than pretending to replace it.
+
+**Since resolved, and not by that recipe.** `HANABI_PROF_SITES=1` plus
+`scripts/alloc_sites.sh` attributes every allocation to a call site from inside
+the process, in one run, with no debugger. It also established that
+`malloc_history -allBySize` cannot see per-frame churn at all — it walks LIVE
+blocks, and the frame frees everything it allocates, so on this app it reports
+Metal's startup and nothing else. See `docs/perf/ALLOCATIONS.md`.
 
 ### Whether a cache is *correctly* sized
 
