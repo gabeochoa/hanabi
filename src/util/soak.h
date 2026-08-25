@@ -159,20 +159,100 @@ inline void report(std::vector<Sample>& out, int frame, double ms, long rss,
     std::fflush(stdout);
 }
 
+// ---------------------------------------------------------------------------
+// The budget. What counts as "flat".
+//
+// Every number here is overridable from the environment, because the same
+// probe serves two jobs with very different tolerances: the SHORT run inside
+// `make test` (a few hundred frames, thresholds tight enough to catch the
+// Metal leak) and the LONG pre-release run (`make soak`, thousands of frames,
+// every scenario), where a slow drift has room to show itself.
+//
+// The defaults below are the LOOSE ones — a leak detector, not a budget. The
+// tight ones live in scripts/soak_gate.sh next to the measurement that set
+// them, so the number and its provenance cannot drift apart.
+//
+//   HANABI_SOAK_MAX_RSS_KB_PER1K     resident growth,      KB per 1000 frames
+//   HANABI_SOAK_MAX_HEAP_KB_PER1K    live malloc bytes,    KB per 1000 frames
+//   HANABI_SOAK_MAX_MS_PER1K         frame-time drift,     ms per 1000 frames
+//   HANABI_SOAK_MAX_ENT_PER1K        entity growth,     entities per 1000
+// ---------------------------------------------------------------------------
+struct Budget {
+    double rssKbPer1k = 2048.0;
+    double heapKbPer1k = 2048.0;
+    double msPer1k = 0.5;
+    double entPer1k = 100.0;
+};
+
+inline double env_double(const char* name, double fallback) {
+    const char* v = std::getenv(name);
+    if (v == nullptr || *v == '\0') return fallback;
+    char* end = nullptr;
+    const double parsed = std::strtod(v, &end);
+    return (end != nullptr && end != v) ? parsed : fallback;
+}
+
+inline Budget budget() {
+    static const Budget b = [] {
+        Budget out;
+        out.rssKbPer1k = env_double("HANABI_SOAK_MAX_RSS_KB_PER1K", out.rssKbPer1k);
+        out.heapKbPer1k = env_double("HANABI_SOAK_MAX_HEAP_KB_PER1K", out.heapKbPer1k);
+        out.msPer1k = env_double("HANABI_SOAK_MAX_MS_PER1K", out.msPer1k);
+        out.entPer1k = env_double("HANABI_SOAK_MAX_ENT_PER1K", out.entPer1k);
+        return out;
+    }();
+    return b;
+}
+
+// One row of the verdict table, so the printing is uniform and a new metric
+// cannot accidentally be reported in a different shape from the rest.
+inline bool judge_row(const char* label, const char* unit, double per1k,
+                      double budgetPer1k, bool gated) {
+    // Per MINUTE at 60fps, because that is the unit the bug report was in
+    // ("slower every second"), and 2.8 MB per 1000 frames does not sound
+    // alarming until it is 10 MB a minute.
+    const double perMinute = per1k * 3.6;
+    const bool over = gated && per1k > budgetPer1k;
+    char verdictCell[48];
+    if (!gated)
+        std::snprintf(verdictCell, sizeof(verdictCell), "report-only");
+    else if (over)
+        std::snprintf(verdictCell, sizeof(verdictCell), "FAIL  %.1fx over budget",
+                      budgetPer1k > 0.0 ? per1k / budgetPer1k : 0.0);
+    else
+        std::snprintf(verdictCell, sizeof(verdictCell), "ok");
+
+    char budgetCell[32];
+    if (gated)
+        std::snprintf(budgetCell, sizeof(budgetCell), "%.0f", budgetPer1k);
+    else
+        std::snprintf(budgetCell, sizeof(budgetCell), "%s", "-");
+
+    std::printf("[soak]   %-12s %+11.1f %-4s %+11.1f %-8s %8s  %s\n", label,
+                per1k, unit, perMinute, unit, budgetCell, verdictCell);
+    return over;
+}
+
 // The verdict. Compares the LAST bucket against the SECOND (not the first:
 // the first carries lazy-init costs that are not a leak and would make every
 // run look like it improved).
+//
+// WHAT THIS PRINTS AND WHY. The old version printed six deltas and the word
+// FAIL. That is enough for whoever wrote the probe and nobody else: it names
+// no cause, no reproduction, and no next step, so the first thing the reader
+// does is open soak.h — which is exactly the tax this file exists to remove.
+// So the failure path now says what grew, by how much, against what budget,
+// what shape of bug produces that shape of growth, and the two commands that
+// reproduce and localise it.
 inline int verdict(const std::vector<Sample>& s) {
     if (s.size() < 3) {
-        std::printf("[soak] too few buckets to judge a trend\n");
+        std::printf("[soak] too few buckets to judge a trend (got %zu, need 3)."
+                    " Raise HANABI_SOAK or lower HANABI_SOAK_EVERY.\n",
+                    s.size());
         return 0;
     }
     const Sample& a = s[1];
     const Sample& b = s.back();
-    const double dMs = b.msPerFrame - a.msPerFrame;
-    const double dRss = static_cast<double>(b.rssKb - a.rssKb);
-    const long dEnt = static_cast<long>(b.entities) -
-                      static_cast<long>(a.entities);
     const int frames_between = b.frame - a.frame;
     // Per 1000 frames -- ~17 seconds of wall clock at 60fps, which is the
     // scale the report is about ("slower every second").
@@ -180,48 +260,100 @@ inline int verdict(const std::vector<Sample>& s) {
                              ? 1000.0 / static_cast<double>(frames_between)
                              : 0.0;
 
-    std::printf("\n[soak] over %d frames after warmup:\n", frames_between);
-    std::printf("[soak]   frame time  %+7.3f ms  (%+.3f ms per 1000 frames)\n",
-                dMs, dMs * per1k);
-    std::printf("[soak]   RSS         %+7.0f KB  (%+.0f KB per 1000 frames)\n",
-                dRss, dRss * per1k);
-    std::printf("[soak]   entities    %+7ld     (%+.0f per 1000 frames)\n",
-                dEnt, static_cast<double>(dEnt) * per1k);
+    const double dMs = b.msPerFrame - a.msPerFrame;
+    const double dRssKb = static_cast<double>(b.rssKb - a.rssKb);
+    const double dEnt = static_cast<double>(b.entities) -
+                        static_cast<double>(a.entities);
     const long dBlocks = static_cast<long>(b.heap.count) -
                          static_cast<long>(a.heap.count);
-    const long dBytes = static_cast<long>(b.heap.bytes) -
-                        static_cast<long>(a.heap.bytes);
-    std::printf("[soak]   live blocks %+7ld     (%+.0f per 1000 frames)\n",
-                dBlocks, static_cast<double>(dBlocks) * per1k);
-    std::printf("[soak]   live bytes  %+7ld KB  (%+.0f KB per 1000 frames)\n",
-                dBytes / 1024, static_cast<double>(dBytes) / 1024.0 * per1k);
-    if (dBlocks > 0) {
-        // The size of the thing being leaked, which is the strongest single
-        // clue available from outside: a 32-byte leak is a node in a map, a
-        // few-hundred-byte one is a string or a small vector, a huge one is a
-        // buffer.
-        std::printf("[soak]   => mean leaked block %.0f bytes\n",
-                    static_cast<double>(dBytes) / static_cast<double>(dBlocks));
+    const double dHeapKb = (static_cast<double>(b.heap.bytes) -
+                            static_cast<double>(a.heap.bytes)) / 1024.0;
+
+    const Budget bud = budget();
+
+    std::printf("\n[soak] measured over %d frames (%.1f s at 60fps), from "
+                "frame %d to frame %d.\n[soak] Everything before frame %d is "
+                "excluded: the unmeasured settle pass, plus the\n[soak] first "
+                "two buckets, whose numbers carry lazy-init that is not a "
+                "leak.\n",
+                frames_between, static_cast<double>(frames_between) / 60.0,
+                a.frame, b.frame, a.frame);
+    std::printf("[soak]   %-12s %-16s %-20s %8s  %s\n", "metric",
+                "per 1000 frames", "per minute @60fps", "budget", "verdict");
+
+    int bad = 0;
+    // RSS is the metric the reported symptom is actually about: a process that
+    // grows without bound is the thing that gets slower and then freezes.
+    bad |= judge_row("RSS", "KB", dRssKb * per1k, bud.rssKbPer1k, true) ? 1 : 0;
+    // Live malloc bytes move the instant something is not freed, where RSS
+    // lags by whole pages -- so on a short run this is the sharper instrument.
+    bad |= judge_row("heap bytes", "KB", dHeapKb * per1k, bud.heapKbPer1k, true)
+               ? 1 : 0;
+    bad |= judge_row("entities", "  ", dEnt * per1k, bud.entPer1k, true) ? 1 : 0;
+    bad |= judge_row("frame time", "ms", dMs * per1k, bud.msPer1k, true) ? 1 : 0;
+    // Block COUNT is reported, never gated: the allocator recycles small
+    // blocks in bursts, so on a short run it sawtooths by thousands either way
+    // (measured +0 to +4265 per 1000 frames across five clean runs). It is
+    // here because dividing bytes by blocks names the SIZE of the leaked
+    // thing, which is most of the way to finding it.
+    judge_row("heap blocks", "  ", static_cast<double>(dBlocks) * per1k, 0.0,
+              false);
+
+    if (bad == 0) {
+        std::printf("[soak] PASS: flat over the run.\n");
+        return 0;
     }
 
-    // Thresholds are deliberately loose: this is a LEAK detector, not a
-    // budget. A leak of any size grows without bound, so over a few thousand
-    // frames it clears these by a mile; noise does not.
-    int bad = 0;
-    if (dMs * per1k > 0.5) {
-        std::printf("[soak] FAIL: frame time is trending UP\n");
-        bad = 1;
+    std::printf("\n[soak] ---------------- SOAK GATE: FAIL ----------------\n");
+    if (dHeapKb * per1k > bud.heapKbPer1k || dRssKb * per1k > bud.rssKbPer1k) {
+        std::printf("[soak] The app grew while it sat still. Nothing about "
+                    "this run\n[soak] asked it to: the catalog is fixed, the "
+                    "window never resizes,\n[soak] and the same frame is drawn "
+                    "over and over.\n");
+        if (dBlocks > 0 && frames_between > 0) {
+            const double perFrame =
+                static_cast<double>(dBlocks) / static_cast<double>(frames_between);
+            const double meanBytes = (dHeapKb * 1024.0) /
+                                     static_cast<double>(dBlocks);
+            std::printf("[soak]\n[soak] Shape of it: %.1f live blocks are added "
+                        "every frame and never\n[soak] freed, averaging %.0f "
+                        "bytes each.\n", perFrame, meanBytes);
+        }
+        std::printf("[soak]\n[soak] Per-frame allocation with nothing freeing "
+                    "it is, in this app,\n[soak] almost always one of three "
+                    "things:\n"
+                    "[soak]   1. a Metal/Cocoa autoreleased object with no pool "
+                    "draining it.\n"
+                    "[soak]      Every frame loop in src/main.cpp must open a "
+                    "hanabi::Autorelease-\n"
+                    "[soak]      Frame (src/util/autorelease.h). Deleting one "
+                    "leaks ~2.5 KB a\n"
+                    "[soak]      frame -- ~9 MB a minute -- and looks like "
+                    "nothing in a diff.\n"
+                    "[soak]   2. a cache keyed on something that changes every "
+                    "frame, so every\n"
+                    "[soak]      frame inserts a new entry and evicts none.\n"
+                    "[soak]   3. something appended to a container each frame "
+                    "(an event log, a\n"
+                    "[soak]      history buffer) with no bound and no drain.\n");
     }
-    if (dRss * per1k > 2048.0) {
-        std::printf("[soak] FAIL: RSS is trending UP (>2 MB per 1000 frames)\n");
-        bad = 1;
+    if (dMs * per1k > bud.msPer1k && dRssKb * per1k <= bud.rssKbPer1k) {
+        std::printf("[soak]\n[soak] Frame time is climbing while memory is "
+                    "FLAT, which is the worse\n[soak] shape: work proportional "
+                    "to something that grows without\n[soak] allocating -- a "
+                    "counter driving a loop, or a container that is\n[soak] "
+                    "reused but never shrunk.\n");
     }
-    if (static_cast<double>(dEnt) * per1k > 100.0) {
-        std::printf("[soak] FAIL: entity count is trending UP\n");
-        bad = 1;
-    }
-    if (bad == 0) std::printf("[soak] PASS: flat over the run\n");
-    return bad;
+    std::printf("[soak]\n[soak] To reproduce and localise:\n"
+                "[soak]   make soak-gate              # this exact run again\n"
+                "[soak]   make soak                   # the long form, every "
+                "scenario\n"
+                "[soak]   docs/perf/GATES.md          # what this gate is, and "
+                "how to name\n"
+                "[soak]                               # the leaking allocation "
+                "with `leaks`\n");
+    std::printf("[soak] ------------------------------------------------\n");
+    return 1;
 }
 
 }  // namespace hanabi::soak
