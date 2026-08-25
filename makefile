@@ -530,8 +530,54 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
 	@bash scripts/perf_transcript_slope.sh
+	@$(MAKE) soak-gate
+	@$(MAKE) scaling-gate
+	@$(MAKE) source-checks
 
-.PHONY: test unit-e2e e2e perf test-real
+# ==============================================================================
+# THE SLOPE GATES  (docs/perf/GATES.md)
+# ==============================================================================
+#
+# Everything above this line is a budget on a young idle app: 45 frames and an
+# assertion on the 45th, the first frame and the peak RSS of a process under a
+# second old, thread-switch latency in-process. A leak is a young idle app
+# looking fine, and the app shipped one at ~9 MB a minute with all of them
+# green. These two measure the SLOPE instead of the value.
+#
+#   make soak-gate     ~4 s.  1000 frames idle; fails if RSS or the live heap
+#                      is trending up. In `make test`.
+#   make scaling-gate  ~5 s.  The same UI at 20 and at 2000 sessions; fails on
+#                      the RATIO between them, never on an absolute
+#                      millisecond figure — this box is shared, and an
+#                      absolute would flake. In `make test`.
+#   make soak          ~65 s. The long form: every stress scenario, 4000
+#                      frames each, plus an arm at a 2000-session catalog.
+#                      NOT in `make test` — run it before a release.
+soak-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/soak_gate.sh
+
+scaling-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/scaling_gate.sh
+
+soak: $(MAIN_EXE) copy-resources
+	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
+	 HANABI_SOAK_ARMS="$(if $(ARMS),$(ARMS),$(HANABI_SOAK_ARMS))" \
+	 bash scripts/soak.sh
+
+# The source checks. Cheap, and they catch a class of defect no pixel and no
+# frame time can: a silent no-op renders plausibly and asserts nothing.
+# check_autorelease.py is the one that guards the four lines whose deletion
+# caused all of this — see docs/perf/GATES.md.
+source-checks:
+	@echo "Running source checks..."
+	@rc=0; \
+	for chk in scripts/check_label_padding.py scripts/check_autorelease.py; do \
+	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
+	done; \
+	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
+	exit $$rc
+
+.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate source-checks
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

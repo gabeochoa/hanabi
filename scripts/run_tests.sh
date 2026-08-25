@@ -63,11 +63,28 @@ STARTUP_MS="$(echo "$LAUNCH_OUT" | grep -Eo 'Startup: +[0-9]+ ms' | grep -Eo '[0
 FIRSTFRAME_MS="$(echo "$LAUNCH_OUT" | grep -Eo 'FirstFrame: +[0-9]+ ms' | grep -Eo '[0-9]+' | head -1)"
 RSS_MB="$(echo "$LAUNCH_OUT" | grep -Eo 'Peak RSS: +[0-9]+ MB' | grep -Eo '[0-9]+' | head -1)"
 
+# --- Slope gates -------------------------------------------------------------
+# Everything above is a budget on a young idle app, and a leak is a young idle
+# app looking fine. These two measure the slope: growth over a thousand frames,
+# and the ratio between two catalog sizes. See docs/perf/GATES.md.
+step "Soak gate (scripts/soak_gate.sh: 1000 frames, RSS + heap slope)"
+SOAK_OUT="$(bash scripts/soak_gate.sh 2>&1; echo "RC=$?")"
+echo "$SOAK_OUT" | sed '/^RC=/d'
+if echo "$SOAK_OUT" | grep -q '^RC=0$'; then echo "  soak-gate: PASS"; else echo "  soak-gate: FAIL"; FAIL=1; fi
+SOAK_RSS="$(echo "$SOAK_OUT" | grep -E '\[soak\]   RSS ' | awk '{print $3, $4}')"
+
+step "Catalog-scaling gate (scripts/scaling_gate.sh: widget + frame-time ratio)"
+SCALE_OUT="$(bash scripts/scaling_gate.sh 2>&1; echo "RC=$?")"
+echo "$SCALE_OUT" | sed '/^RC=/d'
+if echo "$SCALE_OUT" | grep -q '^RC=0$'; then echo "  scaling-gate: PASS"; else echo "  scaling-gate: FAIL"; FAIL=1; fi
+SCALE_W="$(echo "$SCALE_OUT" | awk '/^  widgets/ {print $NF}')"
+SCALE_T="$(echo "$SCALE_OUT" | awk '/^  min ms\/f/ {print $NF}')"
+
 # --- Source checks ---
 # Cheap, and they catch a class of defect the pixel tests cannot: a silent
 # no-op renders plausibly and asserts nothing.
 step "Source checks"
-for chk in scripts/check_label_padding.py; do
+for chk in scripts/check_label_padding.py scripts/check_autorelease.py; do
     OUT="$(/usr/bin/python3 "$chk"; echo "RC=$?")"
     echo "$OUT" | sed '/^RC=/d' | sed 's/^/  /'
     if echo "$OUT" | grep -q '^RC=0$'; then
@@ -90,6 +107,8 @@ echo "  Startup:          ${STARTUP_MS:-?} ms   (budget < 250 ms)"
 echo "  FirstFrame:       ${FIRSTFRAME_MS:-?} ms   (budget < 250 ms)"
 echo "  Peak RSS:         ${RSS_MB:-?} MB   (budget < 250 MB)"
 echo "  Thread-switch:    ${SWITCH_MS:-?} ms/switch (current uncached path)"
+echo "  Soak RSS slope:   ${SOAK_RSS:-?} per 1000 frames (budget < 512 KB)"
+echo "  Scaling ratios:   ${SCALE_W:-?} widgets, ${SCALE_T:-?} frame time, 20 -> 2000 sessions"
 echo "  Pending: transcript LRU cache + sub-ms cached-switch assertion (Phase X)"
 if [ "$FAIL" -eq 0 ]; then
     printf '\033[1;32m  ALL CHECKS PASSED\033[0m\n'
