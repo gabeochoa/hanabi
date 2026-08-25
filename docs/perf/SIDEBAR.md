@@ -62,6 +62,10 @@ Nothing regressed at the small end. The first pass at the threads scenario read
 0.92x at zero extra sessions, which is the one direction that would have
 mattered; at 11 reps instead of 5 it is 1.14x, and the 0.92 was the box.
 
+A fifth scenario — `search` — was added during this work because none of the
+four above types anything, and it is where the worst number on the branch was:
+**213 ms/frame at 20,000 sessions, now 4.5.** Section 4.
+
 The brief for this work was "make the sidebar cost what it draws". The sidebar
 turned out to be the wrong suspect, which is the most useful thing in this
 document, so it goes first.
@@ -174,7 +178,69 @@ document, so it goes first.
   one pass, exact under kerning, cheaper than what it replaces. Around 300
   lines of hanabi exist because it is not there.
 
-## 4. Everything the brief predicted about the sidebar was real, and measured as noise
+## 4. The freeze was in the search box, and no scenario had ever typed
+
+- **What I wanted** — the last of the four suspects: something that re-derives
+  itself on a keystroke or a frame. Four stress scenarios existed (`idle`,
+  `scroll`, `threads`, `tabs`) and not one of them typed anything, so the
+  sidebar filter — the one path that touches every session in the catalog *and*
+  reads a file for each one — had never been run under load at all.
+
+- **What happened** — a `search` scenario, added, and its first run:
+
+  | sessions | 0 | 100 | 500 | 2000 | 20000 |
+  |---|---|---|---|---|---|
+  | ms/frame | 0.940 | 2.162 | 5.450 | **18.061** | **212.958** |
+  | entities | 411 | 1134 | 3134 | 10615 | — |
+
+  Eighteen milliseconds a frame at 2000 sessions with a word in the search box,
+  against 1.36 idle on the same catalog. At 20,000 it is **213 ms — 4.7 frames
+  per second.** That is not slow, that is the *"until it freezes"* in the
+  original report, and it is one keystroke away on any screen.
+
+  Two independent causes, both the same shape as everything else here:
+
+  1. **The result list was uncapped.** In the code: "A live search shows ALL
+     matches uncapped — the filter has already narrowed the list, and hiding
+     matches behind 'show more' would defeat it." True of a query that narrows
+     to a handful; false of the **first keystroke**, which narrows nothing.
+     Typing `r` matched most of the catalog and drew all of it. The one moment
+     the list is guaranteed to be at its longest is the moment the cap was
+     switched off.
+  2. **`content_matches` opens a file per session, per frame.** It reads the
+     transcript whole, lowercases every byte and scans it — for every session
+     whose title did not match, on every frame the query is live. Two thousand
+     file opens a frame, and it stays two thousand when nothing is cached,
+     because a failed open is still a syscall.
+
+- **Cost** — the cap is the same cap and the same "Show N more" the unfiltered
+  list already has; the header still carries the true match count, so the search
+  still *answers* with all of them. The memo is keyed on `(id, query)` and
+  dropped when the corpus changes — a transcript written, wiped or trimmed
+  bumps a generation. And typing gets cheaper as you type: if the new query
+  contains the old as a substring, nothing that missed the old can match the
+  new, so narrowing a search re-reads the hits, not the catalog.
+
+  | sessions | 0 | 100 | 500 | 2000 | 20000 |
+  |---|---|---|---|---|---|
+  | before | 1.010 | 2.359 | 5.812 | 19.412 | 212.958 |
+  | after | 0.949 | 1.647 | 1.873 | **2.120** | **4.537** |
+  | | 1.06x | 1.43x | 3.10x | **9.16x** | **46.94x** |
+
+- **The part worth keeping** — this was the largest single number on the branch
+  and it was found by *adding a scenario*, not by reading code. Four scenarios
+  had been written and the one input a person gives a list most often was not
+  among them. **A harness only measures the things somebody thought to drive.**
+
+- **And the test almost proved nothing.** The memo's test is about the
+  invalidation, not the speed — a stale `false` is a thread that has silently
+  dropped out of your search results. The first draft passed under *both*
+  neuters, because it wandered off to another query between reading an answer
+  and invalidating it, and a query change drops the memo, so it had already
+  thrown away the entry it meant to catch going stale. The ordering of those
+  lines is now the test and the comment says so.
+
+## 5. Everything else the brief predicted about the sidebar was real, and measured as noise
 
 The brief named four suspects in `sidebar_system.h`, and all four were exactly
 as described. They are also, at any catalog size a person will have, worth
@@ -211,7 +277,7 @@ to be invalidated by every writer of the sessions vector — the star toggle, th
 archive toggle, the mute toggle, the loader's refetch, a toast's undo. A stale
 count is a smart view that says 6 and lists 5. 0.05 ms is not worth that.
 
-## 5. The profiler and the stopwatch disagreed, and the stopwatch won
+## 6. The profiler and the stopwatch disagreed, and the stopwatch won
 
 - **What I wanted** — to finish the job `sample` pointed at. After the memo
   landed it *still* put `fit_to_width` at 15% of the main thread, which reads
@@ -240,7 +306,7 @@ count is a smart view that says 6 and lists 5. 0.05 ms is not worth that.
   pointer, not a measurement — it is excellent at *what to look at next* and
   should never be quoted as *what it costs*.
 
-## 6. A shared /tmp is not a place to keep a harness
+## 7. A shared /tmp is not a place to keep a harness
 
 - **What I wanted** — before/after numbers for the scroll scenario.
 
@@ -284,7 +350,9 @@ scripts/perf_ab.sh /path/to/old/hanabi.exe output/hanabi.exe idle 5 800
 HANABI_SOAK_CENSUS=1  # with any HANABI_SOAK run
 ```
 
-Scenarios are `idle`, `scroll`, `threads`, `tabs` (`src/util/stress.h`).
+Scenarios are `idle`, `scroll`, `threads`, `tabs`, `search`
+(`src/util/stress.h`). If you are adding one, section 4 is the argument for
+bothering.
 Read the entity count first and the frame time second.
 
 Both scripts report the MINIMUM bucket per run and the MEDIAN across runs:
@@ -313,5 +381,5 @@ look before it is: `imm::mk()` builds a `std::stringstream`, formats a
 resulting string — **per widget, per frame**. 330 of 3908 samples (8.4%) in the
 scroll profile. The identity it is computing is a compile-time constant plus
 two integers. Not filed because it wants a measurement of its own rather than a
-number read off a profile of something else — see section 5 for why that
+number read off a profile of something else — see section 6 for why that
 distinction is not pedantry.
