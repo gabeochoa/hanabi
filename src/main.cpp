@@ -1155,6 +1155,12 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
     ladder.compare("- every tab closed, back to the empty app",
                    "- every tab closed, back to the empty app",
                    "- after opening and closing one at a time, N times", churn);
+    if (const int hold = hanabi::memladder::hold_seconds(); hold > 0) {
+        std::printf("[ladder] holding %d s at the last rung -- pid %d\n", hold,
+                    static_cast<int>(::getpid()));
+        std::fflush(stdout);
+        std::this_thread::sleep_for(std::chrono::seconds(hold));
+    }
     graphics::close_window();
     return 0;
 }

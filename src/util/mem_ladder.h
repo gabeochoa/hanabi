@@ -102,6 +102,20 @@ inline int settle_frames() { return env_int("HANABI_MEM_SETTLE", 30); }
 
 inline int repeats() { return env_int("HANABI_MEM_REPEAT", 1); }
 
+// Seconds to sit still at the last rung before exiting.
+//
+// This is how the residue gets a NAME rather than a size. MallocStackLogging=1
+// makes the allocator record a stack for every live block, and
+// `malloc_history <pid> -allBySize` prints them grouped, with a call count and
+// a mean block size -- a count that matches the number of threads churned is a
+// per-thread allocation, and the mean size says what kind of thing it is. Both
+// need the process to still be alive, and a ladder that exits the instant it
+// finishes printing is not.
+//
+//   HANABI_MEM_HOLD=30 MallocStackLogging=1 ... &
+//   malloc_history $(pgrep -n hanabi.exe) -allBySize | head -60
+inline int hold_seconds() { return env_int("HANABI_MEM_HOLD", 0); }
+
 // Readings per rung, one frame apart, reduced by median. Odd, so the median is
 // an actual sample rather than an average of two.
 inline int samples() { return env_int("HANABI_MEM_SAMPLES", 9); }
