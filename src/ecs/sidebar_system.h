@@ -741,11 +741,41 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static bool is_attention(api::ThreadState s) {
         return ecs::model::is_attention(s);
     }
-    static int blocked_count(const AppComponent& app) {
-        int n = 0;
-        for (const auto& s : app.sessions)
-            if (ecs::model::in_blocked_view(s)) ++n;
-        return n;
+    // The smart-view counts the shelf actually badges, in ONE pass.
+    //
+    // This was two passes computing four numbers, of which two were thrown
+    // away. blocked_count() walked app.sessions for the blocked total; the
+    // caller then walked it again for review, starred and archived. Starred
+    // and archived went nowhere -- Pinned and Archived carry NO badge in
+    // either client (`SmartView.showsAttentionBadge` is false for them) and
+    // both rows pass -1. A comment said "other things read them"; nothing
+    // does, and nothing has for as long as the rows have passed -1.
+    //
+    // So: one traversal instead of two, and two predicates per session
+    // instead of four. The second pass was not merely redundant work, it paid
+    // the cache misses over again -- by the time it started, the first had
+    // long since evicted the front of a 2000-element catalog.
+    //
+    // It is STILL O(catalog) per frame and that is deliberate. The honest
+    // alternative is a cache, and a cache here must be invalidated by every
+    // writer of the sessions vector: the star toggle, the archive toggle, the
+    // mute toggle, the loader's refetch, a toast's undo. A stale count is a
+    // smart view that says 6 and lists 5, which is precisely the class of
+    // regression this work is not allowed to introduce. All the remaining
+    // linear work in this file together measures at ~26ns per session per
+    // frame (docs/perf/SIDEBAR.md) -- 0.05ms at 2000 sessions, under the noise
+    // floor. Halving it is free; risking a wrong number to remove it is not.
+    struct ViewCounts {
+        int blocked = 0;
+        int review = 0;
+    };
+    static ViewCounts view_counts(const AppComponent& app) {
+        ViewCounts c;
+        for (const auto& s : app.sessions) {
+            if (ecs::model::in_blocked_view(s)) ++c.blocked;
+            if (s.state == api::ThreadState::Ready) ++c.review;
+        }
+        return c;
     }
 
     // ---- status mark (shape + tone, straight from the shared model) -------
@@ -1791,6 +1821,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
     SmartView lastListView_ = SmartView::Home;
 
+    // The group-membership scratch buffer, reused across frames so collecting
+    // a group's members costs no allocation once the catalog has been seen at
+    // its largest. Only one group renders per frame (the flat catch-all), so
+    // one buffer is enough; if a second group is ever rendered in the same
+    // frame this must become one buffer per nesting level, not one shared.
+    std::vector<const api::SessionSummary*> members_;
+    // Buffer for more_key(); see the note there.
+    std::string moreKeyScratch_;
+
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, bool folded, float panelW) {
         const SmartView lit = lit_view(app);
@@ -1813,12 +1852,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("smart_views"));
 
-        int review = 0, starred = 0, archived = 0, blocked = blocked_count(app);
-        for (const auto& s : app.sessions) {
-            if (s.state == api::ThreadState::Ready) ++review;
-            if (s.starred) ++starred;
-            if (model::is_archived(s)) ++archived;
-        }
+        const ViewCounts counts = view_counts(app);
+        const int review = counts.review;
+        const int blocked = counts.blocked;
 
         // Home's count is what is WAITING: the blocked rows plus the ones done
         // and unread. Home itself is a digest, not a filter, so this is the
@@ -1849,8 +1885,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Pinned and Archived carry NO badge, in either client: the badge
         // means "this many things are waiting on you", and a pin is a
         // bookmark, not a queue (`SmartView.showsAttentionBadge` is true for
-        // home/blocked/review and false for pinned/archived/settings). The
-        // counts are still computed above -- other things read them.
+        // home/blocked/review and false for pinned/archived/settings). Their
+        // counts are not computed at all: nothing reads them (see
+        // view_counts).
         // A pin, for the view called Pinned. The star sprite stays in the
         // atlas because the per-ROW star affordance still uses it -- Puffin
         // draws the shelf with `pin` and the row action with a star, and the
@@ -2143,6 +2180,34 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return is_named_folder(s.folder) ? s.folder : std::string("recent");
     }
 
+    // The collapsedFolders sentinel under which a group's "Show N more" opt-in
+    // is recorded. Written into a caller-owned buffer rather than returned by
+    // value: this is asked on the render path of every frame and a std::set
+    // lookup that allocates its own key first is a malloc per frame for a
+    // string that is the same string it was last frame.
+    static const std::string& more_key(const std::string& key,
+                                       std::string& scratch) {
+        scratch.assign("__more_").append(key).append("__");
+        return scratch;
+    }
+
+    // How many of a group's `total` members will actually be rendered.
+    //
+    // Computed ONCE per group, in render_folder, and handed to render_group --
+    // the two disagreeing would be a sidebar that sorts one prefix and renders
+    // another, and the surest way for them to agree is for there to be one
+    // answer rather than two derivations of it.
+    int visible_limit(const AppComponent& app, const std::string& key,
+                      const std::string& q, int total, int cap) {
+        // A live search shows ALL matches uncapped -- the filter has already
+        // narrowed the list, and hiding matches behind "show more" would
+        // defeat it. So does an explicit "Show N more" opt-in.
+        const bool expandedMore =
+            !q.empty() ||
+            app.collapsedFolders.count(more_key(key, moreKeyScratch_)) > 0;
+        return (expandedMore || total <= cap) ? total : cap;
+    }
+
     // ---- folder group ----
     // Renders a collapsible folder. Returns the number of chat rows actually
     // rendered (used by the caller to drive the search no-results state).
@@ -2157,7 +2222,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                       bool headerless = false, int cap = kBucketCap) {
         // Collect member threads, honoring the live search filter.
         const bool hideAutomated = app.collapsedFolders.count(kHideAutoKey) > 0;
-        std::vector<const api::SessionSummary*> members;
+        // Reused across frames so the collection costs no allocation once the
+        // catalog has been seen at its largest. clear() keeps the capacity;
+        // the old local vector malloc'd and freed one pointer per matching
+        // session on EVERY frame, which at 2000 sessions is a 16 KB round trip
+        // sixty times a second to render forty rows.
+        std::vector<const api::SessionSummary*>& members = members_;
+        members.clear();
         for (const auto& s : app.sessions) {
             bool match;
             if (archived) {
@@ -2186,17 +2257,48 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Hide a folder with no (matching) members. With an active query this
         // is what drops non-matching folders out of the tree.
         if (members.empty()) return 0;
+        const int total = static_cast<int>(members.size());
+        const int limit = visible_limit(app, key, q, total, cap);
 
         // Per Gabe: do NOT day-bucket. Both named folders and the Recent
         // catch-all render as a single FLAT list, newest-first. (The old
         // Today/Yesterday/Prev-week time grouping + render_time_groups were
         // removed — dead per this decision, ponytail types pass 2026-08-03.)
         if (catchAll) {
-            std::sort(members.begin(), members.end(),
-                      [](const api::SessionSummary* a,
-                         const api::SessionSummary* b) {
-                          return a->updated_at > b->updated_at;
-                      });
+            // Newest first, ties broken by id.
+            //
+            // The tie-break is not cosmetic. `updated_at` is a whole number of
+            // seconds and a real catalog has plenty of rows sharing one, so
+            // without it the order among tied rows is whatever the sort
+            // algorithm happens to leave -- which means the list can reshuffle
+            // for no reason the user can see, and it means the partial sort
+            // below could legitimately render a DIFFERENT set of rows than the
+            // full sort did. With it the order is a total order: one answer,
+            // independent of how it was reached.
+            const auto newestFirst = [](const api::SessionSummary* a,
+                                        const api::SessionSummary* b) {
+                if (a->updated_at != b->updated_at)
+                    return a->updated_at > b->updated_at;
+                return a->id < b->id;
+            };
+            // Sort only as far as the rows that will be drawn. The list is
+            // capped at roughly two viewports, so at a 2000-session catalog a
+            // full sort ordered 2000 rows to show forty of them, every frame.
+            //
+            // Sorting a prefix is safe against the pinned-row pass that
+            // follows, and the argument is worth writing down because it is
+            // the only thing making this legal: apply_row_order moves the
+            // pinned rows to the front while preserving the relative order of
+            // the rest, and at most `limit` rows are then rendered. If P of
+            // them are pinned, the other limit-P come from the non-pinned
+            // sequence -- whose first limit-P entries all lie inside the
+            // sorted prefix, because the prefix holds `limit` rows and lost at
+            // most P of them to the partition.
+            if (limit < total)
+                std::partial_sort(members.begin(), members.begin() + limit,
+                                  members.end(), newestFirst);
+            else
+                std::sort(members.begin(), members.end(), newestFirst);
         }
         // The rows the user has hand-arranged rise to the top of the group in
         // the order they were left in; everything else keeps the activity order
@@ -2207,7 +2309,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 model::apply_row_order(members, it->second);
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
-                            panelW, archived, headerless, cap);
+                            panelW, archived, headerless, cap, limit);
     }
 
     // ---- collapsible group header (shared by folders + time-groups) ----
@@ -2258,7 +2360,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // the long list. This guarantees no bucket renders its full
                 // body (e.g. 84 rows) just from a header expand — only an
                 // explicit "Show more" does.
-                app.collapsedFolders.erase("__more_" + key + "__");
+                app.collapsedFolders.erase(more_key(key, moreKeyScratch_));
             } else {
                 app.collapsedFolders.insert(key);
             }
@@ -2330,8 +2432,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                      const std::string& name, const std::string& key,
                      const std::vector<const api::SessionSummary*>& members,
                      AppComponent& app, const std::string& q, float panelW,
-                     bool archived, bool headerless = false,
-                     int cap = kBucketCap) {
+                     bool archived, bool headerless, int cap, int limit) {
         if (members.empty()) return 0;
         // Headerless: unfoldered sessions render as a plain flat list with NO
         // folder header (per Gabe: "only keep the real folders" — no invented
@@ -2371,11 +2472,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // has already narrowed the list and hiding matches behind "show more"
         // would defeat the search.
         const int total = static_cast<int>(members.size());
-        const std::string moreKey = "__more_" + key + "__";
-        const bool expandedMore =
-            !q.empty() || app.collapsedFolders.count(moreKey) > 0;
-        const int limit =
-            (expandedMore || total <= cap) ? total : cap;
+        const bool expandedMore = limit >= total;
 
         int i = 0;
         // ---- drag-to-reorder over the RENDERED band ----------------------
@@ -2507,7 +2604,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             more.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             if (more.ent().get<afterhours::ui::HasClickListener>().down) {
-                app.collapsedFolders.insert(moreKey);
+                app.collapsedFolders.insert(more_key(key, moreKeyScratch_));
             }
         }
         return total;
