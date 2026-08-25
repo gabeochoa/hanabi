@@ -62,6 +62,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 EXE="$ROOT/output/hanabi.exe"
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 
 SOAK_FRAMES="${HANABI_SOAK_GATE_FRAMES:-1000}"
 SOAK_EVERY="${HANABI_SOAK_GATE_EVERY:-250}"
@@ -106,12 +108,10 @@ rc=1
 for attempt in $(seq 1 "$ATTEMPTS"); do
     ( "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1 ) &
     APP_PID=$!
-    ( sleep "$RUN_TIMEOUT"; kill -9 "$APP_PID" >/dev/null 2>&1; kill_own_runs ) &
-    WATCH_PID=$!
+    watchdog_start "$APP_PID" "$RUN_TIMEOUT" kill_own_runs
     wait "$APP_PID" 2>/dev/null
     rc=$?
-    kill "$WATCH_PID" >/dev/null 2>&1 || true
-    wait "$WATCH_PID" 2>/dev/null || true
+    watchdog_stop
 
     grep -E '^\[soak\]' "$LOG" | sed 's/^/  /'
     if [ "$rc" -eq 0 ] && grep -q '^\[soak\] PASS' "$LOG"; then

@@ -25,6 +25,8 @@ RSS_CEILING_MB=250       # Phase X: peak RSS < 250 MB
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 EXE="$ROOT/output/hanabi.exe"
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 SHOT="$(mktemp -t hanabi_launch_XXXX).png"
 LOG="$(mktemp -t hanabi_launch_XXXX).log"
 TIMELOG="$(mktemp -t hanabi_launch_XXXX).time"
@@ -66,12 +68,10 @@ BEST_FF=""; BEST_RSS=""; STARTUP_MS=""
 for attempt in 1 2 3 4 5 6; do
     ( /usr/bin/time -l "$EXE" --screenshot "$SHOT" >"$LOG" 2>"$TIMELOG" ) &
     APP_PID=$!
-    ( sleep "$RUN_TIMEOUT"; kill -9 "$APP_PID" >/dev/null 2>&1; kill_own_runs ) &
-    WATCH_PID=$!
+    watchdog_start "$APP_PID" "$RUN_TIMEOUT" kill_own_runs
     wait "$APP_PID" 2>/dev/null
     APP_RC=$?
-    kill "$WATCH_PID" >/dev/null 2>&1 || true
-    wait "$WATCH_PID" 2>/dev/null || true
+    watchdog_stop
 
     ff=$(grep -Eo 'FirstFrame: [0-9]+ ms' "$LOG" | grep -Eo '[0-9]+' | head -1)
     su=$(grep -Eo 'Startup: [0-9]+ ms' "$LOG" | grep -Eo '[0-9]+' | head -1)
