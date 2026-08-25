@@ -36,10 +36,24 @@ class TranscriptRenderCache {
     // / stale-width entry (caller recomputes + put()s).
     const MsgRender* get(const std::string& key, float w) const {
         auto it = map_.find(key);
-        if (it == map_.end()) return nullptr;
-        if (it->second.wrap_w != w) return nullptr;  // width changed -> stale
+        if (it == map_.end()) {
+            ++absent_;
+            return nullptr;
+        }
+        if (it->second.wrap_w != w) {  // width changed -> stale
+            ++stale_;
+            return nullptr;
+        }
         return &it->second;
     }
+    // Miss BREAKDOWN, because the two kinds mean opposite things. `absent` is
+    // a cold entry -- the cache working, paying once. `stale` is an entry that
+    // exists at a DIFFERENT width, which on a static transcript means two
+    // callers are asking the same key at two widths and evicting each other
+    // every frame; that is a cache with a negative hit rate, and it is
+    // invisible in a single "misses" number.
+    std::size_t absent() const { return absent_; }
+    std::size_t stale() const { return stale_; }
 
     const MsgRender& put(const std::string& key, MsgRender r) {
         auto& slot = map_[key];
@@ -61,6 +75,8 @@ class TranscriptRenderCache {
   private:
     std::unordered_map<std::string, MsgRender> map_;
     std::string thread_;
+    mutable std::size_t absent_ = 0;
+    mutable std::size_t stale_ = 0;
 };
 
 }  // namespace ecs::model

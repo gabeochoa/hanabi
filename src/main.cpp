@@ -28,6 +28,7 @@
 #include "test_hooks.h"
 #include "util/capture_clock.h"
 #include "util/autorelease.h"
+#include "util/prof.h"
 #include "util/soak.h"
 #include "util/stress.h"
 #include "util/notify_events.h"
@@ -1187,6 +1188,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
+            hanabi::prof::frame();
             if (i % every == 0) {
                 auto now = std::chrono::steady_clock::now();
                 const double ms =
@@ -1198,6 +1200,16 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
         }
         const int bad = hanabi::soak::verdict(samples);
+        if (hanabi::prof::enabled()) {
+            if (auto* tmc = EntityHelper::get_singleton_cmp<
+                    afterhours::ui::TextMeasureCache>())
+                std::printf("[prof] TextMeasureCache: %llu hits / %llu misses "
+                            "= %.1f%% hit, %zu entries\n",
+                            (unsigned long long)tmc->hits(),
+                            (unsigned long long)tmc->misses(),
+                            (double)tmc->hit_rate(), tmc->size());
+        }
+        hanabi::prof::dump();
         graphics::close_window();
         return bad;
     }

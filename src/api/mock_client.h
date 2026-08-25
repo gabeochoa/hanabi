@@ -1343,7 +1343,18 @@ class MockClient : public Client {
                              days_ago(1), "active", ThreadState::Unknown,
                              "120-message perf fixture");
             const int64_t base = days_ago(1) - 200000;
-            for (int k = 0; k < 40; ++k) {
+            // Turn count is a knob so frame time can be plotted AGAINST
+            // transcript length. One number is not a finding: cost that is
+            // flat in the message count and cost that is linear in it are
+            // different bugs with different fixes, and only a curve tells
+            // them apart. Default 40 (=160 messages), the shape the fixture
+            // was written for, so every existing caller is unchanged.
+            int turns = 40;
+            if (const char* t = std::getenv("HANABI_BIG_TURNS"); t && *t) {
+                const int parsed = std::atoi(t);
+                if (parsed > 0) turns = parsed;
+            }
+            for (int k = 0; k < turns; ++k) {
                 Message u;
                 u.id = "b_u" + std::to_string(k);
                 u.role = Role::User;

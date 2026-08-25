@@ -11,6 +11,7 @@
 // thin accessors that read the active token set, so existing call sites keep
 // working while the whole palette becomes runtime-swappable.
 
+#include "../util/prof.h"
 #include <afterhours/src/drawing_helpers.h>
 
 #include <bitset>
@@ -598,6 +599,7 @@ constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
 // context isn't ready yet (very first frame / headless before font load).
 inline float text_px(const char* s, float px) {
     if (!s || !*s) return 0.0f;
+    hanabi::prof::tick("text.text_px_uncached");
     float w = afterhours::measure_text_internal(s, px);
     if (w > 0.0f) return w;
     // Fallback: ~0.5em per glyph (only hit before the font context exists).

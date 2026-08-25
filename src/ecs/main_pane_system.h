@@ -19,6 +19,7 @@
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
 #include "thread_model.h"
+#include "../util/prof.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
@@ -3100,6 +3101,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         items.reserve(n);
         float totalH = subH;
         {
+            hanabi::prof::Scope _p("transcript.pass1_measure");
             int i = 0;
             while (i < n) {
                 // The day row goes above whatever item starts this day —
@@ -3467,6 +3469,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // spacer is gone so a short thread top-anchors the way the reference
         // does. (Long threads are unaffected — they never had one.)
         sub_agent_panel(ctx, col, app);
+        hanabi::prof::Scope _p2("transcript.pass2_build");
         for (const auto& it : items) {
             const float top = y;
             const float bot = y + it.height;
@@ -5182,6 +5185,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static std::vector<std::string> wrapped_lines(
         const std::string& text, float widthPx,
         float fontPx = theme::type::BODY) {
+        hanabi::prof::Scope _p("text.wrap_text");
+        hanabi::prof::tick("text.wrap_bytes", text.size());
         return afterhours::ui::wrap_text(text, text_wrap_width(widthPx),
                                          afterhours::ui::UIComponent::DEFAULT_FONT,
                                          fontPx);
@@ -5536,6 +5541,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // method's per-segment layout exactly (blank line = half pitch, else
     // segLines*pitch) so virtualization spacers line up with what renders.
     static float rich_body_h(const std::string& body, float textW) {
+        hanabi::prof::Scope _p("text.rich_body_h");
         float h = 0.0f;
         size_t start = 0;
         while (start <= body.size()) {
@@ -5618,8 +5624,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string key =
             (m.id.empty() ? ("i" + std::to_string(index)) : m.id) +
             (rich ? "|r" : "|f");
+        const std::size_t staleWas =
+            hanabi::prof::enabled() ? render_cache().stale() : 0;
         if (!isLive) {
-            if (const auto* hit = render_cache().get(key, textW)) return *hit;
+            if (const auto* hit = render_cache().get(key, textW)) {
+                hanabi::prof::tick("cache.msgrender_hit");
+                return *hit;
+            }
+            hanabi::prof::tick("cache.msgrender_miss");
+            hanabi::prof::tick(render_cache().stale() > staleWas
+                                   ? "cache.miss_widthstale"
+                                   : "cache.miss_absent");
         }
         ecs::model::MsgRender r;
         // Rich (assistant) path KEEPS inline markers so render_rich_body can
@@ -5717,6 +5732,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // ---- Item height functions (mirror the render layout exactly) ----------
     float bubble_height(const api::Message& m, float paneWidth, bool isLive,
                         int index, bool showAuthor = true) {
+        hanabi::prof::Scope _p("measure.bubble_h");
         if (m.role == api::Role::System) return 22.0f + 16.0f;
         const bool isUser = (m.role == api::Role::User);
         if (isUser) {
@@ -7331,6 +7347,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // vector's size, and the rows are its elements.
     static std::vector<std::string> tool_out_lines(const api::Message& m,
                                                    int cap) {
+        hanabi::prof::Scope _p("text.tool_out_lines");
         std::vector<std::string> out;
         size_t start = 0;
         const std::string& text = m.tool_result;
@@ -7372,11 +7389,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return box <= 0.0f ? 0.0f : box + kToolRowGap;
     }
     float tool_block_height(AppComponent& app, const api::Message& m) {
+        hanabi::prof::Scope _p("measure.tool_block_h");
         return kToolRowGap + kToolRowH + kToolRowGap + tool_out_height(app, m);
     }
     float tool_pile_height(AppComponent& app,
                            const std::vector<api::Message>& msgs, int lo,
                            int hi) {
+        hanabi::prof::Scope _p("measure.tool_pile_h");
         const std::string key =
             msgs[lo].id.empty() ? ("pile" + std::to_string(lo)) : msgs[lo].id;
         const bool open = tool_is_open(app, key, pile_result_row(msgs, lo, hi));
