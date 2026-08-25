@@ -556,6 +556,19 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
                     "carries the\n[soak] full noise of both its endpoints -- the "
                     "thing the slope exists to remove.\n[soak] Treat a marginal "
                     "result here as unmeasured, and lower HANABI_SOAK_EVERY.\n");
+    else if (tRss.points < 6)
+        // Theil-Sen absorbs a bad bucket by having others to outvote it, and
+        // how well it does that is a function of how many it has. Measured on
+        // the bigidle arm: at four fit points one clean run in six read +789
+        // blocks per 1000 frames against +45 for the other five; at ten fit
+        // points the worst of six was +13. Four points is not wrong, it is
+        // thin, and a marginal verdict on four should be re-run at more.
+        std::printf("[soak] ONLY %d BUCKETS past the warm-up. The median needs "
+                    "points to outvote a\n[soak] bad one with, and at four a "
+                    "single spiky bucket has been measured moving\n[soak] the "
+                    "verdict 17x. A marginal result here should be re-run with "
+                    "more\n[soak] frames before it is believed.\n",
+                    tRss.points);
     std::printf("[soak]   %-12s %-16s %-20s %8s %6s  %s\n", "metric",
                 "slope /1000f", "per minute @60fps", "budget", "rising",
                 "verdict");

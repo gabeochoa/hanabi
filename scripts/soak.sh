@@ -83,11 +83,22 @@ EXE="${HANABI_EXE:-$ROOT/output/hanabi.exe}"
 . "$ROOT/scripts/fresh.sh"
 
 FRAMES="${HANABI_SOAK_LONG_FRAMES:-3000}"
-# bigidle gets its own, shorter count. At a 2000-session catalog a frame is
-# ~8 ms rather than ~1, so 3000 frames is 25 s against 3 — and the arm exists
-# because a per-row leak is a hundred times more visible there, which means it
-# needs fewer frames to see one, not more.
-BIG_FRAMES="${HANABI_SOAK_BIG_FRAMES:-1500}"
+# bigidle used to get a shorter count, on the reasoning that a per-row leak is
+# a hundred times more visible at a 2000-session catalog and so needs fewer
+# frames to see. THAT WAS WRONG, and the arm caught it: 1500 frames leaves four
+# buckets past the warm-up, and Theil-Sen's ~29% breakdown point needs more
+# than four points to absorb one bad bucket. Six runs at each length, block
+# slope per 1000 frames:
+#
+#   1500 frames (4 fit points)   +48.7  +44.0  +789.3  +45.3  +50.7  +42.7
+#   3000 frames (10 fit points)   +0.0   +2.0    +0.0   +2.4  +13.0   +0.0
+#
+# One run in six over the 500 budget by 1.6x, on a clean tree. The robustness
+# of a median is a function of how many points it has, and shortening a run to
+# save two seconds spent it. It costs about three seconds to put back, and
+# after sidebar virtualization a 2000-row catalog is no longer the slow arm it
+# was when this file was written.
+BIG_FRAMES="${HANABI_SOAK_BIG_FRAMES:-$FRAMES}"
 ARMS="${HANABI_SOAK_ARMS:-idle scroll read threads tabs search churn resize mixed open bigidle}"
 EVERY="${HANABI_SOAK_LONG_EVERY:-250}"
 JOBS="${HANABI_SOAK_JOBS:-4}"

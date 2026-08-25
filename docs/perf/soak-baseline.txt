@@ -1098,9 +1098,9 @@ open widget.user_row 1
 open widget.user_text 1
 open widget.user_turn 1
 bigidle scenario idle
-bigidle frames 1500
+bigidle frames 3000
 bigidle bucket 250
-bigidle fit_points 4
+bigidle fit_points 10
 bigidle work threads_opened=0 kept_tabs=0 churn_cycles=0 resizes=0 tabs_now=0
 bigidle entities_end 461
 bigidle tabs_end 0
