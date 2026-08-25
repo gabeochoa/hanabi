@@ -37,6 +37,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 
 **Per-frame cost**
 - #27 immediate-mode clears + rebuilds the whole tree every frame (no retained/dirty layer — the idle-frame floor)
+- #200 every headless resize leaks five Metal render pipelines (4.8 MB per 1000 frames), so a resize scenario cannot gate anything
 
 **Widgets**
 - #17 imm `text_input` ignores `with_font_size` / `with_custom_background`
@@ -6834,3 +6835,82 @@ means, cannot go stale, and fails with the name of the thing it could not find.
 
 CLASS: TEDIOUS
 
+
+---
+
+### #200 — Every headless resize creates five Metal render pipelines that destroying the render texture does not release, so a resize loop leaks 4.8 MB per 1000 frames — larger than the bug that started this project
+
+**What was wanted.** A stress scenario that drags the window narrower and wider
+while a soak probe watches memory. `docs/perf/GATES.md` names this as one of
+the four things it could not gate: *"no gate here presses a key, opens a menu,
+or resizes a window"*. The reason to want it is one layer below hanabi: the
+headless backend honours a resize by destroying and recreating the offscreen
+render target, and its own comment says that is fine because *"called on resize
+events only (not per-frame)"*. A drag makes them sixty a second.
+
+**What happened.** The arm goes red immediately, and it is not hanabi's.
+2000 frames of resizing, one step a frame, against the mock catalog:
+
+```
+  metric        slope /1000f    per minute @60fps   budget   rising
+  RSS             +5209.6 KB         +18754.6 KB       512     1.00   FAIL 10.2x
+  heap bytes      +4863.9 KB         +17510.0 KB       256     1.00   FAIL 19.0x
+  heap blocks    +66365.6           +238916.2         1000     1.00   FAIL 66.4x
+```
+
+18.7 MB a minute. The Metal autorelease leak that started this whole project
+(`#145`) was 9 MB a minute.
+
+**Where it is.** `MallocStackLogging=1` plus `malloc_history -allBySize`, live
+allocations after ~8100 resizes, top four by count:
+
+```
+ 162040 calls   7777920 bytes  _sg_init_pipeline -> MTLVertexAttributeDescriptor
+  40511 calls  12963520 bytes  _sg_init_pipeline -> MTLVertexDescriptor
+  40511 calls  12963520 bytes  _sg_init_pipeline -> MTLVertexBufferLayoutDescriptor
+   8103 calls    388944 bytes  _sg_init_image     (exactly one per resize)
+```
+
+8103 images is one per resize, and 40510 pipelines is **five per resize**, none
+of them released. The path is
+`window_manager::set_window_size` → (headless branch) `unload_render_texture` +
+`load_render_texture` → `sgl_make_context` → `sg_make_buffer` /
+`_sg_init_pipeline`.
+
+`unload_render_texture` looks correct — it calls `sgl_destroy_context` first and
+then destroys every view, image and sampler it made. So this is not a missing
+call in afterhours' own teardown: **`sgl_destroy_context` does not release the
+render pipelines the context created**, and nothing above it can, because
+sokol_gl's pipeline pool is not reachable from the afterhours API.
+
+**Scope, stated honestly, because it changes who should care.** This is the
+HEADLESS path. `set_window_size`'s other branch calls `metal_set_window_size`,
+a Cocoa `NSWindow` resize, and never touches the offscreen target — so a person
+dragging the real window does not hit this. It is a harness leak, not a user
+one. It still matters: it makes the one scenario that could have gated a
+user-facing resize leak unable to gate anything, because 4.8 MB a thousand
+frames of upstream noise swamps whatever hanabi might be doing.
+
+**The workaround, and its cost.** `HANABI_STRESS=resize` resizes the LAYOUT
+only: it writes `ProvidesCurrentResolution` (with `should_refetch = false`, or
+`CollectCurrentResolution` puts the old size straight back) and does not call
+the backend. Every widget is laid out against that singleton and
+`viewport::width()` feeds from the same place, so the wrap, the clip and every
+width-keyed cache in hanabi see the new size — which is hanabi's own resize
+cost, and it measures flat. `HANABI_STRESS_RESIZE_BACKEND=1` puts the backend
+call back and reproduces the table above in one run.
+
+The cost is that the arm draws every frame into a render target of the wrong
+size. Nothing in a soak asserts on pixels so it does not matter here, but it
+means this arm can never be extended into a screenshot test, and it means the
+render-target half of a resize — a real cost on a real drag — stays unmeasured.
+
+**Minimal upstream fix.** Either have `sgl_destroy_context` release the
+context's pipelines, or — better, and entirely within afterhours — stop making
+a context per render texture: `load_render_texture` creates one because it
+needs a pipeline matching the target's pixel format, and a small cache keyed on
+`(color_format, depth_format, sample_count)` would make that one context for
+the life of the process instead of one per resize. Then a resize is an image
+swap and the arm can gate the thing it was written for.
+
+CLASS: BLOCKING (for the scenario; the workaround measures the other half)

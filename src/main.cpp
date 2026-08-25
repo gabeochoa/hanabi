@@ -1470,6 +1470,20 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
         }
         hanabi::soak::census();
+        // What the scenario actually did, before the verdict rather than
+        // after it: a reader who sees "kept_tabs=0" should not have to get
+        // past a PASS to find out the run drove nothing.
+        std::printf("[soak] scenario %s did: %s\n",
+                    hanabi::stress::name(driver.mode),
+                    driver.work_done().c_str());
+        const std::string idle = driver.did_nothing_reason();
+        if (!idle.empty())
+            std::printf("[soak] SCENARIO DROVE NOTHING: %s. Whatever this run "
+                        "measured,\n[soak] it was not %s -- do not read it as "
+                        "a clean %s run.\n",
+                        idle.c_str(), hanabi::stress::name(driver.mode),
+                        hanabi::stress::name(driver.mode));
+        std::fflush(stdout);
         const int bad = hanabi::soak::verdict(samples);
         if (hanabi::prof::enabled()) {
             if (auto* tmc = EntityHelper::get_singleton_cmp<
