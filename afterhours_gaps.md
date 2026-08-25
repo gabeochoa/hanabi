@@ -5976,3 +5976,155 @@ there is nothing to ask.
 
 CLASS: TEDIOUS
 
+
+### #115 — A widget that stops being built is never retired, so every system walks the union of every screen the app has ever shown
+
+**What was wanted.** For a screen the user has navigated away from to stop
+costing anything. hanabi's Home pane builds a card per attention-worthy
+session; open a thread and Home is gone. It should be gone from the frame
+budget too.
+
+**What happens.** It is never gone. `imm::mk()` keeps a permanent
+`std::map<UI_UUID, EntityID> existing_ui_elements` and hands back the same
+entity for the same call site forever
+(`src/plugins/ui/entity_management.h`). Nothing marks an entity as "not built
+this frame", nothing sweeps one, and the library's own
+`clear_existing_ui_elements()` is called from nowhere in the library and would
+orphan the entities rather than destroy them. Meanwhile
+`run_systems_on_ui_entities` (`src/plugins/ui/utilities.h`) iterates
+`ui_coll.get_entities_for_mod()` -- the WHOLE collection -- once per system per
+frame, twice for a render system (mutable pass then const pass). So the set
+every pass walks is the union of every widget any screen has ever built, and it
+only grows.
+
+Gap #27 records this half of the design approvingly -- "`mk()` retains ENTITIES
+by UUID (good — no per-frame alloc churn)" -- and for a screen you keep coming
+back to that is right. What it misses is that retention with no retirement is
+not a cache, it is a leak with a bounded key space.
+
+Measured in hanabi, at a 2020-session catalog, idle, chat tab open:
+
+  * `render_home` runs **twice** in the first ~1000 frames and never again
+    (instrumented count; `app.view` is Chat from frame ~3 onward).
+  * Those two frames build **696 digest cards, 2784 entities**, which are
+    still in the collection at frame 800 -- the soak's entity census reports
+    them.
+  * Frame time with them present: **4.59 ms**. With the sections capped so
+    only 80 cards are ever built: **1.44 ms**.
+
+**3.15 ms a frame, 69% of the frame, for a screen that was drawn twice.**
+Not drawn 800 times -- twice. Every one of those 800 frames paid to lay out,
+hit-test and consider drawing widgets belonging to a pane that was not on
+screen. The user's report was "it gets slower and slower until it freezes";
+this is the shape of the half of that which was not the Metal leak.
+
+**Why the obvious escapes do not work.**
+
+- **Stop building the widget when the screen is not shown.** Already true --
+  that is what made this measurable. It does not help, because the entity from
+  the two frames it WAS shown persists. There is no "and destroy what I built
+  last time" to pair with it.
+- **Call `clear_existing_ui_elements()` on a screen change.** It clears the
+  hash->id map, not the entities. The next `mk()` from the same call site
+  allocates a NEW entity and the old one stays in the collection, unreferenced
+  and still iterated. It converts a bounded set into an unbounded one.
+- **Delete the entities from the app side.** An app can reach
+  `EntityHelper::get_entities_for_mod()`, but the ids are inside `mk()`'s
+  private map; there is no way to ask "which entities belong to this subtree"
+  or "which were not built this frame". Guessing by `UIComponentDebug::name` is
+  matching on a debug string.
+- **Wait for `ClearVisibity` to make them free.** It clears visibility and
+  children, which is what makes a stale entity cheapER than a live one -- but
+  the per-entity, per-system, per-frame iteration is unconditional, and at
+  ~1.1 us per entity per frame (3.15 ms / 2784) that iteration is the cost.
+
+**The workaround, and its cost.** Cap what is ever built, everywhere, so the
+high-water mark is small: hanabi's Home now renders at most 20 cards per
+section (commit "Home's Recent list was capped..."). This is the same
+workaround gap #23 already forces for scroll views, arrived at from the other
+direction -- there it is "do not build what is off screen", here it is "do not
+build what may leave the screen", and both are the app hand-rolling the
+lifetime the framework does not offer. The cost is that every list in the app
+now needs a cap whether or not it has a scroll view, the cap has to be chosen
+by hand against a viewport, and a section header has to carry the true count
+because the rows no longer do. And it is a high-water mark, not a fix: a user
+who visits one big screen still pays for it for the rest of the session.
+
+**Minimal upstream fix.** A frame stamp and a sweep. `mk()` already touches
+every live element -- write the current frame number onto the entity when it
+does. At end of frame, retire entities whose stamp is older than N frames (N a
+small grace so a screen toggled every other frame does not thrash): remove the
+id from `existing_ui_elements` and mark the entity for cleanup. Two fields and
+one pass, and it is the only place with both halves of the information. A
+weaker version that would still have caught this: expose the collection size
+and a per-frame "built" count so an app can see the two diverge -- hanabi had
+to add its own entity census to find that out.
+
+CLASS: WORKAROUND
+
+### #116 — There is no way to ask how much of a string fits in a width, so every ellipsized label is O(n) whole-string measurements
+
+**What was wanted.** A sidebar row title cut to its column with an ellipsis --
+the single most common operation in a list UI, done once per visible row per
+frame.
+
+**What happens.** The only measuring primitive is
+`measure_text(font, cstr, size, spacing)`, which measures a WHOLE string and
+returns its extent. There is no prefix-width query, no per-glyph advance
+array, no "how many code points fit in W", and no single-line truncation
+helper. `ui::detail::wrap_text_to_width` exists but is for WRAPPING, takes a
+whole-string `measure` callable, and is itself built out of repeated
+whole-string measurements.
+
+So the only expressible algorithm is: guess a cut point, build that prefix,
+measure the whole prefix, adjust. hanabi's was the natural one -- walk the cut
+point back one code point at a time -- and since measuring a prefix is itself
+linear in the prefix (fontstash walks every glyph and
+`stbtt_GetGlyphKernAdvance` binary-searches the kern table per pair), one title
+cost O(len^2) glyph work plus a `substr` allocation per probe. `sample` put it
+at **34% of the main thread** (2025 of ~5900 samples over 8 s) at a
+2000-session catalog, on 38 visible rows.
+
+**Why the obvious escapes do not work.**
+
+- **Estimate from an average advance.** That is what the code did before it
+  measured, and the comment above it records why it stopped: the estimate is
+  calibrated to one font at one size, so it clips early or overflows the column
+  the moment either changes.
+- **Binary search the cut point.** Works, and hanabi now does it (O(log n)
+  measurements) -- but only because prefix width is monotonic in prefix length,
+  which kerning does not guarantee. The library knows the kern values and could
+  answer exactly; a consumer binary-searching from outside can only assume, and
+  has to document that its answer may be one glyph short on a font that
+  violates the assumption. hanabi's `src/util/ellipsize.h` carries that
+  paragraph because there is nowhere better to put it.
+- **Cache the answer.** hanabi does that too, and it is the bigger win for an
+  idle frame -- but it only moves the cost to the frames that matter, which are
+  the ones where the text or the width is new: a resize, a scroll into unseen
+  rows, a live search. Those are exactly the frames a user is watching.
+- **Use `TextMeasureCache`.** It memoizes whole-string measurements, so it
+  turns O(n) DISTINCT measurements into O(n) cache lookups on a string that
+  changes length every probe. It does not make the algorithm sublinear, and
+  gap #42 already records that the draw path does not consult it anyway.
+
+**The workaround, and its cost.** `src/util/ellipsize.h`: 100 lines,
+binary search plus a scratch buffer, wrapped in a memo at the call site, plus
+`tests/unit/test_ellipsize.cpp` -- 190 lines whose entire job is to prove the
+new answer equals the old one, including a synthetic backwards-kern metric
+that demonstrates the case the binary search provably cannot get right. Roughly
+300 lines and a documented correctness caveat, to do what one library call
+should do exactly and in one pass.
+
+**Minimal upstream fix.** One function beside `measure_text`:
+
+    // Bytes of `text` that fit in `max_width`, on a code point boundary.
+    size_t measure_fit(Font, const char* text, float size, float spacing,
+                       float max_width);
+
+fontstash already walks the glyphs accumulating advances; this is that walk
+with an early exit, so it is ONE pass and exact under kerning -- strictly
+better than anything a consumer can write, and cheaper than what it replaces.
+A `truncate_to_width(..., ellipsis)` on top would remove the ellipsis-budget
+arithmetic every consumer currently repeats.
+
+CLASS: WORKAROUND
