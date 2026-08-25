@@ -101,6 +101,16 @@ export HANABI_SOAK_MAX_HEAP_KB_PER1K="${HANABI_SOAK_MAX_HEAP_KB_PER1K:-256}"
 export HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K="${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K:-1000}"
 export HANABI_SOAK_MAX_ENT_PER1K="${HANABI_SOAK_MAX_ENT_PER1K:-25}"
 export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-1.0}"
+# GPU bytes, from -[MTLDevice currentAllocatedSize] via the device sokol
+# created. The tightest budget here by two orders of magnitude, and it can be:
+# nothing in a steady-state frame allocates on the GPU, so this column has no
+# noise for a budget to absorb. Measured flat to the KILOBYTE across every
+# arm -- idle, threads, tabs, read and search, 1500 frames each over a
+# 2000-session catalog, GPU 43,600 KB in every bucket of every one. 64 KB is
+# one 128x128 RGBA texture, the smallest thing whose appearance every frame
+# would be a real defect. See docs/perf/GATES.md, including what this gate
+# CANNOT see: sokol's pools are fixed, so a runaway texture leak plateaus.
+export HANABI_SOAK_MAX_GPU_KB_PER1K="${HANABI_SOAK_MAX_GPU_KB_PER1K:-64}"
 
 # Same isolation as measure_launch.sh: the deterministic offline catalog, and
 # no chance of picking up a real backend from someone's ~/.config/hanabi.
@@ -134,7 +144,7 @@ require_fresh_build "$EXE" || exit 2
 
 echo "=== hanabi soak gate ==="
 echo "  ${SOAK_FRAMES} frames, buckets of ${SOAK_EVERY}, mock catalog, headless"
-echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K}, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms — all per 1000 frames"
+echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX_HEAP_KB_PER1K} KB, blocks +${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K}, GPU +${HANABI_SOAK_MAX_GPU_KB_PER1K} KB, entities +${HANABI_SOAK_MAX_ENT_PER1K}, cpu +${HANABI_SOAK_MAX_MS_PER1K} ms — all per 1000 frames"
 
 # One retry, and ONLY one. A leak leaks on every run (measured: 2848, 2912 and
 # 3040 KB per 1000 frames on three consecutive defective runs), so retrying

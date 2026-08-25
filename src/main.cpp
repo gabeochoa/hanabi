@@ -1646,7 +1646,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                        : (bad == 0 ? "PASS" : "FAIL");
             hanabi::soak::write_report(ri, trends.rss, trends.heap,
                                        trends.blocks, trends.cpu,
-                                       trends.entities, hanabi::soak::budget(),
+                                       trends.entities, trends.gpu,
+                                       hanabi::soak::budget(),
                                        trends.fitPoints);
         }
         if (hanabi::prof::enabled()) {
