@@ -1,0 +1,66 @@
+# "Show N more…" must not cost N rows.
+#
+# The reported bug is "open the program and scroll the sidebar up and down
+# until it broke". At the bottom of a real catalog's sidebar is a row saying
+# "Show 282 more…", which is where scrolling down lands you, and clicking it
+# used to set the render limit to the whole list: 320 rows built and laid out
+# every frame to show nineteen. At a 2000-session catalog that measured 6645
+# entities and 17.2 ms of CPU per frame against 461 and 1.55 for the same list
+# unexpanded — a click away from a freeze, on the one screen the report named.
+#
+# The cap that stood in for virtualization is a product decision (how much has
+# the user asked to see) and was doing a cost job it cannot do, because the
+# user is allowed to ask for all of it. This pins the cost side: whatever the
+# user asked for, the frame builds a window.
+#
+# HANABI_ROW_AUDIT prints "sidebar rows <built> of <matched> @ <first>" and is
+# the only thing that can see this. A row that is not built is not on screen,
+# and a row that IS built and off screen looks exactly the same to every other
+# assertion in the suite — which is why the whole class went unnoticed. The
+# third number is the index of the first row built, and it is what tells a
+# window that FOLLOWS the scroll from one that has quietly stopped scrolling:
+# both report the same count.
+#
+# The numbers are a function of the window height, which is why this script
+# pins one. Re-measure rather than nudge: run at 1180x949 with
+# HANABI_ROW_AUDIT=1 and read the label.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_STRESS_SESSIONS=300 HANABI_ROW_AUDIT=1
+
+# Unexpanded: the cap holds the list to two viewports and the window builds a
+# viewport of it.
+expect_text "sidebar rows 29 of 320 @ 0"
+
+# Down to the bottom of the capped list, which is where the expander lives —
+# it rides below the fold by construction (fillCap = viewportRows * 2), so
+# there is no reaching it without the scroll the report describes.
+mouse_move 140 600
+scroll_wheel 0 -30
+wait_frames 6
+scroll_wheel 0 -30
+wait_frames 10
+click_ui sb_show_more
+wait_frames 10
+
+# Back to the top, so the window is comparable with the control above.
+scroll_wheel 0 2000
+wait_frames 12
+
+# The whole catalog is now in the list: the expander is gone because there is
+# nothing left to expand.
+expect_no_text "more…"
+
+# And the frame still builds a window. Before virtualization this read
+# "sidebar rows 320 of 320 @ 0" — every row in the catalog, every frame, to
+# show nineteen of them.
+expect_text "sidebar rows 29 of 320 @ 0"
+
+# The rows that were not built are still THERE: the spacers hold the content
+# height, so the list can be scrolled to its end and the window follows. This
+# is the half that fails if the window is computed wrong rather than merely
+# small — a sidebar whose spacers are missing has 29 rows of content, cannot
+# scroll at all, and reports "@ 0" forever while the count above stays right.
+scroll_wheel 0 -2000
+wait_frames 12
+expect_text "@ 291"
