@@ -97,6 +97,24 @@ inline void tick(const char* label, unsigned long long n = 1) {
     table()[label].calls += n;
 }
 
+// A GAUGE: the last value seen, not a running total. A counter answers "how
+// many times", and for a cache the question that decides whether its bound
+// holds is "how big did it get" -- which a sum of sizes cannot answer and a
+// max of them can. Kept in its own table so `dump` can print gauges apart from
+// counters rather than showing a cache's size as if it were a call count.
+inline std::unordered_map<std::string, unsigned long long>& gauges() {
+    static std::unordered_map<std::string, unsigned long long> g;
+    return g;
+}
+
+// Record the HIGH WATER MARK of `label`. A bound is a claim about the maximum,
+// so the maximum is what gets reported.
+inline void gauge(const char* label, unsigned long long v) {
+    if (!enabled()) return;
+    unsigned long long& cur = gauges()[label];
+    if (v > cur) cur = v;
+}
+
 // RAII phase timer. Accumulates into `label` on destruction.
 struct Scope {
     const char* label;
@@ -203,6 +221,15 @@ inline void dump() {
                 "ALLOCATIONS (operator new)", alloc_count(),
                 static_cast<double>(alloc_count()) / f,
                 alloc_bytes() / 1024, static_cast<double>(alloc_bytes()) / f);
+    if (!gauges().empty()) {
+        std::vector<std::pair<std::string, unsigned long long>> gs(
+            gauges().begin(), gauges().end());
+        std::sort(gs.begin(), gs.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::printf("[prof] %-34s %12s\n", "gauge (high water)", "peak");
+        for (const auto& [name, v] : gs)
+            std::printf("[prof] %-34s %12llu\n", name.c_str(), v);
+    }
     std::fflush(stdout);
 }
 

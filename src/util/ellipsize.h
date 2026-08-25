@@ -47,6 +47,8 @@
 #include <cstddef>
 #include <string>
 
+#include "prof.h"
+
 namespace hanabi::text {
 
 // The UTF-8 code point boundary at or below `n`.
@@ -79,7 +81,10 @@ template <class Measure>
 std::string fit_to_width(const std::string& text, float maxW,
                          Measure&& measure) {
     if (maxW <= 0.0f) return std::string();
+    hanabi::prof::tick("text.fit_call");
+    hanabi::prof::tick("text.fit_probe");
     if (measure(text.c_str()) <= maxW) return text;
+    hanabi::prof::tick("text.fit_probe");
     const float ell = measure(kEllipsis);
 
     // One scratch buffer for every probe. resize() DOWN never reallocates and
@@ -89,6 +94,7 @@ std::string fit_to_width(const std::string& text, float maxW,
     static std::string probe;
     probe.assign(text);
     const auto fits = [&](size_t n) {
+        hanabi::prof::tick("text.fit_probe");
         probe.resize(n);
         const bool ok = measure(probe.c_str()) + ell <= maxW;
         probe.assign(text);

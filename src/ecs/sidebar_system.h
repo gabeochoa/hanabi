@@ -34,6 +34,7 @@
 #include "../version.h"
 #include "../util/ellipsize.h"
 #include "../util/format.h"
+#include "../util/prof.h"
 #include "../ui/icons.h"
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
@@ -686,15 +687,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // working set is tiny and a wholesale clear costs one cold frame.
         constexpr size_t kCacheMax = 4096;
 
-        if (auto it = cache.find(FitView{text, px, maxW}); it != cache.end())
+        if (auto it = cache.find(FitView{text, px, maxW}); it != cache.end()) {
+            hanabi::prof::tick("cache.fit_hit");
             return it->second;
+        }
+        hanabi::prof::tick("cache.fit_miss");
 
         std::string owned{text};
         std::string fitted = hanabi::text::fit_to_width(
             owned, maxW, [px](const char* s) { return theme::text_px(s, px); });
-        if (cache.size() >= kCacheMax) cache.clear();
-        return cache.emplace(FitKey{std::move(owned), px, maxW},
-                             std::move(fitted)).first->second;
+        if (cache.size() >= kCacheMax) {
+            hanabi::prof::tick("cache.fit_clear");
+            cache.clear();
+        }
+        const std::string& out =
+            cache.emplace(FitKey{std::move(owned), px, maxW},
+                          std::move(fitted)).first->second;
+        hanabi::prof::gauge("cache.fit_entries", cache.size());
+        return out;
     }
 
     // The collapsedFolders sentinel that folds the VIEWS section. Reusing that

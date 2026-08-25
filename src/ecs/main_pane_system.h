@@ -5691,7 +5691,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             liveSlot = std::move(r);
             return liveSlot;
         }
-        return render_cache().put(key, std::move(r));
+        const ecs::model::MsgRender& out = render_cache().put(key, std::move(r));
+        hanabi::prof::gauge("cache.msgrender_entries",
+                            render_cache().total_size());
+        hanabi::prof::gauge("cache.msgrender_threads", render_cache().threads());
+        return out;
     }
 
     bool is_folded(const api::Message& m, int index, int lineCount,
