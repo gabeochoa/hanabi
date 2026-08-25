@@ -31,6 +31,7 @@
 #include "util/autorelease.h"
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
+#include "util/gpu_mem.h"
 #include "util/mem_ladder.h"
 #include "util/breaker.h"
 #include "util/soak.h"
@@ -1007,18 +1008,30 @@ static void apply_test_knobs(ecs::AppComponent* app) {
 // individually is that a teardown rung that does not return its bytes is a
 // question ("what is still held?") until this line answers it.
 static std::string hold_note(const ecs::AppComponent& app) {
-    char buf[512];
+    char buf[640];
+    // GPU bytes are reported as the device's own total, because the estimate
+    // beside it is an estimate: nothing in afterhours will say how many bytes
+    // a texture is (afterhours_gaps.md #126), so the two columns are "what
+    // hanabi believes it asked for" and "what the driver actually holds", and
+    // the gap between them is the finding.
+    char gpu[128];
+    if (hanabi::gpu::device_accounting())
+        std::snprintf(gpu, sizeof(gpu), "gpu=%llu KB(ledger %zu KB)",
+                      hanabi::gpu::device_bytes() / 1024,
+                      hanabi::gpu::ledger_bytes() / 1024);
+    else
+        std::snprintf(gpu, sizeof(gpu), "gpu=not measured");
     std::snprintf(buf, sizeof(buf),
                   "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
                   "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu "
-                  "images=%zu(%zu KB)",
+                  "images=%zu(%zu KB) %s",
                   app.sessions.size(), app.transcriptCache.size(),
                   ecs::model::pane_states().size(),
                   ecs::model::pane_states().drafts(), app.liveSubs.size(),
                   app.rowOrder.size(), app.expandedPiles.size(),
                   afterhours::EntityHelper::get_entities().size(),
                   hanabi::inline_image::cached_count(),
-                  hanabi::inline_image::cached_bytes() / 1024);
+                  hanabi::inline_image::cached_bytes() / 1024, gpu);
     return std::string(buf);
 }
 
