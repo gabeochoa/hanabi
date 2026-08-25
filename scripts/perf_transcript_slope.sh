@@ -118,6 +118,28 @@ report() {  # report <name> <short> <long> <limit-per-1000-msgs> <unit>
 # catches any return of a per-message wrap.
 report "wrap calls/frame" "$S_WRAP" "$L_WRAP" 0.05 "calls"
 
+# AND THE LEVEL, because the slope above cannot fail on the defect this arm is
+# named after. The line-count memo was disabled outright and the numbers went
+# 0.2 -> 76.5 at 60 messages and 1.6 -> 81.4 at 480 -- 380x the work the memo
+# exists to remove -- for a slope of 0.012 against a limit of 0.05, and every
+# arm of this script said ok. Wrap work with no memo is proportional to what is
+# ON SCREEN, and the same amount is on screen at both thread lengths, so the
+# per-message slope of a total memo failure is approximately zero.
+#
+# "does it get worse with a longer thread" and "is it bad" are different
+# questions and a slope only answers the first (docs/perf/SCROLL.md section 4
+# makes the same point about the scroll bug). 5.0 is three times a clean read
+# of 1.6 and fifteen times below the 81.4 a dead memo produces; it is a sanity
+# level, not a budget, and a counter rather than a clock so the shared box
+# cannot move it.
+WRAP_LEVEL_CEILING="${HANABI_WRAP_LEVEL_CEILING:-5.0}"
+verdict="ok"
+if awk -v x="$L_WRAP" -v m="$WRAP_LEVEL_CEILING" 'BEGIN{exit !(x > m)}'; then
+    verdict="FAIL"; fail=1
+fi
+printf "  %-28s %10s at %-10s  level                    limit %s   %s\n" \
+    "  ...level" "$L_WRAP" "$LONG_MSGS msgs" "$WRAP_LEVEL_CEILING" "$verdict"
+
 # Allocations per frame: was 167 per message per frame. The minimap builds one
 # mark entity per item by design and costs ~4.6 allocations each, so the floor
 # here is not zero; 12 catches a regression of any real size well short of it.
