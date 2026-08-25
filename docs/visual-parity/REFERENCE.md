@@ -306,6 +306,22 @@ control, and it is the only cheap way to tell a placement bug from a
 rasterizer residual. A rasterizer residual is flat under that sweep. This one
 was 2.27 points deep at +1.0.
 
+## A new capture needs the display AWAKE, and needs asking first
+
+`screencapture -l<window>` fails with *"could not create image from window"*
+when the machine's display is asleep: a window with no backing store cannot be
+read, however alive its process is. Tried at 22:05 with Puffin running and its
+window listed at the right size — the window id resolves, the capture does not.
+
+That is the mechanical half. The other half is that capturing a reference means
+**launching a GUI app on somebody's work machine**, which is a thing to ask
+about rather than do quietly. Both frozen references were caught off a Puffin
+that was already running for another reason.
+
+So: no new reference states tonight, and the two we have are the two we work
+from. If you need a third — a settings sheet, a light theme, a collapsed rail —
+say so and I will arrange it, awake and with permission.
+
 ## Read Puffin's source before you probe its pixels
 
 **Puffin's own Swift source is checked out on this machine:
