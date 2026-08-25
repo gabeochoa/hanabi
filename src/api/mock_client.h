@@ -24,6 +24,9 @@
 
 #include <algorithm>
 #include <ctime>
+#include <mutex>
+#include <string>
+#include <vector>
 
 #include "client.h"
 
@@ -34,16 +37,16 @@ class MockClient : public Client {
     std::string backend_label() const override { return "mock"; }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
-        auto sessions = seed();
+        const auto& sessions = seed();
         std::vector<SessionSummary> out;
         out.reserve(sessions.size() + created_.size());
         // created_ holds both composer-created sessions AND live overrides of
         // seed rows that have been replied to this run (see find_mutable). A
         // seed row that has an override is skipped here so it isn't listed
         // twice — the override (with the fresher updated_at/preview) wins.
-        for (auto& s : sessions) {
+        // sub-agent counts are already folded into the cached seed rows.
+        for (const auto& s : sessions) {
             if (is_overridden(s.summary.id)) continue;
-            fill_sub_agent_counts(s);
             out.push_back(s.summary);
         }
         for (auto& s : created_) {
@@ -65,9 +68,9 @@ class MockClient : public Client {
                 return Result<Session>::success(s);
             }
         }
-        for (auto& s : seed()) {
+        for (const auto& s : seed()) {
             if (s.summary.id == id) {
-                fill_sub_agent_counts(s);
+                // Already filled by seed(); copy the one row out.
                 return Result<Session>::success(s);
             }
         }
@@ -427,11 +430,12 @@ class MockClient : public Client {
     // Find a session by id that we can mutate. Composer-created sessions live
     // in created_ already. A seed session is copied into created_ on first
     // touch so the appended turn persists for the rest of this run (the seed
-    // itself is rebuilt fresh on every seed() call and can't hold state).
+    // catalog is shared and const — see seed() — so it cannot hold per-run
+    // state itself).
     Session* find_mutable(const std::string& id) {
         for (auto& s : created_)
             if (s.summary.id == id) return &s;
-        for (auto& s : seed()) {
+        for (const auto& s : seed()) {
             if (s.summary.id == id) {
                 created_.push_back(s);
                 return &created_.back();
@@ -545,7 +549,75 @@ class MockClient : public Client {
         return s;
     }
 
-    static std::vector<Session> seed() {
+    // THE CATALOG, BUILT ONCE.
+    //
+    // This used to be `static std::vector<Session> seed()` returning BY VALUE,
+    // and it is called from list_sessions(), get_session(), get_settings() and
+    // find_mutable(). Every one of those rebuilt the entire fixture --  every
+    // Session, every Message, every std::string in them -- and three of the
+    // four then threw all but a sliver of it away. get_settings() built the
+    // whole catalog to read .size() off it.
+    //
+    // MEASURED at a 2020-row catalog (CLOCK_THREAD_CPUTIME_ID):
+    //     get_session(one id)   6.76 ms   -> 0.056 ms
+    //     get_settings()        6.56 ms   -> 0.000 ms
+    //     list_sessions()       6.95 ms   -> 0.53 ms
+    //
+    // The fixture is deterministic and nothing mutates it (fill_sub_agent_
+    // counts derives from the row's own sub_agents, so it is folded in here
+    // once; find_mutable copies a row into created_ before touching it). So it
+    // is built once and handed out by const reference.
+    //
+    // The cache is keyed on EVERY environment variable the fixture reads, not
+    // just the catalog size. This is not defensive coding, it is a bug that
+    // already happened: the e2e runner loads a whole DIRECTORY of scripts into
+    // ONE process (main.cpp, load_scripts_from_directory) and applies each
+    // script's own `# env:` line before running it. Keying on
+    // HANABI_STRESS_SESSIONS alone froze the first script's fixture and served
+    // it to every later script, so thinking_disclosure (HANABI_THINKING_DEMO=1,
+    // HANABI_OPEN=rthink) and tool_fold_persists (HANABI_FOLD_DEMO=1,
+    // HANABI_OPEN=rfold) opened threads that did not exist in the cached
+    // catalog and timed out waiting for text that was never going to appear.
+    //
+    // It is ORDER-DEPENDENT, which is why it passed a full suite run before it
+    // failed one: whichever script runs first decides what everybody gets.
+    //
+    // Anything added to build_seed() that reads the environment MUST be added
+    // here too. That coupling is the price of the cache; the alternative was
+    // rebuilding a 2000-row catalog on every get_session().
+    static constexpr const char* kFixtureEnv[] = {
+        "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
+        "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
+        "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
+    };
+    static const std::vector<Session>& seed() {
+        // A mutex rather than bare static-local init. Magic statics make the
+        // FIRST build thread-safe, but this cache can REBUILD when the key
+        // changes, and list_sessions() runs under std::async while the main
+        // thread can be in get_session() — two threads rebuilding the same
+        // vector is a data race. An uncontended lock is tens of nanoseconds
+        // against the 0.007 ms this function now costs, so it is free.
+        static std::mutex mu;
+        static std::string s_key;
+        static std::vector<Session> s_cache;
+        static bool s_built = false;
+        std::string key;
+        for (const char* name : kFixtureEnv) {
+            const char* v = std::getenv(name);
+            key += (v != nullptr) ? v : "";
+            key += '\x1f';  // a separator no env value will contain
+        }
+        std::lock_guard<std::mutex> lk(mu);
+        if (!s_built || key != s_key) {
+            s_cache = build_seed();
+            for (auto& s : s_cache) fill_sub_agent_counts(s);
+            s_key = key;
+            s_built = true;
+        }
+        return s_cache;
+    }
+
+    static std::vector<Session> build_seed() {
         std::vector<Session> v;
 
         // --- running ---
@@ -1335,7 +1407,17 @@ class MockClient : public Client {
         // HANABI_BIG_TRANSCRIPT is set (a headless perf run), so it never
         // pollutes the normal mock list. ~120 messages: alternating user /
         // long-assistant prose, interleaved tool runs (which pile), plus
-        // sub-agents — the exact shape that made the per-frame rebuild ~15-20ms.
+        // sub-agents.
+        //
+        // This comment used to end "— the exact shape that made the per-frame
+        // rebuild ~15-20ms". That number is UNVERIFIED and stale: it has no
+        // method recorded next to it and nothing in the tree still reproduces
+        // it. It is removed rather than replaced, because swapping one
+        // unsourced number for another — measured on a box at load average 28,
+        // while the transcript render path is actively being changed by
+        // somebody else — would only re-arm the same trap. What the per-frame
+        // transcript rebuild costs today belongs in docs/perf/TRANSCRIPT.md
+        // with its method beside it, measured by whoever owns that path.
         if (const char* big = std::getenv("HANABI_BIG_TRANSCRIPT");
             big && *big && std::string(big) != "0") {
             Session s;

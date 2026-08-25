@@ -89,9 +89,11 @@ bool Settings::load_save_file() {
                 if (v.is_number_integer()) tool_fold_[k] = v.get<int>();
         }
         starred_ids_.clear();
+        starred_set_.clear();
         if (j.contains("starred") && j["starred"].is_array()) {
             for (const auto& e : j["starred"])
                 if (e.is_string()) starred_ids_.push_back(e.get<std::string>());
+            starred_set_ = {starred_ids_.begin(), starred_ids_.end()};
         }
         archived_.clear();
         if (j.contains("archived") && j["archived"].is_object()) {
@@ -99,9 +101,11 @@ bool Settings::load_save_file() {
                 if (v.is_boolean()) archived_[k] = v.get<bool>();
         }
         muted_ids_.clear();
+        muted_set_.clear();
         if (j.contains("muted") && j["muted"].is_array()) {
             for (const auto& e : j["muted"])
                 if (e.is_string()) muted_ids_.push_back(e.get<std::string>());
+            muted_set_ = {muted_ids_.begin(), muted_ids_.end()};
         }
         collapsed_shelves_.clear();
         if (j.contains("collapsed_shelves") &&
@@ -255,17 +259,17 @@ const std::vector<std::string>& Settings::get_starred() const {
     return starred_ids_;
 }
 bool Settings::is_starred(const std::string& id) const {
-    for (const auto& s : starred_ids_)
-        if (s == id) return true;
-    return false;
+    return starred_set_.count(id) != 0;
 }
 void Settings::set_starred(const std::string& id, bool starred) {
     auto it = std::find(starred_ids_.begin(), starred_ids_.end(), id);
     const bool present = (it != starred_ids_.end());
     if (starred && !present) {
         starred_ids_.push_back(id);
+        starred_set_.insert(id);
     } else if (!starred && present) {
         starred_ids_.erase(it);
+        starred_set_.erase(id);
     } else {
         return;  // no change — skip the write
     }
@@ -286,17 +290,17 @@ void Settings::set_archived(const std::string& id, bool archived) {
 }
 
 bool Settings::is_muted(const std::string& id) const {
-    for (const auto& m : muted_ids_)
-        if (m == id) return true;
-    return false;
+    return muted_set_.count(id) != 0;
 }
 void Settings::set_muted(const std::string& id, bool muted) {
     auto it = std::find(muted_ids_.begin(), muted_ids_.end(), id);
     const bool present = (it != muted_ids_.end());
     if (muted && !present) {
         muted_ids_.push_back(id);
+        muted_set_.insert(id);
     } else if (!muted && present) {
         muted_ids_.erase(it);
+        muted_set_.erase(id);
     } else {
         return;  // no change — skip the write
     }

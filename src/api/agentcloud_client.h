@@ -21,6 +21,8 @@
 #include <memory>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 #include "client.h"
 #include "agentcloud_auth.h"
 
@@ -145,6 +147,18 @@ struct LiveFrame {
 
 // Classify one `{"type":"frame",...}` server message. Never throws; anything
 // unrecognised is Ignore, because the event vocabulary grows.
+//
+// TWO ENTRY POINTS, and the _parsed one is what production uses. The websocket
+// receive loop has already parsed each frame to read its "type", so handing
+// this the string form meant dump()-ing that object back to text and parsing
+// it again — parse -> dump -> parse for every frame, at token rate, measured
+// at 2.3 us/frame against 0.02 us for reading the parsed object.
+//
+// DELIBERATELY NOT AN OVERLOAD. nlohmann::json converts implicitly from a
+// string literal, so `classify_live_frame("")` against a json overload is
+// ambiguous rather than obvious -- it broke four existing call sites the
+// moment it was tried. Two names, no trap.
+LiveFrame classify_live_frame_parsed(const nlohmann::json& root);
 LiveFrame classify_live_frame(const std::string& msg_json);
 
 // Fold a durable `session_renamed` frame onto a summary's title.

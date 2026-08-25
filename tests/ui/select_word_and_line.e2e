@@ -10,7 +10,10 @@ expect_no_text selected
 
 # Inside "ledger" on the first account line: six characters.
 # The y here is a measured text-line centre, not a guess -- the three body
-# lines sit at 209 / 225 / 241. They were at 226 / 242 / 258 until the hover
+# lines sit at 234 / 250 / 266. They were at 209 / 225 / 241 until the
+# transcript's own spacing was re-derived against Puffin's source (turn air
+# 9+6+9 and a 12px top inset, feat/vis-pane), which put every reply 9px lower.
+# They were at 226 / 242 / 258 before that, until the hover
 # Copy row stopped being reserved in the layout (feat/vis-fixture: it is an
 # overlay on the bubble now, as Puffin's is), which lifted every reply by 24px
 # and then put 10 back as turn air and 4 as the transcript's top inset. They
@@ -20,12 +23,12 @@ expect_no_text selected
 # way to ask where a piece of text landed), so if this starts selecting the
 # wrong word, re-measure rather than nudge -- render t2 at this script's own
 # 1100x760 and scan the PNG for the bubble's band.
-double_click 415 225
+double_click 415 250
 wait_frames 6
 expect_text "6 selected"
 
 # The whole line is much longer than one word.
-triple_click 415 225
+triple_click 415 250
 wait_frames 6
 expect_no_text "6 selected"
 expect_text "61 selected"

@@ -1177,6 +1177,29 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     // single system exists. A no-op unless HANABI_MEMLADDER is set.
     hanabi::memladder::record_floor();
 
+    // HANABI_STARTUP_PROF=1: attribute the HEADLESS FirstFrame. The gate reads
+    // FirstFrame (~200-250 ms) while Startup reads ~25 ms, and for a long time
+    // nobody could say what the ~175 ms in between was — Startup stops at
+    // "systems ready" and FirstFrame is logged inside the capture loop, so
+    // every settle frame, sleep and pump in between fell in a hole neither
+    // number covered. These marks close that hole.
+    const bool hprof = [] {
+        const char* v = std::getenv("HANABI_STARTUP_PROF");
+        return v && *v && std::string(v) != "0";
+    }();
+    auto hmark = [&](const char* what) {
+        if (!hprof) return;
+        auto now = std::chrono::high_resolution_clock::now();
+        log_info("  [hprof] {:<26}: {} ms (cumulative from process start)",
+                 what,
+                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                     now - app_state::startTime)
+                     .count());
+        fflush(stdout);
+    };
+    int settleFrames = 0;
+
+
     // One clock reading for the whole capture, so a duration that is set up in
     // one frame and rendered in a later one cannot straddle a second boundary
     // and photograph a different number (see util/capture_clock.h).
@@ -1215,13 +1238,17 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         fprintf(stderr, "headless init failed (no GPU?)\n");
         return 1;
     }
+    hmark("graphics::init");
 
     Preload::get().init("hanabi").make_singleton();
+    hmark("preload");
     setup_app_state();
+    hmark("setup_app_state");
 
     SystemManager sm;
     app_state::systemManager = &sm;
     build_systems(sm);
+    hmark("build_systems");
 
     auto readyTime = std::chrono::high_resolution_clock::now();
     auto startupMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1268,23 +1295,52 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         // (afterhours_gaps #21). The mock resolves both synchronously.
         constexpr auto kMaxWait = std::chrono::seconds(10);
         auto deadline = std::chrono::steady_clock::now() + kMaxWait;
-        while (std::chrono::steady_clock::now() < deadline) {
-            bool listReady = appForWait->listState != ecs::LoadState::Loading &&
-                             appForWait->listState != ecs::LoadState::Idle;
+        // Is everything the capture needs actually here?
+        auto ready = [&] {
+            const bool listReady =
+                appForWait->listState != ecs::LoadState::Loading &&
+                appForWait->listState != ecs::LoadState::Idle;
             // A transcript is "pending" only when a thread is actually open and
             // its fetch hasn't resolved. No open thread => nothing to wait for.
-            bool transcriptPending =
+            const bool transcriptPending =
                 !appForWait->selectedId.empty() &&
                 (appForWait->transcriptState == ecs::LoadState::Loading ||
                  appForWait->transcriptState == ecs::LoadState::Idle);
-            if (listReady && !transcriptPending) break;
+            return listReady && !transcriptPending;
+        };
+        // The sleep BACKS OFF rather than sitting at 8 ms. Two bugs it fixes,
+        // both measured:
+        //
+        //  1. The old loop slept AFTER the render and re-checked at the top,
+        //     so the iteration that actually resolved the fetch still paid a
+        //     full 8 ms sleep before anyone noticed. Every launch bought one
+        //     sleep it had no use for.
+        //  2. The 8 ms floor was sized for a network backend, but the mock
+        //     resolves list_sessions() in 0.118 ms. The mock path took 3
+        //     iterations x 8 ms = 24 ms of pure sleep on every headless launch
+        //     and every screenshot, which is every scripted test in the suite.
+        //
+        // 1,2,4,8,8,... reaches the old cadence in four iterations, so a real
+        // network fetch of a few hundred ms polls essentially as before (~40
+        // renders over 300 ms vs ~37), while the mock pays 3 ms instead of 24.
+        int sleepMs = 1;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (ready()) break;
+            ++settleFrames;
             const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
-            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            // Ask again before sleeping: this render is usually the one that
+            // resolved it, and the old shape slept anyway.
+            if (ready()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            if (sleepMs < 8) sleepMs *= 2;
         }
+        if (hprof)
+            log_info("  [hprof] settle loop ran {} frames", settleFrames);
+        hmark("settle-wait loop");
 
         // Perf/screenshot affordance: HANABI_OPEN=<id> opens a specific thread
         // in the headless capture (used to open the long perf fixture "rbig"
@@ -1421,6 +1477,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
 
     // Render several frames so async data loads and layout settles.
     constexpr int kFrames = 45;
+    hmark("pre-capture pumps done");
     for (int i = 0; i < kFrames; ++i) {
         const hanabi::AutoreleaseFrame framePool;
         graphics::begin_frame();
