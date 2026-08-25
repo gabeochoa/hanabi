@@ -30,6 +30,7 @@
 
 #include "../test_hooks.h"
 #include "../settings.h"
+#include "../util/prof.h"
 #include "../version.h"
 #include "../util/ellipsize.h"
 #include "../util/format.h"
@@ -2439,6 +2440,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // sixty times a second to render forty rows.
         std::vector<const api::SessionSummary*>& members = members_;
         members.clear();
+        hanabi::prof::Scope _pcollect("sidebar.collect");
         for (const auto& s : app.sessions) {
             bool match;
             if (archived) {
@@ -2509,6 +2511,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // sequence -- whose first limit-P entries all lie inside the
             // sorted prefix, because the prefix holds `limit` rows and lost at
             // most P of them to the partition.
+            hanabi::prof::Scope _psort("sidebar.sort");
             if (limit < total)
                 std::partial_sort(members.begin(), members.begin() + limit,
                                   members.end(), newestFirst);
