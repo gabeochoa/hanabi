@@ -48,11 +48,18 @@
 // and re-decoded the next time it appears, which is one slow frame on the
 // scroll back to it. Nothing is lost and nothing changes on screen.
 //
-// WHAT IT DOES NOT FIX: hanabi holds FULL-RESOLUTION pixels to draw a 64px
-// chip or a 420px-tall inline image, because afterhours' load_texture takes a
-// path and nothing else -- there is no max-dimension or downscale-on-load, and
-// vendor/afterhours is read-only here. That is afterhours_gaps.md #125: the
-// real saving is 28x and it is upstream's to give.
+// AND THE PER-IMAGE COST, which the budget above does nothing about. hanabi
+// used to hold FULL-RESOLUTION pixels to draw a 22px composer chip or a
+// 420pt-tall inline image, because afterhours' load_texture takes a path and
+// nothing else. It now decodes to the size it draws at -- see
+// ui/decode_to_fit.h for the mechanism and for why halving by powers of two is
+// the same filter the GPU was already going to sample through. A 3024x1964
+// screen grab went from 31.6 MB resident to 7.9 MB, and the budget above now
+// holds four times as many images in the same bytes.
+//
+// afterhours_gaps.md #125 stays open: the upload entry point that makes this
+// possible is in a BACKEND-PRIVATE namespace, so the workaround compiles on
+// the Metal backend only.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
@@ -64,6 +71,7 @@
 #include "../rl.h"     // global TextureType / RectangleType / Vector2Type + draw_*
 #include "../util/gpu_mem.h"        // texture_bytes() + the GPU ledger
 #include "../util/texture_budget.h"  // the LRU policy, with no texture in it
+#include "decode_to_fit.h"           // decode to the size it is DRAWN at (#125)
 #include "theme.h"     // theme::Color (== afterhours::Color) for the tint
 
 namespace hanabi::inline_image {
@@ -90,6 +98,13 @@ inline constexpr std::size_t kMaxEntries = hanabi::texbudget::kDefaultMaxEntries
 struct Cached {
     TextureType tex{};
     bool tried = false;  // attempted a load (don't retry a bad path every frame)
+    // The FILE's dimensions, which tex's are no longer: an image over the
+    // draw-size threshold is halved before upload (decode_to_fit.h). Every
+    // layout decision below is about the image, not about how many pixels
+    // happen to be resident for it, so it reads these -- getting that wrong
+    // would silently upscale a downscaled screenshot to fill the column.
+    int naturalW = 0;
+    int naturalH = 0;
 };
 
 namespace detail {
@@ -130,7 +145,11 @@ inline TextureType& get(const std::string& path) {
     }
     Cached c;
     c.tried = true;
-    c.tex = afterhours::load_texture(path.c_str());
+    const hanabi::decode_to_fit::Loaded loaded =
+        hanabi::decode_to_fit::load(path.c_str());
+    c.tex = loaded.tex;
+    c.naturalW = loaded.naturalW;
+    c.naturalH = loaded.naturalH;
     const std::size_t bytes =
         hanabi::gpu::texture_bytes(static_cast<int>(c.tex.width),
                                    static_cast<int>(c.tex.height));
@@ -154,14 +173,35 @@ inline bool available(const std::string& path) {
     return t.width > 0 && t.height > 0;
 }
 
+// The FILE's dimensions. Not the texture's: see Cached::naturalW.
+inline void natural_size(const std::string& path, float& w, float& h) {
+    detail::Store& s = detail::store();
+    auto it = s.map.find(path);
+    if (it == s.map.end()) {
+        w = 0.0f;
+        h = 0.0f;
+        return;
+    }
+    w = static_cast<float>(it->second.naturalW);
+    h = static_cast<float>(it->second.naturalH);
+}
+
+inline float natural_width(const std::string& path) {
+    float w = 0.0f;
+    float h = 0.0f;
+    natural_size(path, w, h);
+    return w;
+}
+
 // Drawn HEIGHT for an image fit to colW (aspect-preserving, no upscale past
 // natural width, capped at maxH). 0 when unavailable.
 inline float fitted_height(const std::string& path, float colW,
                            float maxH = 420.0f) {
     if (!available(path)) return 0.0f;
-    const auto& t = get(path);
-    float w = static_cast<float>(t.width);
-    float h = static_cast<float>(t.height);
+    float w = 0.0f;
+    float h = 0.0f;
+    natural_size(path, w, h);
+    if (w <= 0.0f || h <= 0.0f) return 0.0f;
     float drawW = colW < w ? colW : w;
     float drawH = h * (drawW / w);
     return drawH > maxH ? maxH : drawH;
@@ -171,9 +211,15 @@ inline void draw(const std::string& path, float x, float y, float colW,
                  float drawnH) {
     if (!available(path)) return;
     const auto& t = get(path);
-    float w = static_cast<float>(t.width);
-    float h = static_cast<float>(t.height);
-    float drawW = colW < w ? colW : w;
+    // Source rect is the TEXTURE (what is resident); the destination width is
+    // capped by the FILE's width (never upscale past natural size). Those are
+    // two different numbers once an image has been halved, and conflating them
+    // is the whole bug this pair of variables exists to avoid.
+    const float w = static_cast<float>(t.width);
+    const float h = static_cast<float>(t.height);
+    const float natW = natural_width(path);
+    if (natW <= 0.0f) return;
+    float drawW = colW < natW ? colW : natW;
     afterhours::draw_texture_pro(t, RectangleType{0, 0, w, h},
                                  RectangleType{x, y, drawW, drawnH},
                                  Vector2Type{0, 0}, 0.0f,
