@@ -604,9 +604,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        float paneW, float paneH, Pred pred,
                        const std::string& emptyMsg = "Nothing here right now.",
                        bool singleState = false) {
-        std::vector<const api::SessionSummary*> rows;
-        for (const auto& s : app.sessions)
-            if (pred(s)) rows.push_back(&s);
+        // Reused across frames so the collection costs no allocation once the
+        // catalog has been seen at its largest. clear() keeps the capacity;
+        // the old local vector malloc'd a pointer per matching session on
+        // EVERY frame -- the same round trip sidebar.collect was taught to
+        // stop making, one pane over.
+        std::vector<const api::SessionSummary*>& rows = digestRows_;
+        rows.clear();
+        {
+            hanabi::prof::Scope _t("digest.collect");
+            hanabi::prof::AllocScope _a("digest.collect.allocs");
+            for (const auto& s : app.sessions)
+                if (pred(s)) rows.push_back(&s);
+        }
 
         header(ctx, parent, title, std::to_string(rows.size()), theme::type::H1);
 
@@ -644,8 +654,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int n = static_cast<int>(rows.size());
         pitches_.clear();
         pitches_.reserve(static_cast<size_t>(n));
-        for (const auto* s : rows)
-            pitches_.push_back(digest::card_pitch(*s, singleState, subScratch_));
+        {
+            hanabi::prof::Scope _t("digest.pitch");
+            hanabi::prof::AllocScope _a("digest.pitch.allocs");
+            for (const auto* s : rows)
+                pitches_.push_back(
+                    digest::card_pitch(*s, singleState, subScratch_));
+        }
 
         float viewH = 0.0f, offsetY = 0.0f, targetY = 0.0f;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
@@ -689,6 +704,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             list_extent(h);
         }
 
+        hanabi::prof::Scope _tbuild("digest.build");
+        hanabi::prof::AllocScope _abuild("digest.build.allocs");
         card_spacer(ctx, wrap, 90, win.above);
         // Keyed on the window SLOT, never the card index. mk() retains an
         // entity per distinct id forever and nothing retires one (gap #115),
@@ -725,6 +742,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Reused across frames so the pitch pass costs no allocation once the
     // catalog has been seen at its largest. clear() keeps the capacity.
     std::vector<float> pitches_;
+    std::vector<const api::SessionSummary*> digestRows_;
     std::string subScratch_;
 
     // The cards this frame BUILT, against the sessions that matched, and the
