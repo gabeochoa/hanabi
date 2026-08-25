@@ -623,6 +623,119 @@ class MockClient : public Client {
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
     };
+    // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
+    //
+    // WHY THIS IS NOT ONE ASK AND ONE PARAGRAPH. It was, and that made every
+    // measurement ever taken against a big catalog a measurement of the
+    // CHEAPEST render path this app has. The hand-written twenty carry tool
+    // rows, thinking rows, code fences and failed runs; the synthetic two
+    // thousand carried a user line and one paragraph of prose, so
+    // `HANABI_STRESS_SESSIONS=2000` scaled up the part of the transcript that
+    // costs nothing and left out the part that costs everything.
+    //
+    // Puffin hit this first and its PERFORMANCE.md opens on it: everything it
+    // had measured came from a mock with "20 fixture rows" that "hides every
+    // problem below". Its fix, Tests/StressFixtures.swift, generates a turn as
+    // thinking + tool_use + tool intent + tool result + text, with a failure
+    // every seventh turn and a sub-agent delivery every fourth. This is the
+    // same shape in hanabi's own message model, and the ratios are Puffin's
+    // rather than invented so the two apps' stress catalogs are comparable.
+    //
+    // DETERMINISTIC FROM (session, turn) ALONE — no clock, no randomness, no
+    // counter. Two runs generate identical bytes, which is what
+    // scripts/soak.sh's diffable report and every scaling ratio depend on.
+    static std::vector<Message> stress_turn(int k, int t) {
+        static const char* kNouns2[] = {
+            "the quota shard", "row 212's ledger", "the retry queue",
+            "oncall handoff", "the ranking config",
+            "a cohort that will not converge", "the nightly export"};
+        static const char* kTools[] = {"bash", "read_file", "grep", "python",
+                                       "edit_file"};
+        const std::string sid = "s" + std::to_string(k);
+        const std::string tid = sid + "t" + std::to_string(t);
+        const bool failed = (t % 7 == 6);
+        std::vector<Message> out;
+
+        Message u;
+        u.id = tid + "u";
+        u.role = Role::User;
+        u.text = "turn " + std::to_string(t) + ": " + kNouns2[(k + t) % 7] +
+                 " is still moving, what changed?";
+        u.created_at = mins_ago(720 - t * 3);
+        out.push_back(std::move(u));
+
+        // A thinking row. Folded by default, so it costs the fold machinery
+        // and the disclosure chip rather than a wall of text -- which is
+        // exactly the cost a real thread carries and the old fixture had none
+        // of.
+        Message th;
+        th.id = tid + "k";
+        th.role = Role::Assistant;
+        th.subtitle = "thinking";
+        th.text = "Two readings. The cheap one is a stale cache. The honest "
+                  "one is that the derivation runs per frame, and " +
+                  std::string(kNouns2[(k + t + 3) % 7]) +
+                  " is downstream of it, so the same walk happens twice.";
+        th.created_at = mins_ago(720 - t * 3);
+        out.push_back(std::move(th));
+
+        // A tool row WITH ITS OUTPUT, its status and the node it ran on. The
+        // nested output sub-row is a second wrapped text block per turn and
+        // the status drives a glyph; neither existed in the old fixture.
+        Message tool;
+        tool.id = tid + "c";
+        tool.role = Role::Tool;
+        tool.subtitle = kTools[t % 5];
+        tool.text = std::string(kTools[t % 5]) + " " +
+                    (t % 5 == 2 ? "-rn \"retry\" worker/" : "worker/queue.rs");
+        tool.tool_result =
+            failed ? "error: no such file or directory (os error 2)\n"
+                     "  while reading worker/queue.rs at revision " +
+                         std::to_string(1000 + t)
+                   : "worker/queue.rs:" + std::to_string(40 + t) +
+                         ":    let delay = full_jitter(base, attempt);\n"
+                         "worker/queue.rs:" + std::to_string(58 + t) +
+                         ":    // CAP is 30s; see the incident writeup\n"
+                         "3 hits in 2 files";
+        tool.tool_status = failed ? "failed" : "completed";
+        tool.tool_duration_ms = 40 + (t * 17) % 900;
+        tool.tool_node = (t % 3 == 0) ? "cli:aspen" : "devvm4827";
+        tool.created_at = mins_ago(720 - t * 3);
+        out.push_back(std::move(tool));
+
+        // The reply. Every third one carries a fenced code block, because a
+        // fence is the single most expensive thing a reply can contain in this
+        // renderer and the old fixture never produced one.
+        Message a;
+        a.id = tid + "a";
+        a.role = Role::Assistant;
+        a.text = "Two readings of turn " + std::to_string(t) +
+                 ". The cheap one is a stale cache; the honest one is that the "
+                 "derivation runs per frame, which is the shape every finding "
+                 "here has taken so far.";
+        if (t % 3 == 0)
+            a.text += "\n\n```rust\nlet delay = full_jitter(base, attempt)\n"
+                      "    .min(Duration::from_secs(30));\n```\n";
+        a.created_at = mins_ago(719 - t * 3);
+        // The run's own word for how it ended, which draws a rule under the
+        // message. A seventh of runs fail -- Puffin's ratio.
+        a.run_outcome = failed ? "failed" : "completed";
+        out.push_back(std::move(a));
+
+        // A sub-agent delivery every fourth turn, which is a user-origin
+        // message the transcript renders differently.
+        if (t % 4 == 3) {
+            Message d;
+            d.id = tid + "d";
+            d.role = Role::User;
+            d.text = "subagent " + sid + "-" + std::to_string(t) +
+                     ": 14/14 green, handed back";
+            d.created_at = mins_ago(719 - t * 3);
+            out.push_back(std::move(d));
+        }
+        return out;
+    }
+
     static const std::vector<Session>& seed() {
         // A mutex rather than bare static-local init. Magic statics make the
         // FIRST build thread-safe, but this cache can REBUILD when the key
@@ -1585,25 +1698,8 @@ class MockClient : public Client {
                 // the long ones that actually cost something to lay out.
                 const int turns = (k % 17 == 0) ? 60 : (k % 5 == 0 ? 12 : 3);
                 for (int t = 0; t < turns; ++t) {
-                    Message u;
-                    u.id = "s" + std::to_string(k) + "u" + std::to_string(t);
-                    u.role = Role::User;
-                    u.text = "turn " + std::to_string(t) + ": " +
-                             kNouns[(k + t) % 7] +
-                             " is still moving, what changed?";
-                    u.created_at = mins_ago(720 - t * 3);
-                    s.messages.push_back(std::move(u));
-
-                    Message a;
-                    a.id = "s" + std::to_string(k) + "a" + std::to_string(t);
-                    a.role = Role::Assistant;
-                    a.text =
-                        "Two readings of turn " + std::to_string(t) +
-                        ". The cheap one is a stale cache; the honest one is "
-                        "that the derivation runs per frame, which is the "
-                        "shape every finding here has taken so far.";
-                    a.created_at = mins_ago(719 - t * 3);
-                    s.messages.push_back(std::move(a));
+                    for (Message& m : stress_turn(k, t))
+                        s.messages.push_back(std::move(m));
                 }
                 v.push_back(std::move(s));
             }
