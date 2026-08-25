@@ -48,11 +48,18 @@
 // and re-decoded the next time it appears, which is one slow frame on the
 // scroll back to it. Nothing is lost and nothing changes on screen.
 //
-// WHAT IT DOES NOT FIX: hanabi holds FULL-RESOLUTION pixels to draw a 64px
-// chip or a 420px-tall inline image, because afterhours' load_texture takes a
-// path and nothing else -- there is no max-dimension or downscale-on-load, and
-// vendor/afterhours is read-only here. That is afterhours_gaps.md #125: the
-// real saving is 28x and it is upstream's to give.
+// AND THE PER-IMAGE COST, which the budget above does nothing about. hanabi
+// used to hold FULL-RESOLUTION pixels to draw a 22px composer chip or a
+// 420pt-tall inline image, because afterhours' load_texture takes a path and
+// nothing else. It now decodes to the size it draws at -- see
+// ui/decode_to_fit.h for the mechanism and for why halving by powers of two is
+// the same filter the GPU was already going to sample through. A 3024x1964
+// screen grab went from 31.6 MB resident to 7.9 MB, and the budget above now
+// holds four times as many images in the same bytes.
+//
+// afterhours_gaps.md #125 stays open: the upload entry point that makes this
+// possible is in a BACKEND-PRIVATE namespace, so the workaround compiles on
+// the Metal backend only.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
@@ -62,40 +69,55 @@
 #include <unordered_map>
 
 #include "../rl.h"     // global TextureType / RectangleType / Vector2Type + draw_*
+#include "../util/autorelease.h"     // a texture load autoreleases; pool it
+#include "../util/gpu_mem.h"        // texture_bytes() + the GPU ledger
+#include "../util/texture_budget.h"  // the LRU policy, with no texture in it
+#include "decode_to_fit.h"           // decode to the size it is DRAWN at (#125)
 #include "theme.h"     // theme::Color (== afterhours::Color) for the tint
 
 namespace hanabi::inline_image {
 
-// Decoded pixels held at once. Thirty-two megabytes is roughly one Retina
-// screen grab plus change; the protection below means a working set larger
-// than this is kept anyway rather than thrashed.
-inline constexpr std::size_t kMaxCachedBytes = 32u * 1024 * 1024;
-
-// Entries protected from eviction by recency of ACCESS, not of insertion. A
-// frame draws at most the composer's five chips plus the inline images in
-// view, so sixteen is comfortably a whole frame's working set.
-inline constexpr std::size_t kProtectRecent = 16;
-
-// Distinct paths remembered at all, including the ones that failed to load
-// (those cost a map entry and no pixels, but a process that has been handed
-// ten thousand bad paths should not remember all of them).
-inline constexpr std::size_t kMaxEntries = 512;
+// THIS BUDGET USED TO BE A THIRD BIGGER THAN IT SAID. It counted w*h*4, and
+// afterhours' load_texture uploads a full mip chain on top of that (see
+// util/gpu_mem.h). Measured with the device's own counter over the ladder's
+// image rung -- 60 640x480 PNGs attached and removed one at a time:
+//
+//     estimate said        32,400 KB
+//     device actually held 48,384 KB     1.49x
+//
+// It now budgets against hanabi::gpu::texture_bytes, which counts the chain,
+// so a 32 MB budget costs 32 MB of GPU memory.
+//
+// The three numbers live in util/texture_budget.h beside the policy that
+// enforces them, so tests/unit/test_texture_budget.cpp asserts against the
+// values this cache actually runs with rather than a copy that can drift.
+inline constexpr std::size_t kMaxCachedBytes = hanabi::texbudget::kDefaultMaxBytes;
+inline constexpr std::size_t kProtectRecent =
+    hanabi::texbudget::kDefaultProtectRecent;
+inline constexpr std::size_t kMaxEntries = hanabi::texbudget::kDefaultMaxEntries;
 
 struct Cached {
     TextureType tex{};
     bool tried = false;  // attempted a load (don't retry a bad path every frame)
-    std::size_t bytes = 0;
-    std::uint64_t stamp = 0;  // the access counter's value at the last touch
+    // The FILE's dimensions, which tex's are no longer: an image over the
+    // draw-size threshold is halved before upload (decode_to_fit.h). Every
+    // layout decision below is about the image, not about how many pixels
+    // happen to be resident for it, so it reads these -- getting that wrong
+    // would silently upscale a downscaled screenshot to fill the column.
+    int naturalW = 0;
+    int naturalH = 0;
 };
 
 namespace detail {
 
+// The LRU itself lives in util/texture_budget.h, with no texture in it, so the
+// policy can be asserted by a test that links no GPU. What is left here is the
+// part that genuinely needs afterhours: the path -> TextureType map, the load,
+// and the unload on eviction.
 struct Store {
     std::unordered_map<std::string, Cached> map;
-    std::list<std::string> order;  // MRU front ... LRU back
-    std::unordered_map<std::string, std::list<std::string>::iterator> pos;
-    std::size_t bytes = 0;
-    std::uint64_t clock = 0;
+    hanabi::texbudget::Budget budget{kMaxCachedBytes, kProtectRecent,
+                                     kMaxEntries};
 };
 
 inline Store& store() {
@@ -103,40 +125,18 @@ inline Store& store() {
     return s;
 }
 
-inline void touch(Store& s, const std::string& path) {
-    auto it = s.pos.find(path);
-    if (it != s.pos.end()) s.order.erase(it->second);
-    s.order.push_front(path);
-    s.pos[path] = s.order.begin();
-    s.map[path].stamp = ++s.clock;
-}
-
-// Drop least-recently-used entries until the budget is met, skipping anything
-// touched within the last kProtectRecent accesses.
 inline void evict(Store& s) {
-    for (auto rit = s.order.rbegin(); rit != s.order.rend();) {
-        if (s.bytes <= kMaxCachedBytes && s.map.size() <= kMaxEntries) return;
-        const std::string victim = *rit;
+    // The unload's own pool: this is reached from get(), which a render system
+    // calls inside a pooled frame today and a cache warm-up could call outside
+    // one tomorrow. A function that touches Metal owns its pool.
+    const hanabi::AutoreleaseFrame texPool;
+    s.budget.trim([&s](const std::string& victim, std::size_t bytes) {
         auto found = s.map.find(victim);
-        if (found == s.map.end()) {
-            ++rit;
-            continue;
-        }
-        if (s.clock - found->second.stamp < kProtectRecent) {
-            // Everything from here forward is even more recent: the list is in
-            // access order, so there is nothing left that may be dropped.
-            return;
-        }
-        s.bytes -= found->second.bytes;
+        if (found == s.map.end()) return;
+        hanabi::gpu::note_unload(bytes);
         afterhours::unload_texture(found->second.tex);
         s.map.erase(found);
-        auto p = s.pos.find(victim);
-        if (p != s.pos.end()) {
-            s.order.erase(p->second);
-            s.pos.erase(p);
-        }
-        rit = s.order.rbegin();
-    }
+    });
 }
 
 }  // namespace detail
@@ -145,26 +145,31 @@ inline TextureType& get(const std::string& path) {
     detail::Store& s = detail::store();
     auto it = s.map.find(path);
     if (it != s.map.end()) {
-        detail::touch(s, path);
-        return s.map[path].tex;
+        s.budget.touch(path);
+        return it->second.tex;
     }
     Cached c;
     c.tried = true;
-    c.tex = afterhours::load_texture(path.c_str());
-    c.bytes = static_cast<std::size_t>(c.tex.width > 0 ? c.tex.width : 0) *
-              static_cast<std::size_t>(c.tex.height > 0 ? c.tex.height : 0) * 4u;
-    s.bytes += c.bytes;
+    const hanabi::decode_to_fit::Loaded loaded =
+        hanabi::decode_to_fit::load(path.c_str());
+    c.tex = loaded.tex;
+    c.naturalW = loaded.naturalW;
+    c.naturalH = loaded.naturalH;
+    const std::size_t bytes =
+        hanabi::gpu::texture_bytes(static_cast<int>(c.tex.width),
+                                   static_cast<int>(c.tex.height));
+    hanabi::gpu::note_load(bytes);
     s.map[path] = c;
-    detail::touch(s, path);
+    s.budget.insert(path, bytes);
     detail::evict(s);
-    // evict() never drops an entry inside the protection window, and this one
+    // trim() never drops an entry inside the protection window, and this one
     // was just touched, so the reference is live.
     return s.map[path].tex;
 }
 
 // Decoded bytes held, and how many paths (instrumentation; the ladder prints
 // these so a bound is a number rather than a claim).
-inline std::size_t cached_bytes() { return detail::store().bytes; }
+inline std::size_t cached_bytes() { return detail::store().budget.bytes(); }
 inline std::size_t cached_count() { return detail::store().map.size(); }
 
 inline bool available(const std::string& path) {
@@ -173,14 +178,35 @@ inline bool available(const std::string& path) {
     return t.width > 0 && t.height > 0;
 }
 
+// The FILE's dimensions. Not the texture's: see Cached::naturalW.
+inline void natural_size(const std::string& path, float& w, float& h) {
+    detail::Store& s = detail::store();
+    auto it = s.map.find(path);
+    if (it == s.map.end()) {
+        w = 0.0f;
+        h = 0.0f;
+        return;
+    }
+    w = static_cast<float>(it->second.naturalW);
+    h = static_cast<float>(it->second.naturalH);
+}
+
+inline float natural_width(const std::string& path) {
+    float w = 0.0f;
+    float h = 0.0f;
+    natural_size(path, w, h);
+    return w;
+}
+
 // Drawn HEIGHT for an image fit to colW (aspect-preserving, no upscale past
 // natural width, capped at maxH). 0 when unavailable.
 inline float fitted_height(const std::string& path, float colW,
                            float maxH = 420.0f) {
     if (!available(path)) return 0.0f;
-    const auto& t = get(path);
-    float w = static_cast<float>(t.width);
-    float h = static_cast<float>(t.height);
+    float w = 0.0f;
+    float h = 0.0f;
+    natural_size(path, w, h);
+    if (w <= 0.0f || h <= 0.0f) return 0.0f;
     float drawW = colW < w ? colW : w;
     float drawH = h * (drawW / w);
     return drawH > maxH ? maxH : drawH;
@@ -190,9 +216,15 @@ inline void draw(const std::string& path, float x, float y, float colW,
                  float drawnH) {
     if (!available(path)) return;
     const auto& t = get(path);
-    float w = static_cast<float>(t.width);
-    float h = static_cast<float>(t.height);
-    float drawW = colW < w ? colW : w;
+    // Source rect is the TEXTURE (what is resident); the destination width is
+    // capped by the FILE's width (never upscale past natural size). Those are
+    // two different numbers once an image has been halved, and conflating them
+    // is the whole bug this pair of variables exists to avoid.
+    const float w = static_cast<float>(t.width);
+    const float h = static_cast<float>(t.height);
+    const float natW = natural_width(path);
+    if (natW <= 0.0f) return;
+    float drawW = colW < natW ? colW : natW;
     afterhours::draw_texture_pro(t, RectangleType{0, 0, w, h},
                                  RectangleType{x, y, drawW, drawnH},
                                  Vector2Type{0, 0}, 0.0f,

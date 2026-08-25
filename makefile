@@ -55,6 +55,7 @@ CXXFLAGS_SUPPRESS := -Wno-deprecated-volatile -Wno-missing-field-initializers \
 CXXFLAGS := $(CXXSTD) $(CXXFLAGS_BASE) $(CXXFLAGS_SUPPRESS) \
     -DAFTER_HOURS_UI_SINGLE_COLLECTION \
     -DAFTER_HOURS_USE_METAL \
+    -DHANABI_GPU_ACCOUNTING \
     -DFMT_HEADER_ONLY \
     -DHANABI_BUILD_STAMP=\"$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)\"
 
@@ -467,6 +468,28 @@ $(TEST_DIR)/test_widget_retire: tests/unit/test_widget_retire.cpp src/ui/widget_
 	@echo "Compiling test_widget_retire..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_widget_retire.cpp -o $@
 
+# What a texture costs on the GPU. Pure arithmetic plus a ledger, so it links
+# NO Metal and no graphics: src/gpu_mem.mm is deliberately absent here, which
+# is also what makes the "device accounting is absent, and says so" assertion
+# meaningful in this binary.
+$(TEST_DIR)/test_gpu_mem: tests/unit/test_gpu_mem.cpp src/util/gpu_mem.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_gpu_mem..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_gpu_mem.cpp -o $@
+
+# The texture cache's LRU policy, driven with synthetic entries. Links no GPU,
+# which is the whole point: every claim it asserts used to be a paragraph of
+# comment in a header that cannot be compiled without one.
+$(TEST_DIR)/test_texture_budget: tests/unit/test_texture_budget.cpp src/util/texture_budget.h src/util/gpu_mem.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_texture_budget..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_texture_budget.cpp -o $@
+
+# Decode-to-fit's policy and its filter. Pure: the halve is transcribed from
+# the vendored backend's build_mip_chain and this asserts it is bit-exact,
+# which is the entire safety argument for reducing an image before upload.
+$(TEST_DIR)/test_downscale: tests/unit/test_downscale.cpp src/util/downscale.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_downscale..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_downscale.cpp -o $@
+
 $(TEST_DIR)/test_footer_geometry: tests/unit/test_footer_geometry.cpp src/ecs/sidebar_footer_geometry.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_footer_geometry..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_footer_geometry.cpp -o $@
@@ -523,7 +546,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

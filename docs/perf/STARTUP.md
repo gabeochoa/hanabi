@@ -276,6 +276,101 @@ Two things worth noting anyway, neither a bug today:
 
 ---
 
+## 4. The launch curve, and why a pre-warm cannot make a launch faster
+
+**What I wanted.** `afterhours_gaps.md` #155 says the first draws cost 5-8x a
+warm draw and asks for a way to move that off the critical path. I wanted the
+curve frame by frame, and then the pre-warm.
+
+**What happened, first.** There was no curve to be had: #155's number is a
+wall-clock span divided by three, and it cannot say whether frame 0 is
+expensive or all three are equally. `HANABI_LAUNCH_CURVE=<n>`
+(`src/util/launch_curve.h`) records each of the first n frames against the warm
+median of the rest, on **`CLOCK_THREAD_CPUTIME_ID`** for the reason at the top
+of this file.
+
+| # | phase | cpu ms | xwarm | run 2 | run 3 |
+|---|---|---:|---:|---:|---:|
+| 0 | settle | 4.417 | 4.98x | 3.67x | 3.74x |
+| 1 | settle | 2.966 | 3.34x | 3.60x | 3.42x |
+| 2 | settle | 1.915 | 2.16x | 2.05x | 2.06x |
+| 3 | capture | 1.214 | 1.37x | 1.15x | 1.25x |
+| 4 | capture | 0.975 | 1.10x | 1.04x | 1.12x |
+| 7 | capture | 0.898 | 1.01x | 1.05x | 1.02x |
+| warm | | 0.888 | 1.00x | | |
+
+A decaying curve over about five frames, not a cliff, totalling **6.0-7.1 ms of
+CPU above warm**. That total is the whole of what a pre-warm can move, and
+quoting it first means the fix can be judged against a ceiling instead of a
+hope.
+
+**#155's per-frame number is 3x too big, and my first version had the same
+bug.** It reports 6.3-10.7 ms per settle frame; on the CPU clock the same
+frames are 1.8-4.4 ms. The difference is the settle loop's backoff sleeps,
+which section 1 of this document already established are the dominant term on
+this box. I reproduced the mistake exactly: the RAII timer was declared at the
+top of the settle loop's body, so its destructor ran *after* the sleep, and it
+read frame 1 at 21 ms of wall against 3 ms of CPU. An 18 ms second frame that
+no pre-warm can move is precisely the wrong thing to go and try to fix. The
+scope now brackets the render alone, and the corrected wall and CPU columns
+agree to within 0.01 ms — which is the check that the cost really is on this
+thread, and therefore really is a pipeline compile rather than a GPU wait.
+
+### The pre-warm: one step of three, and the two that were removed
+
+Three steps, each built and measured alone against the curve.
+
+| step | CPU cost | CPU saved | FirstFrame p50 | |
+|---|---:|---:|---|---|
+| icon atlas + its sgl pipeline | 0.52 ms | 0.53 ms | 51 -> 50 ms | **kept** |
+| glyph atlas, 14 sizes x 2 faces | 7.05 ms | 1.50 ms | 51 -> 62 ms | removed |
+| one throwaway frame, 4 draw paths | 2.37 ms | 1.63 ms | 51 -> 59 ms | removed |
+| all three | 9.31 ms | 3.57 ms | 51 -> 62 ms | |
+
+What shipped is `src/util/prewarm.h`, which builds the icon atlas and its blend
+pipeline right after `build_systems`. Interleaved A/B on one binary
+(`HANABI_PREWARM=0/1`), eight alternating rounds:
+
+| | before | after |
+|---|---|---|
+| frame 0 vs warm | 3.26-4.27x | **2.86-3.39x** (lower in 8 of 8) |
+| first 6 frames, CPU above warm | 5.7-6.5 ms | 5.0-6.2 ms |
+| FirstFrame min / p50, ten runs | 43 / 51 ms | 44 / 50 ms |
+
+Re-run after rebasing onto `main` at `1abdaa3`, four interleaved rounds: frame 0
+3.53-4.17x before against 2.78-3.11x after, lower in 4 of 4. The absolute
+excess reads higher on that base (9.5-11.1 ms against 8.4-9.6) and the ratio
+does not, which is the reason the ratio is the headline: the box was busier,
+and both halves of a ratio are taken seconds apart in the same process. The
+branch was rebased again onto `cc9fae1` (`perf/text`, `perf/retire`) and the
+GPU figures in `MEMORY.md` did not move by a kilobyte across either rebase.
+
+Free on the gate's own number, consistently better on the curve, and small.
+
+**The negative result is the more useful half.** A pre-warm CANNOT reduce the
+cost of a launch. Every millisecond of it is on the critical path between
+process start and the first frame, so moving work earlier only helps where the
+work would otherwise be done twice, or done more than the app needs. The glyph
+warm rasterises fourteen sizes across two faces to save frames that draw four
+of them. The throwaway frame — which is seductive, and really does halve frame
+0, to 2.12-2.54x — compiles pipelines the first real frame would have compiled
+anyway, and puts eight milliseconds on the p50 of the number `make test` gates.
+#155's own suggested fix, "a `graphics::prewarm()` that renders and discards one
+frame", would measure exactly like that third row: a better curve and a worse
+launch.
+
+The one place the trade is real is a backend whose settle loop actually waits
+on the network, where the app is idle anyway. On the mock, `list_sessions()`
+resolves in 0.118 ms and there is nothing to overlap with.
+
+**What it buys that is not milliseconds.** #155's sharper complaint is that the
+warm-up lands in whichever loop drew first, so the launch number moves when you
+reorder code that does the same work. The icon atlas's pipeline was compiled
+inside the first frame that happened to draw an icon. Pinning it to a named
+line makes the number mean something.
+
+---
+
 ## Summary — what moved, and what did not
 
 **Measured wins**

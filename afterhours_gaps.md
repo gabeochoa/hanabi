@@ -6980,6 +6980,39 @@ needs a pipeline matching the target's pixel format, and a small cache keyed on
 the life of the process instead of one per resize. Then a resize is an image
 swap and the arm can gate the thing it was written for.
 
+**Postscript, 2026-08-25 (perf/gpu): headless-only CONFIRMED, both ways, and
+it is not GPU memory at all.**
+
+The scope paragraph above reasons from the code. Two measurements now back it.
+
+*A windowed resize leaks nothing.* `HANABI_GPU_WATCH=20
+HANABI_GPU_WATCH_RESIZE=1` drags a REAL window through
+`metal_set_window_size` and prints `-[MTLDevice currentAllocatedSize]` beside
+the window size. 73 resizes, 33 distinct sizes each visited twice about forty
+resizes apart: the GPU total is **identical to the kilobyte on 32 of the 33**,
+and the exception reads 14 MB LOWER the second time because its first sample
+predated settling. (osascript cannot do this — it needs assistive access, which
+is not a permission to grant on somebody's daily machine to settle a
+measurement — so the drag is driven from inside the process through the same
+NSWindow call `set_window_size`'s windowed branch makes.)
+
+*And the call graph is exhaustive rather than argued.* `load_render_texture`
+has exactly two call sites in the whole program, `backend.h:353` and
+`backend.h:813`, and both are inside `if (metal_detail::g_headless)` — the
+windowed `graphics::init` returns false two lines later with
+`@notimplemented`. `sgl_make_context` has exactly one afterhours call site,
+inside `load_render_texture`. A windowed app has ONE sokol-gl context, made
+once at `sgl_setup`.
+
+*It is a HEAP leak, not a GPU one.* The resize arm with the backend on reads
+`+4,928 KB` RSS and `+65,966` live blocks per 1000 frames — and the GPU column
+on the same run reads **-8,192 KB**. It goes DOWN, because the arm sweeps the
+render target smaller and the leaked objects are Objective-C descriptors
+(`MTLVertexDescriptor`, `MTLVertexAttributeDescriptor`) that
+`currentAllocatedSize` does not count. So a GPU-bytes gate can never catch this
+one, exactly as a malloc gate can never catch a texture. That is not a defect
+in either gate; it is why hanabi's soak now runs both.
+
 CLASS: BLOCKING (for the scenario; the workaround measures the other half)
 ### #170 — `Overflow::Scroll` clips what you built; there is no way to build less, so every consumer with a long list re-implements windowing against state the library writes AFTER the build
 
@@ -7633,3 +7666,221 @@ the RENDERED offset, so the stored intent survives a frame in which the tree
 was not built.
 
 CLASS: WORKAROUND
+
+---
+
+### #210 — Every GPU object comes out of a fixed pool the consumer cannot size, and the one that runs out FIRST fails silently
+
+**What was wanted.** To cache decoded images without a bound the app cannot
+see, and to be told when it hit one.
+
+**What happens.** sokol allocates every GPU object from fixed-size pools, set
+once in `sg_desc` at `sg_setup`. afterhours' backend calls `sg_setup` with a
+default-constructed `sg_desc` (`backends/sokol/backend.h:194` and `:791`) and
+offers no hook — not a field on `graphics::Config`, not a callback, not an
+overload — so every consumer gets sokol's defaults and cannot raise them:
+
+    images 128 | samplers 64 | views 256 | pipelines 64 | shaders 32
+
+`load_texture` makes one image, one view **and one sampler** per texture, so
+the **sampler pool is the binding constraint at 64** — half the image pool,
+and the number nothing in the API mentions.
+
+Measured in a process doing exactly what hanabi's launch does (`graphics::init`
+at 1180x949 plus four font faces): **the sampler pool ran out after 61 loads
+and the image pool after 124.** Three sampler slots are gone before the app
+draws anything.
+
+**The part that makes this a footgun rather than a limit.**
+`metal_texture_detail::load_texture_from_pixels` checks `sg_make_image` and
+`sg_make_view` — carefully, with a comment about not leaking the view when the
+image fails — and does **not** check `make_sampler_for_filter`. So between the
+61st texture and the 124th it returns:
+
+    TextureType{ width = <the file's>, height = <the file's>,
+                 img_id = valid, view_id = valid, sampler_id = 0 }
+
+Every "did this load?" test a consumer can write reads that as success —
+hanabi's `inline_image::available` does, its composer chip does, its
+`bubble_height` image term does — and the texture cannot be sampled. Sixty
+textures of silent wrongness sit between the first pool running out and the
+second one reporting itself honestly. Past 124, `sg_make_image` fails, the
+existing check fires, and the failure is finally visible.
+
+Note also what a leak looks like from outside: a texture leaked every frame
+does **not** grow without bound. hanabi's soak probe measured it growing to
+264,048 KB and then sitting flat to the kilobyte for 800 frames, because the
+image pool was full and every further allocation failed. A slope-based leak
+detector sees a texture leak for about two seconds and then goes green.
+
+**Why the obvious escapes do not work.**
+
+- **Call `sg_setup` yourself with bigger pools** — `graphics::init` calls it,
+  the consumer's first line of graphics is `graphics::init`, and calling
+  `sg_setup` twice is undefined. There is no "configure then init" split.
+- **Query the pool and stop before it** — `sg_query_desc()` would answer, and
+  it answers about the *configuration*, not the *occupancy*. There is no
+  `sg_query_samplers_in_use()`, and the consumer cannot count the ones
+  afterhours, fontstash and sgl took for themselves.
+- **Check `sampler_id != 0` in the consumer** — this is the workaround below.
+  It is one line and it is correct, and it requires knowing that a texture can
+  come back valid-looking and unsamplable, which is exactly what the API's
+  shape says cannot happen.
+- **Share one sampler across every texture** — right, and not available:
+  `TextureType` owns its sampler id, `load_texture` makes a new one per call,
+  and there is no entry point that takes an existing sampler.
+
+**The workaround, and its cost.** hanabi caps its own texture cache at 32
+entries — sokol's 64 samplers, less 16 reserved for the app's own atlases and
+render targets, halved again for headroom (`src/util/texture_budget.h`, with a
+`static_assert` tying the two numbers together) — and treats
+`sampler_id == 0` as a failed load at the single seam every texture in the app
+comes through, destroying the orphaned image and view and counting the event
+(`src/ui/decode_to_fit.h`). The cap was **512** before this was understood,
+which is eight times what the GPU can represent, and the byte budget in front
+of it could not help: bounding BYTES does not bound OBJECTS, and the way to
+hold 512 textures is for them to be small. Measured, 80 96x96 avatars through
+the real app: **80 entries held, 20 of them unsamplable, and every "is this
+loaded?" test said yes.**
+
+The cost of the workaround is a texture cache four times smaller than the
+byte budget would allow, sized by a constant from another library's internals
+that nothing will tell us if it changes.
+
+**Minimal upstream fix.** Two things, neither large. (a) Check the sampler in
+`load_texture_from_pixels` the way the image and the view are already checked,
+and return an empty `TextureType` — three lines, and it converts sixty
+textures of silent wrongness into an honest failure every consumer already
+handles. (b) Put the pool sizes on `graphics::Config`, defaulted to sokol's,
+so an app that wants a hundred thumbnails can ask for them.
+
+CLASS: FOOTGUN
+
+---
+
+### #211 — The glyph atlas is a fixed 2048², nothing registers fontstash's overflow callback, and the symptom is `measure_text` returning a wrong number
+
+**What was wanted.** To know whether the font atlas is bounded, and to be told
+if the app ever fills it.
+
+**What happens.** It is bounded, admirably: `backends/sokol/backend.h:104`
+creates one `sfons` atlas of 2048x2048 R8 — 4 MB, once, at init — and it never
+grows. Measured with the device counter: rasterising 94 glyphs at fifty sizes
+from 8 to 400 pt moves `-[MTLDevice currentAllocatedSize]` by **0 KB**. A whole
+category of leak simply does not exist here, and that is worth writing down.
+
+The problem is what happens at the ceiling. fontstash raises `FONS_ATLAS_FULL`
+through `stash->handleError` (`vendor/fontstash/fontstash.h:1131`), afterhours
+never calls `fonsSetErrorCallback`, and the default handler is null. So the
+glyph is dropped, and — this is the part that matters — **the measurement is
+dropped with it**. Measuring the 94-character printable-ASCII string against
+one face:
+
+    size 144 pt   width 5933.0
+    size 192 pt   width  230.0
+    size 288 pt   width    0.0
+
+No error, no log, no exception, no return code. `measure_text` is what every
+wrap, every hug-to-text and every ellipsize in a consumer is computed from
+(#103, #116, #135, #136 are all about it), so a string that measures zero is
+laid out as absent. This is not a rendering artefact that a user squints at; it
+is silent, arbitrary layout corruption whose only visible cause is that
+somebody used a big font.
+
+hanabi is not close to the ceiling — four faces x fourteen sizes x the ASCII
+set, and again at 2x, 3x, 4x and 6x, all fit with a reference measurement
+unchanged to the pixel. A consumer with CJK, or with a document viewer that
+offers a font-size slider, is a different story, and neither would find out
+from the library.
+
+**Why the obvious escapes do not work.**
+
+- **Register the callback yourself** — `fonsSetErrorCallback` needs the
+  `FONScontext`, which lives in `metal_detail::g_fons_ctx`, a backend-private
+  static with no accessor.
+- **Ask how full the atlas is** — nothing reports it. There is no
+  `atlas_usage()`, no glyph count, and the atlas image id is not exposed
+  either, so a consumer cannot even read its dimensions back.
+- **Detect it from the outside by sanity-checking widths** — this is the only
+  thing available and it is guesswork: a consumer would have to measure a
+  canary string every frame and compare it against a value it recorded earlier,
+  which costs a measure per frame to detect a condition that should be one
+  branch inside the library.
+- **Ask for a bigger atlas** — 2048x2048 is hard-coded two lines above the
+  `sfons_create` call, and #210 is the same complaint about sokol's pools:
+  there is no `graphics::Config` field for any of it.
+
+**The workaround, and its cost.** None taken. hanabi measured its own headroom
+(above) and recorded the result rather than defending against a condition it
+cannot detect. The cost is that if hanabi ever ships a font-size setting or a
+non-Latin script, the first symptom will be labels laying out at zero width and
+nothing in the app or the library will say why.
+
+**Minimal upstream fix.** Three lines and a field. Call
+`fonsSetErrorCallback` in the backend's init with a handler that `log_error`s
+`FONS_ATLAS_FULL` once — that alone turns silent corruption into a message with
+a name. Then put the atlas dimensions on `graphics::Config` beside the pool
+sizes #210 asks for.
+
+CLASS: FOOTGUN
+
+---
+
+### #212 — Destroying a GPU object does not free it until the next frame, and doing enough of that without one trips an assert inside sokol
+
+**What was wanted.** To measure the cost of a texture load: create one, destroy
+it, repeat, and watch the counters.
+
+**What happens.** The process dies:
+
+    Assertion failed: (_sg.mtl.idpool.free_queue_top > 0),
+      function _sg_mtl_alloc_pool_slot, file sokol_gfx.h, line 14937
+
+sokol's Metal backend does not release a destroyed object immediately — it
+defers to a frame boundary, so the GPU cannot still be reading it. A loop that
+creates and destroys textures **with no `begin_frame` between them** therefore
+never returns a slot, and sokol asserts rather than reporting anything a caller
+can act on. `unload_texture` returns void and `sg_destroy_image` returns void,
+so there is no signal at any layer that the resource is still held.
+
+Nothing in afterhours says this. `unload_texture`'s neighbours in
+`drawing_helpers.h` are careful about not leaking a view when an image fails,
+which reads as a file that has thought about resource lifetime — and the one
+lifetime fact a consumer needs is not there.
+
+The consequences reach past the crash:
+
+- **A cache eviction does not reclaim anything until the next frame is drawn.**
+  A consumer bounding a texture cache by bytes (as hanabi does) evicts and
+  immediately loads the replacement, so for the rest of that frame BOTH are
+  resident and the real peak is over the budget by one entry. Nothing in the
+  API lets the caller wait for, or force, the drain.
+- **Any warm-up, migration or bulk reload outside the frame loop is a landmine**
+  — which is a real shape: a pre-warm, a theme switch that reloads an atlas, a
+  hi-DPI change that recreates every texture.
+- **A probe cannot be written the obvious way.** The measurement above had to
+  be restructured to draw an empty frame per iteration, which is not what it
+  was trying to measure.
+
+**Why the obvious escapes do not work.**
+
+- **Call `sg_destroy_image` yourself and wait** — the deferred queue is
+  `_sg.mtl.idpool`, private, and there is no drain entry point.
+- **Draw a frame after every destroy** — this is the workaround, and it means
+  the cost of freeing a texture is a whole frame.
+- **Just do not destroy many at once** — "many" is `SG_NUM_INFLIGHT_FRAMES`
+  worth of pool, a number the consumer cannot see (#210).
+
+**The workaround, and its cost.** hanabi's eviction happens inside the frame
+loop, where the drain follows naturally, and its one out-of-frame texture load
+(the pre-warm) creates without destroying. Both are true by accident of where
+the code sits rather than by design, and nothing would catch either changing.
+The cost of the probe was an hour and a crash whose message names a static in
+another library.
+
+**Minimal upstream fix.** A sentence in `unload_texture`'s comment saying the
+release is deferred to the next frame, which is the whole of what a consumer
+needs to not walk into this. Better, a `graphics::flush_deleted_resources()`
+that drains the queue, so a bulk reload has something to call.
+
+CLASS: SURPRISING

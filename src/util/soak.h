@@ -42,6 +42,7 @@
 #include <mach/mach.h>
 #include <malloc/malloc.h>
 
+#include "gpu_mem.h"
 #include "prof.h"
 #include "trend.h"
 #include "../../vendor/afterhours/src/core/entity_helper.h"
@@ -251,16 +252,24 @@ struct Sample {
     long rssKb = 0;
     size_t entities = 0;
     HeapStat heap;
+    // GPU bytes the DRIVER says this process holds, or 0 when no Metal device
+    // is answering. Sampled rather than derived, because every other column in
+    // this struct comes from the malloc zones and is therefore blind to it:
+    // over a ladder rung that leaked 114 MB of textures, live malloc moved
+    // +427 KB. afterhours_gaps.md #126.
+    long gpuKb = 0;
 };
 
 // A bucket's worth of frames, closed out and printed.
 inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
                    long rss, size_t ents) {
     const HeapStat h = heap_in_use();
-    out.push_back(Sample{frame, ms, cpuMs, rss, ents, h});
+    const long gpu = static_cast<long>(hanabi::gpu::device_bytes() / 1024);
+    out.push_back(Sample{frame, ms, cpuMs, rss, ents, h, gpu});
     std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
-                "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB\n",
-                frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024);
+                "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB  "
+                "GPU %7ld KB\n",
+                frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024, gpu);
     std::fflush(stdout);
 }
 
@@ -358,6 +367,9 @@ inline double col_blocks(const Sample& x) {
 inline double col_heap_kb(const Sample& x) {
     return static_cast<double>(x.heap.bytes) / 1024.0;
 }
+inline double col_gpu_kb(const Sample& x) {
+    return static_cast<double>(x.gpuKb);
+}
 
 // ---------------------------------------------------------------------------
 // The budget. What counts as "flat".
@@ -378,6 +390,7 @@ inline double col_heap_kb(const Sample& x) {
 //                                    (thread CPU, not wall -- see verdict())
 //   HANABI_SOAK_MAX_ENT_PER1K        entity growth,     entities per 1000
 //   HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K  live malloc BLOCKS, blocks per 1000
+//   HANABI_SOAK_MAX_GPU_KB_PER1K     GPU bytes,            KB per 1000 frames
 //
 // NOT `HANABI_SOAK_MAX_BLOCKS_PER1K`, which perf/scroll already took for
 // trend_verdict's min-of-half rate below. Two budgets over the same quantity,
@@ -390,6 +403,15 @@ struct Budget {
     double msPer1k = 0.5;
     double entPer1k = 100.0;
     double blocksPer1k = 20000.0;
+    // GPU growth, and this is the tightest budget here by two orders of
+    // magnitude, because it is the only column with no noise to absorb.
+    // Nothing in a steady-state frame allocates on the GPU: textures are made
+    // when an image, an icon atlas or a font atlas is first needed and then
+    // held, the render target is made once, and the settle pass has paid all
+    // of it. Measured flat to the KILOBYTE across every soak arm. 64 KB is not
+    // slack -- it is one 128x128 RGBA texture, the smallest thing whose
+    // appearance every frame would be a real defect.
+    double gpuKbPer1k = 64.0;
 };
 
 inline double env_double(const char* name, double fallback) {
@@ -409,6 +431,8 @@ inline Budget budget() {
         out.entPer1k = env_double("HANABI_SOAK_MAX_ENT_PER1K", out.entPer1k);
         out.blocksPer1k =
             env_double("HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K", out.blocksPer1k);
+        out.gpuKbPer1k =
+            env_double("HANABI_SOAK_MAX_GPU_KB_PER1K", out.gpuKbPer1k);
         return out;
     }();
     return b;
@@ -494,7 +518,7 @@ struct ReportInput {
 
 inline void write_report(const ReportInput& in, const Trend& rss,
                          const Trend& heap, const Trend& blocks,
-                         const Trend& cpu, const Trend& ent,
+                         const Trend& cpu, const Trend& ent, const Trend& gpu,
                          const Budget& bud, int fitPoints) {
     const char* path = report_path();
     if (path == nullptr) return;
@@ -521,6 +545,12 @@ inline void write_report(const ReportInput& in, const Trend& rss,
     std::fprintf(f, "band.blocks %s\n", band(blocks.per1k, bud.blocksPer1k));
     std::fprintf(f, "band.cpu %s\n", band(cpu.per1k, bud.msPer1k));
     std::fprintf(f, "band.entities %s\n", band(ent.per1k, bud.entPer1k));
+    // Ungated rather than "ok" when no device answered, so a diff against a
+    // report from a build without GPU accounting cannot read as a pass.
+    std::fprintf(f, "band.gpu %s\n",
+                 hanabi::gpu::device_accounting()
+                     ? band(gpu.per1k, bud.gpuKbPer1k)
+                     : "not_measured");
     std::fprintf(f, "verdict %s\n", in.verdict);
     const auto rows = widget_census();
     int total = 0;
@@ -734,7 +764,7 @@ inline int trend_verdict(const std::vector<Sample>& s) {
 // What verdict() measured, handed back so the report writer does not have to
 // recompute it (and cannot disagree with what was printed).
 struct VerdictTrends {
-    Trend rss, heap, blocks, cpu, entities;
+    Trend rss, heap, blocks, cpu, entities, gpu;
     int fitPoints = 0;
     bool ready = false;
 };
@@ -768,6 +798,7 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     const Trend tEnt = trend_of(pts, col_ent);
     const Trend tBlocks = trend_of(pts, col_blocks);
     const Trend tHeap = trend_of(pts, col_heap_kb);
+    const Trend tGpu = trend_of(pts, col_gpu_kb);
     const Budget bud = budget();
     const int firstFrame = pts.front()->frame;
     const int lastFrame = pts.back()->frame;
@@ -811,6 +842,17 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     // Live malloc bytes move the instant something is not freed, where RSS
     // lags by whole pages -- so on a short run this is the sharper instrument.
     bad |= judge_row("heap bytes", "KB", tHeap, bud.heapKbPer1k, true) ? 1 : 0;
+    // GPU bytes, from the device's own counter -- the one memory column the
+    // malloc zones cannot see at all. Gated ONLY when a device answered: a
+    // column reading +0.0 because no accounting was compiled in is the same
+    // glyph as one reading +0.0 because nothing leaked, and passing on the
+    // first is how a gate stops gating.
+    if (hanabi::gpu::device_accounting())
+        bad |= judge_row("GPU bytes", "KB", tGpu, bud.gpuKbPer1k, true) ? 1 : 0;
+    else
+        std::printf("[soak]   %-12s %-16s %-20s %8s %6s  %s\n", "GPU bytes",
+                    "not measured", "", "-", "", 
+                    "NO DEVICE -- built without HANABI_GPU_ACCOUNTING?");
     bad |= judge_row("entities", "  ", tEnt, bud.entPer1k, true) ? 1 : 0;
     // FRAME TIME IS GATED ON THE CPU CLOCK, NOT THE WALL CLOCK.
     //
@@ -850,6 +892,7 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
     reportOut.blocks = tBlocks;
     reportOut.cpu = tCpu;
     reportOut.entities = tEnt;
+    reportOut.gpu = tGpu;
     reportOut.fitPoints = tRss.points;
     reportOut.ready = true;
 
@@ -898,6 +941,35 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
                     "[soak]   3. something appended to a container each frame "
                     "(an event log, a\n"
                     "[soak]      history buffer) with no bound and no drain.\n");
+    }
+    // GPU growth firing is its own finding, and the first thing to say about
+    // it is which columns did NOT move: the malloc counters cannot see a
+    // texture, so a green heap column beside a red GPU one means nothing.
+    if (tGpu.per1k > bud.gpuKbPer1k) {
+        std::printf("[soak]\n[soak] GPU memory grew. That is a texture, a "
+                    "render target, a sampler or a\n[soak] render PIPELINE "
+                    "created and not destroyed. Note which columns did\n[soak] "
+                    "not move: the malloc zones cannot see any of it "
+                    "(afterhours_gaps.md #126).\n"
+                    "[soak]\n[soak] In this app it is almost always one of:\n"
+                    "[soak]   1. inline_image's cache admitting an entry and "
+                    "never evicting it\n"
+                    "[soak]      (src/ui/inline_image.h -- the bound is a byte "
+                    "budget AND an entry\n"
+                    "[soak]      cap, so check cached_bytes() and "
+                    "cached_count() against the device).\n"
+                    "[soak]   2. a texture loaded per frame from a path that "
+                    "changes every frame.\n"
+                    "[soak]   3. a render target or pipeline recreated on "
+                    "resize without an unload\n"
+                    "[soak]      -- afterhours_gaps.md #200, which leaks five "
+                    "pipelines per resize.\n"
+                    "[soak]\n[soak] CEILING WARNING: sokol's pools are FIXED "
+                    "(images 128, samplers 64), so\n[soak] a runaway texture "
+                    "leak PLATEAUS rather than growing, and this slope goes\n"
+                    "[soak] flat once the pool is full. A green GPU column on a "
+                    "long run does not\n[soak] prove there is no texture leak; "
+                    "it may prove there is no pool left.\n");
     }
     // The block gate firing ALONE is its own finding and needs its own words.
     // It means small allocations are being retained: too small to move RSS

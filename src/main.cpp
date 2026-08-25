@@ -31,6 +31,9 @@
 #include "util/autorelease.h"
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
+#include "util/gpu_mem.h"
+#include "util/launch_curve.h"
+#include "util/prewarm.h"
 #include "util/mem_ladder.h"
 #include "util/breaker.h"
 #include "util/soak.h"
@@ -79,6 +82,8 @@ struct MainRenderSystem : afterhours::System<> {
 // by the menu-bar "Show hanabi" action. Declared here (no header) to match the
 // existing extern "C" style; the windowed link pulls in the .mm definition.
 extern "C" void metal_activate_app(void);
+// The real NSWindow resize, for the windowed GPU watch below (#200).
+extern "C" void metal_set_window_size(int width, int height);
 extern "C" void metal_constrain_window_to_screen(void);
 
 namespace app_state {
@@ -554,6 +559,52 @@ static void app_frame() {
     // windowed launch can be profiled in a loop without the app running
     // forever (it otherwise never exits). Both are diagnostic-only: a normal
     // user launch (neither env set) logs nothing here and runs as before.
+    // HANABI_GPU_WATCH=<n>: print the device's GPU byte total every n frames of
+    // the WINDOWED loop. The only memory instrument that runs on this path --
+    // docs/perf/GATES.md's "Anything only the windowed app does" says every
+    // gate in this repo is headless, and a resize, a menu, a hotkey and the
+    // window-restore path are invisible to all of them. This does not gate
+    // anything; it is the one command that answers "does dragging the real
+    // window leak?" without a profiler. See afterhours_gaps.md #200.
+    {
+        static const int watch = [] {
+            const char* v = std::getenv("HANABI_GPU_WATCH");
+            return (v != nullptr && *v != '\0') ? std::atoi(v) : 0;
+        }();
+        // HANABI_GPU_WATCH_RESIZE=1 also DRAGS the window, every watch frames,
+        // through metal_set_window_size -- the same NSWindow frame change a
+        // person's drag makes, and the same one set_window_size's windowed
+        // branch calls. That is the only way to answer #200 for a real window
+        // from inside the process: osascript cannot resize it without
+        // assistive access, which is not a permission to grant on somebody's
+        // daily machine to settle a measurement.
+        static const bool watchResize = [] {
+            const char* v = std::getenv("HANABI_GPU_WATCH_RESIZE");
+            return v != nullptr && *v != '\0' && std::string(v) != "0";
+        }();
+        if (watch > 0) {
+            static long n = 0;
+            if (watchResize && n > 0 && n % watch == 0) {
+                static int step = 0;
+                ++step;
+                metal_set_window_size(900 + (step % 8) * 60,
+                                      700 + (step % 5) * 50);
+            }
+            if (n++ % watch == 0) {
+                const auto [w, h] = std::pair<int, int>{
+                    static_cast<int>(afterhours::graphics::get_screen_width()),
+                    static_cast<int>(afterhours::graphics::get_screen_height())};
+                std::printf("[gpuwatch] frame %6ld  %dx%d  GPU %8llu KB  "
+                            "images %zu (%zu KB)  poolFail %zu\n",
+                            n - 1, w, h, hanabi::gpu::device_bytes() / 1024,
+                            hanabi::inline_image::cached_count(),
+                            hanabi::inline_image::cached_bytes() / 1024,
+                            hanabi::decode_to_fit::pool_exhaustions());
+                std::fflush(stdout);
+            }
+        }
+    }
+
     static bool firstFrameLogged = false;
     if (!firstFrameLogged) {
         firstFrameLogged = true;
@@ -1007,18 +1058,33 @@ static void apply_test_knobs(ecs::AppComponent* app) {
 // individually is that a teardown rung that does not return its bytes is a
 // question ("what is still held?") until this line answers it.
 static std::string hold_note(const ecs::AppComponent& app) {
-    char buf[512];
+    char buf[640];
+    // GPU bytes are reported as the device's own total, because the estimate
+    // beside it is an estimate: nothing in afterhours will say how many bytes
+    // a texture is (afterhours_gaps.md #126), so the two columns are "what
+    // hanabi believes it asked for" and "what the driver actually holds", and
+    // the gap between them is the finding.
+    char gpu[128];
+    if (hanabi::gpu::device_accounting())
+        std::snprintf(gpu, sizeof(gpu),
+                      "gpu=%llu KB(ledger %zu KB) poolFail=%zu",
+                      hanabi::gpu::device_bytes() / 1024,
+                      hanabi::gpu::ledger_bytes() / 1024,
+                      hanabi::decode_to_fit::pool_exhaustions());
+    else
+        std::snprintf(gpu, sizeof(gpu), "gpu=not measured poolFail=%zu",
+                      hanabi::decode_to_fit::pool_exhaustions());
     std::snprintf(buf, sizeof(buf),
                   "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
                   "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu "
-                  "images=%zu(%zu KB)",
+                  "images=%zu(%zu KB) %s",
                   app.sessions.size(), app.transcriptCache.size(),
                   ecs::model::pane_states().size(),
                   ecs::model::pane_states().drafts(), app.liveSubs.size(),
                   app.rowOrder.size(), app.expandedPiles.size(),
                   afterhours::EntityHelper::get_entities().size(),
                   hanabi::inline_image::cached_count(),
-                  hanabi::inline_image::cached_bytes() / 1024);
+                  hanabi::inline_image::cached_bytes() / 1024, gpu);
     return std::string(buf);
 }
 
@@ -1258,6 +1324,13 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     build_systems(sm);
     hmark("build_systems");
 
+    // Pay the GPU's first-use costs -- the icon atlas, its blend pipeline, the
+    // glyph atlas and the four draw paths -- on a frame that builds no widget
+    // tree, so the first REAL frame is warm. See util/prewarm.h and
+    // afterhours_gaps.md #155.
+    hanabi::prewarm::run();
+    hmark("prewarm");
+
     auto readyTime = std::chrono::high_resolution_clock::now();
     auto startupMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                          readyTime - app_state::startTime)
@@ -1335,11 +1408,19 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         while (std::chrono::steady_clock::now() < deadline) {
             if (ready()) break;
             ++settleFrames;
-            const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
-            graphics::clear_background(theme::window_bg());
-            sm.run(1.0f / 60.0f);
-            graphics::end_frame();
+            {
+                // Scoped to the RENDER and nothing else. The first version put
+                // this at the top of the loop body, so its wall column also
+                // carried the backoff sleep below -- and on a box at load 20 a
+                // 1 ms sleep is 18 ms of waiting to be rescheduled, which read
+                // as a 21 ms second frame that no pre-warm could ever move.
+                const hanabi::launch_curve::Frame curveFrame{"settle"};
+                const hanabi::AutoreleaseFrame framePool;
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
             // Ask again before sleeping: this render is usually the one that
             // resolved it, and the old shape slept anyway.
             if (ready()) break;
@@ -1633,7 +1714,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                        : (bad == 0 ? "PASS" : "FAIL");
             hanabi::soak::write_report(ri, trends.rss, trends.heap,
                                        trends.blocks, trends.cpu,
-                                       trends.entities, hanabi::soak::budget(),
+                                       trends.entities, trends.gpu,
+                                       hanabi::soak::budget(),
                                        trends.fitPoints);
         }
         if (hanabi::prof::enabled()) {
@@ -1654,11 +1736,14 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     constexpr int kFrames = 45;
     hmark("pre-capture pumps done");
     for (int i = 0; i < kFrames; ++i) {
-        const hanabi::AutoreleaseFrame framePool;
-        graphics::begin_frame();
-        graphics::clear_background(theme::window_bg());
-        sm.run(1.0f / 60.0f);
-        graphics::end_frame();
+        {
+            const hanabi::launch_curve::Frame curveFrame{"capture"};
+            const hanabi::AutoreleaseFrame framePool;
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+        }
         // Test-only instrumentation: log time-to-first-frame once, so the perf
         // harness (scripts/measure_launch.sh) can gate cold launch against the
         // FirstFrame metric in addition to the internal "Startup" init log.
@@ -1777,6 +1862,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         }
         fflush(stdout);
     }
+
+    hanabi::launch_curve::report();
 
     bool ok = graphics::capture_frame(path);
     graphics::shutdown();
