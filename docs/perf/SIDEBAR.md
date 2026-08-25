@@ -335,6 +335,16 @@ count is a smart view that says 6 and lists 5. 0.05 ms is not worth that.
   Entity count is exact, identical run to run, and it caught a wrong binary
   that three timing runs and a profile did not.
 
+- **The same box costs one test.** `select_word_and_line.e2e` fails
+  deterministically above load average ~10 and passes below it, on unmodified
+  master as well as on this branch. `double_click` spaces its two clicks by
+  three FRAMES; the widget receiving them gates multi-click on
+  `MULTI_CLICK_TIME = 0.4f` seconds of WALL CLOCK. Under contention four frames
+  clear 400 ms and the second click arrives as a fresh single click.
+  **afterhours_gaps.md #117**, and it cost forty minutes here — bisected all
+  the way onto master before the penny dropped. FRICTION_LOG #2 is the mirror
+  image of it from August, so the mismatch has now cost time twice.
+
 ---
 
 ## How to measure this
@@ -348,6 +358,10 @@ scripts/perf_ab.sh /path/to/old/hanabi.exe output/hanabi.exe idle 5 800
 
 # What is being materialized, by widget.
 HANABI_SOAK_CENSUS=1  # with any HANABI_SOAK run
+
+# How many rows the sidebar DREW, out of how many matched. The gap between
+# them is virtualization, and it is the only form of it a script can read.
+HANABI_ROW_AUDIT=1
 ```
 
 Scenarios are `idle`, `scroll`, `threads`, `tabs`, `search`
