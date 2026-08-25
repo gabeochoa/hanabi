@@ -1813,6 +1813,12 @@ static int run_e2e(const std::string& path, int w, int h) {
     // both, with the same shape hanabi had worked around here. The 40 extra
     // frames per script were pure suite latency once that landed.
     runner.print_results();
+    // The scripted path can DRIVE things the soak loop cannot reach -- a
+    // resize drag, a keystroke, a menu -- and until this line the profiler's
+    // counters were only ever dumped from the soak loop, so none of that was
+    // measurable. HANABI_PROF is a hard no-op when unset, same as everywhere
+    // else.
+    hanabi::prof::dump();
     const bool failed = runner.has_failed() || ranOut;
     graphics::shutdown();
     std::fflush(nullptr);
