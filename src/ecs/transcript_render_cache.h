@@ -77,6 +77,28 @@ class TranscriptRenderCache {
         }
     }
 
+    // ---- The hugged width of a user bubble, at a given pane width ---------
+    //
+    // A user bubble shrinks to fit its longest wrapped line, and afterhours
+    // cannot size a box to its own text (gaps #79 / #87 / #103), so hanabi
+    // works it out itself: wrap the body, then measure every resulting line
+    // and take the widest. That is one wrap plus one measure PER LINE, and it
+    // ran for every user message in the thread on every frame, on-screen or
+    // not, to produce a number that cannot change unless the text or the pane
+    // width does. Memoized here rather than in its own container because it
+    // is keyed the same way, invalidated the same way, and reset by the same
+    // thread change — one owner, one lifetime.
+    const float* hug(const std::string& key, float paneW) const {
+        auto it = map_.find(key);
+        if (it == map_.end() || it->second.hugPaneW != paneW) return nullptr;
+        return &it->second.hugTextW;
+    }
+    void put_hug(const std::string& key, float paneW, float textW) {
+        auto& slot = map_[key];
+        slot.hugPaneW = paneW;
+        slot.hugTextW = textW;
+    }
+
     // Miss BREAKDOWN, because the two kinds mean opposite things. `absent` is
     // a cold entry — the cache working, paying once. `stale` is an entry that
     // exists at a width neither slot holds, which on a STATIC transcript means
@@ -99,6 +121,8 @@ class TranscriptRenderCache {
     struct WidthPair {
         MsgRender a;  // most recent
         MsgRender b;  // previous
+        float hugPaneW = -1.0f;  // pane width the hug below was measured at
+        float hugTextW = 0.0f;   // widest wrapped line + label inset
 
         const MsgRender* find(float w) const {
             if (a.wrap_w == w) return &a;

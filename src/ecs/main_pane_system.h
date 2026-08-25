@@ -5866,6 +5866,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (maxW > kBubbleCap) maxW = kBubbleCap;
         if (maxW < 80.0f) maxW = 80.0f;
         const float maxTextW = maxW - 2.0f * kBubbleCfgPadX;
+        // The hug is a pure function of (body, maxTextW), and the body is a
+        // pure function of the message — so on a thread that is not streaming
+        // it is the same answer every frame, for every message, on-screen or
+        // not. Computing it cost a wrap of the whole body plus a text measure
+        // per resulting line, and pass 1 asks for EVERY user message in the
+        // thread. Live messages skip the memo: their text changes per frame,
+        // which is the one case where recomputing is the correct answer.
+        const std::string hugKey =
+            (m.id.empty() ? ("i" + std::to_string(index)) : m.id) + "|hug";
+        if (!isLive) {
+            if (const float* w = render_cache().hug(hugKey, maxTextW)) {
+                hanabi::prof::tick("cache.hug_hit");
+                return box_from_text_w(*w);
+            }
+            hanabi::prof::tick("cache.hug_miss");
+        }
         const auto& mr = measured(m, maxTextW, isLive, index, phase,
                                   /*rich=*/false);
         // Widest wrapped line, measured with the font that will draw it. The
@@ -5874,9 +5890,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float widest = 0.0f;
         for (const auto& ln : wrapped_lines(mr.body, maxTextW))
             widest = std::max(widest, theme::text_px(ln, theme::type::BODY));
+        const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
+        if (!isLive) render_cache().put_hug(hugKey, maxTextW, textW);
+        return box_from_text_w(textW);
+    }
+
+    // The box the hugged text width implies. One place, so the memoized path
+    // and the computed path cannot produce different boxes from the same
+    // number.
+    static UserBox box_from_text_w(float textW) {
         UserBox box;
-        box.textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
-        if (box.textW < 24.0f) box.textW = 24.0f;
+        box.textW = textW < 24.0f ? 24.0f : textW;
         box.bubbleW = box.textW + 2.0f * kBubbleCfgPadX;
         return box;
     }
