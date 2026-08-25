@@ -106,6 +106,34 @@ Before is ~167 allocations **per message per frame**: a 480-message thread
 allocated ninety thousand times per frame — 5.4 million times a second — to
 render four visible messages.
 
+### Scrolling (`HANABI_STRESS=read`)
+
+Everything above is `idle` — the transcript standing still. The report was
+about *scrolling*, and until this branch the harness's only scroll scenario
+drove the **sidebar**; the transcript had none (entry 7).
+
+| messages | | frame CPU | pass1 | pass2 | wrap/frame | allocs/frame | cache hit |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 120 | before | 6.90 | 1.640 | 1.825 | 367.6 | 40,172 | 33.7% |
+| 120 | after | **4.29** | **0.074** | 1.117 | **157.5** | **17,753** | **99.9%** |
+| 480 | before | 10.34 | 5.700 | 1.887 | 877.4 | 96,615 | 33.4% |
+| 480 | after | **4.99** | **0.276** | 1.086 | **158.5** | **19,758** | **99.9%** |
+
+Scrolling a 480-message thread: **10.34 → 4.99 ms CPU per frame (−52%), and
+96,615 → 19,758 allocations per frame (−80%).**
+
+Two things to read out of this table beyond the headline. **The hit rate holds
+at 99.9% with the window moving** — the memo is not defeated by scrolling,
+which was the assumption most worth checking and least safe to make. And pass 2
+improved too (1.89 → 1.09 at 480) without being touched: the render path calls
+`measured()` and `user_box()` as well, so it was paying the same ping-pong.
+
+Scrolling roughly doubles the transcript's cost against idle even after the
+fix, and that is correct: the virtualization window is one viewport of margin
+each side plus a velocity-aware extension in the direction of travel, so a
+moving view deliberately builds more than a still one rather than showing blank
+gaps on a fling.
+
 ---
 
 ## 2. Is the transcript virtualized? Yes for the build, no for the measure
@@ -288,6 +316,32 @@ day.
 
 ---
 
+## 7. The scroll scenario that scrolled the wrong pane
+
+- **What I wanted** — to measure the case the report was actually about.
+- **What happened** — `HANABI_STRESS=scroll` drives `sidebar_scroll`, by debug
+  name. There has never been a scenario for the transcript, so the pane with
+  the large content in it had only ever been measured standing still.
+- **Cost** — added `HANABI_STRESS=read`. Two false starts, both of which
+  produced counters **byte-identical to an idle run** — `wrap_text` 55,584 in
+  both, to the call — because the failure mode of a driver is silence:
+  1. Writing `HasScrollView::scroll_target` is not enough. The pane pins itself
+     to the bottom while its follow-latch is engaged and rewrites *both* offset
+     and target every frame, so the target was clobbered before the offset ever
+     moved. The driver moves the offset too now, which is what the pane's own
+     jump-to-bottom and minimap-click paths do.
+  2. 12 px/frame is inside the latch's own 24 px `nearEnd` band, so the pane
+     re-armed follow and pinned back every frame. The transcript sweeps at
+     40 px — one real wheel notch — and clears the band on the first frame. It
+     sweeps up first, because a transcript opens at its bottom.
+- **The rule** — `scroll_named` returns false when the view is not on screen
+  and main ticks `stress.scroll_target_missing`, so "I scrolled nothing" is now
+  distinguishable from "I scrolled and nothing moved". Without that the first
+  version looked exactly like success.
+- **Class** — `FOOTGUN` (hanabi's own harness)
+
+---
+
 ## How to reproduce any of this
 
 ```bash
@@ -299,6 +353,10 @@ env HOME="$H" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
     HANABI_CONFIG=/tmp/none HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_TURNS=30 \
     HANABI_PROF=1 HANABI_SOAK=900 HANABI_STRESS=idle \
     output/hanabi.exe --screenshot /tmp/o.png 2>&1 | grep '^\[prof\]'
+
+# The scrolled case (the one the report was about).
+#   HANABI_STRESS=read    sweeps the TRANSCRIPT
+#   HANABI_STRESS=scroll  sweeps the SIDEBAR (what it has always meant)
 
 # The gate: same work at 60 and 480 messages, gating the DIFFERENCE.
 scripts/perf_transcript_slope.sh            # runs inside `make test`
