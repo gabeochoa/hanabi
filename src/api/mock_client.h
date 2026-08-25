@@ -34,16 +34,16 @@ class MockClient : public Client {
     std::string backend_label() const override { return "mock"; }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
-        auto sessions = seed();
+        const auto& sessions = seed();
         std::vector<SessionSummary> out;
         out.reserve(sessions.size() + created_.size());
         // created_ holds both composer-created sessions AND live overrides of
         // seed rows that have been replied to this run (see find_mutable). A
         // seed row that has an override is skipped here so it isn't listed
         // twice — the override (with the fresher updated_at/preview) wins.
-        for (auto& s : sessions) {
+        // sub-agent counts are already folded into the cached seed rows.
+        for (const auto& s : sessions) {
             if (is_overridden(s.summary.id)) continue;
-            fill_sub_agent_counts(s);
             out.push_back(s.summary);
         }
         for (auto& s : created_) {
@@ -65,9 +65,9 @@ class MockClient : public Client {
                 return Result<Session>::success(s);
             }
         }
-        for (auto& s : seed()) {
+        for (const auto& s : seed()) {
             if (s.summary.id == id) {
-                fill_sub_agent_counts(s);
+                // Already filled by seed(); copy the one row out.
                 return Result<Session>::success(s);
             }
         }
@@ -427,11 +427,12 @@ class MockClient : public Client {
     // Find a session by id that we can mutate. Composer-created sessions live
     // in created_ already. A seed session is copied into created_ on first
     // touch so the appended turn persists for the rest of this run (the seed
-    // itself is rebuilt fresh on every seed() call and can't hold state).
+    // catalog is shared and const — see seed() — so it cannot hold per-run
+    // state itself).
     Session* find_mutable(const std::string& id) {
         for (auto& s : created_)
             if (s.summary.id == id) return &s;
-        for (auto& s : seed()) {
+        for (const auto& s : seed()) {
             if (s.summary.id == id) {
                 created_.push_back(s);
                 return &created_.back();
@@ -545,7 +546,46 @@ class MockClient : public Client {
         return s;
     }
 
-    static std::vector<Session> seed() {
+    // THE CATALOG, BUILT ONCE.
+    //
+    // This used to be `static std::vector<Session> seed()` returning BY VALUE,
+    // and it is called from list_sessions(), get_session(), get_settings() and
+    // find_mutable(). Every one of those rebuilt the entire fixture --  every
+    // Session, every Message, every std::string in them -- and three of the
+    // four then threw all but a sliver of it away. get_settings() built the
+    // whole catalog to read .size() off it.
+    //
+    // MEASURED at a 2020-row catalog (CLOCK_THREAD_CPUTIME_ID):
+    //     get_session(one id)   6.76 ms   -> 0.056 ms
+    //     get_settings()        6.56 ms   -> 0.000 ms
+    //     list_sessions()       6.95 ms   -> 0.53 ms
+    //
+    // The fixture is deterministic and nothing mutates it (fill_sub_agent_
+    // counts derives from the row's own sub_agents, so it is folded in here
+    // once; find_mutable copies a row into created_ before touching it). So it
+    // is built once and handed out by const reference.
+    //
+    // The cache is keyed on HANABI_STRESS_SESSIONS rather than built blindly:
+    // the size is read from the environment, and a test that changes it
+    // mid-process would otherwise silently keep the first catalog it ever
+    // asked for. Static-local init is thread-safe (list_sessions runs under
+    // std::async), and the vector is const after that.
+    static const std::vector<Session>& seed() {
+        static std::string s_key;
+        static std::vector<Session> s_cache;
+        static bool s_built = false;
+        const char* n = std::getenv("HANABI_STRESS_SESSIONS");
+        const std::string key = (n != nullptr) ? n : "";
+        if (!s_built || key != s_key) {
+            s_cache = build_seed();
+            for (auto& s : s_cache) fill_sub_agent_counts(s);
+            s_key = key;
+            s_built = true;
+        }
+        return s_cache;
+    }
+
+    static std::vector<Session> build_seed() {
         std::vector<Session> v;
 
         // --- running ---
