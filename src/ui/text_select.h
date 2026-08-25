@@ -24,6 +24,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -243,6 +244,33 @@ inline void draw(afterhours::EntityID id, RectangleType rect,
     }
 }
 
+// What a press resolved to, printed when HANABI_SELECT_AUDIT is set.
+//
+// A coordinate-addressed selection test (tests/ui/select_word_and_line.e2e)
+// can only say "6 selected" or "61 selected", and both of those are true of
+// more than one line of a transcript -- so when the layout moves, the test
+// fails naming a count and not a place, and the reader cannot tell a broken
+// selection from a stale coordinate. afterhours_gaps.md #117 is that failure
+// mode; #232 is the same thing for link rects. This is the reading that tells
+// them apart: the element the press landed in, the byte it resolved to, the
+// click run, and the first characters of the text it is about to take.
+inline void audit_press(RectangleType rect, const std::string& text, float mx,
+                        float my, size_t off, int run) {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_SELECT_AUDIT");
+        return v != nullptr && *v != '\0' && std::string(v) != "0";
+    }();
+    if (!on) return;
+    std::string head = text.substr(0, 120);
+    for (char& c : head)
+        if (c == '\n') c = ' ';
+    std::printf("[sel] press=(%.1f,%.1f) run=%d off=%zu  rect=(%.1f,%.1f "
+                "%.1fx%.1f) len=%zu  text=\"%s\"\n",
+                mx, my, run, off, rect.x, rect.y, rect.width, rect.height,
+                text.size(), head.c_str());
+    std::fflush(stdout);
+}
+
 // Drive the selection for one text element. `hot` is whether the pointer is
 // over it this frame. Returns nothing; it mutates the single shared state.
 //
@@ -257,10 +285,33 @@ inline void update(afterhours::EntityID id, RectangleType rect,
     // button goes down, every element still reports last frame's hot, and a
     // press that arrives with the pointer already in place (which is what a
     // synthetic drag does) is missed entirely.
+    //
+    // The vertical bound is HALF-OPEN, and the horizontal one is not. Transcript
+    // lines are stacked with no gap, so line N's bottom edge IS line N+1's top
+    // edge: with `my <= rect.y + rect.height` a press on that seam is inside
+    // BOTH, and which line it selects is decided by whichever element the
+    // update happens to reach second. Measured at the seam between the two
+    // account lines of `t2`, one press:
+    //
+    //   [sel] press=(415.0,234.0) run=1 rect=(329.0,218.0 656.0x16.0) len=61
+    //   [sel] press=(415.0,234.0) run=2 rect=(329.0,234.0 656.0x16.0) len=58
+    //
+    // Two hits, one press. Nothing stacks horizontally like this, so `mx` keeps
+    // its inclusive bound and the last pixel of a line stays clickable.
     const bool hot = mx >= rect.x && mx <= rect.x + rect.width &&
-                     my >= rect.y && my <= rect.y + rect.height;
+                     my >= rect.y && my < rect.y + rect.height;
     State& s = state();
     if (justPressed && hot) {
+        // ONE PRESS IS ONE CLICK. The run below is a global counted per
+        // ELEMENT HIT, and the line above is not the only way two elements can
+        // both take one press -- an overlay, a nested selectable, a rect
+        // rounded to the same pixel. When that happens the run increments
+        // twice and a SINGLE CLICK behaves as a double click: it selects a
+        // word instead of placing a caret, which is the reading in the two
+        // lines above. `claimed_this_frame()` already exists to say "the
+        // selection has an owner as of this frame"; this is the same fact
+        // used one step earlier.
+        if (claimed_this_frame()) return;
         const auto lay = detail::layout_of(rect, text, fontPx);
         if (!lay.ok) return;
         const size_t off = detail::offset_at(lay, text, mx, my, fontPx);
@@ -285,6 +336,7 @@ inline void update(afterhours::EntityID id, RectangleType rect,
         s.text = text;
         s.fontPx = fontPx;
         claimed_this_frame() = true;
+        audit_press(rect, text, mx, my, off, detail::click_run());
 
         if (detail::click_run() >= 3) {
             // Triple takes the whole element: one source line of an assistant

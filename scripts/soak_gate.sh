@@ -98,7 +98,14 @@ SOAK_FRAMES="${HANABI_SOAK_GATE_FRAMES:-2000}"
 SOAK_EVERY="${HANABI_SOAK_GATE_EVERY:-250}"
 export HANABI_SOAK_MAX_RSS_KB_PER1K="${HANABI_SOAK_MAX_RSS_KB_PER1K:-512}"
 export HANABI_SOAK_MAX_HEAP_KB_PER1K="${HANABI_SOAK_MAX_HEAP_KB_PER1K:-256}"
-export HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K="${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K:-1000}"
+# 1000 was set when this column was malloc_zone_statistics().blocks_in_use,
+# which drifts by ~930 blocks in a lump on a run that allocates nothing net
+# (src/util/heap_walk.h). It is a walk of the heap now. Six consecutive clean
+# runs read -12.8 -14.4 -14.4 -14.4 -14.4 -15.2 -- a spread of 2.4 on a
+# quantity whose budget was 1000, so the budget was never going to catch
+# anything: a leak of one 512-byte string per frame reads exactly +1000.0 and
+# PASSED, on a `>` comparison, in a run whose RSS arm was already red.
+export HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K="${HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K:-100}"
 export HANABI_SOAK_MAX_ENT_PER1K="${HANABI_SOAK_MAX_ENT_PER1K:-25}"
 export HANABI_SOAK_MAX_MS_PER1K="${HANABI_SOAK_MAX_MS_PER1K:-1.0}"
 # GPU bytes, from -[MTLDevice currentAllocatedSize] via the device sokol
@@ -151,6 +158,53 @@ echo "  budget: RSS +${HANABI_SOAK_MAX_RSS_KB_PER1K} KB, heap +${HANABI_SOAK_MAX
 # cannot launder a real failure; what it does absorb is the one-in-many run
 # where this box's allocator happens to fault in a couple of extra pages inside
 # the window. Two independent failures is the signal.
+# ---- the LEVEL arm ---------------------------------------------------------
+#
+# Everything above this line is a SLOPE, and a slope cannot see a defect that
+# costs the same on frame one and frame two thousand. Measured: a widget minted
+# per frame with retirement off, cycling over 400 ids so the set saturates,
+# gives 27,001 entities and 36 ms a frame -- and this gate said
+#
+#   [soak]   entities            +0.0             +0.0                25   0.00  ok
+#   [soak] PASS: flat over the run.
+#
+# Perfectly flat, and perfectly ruined. Nothing else in `make test` caught it
+# either: scaling_gate.sh compares two catalog sizes and the defect is
+# catalog-independent, so it read 12,954 widgets at 20 sessions against 12,894
+# at 2000 -- a ratio of 1.00x, PASS, at 5.4 ms a frame. Before this arm, an
+# idle app rendering at 27fps passed every gate in the suite;
+# measure_launch.sh bounds the FIRST frame and nothing bounded the rest.
+#
+# So: an absolute ceiling on the entity count of the last bucket. A COUNT, not
+# a millisecond -- exact, zero spread run to run, and nothing the shared box
+# can move. This gate's own catalog reads 250; the ceiling is 4000. It is a
+# sanity level and not a budget: it exists so that "flat" is qualified by
+# "flat at what", and anything that trips it is an order of magnitude wrong.
+#
+# It overlaps retire_gate.sh only partly. Retirement reclaims per-frame id
+# churn, so that gate covers the case where the sweep is running and this one
+# covers the case where the count is enormous for any other reason.
+ENTITY_LEVEL_CEILING="${HANABI_SOAK_ENTITY_LEVEL:-4000}"
+
+entity_level_ok() {  # $1 = log ; 0 = ok, 1 = over the ceiling
+    local n
+    n="$(grep -Eo 'entities +[0-9]+' "$1" | tail -1 | grep -Eo '[0-9]+')"
+    [ -n "$n" ] || return 0
+    printf '  %-20s %12s %12s  %s\n' "entity level" "$n" \
+        "$ENTITY_LEVEL_CEILING" \
+        "$([ "$n" -gt "$ENTITY_LEVEL_CEILING" ] && echo FAIL || echo ok)"
+    if [ "$n" -gt "$ENTITY_LEVEL_CEILING" ]; then
+        echo "  FAIL: ${n} live entities at the end of an IDLE run, ceiling ${ENTITY_LEVEL_CEILING}." >&2
+        echo "        This is a level, not a slope, and the slope rows above may" >&2
+        echo "        all read ok -- a defect that costs from frame one costs the" >&2
+        echo "        same on frame two thousand. Look for a widget id derived" >&2
+        echo "        from something that changes every frame, or a pane building" >&2
+        echo "        one widget per catalog entry. docs/perf/GATES.md section 0." >&2
+        return 1
+    fi
+    return 0
+}
+
 ATTEMPTS="${HANABI_SOAK_GATE_ATTEMPTS:-2}"
 rc=1
 for attempt in $(seq 1 "$ATTEMPTS"); do
@@ -162,10 +216,12 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
     watchdog_stop
 
     grep -E '^\[soak\]' "$LOG" | sed 's/^/  /'
-    if [ "$rc" -eq 0 ] && grep -q '^\[soak\] PASS' "$LOG"; then
+    entity_level_ok "$LOG"; level_rc=$?
+    if [ "$rc" -eq 0 ] && [ "$level_rc" -eq 0 ] && grep -q '^\[soak\] PASS' "$LOG"; then
         echo "  PASS (attempt ${attempt})"
         exit 0
     fi
+    [ "$level_rc" -ne 0 ] && break
     if [ "$attempt" -lt "$ATTEMPTS" ]; then
         echo "  attempt ${attempt} failed (rc=${rc}); re-running once to rule out a"
         echo "  one-off — a real leak fails every attempt."

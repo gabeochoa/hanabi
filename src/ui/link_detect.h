@@ -26,6 +26,8 @@
 // ---------------------------------------------------------------------------
 
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -145,16 +147,37 @@ inline void draw_underlines(RectangleType rect, const std::string& text,
         }
 }
 
+// Every rect a click was tested against, printed when HANABI_LINK_AUDIT is
+// set. There is no way to ask where a byte range landed (afterhours_gaps.md
+// #51), so three tests in tests/ui reach into the transcript by raw
+// coordinate and a miss reads as "the feature is broken" rather than as "the
+// layout moved". This is the reading that tells them apart, and it is what a
+// re-measure should be done against rather than against a screenshot ruler.
+inline void audit(const char* what, const std::string& id, float px, float py,
+                  const RectangleType& r) {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_LINK_AUDIT");
+        return v != nullptr && *v != '\0' && std::string(v) != "0";
+    }();
+    if (!on) return;
+    std::printf("[link] %-4s id=%-12s point=(%.1f,%.1f)  rect=(%.1f,%.1f "
+                "%.1fx%.1f)\n",
+                what, id.c_str(), px, py, r.x, r.y, r.width, r.height);
+    std::fflush(stdout);
+}
+
 // Which link, if any, is under (px, py). Empty id when the point is on prose.
 inline std::string hit(RectangleType rect, const std::string& text,
                        const std::vector<Link>& links, float fontPx, float px,
                        float py) {
     for (const Link& l : links)
         for (const RectangleType& r : rects_for(rect, text, l.off, l.len,
-                                                fontPx))
-            if (px >= r.x && px <= r.x + r.width && py >= r.y &&
-                py <= r.y + r.height)
-                return l.id;
+                                                fontPx)) {
+            const bool in = px >= r.x && px <= r.x + r.width && py >= r.y &&
+                            py <= r.y + r.height;
+            audit(in ? "HIT" : "miss", l.id, px, py, r);
+            if (in) return l.id;
+        }
     return "";
 }
 

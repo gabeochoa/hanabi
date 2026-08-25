@@ -398,6 +398,13 @@ $(TEST_DIR)/test_trend: tests/unit/test_trend.cpp src/util/trend.h $(TEST_HDRS) 
 	@echo "Compiling test_trend..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_trend.cpp -o $@
 
+# The live-block metric, alone in a process. It is a property of the platform
+# allocator, so it needs no window and no ECS -- and the drift it pins is
+# invisible in anything larger.
+$(TEST_DIR)/test_heap_walk: tests/unit/test_heap_walk.cpp src/util/heap_walk.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_heap_walk..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_heap_walk.cpp -o $@
+
 $(TEST_DIR)/test_ellipsize: tests/unit/test_ellipsize.cpp src/util/ellipsize.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_ellipsize..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_ellipsize.cpp -o $@
@@ -553,7 +560,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -660,6 +667,14 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #   make stress-break  Open every thread until a frame costs 3x what it did at
 #                      rest, and report how far it got:
 #                        make stress-break UNTIL=cpu:3.0 SESSIONS=2000
+# Break every gate on purpose and record what it did. NOT in `make test` --
+# it rebuilds the app once per defect and takes ~25 minutes. Run it when a
+# threshold moves, when a gate is added, or when a fix reroutes work a gate was
+# watching: that last one is how perf_transcript_slope.sh went permanently
+# green without anyone noticing. docs/perf/GATES.md section 0.
+gate-audit: $(MAIN_EXE) copy-resources
+	@/usr/bin/python3 scripts/gate_audit.py $(DEFECT)
+
 soak-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/soak_gate.sh
 
@@ -753,7 +768,7 @@ source-checks:
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate \
-	retire-gate alloc-gate source-checks soak-report soak-baseline stress stress-break
+	retire-gate alloc-gate source-checks soak-report soak-baseline stress stress-break gate-audit
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

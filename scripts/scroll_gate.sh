@@ -51,25 +51,51 @@
 # is 1.60x. With row virtualization reverted (row_window() returning the whole
 # list) the same pair reads 400 and 6645 — 16.61x, ten times the ceiling.
 #
-# ARM 2, eight consecutive clean runs:
+# ARM 2, twelve consecutive clean runs (1600 frames, 200-frame buckets, 1300
+# frames of driven settle, load averages 8 to 14):
 #   frame cpu, min-of-half ratio:
-#     1.019  0.986  1.007  1.027  0.992  1.001  1.004  0.998
+#     1.002 0.980 1.000 1.027 0.968 1.045 0.983 1.016 1.027 1.000 1.000 0.994
 #   live blocks per 1000 frames:
-#     -147.5  -18.3  -149.2  -14.2  -149.2  -147.5  0.0  -18.3
+#     +5.0 -1.9 0.0 +2.5 0.0 0.0 0.0 +5.0 +5.0 0.0 +0.6 -0.6
+#
+# The block column used to span 845 on the same tree and had a retry over it.
+# It spans 6.9 now, and the change was not to the app: the metric was the
+# allocator's own tally, which drifts by a thousand blocks over a run that
+# allocates nothing net. src/util/heap_walk.h has the two runs side by side and
+# tests/unit/test_heap_walk.cpp pins it. The budget comes down from 150 to 40,
+# which is six times the sensitivity for free.
+#
+# TWO OTHER THINGS CHANGED WITH IT, both about giving each half more than two
+# buckets to be reduced over:
+#
+#   * The settle is 1300 frames rather than 700. The driven triangle's period
+#     is 1200, so 700 was not one full sweep -- the first measured bucket was
+#     still watching the title memo fill, worth +184 blocks, and with only two
+#     buckets a half the median could not absorb it. Every clean run read
+#     +110 to +117 against a budget of 150. It now reads under +9.
+#   * The buckets are 200 frames rather than 400, so each half is reduced over
+#     four rather than two. The frame-cpu arm's protection against a busy box
+#     IS that minimum: contention only ever adds time, so a half with one
+#     clean bucket in it reads clean. With two buckets a half, a busy patch
+#     covering both of the last half's buckets is a FAIL, and that is a flake
+#     this gate had as well -- one run in ten at 400-frame buckets read 1.722x
+#     on a tree whose block column was flat. Four buckets a half needs the box
+#     to be busy for the whole half.
 #
 # All three arms have been made to fail on purpose, which is the only way to
-# know a gate bites:
+# know a gate bites. The full table, with the defect for every gate in this
+# repo, is docs/perf/GATES.md.
 #
 #   level       row_window() returns the whole list       16.61x  (vs 1.60)
 #   blocks      row ids keyed on the row INDEX rather
 #               than the window slot, so mk() mints an
-#               entity per row scrolled past (#115)      +180/1k  (vs 150)
+#               entity per row scrolled past (#115)     +5288/1k  (vs 40)
 #   frame cpu   a per-frame walk over an index of rows
 #               visited, which is the "work proportional
 #               to something that grows" shape            1.223x  (vs 1.15)
 #
 # Note what the FIRST of those did to the other two arms: 17.040 ms then
-# 17.326 ms, ratio 1.017, blocks +1.9 — a clean pass. The bug this gate was
+# 17.326 ms, ratio 1.017, blocks +1.9 -- a clean pass. The bug this gate was
 # written for HAS NO SLOPE. It is eleven times too expensive from the first
 # frame to the last, and a trend gate on its own would have shrugged at it
 # forever. That is why arm 1 exists and why it runs first.
@@ -77,13 +103,6 @@
 # The frame-cpu arm fires at about +0.47 ms of drift across the halves of a
 # 1600-frame run. Anything a person would describe as "it gets slower the
 # longer I scroll" is far larger than that.
-#
-# 1.15x sits 12% above the worst clean sample. 150 blocks per 1000 frames sits
-# above every clean sample (the worst of which is zero) by a margin the
-# allocator's own sawtooth needs: the same eight runs measured with an
-# UNDRIVEN settle pass spanned -148 to +847, which is what a title memo filling
-# with 1800 entries looks like from here, and is why the settle below drives
-# the scenario rather than merely rendering.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -93,15 +112,18 @@ EXE="$ROOT/output/hanabi.exe"
 
 ENTITY_RATIO_CEILING="${HANABI_SCROLL_ENTITY_CEILING:-1.60}"
 export HANABI_SOAK_MAX_FRAME_RATIO="${HANABI_SOAK_MAX_FRAME_RATIO:-1.15}"
-export HANABI_SOAK_MAX_BLOCKS_PER1K="${HANABI_SOAK_MAX_BLOCKS_PER1K:-150}"
+export HANABI_SOAK_MAX_BLOCKS_PER1K="${HANABI_SOAK_MAX_BLOCKS_PER1K:-40}"
 
 SMALL="${HANABI_SCROLL_SMALL:-20}"
 BIG="${HANABI_SCROLL_BIG:-2000}"
 TREND_FRAMES="${HANABI_SCROLL_TREND_FRAMES:-1600}"
-TREND_EVERY="${HANABI_SCROLL_TREND_EVERY:-400}"
-# One full sweep of the driven triangle, so the run is measured against a warm
-# title memo and a warm layout rather than against its own first pass.
-TREND_SETTLE="${HANABI_SCROLL_TREND_SETTLE:-700}"
+TREND_EVERY="${HANABI_SCROLL_TREND_EVERY:-200}"
+# ONE FULL PERIOD of the driven triangle (1200 frames) plus a little, so the
+# run is measured against a title memo that has already seen every row rather
+# than against its own first sweep. At 700 it had seen half of them, which was
+# worth +184 blocks in the first measured bucket and most of the headroom the
+# block budget used to need.
+TREND_SETTLE="${HANABI_SCROLL_TREND_SETTLE:-1300}"
 
 export HANABI_BACKEND=mock
 export HANABI_CONFIG="/nonexistent/hanabi/scroll-gate.json"
@@ -174,31 +196,17 @@ fi
 
 # ---- arm 2: the trend ------------------------------------------------------
 #
-# ONE RETRY, and only one — the same pattern and the same rationale as
-# scripts/soak_gate.sh, added because this arm was measured flaking.
+# NO RETRY. There was one, and it was hiding a measurement bug rather than a
+# flake: the live-block column was the allocator's own tally, which drifts
+# ~930 blocks in a lump on a run that allocates nothing net, and whether the
+# lump landed inside a bucket half decided the verdict. Twelve consecutive
+# clean runs now span 6.9 blocks per 1000 frames against a budget of 40.
 #
-# The live-block half of the trend verdict goes red on a CLEAN tree roughly one
-# run in five when the box is busy. Measured 2026-08-25 at load averages 15-38,
-# `live blocks /1000f` against its 150 budget:
-#
-#   five runs   +2.5  +3.8  +277.5  +2.5  -354.4
-#   ten runs    +490.6  +4.2  +4.2  +0.8  +478.1  +6.5  -0.4  +0.8  +9.6  +3.3
-#
-# Two failures in ten, and a spread of 845 on a quantity whose usual value is
-# about +3. It is not the estimator: it survives being refitted as a Theil-Sen
-# slope over every bucket (tried, 2 in 10), and it is not the warm-up
-# (excluding it made no difference). It is a real, occasional, one-bucket step
-# of a few hundred live blocks — something filling late, not something
-# leaking, because the run after it is flat again.
-#
-# A gate that is red one run in five gets disabled, and a disabled gate is
-# worse than no gate. A retry cannot launder a real regression: a leak leaks on
-# every attempt, which is the argument soak_gate.sh already makes and measures.
-# It takes this arm from ~20% red to ~4%.
-#
-# The step itself is unexplained and worth explaining; docs/perf/SCROLL.md's
-# owner should have the numbers above.
-TREND_ATTEMPTS="${HANABI_SCROLL_TREND_ATTEMPTS:-2}"
+# A retry over a real 400-block step would have hidden the next real leak too,
+# and it very nearly hid this: the note it replaced called the step "real,
+# occasional... something filling late", which was three wrong guesses about
+# the app in a row because nobody looked at the number underneath.
+TREND_ATTEMPTS="${HANABI_SCROLL_TREND_ATTEMPTS:-1}"
 trend_ok=0
 for attempt in $(seq 1 "$TREND_ATTEMPTS"); do
     HANABI_SOAK_TREND=1 run "$BIG" "$TREND_FRAMES" "$TREND_EVERY" "$TREND_SETTLE"
@@ -224,8 +232,9 @@ for attempt in $(seq 1 "$TREND_ATTEMPTS"); do
 done
 if [ "$trend_ok" -eq 0 ]; then
     grep -E '^\[soak\]' "$LOG" | sed -n '/SCROLL TREND: FAIL/,$p' | sed 's/^/  /' >&2
-    echo "  the trend arm failed ${TREND_ATTEMPTS} attempts in a row, which the" >&2
-    echo "  known flake does not do." >&2
+    echo "  the trend arm failed. This gate does not retry: its block column" >&2
+    echo "  spans single digits across a dozen runs (src/util/heap_walk.h)," >&2
+    echo "  so a red here is a reading, not a coin." >&2
     FAIL=1
 fi
 

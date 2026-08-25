@@ -14,17 +14,30 @@
 # already: y was 465 before the pane lost its title header and its short-thread
 # bottom anchor, which put this line 321px higher.
 #
+# RE-MEASURE IT MECHANICALLY, not off a screenshot. HANABI_LINK_AUDIT=1 makes
+# the hit test print every rect it tested a point against:
+#
+#   [link] HIT  id=D948120  point=(455.0,147.0)  rect=(432.0,140.5 46.0x13.0)
+#
+# which is the rect, the point, and the verdict in one line. Scanning a PNG for
+# text rows is what this cost last time it moved, and it was 20 minutes.
+#
+# y was 144 until that audit existed. The rect is 140.5 to 153.5, so 144 sat
+# 3.5px below the top edge and 9.5 above the bottom, on a point the comment
+# above already called the centre -- it had eaten 46% of the vertical margin
+# for nothing. 147 is the centre.
+#
 # The browser is never launched: a headless render has nobody to hand it to,
 # so the open is recorded and the transcript's own confirmation is what is
 # asserted here (src/ui/link_detect.h).
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
-# env: HANABI_TRACKER_BASE_URL=https://tracker.example.com
+# env: HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
 
 expect_text "Built the config diff"
 
-mouse_move 456 144
+mouse_move 455 147
 wait_frames 4
-click 456 144
+click 455 147
 wait_frames 10
 expect_text "Opened D948120"

@@ -1926,6 +1926,8 @@ static int run_e2e(const std::string& path, int w, int h) {
     build_systems(sm);
 
     t::platform_input::set_test_mode(true);
+    int g_settle_frames = 0;
+    int g_content_ready_frame = 0;
 
     t::E2ERunner runner;
     if (std::filesystem::is_directory(path))
@@ -1969,15 +1971,28 @@ static int run_e2e(const std::string& path, int w, int h) {
         // today, so no test was actually racing — but that is the backend's
         // speed, not a property of the harness, and a slower fixture would
         // turn every restored-tab script into a pass earned by nothing.
+        int contentReady = 0;
         const bool wantsThread =
             std::getenv("HANABI_OPEN") != nullptr ||
             !Settings::get().get_active_tab().empty();
+        // The frame the content ARRIVED on, and the frame the loop stopped
+        // on. They are different numbers and the difference is how many
+        // frames the pane got to settle with content in it -- which is what
+        // varies run to run and is the whole of tests/ui's timing risk. See
+        // docs/perf/GATES.md.
+        int settleFrames = 0;
         for (int i = 0; i < 300; ++i) {
             const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
+            settleFrames = i + 1;
+            if (app != nullptr && contentReady == 0 &&
+                app->listState != ecs::LoadState::Loading &&
+                (!wantsThread ||
+                 (app->openSession && !app->openSession->messages.empty())))
+                contentReady = i + 1;
             if (i < 45) continue;
             if (app == nullptr) break;
             if (app->listState == ecs::LoadState::Loading) continue;
@@ -1986,6 +2001,8 @@ static int run_e2e(const std::string& path, int w, int h) {
                 continue;
             break;
         }
+        g_settle_frames = settleFrames;
+        g_content_ready_frame = contentReady;
         // Say so rather than proceeding into a script that will fail three
         // assertions in and blame the feature.
         if (app != nullptr && wantsThread &&
@@ -2005,7 +2022,10 @@ static int run_e2e(const std::string& path, int w, int h) {
         if (!q.empty()) {
             const auto& a = q[0].get().get<ecs::AppComponent>();
             fprintf(stderr,
-                    "[SETTLE] sessions=%zu listState=%d open=%s msgs=%zu\n",
+                    "[SETTLE] frames=%d content_ready_at=%d settled_with_content=%d "
+                    "sessions=%zu listState=%d open=%s msgs=%zu\n",
+                    g_settle_frames, g_content_ready_frame,
+                    g_settle_frames - g_content_ready_frame,
                     a.sessions.size(), static_cast<int>(a.listState),
                     a.openSession ? a.openSession->summary.id.c_str() : "-",
                     a.openSession ? a.openSession->messages.size() : 0u);

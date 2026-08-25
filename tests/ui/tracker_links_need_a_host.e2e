@@ -7,13 +7,24 @@
 #
 # NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
 #
+# THE POINT MUST BE ON THE ID. It was (456,492) — 348px below the only tracker
+# id in this thread, which is to say on nothing. A negative test that clicks
+# empty space passes whatever the app does, and this one did: with the host
+# check deleted from link_hotspot (`if (app == nullptr) return {}`), so that
+# every id becomes a link and clicking one raises the toast with no host
+# configured, the old coordinate still passed. The point below is the same one
+# tracker_links clicks, measured with HANABI_LINK_AUDIT=1, so this test now
+# asks "the id is there, the click lands on it, and nothing opens" rather than
+# "nothing opens when you click the background".
+#
+# env: HANABI_LINK_AUDIT=1
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
 
 expect_text "Built the config diff"
 
-mouse_move 456 492
+mouse_move 455 147
 wait_frames 4
-click 456 492
+click 455 147
 wait_frames 10
 expect_no_text Opened
 expect_text "Built the config diff"
