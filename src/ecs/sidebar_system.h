@@ -34,6 +34,9 @@
 #include "../version.h"
 #include "../util/ellipsize.h"
 #include "../util/format.h"
+#include "../util/prof.h"
+#include "../util/text_cache.h"
+#include "../util/text_epoch.h"
 #include "../ui/icons.h"
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
@@ -611,90 +614,59 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // an idle frame should re-measure nothing at all.
     //
     // The cache is keyed on the WHOLE argument tuple of a pure function, so it
-    // cannot go stale -- a changed title is a different key, not an invalid
-    // entry, and there is nothing to invalidate on a theme change, a resize or
-    // a catalog refresh.
+    // cannot go stale on its own -- a changed title is a different key, not an
+    // invalid entry, and there is nothing to invalidate on a theme change or a
+    // catalog refresh. The one thing that DOES invalidate it is a font swap,
+    // which changes no key at all (src/util/text_epoch.h); the shared cache
+    // handles that, which is half the reason this is no longer a hand-rolled
+    // map.
     //
-    // The lookup is HETEROGENEOUS and the result comes back by reference, and
-    // both of those are load-bearing. A first version built an owning Key to
-    // search with and returned the hit by value, which is two string
-    // allocations per row per frame -- and `sample` still put this function at
-    // 15% of the main thread afterwards, because replacing quadratic
-    // measurement with a pair of mallocs is a smaller win than it sounds. A
-    // transparent hash/equal pair lets a string_view search the map, so a hit
-    // costs a hash and a compare and nothing else.
+    // The other half is the BOUND. This used to hold 4096 entries and CLEAR
+    // itself on reaching them, which is the wrong shape twice over: a clear
+    // throws away the resident rows along with the tail, and it does it at the
+    // moment the working set is largest. The working set is not the 38 rows on
+    // screen -- the sidebar's collapse is ANIMATED, so every frame of a fold
+    // draws those rows at a different width and mints a new key each time.
+    // Measured, six folds: 220 entries, ~30 per fold. That is 130 folds from a
+    // wholesale clear, and it arrives with no warning and no symptom except a
+    // cold frame.
     //
-    // The returned reference is valid until the next call that MISSES (which
-    // can rehash or clear). Every caller hands it straight to with_label,
-    // which copies, so nothing outlives its entry.
-    struct FitKey {
-        std::string text;
-        float px;
-        float maxW;
-    };
-    struct FitView {
-        std::string_view text;
-        float px;
-        float maxW;
-    };
-    // Hash the float BITS, not the value: two column widths that differ by a
-    // hair are different keys and must hash apart.
-    static size_t fit_hash(std::string_view text, float px, float maxW) {
-        size_t h = std::hash<std::string_view>{}(text);
-        const auto mix = [&h](float f) {
-            h ^= std::hash<uint32_t>{}(std::bit_cast<uint32_t>(f)) +
-                 0x9e3779b9 + (h << 6) + (h >> 2);
-        };
-        mix(px);
-        mix(maxW);
-        return h;
-    }
-    struct FitHash {
-        using is_transparent = void;
-        size_t operator()(const FitKey& k) const {
-            return fit_hash(k.text, k.px, k.maxW);
-        }
-        size_t operator()(const FitView& k) const {
-            return fit_hash(k.text, k.px, k.maxW);
-        }
-    };
-    struct FitEq {
-        using is_transparent = void;
-        static bool same(std::string_view at, float ap, float aw,
-                         std::string_view bt, float bp, float bw) {
-            return ap == bp && aw == bw && at == bt;
-        }
-        bool operator()(const FitKey& a, const FitKey& b) const {
-            return same(a.text, a.px, a.maxW, b.text, b.px, b.maxW);
-        }
-        bool operator()(const FitKey& a, const FitView& b) const {
-            return same(a.text, a.px, a.maxW, b.text, b.px, b.maxW);
-        }
-        bool operator()(const FitView& a, const FitKey& b) const {
-            return same(a.text, a.px, a.maxW, b.text, b.px, b.maxW);
-        }
-    };
-
+    // src/util/text_cache.h evicts the least recently used one instead, and
+    // holds the rows drawn every frame however long the tail gets -- the
+    // property tests/unit/test_text_cache.cpp calls "a resident working set
+    // survives a scan". Its lookup is heterogeneous, which the hand-rolled
+    // version was too and for a reason worth keeping written down: a first
+    // version built an owning key to search with and returned the hit by
+    // value, and `sample` still put this function at 15% of the main thread
+    // afterwards, because replacing quadratic measurement with a pair of
+    // mallocs is a smaller win than it sounds.
+    //
+    // The returned reference is valid until the next call that MISSES. Every
+    // caller hands it straight to with_label, which copies, so nothing
+    // outlives its entry.
     static const std::string& fit_to_width(std::string_view text, float px,
                                            float maxW) {
         static const std::string kEmpty;
         if (maxW <= 0.0f) return kEmpty;
 
-        static std::unordered_map<FitKey, std::string, FitHash, FitEq> cache;
-        // Bounded, so a long scroll through a large catalog cannot grow it
-        // without limit. Only ~40 rows are on screen at once, so the live
-        // working set is tiny and a wholesale clear costs one cold frame.
-        constexpr size_t kCacheMax = 4096;
+        // 512: the 38 resident rows, plus room for several folds' worth of
+        // intermediate animation widths before the oldest of them is dropped.
+        constexpr std::size_t kFitEntries = 512;
+        static hanabi::text::TextKeyCache<std::string> cache(kFitEntries);
 
-        if (auto it = cache.find(FitView{text, px, maxW}); it != cache.end())
-            return it->second;
+        if (const std::string* hit = cache.find(text, px, maxW)) {
+            hanabi::prof::tick("cache.fit_hit");
+            return *hit;
+        }
+        hanabi::prof::tick("cache.fit_miss");
 
-        std::string owned{text};
+        const std::string owned{text};
         std::string fitted = hanabi::text::fit_to_width(
             owned, maxW, [px](const char* s) { return theme::text_px(s, px); });
-        if (cache.size() >= kCacheMax) cache.clear();
-        return cache.emplace(FitKey{std::move(owned), px, maxW},
-                             std::move(fitted)).first->second;
+        const std::string& out =
+            cache.put(text, px, maxW, std::move(fitted));
+        hanabi::prof::gauge("cache.fit_entries", cache.size());
+        return out;
     }
 
     // The collapsedFolders sentinel that folds the VIEWS section. Reusing that
