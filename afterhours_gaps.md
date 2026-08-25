@@ -72,6 +72,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #160 a component is two cache misses to write four bytes; no per-entity user word *(3.6x the cost of a side table)*
 - #161 a failed scripted assertion truncates the evidence to 200 chars, and `dump_ui` is not registered
 - #162 an app can retire the widgets it built and cannot see the ones the library built
+- #163 a scroll view off-screen is measured against zero children, so leaving a screen resets it to the top *(pre-dates the retirement work)*
 
 **Resolved / corrected**
 - #115 (a widget that stops being built is never retired) is **worked around
@@ -7255,3 +7256,64 @@ reserved tag) on every entity the UI plugin creates for its own use, plus
 mine nor the library's is a bug" instead of "nine, last time I looked".
 
 CLASS: TEDIOUS
+
+### #163 — A scroll view's offset is clamped against a content size measured from children that are not there, so leaving a screen resets it to the top
+
+**What was wanted.** To leave a screen scrolled halfway down, look at something
+else, come back, and still be halfway down. Every list app does this.
+
+**What happens.** `MeasureScrollViews` runs once per frame on EVERY entity
+carrying `HasScrollView`, computes `content_size` by summing `cmp.children`,
+and calls `clamp_scroll()`. `ClearUIComponentChildren` empties every widget's
+children list at the top of every frame, and only the screen being BUILT
+refills it. So for a pane that is not being built, the scroll view is measured
+against zero children:
+
+    content_size.y = 0
+    max_scroll_y   = max(0, 0 - viewport) = 0
+    scroll_offset.y = clamp(offset, 0, 0) = 0
+
+One frame off-screen and the reader's position is gone -- not lost on the way
+back, destroyed immediately, by the measuring pass.
+
+Measured in hanabi (scripted, 60-session catalog): Home scrolled until its
+first section header sat at **y=-354**, then a trip to a thread and back, and
+the header is at **y=123** -- the top of the list.
+
+This was found while fixing #115, on the assumption that RETIRING a scroll view
+would be what lost the position. It is not. The same script reads y=-354 then
+y=123 with retirement on and with `HANABI_RETIRE=0`, byte for byte: the
+position was already gone before anything was destroyed. A carve-out that kept
+scroll views alive through the sweep was written, measured, and deleted --
+keeping the entity keeps the field, and the field is overwritten with 0 by the
+next frame's measure.
+
+**Why the obvious escapes do not work.**
+
+- **Keep the entity alive.** Done, measured, no effect. The offset is a live
+  field being recomputed, not a value being lost with the entity.
+- **Restore the offset when the screen comes back.** The app would have to
+  notice the return, which means tracking per-pane "was I built last frame" --
+  the same bookkeeping #115 already forces -- and then write the offset back
+  before `MeasureScrollViews` runs but after the children exist, which is
+  inside the library's post-update bridge. There is no hook there.
+- **Stop the pane from being measured while it is away.** Nothing marks a
+  subtree as "not participating this frame"; `should_hide` is a render flag and
+  the measure system does not consult it.
+- **Keep building the screen off-screen so it keeps its children.** That is
+  exactly the cost #115 is about.
+
+**The workaround, and its cost.** None in hanabi -- the behaviour predates the
+retirement work and is out of its scope. It is filed because the mechanism is
+now known exactly, and because anyone who tries to fix "coming back to a screen
+loses your place" will otherwise look at the widget lifetime, which is the
+wrong place: the culprit is a measurement of an empty tree.
+
+**Minimal upstream fix.** Do not clamp against a content size measured from
+zero children. Either skip the measure entirely when `cmp.children.empty()` (a
+scroll view with no children this frame is not a scroll view whose content
+shrank, it is one that was not built), or keep `scroll_offset` and clamp only
+the RENDERED offset, so the stored intent survives a frame in which the tree
+was not built.
+
+CLASS: WORKAROUND
