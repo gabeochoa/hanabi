@@ -283,7 +283,10 @@ Two things worth noting anyway, neither a bug today:
 | change | before | after |
 |---|---|---|
 | headless FirstFrame (p50, interleaved A/B) | 220 ms | **80 ms** |
-| `scripts/measure_launch.sh` FirstFrame | 199 ms | **66 ms** |
+| `scripts/measure_launch.sh` FirstFrame | 199 ms | **59–66 ms** |
+| `trim_to_cap` under cap @2000 cache files | 4.979 ms | **0.001 ms** |
+| `apply_local_overlays` @2000 starred | 3.755 ms | **0.048 ms** |
+| stream frame classification | 2.3 µs | **0.02 µs** |
 | `get_session()` @2020 rows | 6.626 ms | **0.007 ms** |
 | `get_settings()` @2020 rows | 6.562 ms | **0.000 ms** |
 | `list_sessions()` @2020 rows | 6.954 ms | **0.327 ms** |
@@ -297,8 +300,91 @@ Two things worth noting anyway, neither a bug today:
 - Hanabi's own launch init (fonts, atlas, settings, client) — **~1 ms total.**
   Every suspect on the original list was wrong.
 
-**Found, measured, not yet fixed**
+**Found, measured, not fixed here**
 
-- `trim_to_cap`'s directory scan — 5.9 ms per save at 2000 cache files.
-- `classify_live_frame(msg.dump())` — 2.3 µs/frame, 89–121× the direct read.
-- `build_index()`'s unbounded disk reads on palette open.
+- `build_index()`'s unbounded disk reads on palette open (3d above).
+- **`trim_to_cap` can return with the cache still over its cap.** Every
+  transcript is trimmed to `keep_tail` messages, and once they all are there is
+  nothing left to reclaim, so the loop exits over cap — 2,802,000 B against a
+  2,690,500 B cap in the bench. **Pre-existing**, not caused by anything here:
+  the unmodified `disk_cache.cpp` produces that number to the byte, which is
+  how I know. Worth its own fix.
+
+## The two fixes made after the first draft of this document
+
+### `trim_to_cap` no longer scans the directory to say "nothing to do"
+
+`trim_to_cap` now keeps a **deliberately conservative** running estimate of the
+cache size: it adds every byte written and never subtracts one. Overwriting a
+large transcript with a small one, or removing a file outside a trim, both make
+the real total *smaller* than the estimate — so "estimate ≤ cap" **proves**
+"real ≤ cap", and a trim that is genuinely due can never be skipped. Being
+wrong the other way just costs a scan, which is the old behaviour.
+
+| | before | after |
+|---|---|---|
+| `trim_to_cap(1 GiB)`, under cap, 2000 files | 4.979 ms | **0.001 ms** |
+
+Invalidated on `wipe_all()` and `set_namespace()` (a different namespace is a
+different directory), refreshed after any eviction, and force-rescanned every
+64 calls so drift self-corrects. **Eviction is unchanged, verified against the
+base file rather than assumed:** both arms free 7,960,000 B and leave
+2,802,000 B, identical to the byte.
+
+### The stream stopped parsing every frame twice
+
+`classify_live_frame_parsed(const json&)` is now what the socket calls.
+Deliberately **not** an overload: `nlohmann::json` converts implicitly from a
+string literal, so adding `classify_live_frame(const json&)` beside the string
+one made `classify_live_frame("")` ambiguous and broke four existing call sites
+immediately. Two names, no trap.
+
+It is published rather than `.cpp`-private specifically so the path production
+takes is a path a test can drive — otherwise this change would have moved the
+socket onto an untested function while the entire string-driven suite stayed
+green.
+
+### The persistence quadratic, removed on principle
+
+`is_starred`/`is_muted` now answer from an `unordered_set` beside the ordered
+vector:
+
+| starred | before | after |
+|---|---|---|
+| 50 | 0.197 ms | 0.044 ms |
+| 500 | 1.645 ms | 0.053 ms |
+| 2000 | 3.755 ms | **0.048 ms** |
+
+Flat in the starred count instead of multiplying by it. **This is still a
+quadratic removed because it was free to remove, not a fix for something anyone
+was feeling** — at 50 starred the old code cost 0.197 ms per fetch.
+
+Two structures holding one fact is a desync bug waiting to happen, and in a
+settings store the failure is silent and eats user data. `test_settings.cpp`
+gained `test_star_and_mute_index_agrees_with_the_stored_list`, which walks both
+structures in both directions after starring, unstarring, re-starring **and**
+a reload.
+
+## On proving a test fails without its fix
+
+All three new tests were neutered and watched go red. Two attempts that did
+**not** discriminate are worth recording, because "the suite went red" is not
+the same as "my test went red":
+
+1. **Removing the retract check from the classifier** failed the *existing*
+   test at line 453, not the new one — the string path delegates to the parsed
+   path, so breaking one breaks both.
+2. **Removing the `is_object()` guard** failed *nothing*. `str_or`/`obj_at` are
+   defensive, so the guard is redundant for a null or an array, and the test's
+   null/array cases could not see its absence.
+
+The neuter that worked was the one that reproduced the failure the test
+actually guards: the string path keeping its own correct retract handling while
+the parsed path — the socket's — loses it. Only the new test failed.
+
+The same applies in `test_settings.cpp`: under the neuter (dropping
+`starred_set_.erase`), **zero pre-existing tests failed.** Every existing
+star/mute test calls `load_save_file()` before asserting, and a reload rebuilds
+the index from the file, repairing the desync before anything looks at it. The
+new test asserts *before* the reload, which is the only place the bug is
+visible.
