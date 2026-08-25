@@ -514,6 +514,8 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 	$(call RUN_TESTS,$(PERF_TEST_EXES))
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
+	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
+	@bash scripts/perf_transcript_slope.sh
 
 # `make test` = unit + e2e + scripted UI + perf (the full harness, one command).
 test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
