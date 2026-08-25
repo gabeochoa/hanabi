@@ -1,0 +1,49 @@
+# Blocked shows everything blocked on you, and builds a viewport of it.
+#
+# render_digest built one card per matching session, unconditionally, on all
+# four digest screens. At a 2000-session catalog that measured 569 cards, 2472
+# widgets and 5.58 ms of CPU a frame — against Home's 444 and 1.28 ms beside
+# it, because Home is capped and these four never were. The screen is one
+# click away in the sidebar.
+#
+# The fix is NOT a cap. Blocked is where you go to see everything blocked on
+# you, and a cap hides rows on the one screen whose job is not to. It is the
+# sidebar's window (docs/perf/SCROLL.md) applied to cards: the list stays
+# whole, only the build is bounded.
+#
+# HANABI_CARD_AUDIT prints "digest cards <built> of <matched> @ <first>" and is
+# the only thing that can see this. A card that is not built is not on screen,
+# and a card that IS built and off screen looks identical to every other
+# assertion in the suite — which is why the whole class went unnoticed. The
+# third number is what tells a window that FOLLOWS the scroll from one that has
+# quietly stopped scrolling: both report the same count.
+#
+# The numbers are a function of the window height, which is why this script
+# pins one. Re-measure rather than nudge.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_STRESS_SESSIONS=300 HANABI_CARD_AUDIT=1 HANABI_VIEW=blocked
+
+# Eighty-one threads are blocked on you, and the header says eighty-one,
+# because the header counts what MATCHED and not what was built.
+expect_text "Blocked on you"
+expect_text "digest cards 16 of 81 @ 0"
+
+# The sixty-five cards that were not built are still THERE. The spacers hold
+# the content height, so the list scrolls to its end and the window follows it
+# down — this is the half that fails when the window is computed wrong rather
+# than merely small. A list whose spacers are missing has sixteen cards of
+# content, cannot scroll at all, and reports "@ 0" forever while the count
+# above stays perfectly right.
+mouse_move 700 500
+scroll_wheel 0 -400
+wait_frames 20
+scroll_wheel 0 -400
+wait_frames 20
+expect_text "digest cards 16 of 81 @ 65"
+
+# And back to the top, at the same cost. A window that only ever grows is a
+# window that has become the list again.
+scroll_wheel 0 2000
+wait_frames 30
+expect_text "digest cards 16 of 81 @ 0"

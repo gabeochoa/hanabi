@@ -616,6 +616,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         float listH = paneH - 46.0f;
+        // The audit is a real row when it is on, so the list gives it the
+        // height rather than overflowing the pane by it.
+        if (hanabi::test_hooks::card_audit()) listH -= 16.0f;
         if (listH < 40.0f) listH = 40.0f;
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -630,14 +633,99 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int i = 0;
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
         const float cardW = wrap_width(paneW);
+
+        // Which of the matched cards is on screen. The list is not shortened:
+        // the two spacers below are the exact height of the cards that were
+        // skipped, so the content size, the scrollbar thumb, the clamp and the
+        // y of any given card are the numbers they would have been with all of
+        // them built. Blocked's job is to show everything blocked on you and
+        // it still does -- this is docs/perf/SCROLL.md's fix for the sidebar's
+        // rows, which is why it is a window and not the cap Home uses.
+        const int n = static_cast<int>(rows.size());
+        pitches_.clear();
+        pitches_.reserve(static_cast<size_t>(n));
         for (const auto* s : rows)
-            digest_card(ctx, wrap, ++i, *s, app, false, cardW, singleState);
+            pitches_.push_back(digest::card_pitch(*s, singleState, subScratch_));
+
+        float viewH = 0.0f, offsetY = 0.0f, targetY = 0.0f;
+        if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            viewH = sv.viewport_size.y;
+            offsetY = sv.scroll_offset.y;
+            targetY = sv.scroll_target.y;
+        }
+        // Frame one has measured nothing, and "build the lot until it has" is
+        // not a harmless fallback here: nothing retires a widget (gap #115),
+        // so one uncapped frame mints four entities per matched session and
+        // the app carries all 2276 of them for the rest of the process. The
+        // frame after it builds thirty and the census still reads 2276.
+        //
+        // listH is the height this pane just asked the scroll view to be, so
+        // it is the viewport to within its own 12 px of padding -- a guess
+        // that is one card out, on one frame, against a plateau that never
+        // comes down. It is also why every measurement in this branch is an
+        // entity count and not only a frame time: the frame time was already
+        // right with the fallback in.
+        if (viewH <= 0.0f) viewH = listH;
+        const digest::CardWindow win = digest::card_window(
+            n, [this](int k) { return pitches_[static_cast<size_t>(k)]; },
+            viewH, offsetY, targetY);
+
+        // The keyboard cursor walks EVERY row, built or not. Its order is the
+        // list's order and its y is a sum over the list's heights, so arrowing
+        // off the bottom of the window scrolls to a card the next frame builds
+        // rather than stopping at the edge of what happens to be on screen.
+        // This is why digest_card is told not to do its own bookkeeping below:
+        // it would count the built cards a second time and put every skipped
+        // one at the wrong y.
+        for (int k = 0; k < n; ++k) {
+            const float h = pitches_[static_cast<size_t>(k)];
+            listRows_.push_back(rows[static_cast<size_t>(k)]->id);
+            if (!app.listCursorId.empty() &&
+                rows[static_cast<size_t>(k)]->id == app.listCursorId) {
+                listCursorY_ = listY_;
+                listCursorH_ = h;
+            }
+            list_extent(h);
+        }
+
+        card_spacer(ctx, wrap, 90, win.above);
+        // Keyed on the window SLOT, never the card index. mk() retains an
+        // entity per distinct id forever and nothing retires one (gap #115),
+        // so index keys would mint four entities for every card ever scrolled
+        // past -- the virtualization would be perfect and the leak would be
+        // exactly the one it was written to remove. SCROLL.md section 3
+        // measured that at +180 live blocks per 1000 frames on the sidebar.
+        for (int k = win.first; k < win.last; ++k)
+            digest_card(ctx, wrap, ++i, *rows[static_cast<size_t>(k)], app,
+                        false, cardW, singleState, /*trackCursor=*/false);
+        card_spacer(ctx, wrap, 91, win.below);
+
         cardsBuilt_ = i;
-        cardsMatched_ = static_cast<int>(rows.size());
-        cardsFirst_ = 0;
+        cardsMatched_ = n;
+        cardsFirst_ = win.first;
         digest_audit(ctx, parent);
         scroll_cursor_into_view(scroll.ent(), listH);
     }
+
+    // The stand-in for cards that were not built. One entity, the exact height
+    // of the cards it replaces, so every measurement downstream of it is the
+    // number it would have been.
+    void card_spacer(UIContext<InputAction>& ctx, Entity& parent, int id,
+                     float h) {
+        if (h <= 0.0f) return;
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(h)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("digest_spacer"));
+    }
+
+    // Reused across frames so the pitch pass costs no allocation once the
+    // catalog has been seen at its largest. clear() keeps the capacity.
+    std::vector<float> pitches_;
+    std::string subScratch_;
 
     // The cards this frame BUILT, against the sessions that matched, and the
     // row the build started at. See test_hooks::card_audit.
@@ -652,9 +740,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label("digest cards " + std::to_string(cardsBuilt_) +
                             " of " + std::to_string(cardsMatched_) + " @ " +
                             std::to_string(cardsFirst_))
-                .with_size(ComponentSize{pixels(300), pixels(14)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
+                .with_size(ComponentSize{percent(1.0f), pixels(14)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
@@ -1048,7 +1134,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void digest_card(UIContext<InputAction>& ctx, Entity& parent, int id,
                      const api::SessionSummary& s, AppComponent& app,
                      bool emphasizeMeta = false, float cardWidthPx = 0.0f,
-                     bool grouped = false) {
+                     bool grouped = false, bool trackCursor = true) {
         // The card is a raised surface (panel_bg_2, one step ELEVATED above the
         // pane's panel_bg) plus a hairline border so it reads as floating above
         // the pane in BOTH modes — in light the border is what sells the lift
@@ -1072,12 +1158,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // order on screen. The cursor row wears the hover surface plus an
         // accent border — a keyboard hover, reading like the mouse one.
         const bool onCursor = !app.listCursorId.empty() && s.id == app.listCursorId;
-        listRows_.push_back(s.id);
-        if (onCursor) {
-            listCursorY_ = listY_;
-            listCursorH_ = digest::card_pitch(subLine);
+        if (trackCursor) {
+            listRows_.push_back(s.id);
+            if (onCursor) {
+                listCursorY_ = listY_;
+                listCursorH_ = digest::card_pitch(subLine);
+            }
+            list_extent(digest::card_pitch(subLine));
         }
-        list_extent(digest::card_pitch(subLine));
 
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
