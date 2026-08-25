@@ -6128,3 +6128,72 @@ A `truncate_to_width(..., ellipsis)` on top would remove the ellipsis-budget
 arithmetic every consumer currently repeats.
 
 CLASS: WORKAROUND
+
+### #117 — The scripted harness spaces a double-click in FRAMES; the widget that receives it measures the gap in WALL CLOCK
+
+**What was wanted.** `make test` to mean the same thing on a busy machine as on
+an idle one.
+
+**What happens.** `select_word_and_line.e2e` fails, deterministically, whenever
+this Mac's load average is above roughly ten — and passes, deterministically,
+when it is not. It fails identically on unmodified master, so it is nobody's
+change; it is the harness and the widget using different units for the same
+interval.
+
+`HandleDoubleClickCommand` (`plugins/e2e_testing/command_handlers.h`) is a
+phase machine: inject a click, wait THREE FRAMES for the auto-release, inject
+the second. `triple_click` is the same with one more round. The receiving end
+(`plugins/ui/text_input/component.h`, and again in `text_area.h`) decides
+whether two clicks are one gesture with
+
+    constexpr float MULTI_CLICK_TIME = 0.4f;
+    ... (now - s.last_click_time) < MULTI_CLICK_TIME ...
+
+`now` is wall clock. So the harness is counting frames and the widget is
+counting seconds, and the two agree only while a frame is short. On an idle box
+four frames is about five milliseconds and the gesture lands. Under contention
+-- four other agents, a swift-frontend, load average 20-28 -- a frame can take
+well over a hundred milliseconds, four of them clear 0.4 s, and the second
+click arrives as a fresh single click. The word is never selected, the
+composer's "N selected" readout never appears, and two `expect_text`s time out.
+
+The failure direction is the bad one. The suite is green on the machine writing
+the code and red on the machine running everything, which is exactly backwards
+from what you want a shared CI box to tell you. FRICTION_LOG #2 recorded the
+mirror image of this in 2026-08 -- a test that passed on a loaded machine and
+failed on an idle one, "the worst possible direction" -- from the same
+mismatch. It has now cost time twice.
+
+**Why the obvious escapes do not work.**
+
+- **Add `wait_frames` between the clicks.** Wrong way: more frames is more wall
+  clock, which is the thing already overflowing.
+- **Raise `MULTI_CLICK_TIME`.** Vendored, shared by every consumer, and it
+  encodes a HUMAN interval -- a real double-click at 2 s is not a
+  double-click.
+- **Drive the clicks closer together in the harness.** The three-frame gap is
+  there for the first click's auto-release; collapsing it breaks the gesture
+  for the opposite reason.
+- **Retry the script.** It is not flaky in the coin-flip sense. It is a
+  function of machine load, so a retry under sustained load fails again --
+  three consecutive runs, then two more on master, all red.
+- **Do it in app code.** hanabi cannot reach either half: the phase machine and
+  the constant are both vendored.
+
+**The workaround, and its cost.** None available; the test is simply red while
+the box is busy. The cost so far is twice believing a red suite meant a
+regression: forty minutes here (bisected onto master before the penny dropped)
+and an unknown amount in FRICTION_LOG #2.
+
+**Minimal upstream fix.** Give the e2e input layer a virtual clock, or -- much
+smaller -- have `simulate_click` accept an explicit timestamp and have the
+multi-click test read the injected one when the e2e plugin is active. Two lines
+at the constant would also do it honestly:
+
+    // Under the e2e harness, gate multi-click on the CLICK COUNTER the
+    // injector maintains, not on wall clock.
+
+Either way the property to restore is that a scripted gesture is a function of
+the script and not of what else the machine is doing.
+
+CLASS: FOOTGUN
