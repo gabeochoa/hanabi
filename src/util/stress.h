@@ -34,6 +34,7 @@
 //   HANABI_STRESS=read     wheel the TRANSCRIPT up and down
 //   HANABI_STRESS=threads  open every session in the catalog, in turn
 //   HANABI_STRESS=tabs     open N tabs, then round-robin between them
+//   HANABI_STRESS=search   type into the sidebar's search field
 //   HANABI_STRESS=idle     nothing; the control arm
 //
 //   HANABI_STRESS_FRAMES=<n>   total frames (default 3000, ~50s at 60fps)
@@ -61,6 +62,7 @@ enum struct Scenario {
     Read,
     Threads,
     Tabs,
+    Search,
 };
 
 inline Scenario scenario() {
@@ -73,6 +75,7 @@ inline Scenario scenario() {
         if (name == "read") return Scenario::Read;
         if (name == "threads") return Scenario::Threads;
         if (name == "tabs") return Scenario::Tabs;
+        if (name == "search") return Scenario::Search;
         return Scenario::None;
     }();
     return s;
@@ -96,6 +99,7 @@ inline const char* name(Scenario s) {
         case Scenario::Read: return "read";
         case Scenario::Threads: return "threads";
         case Scenario::Tabs: return "tabs";
+        case Scenario::Search: return "search";
         case Scenario::None: return "none";
     }
     return "none";
@@ -163,6 +167,34 @@ struct Driver {
             case Scenario::Scroll:
             case Scenario::Read:
                 break;
+
+            case Scenario::Search: {
+                // Type a query in, hold it, clear it, repeat.
+                //
+                // The hold is the point. A filter that re-derives itself every
+                // frame costs the same whether the query changed or not, and
+                // the frames where nothing is being typed are most of the
+                // frames a person spends looking at their own search results.
+                // A scenario that only ever typed would measure the keystroke
+                // and miss the pause, which is the expensive part.
+                //
+                // Written straight onto app.searchQuery, which is exactly what
+                // the text field writes (sidebar_system.h binds it), so this
+                // is the same value flowing through the same filter.
+                //
+                // "re" is deliberately a substring of many synthetic titles
+                // and of none of the hand-written twenty's leading words --
+                // a query that matches nothing exits the filter early on
+                // every row and measures the cheap path.
+                static const char* kTyped[] = {"r", "re", "rec", "reco"};
+                const int period = 240;
+                const int phase = frame % period;
+                if (phase < 4)
+                    app.searchQuery = kTyped[phase];
+                else if (phase == period - 20)
+                    app.searchQuery.clear();
+                break;
+            }
 
             case Scenario::Threads: {
                 // One open every 30 frames -- half a second, which is longer

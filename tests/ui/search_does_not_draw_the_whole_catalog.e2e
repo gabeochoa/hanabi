@@ -1,0 +1,53 @@
+# One character in the search box does not draw the whole catalog.
+#
+# The sidebar used to render every match of a live query uncapped, on the
+# reasoning that a filter has already narrowed the list. That is true of a
+# query that narrows to a handful and false of the FIRST KEYSTROKE, which
+# narrows nothing — and the first keystroke is the moment the list is
+# guaranteed to be at its longest. At a 2020-session catalog, typing one letter
+# built 10,615 entities and cost 18 ms a frame; at 20,000 it was 213 ms, which
+# is four frames a second and reads as a freeze.
+#
+# This is the only scripted test that runs against a BIG catalog.
+# HANABI_STRESS_SESSIONS appends synthetic rows to the mock, which every other
+# script deliberately avoids — a fixture that changed size would move every
+# coordinate-pinned assertion and every parity score. Here the size IS the
+# subject: 320 rows, nearly all of which contain "e", and only a viewport's
+# worth of them may be drawn.
+#
+# HANABI_ROW_AUDIT prints "sidebar rows <drawn> of <matched>", because the gap
+# between those two numbers is the entire claim and nothing else exposes it. A
+# script can read a label and not a row it cannot see, and the "Show N more"
+# row that would say the list was capped rides at the bottom of TWO viewports
+# by construction (fillCap = viewportRows * 2), so it is never on screen
+# without scrolling.
+#
+# The 38 is a function of the window height, which is why this script pins one.
+# If it changes, re-measure rather than nudge: run the app at 1180x949 with
+# HANABI_ROW_AUDIT=1 and read the label.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_STRESS_SESSIONS=300 HANABI_ROW_AUDIT=1
+
+# The control: with no query the flat list is already capped, and 320 rows
+# come down to a viewport's worth.
+expect_text "sidebar rows 38 of 320"
+
+# Type one character. "e" is in almost every synthetic title (the verbs are
+# "profiling", "migrating", "sweeping", "reindexing", "draining",
+# "backfilling", "reconciling", "compacting"), so this is the widest useful
+# query — the shape of a first keystroke.
+click 140 283
+wait_frames 4
+type "e"
+wait_frames 10
+
+# The rows that matched are real rows.
+expect_text "reindexing"
+# Not the no-results state: this matches most of the catalog.
+expect_no_text "No matches"
+
+# And here is the fix: still 38 drawn, now against 299 matched. Before it, a
+# live query set the limit to the total and all 299 were built -- the label
+# would have read "sidebar rows 299 of 299".
+expect_text "sidebar rows 38 of 299"

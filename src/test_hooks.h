@@ -85,6 +85,24 @@ inline bool snippet_audit() {
     return on;
 }
 
+// HANABI_ROW_AUDIT=1 makes the sidebar print, in a corner label, how many
+// session rows it actually RENDERED and how many matched.
+//
+// The two numbers being different is the whole of this branch's biggest fix,
+// and neither of them is assertable otherwise: a script can read a label, and
+// "the list is capped" is a statement about the rows that are NOT there. The
+// "Show N more" row would say it, except that it rides at the bottom of two
+// viewports by construction (fillCap = viewportRows * 2), so it is never on
+// screen without scrolling and the scripted matcher only sees what is on
+// screen. Same contract as the audits above: read once, hard no-op when unset.
+inline bool row_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_ROW_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 // HANABI_SYNTAX_AUDIT=1 makes a fenced code block print, in its language bar,
 // how many coloured runs of each kind it actually handed to the renderer.
 // Colour is the whole feature and the scripted harness cannot see a colour —

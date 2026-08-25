@@ -1460,6 +1460,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                      EntityHelper::get_entities().size());
             }
         }
+        hanabi::soak::census();
         const int bad = hanabi::soak::verdict(samples);
         if (hanabi::prof::enabled()) {
             if (auto* tmc = EntityHelper::get_singleton_cmp<

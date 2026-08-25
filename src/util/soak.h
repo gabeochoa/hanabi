@@ -31,7 +31,10 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <mach/mach.h>
@@ -138,6 +141,50 @@ inline HeapStat heap_in_use() {
         out.bytes += st.size_in_use;
     }
     return out;
+}
+
+// The entity count, broken down by the widget that made them.
+//
+// The bare total says the catalog is being materialized somewhere and stops
+// there -- 300 entities at a 20-row catalog and 3063 at a 2020-row one is a
+// fact with no address. Every UI entity carries the debug name its
+// ComponentConfig was built with, so grouping the live set by that name turns
+// the total into a list of suspects sorted by how much each one costs, which
+// is the difference between "something is O(catalog)" and "digest_card is".
+//
+// Printed once at the end of a soak run (it walks every entity, so it is not
+// something to do per frame) and only when HANABI_SOAK_CENSUS is set, because
+// the census is a debugging session's question, not a soak's.
+inline bool census_wanted() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_SOAK_CENSUS");
+        return v != nullptr && *v != '\0' && std::string(v) != "0";
+    }();
+    return on;
+}
+
+inline void census() {
+    if (!census_wanted()) return;
+    std::unordered_map<std::string, int> byName;
+    int unnamed = 0;
+    for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
+        if (!ptr) continue;
+        if (!ptr->has<afterhours::ui::UIComponentDebug>()) {
+            ++unnamed;
+            continue;
+        }
+        ++byName[ptr->get<afterhours::ui::UIComponentDebug>().name_value];
+    }
+    std::vector<std::pair<std::string, int>> rows(byName.begin(), byName.end());
+    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
+        return a.second > b.second;
+    });
+    std::printf("[soak] entity census (top 20 by debug name):\n");
+    const size_t n = rows.size() < 20 ? rows.size() : 20;
+    for (size_t i = 0; i < n; ++i)
+        std::printf("[soak]   %6d  %s\n", rows[i].second, rows[i].first.c_str());
+    std::printf("[soak]   %6d  (no UIComponentDebug)\n", unnamed);
+    std::fflush(stdout);
 }
 
 struct Sample {

@@ -71,7 +71,16 @@ int export_all_markdown(const std::string& dst);
 // sidebar search match on conversation CONTENT (not just titles) using only
 // the local cache — instant, offline, no server round-trip. Cheap: reads the
 // one tx_*.json and substring-scans. Returns false if not cached / no match.
+// The answer is MEMOIZED per (id, query) -- the sidebar asks it for every
+// non-title-matching session on every frame a query is live, which at a
+// realistic catalog was two thousand file opens a frame. See the long note at
+// the definition.
 bool content_matches(const std::string& id, const std::string& lowerQuery);
+
+// Drop that memo. Call this from anywhere that changes what a transcript file
+// says; content_matches cannot see a write and will otherwise answer from
+// before it. Every writer in this file already does.
+void invalidate_content_index();
 
 // --- Introspection / maintenance (for the settings screen) --------------
 // total_bytes(): sum of the byte sizes of every cache file under cache_dir()

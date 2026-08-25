@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -53,6 +55,7 @@ static fs::path flat_cache_base() {
 namespace { void invalidate_cache_size_estimate(); }
 
 void set_namespace(const std::string& key) {
+    invalidate_content_index();  // a different namespace is a different corpus
     g_namespace = key.empty() ? std::string() : ns_token(key);
     invalidate_cache_size_estimate();
     if (g_namespace.empty()) return;
@@ -315,6 +318,7 @@ void save_transcript(const Session& session) {
              {"sub_agents", std::move(subs)},
              {"has_more_older", session.has_more_older}};
     write_file(transcript_file(session.summary.id), doc.dump());
+    invalidate_content_index();  // the corpus changed under the search memo
 }
 
 std::optional<Session> load_transcript(const std::string& id) {
@@ -432,8 +436,40 @@ int export_all_markdown(const std::string& dst) {
 }
 
 // ---- local full-text search (local-first idea #3) -----------------------
-bool content_matches(const std::string& id, const std::string& lowerQuery) {
-    if (lowerQuery.empty()) return false;
+
+// The answer, remembered, because the caller asks this EVERY FRAME.
+//
+// The sidebar's filter calls content_matches for every session whose title did
+// not already match, on every frame a query is live. The body below opens a
+// file, reads it whole, lowercases every byte of it and scans it. At a
+// 2020-session catalog that was two thousand file opens per frame -- and it
+// stays two thousand when nothing is cached, because a failed open is still a
+// syscall. Nobody noticed because the mock catalog had twenty rows in it and a
+// person types for a second and then stops, and the frames after they stop are
+// most of the frames.
+//
+// Two things make the memo cheap AND correct:
+//
+//   * The key is the whole question -- (id, query) -- so a remembered answer
+//     cannot be a wrong answer for a different one.
+//   * The map is dropped when the CORPUS changes, which is exactly when a
+//     transcript is written, wiped or trimmed. Those three bump a generation
+//     counter and the memo checks it. Nothing else can change what a
+//     transcript file says.
+//
+// And typing gets cheaper as you type. If the new query CONTAINS the old one
+// as a substring, then any file that did not contain the old cannot contain
+// the new -- so every `false` from the previous query is still `false` and
+// only the previous `true`s need re-reading. Narrowing a search re-reads the
+// hits, not the catalog.
+namespace {
+std::uint64_t g_corpus_gen = 0;   // bumped when any transcript file changes
+std::string g_match_query;        // the query g_match_cache holds answers for
+std::uint64_t g_match_gen = 0;    // the generation those answers were taken at
+std::unordered_map<std::string, bool> g_match_cache;
+
+// Does `id`'s cached transcript contain `lowerQuery`? The uncached body.
+bool scan_transcript(const std::string& id, const std::string& lowerQuery) {
     const std::string path = transcript_file(id);
     if (path.empty()) return false;
     std::ifstream in(path);
@@ -446,6 +482,38 @@ bool content_matches(const std::string& id, const std::string& lowerQuery) {
     for (char& c : blob)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return blob.find(lowerQuery) != std::string::npos;
+}
+}  // namespace
+
+void invalidate_content_index() { ++g_corpus_gen; }
+
+bool content_matches(const std::string& id, const std::string& lowerQuery) {
+    if (lowerQuery.empty()) return false;
+
+    if (lowerQuery != g_match_query || g_corpus_gen != g_match_gen) {
+        const bool narrowing = g_corpus_gen == g_match_gen &&
+                               !g_match_query.empty() &&
+                               lowerQuery.find(g_match_query) !=
+                                   std::string::npos;
+        if (narrowing) {
+            // Keep the misses (still misses), re-ask the hits.
+            for (auto it = g_match_cache.begin();
+                 it != g_match_cache.end();) {
+                if (it->second) it = g_match_cache.erase(it);
+                else ++it;
+            }
+        } else {
+            g_match_cache.clear();
+        }
+        g_match_query = lowerQuery;
+        g_match_gen = g_corpus_gen;
+    }
+
+    if (auto it = g_match_cache.find(id); it != g_match_cache.end())
+        return it->second;
+    const bool hit = scan_transcript(id, lowerQuery);
+    g_match_cache.emplace(id, hit);
+    return hit;
 }
 
 namespace {
@@ -477,6 +545,7 @@ std::uint64_t total_bytes() {
 }
 
 std::size_t wipe_all() {
+    invalidate_content_index();  // the corpus changed under the search memo
     const std::string dir = cache_dir();
     if (dir.empty()) return 0;
     std::error_code ec;
@@ -704,6 +773,7 @@ bool trim_transcript_file(const fs::path& p, std::size_t keep_tail) {
 
 std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
     if (cap_bytes == 0) return 0;  // unlimited — never evict
+    invalidate_content_index();  // the corpus may change under the search memo
     const std::string dir = cache_dir();
     if (dir.empty()) return 0;
 
