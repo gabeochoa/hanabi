@@ -197,6 +197,71 @@ static void test_a_backwards_kern_gets_a_prefix_that_still_fits() {
     CHECK(got.size() > text.size() / 3);
 }
 
+// HOW MANY TIMES DOES IT MEASURE? The answer above is "the same string"; this
+// is the other half, and it is the half the change exists for. Measuring a
+// prefix is linear in the prefix -- fontstash walks every glyph and binary-
+// searches the kern table per pair -- so a probe is not free and the probe
+// COUNT is the cost, per row, per frame, on every frame where the text or the
+// column width is new.
+//
+// A count is the right instrument here for the same reason the perf work uses
+// counts everywhere else: it is identical on any machine at any load, so this
+// can be an assertion rather than an observation. The budget is stated as a
+// mean over a realistic sweep, and it is set just above what the current
+// algorithm produces -- close enough to bite if a seed goes wrong, loose
+// enough not to flake on a boundary case.
+static void test_it_does_not_measure_more_than_it_needs_to() {
+    std::printf("test_it_does_not_measure_more_than_it_needs_to\n");
+    // Real-shaped row titles: the sidebar's diet.
+    const char* titles[] = {
+        "profiling the quota shard and reporting back on what moved",
+        "row 133 banyan diff gate",
+        "reconciling the ledger after the migration, second attempt",
+        "oncall handoff",
+        "why did the retry queue stall overnight and what unblocked it",
+        "a very long thread title that goes on well past any column width "
+        "a sidebar could plausibly give it, and then keeps going",
+    };
+
+    long probes = 0;
+    long cuts = 0;
+    for (const char* t : titles) {
+        const std::string text = t;
+        const float full = proportional(text.c_str());
+        // Only the widths that actually CUT: a title that fits costs one
+        // measure whatever the algorithm is, so including those would dilute
+        // the number this is trying to hold down.
+        for (float w = 8.0f; w < full; w += 1.0f) {
+            int n = 0;
+            const auto counting = [&](const char* s) {
+                ++n;
+                return proportional(s);
+            };
+            const std::string got = fit_to_width(text, w, counting);
+            const std::string want = reference_fit(text, w, proportional);
+            CHECK(got == want);
+            probes += n;
+            ++cuts;
+        }
+    }
+
+    const double mean = static_cast<double>(probes) / static_cast<double>(cuts);
+    std::printf("  %ld cuts, %ld measure calls, mean %.2f per cut\n", cuts,
+                probes, mean);
+
+    // Two of those measures are fixed: the whole string, and the ellipsis.
+    // Everything above 2.0 is the search. A middle-started bisection on these
+    // titles reads 8.10; seeding from the measured width and galloping reads
+    // 5.25. 6.0 sits between the two, so this fails if the seed is removed --
+    // measured, by removing it -- and does not flake if a title is added.
+    if (mean > 6.0) {
+        std::printf("  FAIL: mean %.2f measure calls per cut exceeds 6.0 -- "
+                    "the search is starting further from the answer than it "
+                    "has to\n", mean);
+        ++g_failures;
+    }
+}
+
 static void test_the_edges() {
     std::printf("test_the_edges\n");
     // Non-positive width is an empty string, not an ellipsis: there is no room
@@ -223,6 +288,7 @@ int main() {
     test_it_returns_what_the_linear_scan_returned();
     test_it_never_cuts_a_utf8_sequence_in_half();
     test_a_backwards_kern_gets_a_prefix_that_still_fits();
+    test_it_does_not_measure_more_than_it_needs_to();
     test_the_edges();
     if (g_failures == 0) {
         std::printf("OK\n");
