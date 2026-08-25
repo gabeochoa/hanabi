@@ -8,6 +8,7 @@
 #include "../ui/presets.h"
 #include "../ui/theme.h"
 #include "../ui/viewport.h"
+#include "../ui/widget_epoch.h"
 #include "../util/scroll_prefs.h"
 #include "../ui_context.h"
 #include "components.h"
@@ -19,7 +20,13 @@ using afterhours::ui::UIContext;
 using afterhours::ui::imm::ComponentConfig;
 using afterhours::ui::imm::div;
 using afterhours::ui::imm::button;
-using afterhours::ui::imm::mk;
+// hanabi's `mk`, not afterhours', and this line is the whole seam. It forwards
+// to `imm::mk` (same call-site hash, same entity, same reuse) and stamps the
+// frame that built it, which is the one fact the library has and does not
+// record. Every widget in the app comes through here: nothing else in src/
+// names `mk`, and ADL cannot reach `afterhours::ui::imm::mk` on its own.
+// See src/ui/widget_epoch.h.
+using hanabi::widget_epoch::mk;
 using afterhours::ui::pixels;
 using afterhours::ui::h720;
 using afterhours::ui::w1280;

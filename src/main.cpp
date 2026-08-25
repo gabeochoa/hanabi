@@ -66,6 +66,7 @@
 #include "ecs/shortcuts_system.h"
 #include "ecs/tab_bar_system.h"
 #include "ecs/theme_rotation_system.h"
+#include "ecs/widget_epoch_system.h"
 #include "ui/theme.h"
 
 // A no-op render system so begin/clear happen in app_frame.
@@ -334,6 +335,11 @@ static void build_systems(afterhours::SystemManager& sm) {
     afterhours::input::register_update_systems(sm);
 
     ui_imm::registerUIPreLayoutSystems(sm);
+
+    // Ahead of every `mk()` in the frame, and after the bridge that clears the
+    // children lists: the epoch this system opens is what every widget built
+    // below is stamped with. src/ui/widget_epoch.h.
+    sm.register_update_system(std::make_unique<ecs::WidgetEpochSystem>());
 
     // Data + layout must run before UI-creating systems.
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
@@ -1610,10 +1616,16 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         for (const auto& e :
              afterhours::ui::UICollectionHolder::get().collection.get_entities())
             if (e && e->has<afterhours::ui::UIComponent>()) ++widgets;
+        // `widgets` is the count of SURVIVORS -- what is in the collection
+        // after the frame -- and `built` is what this frame actually made
+        // (src/ui/widget_epoch.h). They are the same number on a screen the
+        // app has sat on. Where they differ, the difference is what the frame
+        // is walking for nothing.
         log_info(
             "FrameTiming: frames={} widgets={} min={:.2f}ms median={:.2f}ms "
-            "mean={:.2f}ms max={:.2f}ms",
-            ms.size(), widgets, ms.front(), median, mean, ms.back());
+            "mean={:.2f}ms max={:.2f}ms built={}",
+            ms.size(), widgets, ms.front(), median, mean, ms.back(),
+            hanabi::widget_epoch::built_this_epoch());
         if (split && !msU.empty()) {
             std::sort(msU.begin(), msU.end());
             std::sort(msR.begin(), msR.end());
