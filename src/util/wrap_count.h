@@ -215,6 +215,67 @@ inline int wrapped_line_count_fast(const std::string& text, float max_width,
     return lines;
 }
 
+// The same wrap, reported as BYTE RANGES into `text` rather than as strings.
+//
+// Every caller that needs the lines themselves needed them for one reason:
+// to measure each one and take the widest, which is how a chat bubble hugs
+// its text (afterhours_gaps.md #136). A range is enough for that, and it
+// costs nothing to produce.
+//
+// The ranges are the lines EXACTLY: joining `text.substr(b, e - b)` over the
+// spans gives what `ui::wrap_text` returns, string for string, which
+// tests/unit/test_wrap_count.cpp checks against the vendored wrapper. Two
+// details carry that and are easy to get wrong -- a wrapped line keeps its
+// SOURCE line's leading whitespace only when it is the first one (a break
+// eats the whitespace it broke at), and the last line of a source line keeps
+// the source's TRAILING whitespace, which has width and would otherwise make
+// a hug two spaces narrow.
+template <class Measure>
+inline void wrapped_line_spans(
+    const std::string& text, float max_width, Measure&& measure,
+    std::vector<std::pair<std::size_t, std::size_t>>& out) {
+    out.clear();
+    if (text.empty() || max_width <= 0.0f) {
+        out.emplace_back(0, text.size());
+        return;
+    }
+    std::vector<std::pair<std::size_t, std::size_t>> words;
+    auto& probe = wrapdetail::probe_scratch();
+
+    std::size_t lineStart = 0;
+    while (true) {
+        const std::size_t nl = text.find('\n', lineStart);
+        const std::size_t lineEnd = (nl == std::string::npos) ? text.size() : nl;
+        wrapdetail::split_words(text, lineStart, lineEnd, words);
+        if (words.empty()) {
+            out.emplace_back(lineStart, lineEnd);
+        } else {
+            std::size_t cur = lineStart;
+            std::size_t first = 0;
+            const std::size_t last = words.size() - 1;
+            const auto fits = [&](std::size_t k) {
+                probe.assign(text, cur, words[k].second - cur);
+                return measure(probe) <= max_width;
+            };
+            while (first < last) {
+                if (fits(last)) break;
+                std::size_t lo = first;
+                std::size_t hi = last;
+                while (hi - lo > 1) {
+                    const std::size_t mid = lo + (hi - lo) / 2;
+                    if (fits(mid)) lo = mid; else hi = mid;
+                }
+                out.emplace_back(cur, words[lo].second);
+                first = lo + 1;
+                cur = words[first].first;
+            }
+            out.emplace_back(cur, lineEnd);
+        }
+        if (nl == std::string::npos) break;
+        lineStart = nl + 1;
+    }
+}
+
 inline bool verify_wrap_enabled() {
     static const bool on = [] {
         const char* v = std::getenv("HANABI_VERIFY_WRAP");

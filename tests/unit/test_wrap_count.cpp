@@ -217,12 +217,53 @@ static void non_monotonic_is_documented() {
     }
 }
 
+// The spans are the LINES, byte for byte. This is what lets the hug measure
+// each wrapped line without any of them being built as a std::string, and it
+// is a stronger check than the count: two wraps can agree on how many lines
+// there are and disagree about where the whitespace went.
+template <class M>
+static void spans_are_the_lines(const char* metricName, M&& m) {
+    std::vector<std::pair<size_t, size_t>> spans;
+    int checked = 0;
+    for (const std::string& s : corpus()) {
+        for (float w = 1.0f; w <= 400.0f; w += 3.0f) {
+            const std::vector<std::string> want =
+                afterhours::ui::detail::wrap_text_to_width(s, w, m);
+            hanabi::text::wrapped_line_spans(s, w, m, spans);
+            ++checked;
+            if (spans.size() != want.size()) {
+                std::printf("  FAIL[%s]: %zu spans != %zu lines at w=%.0f for "
+                            "\"%.40s\"\n", metricName, spans.size(),
+                            want.size(), static_cast<double>(w), s.c_str());
+                ++g_failures;
+                continue;
+            }
+            for (size_t i = 0; i < spans.size(); ++i) {
+                const std::string got =
+                    s.substr(spans[i].first, spans[i].second - spans[i].first);
+                if (got != want[i]) {
+                    std::printf("  FAIL[%s]: span %zu is \"%s\" but the line "
+                                "is \"%s\" at w=%.0f\n", metricName, i,
+                                got.c_str(), want[i].c_str(),
+                                static_cast<double>(w));
+                    ++g_failures;
+                    break;
+                }
+            }
+        }
+    }
+    std::printf("  %s spans: %d wraps compared line for line\n", metricName,
+                checked);
+}
+
 int main() {
     std::printf("-- wrapped line count vs afterhours' own wrapper --\n");
     sweep("uniform", uniform, true);
     sweep("proportional", proportional, true);
     sweep("backwards-kern", backwards_kern, false);
     sweep("dipping-kern", dipping_kern, false);
+    spans_are_the_lines("uniform", uniform);
+    spans_are_the_lines("proportional", proportional);
     degenerate_widths();
     overlong_word();
     scratch_is_reused();

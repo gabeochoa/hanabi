@@ -5977,9 +5977,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Widest wrapped line, measured with the font that will draw it. The
         // +kLabelInsetX*2 puts back what the label takes off its own rect, so
         // the text cannot re-wrap inside the narrowed box.
+        //
+        // The lines are taken as BYTE RANGES rather than as strings
+        // (src/util/wrap_count.h): this used to be
+        // `for (const auto& ln : wrapped_lines(mr.body, maxTextW))`, which
+        // built and destroyed one std::string per wrapped line, plus the
+        // vector, to produce one float. The ranges are checked line for line
+        // against the vendored wrapper in tests/unit/test_wrap_count.cpp, so
+        // the widths measured here are the widths of the lines that will be
+        // drawn -- including the trailing whitespace on the last line of a
+        // paragraph, which has width and which a naive span would drop.
+        static std::vector<std::pair<std::size_t, std::size_t>> spans;
+        static std::string lineBuf;
+        hanabi::text::wrapped_line_spans(
+            mr.body, text_wrap_width(maxTextW),
+            [](const std::string& s) {
+                return afterhours::ui::measure_text_line(
+                           s, afterhours::ui::UIComponent::DEFAULT_FONT,
+                           theme::type::BODY)
+                    .x;
+            },
+            spans);
         float widest = 0.0f;
-        for (const auto& ln : wrapped_lines(mr.body, maxTextW))
-            widest = std::max(widest, theme::text_px(ln, theme::type::BODY));
+        for (const auto& sp : spans) {
+            lineBuf.assign(mr.body, sp.first, sp.second - sp.first);
+            widest = std::max(widest,
+                              theme::text_px(lineBuf, theme::type::BODY));
+        }
         const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
         if (!isLive) render_cache().put_hug(hugKey, maxTextW, textW);
         return box_from_text_w(textW);
