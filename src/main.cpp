@@ -28,6 +28,7 @@
 #include "test_hooks.h"
 #include "util/capture_clock.h"
 #include "util/autorelease.h"
+#define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
 #include "util/soak.h"
 #include "util/stress.h"

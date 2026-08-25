@@ -124,6 +124,48 @@ inline void frame_cpu(unsigned long long ns) {
     e.nanos += ns;
 }
 
+// ---- Allocation counting ------------------------------------------------
+//
+// "Every std::string built to be handed to a label is an allocation, 60 times
+// a second" is a claim about a COUNT, and nothing already in the box reports
+// one. soak.h's live-block delta sees only allocations that are RETAINED,
+// which is a leak detector, not a churn meter -- a string built and destroyed
+// inside the frame is invisible to it and is exactly the thing being looked
+// for. `malloc_history -allBySize` has the same blind spot: it walks live
+// blocks, so on this app it reports Metal's one-time setup and nothing about
+// the frame at all.
+//
+// A global operator new/delete counter sees every C++ allocation, transient
+// ones included. Defined in exactly one TU (main.cpp) via
+// HANABI_PROF_DEFINE_ALLOC_COUNTERS. Costs one predicted branch and one
+// non-atomic increment per allocation next to malloc's own tens of
+// nanoseconds; measured at zero effect on frame CPU.
+inline unsigned long long& alloc_count() {
+    static unsigned long long n = 0;
+    return n;
+}
+inline unsigned long long& alloc_bytes() {
+    static unsigned long long n = 0;
+    return n;
+}
+
+// Snapshot / diff, so a phase can report its OWN allocations rather than the
+// frame's. `AllocScope` records the delta into a counter under `label`.
+struct AllocScope {
+    const char* label;
+    unsigned long long c0 = 0;
+    bool on;
+    explicit AllocScope(const char* l) : label(l), on(enabled()) {
+        if (on) c0 = alloc_count();
+    }
+    ~AllocScope() {
+        if (!on) return;
+        table()[label].calls += alloc_count() - c0;
+    }
+    AllocScope(const AllocScope&) = delete;
+    AllocScope& operator=(const AllocScope&) = delete;
+};
+
 // Report. Timed phases first (sorted by cost), then the pure counters.
 inline void dump() {
     if (!enabled()) return;
@@ -157,7 +199,32 @@ inline void dump() {
         std::printf("[prof] %-34s %12llu %10.1f\n", name.c_str(), e.calls,
                     static_cast<double>(e.calls) / f);
     }
+    std::printf("[prof] %-34s %12llu %10.1f  (%llu KB, %.0f B/frame)\n",
+                "ALLOCATIONS (operator new)", alloc_count(),
+                static_cast<double>(alloc_count()) / f,
+                alloc_bytes() / 1024, static_cast<double>(alloc_bytes()) / f);
     std::fflush(stdout);
 }
 
 }  // namespace hanabi::prof
+
+// Define the global operator new / delete counters. EXACTLY ONE TU may do
+// this; main.cpp does.
+#ifdef HANABI_PROF_DEFINE_ALLOC_COUNTERS
+#include <cstdlib>
+#include <new>
+void* operator new(std::size_t n) {
+    if (hanabi::prof::enabled()) {
+        ++hanabi::prof::alloc_count();
+        hanabi::prof::alloc_bytes() += n;
+    }
+    void* p = std::malloc(n == 0 ? 1 : n);
+    if (p == nullptr) throw std::bad_alloc();
+    return p;
+}
+void* operator new[](std::size_t n) { return operator new(n); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+#endif
