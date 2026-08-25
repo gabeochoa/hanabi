@@ -258,7 +258,7 @@ def report_divergences(entries, excl, smask, mask, frame_px):
         print(f"  {'':24} {reason}")
 
 
-def floor_by_region(ref, regions):
+def floor_by_region(ref, regions, excl):
     """What an IDENTICAL design would score, rasterized at a different phase.
 
     Two renderers never put a glyph on the same sub-pixel grid, and an 0.8px
@@ -266,6 +266,14 @@ def floor_by_region(ref, regions):
     percent that no design change can reach under. This measures it from the
     reference itself: resample onto a half-pixel-offset grid, which changes
     nothing but the phase, and score the result against the original.
+
+    OVER THE SAME SURFACE AS THE SCORE. It did not, at first, and the two
+    columns sat side by side meaning different things: the score masked the
+    declared divergences and the floor did not, so a region that is 85%
+    declared — `main` against `01_home.png` is — had its headroom computed by
+    subtracting a floor measured mostly over pixels the score never looks at.
+    Both numbers are now taken over the kept surface, so their difference is
+    the honest remaining work and nothing else.
 
     Returns {region: (lo, hi)} over FLOOR_OFFSETS.
     """
@@ -276,9 +284,10 @@ def floor_by_region(ref, regions):
                               resample=Image.BICUBIC)
         m = diff_mask(base, moved.filter(ImageFilter.GaussianBlur(STRUCT_BLUR)))
         for name, box in regions.items():
-            sub = m.crop(box)
-            per[name].append(100.0 * sub.histogram()[255]
-                             / max(1, sub.width * sub.height))
+            e = excl.crop(box)
+            sub = ImageChops.subtract(m.crop(box), e)
+            left = max(1, e.width * e.height - e.histogram()[255])
+            per[name].append(100.0 * sub.histogram()[255] / left)
     return {n: (min(v), max(v)) for n, v in per.items()}
 
 
@@ -361,7 +370,8 @@ def main():
         # and `main` is exactly that region. The trailing note says how much of
         # the region was declared, so a small figure over a nearly-excluded
         # region can never read as parity.
-        floors = floor_by_region(a, regions) if "--floor" in sys.argv else None
+        floors = (floor_by_region(a, regions, excl)
+                  if "--floor" in sys.argv else None)
         head = f"  {'region':<12} {'STRUCT':>7}  {'RAW':>7}"
         if floors:
             head += f"   {'FLOOR':>12}"

@@ -4104,3 +4104,35 @@ assertion and not a decoration.
 
 ---
 
+
+---
+
+## The floor had the bug it was invented to expose (no branch — done on main)
+
+`--floor`'s two columns sat side by side meaning different things. The score
+masks the declared divergences; the floor did not. So a region's headroom —
+score minus floor, the number everybody has been steering by all day — was a
+masked figure minus an unmasked one.
+
+The footer agent found it and left it, correctly, because fixing it moves every
+region at once. Fixed now, and it moves two verdicts:
+
+| | before | after |
+|---|---|---|
+| **tabbar (01)** | AT FLOOR | **+0.72** |
+| **tabbar (02)** | AT FLOOR | **+0.30** |
+| main (01), 85.3% declared | +2.26 | +1.27 |
+| views | +0.34 | +0.91 |
+| footer | +1.78 | +1.98 |
+
+**The tab bar was declared finished on a floor measured mostly over the window
+frame** — the one thing in that region hanabi cannot draw and the score does
+not charge for. Its real floor is 1.10–1.66 against a score of 1.96. Two
+rounds concluded it was at floor.
+
+This is the same shape as gap #109 one level up: a number that reads as
+authoritative, arrived at by measuring something adjacent to the thing it
+names. The rule that falls out — **a floor, a ceiling and a score have to be
+taken over the same surface, or their difference is not a quantity** — now has
+`ceiling.py` honouring declarations in all three columns and `compare.py`
+doing the same.
