@@ -137,6 +137,46 @@ static void near_widths_are_distinct() {
     CHECK(c.size() == 2);
 }
 
+// EVERY VALUE IN HERE IS A MEASUREMENT, so it is only valid for the glyphs it
+// was taken with. hanabi swaps the FACE behind afterhours' DEFAULT_FONT when
+// the reader picks Hyperlegible in Settings; the name, the handle and the
+// size all stay the same, so no key moves and every entry silently becomes a
+// measurement of a font that is no longer on screen. This is the test for the
+// counter that fixes it (src/util/text_epoch.h).
+static void a_font_swap_drops_the_lot() {
+    TextKeyCache<int> c(64);
+    for (int i = 0; i < 20; ++i)
+        c.put("row-" + std::to_string(i), 100.0f, 13.0f, i);
+    CHECK(c.size() == 20);
+    CHECK(c.find("row-3", 100.0f, 13.0f) != nullptr);
+
+    hanabi::text::bump_font_epoch();
+
+    // Not "the entry for row-3 is different" -- the entry is GONE, because a
+    // measurement taken with the other face is not a better guess than no
+    // measurement at all.
+    CHECK(c.find("row-3", 100.0f, 13.0f) == nullptr);
+    CHECK(c.size() == 0);
+
+    // And it keeps working afterwards rather than dropping everything from
+    // then on.
+    c.put("row-3", 100.0f, 13.0f, 99);
+    const int* v = c.find("row-3", 100.0f, 13.0f);
+    CHECK(v != nullptr && *v == 99);
+    CHECK(c.size() == 1);
+}
+
+// A cache constructed AFTER the swap must not drop its first entries: it never
+// held anything measured with the old face. Getting this wrong is a cache that
+// clears itself once on every construction, which is invisible and wasteful.
+static void a_fresh_cache_is_not_dropped() {
+    hanabi::text::bump_font_epoch();
+    TextKeyCache<int> c(8);
+    c.put("a", 1.0f, 1.0f, 7);
+    CHECK(c.find("a", 1.0f, 1.0f) != nullptr);
+    CHECK(c.size() == 1);
+}
+
 int main() {
     std::printf("-- bounded LRU for text-keyed memos --\n");
     never_exceeds_capacity();
@@ -146,6 +186,8 @@ int main() {
     a_resident_working_set_survives_a_scan();
     reput_does_not_grow();
     near_widths_are_distinct();
+    a_font_swap_drops_the_lot();
+    a_fresh_cache_is_not_dropped();
 
     if (g_failures == 0) {
         std::printf("OK (0 skipped/pending)\n");

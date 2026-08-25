@@ -29,6 +29,11 @@
 //   3. THE KEY VIEWS THE ENTRY'S OWN STRING. Entries live in a std::list, so
 //      their addresses are stable across insert and erase, and the map holds
 //      a view into the entry it points at. One copy of the text, not two.
+//   4. IT DROPS ITSELF WHEN THE FONT CHANGES. Every value in here is a
+//      measurement, and hanabi can swap the face behind a font NAME at
+//      runtime with no key moving -- see src/util/text_epoch.h for the whole
+//      of that. The check is in the type rather than at the call sites,
+//      because a call site can forget.
 //
 // `size()` never exceeds `capacity()`, and tests/unit/test_text_cache.cpp
 // pins that against 200x the capacity in distinct keys, along with what LRU
@@ -45,6 +50,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "text_epoch.h"
+
 namespace hanabi::text {
 
 template <class V>
@@ -56,6 +63,7 @@ class TextKeyCache {
     // recently used, which is what makes the bound cost one recompute rather
     // than evicting the thing about to be asked for again.
     const V* find(std::string_view text, float a, float b) {
+        drop_if_font_changed();
         auto it = index_.find(KeyRef{text, a, b});
         if (it == index_.end()) return nullptr;
         entries_.splice(entries_.begin(), entries_, it->second);
@@ -63,6 +71,7 @@ class TextKeyCache {
     }
 
     const V& put(std::string_view text, float a, float b, V value) {
+        drop_if_font_changed();
         if (auto it = index_.find(KeyRef{text, a, b}); it != index_.end()) {
             it->second->value = std::move(value);
             entries_.splice(entries_.begin(), entries_, it->second);
@@ -84,6 +93,17 @@ class TextKeyCache {
     }
 
   private:
+    // A memoized measurement is only valid for the glyphs it was taken with,
+    // and hanabi can swap the face behind a font NAME at runtime without any
+    // key changing (src/util/text_epoch.h). Checked HERE rather than at the
+    // call sites, because a call site can forget and a type cannot.
+    void drop_if_font_changed() {
+        const unsigned now = font_epoch();
+        if (now == epoch_) return;
+        epoch_ = now;
+        clear();
+    }
+
     struct Entry {
         std::string text;
         float a = 0.0f;
@@ -126,6 +146,7 @@ class TextKeyCache {
     }
 
     std::size_t cap_;
+    unsigned epoch_ = font_epoch();
     std::list<Entry> entries_;  // MRU front ... LRU back
     std::unordered_map<KeyRef, typename std::list<Entry>::iterator, Hash, Eq>
         index_;

@@ -35,6 +35,7 @@
 #include "../util/ellipsize.h"
 #include "../util/format.h"
 #include "../util/prof.h"
+#include "../util/text_epoch.h"
 #include "../ui/icons.h"
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
@@ -686,6 +687,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // without limit. Only ~40 rows are on screen at once, so the live
         // working set is tiny and a wholesale clear costs one cold frame.
         constexpr size_t kCacheMax = 4096;
+
+        // Every entry is a string cut to a MEASURED width, so it is only
+        // valid for the face it was measured with -- and the face behind
+        // DEFAULT_FONT can be swapped from Settings without any key here
+        // changing (src/util/text_epoch.h). A stale entry is a title cut for
+        // the wrong font.
+        static unsigned epoch = hanabi::text::font_epoch();
+        if (epoch != hanabi::text::font_epoch()) {
+            epoch = hanabi::text::font_epoch();
+            cache.clear();
+        }
 
         if (auto it = cache.find(FitView{text, px, maxW}); it != cache.end()) {
             hanabi::prof::tick("cache.fit_hit");

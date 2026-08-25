@@ -1976,6 +1976,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static ecs::model::TranscriptRenderCache& render_cache() {
         static ecs::model::TranscriptRenderCache c;
+        // It holds line counts, measured heights and hugged widths -- all of
+        // them measurements, none of them keyed by anything that moves when
+        // the reader swaps the face behind DEFAULT_FONT from Settings. One
+        // check here covers both the per-message memo and the hug memo, which
+        // share this store on purpose (see transcript_render_cache.h).
+        static unsigned epoch = hanabi::text::font_epoch();
+        if (epoch != hanabi::text::font_epoch()) {
+            epoch = hanabi::text::font_epoch();
+            c.clear();
+        }
         return c;
     }
 
