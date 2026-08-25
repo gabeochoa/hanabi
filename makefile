@@ -560,15 +560,25 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 # looking fine, and the app shipped one at ~9 MB a minute with all of them
 # green. These two measure the SLOPE instead of the value.
 #
-#   make soak-gate     ~4 s.  1000 frames idle; fails if RSS or the live heap
-#                      is trending up. In `make test`.
+#   make soak-gate     ~3 s.  2000 frames idle; fails if RSS, live heap bytes,
+#                      live BLOCKS, entities or thread-CPU time is trending
+#                      up across the run. In `make test`.
 #   make scaling-gate  ~5 s.  The same UI at 20 and at 2000 sessions; fails on
 #                      the RATIO between them, never on an absolute
 #                      millisecond figure — this box is shared, and an
 #                      absolute would flake. In `make test`.
-#   make soak          ~65 s. The long form: every stress scenario, 4000
-#                      frames each, plus an arm at a 2000-session catalog.
+#   make soak          ~37 s. The long form: eleven scenarios, four at a time.
 #                      NOT in `make test` — run it before a release.
+#   make soak-report   The same run, reduced to a DIFFABLE text artifact and
+#                      diffed against docs/perf/soak-baseline.txt. A
+#                      regression is a text diff; sub-budget noise is not.
+#   make soak-baseline Regenerate that baseline. Commit the result, and say in
+#                      the message what moved and why.
+#   make stress        One scenario, by hand, with the knobs exposed:
+#                        make stress SCENARIO=churn FRAMES=5000 SESSIONS=500
+#   make stress-break  Open every thread until a frame costs 3x what it did at
+#                      rest, and report how far it got:
+#                        make stress-break UNTIL=cpu:3.0 SESSIONS=2000
 soak-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/soak_gate.sh
 
@@ -578,7 +588,65 @@ scaling-gate: $(MAIN_EXE) copy-resources
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
 	 HANABI_SOAK_ARMS="$(if $(ARMS),$(ARMS),$(HANABI_SOAK_ARMS))" \
+	 HANABI_SOAK_JOBS="$(if $(JOBS),$(JOBS),$(HANABI_SOAK_JOBS))" \
 	 bash scripts/soak.sh
+
+SOAK_BASELINE := docs/perf/soak-baseline.txt
+
+# A regression as a TEXT DIFF. The report holds the deterministic properties
+# exactly (entity count, widgets by debug name, tabs, what the scenario drove)
+# and the measured ones as budget BANDS, so a clean run writes the same bytes
+# every time and a diff names what changed. Verified: two full runs 65 seconds
+# apart are byte-identical.
+soak-report: $(MAIN_EXE) copy-resources
+	@HANABI_SOAK_REPORT_OUT=$(OUTPUT_DIR)/soak-report.txt \
+	 HANABI_SOAK_ARMS="$(if $(ARMS),$(ARMS),$(HANABI_SOAK_ARMS))" \
+	 HANABI_SOAK_JOBS="$(if $(JOBS),$(JOBS),$(HANABI_SOAK_JOBS))" \
+	 bash scripts/soak.sh > $(OUTPUT_DIR)/soak-report.log 2>&1; \
+	 echo "  full log: $(OUTPUT_DIR)/soak-report.log"; \
+	 if [ ! -s $(OUTPUT_DIR)/soak-report.txt ]; then \
+	   echo "  ! the run produced no report at all, so there is nothing to"; \
+	   echo "    compare. That is a broken run, not a clean one."; exit 2; \
+	 fi; \
+	 if diff -u $(SOAK_BASELINE) $(OUTPUT_DIR)/soak-report.txt; then \
+	   echo "  soak report matches $(SOAK_BASELINE)"; \
+	 else \
+	   echo ""; \
+	   echo "  The soak report moved. Every line above is a property that"; \
+	   echo "  changed, not a number that drifted -- the measured columns are"; \
+	   echo "  budget BANDS and do not move unless a budget was crossed."; \
+	   echo "  If the change is intended, 'make soak-baseline' and commit it"; \
+	   echo "  with a message saying what moved and why."; exit 1; \
+	 fi
+
+soak-baseline: $(MAIN_EXE) copy-resources
+	@HANABI_SOAK_REPORT_OUT=$(SOAK_BASELINE) bash scripts/soak.sh \
+	   > $(OUTPUT_DIR)/soak-baseline.log 2>&1 || true
+	@echo "  wrote $(SOAK_BASELINE) ($$(wc -l < $(SOAK_BASELINE) | tr -d ' ') lines)"
+	@echo "  full log: $(OUTPUT_DIR)/soak-baseline.log"
+
+# One scenario, by hand. Everything the driver takes, as make variables, so a
+# run can be reproduced from a line somebody pasted into a task.
+stress: $(MAIN_EXE) copy-resources
+	@HANABI_BACKEND=mock HANABI_CONFIG=/nonexistent/hanabi/stress.json \
+	 HANABI_MOCK_NOW=$${HANABI_MOCK_NOW:-1787000000} \
+	 HANABI_STRESS="$(if $(SCENARIO),$(SCENARIO),idle)" \
+	 HANABI_SOAK="$(if $(FRAMES),$(FRAMES),3000)" \
+	 HANABI_SOAK_EVERY="$(if $(EVERY),$(EVERY),250)" \
+	 $(if $(SESSIONS),HANABI_STRESS_SESSIONS=$(SESSIONS),) \
+	 $(if $(UNTIL),HANABI_STRESS_UNTIL=$(UNTIL),) \
+	 $(OUTPUT_DIR)/hanabi.exe --screenshot /tmp/hanabi_stress.png
+
+# Open every thread until it breaks, and say where. The default condition is a
+# RATIO against the settled baseline, never an absolute millisecond figure:
+# this box is shared and its load average has hit 29.
+stress-break: $(MAIN_EXE) copy-resources
+	@$(MAKE) --no-print-directory stress \
+	   SCENARIO="$(if $(SCENARIO),$(SCENARIO),open)" \
+	   FRAMES="$(if $(FRAMES),$(FRAMES),30000)" \
+	   EVERY="$(if $(EVERY),$(EVERY),1000)" \
+	   SESSIONS="$(if $(SESSIONS),$(SESSIONS),2000)" \
+	   UNTIL="$(if $(UNTIL),$(UNTIL),cpu:3.0)"
 
 # The source checks. Cheap, and they catch a class of defect no pixel and no
 # frame time can: a silent no-op renders plausibly and asserts nothing.
@@ -593,7 +661,8 @@ source-checks:
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
-.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate source-checks
+.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate source-checks \
+	soak-report soak-baseline stress stress-break
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the
