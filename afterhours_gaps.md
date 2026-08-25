@@ -75,6 +75,15 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #162 an app can retire the widgets it built and cannot see the ones the library built
 - #163 a scroll view off-screen is measured against zero children, so leaving a screen resets it to the top *(pre-dates the retirement work)*
 
+---
+
+**Added 2026-08-25** (windowing the digest screens; full entries at the end)
+- #220 a scroll view's viewport is zero on frame one, and under #115 one uncapped frame is a permanent plateau
+- #221 `with_label` takes `const std::string&`, so every label is a heap allocation per widget per frame
+- #222 an absolutely-positioned child still counts in its parent's flex flow (120 log lines a frame)
+- #223 the e2e runner's retry budget is named in seconds and fed by the host's `dt`, so reproducibility is the host's undocumented decision
+- #224 nothing can measure a child without building it, so a variable-height window re-implements the box model
+
 **Resolved / corrected**
 - #115 (a widget that stops being built is never retired) is **worked around
   app-side**, and the entry was wrong about why it could not be:
@@ -8062,3 +8071,238 @@ insert-many-then-query, which is the pattern a flat container is best at. The
 public shape of `focused_ids` would change; nothing else would.
 
 CLASS: PERFORMANCE
+
+---
+
+### #220 — A scroll view's viewport is zero until the frame after it exists, so a virtualizing consumer must build the WHOLE list once — and under #115 once is forever
+
+**What I wanted.** To window `render_digest`'s card list the way `perf/scroll`
+windowed the sidebar's rows: read `HasScrollView::viewport_size.y`, build the
+cards inside it, spacer out the rest.
+
+**What happened.** On the first frame a scroll view has been created but never
+measured: `viewport_size` is `{0, 0}`, because `MeasureScrollViews` runs after
+the build. There is no way to ask the library what the viewport is ABOUT to be
+— the size is in the `ComponentSize` the consumer just passed in, but the
+library keeps no "pending" or "requested" figure a consumer can read back, and
+`percent(1.0f)` (which is what a pane naturally passes) is not resolvable
+without running the layout.
+
+So the honest fallback is "if the viewport is zero, build everything, and by
+frame two there is a number to read". This is what `row_window` does in
+`sidebar_system.h`, and it is what I wrote first here. It is wrong, and it is
+wrong in a way that no frame time can show you.
+
+**Because of #115, one uncapped frame is a permanent plateau.** Nothing
+retires a widget, so the 2276 entities that one unmeasured frame minted are
+still there at frame ten thousand. Measured at a 2000-session catalog, the
+same binary, the ONLY difference being the fallback:
+
+```
+  fallback = "build everything"    widgets 2473   frame 2.91 ms
+  fallback = the pane's own listH  widgets  501   frame 1.05 ms
+```
+
+The frame time was already right with the fallback in — 2.91 against the 5.58
+it started at — and the widget count had not moved by one. A branch whose
+whole subject is entity counts nearly shipped with the entity count unchanged,
+and the thing that caught it was reading the census rather than the clock.
+
+**The workaround, and its cost.** hanabi passes its own `listH` — the pixel
+height it just asked the scroll view to be — as the viewport when the measured
+one is zero. It is right to within the scroll panel's own 12 px of padding, on
+one frame, which is one card. The cost is that the pane now states the
+viewport height in two places (the `ComponentSize` and the window call) and
+nothing checks they agree; the day someone gives the scroll a `percent()`
+height instead of `pixels(listH)`, the fallback silently becomes a guess.
+
+**Minimal upstream fix.** Either would do it:
+- `HasScrollView` keeps the size it was configured with, resolved or not, so a
+  consumer can read `requested_size` on frame one instead of zero; or
+- the build gets to run after a measure pass — which is #170's ask from the
+  other side, and would close both.
+
+Failing those: `viewport_size` could be `std::optional`, so "not measured yet"
+is distinguishable from "measured as zero" and a consumer cannot silently
+treat one as the other. That is a one-line type change and it turns this whole
+entry into a compile error.
+
+CLASS: SHARP EDGE
+
+### #221 — `with_label` takes `const std::string&`, so every label is a heap allocation per widget per frame even when the text already exists
+
+**What I wanted.** To hand a label text I already have — a `string_view` into
+a session's preview, a string literal, a `char*` — without copying it.
+
+**What happened.** `ComponentConfig::with_label(const std::string &lbl)` is
+the only spelling, so every one of those becomes a `std::string` temporary at
+the call site. In an immediate-mode UI that is once per label per widget per
+frame, forever.
+
+Measured on hanabi's digest cards with a global `operator new` counter
+(`HANABI_PROF=1`): `digest.build` is **611 allocations a frame for 79 cards,
+7.7 each**, on cards that carry three labels. On the whole static Blocked
+screen at a 2000-session catalog the app allocates 1,826 times a frame, and
+before this branch windowed the list it was 20,827.
+
+The shape is worth naming: this is a per-WIDGET cost in a library whose whole
+model is rebuilding every widget every frame, so it scales with exactly the
+thing the library is optimised around.
+
+**The workaround, and its cost.** None available in app code — the parameter
+type is the API. hanabi's own `sub_line` returns a `string_view` precisely so
+the pitch pass (which needs the length, not the text) can avoid this, and then
+pays it anyway at the one call site that renders. That split is the workaround:
+**the measurement path is allocation-free and the render path is not**, which
+is fine here only because the window made the render path small.
+
+**Minimal upstream fix.** Add `with_label(std::string_view)` and
+`with_label(std::string&&)`. The config's storage is a `std::string`, so the
+view overload still copies once — but into the destination rather than through
+a temporary, and the rvalue overload moves. A `const char*` overload avoids a
+strlen-and-copy for the many literal labels.
+
+CLASS: TEDIOUS
+
+### #222 — An absolutely-positioned child is still counted in its parent's flex flow, so an overlay inside a sized column reports an overflow it does not cause
+
+**What I wanted.** A diagnostic label pinned to a corner of the main pane —
+the same thing `sidebar_system.h` does for `HANABI_ROW_AUDIT` — without it
+taking part in the column's layout.
+
+**What happened.** `with_absolute_position()` plus `with_translate(x, y)` on a
+child of a flex column still contributes its height to the parent's flow. The
+parent (a `percent(1.0f)` column already full to the pixel) then warns, once
+per frame, twice:
+
+```
+[WARN] Layout wrap: 'digest_audit' in parent 'main_content' - NoWrap set but
+       would overflow (child_size=14.0, offset=595.0, container=595.0)
+[WARN] Layout overflow: 'digest_audit' extends outside parent 'main_content'
+       bounds (child_rel=[0.0,595.0], ..., parent_size=[820.0,595.0])
+```
+
+Two frames of that is 120 lines of log, which is enough to bury whatever the
+diagnostic was for.
+
+The sidebar's equivalent does not warn, and the difference is instructive:
+`sb_row_audit`'s parent is itself an absolutely-positioned uiRoot child, and
+the docs' "absolute+translate is SCREEN-space" rule is only stated for uiRoot
+children. What an absolute child of a *flowed* parent does is not documented
+and, from this, is not what the name says.
+
+**The workaround, and its cost.** Give the label real height and let it flow:
+the pane subtracts 16 px from the list when the audit is on. It works, and it
+means the diagnostic MOVES the thing it is diagnosing — the viewport shrinks
+by a row, so the card count the label reports is the count for a slightly
+shorter pane. Fine for a UI test that pins its own window size; wrong for a
+gate, which is why hanabi's digest gate reads a log line instead and the label
+is only for the scripted suite.
+
+**Minimal upstream fix.** Make `with_absolute_position()` remove the child
+from the parent's flow accounting — which is what "absolute" means in every
+other layout system, and is presumably the intent, since the position is
+already taken from the translate rather than the flow.
+
+CLASS: SHARP EDGE
+
+### #223 — The e2e runner's retry budget is named in seconds and fed by the host's `dt`, so whether the suite is reproducible is the HOST's decision and nothing says so
+
+**What I wanted.** To tell whether a UI-suite failure was mine.
+
+**What happened, and the first answer was wrong.**
+`tests/ui/select_word_and_line.e2e` failed on my branch. The box's load average
+was 123 at the time — another agent had leaked several dozen runaway processes
+— so I looked at the runner, found that every assertion's retry budget is a
+field called `wait_seconds`, and concluded the suite was failing correct
+scripts under load. That is written up in the first version of this entry and
+it is **wrong**, and the way it was caught is the only reason it is worth an
+entry at all: I built the merge-base in a separate worktree and ran the suite
+on BOTH, on a quiet box (load 6.6).
+
+```
+  base   (main @ ef29c1a)   86 passed, 1 failed — select_word_and_line
+  branch                    88 passed, 1 failed — select_word_and_line
+```
+
+Identical, quiet, reproducible. `select_word_and_line` is simply broken on
+main, the way `tracker_links.e2e` already is. Not mine, and not the load.
+
+**The gap that is actually there.** `PendingE2ECommand::wait_seconds` is
+decremented by whatever `dt` the host hands `runner.tick(dt)`:
+
+```cpp
+wait_time_ -= dt;          // runner.h
+elapsed_time_ += dt;
+```
+
+hanabi's host passes `constexpr float kDt = 1.0f / 60.0f` — a FIXED step — so
+in this app the budgets are frames wearing a seconds-shaped name, and the suite
+is reproducible on any machine. That is correct, and it is correct by a choice
+made in `src/main.cpp` that the library neither requires nor mentions. A host
+that passes real elapsed time — the obvious thing to write, and exactly what a
+field called `wait_seconds` invites — gets a suite whose assertions expire in
+wall clock while `wait_frames` between them counts frames, and correct scripts
+then fail under load with `Text not found`, which is indistinguishable from a
+genuine regression.
+
+`stress.h` in this same repository argues the general case in its header,
+quoted from Puffin: *"Every scenario terminates on a fixed COUNT, never a
+duration. A count is the same amount of work on a fast machine and a slow
+one."* The e2e runner leaves that decision to the host and does not say it is
+being made.
+
+**The workaround, and its cost.** hanabi already passes a fixed dt, so nothing
+to work around — but the shared-box cost is real anyway: `run_ui_tests.sh`
+kills a script after **60 seconds of WALL clock** (`TIMEOUT=60`, rc 124), which
+is genuinely load-sensitive and is what took out an unrelated script during the
+load spike. And establishing that a failure is not yours costs a worktree, a
+submodule checkout and a full compile, every time.
+
+**Minimal upstream fix.** Rename the field to `wait_frames_` and count ticks,
+or document at `tick(dt)` that the runner's determinism is the caller's
+responsibility and that a fixed step is what the harness expects. The rename is
+better: it makes the right thing the only thing.
+
+CLASS: SHARP EDGE
+
+### #224 — Nothing can tell you how tall a child WOULD be, so windowing a variable-height list means re-implementing the box model in app code
+
+**What I wanted.** To window a list of cards that are 34 px tall or 52
+depending on their content. The sidebar's window (#170's workaround) is a
+division, because its rows are a fixed height; a card list needs a prefix sum
+over the real heights, and to get those it has to know a card's height without
+building the card.
+
+**What happened.** There is no such query. `UIComponent` carries the computed
+rect, but only after the layout has run on a widget that exists; nothing takes
+a `ComponentConfig` and returns the height it would resolve to. So the app has
+to restate the box model:
+
+```cpp
+inline float card_pitch(std::string_view sub) {
+    return kCardMarginTop + card_body_height(sub) + kCardMarginBot;
+}
+```
+
+That is margin-top plus body plus margin-bottom, which is a claim about how
+afterhours sums a column — that adjacent margins do NOT collapse, in
+particular, which is true here and is the opposite of CSS. If the library ever
+collapses them, or adds a gap, or rounds, every spacer in every windowed list
+in the app is silently the wrong size and every card below the fold lands at
+the wrong y. Nothing would fail to compile and nothing would look wrong on a
+screen scrolled to the top.
+
+**The workaround, and its cost.** One function, called by both the window and
+the built card, so the app's two copies cannot disagree with each other — and
+a unit test (`tests/unit/test_digest_layout.cpp`) that pins the pitch to 42
+and 60 for the two card shapes. Neither can catch the library changing its
+mind; they can only make the app's own two answers the same answer.
+
+**Minimal upstream fix.** A `measure_config(const ComponentConfig&, float
+available_w)` that runs the sizing rules without minting an entity. That is
+the same primitive #191 asks for on text and #116 asks for on fits, one level
+up, and it is what turns every hand-rolled window in this file into
+arithmetic the library owns.
+
+CLASS: TEDIOUS

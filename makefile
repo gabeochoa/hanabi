@@ -433,6 +433,13 @@ $(TEST_DIR)/test_find_nav: tests/unit/test_find_nav.cpp src/ui/find_nav.h $(TEST
 # Cross-session search: what the index matches, and whether the sentence it
 # shows about its own coverage is true. Pure logic - no graphics, no disk, no
 # app state; the corpus is handed in.
+# The arithmetic a windowed digest list is made of. Pure heights and prefix
+# sums over api::SessionSummary - the painting that goes with it needs a font
+# manager and is asserted on screen (tests/ui/digest_windows.e2e).
+$(TEST_DIR)/test_digest_layout: tests/unit/test_digest_layout.cpp src/ecs/digest_layout.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_digest_layout..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_digest_layout.cpp -o $@
+
 $(TEST_DIR)/test_session_index: tests/unit/test_session_index.cpp src/search/session_index.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_session_index..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_session_index.cpp -o $@
@@ -546,7 +553,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -602,6 +609,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) scaling-gate
 	@$(MAKE) scroll-gate
 	@$(MAKE) retire-gate
+	@$(MAKE) digest-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -626,6 +634,10 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #                      count must not track the catalog (the level), and the
 #                      second half of a long scroll must cost what the first
 #                      half did (the trend). In `make test`.
+#   make digest-gate   ~9 s.  The four digest screens (Blocked / Review /
+#                      Starred / Archived), which scaling-gate never opens and
+#                      scroll-gate never reaches. Cards BUILT against sessions
+#                      MATCHED, plus the widget ratio. In `make test`.
 #   make retire-gate   ~3 s.  Navigates five screens and a thread, then counts
 #                      the widgets nothing is building any more. A COUNT, not
 #                      a millisecond. In `make test`.
@@ -661,6 +673,8 @@ retire-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/retire_gate.sh
 alloc-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/alloc_gate.sh
+digest-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/digest_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \

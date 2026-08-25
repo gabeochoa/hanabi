@@ -120,6 +120,41 @@ inline bool widget_audit() {
     return on;
 }
 
+// HANABI_CARD_AUDIT=1 makes a digest view (Blocked / Review / Starred /
+// Archived) print, in a corner label, how many cards it actually BUILT, how
+// many sessions matched its predicate, and which row the build started at.
+//
+// The sidebar's equivalent is row_audit() above, and this exists for the same
+// reason: "the list is windowed" is a statement about the cards that are NOT
+// there, and no screenshot and no frame time can assert one. Cards built
+// against cards matched is the property itself.
+inline bool card_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_CARD_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
+// The last digest frame's card counts, for a gate to read.
+//
+// The on-screen label above is what a scripted UI test can assert, and it is
+// the wrong instrument for a gate: it needs an env var that changes the
+// layout to be set, and a gate that perturbs the thing it measures is a gate
+// that measures itself. These three ints are written unconditionally -- three
+// stores a frame -- and main.cpp prints them next to the FrameTiming line, so
+// `built` against `matched` is available to a shell script with nothing
+// enabled and nothing moved.
+struct CardAuditCounts {
+    int built = 0;
+    int matched = 0;
+    int first = 0;
+};
+inline CardAuditCounts& card_audit_counts() {
+    static CardAuditCounts c;
+    return c;
+}
+
 // HANABI_SYNTAX_AUDIT=1 makes a fenced code block print, in its language bar,
 // how many coloured runs of each kind it actually handed to the renderer.
 // Colour is the whole feature and the scripted harness cannot see a colour —

@@ -18,6 +18,7 @@
 #include "../util/format.h"
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
+#include "digest_layout.h"
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
@@ -604,9 +605,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        float paneW, float paneH, Pred pred,
                        const std::string& emptyMsg = "Nothing here right now.",
                        bool singleState = false) {
-        std::vector<const api::SessionSummary*> rows;
-        for (const auto& s : app.sessions)
-            if (pred(s)) rows.push_back(&s);
+        // Reused across frames so the collection costs no allocation once the
+        // catalog has been seen at its largest. clear() keeps the capacity;
+        // the old local vector malloc'd a pointer per matching session on
+        // EVERY frame -- the same round trip sidebar.collect was taught to
+        // stop making, one pane over.
+        std::vector<const api::SessionSummary*>& rows = digestRows_;
+        rows.clear();
+        {
+            hanabi::prof::Scope _t("digest.collect");
+            hanabi::prof::AllocScope _a("digest.collect.allocs");
+            for (const auto& s : app.sessions)
+                if (pred(s)) rows.push_back(&s);
+        }
 
         header(ctx, parent, title, std::to_string(rows.size()), theme::type::H1);
 
@@ -616,6 +627,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         float listH = paneH - 46.0f;
+        // The audit is a real row when it is on, so the list gives it the
+        // height rather than overflowing the pane by it.
+        if (hanabi::test_hooks::card_audit()) listH -= 16.0f;
         if (listH < 40.0f) listH = 40.0f;
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -630,9 +644,132 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int i = 0;
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
         const float cardW = wrap_width(paneW);
-        for (const auto* s : rows)
-            digest_card(ctx, wrap, ++i, *s, app, false, cardW, singleState);
+
+        // Which of the matched cards is on screen. The list is not shortened:
+        // the two spacers below are the exact height of the cards that were
+        // skipped, so the content size, the scrollbar thumb, the clamp and the
+        // y of any given card are the numbers they would have been with all of
+        // them built. Blocked's job is to show everything blocked on you and
+        // it still does -- this is docs/perf/SCROLL.md's fix for the sidebar's
+        // rows, which is why it is a window and not the cap Home uses.
+        const int n = static_cast<int>(rows.size());
+        pitches_.clear();
+        pitches_.reserve(static_cast<size_t>(n));
+        {
+            hanabi::prof::Scope _t("digest.pitch");
+            hanabi::prof::AllocScope _a("digest.pitch.allocs");
+            for (const auto* s : rows)
+                pitches_.push_back(
+                    digest::card_pitch(*s, singleState, subScratch_));
+        }
+
+        float viewH = 0.0f, offsetY = 0.0f, targetY = 0.0f;
+        if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            viewH = sv.viewport_size.y;
+            offsetY = sv.scroll_offset.y;
+            targetY = sv.scroll_target.y;
+        }
+        // Frame one has measured nothing, and "build the lot until it has" is
+        // not a harmless fallback here: nothing retires a widget (gap #115),
+        // so one uncapped frame mints four entities per matched session and
+        // the app carries all 2276 of them for the rest of the process. The
+        // frame after it builds thirty and the census still reads 2276.
+        //
+        // listH is the height this pane just asked the scroll view to be, so
+        // it is the viewport to within its own 12 px of padding -- a guess
+        // that is one card out, on one frame, against a plateau that never
+        // comes down. It is also why every measurement in this branch is an
+        // entity count and not only a frame time: the frame time was already
+        // right with the fallback in.
+        if (viewH <= 0.0f) viewH = listH;
+        const digest::CardWindow win = digest::card_window(
+            n, [this](int k) { return pitches_[static_cast<size_t>(k)]; },
+            viewH, offsetY, targetY);
+
+        // The keyboard cursor walks EVERY row, built or not. Its order is the
+        // list's order and its y is a sum over the list's heights, so arrowing
+        // off the bottom of the window scrolls to a card the next frame builds
+        // rather than stopping at the edge of what happens to be on screen.
+        // This is why digest_card is told not to do its own bookkeeping below:
+        // it would count the built cards a second time and put every skipped
+        // one at the wrong y.
+        for (int k = 0; k < n; ++k) {
+            const float h = pitches_[static_cast<size_t>(k)];
+            listRows_.push_back(rows[static_cast<size_t>(k)]->id);
+            if (!app.listCursorId.empty() &&
+                rows[static_cast<size_t>(k)]->id == app.listCursorId) {
+                listCursorY_ = listY_;
+                listCursorH_ = h;
+            }
+            list_extent(h);
+        }
+
+        hanabi::prof::Scope _tbuild("digest.build");
+        hanabi::prof::AllocScope _abuild("digest.build.allocs");
+        card_spacer(ctx, wrap, 90, win.above);
+        // Keyed on the window SLOT, never the card index. mk() retains an
+        // entity per distinct id forever and nothing retires one (gap #115),
+        // so index keys would mint four entities for every card ever scrolled
+        // past -- the virtualization would be perfect and the leak would be
+        // exactly the one it was written to remove. SCROLL.md section 3
+        // measured that at +180 live blocks per 1000 frames on the sidebar.
+        for (int k = win.first; k < win.last; ++k)
+            digest_card(ctx, wrap, ++i, *rows[static_cast<size_t>(k)], app,
+                        false, cardW, singleState, /*trackCursor=*/false);
+        card_spacer(ctx, wrap, 91, win.below);
+
+        cardsBuilt_ = i;
+        cardsMatched_ = n;
+        cardsFirst_ = win.first;
+        hanabi::test_hooks::card_audit_counts() = {i, n, win.first};
+        digest_audit(ctx, parent);
         scroll_cursor_into_view(scroll.ent(), listH);
+    }
+
+    // The stand-in for cards that were not built. One entity, the exact height
+    // of the cards it replaces, so every measurement downstream of it is the
+    // number it would have been.
+    void card_spacer(UIContext<InputAction>& ctx, Entity& parent, int id,
+                     float h) {
+        if (h <= 0.0f) return;
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(h)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("digest_spacer"));
+    }
+
+    // Reused across frames so the pitch pass costs no allocation once the
+    // catalog has been seen at its largest. clear() keeps the capacity.
+    std::vector<float> pitches_;
+    std::vector<const api::SessionSummary*> digestRows_;
+    std::vector<const api::SessionSummary*> homeWaiting_, homeFinished_,
+        homeRunning_, homeRecent_;
+    std::string subScratch_;
+
+    // The cards this frame BUILT, against the sessions that matched, and the
+    // row the build started at. See test_hooks::card_audit.
+    int cardsBuilt_ = 0;
+    int cardsMatched_ = 0;
+    int cardsFirst_ = 0;
+
+    void digest_audit(UIContext<InputAction>& ctx, Entity& parent) {
+        if (!hanabi::test_hooks::card_audit()) return;
+        div(ctx, mk(parent, 8),
+            ComponentConfig{}
+                .with_label("digest cards " + std::to_string(cardsBuilt_) +
+                            " of " + std::to_string(cardsMatched_) + " @ " +
+                            std::to_string(cardsFirst_))
+                .with_size(ComponentSize{percent(1.0f), pixels(14)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_render_layer(2)
+                .with_debug_name("digest_audit"));
     }
 
     // Collapse internal runs of whitespace to single spaces and trim ends, so
@@ -917,107 +1054,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return memo.put(raw, cardWidthPx, titleFrac, std::move(cut));
     }
 
-    // Build the metadata line under a card title. On the mock (rich preview)
-    // that's the preview text — kept verbatim so the mock's state-matched
-    // detail ("waiting on you · 22m", "done · 12m", "self-running · 61%")
-    // stays rich (never regress it).
-    //
-    // On a real backend preview is empty. The CRITICAL rule (v3 review):
-    // the sub-line must NEVER contradict or redundantly restate the derived
-    // chip sitting above it. The old code leaked the RAW api status word
-    // ("active") beneath a derived BLOCKED/DONE chip — so every WAITING card
-    // read "3h · active" under a red BLOCKED pill and every FINISHED card read
-    // "1d · active" under a DONE pill: two lines fighting each other, reads as
-    // broken software. Instead, when a card carries a derived chip/state we
-    // compose a state-MATCHED second token from the SAME derived verdict, and
-    // deliberately drop the raw status word. Only a genuinely calm card (no
-    // chip, Unknown state) may fall back to a neutral age line.
-    static std::string card_meta(const api::SessionSummary& s) {
-        if (!s.preview.empty()) return s.preview;  // mock: keep rich preview.
-        const std::string age = fmtutil::relative_time(s.updated_at);
-        std::string phrase;  // the state-matched verdict word.
-        switch (s.tag) {
-            case api::ThreadTag::Blocked:
-                phrase = "waiting on you";  // matches the red BLOCKED chip.
-                break;
-            case api::ThreadTag::Done:
-                phrase = "done";  // matches the DONE chip.
-                break;
-            case api::ThreadTag::Review:
-                phrase = "ready for review";  // matches the REVIEW chip.
-                break;
-            default:
-                // No tag chip. Derive from state so a RUNNING card (green
-                // RUNNING chip, added below) reads "running · <age>", and a
-                // calm/archived card gets a NEUTRAL age-first line — never the
-                // raw "active" status word.
-                switch (s.state) {
-                    case api::ThreadState::Running: phrase = "running"; break;
-                    case api::ThreadState::Archived: phrase = "archived"; break;
-                    default: phrase.clear(); break;  // calm: age only.
-                }
-                break;
-        }
-        if (phrase.empty()) {
-            // Genuinely calm card with no chip: a neutral relative age reads as
-            // "last active <age>" without restating a raw session-status word.
-            if (age.empty()) return "";
-            return "last active " + age;
-        }
-        // Chip-bearing / stateful card: lead with the state-matched verdict,
-        // then the age — e.g. "waiting on you  ·  3h", "done  ·  1d",
-        // "running  ·  8h". Never the raw "active".
-        if (age.empty()) return phrase;
-        return phrase + "  \xc2\xb7  " + age;
-    }
-
-    // Sub-line for a card rendered INSIDE a homogeneous grouped section (Home's
-    // Waiting / Finished / Self-running). The section HEADER already names the
-    // state (and carries its color), so restating "waiting on you" on every card
-    // — plus a red BLOCKED chip — was the same fact three times (v5 defect #4:
-    // "7 identical red chips = noise"). In grouped mode we therefore drop the
-    // chip and show only the DISCRIMINATING detail that actually differs between
-    // sibling cards: the age, or a running card's progress ("61%", "tests",
-    // "landing"). We derive it by stripping a leading state phrase from the mock
-    // preview ("waiting on you \xc2\xb7 22m" -> "22m", "self-running \xc2\xb7 61%" -> "61%");
-    // a real backend (no preview) falls back to the relative age.
-    static std::string grouped_meta(const api::SessionSummary& s) {
-        const std::string age = fmtutil::relative_time(s.updated_at);
-        if (!s.preview.empty()) {
-            // Take the detail AFTER the first " \xc2\xb7 " separator, i.e. drop the
-            // redundant leading state phrase the section header already conveys.
-            const std::string sep = "\xc2\xb7";
-            size_t p = s.preview.find(sep);
-            if (p != std::string::npos) {
-                std::string tail = s.preview.substr(p + sep.size());
-                // trim surrounding spaces
-                size_t a = tail.find_first_not_of(' ');
-                size_t b = tail.find_last_not_of(' ');
-                if (a != std::string::npos)
-                    return tail.substr(a, b - a + 1);
-            }
-            // No separator: the preview is a BARE phrase with no discriminating
-            // detail. If it merely restates the section's state word (e.g.
-            // "self-running" under the SELF-RUNNING header, "running", "waiting
-            // on you"), echoing it is the exact redundancy grouped mode exists to
-            // kill (v5 #4) — so fall back to the age instead. Only a preview that
-            // carries REAL detail (not a state label) is kept verbatim.
-            if (!is_bare_state_word(s.preview)) return s.preview;
-        }
-        return age;  // no discriminating detail: the age is what differs.
-    }
-
-    // True when a preview string is just a state/status label (which the grouped
-    // section header already conveys) rather than a discriminating detail.
-    static bool is_bare_state_word(const std::string& p) {
-        static const char* kStateWords[] = {
-            "self-running", "running", "waiting on you", "waiting",
-            "blocked", "done", "ready for review", "review", "active",
-            "archived", "parked"};
-        for (const char* w : kStateWords)
-            if (p == w) return true;
-        return false;
-    }
+    // A digest card's sub-line and its height live in ecs/digest_layout.h.
+    // They moved out of this file when the digest lists were windowed: the
+    // window has to know a card's height WITHOUT building the card, so the
+    // height stopped being something the card decides on the way past and
+    // became arithmetic two callers share. It is also the only part of this
+    // 8000-line UI header that a unit test can reach
+    // (tests/unit/test_digest_layout.cpp).
 
     static const char* tag_label(api::ThreadTag t) {        switch (t) {
             case api::ThreadTag::Blocked: return "BLOCKED";
@@ -1153,7 +1196,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void digest_card(UIContext<InputAction>& ctx, Entity& parent, int id,
                      const api::SessionSummary& s, AppComponent& app,
                      bool emphasizeMeta = false, float cardWidthPx = 0.0f,
-                     bool grouped = false) {
+                     bool grouped = false, bool trackCursor = true) {
         // The card is a raised surface (panel_bg_2, one step ELEVATED above the
         // pane's panel_bg) plus a hairline border so it reads as floating above
         // the pane in BOTH modes — in light the border is what sells the lift
@@ -1167,34 +1210,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // essentially just an age) rides INLINE on the title row, right-aligned,
         // and the card collapses to a single tight row. A RICH sub-line (mock
         // preview, or a state+detail line) keeps the roomier two-line card.
-        const std::string subLine = grouped ? grouped_meta(s) : card_meta(s);
-        const bool sparseSub =
-            subLine.empty() ||
-            (subLine.size() <= 6 && subLine.find("\xc2\xb7") == std::string::npos);
-        const float cardH = sparseSub ? 34.0f : 52.0f;
+        std::string subScratch;
+        const std::string_view subLine = digest::sub_line(s, grouped, subScratch);
+        const bool sparseSub = digest::sub_is_sparse(subLine);
+        const float cardH = digest::card_body_height(subLine);
 
         // Every card in every list comes through here, so this is where the
         // keyboard cursor is both drawn and counted: the order below IS the
         // order on screen. The cursor row wears the hover surface plus an
         // accent border — a keyboard hover, reading like the mouse one.
         const bool onCursor = !app.listCursorId.empty() && s.id == app.listCursorId;
-        constexpr float kCardMarginTop = 3.0f;
-        constexpr float kCardMarginBot = 5.0f;
-        listRows_.push_back(s.id);
-        if (onCursor) {
-            listCursorY_ = listY_;
-            listCursorH_ = kCardMarginTop + cardH + kCardMarginBot;
+        if (trackCursor) {
+            listRows_.push_back(s.id);
+            if (onCursor) {
+                listCursorY_ = listY_;
+                listCursorH_ = digest::card_pitch(subLine);
+            }
+            list_extent(digest::card_pitch(subLine));
         }
-        list_extent(kCardMarginTop + cardH + kCardMarginBot);
 
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(cardH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(kCardMarginTop),
+                .with_margin(Margin{.top = pixels(digest::kCardMarginTop),
                                     .right = pixels(0),
-                                    .bottom = pixels(kCardMarginBot),
+                                    .bottom = pixels(digest::kCardMarginBot),
                                     .left = pixels(0)})
                 .with_padding(Padding{.top = pixels(7), .right = pixels(16),
                                       .bottom = pixels(7), .left = pixels(16)})
@@ -1281,7 +1323,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // instead of alone on a wasted second line. Muted so the title leads.
             div(ctx, mk(top.ent(), 2),
                 ComponentConfig{}
-                    .with_label(subLine)
+                    .with_label(std::string(subLine))
                     .with_size(ComponentSize{percent(0.16f), pixels(16)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
@@ -1298,7 +1340,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!sparseSub) {
             div(ctx, mk(card.ent(), 2),
                 ComponentConfig{}
-                    .with_label(subLine)
+                    .with_label(std::string(subLine))
                     .with_size(ComponentSize{percent(1.0f), pixels(16)})
                     .with_margin(Margin{.top = pixels(3), .right = pixels(0),
                                         .bottom = pixels(0), .left = pixels(0)})
@@ -1397,7 +1439,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // on a calm/real backend the attention buckets are all empty, so Home
         // must lead straight with an "all caught up" line + RECENT rather than
         // three dead headers stacked above the list.
-        std::vector<const api::SessionSummary*> waiting, finished, selfRunning;
+        // Reused across frames, like the digest's own collect and the
+        // sidebar's members_: these were four locals that malloc'd their way
+        // up from empty on every frame of a screen that shows eighty cards.
+        std::vector<const api::SessionSummary*>& waiting = homeWaiting_;
+        std::vector<const api::SessionSummary*>& finished = homeFinished_;
+        std::vector<const api::SessionSummary*>& selfRunning = homeRunning_;
+        waiting.clear();
+        finished.clear();
+        selfRunning.clear();
+        {
+        hanabi::prof::Scope _tpart("home.partition");
+        hanabi::prof::AllocScope _apart("home.partition.allocs");
         for (const auto& s : app.sessions) {
             if (s.state == api::ThreadState::Attention) {
                 if (s.tag == api::ThreadTag::Blocked)
@@ -1406,6 +1459,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     finished.push_back(&s);
             }
             if (s.state == api::ThreadState::Running) selfRunning.push_back(&s);
+        }
         }
         const bool anyAttention =
             !waiting.empty() || !finished.empty() || !selfRunning.empty();
@@ -1482,7 +1536,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Recent folder holds the full set). Skip archived AND anything already
         // surfaced in a section above (Attention/Running), so a [P]/done/running
         // card isn't shown twice.
-        std::vector<const api::SessionSummary*> recent;
+        std::vector<const api::SessionSummary*>& recent = homeRecent_;
+        recent.clear();
+        {
+        hanabi::prof::Scope _trec("home.recent");
+        hanabi::prof::AllocScope _arec("home.recent.allocs");
         for (const auto& s : app.sessions) {
             if (ecs::model::is_archived(s)) continue;
             if (s.state == api::ThreadState::Attention ||
@@ -1490,10 +1548,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 continue;
             recent.push_back(&s);
         }
-        std::sort(recent.begin(), recent.end(),
-                  [](const api::SessionSummary* a, const api::SessionSummary* b) {
-                      return a->updated_at > b->updated_at;
-                  });
+        }
+        {
+        // Recent shows at most kMaxSection cards, so the ordering that has to
+        // be RIGHT is the ordering of the first twenty -- and a full sort of
+        // the whole catalog to find them is the same shape as building a card
+        // per session to show twenty of them, one line down instead of one
+        // pane over. partial_sort is O(n log k) where the sort was
+        // O(n log n), and it leaves the tail unordered, which is exactly the
+        // part nothing reads.
+        hanabi::prof::Scope _tsort("home.sort");
+        const auto by_recency = [](const api::SessionSummary* a,
+                                   const api::SessionSummary* b) {
+            return a->updated_at > b->updated_at;
+        };
+        const size_t keep = std::min(recent.size(), kMaxSection);
+        std::partial_sort(recent.begin(),
+                          recent.begin() + static_cast<long>(keep),
+                          recent.end(), by_recency);
+        }
         if (!anyAttention) {
             list_extent(2.0f + 30.0f + 6.0f);
             div(ctx, mk(wrap, 800),

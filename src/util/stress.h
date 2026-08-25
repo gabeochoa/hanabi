@@ -42,6 +42,7 @@
 //   HANABI_STRESS=churn    open a thread, leave, close it, open the next
 //   HANABI_STRESS=mixed    all of the above, interleaved, the way a person is
 //   HANABI_STRESS=views    walk the smart views, then open a thread, forever
+//   HANABI_STRESS=digest   open Blocked and wheel the CARD list up and down
 //   HANABI_STRESS=idle     nothing; the control arm
 //
 //   HANABI_STRESS_FRAMES=<n>   total frames (default 3000, ~50s at 60fps)
@@ -93,6 +94,7 @@ enum struct Scenario {
     Churn,
     Mixed,
     Views,
+    Digest,
 };
 
 inline Scenario scenario() {
@@ -112,6 +114,7 @@ inline Scenario scenario() {
         if (name == "churn") return Scenario::Churn;
         if (name == "mixed") return Scenario::Mixed;
         if (name == "views") return Scenario::Views;
+        if (name == "digest") return Scenario::Digest;
         return Scenario::None;
     }();
     return s;
@@ -144,6 +147,7 @@ inline const char* name(Scenario s) {
         case Scenario::Churn: return "churn";
         case Scenario::Mixed: return "mixed";
         case Scenario::Views: return "views";
+        case Scenario::Digest: return "digest";
         case Scenario::None: return "none";
     }
     return "none";
@@ -187,7 +191,7 @@ struct Driver {
     // closer to the thing under test.
     [[nodiscard]] float scroll_step(int frame) const {
         if (mode != Scenario::Scroll && mode != Scenario::Read &&
-            mode != Scenario::ScrollAll)
+            mode != Scenario::ScrollAll && mode != Scenario::Digest)
             return 0.0f;
         // `scrollall` sweeps a list that is the whole catalog rather than two
         // viewports, so it gets a longer period and a faster step -- 96 px is
@@ -195,7 +199,14 @@ struct Driver {
         // 96 x 600 = 57,600 px, is 1800 rows: at the 2000-session catalog one
         // half-period walks nearly the entire list, so a row that is only
         // expensive the first time it is reached is reached.
-        if (mode == Scenario::ScrollAll) {
+        //
+        // `digest` sweeps a card list on the same reasoning and at the same
+        // step. A digest card is 42 or 60 px against the sidebar row's 32, so
+        // 96 px a frame is under two cards rather than three, and one
+        // half-period walks about 1200 cards -- more than the 569 the busiest
+        // digest view holds at a 2000-session catalog, which is the point:
+        // the sweep must reach the end of the list it is measuring.
+        if (mode == Scenario::ScrollAll || mode == Scenario::Digest) {
             const int period = 1200;
             const int phase = frame % period;
             return phase < period / 2 ? 96.0f : -96.0f;
@@ -225,7 +236,9 @@ struct Driver {
     // content, and the one the report was about ("scroll until it breaks") --
     // had no scenario at all, so its scrolled cost had never been measured.
     [[nodiscard]] const char* scroll_target_name() const {
-        return mode == Scenario::Read ? "transcript_scroll" : "sidebar_scroll";
+        if (mode == Scenario::Read) return "transcript_scroll";
+        if (mode == Scenario::Digest) return "digest_scroll";
+        return "sidebar_scroll";
     }
 
     // Drive the app's own request flags, the same ones a click sets.
@@ -297,6 +310,23 @@ struct Driver {
                         break;
                     default: break;
                 }
+                break;
+            }
+
+            case Scenario::Digest: {
+                // The screen whose whole job is to show everything. Blocked is
+                // the biggest of the four digest views at the mock catalog
+                // (569 cards at 2000 sessions against Review's 413), so it is
+                // the one the arm sits on.
+                //
+                // Written straight onto app.view, which is exactly what the
+                // sidebar's smart-view button writes (sidebar_system.h), so
+                // this is the user's own gesture through the user's own seam.
+                // Every frame rather than once: nothing else in a headless run
+                // moves the view, but a scenario that sets it once and trusts
+                // it is a scenario that silently measures Home the day
+                // something else does.
+                app.view = ecs::SmartView::Blocked;
                 break;
             }
 

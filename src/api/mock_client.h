@@ -622,6 +622,7 @@ class MockClient : public Client {
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
+        "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -1658,6 +1659,16 @@ class MockClient : public Client {
         // and title length all cycle on the index, because a thousand
         // identical rows measure one row a thousand times. Titles are long
         // enough to exercise the ellipsizer (gap #79) on roughly a third.
+        // A 0..100 percentage from the environment.
+        const auto stressPct = [](const char* name) {
+            const char* v = std::getenv(name);
+            int pct = (v != nullptr && *v != '\0') ? std::atoi(v) : 0;
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            return pct;
+        };
+        const int pinnedPct = stressPct("HANABI_STRESS_PINNED");
+        const int archivedPct = stressPct("HANABI_STRESS_ARCHIVED");
         if (const char* n = std::getenv("HANABI_STRESS_SESSIONS");
             n != nullptr && *n != '\0') {
             const int count = std::atoi(n);
@@ -1687,6 +1698,28 @@ class MockClient : public Client {
                                kStates[k % 6], kTags[k % 4],
                                "synthetic stress row " + std::to_string(k));
                 s.summary.updated_at = mins_ago(k % 720);
+                // Starred and Archived are two of the five screens and the
+                // synthetic catalog put NOTHING in either of them, at any
+                // size -- so `HANABI_VIEW=starred HANABI_STRESS_SESSIONS=2000`
+                // measured an empty state and read as a pass. Both digest
+                // views that DO fill up (Blocked, Review) fill from the tag
+                // cycle above; these two have no cycle to fill from because
+                // starring and archiving are user acts, not backend states.
+                //
+                // Opt-in and off by default, for the reason the whole block
+                // is: an existing script that sets HANABI_STRESS_SESSIONS is
+                // pinned to the row counts it produces, and archiving a
+                // fraction of them would move every one of those numbers.
+                // A percentage rather than a count, so it tracks whatever
+                // catalog size the caller asked for.
+                if (k % 100 < pinnedPct) s.summary.starred = true;
+                // ThreadState::Archived, not status="archived": is_archived
+                // reads the state (under the user's local override), and the
+                // status string is a free-form field nothing derives from.
+                if (k % 100 < archivedPct) {
+                    s.summary.status = "archived";
+                    s.summary.state = ThreadState::Archived;
+                }
                 // A tenth carry sub-agents, the way a real catalog does.
                 if (k % 10 == 0) {
                     s.sub_agents = {
