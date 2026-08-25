@@ -175,12 +175,17 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         };
         // The close-button hit area for tab drawn at left edge x (matches the
         // × geometry below) — a press there must NOT start a drag.
-        auto over_close = [&](float x, float tabW) {
-            float closeW = 16.0f;
-            float closeX = x + tabW - closeW - 5.0f;
+        auto over_close = [&](float x, float tabW, bool pinned) {
+            if (pinned) return false;
+            const float closeW = tab_colors::kCloseBoxPx;
+            float closeX = x + tabW - tab_colors::kChipPadPx - closeW;
             float closeY = tabY + (tabH - closeW) * 0.5f;
             return afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{closeX, closeY, closeW, closeW});
+        };
+        auto tab_is_pinned = [&](afterhours::EntityID id) {
+            auto o = EntityHelper::getEntityForID(id);
+            return o.valid() && o->has<Tab>() && o->get<Tab>().pinned;
         };
 
         if (ctx.mouse.just_pressed && nTabs > 0) {
@@ -199,7 +204,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 bool inside = afterhours::ui::is_mouse_inside(
                     ctx.mouse.pos,
                     RectangleType{hitX, tabY, hitR - hitX, tabH});
-                if (inside && !over_close(px, w)) {
+                if (inside && !over_close(px, w, tab_is_pinned(strip.tabOrder[i]))) {
                     strip.dragCandidate = strip.tabOrder[i];
                     strip.dragFromIndex = i;
                     strip.dragStartX = ctx.mouse.pos.x;
@@ -394,11 +399,26 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                         ? tab_colors::tab_text_act()
                                         : tab_colors::tab_text();
 
-            // The × appears on HOVER only. A row of tabs each carrying a
-            // permanent × reads as a toolbar of buttons; the reference shows a
-            // clean title on every tab, active one included, and the close
-            // affordance only under the cursor.
-            bool showClose = hovered;
+            // The × on an UNPINNED tab is drawn at rest, not on hover.
+            //
+            // `TabChip.body` ends its HStack with `if !tab.isKeptOpen {
+            // closeButton }` -- no hover condition anywhere in the file. The
+            // rule this replaces ("the reference shows a clean title on every
+            // tab, active one included, and the close affordance only under
+            // the cursor") was read off `ref/01_home.png`, whose two tabs are
+            // BOTH PINNED -- the one state in which Puffin also draws no ×.
+            // `ref/02_thread.png` has the unpinned tab, and it draws one:
+            // x483..490, y46..53, 8px of ink hanabi was putting nowhere.
+            //
+            // A pinned tab keeps hanabi's hover ×, which Puffin does not have.
+            // Puffin can afford to: `closeRequest` REFUSES a pinned tab and
+            // springs its pin instead, and its context menu carries a Close
+            // Tab item that goes through the same refusal. hanabi's menu has
+            // no close item, so hiding the mark outright would leave Cmd+W and
+            // middle-click as the only ways out of a pinned tab. Declared in
+            // REFERENCE.md; invisible in both references, which capture no
+            // hover.
+            bool showClose = hovered || !tab.pinned;
             // A pinned tab spends its left gutter on the pin, so the title
             // starts further in. Both numbers are measured off the reference:
             // pin at left+12, title at left+26 (left+12 when unpinned).
@@ -406,11 +426,18 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // hardcoded 5px margin with no way to zero it (gap #75), so the
             // padding we author is the design inset minus that margin.
             const float kTextMarginPx = 5.0f;
+            // 26 / 12, NOT the source's 28 / 10, and the difference is
+            // measured rather than conceded -- see FRICTION_LOG.md,
+            // `## The tab strip, round four`. Moving both to Puffin's own
+            // constants took 01 2.81% -> 2.82% and 02 1.91% -> 1.97%.
             const float padL =
                 (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx;
             // Ellipsize the title to the room the tab actually has: ~7px/char
             // at ROW size, minus left pad + (× reserve when shown).
-            float rightReserve = showClose ? 26.0f : 8.0f;
+            float rightReserve = showClose
+                                     ? tab_colors::kChipPadPx +
+                                           tab_colors::kCloseBoxPx
+                                     : 8.0f;
             float textRoom = tabW - padL - rightReserve;
             size_t labelBudget = textRoom <= 0.0f
                                      ? 1
@@ -540,8 +567,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // showClose above; clamped to the visible strip so the × of a
             // right-edge partial tab never bleeds off the window frame).
             if (showClose) {
-            float closeW = 16.0f;
-            float closeX = tabX + tabW - closeW - 5.0f;
+            // 14px box, 10px from the chip's trailing edge -- `TabChip`'s
+            // `closeButton` frame and its `.padding(.horizontal, 10)`. hanabi
+            // had a 16px box 5px in, which centres 4.5px right of where the
+            // reference's xmark actually lands.
+            float closeW = tab_colors::kCloseBoxPx;
+            float closeX = tabX + tabW - tab_colors::kChipPadPx - closeW;
             float closeY = tabY + (tabH - closeW) * 0.5f;
             // Don't draw the × past the visible strip right edge.
             if (closeX + closeW <= stripRight) {
@@ -561,7 +592,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                                 : bg)
                     .with_custom_text_color(closeHovered
                                                 ? tab_colors::tab_text_act()
-                                                : tab_colors::tab_text())
+                                                : tab_colors::close_ink())
                     .with_font_size(FontSize::Small)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
@@ -574,8 +605,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_on_draw_fg(hanabi::icons::draw_fg(
                         "close", "\xc3\x97",
                         closeHovered ? tab_colors::tab_text_act()
-                                     : tab_colors::tab_text(),
-                        11.0f))
+                                     : tab_colors::close_ink(),
+                        tab_colors::kCloseGlyphPx, tab_colors::kCloseYBias))
                     .with_debug_name("tab_close"));
             if (closeHovered && ctx.mouse.just_pressed) {
                 // A press on × is a close, not a drag — drop any candidate.

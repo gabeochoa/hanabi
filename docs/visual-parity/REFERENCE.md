@@ -298,7 +298,13 @@ the title column 14.94% → 14.72%. There is no per-glyph advance override to
 spend that with, and it is two tenths of a point.
 
 **What this means for anyone arriving here.** The list is finished. So is the
-tab bar, the search row and the row-mark column. If you are about to work a
+search row and the row-mark column. **The tab bar is not, and this sentence
+used to say it was** — that verdict was taken against a floor computed over the
+macOS window frame, which the score declares and the floor did not; corrected,
+the strip reads +0.72 on 01 and +0.30 on 02. `feat/vis-tabs4` took 02 to +0.25
+and found a whole missing element on the way (see FRICTION_LOG.md,
+`## The tab strip, round four`). What is left there is two tab titles that say
+different words from the reference's. If you are about to work a
 text region, the one test worth running first is the rigid-shift sweep: crop
 the region out of hanabi's capture, translate it by ±1px in each axis, paste it
 back and re-score. It takes five minutes, the `dx=0,dy=0` cell is its own
@@ -832,6 +838,36 @@ Corollary worth holding onto: the score keeps improving as an icon's ink darkens
 past the measured value (4.42% at the true token, 4.31% at 125, monotonically).
 That is the metric paying for less ink, exactly as it pays for smaller text.
 The source's own constant is the only defensible place to stop.
+
+### A PINNED tab keeps hanabi's hover × ; Puffin's pinned chip has none
+
+Puffin draws the close mark on an unpinned chip **at rest** — `TabChip.body`
+ends its HStack with `if !tab.isKeptOpen { closeButton }` and there is no hover
+condition in the file — and on a pinned chip it draws none at all, ever.
+hanabi now matches the first half exactly (`feat/vis-tabs4`; the mark's box is
+Puffin's own `504 − 10 − 14 = 480`, 14 square, and its ink lands on the
+reference's x483..490 y46..53 row for row). It deliberately does **not** match
+the second: a pinned tab in hanabi still shows an × under the pointer.
+
+Puffin can afford to draw nothing there because hiding the mark is not hiding
+the exit. `closeRequest` REFUSES a pinned tab and springs its pin instead, and
+that refusal is reached from the X, from middle-click and from a **Close Tab**
+item in the chip's own context menu. hanabi has no refusal and no close item in
+its tab menu, so removing the hover × would leave Cmd+W and middle-click as the
+only ways out of a pinned tab — a worse outcome than the divergence.
+
+It is free at the metric and always will be: **neither reference captures a
+hover**, so a mark that only appears under the pointer is in neither frame.
+That is also why nothing can test it — see `afterhours_gaps.md` #104.
+
+**The trap this section exists to stop** is the one that cost two rounds. The
+close mark's rule is a function of PINNING, `ref/01_home.png` has two pinned
+tabs and `ref/02_thread.png` has one unpinned tab, and **the two frames
+disagree about this element on purpose.** hanabi drew the × on hover only, on
+the strength of a comment reading "the reference shows a clean title on every
+tab" — read off 01, the frame in which Puffin also draws no ×. Before
+concluding any tab-strip rule from a capture, ask which of the two pinning
+states it is in and whether the rule depends on it.
 
 ### The session row's star (hanabi has it; Puffin's row has no equivalent)
 
