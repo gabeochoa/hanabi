@@ -1,0 +1,57 @@
+# The screen you left stops costing anything.
+#
+# afterhours' `imm::mk()` hands back the same entity for a call site forever
+# and nothing ever retires one, so a screen the app has navigated away from
+# stays in the collection and every UI system walks it, every frame, for the
+# life of the process (afterhours_gaps.md #115). At a 2000-session catalog
+# that was 2844 entities and 4.57 ms/frame for screens nobody was looking at.
+#
+# THE ASSERTION HAS TO BE A LABEL, and that is the awkward part of testing
+# this: a widget that should have been retired is by definition NOT on screen,
+# and the scripted matcher only reads what rendered. So HANABI_WIDGET_AUDIT=1
+# prints the count in a corner label — the same trick the row and snippet
+# audits use, on the same contract. "stale widgets N of M" is N widgets that
+# `mk` still owns, that nothing has built for longer than the grace, and that
+# the sweep has not taken. N is what src/ui/widget_epoch.h exists to hold at
+# zero.
+#
+# The grace is dropped to 2 frames and the sweep to every frame, because the
+# shipping defaults are 90 and 15 — a second and a half of not-being-built
+# before a widget is retired, which is right for a person flicking between two
+# screens and far longer than a scripted test should sit and wait.
+#
+# The twin of this script is widgets_are_retired_only_if_the_sweep_runs.e2e,
+# which runs the same navigation with HANABI_RETIRE=0 and asserts the count is
+# NOT zero. Without it this script would still pass against a build that
+# retired nothing and simply never counted anything either.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIDGET_AUDIT=1 HANABI_RETIRE_GRACE=2 HANABI_RETIRE_EVERY=1
+
+# The control: sitting on Home, everything the frame owns is something the
+# frame built. (Not vacuous — the launch skeletons are already gone by here,
+# and they are the app's own first example of a widget nothing rebuilds.)
+expect_text "stale widgets 0"
+
+# Open a thread. Rows are clicked by coordinate because the harness cannot name
+# one row of a list (afterhours_gaps.md #55): the band starts at y=380 with
+# 24px rows, so y=386 is the first thread. Home's cards stop being built on the
+# next frame.
+click 140 386
+wait_frames 30
+
+# The thread is up: a transcript pane exists and is not hidden. (By name, not
+# by any text in it — the mock's first thread could be re-worded tomorrow and
+# this script is not about what it says.)
+assert_ui transcript_scroll hidden=false
+# ...and Home is not just off screen, it is out of the frame's cost. Before the
+# sweep this read "stale widgets 41 of 300".
+expect_text "stale widgets 0"
+
+# Go back to Home. The screen rebuilds from nothing — a retired widget is a
+# widget that has to be built again — so this is the assertion that says the
+# rebuild works rather than leaving a hole where a screen used to be.
+click_ui smart_item
+wait_frames 30
+expect_text "WAITING ON YOU"
+expect_text "stale widgets 0"

@@ -103,6 +103,23 @@ inline bool row_audit() {
     return on;
 }
 
+// HANABI_WIDGET_AUDIT=1 makes the sidebar print, in a corner label, how many
+// widgets are STALE -- built by some earlier screen, never retired, and walked
+// by every UI system on every frame since (afterhours_gaps.md #115).
+//
+// It is the number src/ui/widget_epoch.h exists to hold at zero, and nothing
+// else can show it: a retired widget is not on screen, so the scripted matcher
+// -- which only reads what rendered -- can never see one directly. What it CAN
+// read is a label that counts them. Same contract as the audits above: read
+// once, hard no-op when unset.
+inline bool widget_audit() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_WIDGET_AUDIT");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 // HANABI_SYNTAX_AUDIT=1 makes a fenced code block print, in its language bar,
 // how many coloured runs of each kind it actually handed to the renderer.
 // Colour is the whole feature and the scripted harness cannot see a colour —

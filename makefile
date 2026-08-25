@@ -454,6 +454,13 @@ $(TEST_DIR)/test_pane_memory: tests/unit/test_pane_memory.cpp src/ecs/pane_state
 	@echo "Compiling test_pane_memory..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_pane_memory.cpp -o $@
 
+# Widget retirement: the sweep, and the two ways it could be quietly wrong
+# (a `mk` wrapper that eats the call site, a hash left pointing at a dead
+# entity). Header-only -- the UI collection and imm::mk need no graphics.
+$(TEST_DIR)/test_widget_retire: tests/unit/test_widget_retire.cpp src/ui/widget_epoch.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_widget_retire..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_widget_retire.cpp -o $@
+
 $(TEST_DIR)/test_footer_geometry: tests/unit/test_footer_geometry.cpp src/ecs/sidebar_footer_geometry.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_footer_geometry..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_footer_geometry.cpp -o $@
@@ -510,7 +517,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -564,6 +571,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) soak-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) scroll-gate
+	@$(MAKE) retire-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -587,6 +595,9 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #                      count must not track the catalog (the level), and the
 #                      second half of a long scroll must cost what the first
 #                      half did (the trend). In `make test`.
+#   make retire-gate   ~3 s.  Navigates five screens and a thread, then counts
+#                      the widgets nothing is building any more. A COUNT, not
+#                      a millisecond. In `make test`.
 #   make soak          ~65 s. The long form: every stress scenario, 4000
 #                      frames each, plus an arm at a 2000-session catalog.
 #                      NOT in `make test` — run it before a release.
@@ -598,6 +609,9 @@ scaling-gate: $(MAIN_EXE) copy-resources
 
 scroll-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scroll_gate.sh
+
+retire-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/retire_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
@@ -617,7 +631,7 @@ source-checks:
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
-.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate source-checks
+.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate retire-gate source-checks
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

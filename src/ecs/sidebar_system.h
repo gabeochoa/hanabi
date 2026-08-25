@@ -340,6 +340,37 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_render_layer(2)
                     .with_debug_name("sb_row_audit"));
 
+        // Test-only (HANABI_WIDGET_AUDIT=1): widgets that are STALE -- built
+        // by a screen the app has left, never retired, and walked by every UI
+        // system on every frame since (afterhours_gaps.md #115). Holding this
+        // at zero is what src/ui/widget_epoch.h is for, and no other assertion
+        // can see it: a widget that should have been retired is by definition
+        // not on screen, and the scripted matcher only reads what rendered.
+        // Same placement rules as the two audits above.
+        if (hanabi::test_hooks::widget_audit())
+            div(ctx, mk(panel.ent(), 9),
+                ComponentConfig{}
+                    .with_label(
+                        "stale widgets " +
+                        std::to_string(hanabi::widget_epoch::
+                                           unretired_stale_count(
+                                               hanabi::widget_epoch::
+                                                   grace_frames())) +
+                        " of " +
+                        std::to_string(
+                            afterhours::ui::imm::existing_ui_elements.size()))
+                    .with_size(ComponentSize{pixels(r.width - 20.0f),
+                                             pixels(14)})
+                    .with_absolute_position()
+                    .with_translate(10.0f, r.height - 50.0f)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(2)
+                    .with_debug_name("sb_widget_audit"));
+
         // No-results empty state (only meaningful with a non-empty query).
         if (!q.empty() && shown == 0) {
             div(ctx, mk(scroll.ent(), 900),
