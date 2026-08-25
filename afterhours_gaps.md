@@ -69,7 +69,19 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #43 component lookup goes through `dynamic_cast`, so type identity costs a `strcmp` *(~16%)*
 - #44 the imm builder copies `ComponentConfig` by value on every widget *(~7%)*
 
+**Added 2026-08-25** (full entries at the end of the file)
+- #160 a component is two cache misses to write four bytes; no per-entity user word *(3.6x the cost of a side table)*
+- #161 a failed scripted assertion truncates the evidence to 200 chars, and `dump_ui` is not registered
+- #162 an app can retire the widgets it built and cannot see the ones the library built
+- #163 a scroll view off-screen is measured against zero children, so leaving a screen resets it to the top *(pre-dates the retirement work)*
+
 **Resolved / corrected**
+- #115 (a widget that stops being built is never retired) is **worked around
+  app-side**, and the entry was wrong about why it could not be:
+  `existing_ui_elements` is a public inline global, not private. See the
+  postscript on the entry itself. The gap stands -- it is fifty lines of app
+  code every vendoring app has to write, and it cannot reach the library's own
+  entities (#162).
 - #29 (a hoverable child steals the parent row's hover fill) is **fixed** —
   `ctx.mouse_was_in_subtree(id)` is exactly the primitive, verified against a
   real pointer; hanabi's hand-rolled workaround is deleted.
@@ -6635,6 +6647,61 @@ to add its own entity census to find that out.
 
 CLASS: WORKAROUND
 
+**POSTSCRIPT, 2026-08-25: fixed from the app side, and this entry was wrong
+about why it could not be.** The escape list above says:
+
+> **Delete the entities from the app side.** An app can reach
+> `EntityHelper::get_entities_for_mod()`, but the ids are inside `mk()`'s
+> private map [...]
+
+`existing_ui_elements` is not private. It is an `inline std::map` at namespace
+scope in `afterhours::ui::imm` (`entity_management.h`), so any app that
+includes the header can read it, iterate it and erase from it. That one
+mistaken word is the difference between "the library must fix this" and "the
+app can", and it stood in this file for a month.
+
+The second half is that `mk` can be SHADOWED. hanabi imports it through
+exactly one using-declaration and ADL cannot reach
+`afterhours::ui::imm::mk` on its own, so replacing that line puts hanabi's own
+`mk` in front of the library's at all 335 call sites at once -- forwarding to
+`imm::mk` (same call-site hash, same entity, same reuse) and recording the
+frame that built it. `src/ui/widget_epoch.h`.
+
+With both, the sweep this entry asks the library for is fifty lines of app
+code: stamp on build, and once every 15 frames walk the map and, for any entry
+whose entity has not been built for 90 frames, erase the hash AND mark the
+entity for cleanup (afterhours' own post-update bridge destroys it before the
+frame renders). Erasing the hash is the half that matters -- afterhours
+recycles EntityIDs, so an entry left pointing at a destroyed entity hands the
+next `mk()` at that call site a different widget.
+
+    views arm, 2000 sessions, 3600 frames, sampled every 360 (one whole
+    navigation cycle, so every sample is on the same screen):
+
+                    sweep off     sweep on
+      entities           2844          213     13.4x fewer
+      ms/frame           4.57         3.13     -31%
+      live heap        48.8 MB      43.5 MB    -5.3 MB
+
+**The upstream fix is still worth doing**, for four reasons the app-side
+version cannot cover:
+
+  * Every app that vendors afterhours has to write this, and each one has to
+    discover that the map is public and that `mk` is shadowable.
+  * It cannot retire what it did not create. Nine entities per run in hanabi
+    are the library's own (the UI root, scrollbars, the drag spacer) and no
+    app-side sweep can ever see them -- #162.
+  * It depends on `mk` being the ONLY way an entity enters
+    `existing_ui_elements`, which is true today and is not a documented
+    contract.
+  * It costs 0.030 ms/frame of stamping that the library would get for free:
+    `mk()` already has the entity in hand at the moment it decides to hand it
+    back. From the app side that write is a second cache line -- #160.
+
+The class stays WORKAROUND. It is a good workaround, it is gated
+(`scripts/retire_gate.sh`) and tested, and it is still an app re-implementing
+widget lifetime because the framework does not have one.
+
 ### #116 — There is no way to ask how much of a string fits in a width, so every ellipsized label is O(n) whole-string measurements
 
 **What was wanted.** A sidebar row title cut to its column with an ellipsis --
@@ -7037,14 +7104,38 @@ slot. The cost is that "which row is this widget" has two answers in the same
 five lines, and the compiler will never tell you when a third caller picks the
 wrong one.
 
+**POSTSCRIPT, 2026-08-25 (`perf/retire`): the sweep bounds this, and does not
+remove it.** #115 is now worked around app-side -- widgets nothing has built
+for 90 frames are retired -- so the first bullet's "one entity per row ever
+reached, forever" is no longer true. It is worth knowing exactly what replaces
+it, because "the leak is fixed" would be the wrong lesson.
+
+Measured by putting the defect back (`rowId = base + 1 + idx`, the row index)
+and running `scripts/scroll_gate.sh`:
+
+    row-index ids, sweep off   the gate fails as documented, blocks climbing
+    row-index ids, sweep on    blocks +148.8 /1000f (budget 150) -- inside,
+                               but the LEVEL arm fails at 3.55x (budget 1.60):
+                               1360 entities at 2000 sessions against 383 at 20
+    slot ids, sweep on         1.33x, blocks -340 to +30 over four runs
+
+The sweep turns an unbounded leak into a bounded working set, and the bound is
+`grace x scroll rate` -- every row scrolled past in the last 90 frames is still
+alive, which on a fast sweep of a 2000-row list is 3.5x the window. Bounded is
+much better than unbounded and it is not the same as free.
+
+**So the slot keying stays**, and the reason is now sharper than "otherwise it
+leaks": an id scheme that mints an entity per row is asking the sweep to
+destroy and recreate a row's worth of entities on every scroll frame, which is
+allocation churn where the slot scheme has none. Everything above about the
+slot being right and not free is unchanged.
+
 **Minimal upstream fix.** Make recycling a thing the library knows about:
 `mk()` taking an optional stable KEY distinct from its slot, so the library can
 re-use the slot's entity while telling the consumer the key changed -- one
 `bool key_changed` on the returned wrapper is enough to let a press be
 cancelled and a hover re-evaluated. Retiring unbuilt entities (#115) would
 solve the memory half on its own and leave this half exactly where it is.
-
-CLASS: FOOTGUN
 
 ---
 
@@ -7098,3 +7189,447 @@ the existing macro; it is only the one-line "pretend a wheel turned" that needs
 to be in the build a person runs.
 
 CLASS: MISSING
+
+---
+
+### #190 — `TextMeasureCache` is keyed by a font's NAME, so swapping the FACE behind that name serves stale measurements with no way to know
+
+**What was wanted.** hanabi lets the reader pick a typeface — Settings →
+Standard / Hyperlegible. Applying it is the one line the library offers:
+
+```cpp
+fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT, path.c_str());
+```
+
+**What happens.** Every glyph in the app changes and *nothing that any cache
+is keyed by* changes with it. `TextMeasureCache::compute_hash` mixes the text,
+the font NAME, the size and the spacing; the name is `DEFAULT_FONT` before and
+after, the sizes are the type scale, the strings are the same strings. So the
+cache goes on answering with measurements of a face that is no longer on
+screen, and it is not degraded — it is confidently wrong, at a 100% hit rate.
+
+It self-heals eventually and by accident: `end_frame` prunes entries older
+than `DEFAULT_MAX_AGE` (120 frames) every `DEFAULT_PRUNE_INTERVAL` (60), so a
+string that stops being asked for drops out in about two seconds. A string
+asked for every frame — every visible label — is refreshed on every access and
+`last_used_generation` never ages, so it never prunes. The entries that are
+wrong for longest are exactly the ones on screen.
+
+The library offers no invalidation finer than `clear()`, and no signal that
+the font manager's contents moved. There is no `FontManager` callback, no
+generation counter on the loaded font, and `load_font` returns void.
+
+**Why the obvious escapes do not work.**
+
+- **Use a different font NAME per face.** Then every widget in the app has to
+  be told which name to use, and `UIStylingDefaults::set_default_font` plus
+  every `with_font_name` call site becomes a switch on the reader's
+  preference. The whole point of loading into `DEFAULT_FONT` is that nothing
+  downstream has to know.
+- **Let the age-based prune handle it.** It is a two-second window for the
+  text nobody is looking at and an unbounded one for the text they are.
+- **Call `clear()` from the app.** This is what hanabi does now, and it is the
+  right call — but it only works because hanabi happens to know where the
+  singleton lives and that the swap happened. Any app that loads a font from
+  somewhere the settings screen does not own (a hot reload, a fallback face
+  for a missing glyph, a DPI change that reloads at another size) has the same
+  bug with nothing to hang the `clear()` on.
+- **Trust that nobody swaps a font at runtime.** An accessibility typeface
+  toggle is not exotic; it is the reason the feature exists.
+
+**The workaround, and its cost.** `src/util/text_epoch.h` — a generation
+counter hanabi bumps in `apply_pending_font`, plus a `tmc->clear()` for the
+library's own cache. Every hanabi memo of a measurement reads the counter and
+drops itself when it moves, and the check lives inside the shared cache TYPE
+(`src/util/text_cache.h`) rather than at the call sites, because a call site
+can forget. Four hanabi caches were stale before this: the transcript's
+per-message render memo, its hug memo, the sidebar's ellipsis memo and the
+line-count memo.
+
+The honest cost is small and worth stating: on hanabi's mock fixtures a live
+swap and a cold start in the other face produce frames 0.02% apart, and every
+one of those pixels is a relative-time label ticking between the two captures
+rather than a measurement. The bug is real, the current symptom is not
+visible, and it gets worse in exactly the direction every app moves — more
+measurement memoized, for longer.
+
+**Minimal upstream fix.** A generation counter on `FontManager`, bumped by
+`load_font`, and a `TextMeasureCache` that mixes it into the key or checks it
+on lookup. That is two integers and turns a silent wrong answer into a cold
+miss. Failing that, an `on_font_replaced` callback on `FontManager`, so an app
+can invalidate the caches it owns without having to notice the swap itself.
+
+CLASS: FOOTGUN
+
+---
+
+### #191 — `wrap_text` will tell you the LINES or nothing: no offsets, no count, so any consumer that needs less must reimplement the break rule
+
+**What was wanted.** Two questions a chat transcript asks constantly, neither
+of which needs the lines themselves:
+
+1. *How many lines is this paragraph at this width?* — to place the paragraph
+   after it. Filed as **#135**.
+2. *How wide is the widest of them?* — to hug a bubble to its text. Filed as
+   **#136**.
+
+**What happens.** `ui::wrap_text` returns `std::vector<std::string>`, and
+`detail::wrap_text_to_width` builds it by joining the runs of every line into
+a fresh string. There is no overload that returns a count, no overload that
+returns offsets into the input, and no way to hand in a sink. For (1) the
+caller takes `.size()` and drops the vector; for (2) it iterates the vector,
+measures each string, keeps a float, and drops the vector.
+
+Per word, the wrapper builds the candidate line TWICE — once as `candidate`
+for the accepted branch and once as `seg` inside `measure_candidate` — so a
+paragraph of N words costs 2N string constructions of average length N/2
+before the result vector exists at all. On hanabi's 120-message fixture,
+standing still, that was 61.8 wraps and ~3.2 KB of text per frame, and the
+whole output was one integer and one float per paragraph.
+
+This is #135 seen from one step further out. #135 asks for a counting
+overload; that alone would not have helped the hug, which needs the extent of
+each line. What is missing is any form of the answer smaller than "the lines".
+
+**Why the obvious escapes do not work.**
+
+- **`measure_text_wrapped`.** It calls `wrap_text_to_width` and then measures
+  each resulting line AGAIN (`detail::measure_wrapped`), so it is strictly
+  more work than doing it yourself, and its `WrappedTextMetrics` gives the
+  overall extent rather than the widest LINE — which for a hug is not the same
+  number when the last line is short.
+- **Reserve the vector, or move the strings out.** The allocation is not the
+  return value; it is the 2N candidates built inside the loop.
+- **Wrap once and cache the lines.** That is holding every wrapped line of
+  every message in memory to avoid rebuilding them, which trades the gap for
+  #136's memory problem.
+- **Reimplement it.** Which is what hanabi did — and it is the escape that
+  works, so the gap is about what it costs. `src/util/wrap_count.h` restates
+  the break rule over byte offsets: hard-newline split, space/non-space
+  chunking, greedy accept with the first word of a line taken unmeasured,
+  pending whitespace kept when the word fits and eaten by a break, trailing
+  whitespace kept on the last line of a source line. Every one of those is a
+  detail that can drift from upstream silently and only shows up as a message
+  clipped by one line.
+
+**The workaround, and its cost.** ~230 lines of counter plus a 200-line
+differential test that compares BOTH forms against
+`ui::detail::wrap_text_to_width` itself — 9,200 (string, width) pairs per
+metric for the count, 3,082 wraps compared line for line for the spans. The
+test is the whole safety story: the two implementations share no code, so
+nothing but a differential check can notice upstream changing a break rule.
+It has already earned it, catching two whitespace details during
+development (`span 0 is "a b" but the line is "a b "`).
+
+It bought: 474 → 5.6 text measurements per idle frame, 9,508 → 5,942
+allocations per frame, and 134 fewer allocations per bubble hug. Restating a
+vendored algorithm to get a cheaper form of its answer is a bad trade that
+was worth making.
+
+**Minimal upstream fix.** One more overload beside `wrap_text`, sharing the
+same loop so it cannot disagree:
+
+```cpp
+// Byte ranges of each wrapped line, into `text`. No allocation per line.
+void wrap_text_spans(const std::string& text, float max_width,
+                     const std::string& font, float size,
+                     std::vector<std::pair<size_t, size_t>>& out);
+```
+
+A count is then `out.size()` and #135 is closed too. Separately, and worth
+almost as much on its own: build the candidate once instead of twice inside
+`wrap_runs_to_width`.
+
+CLASS: PERFORMANCE
+
+---
+
+### #192 — `dump_ui` is fully implemented, is not registered, and reports itself as a typo
+
+**What was wanted.** To find which widget's width changed when the font
+changed — the geometry, not the pixels. `ui_commands.h` has exactly the right
+thing: `HandleDumpUICommand`, ~100 lines, walks the tree and emits XML with
+every element's debug name, rect and text, with optional subtree scoping.
+
+**What happens.** `register_ui_commands` does not register it. Sixteen other
+handlers in the same function are registered; this one is defined and never
+mentioned again. Its argument shape is also absent from the runner's
+`single_arg_commands` / `two_arg_commands` tables, so even if it were
+registered the parser would not hand it the name it requires.
+
+So a script containing `dump_ui` fails with:
+
+```
+[E2E ERROR] dump_ui (line 3): Unknown command: 'dump_ui'. Either a typo, or
+its handler was registered after register_unknown_handler()/
+register_all_handlers() -- custom handlers must come before those.
+```
+
+which is a message about the CONSUMER's registration order, for a command the
+consumer never had the chance to register. Everything in it is true and all of
+it points the wrong way: the reader checks their own `register_*` ordering,
+finds it correct, and concludes they mistyped a command that does not exist —
+when it does exist, in the file they are looking at.
+
+This is the same shape as #86 and #117 (a harness that cannot report where
+anything landed) with an extra turn of the knife: the capability is written,
+it works, and it is unreachable.
+
+**Why the obvious escapes do not work.**
+
+- **Register it from the app.** `HandleDumpUICommand` is public, so this is
+  possible — but the parser still will not give it an argument, so it fails on
+  `has_args(1)`. Both halves have to be worked around and one of them is
+  inside the runner's parse tables.
+- **`assert_ui <name> w=<wrong value>` and read the error.** This is what
+  hanabi does. It reports the real width in the failure message, so it is a
+  one-widget-at-a-time `dump_ui` that requires knowing the debug name in
+  advance and makes the script fail on purpose. Finding which of ~200 widgets
+  moved this way is not a search, it is a guess.
+- **Screenshot and diff.** Gives pixels, not names, and is exactly the tool
+  #86 already records as insufficient.
+
+**The workaround, and its cost.** None applied; the investigation was done
+with `assert_ui` probes against guessed names, and the question ("which
+widget's geometry depends on the face?") went unanswered. It is a detour of
+maybe forty minutes for anyone who reads `ui_commands.h`, sees the command,
+and believes it is available.
+
+**Minimal upstream fix.** Two lines: register the handler in
+`register_ui_commands`, and add `dump_ui` to the runner's arg-shape table
+(it takes a name and an optional subtree root, so it wants a one-or-two-arg
+entry). Separately, the unknown-command message should not assert a cause it
+cannot know — "no handler consumed 'dump_ui'" is both shorter and true.
+
+CLASS: TEDIOUS
+
+---
+
+### #160 — A component is the only per-entity storage, and it costs two cache misses to write four bytes
+
+**What was wanted.** To write one 32-bit frame number onto a widget, once per
+widget per frame, at the moment the library hands it back. This is the
+mechanical heart of retiring widgets (#115): the stamp IS the fix, so its cost
+is the fix's cost.
+
+**What happens.** The ECS's only per-entity storage is a component, and
+`Entity` holds `std::array<std::unique_ptr<BaseComponent>, 128>` INLINE --
+a kilobyte of pointers in every entity, whatever it actually carries. So
+`entity.addComponentIfMissing<BuiltAt>().epoch = n` is:
+
+  * a bitset test in the entity header,
+  * a load from `componentArray[id]`, which for a late-registered component id
+    is ~500 bytes past the header and therefore a different cache line,
+  * a dereference of that `unique_ptr` into a separately allocated 16-byte
+    object -- a second miss,
+  * and, on both the `has` and the `get`, a function-local-static guard check
+    inside `components::get_type_id<T>()`.
+
+Measured on hanabi, idle, 2000-session catalog, `scripts/perf_ab.sh`
+interleaved, median of 5 runs of 800 frames, against the same binary without
+the stamp:
+
+    component (addComponentIfMissing)   1.310 -> 1.418   +0.108 ms/frame
+    dense vector, EntityID -> unsigned  1.309 -> 1.339   +0.030 ms/frame
+
+**3.6x, for the same four bytes.** At ~435 widgets a frame that is 250 ns per
+widget for a component and 70 ns for the vector; the difference is the cache
+lines, and it is why hanabi's stamp lives in a `std::vector<unsigned>` indexed
+by EntityID rather than in the obvious ECS-shaped place.
+
+**Why the obvious escapes do not work.**
+
+- **Register the component early so its id is small.** Component ids come from
+  a counter in order of first use; an app does not control the order, and
+  "small id" only buys the first cache line -- the `unique_ptr` indirection is
+  still there.
+- **Use `Entity::entity_type`.** There IS a spare `int` in the entity header,
+  four bytes from `id`, and nothing in afterhours reads it (only
+  `snapshot.h` copies it). Writing an app's frame stamp into it would be free.
+  It is also a public field with a name that claims a meaning, so an app that
+  hijacks it is one library release from a silent collision.
+- **Use tags.** `TagBitset tags` sits AFTER the kilobyte array, so it is the
+  same miss, and a bitset cannot hold a frame number anyway.
+- **Keep the side table but key it by pointer.** Worse: a hash lookup per
+  widget per frame instead of an indexed load.
+
+**The workaround, and its cost.** `src/ui/widget_epoch.h` keeps
+`std::vector<unsigned> g_stamps` indexed by EntityID -- 4 bytes per live id,
+contiguous, L1-resident at hanabi's sizes. The cost is that it is NOT tied to
+the entity's lifetime the way a component is: a stamp has to be cleared by hand
+when its entity is retired, and if an entity ever died by some path other than
+the app's own sweep, its stale stamp would be inherited by whatever EntityID
+recycling handed the id to next. hanabi closes that by sweeping the `mk` map
+rather than the entity collection -- the map only contains ids the app itself
+owns right now -- but that is a second piece of reasoning bought with the
+performance.
+
+**Minimal upstream fix.** A documented per-entity user word: `uint64_t
+Entity::user_data` (or a small `std::array<uint32_t, 2>`) in the header, next
+to `id` and `entity_type`, reserved for the app and never read by the library.
+Free to write, dies with the entity, no component id burned. Failing that: a
+`components::reserve_type_id<T>()` so an app can place a hot component in a low
+slot, plus storing small trivially-copyable components inline instead of behind
+a `unique_ptr`.
+
+CLASS: TEDIOUS
+
+### #161 — When a scripted assertion fails, the harness truncates the evidence to 200 characters and the command that would show the rest is not registered
+
+**What was wanted.** To find out why `expect_text "RECENT"` failed: what WAS on
+screen at that moment.
+
+**What happens.** The timeout message prints the visible-text registry through
+`{:.200}`, so on any real screen you get the first dozen labels and nothing
+else. Every failure in this session printed the same truncated sidebar --
+identical bytes for four completely different failures -- so the message tells
+you a test failed and nothing at all about why:
+
+    [TIMEOUT] expect_text (line 56): Text not found: 'RECENT'. Visible:
+      | VIEWS |   |   | Home | 9 |   | Settings |   | Blocked | 6 | ...
+
+`dump_ui` looks like the answer -- the command exists in `ui_commands.h`, and
+`dump_ui_node` builds a full tree with names, rects and labels. Putting it in a
+script gets:
+
+    [E2E ERROR] dump_ui (line 5): Unknown command: 'dump_ui'. Either a typo,
+    or its handler was registered after register_unknown_handler() /
+    register_all_handlers()
+
+so the diagnostic exists and cannot be reached from a script.
+
+Three wrong guesses cost a rebuild-and-rerun cycle each, and every one of them
+would have been answered instantly by a list of what rendered: a label that
+does not exist (`"Send"`), a click on the text inside a row rather than the row
+that carries the listener (`sv_label` vs `smart_item`), and a section header
+that is uppercased at the call site (`"Recent"` is drawn as `"RECENT"`).
+
+**Why the obvious escapes do not work.**
+
+- **Read the log.** It is the truncated string; that IS the log.
+- **Take a screenshot and look.** `screenshot` works, and a PNG answers "what
+  is on screen" for a human eye, not "what text does the registry hold" -- and
+  the registry is what the assertion reads. Drawn text (`on_draw_fg`) never
+  reaches it at all, which is exactly the kind of thing you are trying to find
+  out.
+- **Print it from the app.** Means building a debug label per question, which
+  is the (real, useful) pattern the row / snippet / widget audits already use
+  -- but those are for a permanent claim, not for finding out why today's
+  script does not match.
+
+**The workaround, and its cost.** Guess, rebuild, rerun. Three cycles here at
+about a minute each, for three facts that were all sitting in a structure the
+harness already builds.
+
+**Minimal upstream fix.** Two lines of registration for the `dump_ui` handler,
+and raise the truncation to something that fits a screen (or drop the limit and
+let the reader scroll). Better still, print the registry on failure the way
+`dump_ui` prints the tree -- one label per line, so a diff of expected against
+actual is readable.
+
+CLASS: TEDIOUS
+
+### #162 — An app can own the lifetime of the widgets IT built, and there is no way to see the ones the library built for itself
+
+**What was wanted.** After #115 was worked around app-side, a complete answer
+to "what is in the UI collection and who owns it".
+
+**What happens.** hanabi's sweep can only retire entities that came through its
+own `mk`, because that is the only set it can enumerate (`existing_ui_elements`
+maps call-site hash to EntityID, and nothing else in the collection is
+addressable except by walking it and guessing from `UIComponentDebug::name`).
+Everything the library creates for itself is invisible to that: the UI root,
+`HandleDragGroupsPreLayout`'s spacer, the drag overlay, anything a future
+version adds. hanabi's soak census reports them as a separate column:
+
+    [soak] widgets: 205 live, 196 built this frame, 0 stale, 9 unstamped
+
+Nine is not a problem. The fact that the number is unbounded-by-contract is:
+an app that has taken responsibility for widget lifetime has taken it for a
+subset it cannot name, and the only way it knows the subset is small is by
+counting.
+
+**Why the obvious escapes do not work.**
+
+- **Walk the collection and treat anything unstamped as the library's.** That
+  is exactly what the census does, and it is a definition by exclusion -- it
+  cannot tell a library entity from an app entity created outside `mk`, and it
+  cannot tell either from an entity a test spawned.
+- **Match on `UIComponentDebug::name`.** Matching on a debug string, which
+  #115 already rejected for the same reason.
+- **Retire them too.** They are load-bearing: the UI root is permanent, the
+  drag spacer is owned by a system that also destroys it. An app cannot know
+  which is which.
+
+**The workaround, and its cost.** Count them and report the count next to
+everything else, so the blind spot is visible rather than assumed
+(`src/ui/widget_epoch.h`, `Tally::unstamped`). The cost is that "we hold what
+we draw" is true of hanabi's widgets and silently approximate overall.
+
+**Minimal upstream fix.** Tag them. A `LibraryOwned` marker component (or a
+reserved tag) on every entity the UI plugin creates for its own use, plus
+`ui::library_owned_entities()`. Then an app can say "everything that is neither
+mine nor the library's is a bug" instead of "nine, last time I looked".
+
+CLASS: TEDIOUS
+
+### #163 — A scroll view's offset is clamped against a content size measured from children that are not there, so leaving a screen resets it to the top
+
+**What was wanted.** To leave a screen scrolled halfway down, look at something
+else, come back, and still be halfway down. Every list app does this.
+
+**What happens.** `MeasureScrollViews` runs once per frame on EVERY entity
+carrying `HasScrollView`, computes `content_size` by summing `cmp.children`,
+and calls `clamp_scroll()`. `ClearUIComponentChildren` empties every widget's
+children list at the top of every frame, and only the screen being BUILT
+refills it. So for a pane that is not being built, the scroll view is measured
+against zero children:
+
+    content_size.y = 0
+    max_scroll_y   = max(0, 0 - viewport) = 0
+    scroll_offset.y = clamp(offset, 0, 0) = 0
+
+One frame off-screen and the reader's position is gone -- not lost on the way
+back, destroyed immediately, by the measuring pass.
+
+Measured in hanabi (scripted, 60-session catalog): Home scrolled until its
+first section header sat at **y=-354**, then a trip to a thread and back, and
+the header is at **y=123** -- the top of the list.
+
+This was found while fixing #115, on the assumption that RETIRING a scroll view
+would be what lost the position. It is not. The same script reads y=-354 then
+y=123 with retirement on and with `HANABI_RETIRE=0`, byte for byte: the
+position was already gone before anything was destroyed. A carve-out that kept
+scroll views alive through the sweep was written, measured, and deleted --
+keeping the entity keeps the field, and the field is overwritten with 0 by the
+next frame's measure.
+
+**Why the obvious escapes do not work.**
+
+- **Keep the entity alive.** Done, measured, no effect. The offset is a live
+  field being recomputed, not a value being lost with the entity.
+- **Restore the offset when the screen comes back.** The app would have to
+  notice the return, which means tracking per-pane "was I built last frame" --
+  the same bookkeeping #115 already forces -- and then write the offset back
+  before `MeasureScrollViews` runs but after the children exist, which is
+  inside the library's post-update bridge. There is no hook there.
+- **Stop the pane from being measured while it is away.** Nothing marks a
+  subtree as "not participating this frame"; `should_hide` is a render flag and
+  the measure system does not consult it.
+- **Keep building the screen off-screen so it keeps its children.** That is
+  exactly the cost #115 is about.
+
+**The workaround, and its cost.** None in hanabi -- the behaviour predates the
+retirement work and is out of its scope. It is filed because the mechanism is
+now known exactly, and because anyone who tries to fix "coming back to a screen
+loses your place" will otherwise look at the widget lifetime, which is the
+wrong place: the culprit is a measurement of an empty tree.
+
+**Minimal upstream fix.** Do not clamp against a content size measured from
+zero children. Either skip the measure entirely when `cmp.children.empty()` (a
+scroll view with no children this frame is not a scroll view whose content
+shrank, it is one that was not built), or keep `scroll_offset` and clamp only
+the RENDERED offset, so the stored intent survives a frame in which the tree
+was not built.
+
+CLASS: WORKAROUND

@@ -41,6 +41,8 @@
 //   HANABI_STRESS=resize   drag the window narrower and wider, forever
 //   HANABI_STRESS=churn    open a thread, leave, close it, open the next
 //   HANABI_STRESS=mixed    all of the above, interleaved, the way a person is
+//   HANABI_STRESS=views    walk the smart views, then open a thread, forever
+//   HANABI_STRESS=idle     nothing; the control arm
 //
 //   HANABI_STRESS_FRAMES=<n>   total frames (default 3000, ~50s at 60fps)
 //   HANABI_STRESS_SETTLE=<n>   frames to run before measuring (default 120)
@@ -57,6 +59,7 @@
 // docs/perf/STRESS.md. `open` promotes each tab the way a second click does
 // (tab_bar_system.h: "treat a click on the tab you are already reading as the
 // second look that keeps it"), so the strip actually accumulates.
+//   HANABI_STRESS_VIEW_DWELL=<n>  frames per screen, for views (default 60)
 //
 // Everything here is behind that one variable and is a hard no-op when unset,
 // the same contract as `test_hooks.h`.
@@ -89,6 +92,7 @@ enum struct Scenario {
     Resize,
     Churn,
     Mixed,
+    Views,
 };
 
 inline Scenario scenario() {
@@ -107,6 +111,7 @@ inline Scenario scenario() {
         if (name == "resize") return Scenario::Resize;
         if (name == "churn") return Scenario::Churn;
         if (name == "mixed") return Scenario::Mixed;
+        if (name == "views") return Scenario::Views;
         return Scenario::None;
     }();
     return s;
@@ -123,6 +128,7 @@ inline int frames() { return env_int("HANABI_STRESS_FRAMES", 3000); }
 inline int settle_frames() { return env_int("HANABI_STRESS_SETTLE", 120); }
 inline int tab_count() { return env_int("HANABI_STRESS_TABS", 8); }
 inline int every(int fallback) { return env_int("HANABI_STRESS_EVERY", fallback); }
+inline int view_dwell() { return env_int("HANABI_STRESS_VIEW_DWELL", 60); }
 
 inline const char* name(Scenario s) {
     switch (s) {
@@ -137,6 +143,7 @@ inline const char* name(Scenario s) {
         case Scenario::Resize: return "resize";
         case Scenario::Churn: return "churn";
         case Scenario::Mixed: return "mixed";
+        case Scenario::Views: return "views";
         case Scenario::None: return "none";
     }
     return "none";
@@ -249,6 +256,47 @@ struct Driver {
                 if (frame != 0) break;
                 app.collapsedFolders.insert(
                     ecs::more_key("recent", moreKeyScratch));
+                break;
+            }
+
+            case Scenario::Views: {
+                // Walk the screens, which is the one thing none of the other
+                // arms do: they all sit on ONE screen and measure it. The
+                // reported shape of the app getting slower was navigation --
+                // Home, then a thread, then back -- and a screen that is no
+                // longer built is still walked by every system every frame
+                // (afterhours_gaps.md #115). An arm that never changes screen
+                // cannot see that, and for a month none of them did.
+                //
+                // The dwell is a COUNT, not a duration, so the arm is the same
+                // work on a busy box as on a quiet one; 60 frames is a second
+                // at 60fps, which is about the shortest a person looks at a
+                // screen before moving on.
+                const int dwell = view_dwell();
+                if (frame % dwell != 0) break;
+                const int step = (frame / dwell) % 6;
+                switch (step) {
+                    case 0: app.view = ecs::SmartView::Home; break;
+                    case 1: app.view = ecs::SmartView::Blocked; break;
+                    case 2: app.view = ecs::SmartView::Review; break;
+                    case 3: app.view = ecs::SmartView::Starred; break;
+                    case 4: app.view = ecs::SmartView::Archived; break;
+                    case 5:
+                        // Through requestOpenTab, the same seam a click on a
+                        // row uses -- it opens (or focuses) the tab AND sets
+                        // the view to Chat, so this cannot drift from what a
+                        // person's click does.
+                        if (!app.sessions.empty()) {
+                            const size_t i = static_cast<size_t>(threadCursor) %
+                                             app.sessions.size();
+                            app.requestOpenTab = app.sessions[i].id;
+                            ++threadCursor;
+                        } else {
+                            app.view = ecs::SmartView::Chat;
+                        }
+                        break;
+                    default: break;
+                }
                 break;
             }
 

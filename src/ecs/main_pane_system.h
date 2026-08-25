@@ -21,6 +21,8 @@
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
+#include "../util/text_cache.h"
+#include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
@@ -1974,6 +1976,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static ecs::model::TranscriptRenderCache& render_cache() {
         static ecs::model::TranscriptRenderCache c;
+        // It holds line counts, measured heights and hugged widths -- all of
+        // them measurements, none of them keyed by anything that moves when
+        // the reader swaps the face behind DEFAULT_FONT from Settings. One
+        // check here covers both the per-message memo and the hug memo, which
+        // share this store on purpose (see transcript_render_cache.h).
+        static unsigned epoch = hanabi::text::font_epoch();
+        if (epoch != hanabi::text::font_epoch()) {
+            epoch = hanabi::text::font_epoch();
+            c.clear();
+        }
         return c;
     }
 
@@ -5230,9 +5242,51 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            float fontPx = theme::type::BODY) {
         // wrap_text honours hard newlines itself, so a blank line still counts
         // as a line the way the old hand-rolled split did.
-        const int lines =
-            static_cast<int>(wrapped_lines(text, widthPx, fontPx).size());
-        return lines < 1 ? 1 : lines;
+        //
+        // This used to be `wrapped_lines(...).size()` -- build every line as a
+        // std::string, put them in a vector, take the size, drop the lot. The
+        // counter in src/util/wrap_count.h answers the same question over byte
+        // offsets, through the SAME measure function afterhours' wrapper uses,
+        // so the two cannot disagree about where a line breaks (and
+        // tests/unit/test_wrap_count.cpp checks that differentially against
+        // the vendored wrapper itself). afterhours_gaps.md #135.
+        //
+        // In front of it, a memo -- because the transcript's RENDER pass asks
+        // this question about every visible paragraph on every frame, and the
+        // answer cannot change unless the text or the width does. The measure
+        // pass has had a memo since the transcript work; the render pass never
+        // did, and it is where 61.7 of the 61.8 wraps per idle frame came
+        // from. Keyed on the whole argument tuple of a pure function, so it
+        // cannot go stale: a changed body is a different key, not an invalid
+        // entry, and there is nothing to invalidate on a resize or a theme
+        // change.
+        //
+        // kLineCountEntries is the bound, and it is an LRU eviction rather
+        // than a clear (see src/util/text_cache.h). Measured with the
+        // transcript being scrolled: 128 entries held at 120 messages, 488 at
+        // 480, and at 1,200 messages the cap engages and holds -- 512 entries,
+        // 99.2% hit, 1.4 recomputes a frame. So 512 is the number where a
+        // thread longer than any real one starts paying, and what it pays is
+        // one recompute per evicted paragraph rather than a cold screen.
+        constexpr std::size_t kLineCountEntries = 512;
+        static hanabi::text::TextKeyCache<int> memo(kLineCountEntries);
+        if (const int* hit = memo.find(text, widthPx, fontPx)) {
+            hanabi::prof::tick("cache.lines_hit");
+            return *hit;
+        }
+        hanabi::prof::tick("cache.lines_miss");
+        hanabi::prof::Scope _p("text.count_lines");
+        hanabi::prof::tick("text.count_bytes", text.size());
+        const int lines = hanabi::text::wrapped_line_count(
+            text, text_wrap_width(widthPx), [fontPx](const std::string& s) {
+                return afterhours::ui::measure_text_line(
+                           s, afterhours::ui::UIComponent::DEFAULT_FONT, fontPx)
+                    .x;
+            });
+        const int out = lines < 1 ? 1 : lines;
+        memo.put(text, widthPx, fontPx, out);
+        hanabi::prof::gauge("cache.lines_entries", memo.size());
+        return out;
     }
 
     // Return the first `maxLines` WRAPPED lines of `text` (approx: we cut on
@@ -5691,7 +5745,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             liveSlot = std::move(r);
             return liveSlot;
         }
-        return render_cache().put(key, std::move(r));
+        const ecs::model::MsgRender& out = render_cache().put(key, std::move(r));
+        hanabi::prof::gauge("cache.msgrender_entries",
+                            render_cache().total_size());
+        hanabi::prof::gauge("cache.msgrender_threads", render_cache().threads());
+        return out;
     }
 
     bool is_folded(const api::Message& m, int index, int lineCount,
@@ -5919,9 +5977,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Widest wrapped line, measured with the font that will draw it. The
         // +kLabelInsetX*2 puts back what the label takes off its own rect, so
         // the text cannot re-wrap inside the narrowed box.
+        //
+        // The lines are taken as BYTE RANGES rather than as strings
+        // (src/util/wrap_count.h): this used to be
+        // `for (const auto& ln : wrapped_lines(mr.body, maxTextW))`, which
+        // built and destroyed one std::string per wrapped line, plus the
+        // vector, to produce one float. The ranges are checked line for line
+        // against the vendored wrapper in tests/unit/test_wrap_count.cpp, so
+        // the widths measured here are the widths of the lines that will be
+        // drawn -- including the trailing whitespace on the last line of a
+        // paragraph, which has width and which a naive span would drop.
+        static std::vector<std::pair<std::size_t, std::size_t>> spans;
+        static std::string lineBuf;
+        hanabi::text::wrapped_line_spans(
+            mr.body, text_wrap_width(maxTextW),
+            [](const std::string& s) {
+                return afterhours::ui::measure_text_line(
+                           s, afterhours::ui::UIComponent::DEFAULT_FONT,
+                           theme::type::BODY)
+                    .x;
+            },
+            spans);
         float widest = 0.0f;
-        for (const auto& ln : wrapped_lines(mr.body, maxTextW))
-            widest = std::max(widest, theme::text_px(ln, theme::type::BODY));
+        for (const auto& sp : spans) {
+            lineBuf.assign(mr.body, sp.first, sp.second - sp.first);
+            widest = std::max(widest,
+                              theme::text_px(lineBuf, theme::type::BODY));
+        }
         const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
         if (!isLive) render_cache().put_hug(hugKey, maxTextW, textW);
         return box_from_text_w(textW);

@@ -42,10 +42,27 @@
 // the prefix that comes back is one that was checked. A first draft of this
 // carried a walk-back loop to enforce that afterwards; it could be deleted
 // with every test still green, which is what dead code looks like.
+//
+// WHERE THE SEARCH STARTS, AND WHY THAT IS MOST OF THE COST NOW. A bisection
+// that starts in the middle of the string spends its first few probes finding
+// out something the caller already knows: the full string's width was just
+// measured, and text is roughly as wide as it is long, so the answer is near
+// `len * budget / full` rather than near `len / 2`. Seeding there and then
+// GALLOPING outward in doubling steps brackets the cut point in about two
+// probes for real prose, and the bisection that follows has a handful of
+// bytes left to search instead of the whole string.
+//
+// This changes no answer: the seed is only ever used to narrow [lo, hi], and
+// every boundary assigned to `lo` was measured as fitting exactly as before.
+// tests/unit/test_ellipsize.cpp checks that the string returned is still the
+// linear scan's, at every width in a quarter-unit sweep under three rulers,
+// and separately counts the probes so the saving is a number and not a claim.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
 #include <string>
+
+#include "prof.h"
 
 namespace hanabi::text {
 
@@ -79,7 +96,11 @@ template <class Measure>
 std::string fit_to_width(const std::string& text, float maxW,
                          Measure&& measure) {
     if (maxW <= 0.0f) return std::string();
-    if (measure(text.c_str()) <= maxW) return text;
+    hanabi::prof::tick("text.fit_call");
+    hanabi::prof::tick("text.fit_probe");
+    const float full = measure(text.c_str());
+    if (full <= maxW) return text;
+    hanabi::prof::tick("text.fit_probe");
     const float ell = measure(kEllipsis);
 
     // One scratch buffer for every probe. resize() DOWN never reallocates and
@@ -89,19 +110,72 @@ std::string fit_to_width(const std::string& text, float maxW,
     static std::string probe;
     probe.assign(text);
     const auto fits = [&](size_t n) {
+        hanabi::prof::tick("text.fit_probe");
         probe.resize(n);
         const bool ok = measure(probe.c_str()) + ell <= maxW;
         probe.assign(text);
         return ok;
     };
 
-    // Binary search the largest boundary that fits. The full string is known
-    // not to fit (checked above), so hi is a valid upper bound.
+    // The full string is known not to fit (checked above), and adding the
+    // ellipsis only widens it, so hi is a valid upper bound.
     size_t lo = 0;
     size_t hi = text.size();
+
+    // Seed from the width already in hand, then gallop to bracket. `full` is
+    // the whole string's width, so budget/full is the share of the string
+    // that fits, and length times that share is a byte estimate. It is only a
+    // seed: everything it does is narrow [lo, hi], and both ends stay honest.
+    const float budget = maxW - ell;
+    if (budget > 0.0f && full > 0.0f) {
+        const double share = static_cast<double>(budget) / static_cast<double>(full);
+        const size_t seed =
+            utf8_floor(text, static_cast<size_t>(
+                                 static_cast<double>(text.size()) * share));
+        if (seed > 0 && seed < hi) {
+            if (fits(seed)) {
+                lo = seed;
+                for (size_t step = 1; step < text.size(); step *= 2) {
+                    const size_t n = utf8_floor(text, seed + step);
+                    if (n >= hi) break;
+                    if (n <= lo) continue;  // step landed inside a code point
+                    if (fits(n)) {
+                        lo = n;
+                    } else {
+                        hi = n;
+                        break;
+                    }
+                }
+            } else {
+                hi = seed;
+                for (size_t step = 1; step < text.size(); step *= 2) {
+                    const size_t n =
+                        utf8_floor(text, seed > step ? seed - step : 0);
+                    if (n <= lo) break;
+                    if (fits(n)) {
+                        lo = n;
+                        break;
+                    }
+                    hi = n;
+                }
+            }
+        }
+    }
+
+    // Binary search the largest boundary that fits, in whatever is left.
+    //
+    // The midpoint is floored to a code point boundary, and flooring can land
+    // back on `lo` -- inside a multi-byte character whose start is `lo`. The
+    // first version of this treated that as "no boundary between them" and
+    // stopped, which is only true when the NEXT boundary is already at or past
+    // `hi`. It is not the same thing, and the difference is a title cut one
+    // glyph short in front of any multi-byte character: caught by the
+    // differential sweep the moment the seed above narrowed the range enough
+    // to reach the case (utf8/proportional, "reconciling —", maxW=67).
     while (hi - lo > 1) {
-        const size_t mid = utf8_floor(text, lo + (hi - lo) / 2);
-        if (mid == lo) break;  // no code point boundary strictly between them
+        size_t mid = utf8_floor(text, lo + (hi - lo) / 2);
+        if (mid <= lo) mid = utf8_next(text, lo);
+        if (mid >= hi) break;  // no code point boundary strictly between them
         if (fits(mid)) lo = mid; else hi = mid;
     }
 

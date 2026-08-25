@@ -69,8 +69,24 @@ if [ -z "$SHORT_OUT" ] || [ -z "$LONG_OUT" ]; then
     exit 1
 fi
 
-S_WRAP=$(field "$SHORT_OUT" 'text\.wrap_text ' 4)
-L_WRAP=$(field "$LONG_OUT"  'text\.wrap_text ' 4)
+# WRAPS PER FRAME, AND WHY THIS IS A SUM OF TWO ROWS NOW. This gate used to
+# read text.wrap_text alone. That row counts calls to afterhours' ui::wrap_text
+# -- and the transcript stopped calling it: "how many lines is this?" goes
+# through hanabi's own counting wrapper (text.count_lines,
+# src/util/wrap_count.h) and the hug goes through wrapped_line_spans. Reading
+# only the old row would have left this gate watching a function with 0.03
+# calls a frame, permanently green and permanently blind, which is a worse
+# state than not having it. Both rows, added, is the same question the gate
+# has always asked: how many times per frame does the transcript work out
+# where a line breaks.
+wrap_calls() {  # <prof output>
+    local a b
+    a=$(printf '%s\n' "$1" | awk '/text\.wrap_text /  {print $4; exit}')
+    b=$(printf '%s\n' "$1" | awk '/text\.count_lines/ {print $4; exit}')
+    awk -v a="${a:-0}" -v b="${b:-0}" 'BEGIN{printf "%.1f", a + b}'
+}
+S_WRAP=$(wrap_calls "$SHORT_OUT")
+L_WRAP=$(wrap_calls "$LONG_OUT")
 S_ALLOC=$(field "$SHORT_OUT" 'ALLOCATIONS' 6)
 L_ALLOC=$(field "$LONG_OUT"  'ALLOCATIONS' 6)
 S_HIT=$(field "$SHORT_OUT" 'cache\.msgrender_hit' 4)
@@ -95,12 +111,12 @@ report() {  # report <name> <short> <long> <limit-per-1000-msgs> <unit>
 }
 
 # --- The gates ------------------------------------------------------------
-# wrap_text calls per frame: the transcript wraps text for what is ON SCREEN,
-# so this is flat in thread length. It was 89.7 -> 753.4 across this same pair
-# before the render-cache fix, a slope of 1.58 calls per message; a slope of
-# 0.05 leaves room for the item-list walk to grow a little and still catches
-# any return of a per-message wrap.
-report "wrap_text calls/frame" "$S_WRAP" "$L_WRAP" 0.05 "calls"
+# Wraps per frame: the transcript works out line breaks for what is ON
+# SCREEN, so this is flat in thread length. It was 89.7 -> 753.4 across this
+# same pair before the render-cache fix, a slope of 1.58 calls per message; a
+# slope of 0.05 leaves room for the item-list walk to grow a little and still
+# catches any return of a per-message wrap.
+report "wrap calls/frame" "$S_WRAP" "$L_WRAP" 0.05 "calls"
 
 # Allocations per frame: was 167 per message per frame. The minimap builds one
 # mark entity per item by design and costs ~4.6 allocations each, so the floor

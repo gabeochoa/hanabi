@@ -69,6 +69,7 @@
 #include "../version.h"
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
+#include "../util/text_epoch.h"
 #include "../ui/model_menu.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
@@ -694,6 +695,19 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             afterhours::files::get_resource_path("fonts", file).string();
         fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT,
                           path.c_str());
+
+        // The glyphs behind DEFAULT_FONT just changed and NOTHING ELSE DID:
+        // the font's name, its handle and every size in the app are the same
+        // as they were, so every cache keyed by (text, font name, size) is
+        // now holding measurements of a face that is not on screen and has no
+        // reason to suspect it. Two of them are hanabi's and watch this
+        // counter (src/util/text_epoch.h); the third is afterhours' own
+        // TextMeasureCache, which has no invalidation hook finer than clear()
+        // -- filed as afterhours_gaps.md #190.
+        hanabi::text::bump_font_epoch();
+        if (auto* tmc = afterhours::EntityHelper::get_singleton_cmp<
+                afterhours::ui::TextMeasureCache>())
+            tmc->clear();
     }
 
     // Human-readable byte size: B / KB / MB.

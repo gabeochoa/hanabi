@@ -401,6 +401,23 @@ $(TEST_DIR)/test_ellipsize: tests/unit/test_ellipsize.cpp src/util/ellipsize.h $
 	@echo "Compiling test_ellipsize..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_ellipsize.cpp -o $@
 
+# Counting wrapped lines without building them. The count decides a message
+# box's height and afterhours wraps the same string again to draw it, so the
+# property worth pinning is not "these cases look right" but "for every string
+# at every width, the counter equals ui::detail::wrap_text_to_width(...).size()"
+# -- checked against the REAL vendored wrapper, under rulers no font would give
+# you, including one whose prefix width is not monotonic. Pure logic.
+$(TEST_DIR)/test_wrap_count: tests/unit/test_wrap_count.cpp src/util/wrap_count.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_wrap_count..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_wrap_count.cpp -o $@
+
+# The BOUND on the shared text-keyed LRU, and what LRU order means at the edge
+# of it. Every cache in this app was "bounded" when it was written; two of them
+# were bounded by a comment. Pure logic, no graphics.
+$(TEST_DIR)/test_text_cache: tests/unit/test_text_cache.cpp src/util/text_cache.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_text_cache..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_text_cache.cpp -o $@
+
 $(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_input_pipeline..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
@@ -442,6 +459,13 @@ $(TEST_DIR)/test_tab_colors: tests/unit/test_tab_colors.cpp src/ecs/tab_colors.h
 $(TEST_DIR)/test_pane_memory: tests/unit/test_pane_memory.cpp src/ecs/pane_state.h src/ecs/transcript_render_cache.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_pane_memory..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_pane_memory.cpp -o $@
+
+# Widget retirement: the sweep, and the two ways it could be quietly wrong
+# (a `mk` wrapper that eats the call site, a hash left pointing at a dead
+# entity). Header-only -- the UI collection and imm::mk need no graphics.
+$(TEST_DIR)/test_widget_retire: tests/unit/test_widget_retire.cpp src/ui/widget_epoch.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_widget_retire..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_widget_retire.cpp -o $@
 
 $(TEST_DIR)/test_footer_geometry: tests/unit/test_footer_geometry.cpp src/ecs/sidebar_footer_geometry.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_footer_geometry..."
@@ -499,7 +523,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -536,6 +560,8 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
 	@bash scripts/perf_transcript_slope.sh
+	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
+	@bash scripts/perf_text_gate.sh
 
 # `make test` = unit + e2e + scripted UI + perf (the full harness, one command).
 test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
@@ -546,9 +572,12 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
 	@bash scripts/perf_transcript_slope.sh
+	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
+	@bash scripts/perf_text_gate.sh
 	@$(MAKE) soak-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) scroll-gate
+	@$(MAKE) retire-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -573,7 +602,10 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #                      count must not track the catalog (the level), and the
 #                      second half of a long scroll must cost what the first
 #                      half did (the trend). In `make test`.
-#   make soak          ~41 s. The long form: twelve scenarios, four at a time.
+#   make retire-gate   ~3 s.  Navigates five screens and a thread, then counts
+#                      the widgets nothing is building any more. A COUNT, not
+#                      a millisecond. In `make test`.
+#   make soak          ~45 s. The long form: thirteen scenarios, four at a time.
 #                      NOT in `make test` — run it before a release.
 #   make soak-report   The same run, reduced to a DIFFABLE text artifact and
 #                      diffed against docs/perf/soak-baseline.txt. A
@@ -593,6 +625,9 @@ scaling-gate: $(MAIN_EXE) copy-resources
 
 scroll-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scroll_gate.sh
+
+retire-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/retire_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
@@ -671,7 +706,7 @@ source-checks:
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate \
-	source-checks soak-report soak-baseline stress stress-break
+	retire-gate source-checks soak-report soak-baseline stress stress-break
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

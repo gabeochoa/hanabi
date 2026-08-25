@@ -71,6 +71,10 @@
 #            resembles use. Report-only; see GROWING ARMS.
 #   open     open every thread as a KEPT tab and never close one. Report-only;
 #            see GROWING ARMS.
+#   views    the only arm that CHANGES SCREEN. Everything else sits on one
+#            screen for its whole run, and the cost of a screen you left is
+#            exactly what afterhours does not clean up (gap #115) — so for a
+#            month no arm could see it. Sampled in whole navigation cycles.
 #   bigidle  the control arm against a 2000-session catalog. A per-row leak is
 #            100x more visible; a cache sized by the catalog shows as a higher
 #            plateau rather than a slope.
@@ -109,7 +113,7 @@ FRAMES="${HANABI_SOAK_LONG_FRAMES:-3000}"
 # after sidebar virtualization a 2000-row catalog is no longer the slow arm it
 # was when this file was written.
 BIG_FRAMES="${HANABI_SOAK_BIG_FRAMES:-$FRAMES}"
-ARMS="${HANABI_SOAK_ARMS:-idle scroll scrollall read threads tabs search churn resize mixed open bigidle}"
+ARMS="${HANABI_SOAK_ARMS:-idle scroll scrollall read threads tabs views search churn resize mixed open bigidle}"
 EVERY="${HANABI_SOAK_LONG_EVERY:-250}"
 JOBS="${HANABI_SOAK_JOBS:-4}"
 REPORT="${HANABI_SOAK_REPORT_OUT:-}"
@@ -161,9 +165,22 @@ ARM_TIMEOUT="${HANABI_SOAK_ARM_TIMEOUT:-900}"
 
 run_arm() {
     local arm="$1"
-    local scenario="$arm" sessions="" frames="$FRAMES"
+    local scenario="$arm" sessions="" frames="$FRAMES" every="$EVERY"
+    # Buckets, per arm. Every other arm sits on ONE screen, so any bucket
+    # boundary reads the same app and the default is fine. `views` does not:
+    # its entity count is a function of WHICH SCREEN the sample landed on, so
+    # a bucket that is not a whole number of navigation cycles compares Home
+    # against a thread and reports the difference as growth. perf/retire
+    # measured it reading +31 entities per 1000 frames that way, against a
+    # budget of 25, on a run whose memory was flat to the kilobyte. 360 is the
+    # cycle: six screens at the 60-frame dwell.
     case "$arm" in
         bigidle) scenario="idle"; sessions=2000; frames="$BIG_FRAMES" ;;
+        # A window that is not a window is invisible on the twenty-row
+        # fixture: twenty rows fit in a viewport, so every one of them is on
+        # screen and there is nothing to leave out.
+        scrollall) sessions=2000 ;;
+        views) every=360 ;;
     esac
     local log="$WORK/$arm.log"
     local rep="$WORK/$arm.report"
@@ -172,6 +189,7 @@ run_arm() {
     (
         export HANABI_SOAK="$frames"
         export HANABI_STRESS="$scenario"
+        export HANABI_SOAK_EVERY="$every"
         export HANABI_SOAK_REPORT="$rep"
         [ -n "$sessions" ] && export HANABI_STRESS_SESSIONS="$sessions"
         "$EXE" --screenshot "$WORK/$arm.png" >"$log" 2>&1

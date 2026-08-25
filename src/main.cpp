@@ -67,6 +67,7 @@
 #include "ecs/shortcuts_system.h"
 #include "ecs/tab_bar_system.h"
 #include "ecs/theme_rotation_system.h"
+#include "ecs/widget_retire_system.h"
 #include "ui/theme.h"
 
 // A no-op render system so begin/clear happen in app_frame.
@@ -335,6 +336,12 @@ static void build_systems(afterhours::SystemManager& sm) {
     afterhours::input::register_update_systems(sm);
 
     ui_imm::registerUIPreLayoutSystems(sm);
+
+    // Ahead of every `mk()` in the frame, and after the bridge that clears the
+    // children lists: the epoch this system opens is what every widget built
+    // below is stamped with, and the sweep it runs first retires the widgets
+    // of screens nothing has built for a while. src/ui/widget_epoch.h.
+    sm.register_update_system(std::make_unique<ecs::WidgetRetireSystem>());
 
     // Data + layout must run before UI-creating systems.
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
@@ -1750,10 +1757,16 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         for (const auto& e :
              afterhours::ui::UICollectionHolder::get().collection.get_entities())
             if (e && e->has<afterhours::ui::UIComponent>()) ++widgets;
+        // `widgets` is the count of SURVIVORS -- what is in the collection
+        // after the frame -- and `built` is what this frame actually made
+        // (src/ui/widget_epoch.h). They are the same number on a screen the
+        // app has sat on. Where they differ, the difference is what the frame
+        // is walking for nothing.
         log_info(
             "FrameTiming: frames={} widgets={} min={:.2f}ms median={:.2f}ms "
-            "mean={:.2f}ms max={:.2f}ms",
-            ms.size(), widgets, ms.front(), median, mean, ms.back());
+            "mean={:.2f}ms max={:.2f}ms built={}",
+            ms.size(), widgets, ms.front(), median, mean, ms.back(),
+            hanabi::widget_epoch::built_this_epoch());
         if (split && !msU.empty()) {
             std::sort(msU.begin(), msU.end());
             std::sort(msR.begin(), msR.end());
@@ -1953,6 +1966,12 @@ static int run_e2e(const std::string& path, int w, int h) {
     // both, with the same shape hanabi had worked around here. The 40 extra
     // frames per script were pure suite latency once that landed.
     runner.print_results();
+    // The scripted path can DRIVE things the soak loop cannot reach -- a
+    // resize drag, a keystroke, a menu -- and until this line the profiler's
+    // counters were only ever dumped from the soak loop, so none of that was
+    // measurable. HANABI_PROF is a hard no-op when unset, same as everywhere
+    // else.
+    hanabi::prof::dump();
     const bool failed = runner.has_failed() || ranOut;
     graphics::shutdown();
     std::fflush(nullptr);

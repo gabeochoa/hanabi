@@ -44,6 +44,11 @@ apology for the numbers; it is the reason several of them are ratios.
 > `make source-checks` runs that. The numbers above are piped numbers.
 
 The additions cost about **twenty seconds** on a `make test` that runs
+| widget retirement | `make retire-gate` | yes | ~3 s |
+| autorelease source check | `make source-checks` | yes | <1 s |
+| long soak | `make soak` | **no** — before a release | ~33 s |
+
+The five additions cost about **twenty-three seconds** on a `make test` that runs
 between four and six minutes depending on what else this box is doing
 (observed: 228 s, 283 s, 336 s for the same tree). That was the budget: a suite
 that takes fifteen minutes is a suite people stop running, and a gate nobody
@@ -447,6 +452,83 @@ a driven one, which is the difference between having a budget and not.
 
 ---
 
+## 3c. The widget-retirement gate — does the app hold screens it stopped drawing?
+
+`scripts/retire_gate.sh`, added with the fix for `afterhours_gaps.md` #115.
+Full write-up in `docs/perf/RETIRE.md`.
+
+afterhours never retires a widget that stops being built, so before the fix the
+app walked the union of every screen it had ever shown: at a 2000-session
+catalog, 2844 entities and 4.60 ms/frame for screens nobody was looking at,
+against 200 and 3.16 after.
+
+**Neither gate above can see that**, and the two reasons are the reason this
+one exists:
+
+- **The soak gate measures a SLOPE. This is a PLATEAU.** With the sweep off,
+  the entity count over three navigation cycles reads 1020, 1247, 1270 —
+  rising to a high-water mark and stopping, which a slope gate correctly and
+  uselessly reads as an app that settled.
+- **The scaling gate measures one screen at two catalog sizes and never
+  navigates.** 1.31x widgets with the sweep off, 1.32x with it on.
+- **The scroll gate expands one list and sweeps it.** It never leaves the
+  screen either, so the widgets of the screen it is not on are not its
+  question.
+
+So this one navigates — one run of the `views` arm, 500 sessions, 1200 frames
+— and then reports two COUNTS off the soak census. No milliseconds: an entity
+count is exact and identical run to run, which an ms figure on this box is not.
+
+| metric | budget | measured | with the sweep off |
+| --- | --- | --- | --- |
+| stale widgets | 0 | 0 | 1083 |
+| live / built | 1.50x | 1.06x | 7.87x |
+| epoch | >= frames | 1324 | — |
+
+"Stale" is widgets `imm::mk()` still owns that nothing has built for longer
+than the grace. The run turns the grace down to 2 frames and sweeps every frame
+(the shipping defaults are 90 and 15), so anything stale is something the sweep
+FAILED to take rather than something it has not got to yet.
+
+### The epoch row is not a perf number
+
+It is the guard against this gate's own blind spot, and it is there because the
+rehearsal found the hole. The likeliest regression is not a broken sweep, it is
+someone deleting one line from `build_systems()`. With the system unregistered:
+
+```
+  live widgets           1260
+  built / frame          1251
+  stale widgets             0          0
+  live / built          1.01x      1.50x
+```
+
+Green, on a completely broken fix. With no system the epoch never advances,
+every widget's stamp reads as current, "stale" is 0 for the best possible
+reason and the worst possible cause, and `built` accumulates every `mk()` call
+of the whole run so the ratio collapses to 1. The census prints the epoch and
+the gate fails when it is below the frame count:
+
+```
+  FAIL: the widget epoch is 1 after 1080 frames.
+        The epoch advances once per frame in ecs::WidgetRetireSystem.
+```
+
+The two scripted tests (`tests/ui/widgets_of_a_screen_you_left_are_retired.e2e`
+and its `HANABI_RETIRE=0` twin) have the same blind spot; this covers it.
+
+### Reproducing a failure
+
+```bash
+HANABI_RETIRE=0 bash scripts/retire_gate.sh    # both arms fire
+```
+
+and the honest version of the same thing — comment out the
+`ecs::WidgetRetireSystem` registration in `src/main.cpp`, rebuild, and watch the
+epoch row catch what the other two rows cannot.
+
+---
+
 ## 4. `make soak` — the long form, for before a release
 
 **Twelve arms, four at a time, 53 seconds.** `scripts/soak.sh`. Parallel
@@ -474,6 +556,7 @@ it against `docs/perf/soak-baseline.txt`. See `docs/perf/STRESS.md`.
 | `threads` | opens a thread every 30 frames | the heaviest thing the app does: fetch, transcript rebuild, tab |
 | `tabs` | 8 tabs, then round-robin | anything the tab strip or a per-tab cache holds on to |
 | `scrollall` | the sidebar's list EXPANDED, then swept, at 2000 sessions | the arm above scrolls the list the cap allows; this one scrolls the list the user asked for, which is the one in the report |
+| `views` | Home / Blocked / Review / Starred / Archived / a thread, on a cycle | the only arm that CHANGES SCREEN. Every other one sits on a single screen for its whole run, which is why #115 lived here for a month |
 | `bigidle` | idle, against a 2000-session catalog | a per-row leak is 100x more visible; a catalog-sized cache shows as a higher plateau rather than a slope |
 
 Memory budgets are **tighter** than the short gate's — 256 KB per 1000 frames
@@ -495,6 +578,15 @@ Six arms in 33 s, against five in 65 s before `perf/scroll`. The arms got
 faster because the app did — `bigidle` alone went from 41 s to 6 s.
 
 Overrides: `make soak FRAMES=20000`, `make soak ARMS="scroll tabs"`.
+
+**`views` is sampled every 360 frames, not 500 like the others**, and the
+reason generalises. Its entity count is a function of which screen the sample
+landed on, and 500 is not a whole number of its 360-frame navigation cycle — so
+consecutive buckets compared Home against a thread and the arm FAILED at +31
+entities per 1000 frames on a run whose memory was flat to the kilobyte. Median
+of three buckets does not help; the three buckets are three different screens.
+Phase-locked, the identical run reads +6.9. A measurement of a moving app has
+to be sampled in whole periods of the motion, or it measures the sampling.
 
 ### A gate that reports nothing is not a gate that failed
 
