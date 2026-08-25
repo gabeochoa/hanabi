@@ -280,6 +280,18 @@ re-implements per-widget hover by hand. Documented as #138 and left alone; the
 slope gate's allocation limit is set at 12 per message specifically to leave
 room for it, and says so.
 
+**What the fix itself cost.** The two-slot cache stores the display body twice
+per message, because the body is built fresh on each cold miss and the slots do
+not share it — even though it is width-independent and the two copies are
+always identical. Measured at 480 messages, idle: RSS 42.4 MB -> 43.1 MB,
+**+704 KB**. Live heap in use went the other way (29,253 -> 26,613 blocks,
+31,448 -> 31,354 KB), so this is 0.7 MB of RSS for a 480-message thread —
+larger than any real one — against 8.35 -> 3.71 ms/frame on the same run.
+Deduplicating it means MsgRender holding a pointer into the pair rather than
+its own string, which changes the shape every caller reads; not worth the churn
+for 0.7 MB, but it is a real cost and it is the one thing this branch made
+worse.
+
 **Left, and flat:** pass 2 at ~0.45 ms/frame and ~5,500 allocations, of which
 most is afterhours' per-widget rebuild cost (#138) for the visible turns. Real,
 but it does not scale with the thread, so it is a constant to attack another
