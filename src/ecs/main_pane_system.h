@@ -2951,7 +2951,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             tally = matchCount == 0
                         ? std::string("no matches")
                         : (std::to_string(app.findIndex + 1) + " of " +
-                           std::to_string(matchCount));        div(ctx, mk(bar.ent(), 2),
+                           std::to_string(matchCount));
+        div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
                 .with_label(tally)
                 .with_size(ComponentSize{pixels(74), pixels(16)})

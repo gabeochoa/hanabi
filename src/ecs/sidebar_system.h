@@ -195,7 +195,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const bool viewsOpen = app->collapsedFolders.count(kViewsKey) == 0;
         if (viewsOpen) render_smart_views(ctx, panel.ent(), *app, folded, r.width);
         section_rule(ctx, panel.ent());
-        render_search(ctx, panel.ent(), *app, r.x, r.y, r.width);
+        render_search(ctx, panel.ent(), *app, r.width);
         // The 4px the list is offset by, as a real child so the column keeps
         // stacking (afterhours has no margin-collapse to lean on).
         spacer(ctx, panel.ent(), 9, kSbListGap);
@@ -1681,8 +1681,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // fixed siblings overflows the row every frame. Every column here is
     // therefore sized in PIXELS off panelW.
     void render_search(UIContext<InputAction>& ctx, Entity& parent,
-                       AppComponent& app, float panelX, float panelY,
-                       float panelW) {
+                       AppComponent& app, float panelW) {
         // Wrap in a full-width padded row so the search field itself never
         // extends past the sidebar (margins on a percent(1.0) child overflow).
         auto wrap = div(ctx, mk(parent, 4),
@@ -2165,7 +2164,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     pixels(folded ? kRailIconSlot : 16.0f), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_on_draw_fg([iconDraw, useAttentionIcon, attnColor, iconPx,
+                .with_on_draw_fg([iconDraw, attnColor, iconPx,
                                   railDot, dotColor](RectangleType rect) {
                     if (useAttentionIcon)
                         draw_attention_icon(rect, attnColor, iconPx);
