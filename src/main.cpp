@@ -27,6 +27,9 @@
 #include "settings.h"
 #include "test_hooks.h"
 #include "util/capture_clock.h"
+#include "util/autorelease.h"
+#include "util/soak.h"
+#include "util/stress.h"
 #include "util/notify_events.h"
 #include "util/quiet_hours.h"
 #include "version.h"
@@ -441,6 +444,10 @@ static void app_init() {
 }
 
 static void app_frame() {
+    // Every frame gets a pool, because Metal hands back autoreleased objects
+    // and a render loop is not a Cocoa run loop: six per frame, ~2.5 KB, never
+    // freed. See util/autorelease.h for the measurement.
+    const hanabi::AutoreleaseFrame pool;
     // Phase G: the menu-bar extra installs on the FIRST windowed frame — by
     // now sokol has created NSApp + the window (it may not exist yet at
     // app_init). Idempotent + windowed-only: run_headless_screenshot never
@@ -1075,6 +1082,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 (appForWait->transcriptState == ecs::LoadState::Loading ||
                  appForWait->transcriptState == ecs::LoadState::Idle);
             if (listReady && !transcriptPending) break;
+            const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
@@ -1090,6 +1098,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             appForWait->requestOpenTab = oid;
             appForWait->view = ecs::SmartView::Chat;
             for (int p = 0; p < 6; ++p) {
+                const hanabi::AutoreleaseFrame framePool;
                 graphics::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
@@ -1104,6 +1113,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             appForWait->requestSplitOpen = sid;
             appForWait->view = ecs::SmartView::Chat;
             for (int p = 0; p < 6; ++p) {
+                const hanabi::AutoreleaseFrame framePool;
                 graphics::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
@@ -1113,6 +1123,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         apply_stream_demo(appForWait);
         if (std::getenv("HANABI_THINK_DEMO")) {
             for (int p = 0; p < 4; ++p) {
+                const hanabi::AutoreleaseFrame framePool;
                 graphics::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
@@ -1141,9 +1152,60 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
 
     }
 
+    // The soak probe: HANABI_SOAK=<frames> runs the real loop for that long
+    // and reports whether frame time, RSS or the entity count is trending up.
+    // Nothing else in this project can see a leak -- the suite renders 45
+    // frames and the perf gate measures a process under a second old, and a
+    // leak is a young process looking fine. See util/soak.h.
+    if (const int soakFrames = hanabi::soak::frames(); soakFrames > 0) {
+        std::vector<hanabi::soak::Sample> samples;
+        const int every = hanabi::soak::bucket();
+        hanabi::stress::Driver driver{hanabi::stress::scenario()};
+        log_info("[soak] scenario={} frames={} settle={}",
+                 hanabi::stress::name(driver.mode), soakFrames,
+                 hanabi::stress::settle_frames());
+
+        // Settle first, unmeasured. A first pass on a fresh launch is the
+        // launch burst, not the steady state, and averaging it in hides the
+        // thing being looked for (Puffin's PERFORMANCE.md, learned the same
+        // way).
+        for (int i = 0; i < hanabi::stress::settle_frames(); ++i) {
+            const hanabi::AutoreleaseFrame framePool;
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+        }
+
+        auto bucketStart = std::chrono::steady_clock::now();
+        for (int i = 1; i <= soakFrames; ++i) {
+            if (appForWait != nullptr) driver.act(i - 1, *appForWait);
+            if (const float step = driver.scroll_step(i - 1); step != 0.0f)
+                hanabi::soak::scroll_sidebar(step);
+            const hanabi::AutoreleaseFrame framePool;
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+            if (i % every == 0) {
+                auto now = std::chrono::steady_clock::now();
+                const double ms =
+                    std::chrono::duration<double, std::milli>(now - bucketStart)
+                        .count() / static_cast<double>(every);
+                bucketStart = now;
+                hanabi::soak::report(samples, i, ms, hanabi::soak::rss_kb(),
+                                     EntityHelper::get_entities().size());
+            }
+        }
+        const int bad = hanabi::soak::verdict(samples);
+        graphics::close_window();
+        return bad;
+    }
+
     // Render several frames so async data loads and layout settles.
     constexpr int kFrames = 45;
     for (int i = 0; i < kFrames; ++i) {
+        const hanabi::AutoreleaseFrame framePool;
         graphics::begin_frame();
         graphics::clear_background(theme::window_bg());
         sm.run(1.0f / 60.0f);
@@ -1174,6 +1236,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             apply_stream_demo(&app);
             if (std::getenv("HANABI_THINK_DEMO")) {
                 for (int p = 0; p < 6; ++p) {
+                    const hanabi::AutoreleaseFrame framePool;
                     graphics::begin_frame();
                     graphics::clear_background(theme::window_bg());
                     sm.run(1.0f / 60.0f);
@@ -1354,6 +1417,7 @@ static int run_e2e(const std::string& path, int w, int h) {
             std::getenv("HANABI_OPEN") != nullptr ||
             !Settings::get().get_active_tab().empty();
         for (int i = 0; i < 300; ++i) {
+            const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
