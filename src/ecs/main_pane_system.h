@@ -648,7 +648,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static std::string normalize_title(const std::string& in) {
-        const std::string src = strip_parked_marker(in);
+        // The VIEW, not the owning form: strip_parked_marker's only job is to
+        // drop a leading "[P] ", and copying the whole title to do it was one
+        // malloc per card per frame for a transform that removes bytes.
+        const std::string_view src = fmtutil::display_title_view(in);
         std::string out;
         out.reserve(src.size());
         bool prev_space = false;
@@ -874,6 +877,43 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         long n = static_cast<long>(widthPx / per);
         if (n < 6) n = 6;
         return static_cast<size_t>(n);
+    }
+
+    // The card's displayed title: whitespace-normalised, "[P] " stripped, and
+    // ellipsized to the title column -- memoized on the whole argument tuple.
+    //
+    // Pure in (raw title, card width, title fraction): char_budget is pure in
+    // (width, font px) and theme::type::TITLE is a compile-time constant, so
+    // there is nothing here that can go stale behind the key. It was three
+    // heap allocations per card per frame -- the strip's copy, the normalised
+    // string, and the ellipsized result -- for an answer that is the same one
+    // every frame until the pane is resized.
+    //
+    // 128 entries: 63 cards are on screen at 1180x949 and the Home view has no
+    // animated width the way the sidebar's fold does, so the working set is
+    // the cards themselves and the tail is short. LRU rather than clear-when-
+    // full, for the reason src/util/text_cache.h gives.
+    static const std::string& card_title(const std::string& raw,
+                                         float cardWidthPx, float titleFrac) {
+        static constexpr std::size_t kCardTitleEntries = 128;
+        static hanabi::text::TextKeyCache<std::string> memo(kCardTitleEntries);
+        if (const std::string* hit = memo.find(raw, cardWidthPx, titleFrac)) {
+            hanabi::prof::tick("cache.cardtitle_hit");
+            return *hit;
+        }
+        hanabi::prof::tick("cache.cardtitle_miss");
+        const std::string norm = normalize_title(raw);
+        std::string cut;
+        if (cardWidthPx > 0.0f) {
+            // Inner width = card width - 32px L/R padding, times the title's
+            // flex fraction, minus slack for the ellipsis glyph.
+            const float titlePx = (cardWidthPx - 32.0f) * titleFrac - 6.0f;
+            cut = fmtutil::ellipsize(norm,
+                                     char_budget(titlePx, theme::type::TITLE));
+        } else {
+            cut = fmtutil::ellipsize(norm, 40);
+        }
+        return memo.put(raw, cardWidthPx, titleFrac, std::move(cut));
     }
 
     // Build the metadata line under a card title. On the mock (rich preview)
@@ -1210,16 +1250,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // REAL available title width so a wide card fills its line before
         // ellipsizing (defect #4). Fall back to the old 40-char cap only when
         // the caller didn't pass a width (keeps other call sites unchanged).
-        std::string title = normalize_title(s.title);
-        if (cardWidthPx > 0.0f) {
-            // Inner width = card width - 32px L/R padding, times the title's
-            // flex fraction, minus a little slack for the ellipsis glyph.
-            float titlePx = (cardWidthPx - 32.0f) * titleFrac - 6.0f;
-            title = fmtutil::ellipsize(title, char_budget(titlePx,
-                                                          theme::type::TITLE));
-        } else {
-            title = fmtutil::ellipsize(title, 40);
-        }
+        const std::string& title = card_title(s.title, cardWidthPx, titleFrac);
         div(ctx, mk(top.ent(), 1),
             ComponentConfig{}
                 .with_label(title)
