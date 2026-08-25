@@ -395,6 +395,146 @@ inline bool judge_row(const char* label, const char* unit, double per1k,
     return over;
 }
 
+// ---------------------------------------------------------------------------
+// The TREND verdict (HANABI_SOAK_TREND=1). A second reading of the same
+// buckets, for the question the anchored verdict above cannot answer.
+//
+// The anchored verdict subtracts one bucket from another. That is the right
+// shape for a leak, which is cumulative and monotone: a bucket 4000 frames
+// later is 4000 frames' worth of leak higher, whatever the machine was doing.
+// It is the wrong shape for "is the frame getting more expensive", because
+// frame time is not cumulative and a single bucket is a sample of a machine
+// with three other agents on it. Set a budget loose enough not to flake and it
+// catches nothing; set it tight and it fails on a neighbour's build.
+//
+// So this one reduces each HALF of the run and compares the halves, and it
+// reduces frame time by MINIMUM rather than by mean or median. Contention and
+// downclocking only ever ADD time to a bucket -- there is no mechanism by
+// which a busy machine makes a frame cheaper -- so the minimum bucket of a
+// half is the least-polluted estimate of what the app itself costs over that
+// half. scripts/perf_ab.sh makes the same argument for the same reason.
+//
+// And it is a RATIO, not a millisecond. A millisecond threshold on this box is
+// a coin flip: the same binary read 8.27 ms on a quiet minute and 16.07 ms on
+// a busy one. A ratio between two halves measured minutes apart in the same
+// process divides most of that out, and what is left it divides out again by
+// taking minima.
+//
+// Live BLOCKS are the memory half, and they are the right memory metric for a
+// scroll: a list that mints a widget per row scrolled past, or a cache keyed
+// on the offset, adds blocks long before it adds a page of RSS. They sawtooth
+// (the allocator recycles small blocks in bursts), so the halves are reduced
+// by MEDIAN and the budget is a rate per 1000 frames rather than a bound on
+// the difference.
+struct TrendBudget {
+    double frameRatio = 1.20;
+    double blocksPer1k = 250.0;
+};
+
+inline bool trend_wanted() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_SOAK_TREND");
+        return v != nullptr && *v != '\0' && std::string(v) != "0";
+    }();
+    return on;
+}
+
+inline TrendBudget trend_budget() {
+    static const TrendBudget b = [] {
+        TrendBudget out;
+        out.frameRatio =
+            env_double("HANABI_SOAK_MAX_FRAME_RATIO", out.frameRatio);
+        out.blocksPer1k =
+            env_double("HANABI_SOAK_MAX_BLOCKS_PER1K", out.blocksPer1k);
+        return out;
+    }();
+    return b;
+}
+
+inline double median_of(std::vector<double> v) {
+    if (v.empty()) return 0.0;
+    std::sort(v.begin(), v.end());
+    const size_t n = v.size();
+    return (n % 2 == 1) ? v[n / 2] : 0.5 * (v[n / 2 - 1] + v[n / 2]);
+}
+
+// Returns 1 when the run trended upward past budget, 0 otherwise.
+inline int trend_verdict(const std::vector<Sample>& s) {
+    if (!trend_wanted()) return 0;
+    // Four buckets is two per half, which is the fewest that can be reduced at
+    // all. Six is what the gate runs.
+    if (s.size() < 4) {
+        std::printf("[soak] trend: too few buckets to compare halves (got "
+                    "%zu, need 4).\n", s.size());
+        return 0;
+    }
+    const size_t mid = s.size() / 2;
+    double firstMinMs = 0.0, lastMinMs = 0.0;
+    std::vector<double> firstBlocks, lastBlocks;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const bool early = i < mid;
+        double& m = early ? firstMinMs : lastMinMs;
+        if (m == 0.0 || s[i].cpuMsPerFrame < m) m = s[i].cpuMsPerFrame;
+        (early ? firstBlocks : lastBlocks)
+            .push_back(static_cast<double>(s[i].heap.count));
+    }
+    const double ratio = firstMinMs > 0.0 ? lastMinMs / firstMinMs : 0.0;
+    const double dBlocks = median_of(lastBlocks) - median_of(firstBlocks);
+    const int framesBetween = s.back().frame - s[mid - 1].frame;
+    const double blocksPer1k =
+        framesBetween > 0
+            ? dBlocks * 1000.0 / static_cast<double>(framesBetween)
+            : 0.0;
+    const TrendBudget bud = trend_budget();
+
+    const bool slowFail = ratio > bud.frameRatio;
+    const bool blockFail = blocksPer1k > bud.blocksPer1k;
+
+    std::printf("\n[soak] trend over %zu buckets, first half against last:\n",
+                s.size());
+    std::printf("[soak]   %-22s %12s %12s  %s\n", "metric", "measured",
+                "budget", "verdict");
+    std::printf("[soak]   %-22s %11.3fx %11.3fx  %s\n",
+                "frame cpu, min-of-half", ratio, bud.frameRatio,
+                slowFail ? "FAIL" : "ok");
+    std::printf("[soak]   %-22s %+11.1f %11.1f   %s\n",
+                "live blocks /1000f", blocksPer1k, bud.blocksPer1k,
+                blockFail ? "FAIL" : "ok");
+    std::printf("[soak]   (min-of-half cpu: %.3f ms then %.3f ms; blocks: "
+                "%.0f then %.0f)\n",
+                firstMinMs, lastMinMs, median_of(firstBlocks),
+                median_of(lastBlocks));
+
+    if (!slowFail && !blockFail) {
+        std::printf("[soak] TREND PASS: the second half of the run costs what "
+                    "the first half did.\n");
+        return 0;
+    }
+    std::printf("\n[soak] --------------- SCROLL TREND: FAIL "
+                "---------------\n");
+    if (slowFail)
+        std::printf("[soak] The frame got more expensive as the run went on, "
+                    "and this is a\n[soak] ratio of two MINIMA on the thread's "
+                    "own CPU clock -- a busy box\n[soak] cannot produce it, "
+                    "because contention only ever adds time. Under\n[soak] a "
+                    "scroll that means work proportional to how far the list "
+                    "has\n[soak] been scrolled: a widget minted per row passed "
+                    "and never retired\n[soak] (afterhours_gaps.md #115), a "
+                    "memo keyed on the offset, or a\n[soak] window that grows "
+                    "instead of sliding.\n");
+    if (blockFail)
+        std::printf("[soak] Live malloc blocks climbed. Under a scroll the "
+                    "usual cause is a\n[soak] per-row allocation that outlives "
+                    "the row: a cache keyed on session\n[soak] id with no "
+                    "bound reaches one entry per row scrolled past, which\n"
+                    "[soak] looks flat on a short list and unbounded on a real "
+                    "one.\n");
+    std::printf("[soak]\n[soak] To reproduce:  make scroll-gate\n"
+                "[soak] What it is:    docs/perf/SCROLL.md\n");
+    std::printf("[soak] ------------------------------------------------\n");
+    return 1;
+}
+
 // The verdict. Compares the LAST bucket against the SECOND (not the first:
 // the first carries lazy-init costs that are not a leak and would make every
 // run look like it improved).

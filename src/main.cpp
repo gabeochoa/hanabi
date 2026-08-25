@@ -1417,11 +1417,36 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                  hanabi::stress::name(driver.mode), soakFrames,
                  hanabi::stress::settle_frames());
 
+        // One monotonic clock for the scenario, running across the settle
+        // pass and on into the measured window without a discontinuity.
+        //
+        // The settle used to render without DRIVING, which made it a settle
+        // for the launch burst and for nothing else: every scenario's own
+        // warm-up -- the first tab `threads` opens, the first query `search`
+        // types, the whole first sweep of the list `scrollall` expands and
+        // scrolls -- landed inside the measured window. On the scroll arm that
+        // is a title memo filling with 1800 entries while the first buckets
+        // are being sampled, which reads as live blocks trending up and is
+        // just a cache arriving. Measured: the block trend across nine clean
+        // runs spanned -148 to +847 per 1000 frames with an undriven settle.
+        int driveFrame = 0;
+        const auto drive = [&]() {
+            if (appForWait != nullptr) driver.act(driveFrame, *appForWait);
+            if (const float step = driver.scroll_step(driveFrame);
+                step != 0.0f) {
+                if (!hanabi::soak::scroll_named(driver.scroll_target_name(),
+                                                step))
+                    hanabi::prof::tick("stress.scroll_target_missing");
+            }
+            ++driveFrame;
+        };
+
         // Settle first, unmeasured. A first pass on a fresh launch is the
         // launch burst, not the steady state, and averaging it in hides the
         // thing being looked for (Puffin's PERFORMANCE.md, learned the same
         // way).
         for (int i = 0; i < hanabi::stress::settle_frames(); ++i) {
+            drive();
             const hanabi::AutoreleaseFrame framePool;
             graphics::begin_frame();
             graphics::clear_background(theme::window_bg());
@@ -1432,12 +1457,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         auto bucketStart = std::chrono::steady_clock::now();
         double bucketCpu0 = hanabi::soak::cpu_nanos();
         for (int i = 1; i <= soakFrames; ++i) {
-            if (appForWait != nullptr) driver.act(i - 1, *appForWait);
-            if (const float step = driver.scroll_step(i - 1); step != 0.0f) {
-                if (!hanabi::soak::scroll_named(driver.scroll_target_name(),
-                                                step))
-                    hanabi::prof::tick("stress.scroll_target_missing");
-            }
+            drive();
             const unsigned long long cpu0 = hanabi::prof::enabled()
                                                 ? hanabi::prof::cpu_nanos()
                                                 : 0;
@@ -1467,7 +1487,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             }
         }
         hanabi::soak::census();
-        const int bad = hanabi::soak::verdict(samples);
+        int bad = hanabi::soak::verdict(samples);
+        bad |= hanabi::soak::trend_verdict(samples);
         if (hanabi::prof::enabled()) {
             if (auto* tmc = EntityHelper::get_singleton_cmp<
                     afterhours::ui::TextMeasureCache>())
