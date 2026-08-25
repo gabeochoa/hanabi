@@ -293,6 +293,15 @@ Two things worth noting anyway, neither a bug today:
 
 **Measured as noise, and deliberately left alone**
 
+- **Two of the four startup font faces load the same file.** `DEFAULT_FONT` and
+  `SYMBOL_FONT` are both `Roboto-Regular.ttf`, and afterhours' `load_font` does
+  not dedupe by path — it calls `load_font_from_file` every time — so the face
+  really is read and rasterised twice. It costs about **60 µs**: all four loads
+  plus the UI plugin init together are 275–299 µs. The fix would be to hand the
+  second name the already-loaded `Font` handle rather than the path, which
+  means two names sharing one atlas, and that is a lifetime question worth more
+  than 60 µs of risk. Left alone knowingly.
+
 - Star toggle / `write_save_file()` — 0.19 ms. A debounce would trade a
   data-loss window for two milliseconds nobody can perceive.
 - `apply_local_overlays` at a realistic starred count — 0.20 ms per fetch.
