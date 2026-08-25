@@ -58,8 +58,37 @@ inline afterhours::Color pin_ink() {
     c.a = 179;  // 0.7 * 255
     return c;
 }
+// The close mark's ink, which is NOT the tab's title colour — and this is a
+// rule made explicit rather than a bug fixed.
+//
+// Same shape as the pin one function up, and out of the same Swift file:
+// `TabStrip.swift`'s `closeButton` gives its `xmark` its own
+// `.foregroundColor(Chrome.mutedText)`, overriding the chip's
+// `isSelected ? text : mutedText`. So the mark is one colour on every tab,
+// current or not. Full opacity, unlike the pin's 0.7: Puffin dims the pin and
+// not the close.
+//
+// hanabi was already passing `tab_text()` here, which happens to be that same
+// one colour, so nothing on screen moves. What moves is that the × no longer
+// reads its ink from the token named after the INACTIVE TAB'S TITLE: two
+// facts were sharing one constant. Making an inactive title track selection
+// is precisely the edit the pin had to be rescued from, and it would have
+// taken the close mark with it. Measured on `ref/02_thread.png`'s
+// one unpinned tab, over the (46,58,88) fill, by the (pixel − background)
+// ratio: 1.00:0.872:0.807, against mutedText's predicted 1.00:0.872:0.830.
+inline afterhours::Color close_ink() { return theme::text_secondary(); }
 // The reference's active-tab title is pure white on the selected fill, a step
 // brighter than text_primary; light mode keeps its own ink.
+//
+// It is not, and the whole axis is worth 0.2 points -- see FRICTION_LOG.md,
+// `## The tab strip, round four`. Puffin's is `Chrome.text` = lightText
+// (235,235,245); recovered off both references by coverage ratio it lands on
+// (235,235,245) to three decimals, and hanabi's own recovers to (255,255,255)
+// exactly. Swept analytically across the plausible range, lightText scores 8
+// diff pixels BETTER on 01 and 6 WORSE on 02, out of ~1280 and ~1123. It is a
+// string, and a string's colour is not what the metric is measuring here; the
+// rule from REFERENCE.md is move a BLIT to the source's token and leave TEXT
+// wherever it measures. Left at white, deliberately, with the number.
 inline afterhours::Color tab_text_act() {
     return theme::g_mode == theme::Mode::Dark
                ? afterhours::Color{255, 255, 255, 255}
@@ -73,6 +102,25 @@ inline afterhours::Color tab_outline() { return theme::divider(); }
 inline afterhours::Color accent() { return theme::accent(); }
 inline constexpr float kTabCorner = 4.0f;
 inline constexpr float kTabBorderPx = 1.0f;
+// The chip's own horizontal padding, and the close mark's box, both read out
+// of `TabStrip.swift`: `TabChip.body` is `.padding(.horizontal, 10)` and its
+// `closeButton` is `.frame(width: 14, height: 14)`. `TabTooltip` restates the
+// same two as `horizontalPadding = 10` and `markWidth = 14`, which is the
+// source agreeing with itself.
+//
+// Confirmed on `ref/02_thread.png`, whose one tab is the unpinned state and
+// therefore the only frame in the set that draws a close mark at all: the
+// chip runs x284..504 and the xmark's ink is x483..490, centred on 486.5,
+// against the 487.0 this pair predicts.
+inline constexpr float kChipPadPx = 10.0f;
+inline constexpr float kCloseBoxPx = 14.0f;
+// The mark inside that box. Lucide's `close` sprite inks its whole blit
+// square, so the blit IS the mark: at the 11px hanabi used elsewhere it came
+// out x482..491 y43..53 against the reference's x483..490 y46..53 -- three
+// pixels too wide, three too tall, and centred a pixel and a half high.
+// Sized and biased to the reference's own extent.
+inline constexpr float kCloseGlyphPx = 8.0f;
+inline constexpr float kCloseYBias = 1.0f;
 // afterhours rasterizes a w*h box at (x,y) as (w+1)*(h+1) pixels anchored at
 // (x-1,y-1), so a tab whose OUTER edge must land on the reference's measured
 // 220x34 at (284,32) is asked for as 219x33 at (285,33) (gap #80).

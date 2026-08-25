@@ -100,6 +100,47 @@ static void test_the_pin_does_not_follow_the_title_colour() {
     CHECK(within(inactive, active.r, active.g, active.b, 20));
 }
 
+// The close mark, which `ref/02_thread.png` is the only frame that shows.
+//
+// 01's two tabs are both pinned and Puffin draws no × on a pinned chip, so
+// every number about this mark comes off 02: its ink is x483..490 y46..53,
+// centred on 486.5, in a chip running x284..504.
+static void test_the_close_mark_lands_where_the_reference_puts_it() {
+    std::printf("test_the_close_mark_lands_where_the_reference_puts_it\n");
+    // `TabChip`'s `.padding(.horizontal, 10)` and its `closeButton`'s
+    // `.frame(width: 14, height: 14)`, which `TabTooltip` restates as
+    // `horizontalPadding` and `markWidth`.
+    CHECK(ecs::tab_colors::kChipPadPx == 10.0f);
+    CHECK(ecs::tab_colors::kCloseBoxPx == 14.0f);
+    const float chipRight = 504.0f;
+    const float boxLeft =
+        chipRight - ecs::tab_colors::kChipPadPx - ecs::tab_colors::kCloseBoxPx;
+    CHECK(boxLeft == 480.0f);
+    const float centre = boxLeft + ecs::tab_colors::kCloseBoxPx * 0.5f;
+    CHECK(centre >= 486.0f && centre <= 487.5f);  // measured 486.5
+    // The glyph inside it: Lucide's `close` inks its whole blit square, so the
+    // blit size IS the mark's extent, and the reference's is 8 across.
+    CHECK(ecs::tab_colors::kCloseGlyphPx == 8.0f);
+}
+
+// The × takes the strip's muted mark ink, never the current tab's title. The
+// regression this guards is the pin's, one file over: on a dark theme the
+// active title is pure white, and a close mark that followed it would be a
+// white × on the one tab a reader looks at most.
+static void test_the_close_mark_does_not_follow_the_title_colour() {
+    std::printf("test_the_close_mark_does_not_follow_the_title_colour\n");
+    theme::set_mode(theme::Mode::Dark);
+    const Color ink = ecs::tab_colors::close_ink();
+    const Color titled = ecs::tab_colors::tab_text_act();
+    CHECK(apart(ink, titled.r, titled.g, titled.b));
+    // And it is Puffin's `Chrome.mutedText` to within the harness's own
+    // tolerance -- (140,140,166) against hanabi's neutral (142,142,154), which
+    // is nine units of blue and the whole of the palette's violet cast. Swept
+    // analytically over this strip's three drawn marks it is worth ZERO diff
+    // pixels; see FRICTION_LOG.md, `## The tab strip, round four`.
+    CHECK(within(ink, 140, 140, 166));
+}
+
 // Light mode has no measured reference — there is no light Puffin capture — so
 // the only claim worth making is the structural one: the rule is a rule, not a
 // dark-theme special case, and the mark stays translucent either way.
@@ -119,6 +160,8 @@ int main() {
     test_the_pin_matches_the_reference_on_an_inactive_tab();
     test_the_pin_matches_the_reference_on_the_active_tab();
     test_the_pin_does_not_follow_the_title_colour();
+    test_the_close_mark_lands_where_the_reference_puts_it();
+    test_the_close_mark_does_not_follow_the_title_colour();
     test_the_rule_survives_a_light_theme();
     if (g_failures != 0) {
         std::printf("FAILED (%d)\n", g_failures);

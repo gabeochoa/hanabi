@@ -5851,3 +5851,128 @@ a placeholder — which is exactly the pair SwiftUI's `.help()` sets in one call
 
 CLASS: MISSING
 
+### #113 — Every scripted failure but one is told which element it was about; the timeout, which is the one that means "it is not there", is not
+
+**What was wanted.** To watch a new scripted test go red against a build
+without its fix, read the failure, and know from the failure alone what was
+missing.
+
+**What happens.** `assert_ui` calls `cmd.retry()` when no element carries the
+name, so a missing element is not a failure — it is a retry, thirty times, and
+then a timeout. The timeout's message is built in
+`command_handlers.h:812-824`, which special-cases exactly one command:
+
+```cpp
+if (cmd.name == "expect_text" && !cmd.args.empty()) {
+    error_msg = std::format("Text not found: '{}'. Visible: {:.200}", ...);
+} else {
+    error_msg = std::format("Command '{}' timed out after {} frames",
+                            cmd.name, PendingE2ECommand::MAX_FRAMES);
+}
+```
+
+So `expect_text` says what it was looking for and what was on screen, and
+`assert_ui`, `assert_ui_text`, `click_ui`, `focus_ui`, `expect_focused` and
+`expect_input_text` all say nothing at all. Four consecutive assertions about
+one element produce four identical lines:
+
+```
+[WARN] [TIMEOUT] assert_ui (line 47): Command 'assert_ui' timed out after 30 frames
+[WARN] [TIMEOUT] assert_ui (line 48): Command 'assert_ui' timed out after 30 frames
+[WARN] [TIMEOUT] assert_ui (line 49): Command 'assert_ui' timed out after 30 frames
+[WARN] [TIMEOUT] assert_ui (line 50): Command 'assert_ui' timed out after 30 frames
+```
+
+`cmd.args[0]` — the name — is in scope on the line above.
+
+This is #104's other half and it bites in the same place. #104 is that you
+cannot ASSERT an element is absent; this is that when an element IS absent, the
+harness declines to say which one. Between them, "did this element render?" is
+the question the harness is worst at, and it is the question every piece of
+chrome asks.
+
+**Why the obvious escapes do not work.**
+
+- **Read the line number** — works, and it is what I did. It requires the
+  script open beside the log, it does not survive the script being edited, and
+  it is no use at all in the suite runner's summary, which prints
+  `sed -n '/E2E ERROR\|TIMEOUT\|FAIL/p' | head -8` and so prints eight lines
+  that differ only in a number.
+- **Name the assertion in a comment** — comments are not in the log.
+- **Split one element's assertions across separate tests** so the test NAME
+  carries the element — one file per property, and the suite is 85 files.
+
+**The workaround, and its cost.** None available in app code; the message is
+built inside the plugin. The cost is that a red scripted test in this repo
+tells you a line number and not a fact, and the reflex it trains — open the
+script, count lines — is the reflex that made #104's missing assertion hard to
+notice in the first place.
+
+**Minimal upstream fix.** Widen the special case to a default: when a command
+times out and has args, append them. Three lines, and it makes every
+name-taking command self-describing:
+
+```cpp
+error_msg = std::format("Command '{}'{} timed out after {} frames", cmd.name,
+                        cmd.args.empty() ? "" : std::format(" ('{}')", cmd.args[0]),
+                        PendingE2ECommand::MAX_FRAMES);
+```
+
+CLASS: FOOTGUN
+
+### #114 — A sprite's rendered INK extent is not derivable from its atlas rect and its `draw_px`, so every icon is sized by build-measure-repeat
+
+**What was wanted.** To draw a close mark whose ink lands on the reference's
+own 8x8, in one build.
+
+**What happens.** `icons::draw_fg(name, fallback, colour, draw_px)` blits the
+atlas sub-rect into a `draw_px` x `draw_px` destination centred in the widget.
+`draw_px` is therefore the size of the sprite's BOX, and what a caller has to
+match is the size of its INK — and nothing relates the two. `src_rect(name)`
+returns the atlas rect, which is the box again. The inked fraction of that box
+is a property of the icon set's own normalisation: Lucide normalises to a
+24-unit box and SF Symbols normalises optically, which is already written up in
+REFERENCE.md ("hanabi's one nominal 13px drew `plus` and `search` at 12x12 and
+`gear` at 10x12") as the reason the footer's gear needed 14 to look like its
+neighbours' 13.
+
+So sizing one mark to a measured target is: build, shoot, measure the ink,
+scale, build again. The close mark took two builds — 11px gave x482..491 y43..53
+against the reference's x483..490 y46..53, three pixels wide and three tall,
+and 8px with a +1 y bias gave the reference's extent row for row.
+
+**Why the obvious escapes do not work.**
+
+- **Scale by the ratio of the atlas rect to the target** — that is the ratio of
+  two BOXES, and the discrepancy is between a box and its ink. It is the
+  arithmetic that produced 11 in the first place.
+- **Read the alpha out of the atlas at startup** — the atlas is a GPU texture
+  loaded lazily on first draw (`AtlasTexture::ensure`); there is no CPU-side
+  image to scan, and `scripts/gen_icons.py`, which has the PNG in hand, emits
+  only `{name, x, y, w, h}`.
+- **Trim the sprites at generation time** so the box IS the ink — it changes
+  every existing call site's effective size at once, and #108 already records
+  that the atlas is a shared artefact whose properties cannot be varied per
+  consumer.
+
+**The workaround, and its cost.** Two builds and a screenshot per icon, and a
+comment at the constant recording what the first attempt measured so the next
+person does not repeat it. Multiplied by every glyph in the app: this is the
+same afternoon the footer's gear cost (13 -> 14, `37 diff pixels -> 22`) and
+the same one the filter rules cost, each rediscovered from scratch.
+
+**Minimal upstream fix.** Have the atlas generator emit the inked bounding box
+beside the sprite rect — it already opens every PNG — and expose
+`ink_extent(name, draw_px) -> Vector2` so a caller can size to ink instead of
+to box. Two fields in `icons_atlas.h` and one function.
+
+**Whose gap this is.** The atlas and its generator are hanabi's, so the fix
+above is hanabi's to make; it is filed here rather than in a TODO for the same
+reason #108 is, which is that the shape of the problem is
+`draw_texture_pro(src_rect, dest_rect)` — afterhours' blit takes two boxes and
+has no concept of what is inked inside either — and any consumer that builds a
+sprite sheet against it arrives at the same afternoon. The library half is that
+there is nothing to ask.
+
+CLASS: TEDIOUS
+

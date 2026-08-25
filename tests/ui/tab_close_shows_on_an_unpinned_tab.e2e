@@ -1,0 +1,50 @@
+# An unpinned tab draws its × at rest. Puffin's does, and hanabi's did not.
+#
+# `TabChip.body` ends its HStack with
+#
+#     if !tab.isKeptOpen { closeButton }
+#
+# and there is no hover condition anywhere in `Sources/Views/TabStrip.swift`.
+# hanabi drew the × on HOVER ONLY, with a comment saying the reference shows a
+# clean title on every tab. That comment was read off `ref/01_home.png`, whose
+# two tabs are BOTH PINNED — the one state in which Puffin draws no × either.
+# `ref/02_thread.png` is the unpinned state, and it draws one: 8px of ink at
+# x483..490, y46..53, against nothing at all in hanabi's capture of the same
+# frame. A rule inferred from the only state that cannot exhibit it.
+#
+# The numbers, on `ref/02_thread.png`, structural, over the mark's own
+# rectangle (476,40)-(498,58) whose floor is 2.02-5.56%:
+#
+#     no × at all          11.87%   47 diff px   +6.31 reachable
+#     × drawn at 11px      7.58%    30 diff px   +2.02
+#     × drawn at 8px,+1y   3.79%    15 diff px   AT FLOOR
+#
+# and the tab strip as a whole 1.96% -> 1.91% against a floor of 1.10-1.66.
+#
+# WHAT THIS FILE CAN AND CANNOT GUARD. `assert_ui` reads x/y/w/h/hidden/text
+# (afterhours_gaps.md #86), so the assertable half is that the element exists,
+# unhovered, at the box Puffin's own two constants put it in:
+#
+#     chip right edge 504 − .padding(.horizontal, 10) − .frame(width: 14) = 480
+#
+# The other half of the rule — that a PINNED tab draws no × — is not
+# assertable: every e2e command in the harness asserts that something IS
+# there, `assert_ui` RETRIES on a missing element rather than failing, and
+# there is no `assert_ui_absent` (afterhours_gaps.md #104). Nor is the 8px
+# glyph size or the +1px bias, which are pixel facts; those are measured in
+# docs/visual-parity/FRICTION_LOG.md and constrained by tests/unit/
+# test_tab_colors.cpp instead.
+#
+# The mouse is parked in the middle of the transcript, well clear of the strip,
+# so a pass here cannot be the hover branch firing.
+#
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark"}
+
+mouse_move 700 500
+wait_frames 10
+
+assert_ui tab_active x=285
+assert_ui tab_close hidden=false
+assert_ui tab_close x=480
+assert_ui tab_close w=14
+assert_ui tab_close h=14

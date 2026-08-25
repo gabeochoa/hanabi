@@ -4136,3 +4136,309 @@ names. The rule that falls out — **a floor, a ceiling and a score have to be
 taken over the same surface, or their difference is not a quantity** — now has
 `ceiling.py` honouring declarations in all three columns and `compare.py`
 doing the same.
+
+---
+
+## The tab strip, round four (feat/vis-tabs4)
+
+Two rounds declared this region AT FLOOR. The floor was wrong — it was computed
+over the macOS window frame, which the score already declares — and the
+corrected numbers are +0.72 on `01_home` and +0.30 on `02_thread`. This round
+spends what is spendable, and the useful half of it is the four things that
+turn out not to be.
+
+**The result, both references, structural, tab strip region:**
+
+| | before | after | floor |
+|---|---|---|---|
+| `ref/01_home.png` (two pinned tabs) | 2.81% (+0.72) | **2.81% (+0.72)** | 1.41–2.08 |
+| `ref/02_thread.png` (one unpinned tab) | 1.96% (+0.30) | **1.91% (+0.25)** | 1.10–1.66 |
+
+01 does not move because the thing that was wrong is invisible in it, and that
+is the finding of the round.
+
+### What the +0.72 and the +0.30 are made of
+
+Partitioned by element, in diff pixels against each element's own floor, over
+the shared surface. This is `ceiling.py` with a rectangle per element rather
+than per region, which is the only way the answer comes out:
+
+**`ref/01_home.png`, 1755 diff px, floor 1302, headroom 453**
+
+| element | diff | floor | headroom |
+|---|---:|---:|---:|
+| tab 1's title | 367 | 172 | **195** |
+| tab 2's title | 1281 | 956 | **325** |
+| tab 1's pin | 27 | 30 | −3 |
+| tab 2's pin | 20 | 15 | +5 |
+| the `+` | 55 | 112 | −57 |
+| both tabs' frames, corners, hairline, the empty strip | ~5 | ~5 | 0 |
+
+**`ref/02_thread.png`, 1228 diff px, floor 1038, headroom 190**
+
+| element | diff | floor | headroom |
+|---|---:|---:|---:|
+| the title | 1123 | 887 | **236** |
+| the close `×` | 47 | 22 | **25** |
+| the `+` | 55 | 112 | −57 |
+| frame, corners, hairline, empty strip | ~7 | ~7 | 0 |
+
+So: **the strip is its titles, plus one missing mark.** Every drawn shape in it
+is at or under its own floor, including the `+`, which the previous round left
+open as blocked on the palette. The pins are within five pixels of theirs.
+
+### The reference draws a close × that hanabi drew nowhere — and the rule against it was read off the one frame that cannot show it
+
+The one real fix, and it is a whole missing element rather than a nudge.
+
+- **What the source says.** `TabChip.body` ends its `HStack` with
+  `if !tab.isKeptOpen { closeButton }`. There is no hover condition anywhere in
+  `Sources/Views/TabStrip.swift`: an unpinned chip carries its × at rest, and a
+  pinned one never carries it at all, because `closeRequest` refuses a pinned
+  tab and springs its pin instead.
+- **What hanabi did.** `bool showClose = hovered;` — the × on hover, on every
+  tab, pinned or not. Above it, a comment: *"A row of tabs each carrying a
+  permanent × reads as a toolbar of buttons; the reference shows a clean title
+  on every tab, active one included, and the close affordance only under the
+  cursor."*
+- **Why that comment was wrong, and why it was reasonable.** It was read off
+  `ref/01_home.png`, whose two tabs are **both pinned** — the single state in
+  which Puffin also draws no ×. The frame it cites is the frame that cannot
+  distinguish the two rules. `ref/02_thread.png` is the unpinned state and it
+  draws one: 8px of ink at x483..490, y46..53, against nothing at all in
+  hanabi's capture of the same frame.
+- **What it cost.** Two rounds of "the strip is at floor" while a whole
+  affordance was missing from every unpinned tab in the app, invisible to the
+  reference everyone was working from.
+
+This is the lesson the brief predicted and it generalises past the ×:
+**01 and 02 differ on pinning on purpose, so any rule about a tab that varies
+with pinning has exactly one frame that can test it, and it is never both.**
+Before concluding a tab-strip rule from a capture, ask which of the two states
+the capture is in and whether the rule is a function of it.
+
+**The mark, built and measured.** Puffin's geometry is two constants —
+`.padding(.horizontal, 10)` and `closeButton`'s `.frame(width: 14, height: 14)`
+— restated by `TabTooltip.horizontalPadding` and `.markWidth`, which is the
+source agreeing with itself. `chip right 504 − 10 − 14 = 480`, centre 487,
+against the reference's measured 486.5. hanabi's dormant hover × was a 16px box
+5px in, centring at 491.
+
+| | rect (476,40)-(498,58), floor 2.02–5.56% | diff px |
+|---|---|---:|
+| no × at all | 11.87% | 47 |
+| × at 11px, the size used elsewhere in the app | 7.58% | 30 |
+| × at 8px with a +1px y bias | **3.79% — AT FLOOR** | **15** |
+
+The two builds between the second and third rows are gap #114: `draw_px` sizes
+the sprite's BOX and what has to match is its INK, and nothing relates them.
+At 11 the mark came out x482..491 y43..53 — three wide, three tall and a pixel
+and a half high. At 8 it is the reference's extent row for row.
+
+**A pinned tab keeps hanabi's hover ×, deliberately**, and that is now a
+declared divergence in REFERENCE.md. Puffin can afford to draw none because its
+close paths all funnel through a refusal and its context menu carries a Close
+Tab item; hanabi's menu has no close item, so matching Puffin exactly would
+leave Cmd+W and middle-click as the only ways out of a pinned tab. It costs
+nothing at the metric: neither reference captures a hover.
+
+### Four things that are NOT worth what the last round thought, each with the number
+
+The round-three entry above leaves four leads open. All four are now measured
+and all four are worth approximately nothing. They are written out at length
+because each one reads like the obvious next move.
+
+**1. The active tab's title is pure white and it should be lightText — worth
+0.2 points, and the metric is split on the sign.**
+
+Recovered by the (pixel − background) ratio over the whole title, which is
+coverage-independent: the reference gives 1.00:0.936:0.825 over the (46,58,88)
+fill, and `Chrome.text` = lightText (235,235,245) predicts 1.00:0.937:0.831.
+hanabi's own recovers to 1.00:0.943:0.799, which is (255,255,255) exactly. So
+the source and the pixels agree that Puffin's active title is **not white**,
+and hanabi's is.
+
+Swept analytically — coverage is recoverable from one render with a known
+colour, so any other ink can be re-synthesised without rebuilding:
+
+| ink | 01 tab 2 | 02 |
+|---|---:|---:|
+| white (255,255,255) — shipped | 1281 | **1123** |
+| lightText (235,235,245) — Puffin's | **1273** | 1129 |
+| text_primary (224,224,230) | 1283 | 1132 |
+| best of seven candidates | 1272 | 1123 |
+
+Eight pixels better on 01, six worse on 02, out of ~1280 and ~1123. **Left at
+white**, by REFERENCE.md's own rule — move a BLIT to the source's token and
+leave TEXT wherever it measures — with the recovered constant written above the
+code so nobody re-derives it.
+
+**2. "hanabi's greys are neutral where Puffin's are violet" is worth ZERO in
+this strip, and the round-three measurement that says otherwise was measuring
+brightness.**
+
+Round three called this *"the single largest thing standing between the small
+drawn marks and their floor"* and priced the `+` at 75 diff px against 56
+"recoloured to the reference's ink". Re-swept per mark, analytically, over the
+whole plausible range:
+
+| ink | the `+` | pin (inactive) | pin (active) |
+|---|---:|---:|---:|
+| `text_secondary` (142,142,154) — shipped, blue:red **1.00** | 55 | 27 | 20 |
+| `Chrome.mutedText` (140,140,166) — Puffin's, blue:red **1.19** | **55** | **27** | **20** |
+| (148,148,172) — round three's figure | 49 | — | — |
+| `text_faint` (100,100,112) | 90 | — | — |
+
+**Puffin's own token scores identically to hanabi's on all three marks.** The
+six pixels round three found came from (148,148,172) being eight units
+*brighter*, not eighteen units *bluer* — the sweep separates the two axes and
+only brightness moves. Nineteen units of blue at 12/255 tolerance sounds
+decisive and is not, because a mark this small is mostly partial coverage and
+partial coverage scales the deficit down with it.
+
+That does not make the palette observation false — the reference's muted ink
+really is 1.10 blue:red and hanabi's really is 1.00 — it makes it **not worth a
+palette-wide change on this evidence.** The tab strip was the case put forward
+for one; priced locally it is zero, and the `+` is 57 pixels UNDER its floor
+already.
+
+**3. The chip's title inset is 12 where Puffin's is 10, and moving it to
+Puffin's makes both references worse.**
+
+Built and shot, unpinned 12 → 10 and pinned 26 → 28:
+
+| | before | after |
+|---|---|---|
+| tabbar on 01 | 2.81% (+0.72) | 2.82% (+0.74) |
+| tabbar on 02 | 1.91% (+0.25) | 1.97% (+0.31) |
+| 02's title first ink | 297 (ref 294) | 295 (ref 294) |
+
+**Reverted.** Two reasons, and the second is the one worth keeping:
+
+- On 02, where both apps draw the *same string*, the rigid-shift sweep
+  REFERENCE.md prescribes is flat and its minimum is at dx=0: 1138 / 1159 /
+  1133 / **1123** / 1123 / 1137 / 1129 for dx −3..+3. That is the signature of
+  a rasterizer residual, not a placement bug, and the 2px move is inside its
+  noise in the wrong direction.
+- **On 01 the sweep cannot be run at all, and reading first-ink instead is a
+  trap I fell into.** Off row y=48 the reference's pinned title starts at 313
+  and hanabi's at 311, which says "move hanabi 2px right". Off the whole ink
+  band it starts at **310**, because 313 is the stem of `T` in "TODO" and 310
+  is the left end of its crossbar, while hanabi's 311 is the ascender of `k` in
+  "kicker-tick". Two different strings, two different first glyphs, and
+  first-ink is a property of the glyph. The 2px move that reading recommended
+  is exactly the 2px that made 01 worse.
+
+**First-ink is not a measurable quantity when the strings differ.** The list
+round could use it on nineteen rows because both apps drew the same nineteen
+titles.
+
+**4. Shipping a bold face for the active tab's title is worth 8 pixels — and
+this is the place where Puffin genuinely bolds, so the bold-face round's
+negative result did not have to transfer, and does.**
+
+`Font.row(_:selected:)` is `face(size, selected ? .semibold : .regular)`, so
+Puffin's active tab title is semibold. It shows: over 02's shared string
+hanabi's title inks **256 units against the reference's 482 — 53%** — where the
+inactive title on 01 inks slightly MORE than the reference's. That asymmetry is
+the weight, isolated, and it is a much bigger deficit than the 11.5% the list
+round measured with both sides in Regular.
+
+Emulated by widening every stem, which is what a heavier face does:
+
+| stem | ink | diff px |
+|---|---:|---:|
+| +0.0 (shipped) | 256 | 1123 |
+| +0.3 | 276 | 1119 |
+| +0.7 | 317 | 1145 |
+| +1.4 (ink 419, nearest the reference's 482) | 419 | **1115** |
+| +2.0 | 520 | 1149 |
+
+A 34-pixel spread over a range that more than doubles the ink. Matching the
+reference's ink almost exactly buys **8 diff pixels of 1123**. The reason is
+the one the bold-face round gave — the diff counts non-overlap on both sides,
+so ink added to a string whose advances are drifting creates as much
+disagreement as it removes — and gap #77's remaining half is now priced in the
+one region where the source actually asks for a bold.
+
+### So what IS 02's remaining 236 pixels of title?
+
+Not colour (0.2 points), not weight (8 px), not position (flat sweep). It is
+the typeface's advances, and on 02 they can be read directly because both apps
+draw `row 133 banyan diff gate`. Word runs, thresholded at 15% coverage:
+
+| word | reference | hanabi | offset |
+|---|---|---|---:|
+| `row` | 294–315 | 297–314 | **+3** |
+| `133` | 319–338 | 319–335 | 0 |
+| `banyan` | 342–383 | 339–373 | −3 |
+| `diff gate` | 387–435 | 377–417 | **−10** |
+
+hanabi's string is 120px where the reference's is 141 — **85%** — and the
+deficit accumulates monotonically from +3 at the head to −10 at the tail. No
+single shift touches it; the head and the tail want opposite ones. This is
+REFERENCE.md's already-recorded "45px narrower, and that is the typeface", one
+region over and measured per word.
+
+**01's 520 pixels of title cannot be measured at all**, because its two strings
+differ, and that is a different statement from "cannot be closed". See below.
+
+### Porting `t9` and `t2`'s titles is the SAME decision as porting r9's transcript, and here is why it matters more than the 2.6 points
+
+Round three declined to rename hanabi's mock sessions to Puffin's fixture
+strings, on the grounds that it would be measuring the fixture. Since then
+`feat/vis-fixture` ported `mock-outcome-2` into r9 — and it ported the **title**
+with it: `src/api/mock_client.h:1025` is
+`pf("r9", "row 133 banyan diff gate", ...)`, which is the reference's own tab
+label, verbatim. That is why `ref/02_thread.png`'s tab title is the only title
+in this strip anybody can say anything about.
+
+So the precedent exists, it was taken deliberately, and the argument for
+extending it is not the 2.6 points. It is this: **sharing the string is what
+makes the title measurable.** With it, 02 answers "is the position right"
+(yes, flat sweep), "is the weight the gap" (yes, 53% ink), "is a bold worth
+shipping" (no, 8 px) and "what is left" (15% of advance, accumulating). Without
+it, 01 answers none of them — its rigid-shift sweep is ±40px of noise that
+prefers −3 on one tab and +4 on the other, and its first-ink reading actively
+misleads, as it did above.
+
+The honest statement about 01, therefore, is **not** that its +0.72 is
+unclosed. It is that its two titles carry 520 pixels of headroom between
+them — more than the region's whole net 453, because the `+` and the pins sit
+under their own floors and give some back — and that those 520 are two strings
+saying different words, on which no measurement means anything until they say
+the same words. I would port them; it is Gabe's call, and it is
+the same call that was already made once.
+
+### Cited, not re-filed
+
+- **#104** (a scripted test cannot assert an element is ABSENT) is why the
+  pinned half of the close-mark rule has no test. `tests/ui/
+  tab_close_shows_on_an_unpinned_tab.e2e` asserts the × is there on an unpinned
+  tab, unhovered, at 480x14x14; nothing can assert it is *not* there on a
+  pinned one, because `assert_ui` retries a missing element rather than failing
+  and there is no `assert_ui_absent`.
+- **#86 / #61** (assert_ui reads x/y/w/h/hidden/text and never a pixel) is why
+  the 8px glyph size, the +1px bias and every ink in this entry are guarded by
+  `tests/unit/test_tab_colors.cpp` — arithmetic against constants measured off
+  the reference — rather than by the scripted suite.
+- **#92** (no antialiasing on primitives) is why the corner radius stays at 4.
+  Puffin's chip is `UnevenRoundedRectangle(topLeadingRadius: 6,
+  topTrailingRadius: 6)` and the reference's arc confirms it — its left edge
+  reaches full coverage only at y=39, seven rows below the chip's top, where
+  hanabi's is there by y=37. Priced over the corners' own rectangles it is
+  **2 pixels on 02 and 4 on 01**, every one of the four at or within a pixel of
+  its floor. The 0.8px structural blur forgives a two-pixel arc; correcting it
+  would mean hand-drawing the corner, and #106's escape does not reach it —
+  the coverage of a rounded corner is not separable the way an axis-aligned
+  rectangle's is.
+
+### New gaps
+
+- **#113** — every scripted failure but one names the element it was about; the
+  timeout, which is the one that means "it is not there", does not. Four
+  identical `Command 'assert_ui' timed out after 30 frames` lines for four
+  assertions about one element, with the name in scope one line above.
+- **#114** — a sprite's rendered INK extent is not derivable from its atlas rect
+  and its `draw_px`, so every icon is sized by build-measure-repeat. Two builds
+  for one 8px mark.
