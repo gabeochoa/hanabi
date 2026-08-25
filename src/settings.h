@@ -6,6 +6,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 // Minimal persisted settings: window geometry, theme mode, and the open-tab
@@ -292,6 +293,15 @@ struct Settings {
     std::vector<std::string> starred_ids_;
     std::map<std::string, bool> archived_;
     std::vector<std::string> muted_ids_;
+    // Membership indexes over the two vectors above. The vectors stay the
+    // source of truth because they carry ORDER and are what round-trips
+    // through JSON; these only answer is_starred / is_muted, which
+    // apply_local_overlays asks once per session on every list fetch --
+    // O(sessions x starred) with a linear scan. Rebuilt wholesale in
+    // load_save_file and maintained by set_starred / set_muted; nothing else
+    // may touch the vectors without touching these.
+    std::unordered_set<std::string> starred_set_;
+    std::unordered_set<std::string> muted_set_;
     std::map<std::string, std::vector<std::string>> row_order_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;

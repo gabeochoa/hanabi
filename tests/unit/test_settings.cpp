@@ -11,6 +11,7 @@
 // Pure logic only — no network, no graphics. Settings persists to a JSON file;
 // we isolate it to a temp config dir so we never touch a real user settings
 // file, and disable auto-save churn where it isn't under test.
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -325,6 +326,68 @@ static void test_finished_subagents_round_trips() {
     CHECK(!s.get_show_finished_subagents());
 }
 
+// The membership index and the ordered vector must never disagree.
+//
+// is_starred/is_muted answer from an unordered_set; get_starred() and the JSON
+// round-trip use the vector. Two structures holding one fact is a desync bug
+// waiting to happen, and the failure is SILENT and user-visible: a star that
+// the sidebar draws but the settings file does not contain, or the reverse.
+// This walks both and asserts they agree after every kind of mutation.
+static void test_star_and_mute_index_agrees_with_the_stored_list() {
+    std::printf("test_star_and_mute_index_agrees_with_the_stored_list\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    // Both directions of agreement, over ids that ARE and are NOT present.
+    auto agree = [&](const char* where) {
+        const auto& v = s.get_starred();
+        for (const auto& id : v)
+            if (!s.is_starred(id))
+                std::printf("  FAIL: %s: '%s' is in the list but is_starred "
+                            "says no\n", where, id.c_str()),
+                    ++g_failures;
+        for (int i = 0; i < 40; ++i) {
+            const std::string id = "t" + std::to_string(i);
+            const bool inList =
+                std::find(v.begin(), v.end(), id) != v.end();
+            if (inList != s.is_starred(id))
+                std::printf("  FAIL: %s: '%s' list=%d is_starred=%d\n", where,
+                            id.c_str(), inList ? 1 : 0,
+                            s.is_starred(id) ? 1 : 0),
+                    ++g_failures;
+        }
+    };
+
+    for (int i = 0; i < 40; i += 2) s.set_starred("t" + std::to_string(i), true);
+    agree("after starring");
+
+    // Unstarring is where a set-backed index goes wrong: the vector erase and
+    // the set erase are two statements, and dropping either one is invisible
+    // until someone reads the other structure.
+    for (int i = 0; i < 40; i += 4) s.set_starred("t" + std::to_string(i), false);
+    agree("after unstarring");
+
+    // Re-star something previously unstarred: catches an index that was left
+    // holding a stale entry, which would make the no-change early-out fire.
+    s.set_starred("t0", true);
+    agree("after re-starring");
+
+    // And across a reload, which rebuilds the index from the file.
+    s.load_save_file();
+    agree("after reload");
+    CHECK(s.is_starred("t2"));
+    CHECK(!s.is_starred("t4"));
+    CHECK(!s.is_starred("nonexistent"));
+
+    // Mute keeps its own pair of structures; same contract.
+    s.set_muted("m1", true);
+    s.set_muted("m2", true);
+    s.set_muted("m1", false);
+    s.load_save_file();
+    CHECK(!s.is_muted("m1"));
+    CHECK(s.is_muted("m2"));
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -338,6 +401,7 @@ int main() {
     test_archive_overlay_round_trips();
     test_mute_round_trips();
     test_finished_subagents_round_trips();
+    test_star_and_mute_index_agrees_with_the_stored_list();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;
