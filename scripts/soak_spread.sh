@@ -34,9 +34,9 @@ trap 'rm -f "$SHOT" "$LOG"' EXIT
 
 echo "=== soak spread: ${RUNS} runs, ${FRAMES} frames, buckets of ${EVERY}, scenario ${SCENARIO} ==="
 echo "  load at start: $(uptime | sed -nE 's/.*load averages?: //p')"
-printf '  %-5s %10s %10s %10s %10s %8s\n' run "RSS/1k" "heap/1k" "blocks/1k" "ms/1k" "rising"
+printf '  %-5s %10s %10s %10s %10s %10s %8s\n' run "RSS/1k" "heap/1k" "blocks/1k" "cpu/1k" "wall/1k" "rising"
 
-rss_all=""; heap_all=""; blocks_all=""; ms_all=""; incomplete=0
+rss_all=""; heap_all=""; blocks_all=""; cpu_all=""; ms_all=""; incomplete=0
 for i in $(seq 1 "$RUNS"); do
     env HANABI_BACKEND=mock HANABI_CONFIG=/nonexistent/hanabi/spread.json \
         HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$EVERY" \
@@ -46,7 +46,7 @@ for i in $(seq 1 "$RUNS"); do
         HANABI_SOAK_MAX_MS_PER1K=1000000 \
         HANABI_SOAK_MAX_ENT_PER1K=1000000 \
         "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
-    read -r r h b m rise <<<"$(python3 - "$LOG" <<'PARSE'
+    read -r r h b c m rise <<<"$(python3 - "$LOG" <<'PARSE'
 import re, sys
 # Parse the verdict table by LABEL, not by field index: the label is one or
 # two words and the verdict cell is one or four, so a positional parse reads
@@ -54,16 +54,16 @@ import re, sys
 # summary of the string "KB" the first time this was run.
 rows = {}
 for line in open(sys.argv[1], errors="replace"):
-    m = re.match(r"\[soak\]\s+(RSS|heap bytes|heap blocks|entities|frame time)\s+"
+    m = re.match(r"\[soak\]\s+(RSS|heap bytes|heap blocks|entities|cpu time|wall time)\s+"
                  r"([-+][\d.]+)\s+(?:KB|ms\s)?\s*[-+][\d.]+\s+(?:KB|ms\s)?\s*"
                  r"(\S+)\s+(\S+)", line)
     if m:
         rows[m.group(1)] = (m.group(2), m.group(4))
-if len(rows) < 5:
+if not {"RSS", "heap bytes", "heap blocks", "cpu time", "wall time"} <= set(rows):
     print("")
 else:
     print(rows["RSS"][0], rows["heap bytes"][0], rows["heap blocks"][0],
-          rows["frame time"][0], rows["RSS"][1])
+          rows["cpu time"][0], rows["wall time"][0], rows["RSS"][1])
 PARSE
 )"
     if [ -z "$r" ] || [ -z "$h" ]; then
@@ -71,9 +71,9 @@ PARSE
         incomplete=$((incomplete + 1))
         continue
     fi
-    printf '  %-5s %10s %10s %10s %10s %8s\n' "$i" "$r" "$h" "$b" "$m" "$rise"
+    printf '  %-5s %10s %10s %10s %10s %10s %8s\n' "$i" "$r" "$h" "$b" "$c" "$m" "$rise"
     rss_all="$rss_all $r"; heap_all="$heap_all $h"
-    blocks_all="$blocks_all $b"; ms_all="$ms_all $m"
+    blocks_all="$blocks_all $b"; cpu_all="$cpu_all $c"; ms_all="$ms_all $m"
 done
 
 echo
@@ -101,5 +101,6 @@ print(f"n={n:<3} min {xs[0]:+9.1f}  median {med:+9.1f}  max {xs[-1]:+9.1f}  spre
 summarize "RSS KB" $rss_all
 summarize "heap KB" $heap_all
 summarize "blocks" $blocks_all
-summarize "ms" $ms_all
+summarize "cpu ms" $cpu_all
+summarize "wall ms" $ms_all
 echo "  load at end:   $(uptime | sed -nE 's/.*load averages?: //p')"

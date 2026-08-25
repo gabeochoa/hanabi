@@ -1430,6 +1430,11 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         }
 
         auto bucketStart = std::chrono::steady_clock::now();
+        // The CPU clock is sampled UNCONDITIONALLY, not behind prof::enabled().
+        // The soak's frame-time gate is on thread CPU rather than wall clock
+        // (soak.h::verdict says why), so the reading it gates on cannot be
+        // behind a diagnostic flag. Two clock_gettime calls a frame.
+        unsigned long long bucketCpu = hanabi::prof::cpu_nanos();
         for (int i = 1; i <= soakFrames; ++i) {
             if (appForWait != nullptr) driver.act(i - 1, *appForWait);
             if (const float step = driver.scroll_step(i - 1); step != 0.0f) {
@@ -1437,9 +1442,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                                 step))
                     hanabi::prof::tick("stress.scroll_target_missing");
             }
-            const unsigned long long cpu0 = hanabi::prof::enabled()
-                                                ? hanabi::prof::cpu_nanos()
-                                                : 0;
+            const unsigned long long cpu0 = hanabi::prof::cpu_nanos();
             {
                 const hanabi::AutoreleaseFrame framePool;
                 graphics::begin_frame();
@@ -1452,11 +1455,17 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             hanabi::prof::frame();
             if (i % every == 0) {
                 auto now = std::chrono::steady_clock::now();
+                const unsigned long long cpuNow = hanabi::prof::cpu_nanos();
                 const double ms =
                     std::chrono::duration<double, std::milli>(now - bucketStart)
                         .count() / static_cast<double>(every);
+                const double cpuMs =
+                    static_cast<double>(cpuNow - bucketCpu) / 1.0e6 /
+                    static_cast<double>(every);
                 bucketStart = now;
-                hanabi::soak::report(samples, i, ms, hanabi::soak::rss_kb(),
+                bucketCpu = cpuNow;
+                hanabi::soak::report(samples, i, ms, cpuMs,
+                                     hanabi::soak::rss_kb(),
                                      EntityHelper::get_entities().size());
             }
         }

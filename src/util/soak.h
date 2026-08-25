@@ -40,6 +40,7 @@
 #include <mach/mach.h>
 #include <malloc/malloc.h>
 
+#include "prof.h"
 #include "trend.h"
 #include "../../vendor/afterhours/src/core/entity_helper.h"
 #include "../../vendor/afterhours/src/plugins/ui/components.h"
@@ -190,20 +191,26 @@ inline void census() {
 
 struct Sample {
     int frame = 0;
+    // Wall clock per frame. What a person feels, and what a busy box moves.
     double msPerFrame = 0.0;
+    // CPU this thread was actually GIVEN, per frame, from
+    // CLOCK_THREAD_CPUTIME_ID. Being descheduled costs nothing here, so this
+    // is the column that means the same thing on a quiet machine and a loaded
+    // one -- see the note above the gate in verdict().
+    double cpuMsPerFrame = 0.0;
     long rssKb = 0;
     size_t entities = 0;
     HeapStat heap;
 };
 
 // A bucket's worth of frames, closed out and printed.
-inline void report(std::vector<Sample>& out, int frame, double ms, long rss,
-                   size_t ents) {
+inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
+                   long rss, size_t ents) {
     const HeapStat h = heap_in_use();
-    out.push_back(Sample{frame, ms, rss, ents, h});
-    std::printf("[soak] frame %6d  %7.3f ms/f  RSS %7ld KB  entities %6zu  "
-                "live %8u blocks / %8zu KB\n",
-                frame, ms, rss, ents, h.count, h.bytes / 1024);
+    out.push_back(Sample{frame, ms, cpuMs, rss, ents, h});
+    std::printf("[soak] frame %6d  %7.3f ms/f wall  %7.3f cpu  RSS %7ld KB  "
+                "entities %6zu  live %8u blocks / %8zu KB\n",
+                frame, ms, cpuMs, rss, ents, h.count, h.bytes / 1024);
     std::fflush(stdout);
 }
 
@@ -256,6 +263,7 @@ inline Trend trend_of(const std::vector<const Sample*>& pts,
 // The column accessors, as plain functions so trend_of stays one routine
 // rather than a template instantiated five times over the same body.
 inline double col_ms(const Sample& x) { return x.msPerFrame; }
+inline double col_cpu_ms(const Sample& x) { return x.cpuMsPerFrame; }
 inline double col_rss(const Sample& x) { return static_cast<double>(x.rssKb); }
 inline double col_ent(const Sample& x) {
     return static_cast<double>(x.entities);
@@ -282,7 +290,8 @@ inline double col_heap_kb(const Sample& x) {
 //
 //   HANABI_SOAK_MAX_RSS_KB_PER1K     resident growth,      KB per 1000 frames
 //   HANABI_SOAK_MAX_HEAP_KB_PER1K    live malloc bytes,    KB per 1000 frames
-//   HANABI_SOAK_MAX_MS_PER1K         frame-time drift,     ms per 1000 frames
+//   HANABI_SOAK_MAX_MS_PER1K         CPU-time drift,       ms per 1000 frames
+//                                    (thread CPU, not wall -- see verdict())
 //   HANABI_SOAK_MAX_ENT_PER1K        entity growth,     entities per 1000
 // ---------------------------------------------------------------------------
 struct Budget {
@@ -389,6 +398,7 @@ inline int verdict(const std::vector<Sample>& s) {
     }
 
     const Trend tMs = trend_of(pts, col_ms);
+    const Trend tCpu = trend_of(pts, col_cpu_ms);
     const Trend tRss = trend_of(pts, col_rss);
     const Trend tEnt = trend_of(pts, col_ent);
     const Trend tBlocks = trend_of(pts, col_blocks);
@@ -425,7 +435,23 @@ inline int verdict(const std::vector<Sample>& s) {
     // lags by whole pages -- so on a short run this is the sharper instrument.
     bad |= judge_row("heap bytes", "KB", tHeap, bud.heapKbPer1k, true) ? 1 : 0;
     bad |= judge_row("entities", "  ", tEnt, bud.entPer1k, true) ? 1 : 0;
-    bad |= judge_row("frame time", "ms", tMs, bud.msPer1k, true) ? 1 : 0;
+    // FRAME TIME IS GATED ON THE CPU CLOCK, NOT THE WALL CLOCK.
+    //
+    // This box runs three other agents' builds and its load average has hit
+    // 29. Wall clock per frame measures how much of the machine the app was
+    // GIVEN; CLOCK_THREAD_CPUTIME_ID measures how much work it DID, and a
+    // regression is a change in the second. Measured over 12 clean runs each,
+    // 2000 frames, quiet and then under eight synthetic spinners: the wall
+    // column's worst slope was +2.6 ms per 1000 frames with no defect present
+    // at all, against a budget of 3.0 -- 1.15x of headroom on a metric that
+    // was supposed to have some. The CPU column is in the same table in
+    // docs/perf/GATES.md and it does not move like that.
+    //
+    // Wall stays, as report-only. It is what a person feels, and a run where
+    // wall climbs while CPU is flat is a real and different finding (the app
+    // waiting on something) that a gate on CPU alone would hide.
+    bad |= judge_row("cpu time", "ms", tCpu, bud.msPer1k, true) ? 1 : 0;
+    judge_row("wall time", "ms", tMs, 0.0, false);
     // Block COUNT stays report-only here. The allocator recycles small blocks
     // in bursts, so the column sawtooths; the slope tames it a great deal but
     // whether it tames it enough to gate is a measurement, and it belongs in
@@ -480,17 +506,16 @@ inline int verdict(const std::vector<Sample>& s) {
                     "(an event log, a\n"
                     "[soak]      history buffer) with no bound and no drain.\n");
     }
-    if (tMs.per1k > bud.msPer1k && tRss.per1k <= bud.rssKbPer1k) {
+    if (tCpu.per1k > bud.msPer1k && tRss.per1k <= bud.rssKbPer1k) {
         std::printf("[soak]\n[soak] Frame time is climbing while memory is "
                     "FLAT, which is the worse\n[soak] shape: work proportional "
                     "to something that grows without\n[soak] allocating -- a "
                     "counter driving a loop, or a container that is\n[soak] "
                     "reused but never shrunk.\n");
-        if (tMs.points >= 3 && tMs.rising < 0.75)
-            std::printf("[soak]\n[soak] But only %.0f%% of frame-time pairs "
-                        "increased, so the series is not\n[soak] monotone and "
-                        "this box was probably busy. Re-run before believing "
-                        "it.\n", tMs.rising * 100.0);
+        if (tCpu.points >= 3 && tCpu.rising < 0.75)
+            std::printf("[soak]\n[soak] But only %.0f%% of cpu-time pairs "
+                        "increased, so the series is not\n[soak] monotone. Re-run before "
+                        "believing it.\n", tCpu.rising * 100.0);
     }
     std::printf("[soak]\n[soak] To reproduce and localise:\n"
                 "[soak]   make soak-gate              # this exact run again\n"
