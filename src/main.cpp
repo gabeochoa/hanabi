@@ -997,12 +997,12 @@ static void apply_test_knobs(ecs::AppComponent* app) {
 static std::string hold_note(const ecs::AppComponent& app) {
     char buf[512];
     std::snprintf(buf, sizeof(buf),
-                  "sessions=%zu lru=%zu composerHistory=%zu "
+                  "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
                   "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu",
-                  app.sessions.size(),
-                  app.transcriptCache.size(), app.composerHistory.size(),
-                  app.liveSubs.size(), app.rowOrder.size(),
-                  app.expandedPiles.size(),
+                  app.sessions.size(), app.transcriptCache.size(),
+                  ecs::model::pane_states().size(),
+                  ecs::model::pane_states().drafts(), app.liveSubs.size(),
+                  app.rowOrder.size(), app.expandedPiles.size(),
                   afterhours::EntityHelper::get_entities().size());
     return std::string(buf);
 }
