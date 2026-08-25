@@ -1,0 +1,25 @@
+# The same navigation with the sweep off: the widgets are still there.
+#
+# This script exists to keep its twin honest.
+# widgets_of_a_screen_you_left_are_retired.e2e asserts "stale widgets 0", and
+# a build that retired nothing but also counted nothing would pass it just as
+# happily. So: the same clicks, HANABI_RETIRE=0, and the count must NOT be
+# zero.
+#
+# Together the pair says two things that neither says alone — the sweep runs,
+# and the audit can see when it does not.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIDGET_AUDIT=1 HANABI_RETIRE_GRACE=2 HANABI_RETIRE_EVERY=1 HANABI_RETIRE=0
+
+expect_text "Home"
+
+# Open a thread. Home's cards stop being built here and, with the sweep off,
+# stop being anything else either: they stay in the collection and every UI
+# system keeps walking them (afterhours_gaps.md #115).
+click 140 386
+wait_frames 30
+assert_ui transcript_scroll hidden=false
+
+# Home's widgets are past the grace and nothing took them.
+expect_no_text "stale widgets 0"

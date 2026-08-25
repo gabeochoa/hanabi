@@ -215,8 +215,27 @@ struct SweepResult {
 
 inline size_t g_retired_total = 0;
 
-inline SweepResult retire_stale(unsigned grace) {
-    SweepResult out;
+// Widgets the sweep OUGHT to have taken and has not: still owned by `mk`,
+// still walked by every system, and older than the grace. Zero is the whole
+// claim of this file, and it is the only form of it a scripted test can read
+// -- a retired widget is not on screen, so the matcher can never see one
+// directly. HANABI_WIDGET_AUDIT=1 prints it (src/ecs/sidebar_system.h).
+//
+// Counted off the map rather than the collection for the same reason the sweep
+// is: an entity marked for cleanup has already left the map, so it cannot be
+// double-counted between the sweep and the cleanup at the end of the frame.
+inline size_t unretired_stale_count(unsigned grace) {
+    size_t n = 0;
+    for (const auto& [hash, id] : afterhours::ui::imm::existing_ui_elements) {
+        const unsigned stamp = stamp_read(id);
+        if (stamp == 0u) continue;
+        if (g_epoch - stamp <= grace) continue;
+        ++n;
+    }
+    return n;
+}
+
+inline SweepResult retire_stale(unsigned grace) {    SweepResult out;
     auto& owned = afterhours::ui::imm::existing_ui_elements;
     auto& collection = afterhours::ui::UICollectionHolder::get().collection;
     out.considered = owned.size();
