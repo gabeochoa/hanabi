@@ -86,6 +86,9 @@ echo "  started $(date '+%H:%M:%S'), load $(uptime | sed -nE 's/.*load averages?
 
 SUMMARY=""
 FAIL=0
+# A per-arm watchdog. Not for the app's sake — for the report's. Without it a
+# killed run shows up as an arm with no numbers, which reads like a leak.
+ARM_TIMEOUT="${HANABI_SOAK_ARM_TIMEOUT:-600}"
 for arm in $ARMS; do
     scenario="$arm"
     sessions=""
@@ -100,7 +103,7 @@ for arm in $ARMS; do
         export HANABI_SOAK="$FRAMES"
         export HANABI_STRESS="$scenario"
         [ -n "$sessions" ] && export HANABI_STRESS_SESSIONS="$sessions"
-        "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
+        timeout "$ARM_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
     )
     rc=$?
     took=$(( $(date +%s) - started ))
@@ -108,13 +111,26 @@ for arm in $ARMS; do
 
     rss="$(grep -E '^\[soak\]   RSS ' "$LOG" | awk '{print $3, $4}')"
     heap="$(grep -E '^\[soak\]   heap bytes' "$LOG" | awk '{print $4, $5}')"
-    if [ "$rc" -eq 0 ]; then
+    # Three outcomes, not two. An arm that never reached its verdict did not
+    # measure anything, and saying FAIL about it is the same unearned verdict
+    # in the other direction. On this machine the usual cause is another
+    # worktree: scripts/review_shots.sh kills output/hanabi.exe in EVERY
+    # worktree it can find, not just its own.
+    if ! grep -qE '^\[soak\] (PASS|-+ SOAK GATE)' "$LOG"; then
+        state=INCOMPLETE
+        FAIL=1
+        echo "  the run ended (rc=${rc}) before it reached a verdict — nothing was" >&2
+        echo "  measured. Something killed the process, or it crashed; this is not" >&2
+        echo "  a leak. Re-run the arm on its own:" >&2
+        echo "      HANABI_SOAK_ARMS=${arm} bash scripts/soak.sh" >&2
+        rss="not measured"; heap="not measured"
+    elif [ "$rc" -eq 0 ]; then
         state=PASS
     else
         state=FAIL
         FAIL=1
     fi
-    SUMMARY="${SUMMARY}$(printf '  %-9s %-5s RSS %-12s heap %-12s %4ss\n' \
+    SUMMARY="${SUMMARY}$(printf '  %-9s %-10s RSS %-14s heap %-14s %4ss\n' \
         "$arm" "$state" "${rss:-?}" "${heap:-?}" "$took")"$'\n'
 done
 
@@ -124,6 +140,11 @@ printf '%s' "$SUMMARY"
 if [ "$FAIL" -eq 0 ]; then
     echo "  ALL ARMS FLAT"
     exit 0
+fi
+if printf '%s' "$SUMMARY" | grep -q INCOMPLETE; then
+    echo "  AN ARM DID NOT FINISH — that is a killed or crashed process, not a" >&2
+    echo "  measurement. Re-run it on its own before believing anything here." >&2
+    exit 1
 fi
 echo "  SOME ARMS GREW — see the failing arm's table above, and docs/perf/GATES.md" >&2
 exit 1

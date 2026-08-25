@@ -108,8 +108,11 @@ read -r W_BIG T_BIG <<<"$(measure "$BIG")"
 
 if [ "$W_SMALL" = "0" ] || [ "$W_BIG" = "0" ]; then
     echo "  FAIL: could not read a FrameTiming line from the app." >&2
-    echo "        That is a crash or a build without HANABI_FRAME_TIMING," >&2
-    echo "        not a scaling regression. Last 20 lines:" >&2
+    echo "        That is a crash, a killed run, or a build without" >&2
+    echo "        HANABI_FRAME_TIMING — not a scaling regression. On this" >&2
+    echo "        machine the usual cause of a killed run is another worktree:" >&2
+    echo "        scripts/review_shots.sh kills output/hanabi.exe in EVERY" >&2
+    echo "        worktree it finds, not just its own. Last 20 lines:" >&2
     tail -20 "$LOG" | sed 's/^/        /' >&2
     exit 1
 fi

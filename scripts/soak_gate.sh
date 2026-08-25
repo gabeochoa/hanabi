@@ -131,5 +131,14 @@ if ! grep -q '^\[soak\]' "$LOG"; then
     tail -20 "$LOG" | sed 's/^/        /' >&2
     exit 1
 fi
+if ! grep -qE '^\[soak\] (PASS|-+ SOAK GATE)' "$LOG"; then
+    echo "  FAIL: the run ended before it reached a verdict (rc=${rc}), twice." >&2
+    echo "        Nothing was measured, so this is not a leak — something killed" >&2
+    echo "        the process. On this machine the usual cause is another" >&2
+    echo "        worktree: scripts/review_shots.sh kills output/hanabi.exe in" >&2
+    echo "        EVERY worktree it finds, not just its own. Re-run:" >&2
+    echo "            make soak-gate" >&2
+    exit 1
+fi
 echo "  FAILED soak gate (rc=${rc}) — see docs/perf/GATES.md" >&2
 exit 1

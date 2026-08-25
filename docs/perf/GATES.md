@@ -336,6 +336,32 @@ over 4000 frames the settling and the page quantisation that dominate a
 
 Overrides: `make soak FRAMES=20000`, `make soak ARMS="scroll tabs"`.
 
+### A gate that reports nothing is not a gate that failed
+
+All three runtime gates distinguish three outcomes, not two: passed, failed,
+and **did not finish**. This matters here specifically. `scripts/review_shots.sh`
+kills `output/hanabi.exe` in *every* worktree it can find, not just its own,
+and there are eighty worktrees on this machine — so a soak arm can be shot in
+the head mid-run by an agent doing something unrelated in another branch. That
+happened once while this branch was being written: the `bigidle` arm died at
+frame 3500 of 4000 and the first draft of the summary reported it as
+
+```
+  bigidle   FAIL  RSS ?            heap ?              43s
+```
+
+which reads exactly like a leak and is not one. It now reports
+
+```
+  bigidle   INCOMPLETE RSS not measured   heap not measured     43s
+  AN ARM DID NOT FINISH — that is a killed or crashed process, not a
+  measurement. Re-run it on its own before believing anything here.
+```
+
+The same distinction is in `soak_gate.sh` (a run that produced buckets but
+never reached a verdict, twice) and in `scaling_gate.sh` (no `FrameTiming`
+line at all). Re-running the arm on its own is the first move, every time.
+
 ---
 
 ## What could NOT be gated, and why
