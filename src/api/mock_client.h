@@ -1400,6 +1400,89 @@ class MockClient : public Client {
             v.push_back(std::move(s));
         }
 
+        // STRESS FIXTURE: a catalog the size of a real one.
+        //
+        // hanabi's mock has twenty rows, and twenty rows is why nothing in
+        // this project has ever run under load: every list is short enough
+        // that an O(n^2) walk looks instant and every cache is small enough
+        // that never evicting looks like a design. Puffin's own stress
+        // fixtures generate hundreds of sessions with 120 turns each
+        // (Tests/StressFixtures.swift) for exactly this reason.
+        //
+        // HANABI_STRESS_SESSIONS=<n> appends n synthetic rows. Off by default,
+        // so the parity captures and the scripted suite still see the
+        // hand-written twenty in their known order -- a fixture that changed
+        // size would move every coordinate-pinned test and every reference
+        // score, which is a much worse trade than typing an env var.
+        //
+        // The rows are DETERMINISTIC and varied: state, tag, sub-agent counts
+        // and title length all cycle on the index, because a thousand
+        // identical rows measure one row a thousand times. Titles are long
+        // enough to exercise the ellipsizer (gap #79) on roughly a third.
+        if (const char* n = std::getenv("HANABI_STRESS_SESSIONS");
+            n != nullptr && *n != '\0') {
+            const int count = std::atoi(n);
+            static const char* kVerbs[] = {
+                "profiling", "migrating", "sweeping", "reindexing", "draining",
+                "backfilling", "reconciling", "compacting"};
+            static const char* kNouns[] = {
+                "the quota shard", "row 212's ledger", "the retry queue",
+                "oncall handoff", "the ranking config",
+                "a cohort that will not converge", "the nightly export"};
+            static const ThreadState kStates[] = {
+                ThreadState::Running, ThreadState::Ready,
+                ThreadState::Attention, ThreadState::Parked,
+                ThreadState::Working, ThreadState::Unknown};
+            static const ThreadTag kTags[] = {
+                ThreadTag::None, ThreadTag::Blocked, ThreadTag::Review,
+                ThreadTag::None};
+            for (int k = 0; k < count; ++k) {
+                Session s;
+                std::string title = std::string(kVerbs[k % 8]) + " " +
+                                    kNouns[(k * 3) % 7];
+                // Every third title is long enough to need ellipsizing.
+                if (k % 3 == 0)
+                    title += " \xe2\x80\x94 and reporting back on what moved";
+                s.summary = pf("s" + std::to_string(k), title, k % 4,
+                               (k % 5 == 0) ? "idle" : "active",
+                               kStates[k % 6], kTags[k % 4],
+                               "synthetic stress row " + std::to_string(k));
+                s.summary.updated_at = mins_ago(k % 720);
+                // A tenth carry sub-agents, the way a real catalog does.
+                if (k % 10 == 0) {
+                    s.sub_agents = {
+                        {"ss1", "shard 1", SubAgentState::Done, "converted"},
+                        {"ss2", "shard 2", SubAgentState::Running, "in flight"},
+                    };
+                }
+                // Transcript length cycles: most threads are short, a few are
+                // the long ones that actually cost something to lay out.
+                const int turns = (k % 17 == 0) ? 60 : (k % 5 == 0 ? 12 : 3);
+                for (int t = 0; t < turns; ++t) {
+                    Message u;
+                    u.id = "s" + std::to_string(k) + "u" + std::to_string(t);
+                    u.role = Role::User;
+                    u.text = "turn " + std::to_string(t) + ": " +
+                             kNouns[(k + t) % 7] +
+                             " is still moving, what changed?";
+                    u.created_at = mins_ago(720 - t * 3);
+                    s.messages.push_back(std::move(u));
+
+                    Message a;
+                    a.id = "s" + std::to_string(k) + "a" + std::to_string(t);
+                    a.role = Role::Assistant;
+                    a.text =
+                        "Two readings of turn " + std::to_string(t) +
+                        ". The cheap one is a stale cache; the honest one is "
+                        "that the derivation runs per frame, which is the "
+                        "shape every finding here has taken so far.";
+                    a.created_at = mins_ago(719 - t * 3);
+                    s.messages.push_back(std::move(a));
+                }
+                v.push_back(std::move(s));
+            }
+        }
+
         return v;
     }
 };
