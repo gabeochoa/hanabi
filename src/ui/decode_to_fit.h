@@ -50,6 +50,14 @@
 
 namespace hanabi::decode_to_fit {
 
+// Uploads refused because sokol's sampler pool was empty. Cumulative, never
+// reset: this should be zero for the life of every process, and one is a bug
+// somewhere holding more textures than util/gpu_mem.h's kMaxLiveTextures.
+inline std::size_t& pool_exhaustions() {
+    static std::size_t n = 0;
+    return n;
+}
+
 struct Loaded {
     TextureType tex{};
     // The file's own dimensions, which the texture's no longer are. Layout
@@ -59,6 +67,36 @@ struct Loaded {
     int naturalH = 0;
     int halvings = 0;
 };
+
+namespace detail {
+
+// A texture with no sampler cannot be drawn, and afterhours will hand one
+// back: load_texture_from_pixels checks sg_make_image and sg_make_view and
+// NOT sg_make_sampler, so once sokol's 64-entry sampler pool is empty the
+// caller gets valid dimensions, a valid image, a valid view and sampler_id 0.
+// Every "did this load?" test in this app -- inline_image::available, the
+// composer chip, bubble_height's image term -- reads that as success and then
+// draws nothing, or worse.
+//
+// So reject it here, at the one seam every texture in hanabi comes through,
+// and destroy the image and view rather than orphaning two pool slots on the
+// way out. Counted, because a silent failure that has been turned into a
+// silent failure is not an improvement: the count is what the ladder and the
+// soak report.
+//
+// This should never fire. util/texture_budget.h caps the cache below the pool
+// specifically so it cannot, and the static_assert there keeps the two numbers
+// in agreement. It is here because the cap is one cache's promise and this is
+// the invariant: afterhours_gaps.md #210.
+inline void reject_if_unsamplable(TextureType& tex) {
+    if (tex.img_id == 0) return;       // already an honest failure
+    if (tex.sampler_id != 0) return;   // fine
+    ++pool_exhaustions();
+    afterhours::unload_texture(tex);   // frees the image and the view too
+    tex = TextureType{};
+}
+
+}  // namespace detail
 
 #if defined(AFTER_HOURS_USE_METAL)
 
@@ -94,6 +132,7 @@ inline Loaded load(const char* path, int maxDim = hanabi::downscale::kMaxTexture
         out.tex = afterhours::metal_texture_detail::load_texture_from_pixels(
             pixels, w, h);
         stbi_image_free(pixels);
+        detail::reject_if_unsamplable(out.tex);
         return out;
     }
 
@@ -118,6 +157,7 @@ inline Loaded load(const char* path, int maxDim = hanabi::downscale::kMaxTexture
     out.tex =
         afterhours::metal_texture_detail::load_texture_from_pixels(src, cw, ch);
     out.halvings = want;
+    detail::reject_if_unsamplable(out.tex);
     return out;
 }
 
@@ -128,6 +168,7 @@ inline Loaded load(const char* path, int maxDim = hanabi::downscale::kMaxTexture
 inline Loaded load(const char* path, int = hanabi::downscale::kMaxTextureDim) {
     Loaded out;
     out.tex = afterhours::load_texture(path);
+    detail::reject_if_unsamplable(out.tex);
     out.naturalW = static_cast<int>(out.tex.width);
     out.naturalH = static_cast<int>(out.tex.height);
     return out;

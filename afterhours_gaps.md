@@ -7633,3 +7633,93 @@ the RENDERED offset, so the stored intent survives a frame in which the tree
 was not built.
 
 CLASS: WORKAROUND
+
+---
+
+### #210 — Every GPU object comes out of a fixed pool the consumer cannot size, and the one that runs out FIRST fails silently
+
+**What was wanted.** To cache decoded images without a bound the app cannot
+see, and to be told when it hit one.
+
+**What happens.** sokol allocates every GPU object from fixed-size pools, set
+once in `sg_desc` at `sg_setup`. afterhours' backend calls `sg_setup` with a
+default-constructed `sg_desc` (`backends/sokol/backend.h:194` and `:791`) and
+offers no hook — not a field on `graphics::Config`, not a callback, not an
+overload — so every consumer gets sokol's defaults and cannot raise them:
+
+    images 128 | samplers 64 | views 256 | pipelines 64 | shaders 32
+
+`load_texture` makes one image, one view **and one sampler** per texture, so
+the **sampler pool is the binding constraint at 64** — half the image pool,
+and the number nothing in the API mentions.
+
+Measured in a process doing exactly what hanabi's launch does (`graphics::init`
+at 1180x949 plus four font faces): **the sampler pool ran out after 61 loads
+and the image pool after 124.** Three sampler slots are gone before the app
+draws anything.
+
+**The part that makes this a footgun rather than a limit.**
+`metal_texture_detail::load_texture_from_pixels` checks `sg_make_image` and
+`sg_make_view` — carefully, with a comment about not leaking the view when the
+image fails — and does **not** check `make_sampler_for_filter`. So between the
+61st texture and the 124th it returns:
+
+    TextureType{ width = <the file's>, height = <the file's>,
+                 img_id = valid, view_id = valid, sampler_id = 0 }
+
+Every "did this load?" test a consumer can write reads that as success —
+hanabi's `inline_image::available` does, its composer chip does, its
+`bubble_height` image term does — and the texture cannot be sampled. Sixty
+textures of silent wrongness sit between the first pool running out and the
+second one reporting itself honestly. Past 124, `sg_make_image` fails, the
+existing check fires, and the failure is finally visible.
+
+Note also what a leak looks like from outside: a texture leaked every frame
+does **not** grow without bound. hanabi's soak probe measured it growing to
+264,048 KB and then sitting flat to the kilobyte for 800 frames, because the
+image pool was full and every further allocation failed. A slope-based leak
+detector sees a texture leak for about two seconds and then goes green.
+
+**Why the obvious escapes do not work.**
+
+- **Call `sg_setup` yourself with bigger pools** — `graphics::init` calls it,
+  the consumer's first line of graphics is `graphics::init`, and calling
+  `sg_setup` twice is undefined. There is no "configure then init" split.
+- **Query the pool and stop before it** — `sg_query_desc()` would answer, and
+  it answers about the *configuration*, not the *occupancy*. There is no
+  `sg_query_samplers_in_use()`, and the consumer cannot count the ones
+  afterhours, fontstash and sgl took for themselves.
+- **Check `sampler_id != 0` in the consumer** — this is the workaround below.
+  It is one line and it is correct, and it requires knowing that a texture can
+  come back valid-looking and unsamplable, which is exactly what the API's
+  shape says cannot happen.
+- **Share one sampler across every texture** — right, and not available:
+  `TextureType` owns its sampler id, `load_texture` makes a new one per call,
+  and there is no entry point that takes an existing sampler.
+
+**The workaround, and its cost.** hanabi caps its own texture cache at 32
+entries — sokol's 64 samplers, less 16 reserved for the app's own atlases and
+render targets, halved again for headroom (`src/util/texture_budget.h`, with a
+`static_assert` tying the two numbers together) — and treats
+`sampler_id == 0` as a failed load at the single seam every texture in the app
+comes through, destroying the orphaned image and view and counting the event
+(`src/ui/decode_to_fit.h`). The cap was **512** before this was understood,
+which is eight times what the GPU can represent, and the byte budget in front
+of it could not help: bounding BYTES does not bound OBJECTS, and the way to
+hold 512 textures is for them to be small. Measured, 80 96x96 avatars through
+the real app: **80 entries held, 20 of them unsamplable, and every "is this
+loaded?" test said yes.**
+
+The cost of the workaround is a texture cache four times smaller than the
+byte budget would allow, sized by a constant from another library's internals
+that nothing will tell us if it changes.
+
+**Minimal upstream fix.** Two things, neither large. (a) Check the sampler in
+`load_texture_from_pixels` the way the image and the view are already checked,
+and return an empty `TextureType` — three lines, and it converts sixty
+textures of silent wrongness into an honest failure every consumer already
+handles. (b) Put the pool sizes on `graphics::Config`, defaulted to sokol's,
+so an app that wants a hundred thumbnails can ask for them.
+
+CLASS: FOOTGUN
+

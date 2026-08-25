@@ -1016,11 +1016,14 @@ static std::string hold_note(const ecs::AppComponent& app) {
     // the gap between them is the finding.
     char gpu[128];
     if (hanabi::gpu::device_accounting())
-        std::snprintf(gpu, sizeof(gpu), "gpu=%llu KB(ledger %zu KB)",
+        std::snprintf(gpu, sizeof(gpu),
+                      "gpu=%llu KB(ledger %zu KB) poolFail=%zu",
                       hanabi::gpu::device_bytes() / 1024,
-                      hanabi::gpu::ledger_bytes() / 1024);
+                      hanabi::gpu::ledger_bytes() / 1024,
+                      hanabi::decode_to_fit::pool_exhaustions());
     else
-        std::snprintf(gpu, sizeof(gpu), "gpu=not measured");
+        std::snprintf(gpu, sizeof(gpu), "gpu=not measured poolFail=%zu",
+                      hanabi::decode_to_fit::pool_exhaustions());
     std::snprintf(buf, sizeof(buf),
                   "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
                   "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu "

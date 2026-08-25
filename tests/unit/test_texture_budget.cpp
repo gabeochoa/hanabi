@@ -126,13 +126,14 @@ static void test_zero_byte_entries_are_bounded_by_the_entry_cap() {
 
     // Ten thousand bad paths. Not one of them costs a GPU byte, so the byte
     // budget never fires and the map would grow forever on the entry side.
-    Budget b(hanabi::texbudget::kDefaultMaxBytes, 0, 512);
+    Budget b(hanabi::texbudget::kDefaultMaxBytes, 0,
+             hanabi::texbudget::kDefaultMaxEntries);
     for (int i = 0; i < 10000; ++i) {
         b.insert(key(i), 0);
         b.trim([](const std::string&, std::size_t) {});
     }
     CHECK(b.bytes() == 0u);
-    CHECK(b.size() == 512u);
+    CHECK(b.size() == hanabi::texbudget::kDefaultMaxEntries);
     CHECK(b.holds(key(9999)));
 }
 
@@ -140,7 +141,8 @@ static void test_zero_byte_entries_are_bounded_by_the_entry_cap() {
 static void test_reinserting_a_key_does_not_double_count_it() {
     std::printf("test_reinserting_a_key_does_not_double_count_it\n");
 
-    Budget b(hanabi::texbudget::kDefaultMaxBytes, 0, 512);
+    Budget b(hanabi::texbudget::kDefaultMaxBytes, 0,
+             hanabi::texbudget::kDefaultMaxEntries);
     b.insert("a.png", 1000);
     b.insert("a.png", 1000);
     CHECK(b.bytes() == 1000u);
@@ -171,8 +173,56 @@ static void test_thrashing_reads_as_flat_bytes_and_climbing_inserts() {
     CHECK(b.evictions() == 49u);
 }
 
+// --- the OTHER bound: sokol's object pools, which bytes cannot express ------
+static void test_the_entry_cap_fits_inside_sokols_sampler_pool() {
+    std::printf("test_the_entry_cap_fits_inside_sokols_sampler_pool\n");
+
+    // afterhours makes one image, one view AND one sampler per texture, and
+    // sokol's sampler pool is 64 against the image pool's 128 -- so samplers
+    // are the binding constraint. Measured in a process that had done exactly
+    // what hanabi's launch does: the sampler pool ran out after 61 loads.
+    //
+    // Past that point load_texture_from_pixels returns a texture with a valid
+    // image, a valid view, sampler_id == 0 and the file's real dimensions,
+    // which every "did it load?" test in this app reads as success. So the
+    // entry cap is not a nicety, it is the only thing between the cache and
+    // textures that silently do not draw.
+    CHECK(hanabi::gpu::kMaxLiveTextures < hanabi::gpu::kSokolSamplerPool);
+    CHECK(hanabi::gpu::kMaxLiveTextures < hanabi::gpu::kSokolImagePool);
+    CHECK(hanabi::texbudget::kDefaultMaxEntries <=
+          hanabi::gpu::kMaxLiveTextures);
+    // And it still holds more than a frame can draw at once, or the protection
+    // window would be evicting inside a frame.
+    CHECK(hanabi::texbudget::kDefaultMaxEntries >
+          hanabi::texbudget::kDefaultProtectRecent);
+}
+
+static void test_many_small_images_stop_at_the_entry_cap() {
+    std::printf("test_many_small_images_stop_at_the_entry_cap\n");
+
+    // A 96x96 avatar is 49 KB resident, so a 32 MB byte budget is SIX HUNDRED
+    // of them and never fires. Eighty distinct ones -- one board's worth of
+    // per-thread avatars -- is already past the sampler pool.
+    const std::size_t tiny = hanabi::gpu::texture_bytes(96, 96);
+    CHECK(tiny * 600 < hanabi::texbudget::kDefaultMaxBytes);
+
+    Budget b(hanabi::texbudget::kDefaultMaxBytes, 0,
+             hanabi::texbudget::kDefaultMaxEntries);
+    for (int i = 0; i < 80; ++i) {
+        b.insert(key(i), tiny);
+        b.trim([](const std::string&, std::size_t) {});
+    }
+    // The byte budget did nothing here -- it never came near firing.
+    CHECK(b.bytes() < hanabi::texbudget::kDefaultMaxBytes);
+    CHECK(b.size() == hanabi::texbudget::kDefaultMaxEntries);
+    CHECK(b.size() <= hanabi::gpu::kMaxLiveTextures);
+    CHECK(b.evictions() == 80u - hanabi::texbudget::kDefaultMaxEntries);
+}
+
 int main() {
     std::printf("=== test_texture_budget ===\n");
+    test_the_entry_cap_fits_inside_sokols_sampler_pool();
+    test_many_small_images_stop_at_the_entry_cap();
     test_the_budget_bounds_what_the_device_holds();
     test_a_frames_working_set_is_never_evicted();
     test_eviction_is_by_access_not_by_insertion();

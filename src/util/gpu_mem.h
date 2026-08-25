@@ -64,6 +64,49 @@ extern "C" unsigned long long hanabi_metal_allocated_bytes(void);
 
 namespace hanabi::gpu {
 
+// ---------------------------------------------------------------------------
+// THE OTHER GPU LIMIT, and it is not bytes.
+//
+// sokol allocates every GPU object out of FIXED-SIZE pools, sized in sg_desc
+// at sg_setup. afterhours calls sg_setup with a default-constructed sg_desc
+// (backends/sokol/backend.h) and exposes no hook, so a consumer gets the
+// library defaults and cannot raise them: afterhours_gaps.md #210.
+//
+//     images 128 | samplers 64 | views 256 | pipelines 64 | shaders 32
+//
+// afterhours' load_texture makes ONE OF EACH of image, view and sampler per
+// texture, so the SAMPLER pool is the binding constraint at 64 -- half the
+// image pool.
+//
+// MEASURED, on this machine, in a process that has done exactly what hanabi's
+// launch does (graphics::init at 1180x949 plus Preload's four font faces):
+// loading textures in a loop, the sampler pool ran out after 61 and the image
+// pool after 124. So three sampler slots are already spoken for before the app
+// draws anything, and 61 is the real ceiling on textures hanabi may hold at
+// once.
+//
+// WHAT EXHAUSTION LOOKS LIKE, which is the part that makes this dangerous:
+// load_texture_from_pixels checks the image and the view and NOT the sampler.
+// Past the 61st texture it returns a TextureType with a valid image, a valid
+// view, sampler_id == 0 and the file's real width and height -- so every
+// "did this load?" test in the app says yes and the thing cannot be sampled.
+// Past the 124th the image fails too and the load reports itself honestly.
+// Sixty-odd textures of silent wrongness sit between those two points.
+inline constexpr std::size_t kSokolSamplerPool = 64;
+inline constexpr std::size_t kSokolImagePool = 128;
+
+// Sampler slots NOT available to a texture cache: the three sokol/fontstash
+// take before the app starts, plus headroom for the icon atlas, any font
+// atlas page fontstash adds as glyphs are rasterised, and an offscreen render
+// target's own sampler. Deliberately generous -- the cost of reserving too
+// many is a smaller image cache, and the cost of reserving too few is an
+// image that silently does not draw.
+inline constexpr std::size_t kReservedSamplers = 16;
+
+// The most textures anything in hanabi may hold at once.
+inline constexpr std::size_t kMaxLiveTextures =
+    kSokolSamplerPool - kReservedSamplers;
+
 // Resident bytes for one RGBA8 texture as afterhours actually uploads it:
 // the base level plus every mip level down to 1x1. Each level halves both
 // dimensions, floored at 1, which is what build_mip_chain does.

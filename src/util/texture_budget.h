@@ -44,6 +44,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "gpu_mem.h"
+
 namespace hanabi::texbudget {
 
 // The app's own settings, here rather than beside the cache so a test can
@@ -61,7 +63,31 @@ inline constexpr std::size_t kDefaultProtectRecent = 16;
 
 // Distinct keys remembered at all, including the ones that failed to load
 // (those cost a map entry and no bytes, so the byte budget cannot bound them).
-inline constexpr std::size_t kDefaultMaxEntries = 512;
+//
+// THIS WAS 512, AND 512 IS EIGHT TIMES WHAT THE GPU CAN REPRESENT. sokol's
+// sampler pool is 64 and hanabi's launch has already taken three of them, so
+// 61 textures is the hard ceiling; past it afterhours hands back a texture
+// with a valid image, a valid view, no sampler and the file's real dimensions,
+// which every "did it load?" test in this app reads as success. See the pool
+// block in util/gpu_mem.h for the measurement.
+//
+// The byte budget did not protect against this and could not: it bounds
+// BYTES, and the way to hold 512 textures is for them to be small. A 64x64
+// avatar is 21 KB, so 32 MB is fifteen hundred of them -- the entry cap was
+// the only thing standing between the app and 450 images that silently do not
+// draw, and it was set four times too high to be it.
+//
+// Halved again from the 48 the reserve allows, to 32: a frame's working set is
+// the composer's five chips plus the inline images in view, the protection
+// window is 16, and 32 is double that. Nothing this cache does needs more, and
+// what the extra sixteen slots buy instead is room for the app's own atlases
+// to grow without the two budgets ever having to be reconciled at runtime.
+inline constexpr std::size_t kDefaultMaxEntries = 32;
+
+static_assert(kDefaultMaxEntries <= hanabi::gpu::kMaxLiveTextures,
+              "the texture cache may not be allowed to hold more textures "
+              "than sokol's sampler pool can represent -- see the pool block "
+              "in util/gpu_mem.h and afterhours_gaps.md #210");
 
 class Budget {
 public:
