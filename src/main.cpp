@@ -1108,6 +1108,10 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
         close_all();
     }
     ladder.mark("- after opening and closing one at a time, N times");
+    // Nothing happens between this rung and the one above it. Its delta is
+    // therefore the instrument's own residue, and every other delta has to
+    // clear it to mean anything.
+    ladder.mark("  (the same state again -- this delta is the noise floor)");
 
     std::printf("\n[ladder] catalog %zu sessions | %d tabs open at the peak | "
                 "%d single opens churned\n",
@@ -1116,6 +1120,7 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
     ladder.compare("+ catalog loaded, sidebar drawing it",
                    "+ scrolled both panes end to end",
                    "- every tab closed, back to the empty app", want);
+    ladder.noise();
     ladder.compare("- every tab closed, back to the empty app",
                    "- every tab closed, back to the empty app",
                    "- after opening and closing one at a time, N times", churn);

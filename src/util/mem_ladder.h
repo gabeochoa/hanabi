@@ -63,6 +63,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -101,9 +102,19 @@ inline int settle_frames() { return env_int("HANABI_MEM_SETTLE", 30); }
 
 inline int repeats() { return env_int("HANABI_MEM_REPEAT", 1); }
 
+// Readings per rung, one frame apart, reduced by median. Odd, so the median is
+// an actual sample rather than an average of two.
+inline int samples() { return env_int("HANABI_MEM_SAMPLES", 9); }
+
 // Single opens, each followed by a close. The rung that answers "what does the
 // Nth thread you ever opened cost after you closed it".
 inline int churn() { return env_int("HANABI_MEM_CHURN", sessions()); }
+
+inline long median(std::vector<long> v) {
+    if (v.empty()) return 0;
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+}
 
 struct Rung {
     std::string label;
@@ -185,9 +196,32 @@ class Ladder {
             pump_(2);
         }
         relieve();
-        const soak::HeapStat h = soak::heap_in_use();
-        rungs_.push_back(Rung{std::move(label), soak::rss_kb(), h.count,
-                              h.bytes, note_ ? note_() : std::string()});
+        // A MEDIAN of several readings a frame apart, not one reading.
+        //
+        // The first version of this took a single sample and its rungs were
+        // not reproducible: the same configuration measured 1634, 6272 and
+        // 2976 retained blocks on three consecutive runs, which is not a
+        // measurement, it is a coin. The app has async workers and rebuilds
+        // its whole widget tree every frame, so the in-use count at any one
+        // instant carries however much transient allocation happened to be
+        // outstanding. The median across frames is stable to a few hundred
+        // blocks, and `noise()` below states what that residue is rather than
+        // pretending it away.
+        std::vector<long> rss;
+        std::vector<long> blocks;
+        std::vector<long> bytes;
+        const int k = samples();
+        for (int i = 0; i < k; ++i) {
+            if (i > 0 && n > 0) pump_(1);
+            const soak::HeapStat s = soak::heap_in_use();
+            rss.push_back(soak::rss_kb());
+            blocks.push_back(static_cast<long>(s.count));
+            bytes.push_back(static_cast<long>(s.bytes));
+        }
+        const soak::HeapStat h{static_cast<unsigned>(median(blocks)),
+                               static_cast<size_t>(median(bytes))};
+        rungs_.push_back(Rung{std::move(label), median(rss), h.count, h.bytes,
+                              note_ ? note_() : std::string()});
         const Rung& r = rungs_.back();
         std::printf("[ladder] %8ld KB  %9u blocks  %8zu KB  %s\n", r.rssKb,
                     r.blocks, r.bytes / 1024, r.label.c_str());
@@ -260,6 +294,25 @@ class Ladder {
                         "came back\n",
                         100.0 * static_cast<double>(kept) /
                             static_cast<double>(grew));
+        std::fflush(stdout);
+    }
+
+  private:
+  public:
+    // The residue: two readings of the SAME state, taken the same way, with
+    // nothing done in between. Every delta in the table smaller than this is
+    // the instrument, not the app, and saying so is the difference between a
+    // measurement and a story.
+    void noise() {
+        if (rungs_.size() < 2) return;
+        const Rung& a = rungs_[rungs_.size() - 2];
+        const Rung& b = rungs_.back();
+        std::printf("[ladder] NOISE FLOOR (the same state measured twice): "
+                    "%+ld KB RSS, %+ld blocks, %+ld KB\n",
+                    b.rssKb - a.rssKb,
+                    static_cast<long>(b.blocks) - static_cast<long>(a.blocks),
+                    (static_cast<long>(b.bytes) -
+                     static_cast<long>(a.bytes)) / 1024);
         std::fflush(stdout);
     }
 
