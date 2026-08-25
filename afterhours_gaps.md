@@ -7027,6 +7027,32 @@ slot. The cost is that "which row is this widget" has two answers in the same
 five lines, and the compiler will never tell you when a third caller picks the
 wrong one.
 
+**POSTSCRIPT, 2026-08-25 (`perf/retire`): the sweep bounds this, and does not
+remove it.** #115 is now worked around app-side -- widgets nothing has built
+for 90 frames are retired -- so the first bullet's "one entity per row ever
+reached, forever" is no longer true. It is worth knowing exactly what replaces
+it, because "the leak is fixed" would be the wrong lesson.
+
+Measured by putting the defect back (`rowId = base + 1 + idx`, the row index)
+and running `scripts/scroll_gate.sh`:
+
+    row-index ids, sweep off   the gate fails as documented, blocks climbing
+    row-index ids, sweep on    blocks +148.8 /1000f (budget 150) -- inside,
+                               but the LEVEL arm fails at 3.55x (budget 1.60):
+                               1360 entities at 2000 sessions against 383 at 20
+    slot ids, sweep on         1.33x, blocks -340 to +30 over four runs
+
+The sweep turns an unbounded leak into a bounded working set, and the bound is
+`grace x scroll rate` -- every row scrolled past in the last 90 frames is still
+alive, which on a fast sweep of a 2000-row list is 3.5x the window. Bounded is
+much better than unbounded and it is not the same as free.
+
+**So the slot keying stays**, and the reason is now sharper than "otherwise it
+leaks": an id scheme that mints an entity per row is asking the sweep to
+destroy and recreate a row's worth of entities on every scroll frame, which is
+allocation churn where the slot scheme has none. Everything above about the
+slot being right and not free is unchanged.
+
 **Minimal upstream fix.** Make recycling a thing the library knows about:
 `mk()` taking an optional stable KEY distinct from its slot, so the library can
 re-use the slot's entity while telling the consumer the key changed -- one
