@@ -21,6 +21,7 @@
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
+#include "../util/text_cache.h"
 #include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
 #include "../ui/find_highlight.h"
@@ -5239,6 +5240,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // so the two cannot disagree about where a line breaks (and
         // tests/unit/test_wrap_count.cpp checks that differentially against
         // the vendored wrapper itself). afterhours_gaps.md #135.
+        //
+        // In front of it, a memo -- because the transcript's RENDER pass asks
+        // this question about every visible paragraph on every frame, and the
+        // answer cannot change unless the text or the width does. The measure
+        // pass has had a memo since the transcript work; the render pass never
+        // did, and it is where 61.7 of the 61.8 wraps per idle frame came
+        // from. Keyed on the whole argument tuple of a pure function, so it
+        // cannot go stale: a changed body is a different key, not an invalid
+        // entry, and there is nothing to invalidate on a resize or a theme
+        // change.
+        //
+        // kLineCountEntries is the bound, and it is an LRU eviction rather
+        // than a clear (see src/util/text_cache.h). Measured with the
+        // transcript being scrolled: 128 entries held at 120 messages, 488 at
+        // 480, and at 1,200 messages the cap engages and holds -- 512 entries,
+        // 99.2% hit, 1.4 recomputes a frame. So 512 is the number where a
+        // thread longer than any real one starts paying, and what it pays is
+        // one recompute per evicted paragraph rather than a cold screen.
+        constexpr std::size_t kLineCountEntries = 512;
+        static hanabi::text::TextKeyCache<int> memo(kLineCountEntries);
+        if (const int* hit = memo.find(text, widthPx, fontPx)) {
+            hanabi::prof::tick("cache.lines_hit");
+            return *hit;
+        }
+        hanabi::prof::tick("cache.lines_miss");
         hanabi::prof::Scope _p("text.count_lines");
         hanabi::prof::tick("text.count_bytes", text.size());
         const int lines = hanabi::text::wrapped_line_count(
@@ -5247,7 +5273,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            s, afterhours::ui::UIComponent::DEFAULT_FONT, fontPx)
                     .x;
             });
-        return lines < 1 ? 1 : lines;
+        const int out = lines < 1 ? 1 : lines;
+        memo.put(text, widthPx, fontPx, out);
+        hanabi::prof::gauge("cache.lines_entries", memo.size());
+        return out;
     }
 
     // Return the first `maxLines` WRAPPED lines of `text` (approx: we cut on
