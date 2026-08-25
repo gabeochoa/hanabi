@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <afterhours/src/singleton.h>
 
 #include <cstdint>
@@ -177,6 +179,36 @@ struct Settings {
     int64_t get_last_read(const std::string& id) const;
     void set_last_read(const std::string& id, int64_t stamp);  // auto-persists
 
+    // The read-stamp map is the ONE per-thread record this app writes without
+    // being asked. Star, mute, archive and tool-fold are all a deliberate act
+    // on one thread, so they grow with intent and are correctly unbounded.
+    // Reaching the bottom of a thread is not an act -- it is what reading is
+    // -- and it wrote an entry that nothing ever removed, in a file that is
+    // fully re-serialised and rewritten on every single advance.
+    //
+    // MEASURED, with the app driven through 1500 frames opening threads
+    // (HANABI_SOAK=1500 HANABI_STRESS=threads):
+    //
+    //   seeded entries   settings.json   RSS       frame time
+    //             none         113 B     47.5 MB   4.17 ms
+    //            2,000        72 KB      48.3 MB   4.24 ms
+    //           10,000       360 KB      52.3 MB   4.64 ms
+    //
+    // Five megabytes of resident memory and half a millisecond a frame, from a
+    // file, and both keep growing for as long as the app is used. So: keep the
+    // most recently READ threads and drop the rest.
+    //
+    // What dropping one costs: the transcript only computes an unread divider
+    // when the stamp is > 0, so a thread whose stamp was dropped opens with no
+    // "new since you were last here" line. It does not open marked unread and
+    // it does not lose anything else. Two thousand threads is far past any
+    // catalog a person navigates by hand, and the entries dropped are the ones
+    // read longest ago.
+    static constexpr std::size_t kMaxLastRead = 2000;
+
+    // Entries currently held (tests / instrumentation).
+    std::size_t last_read_count() const;
+
     // ── Preference slots (settings modal). Each auto-persists (mirrors
     // set_theme) AND marks the sync-dirty flag so the loader can push the
     // change to the backend when a write path is configured. These map onto
@@ -295,6 +327,9 @@ struct Settings {
     std::map<std::string, std::vector<std::string>> row_order_;
     std::vector<std::string> collapsed_shelves_;
     std::map<std::string, int64_t> last_read_;
+    // Drop the oldest stamps down to kMaxLastRead. Called after an insert and
+    // after a load, so a file written by an older build shrinks on first run.
+    void prune_last_read();
     std::map<std::string, int> tool_fold_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;
