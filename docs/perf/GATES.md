@@ -26,13 +26,24 @@ apology for the numbers; it is the reason several of them are ratios.
 
 | gate | command | in `make test`? | wall clock |
 | --- | --- | --- | --- |
-| soak | `make soak-gate` | yes | ~4 s |
+| soak | `make soak-gate` | yes | ~3 s |
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
 | scroll | `make scroll-gate` | yes | ~6 s |
-| autorelease source check | `make source-checks` | yes | <1 s |
-| long soak | `make soak` | **no** — before a release | ~33 s |
+| source checks | `make source-checks` | yes | <1 s |
+| long soak | `make soak` | **no** — before a release | ~53 s |
+| soak report | `make soak-report` | **no** | ~60 s |
 
-The four additions cost about **twenty seconds** on a `make test` that runs
+> **Every wall clock in this file used to be a lie in any pipeline.** Two
+> gates bounded their run with `( sleep "$RUN_TIMEOUT"; kill … ) &`, and
+> `kill "$WATCH_PID"` kills the subshell rather than the `sleep` it is blocked
+> in — so the sleep was reparented, kept the script's stdout open, and any
+> reader of that stdout (`make`, `tee`, a CI capture) blocked for the whole
+> timeout. `make soak-gate` cost **121 seconds instead of 4**, to the second,
+> on every run. Invisible on a terminal, which is why it survived.
+> `scripts/watchdog.sh` fixes it; `scripts/check_watchdogs.py` keeps it fixed;
+> `make source-checks` runs that. The numbers above are piped numbers.
+
+The additions cost about **twenty seconds** on a `make test` that runs
 between four and six minutes depending on what else this box is doing
 (observed: 228 s, 283 s, 336 s for the same tree). That was the budget: a suite
 that takes fifteen minutes is a suite people stop running, and a gate nobody
@@ -51,24 +62,81 @@ them would have caught the other two's bug.
 
 `scripts/soak_gate.sh`, driving `HANABI_SOAK` in `src/util/soak.h`.
 
-It runs the real render loop headlessly for **1000 frames** against the
-deterministic mock catalog, sampling every 250, and compares the bucket ending
-at frame 500 with the one ending at frame 1000 — a 500-frame window, 8.3
-seconds of app time, after 120 unmeasured settle frames and two further buckets
-discarded. The first buckets carry lazy-init that is not a leak; comparing
-against them would make every run look like an improvement.
+It runs the real render loop headlessly for **2000 frames** against the
+deterministic mock catalog, sampling every 250, and fits a **slope** across
+every bucket past frame 500 — six points, fifteen pairwise slopes — after 120
+unmeasured settle frames. Everything inside the warm-up is excluded: it carries
+lazy-init that is not a leak.
 
-Four things are gated, all expressed **per 1000 frames** so the number does not
-depend on how long the run was:
+**The verdict is a slope, not a subtraction.** It used to be one bucket minus
+another, which carries the full noise of both its endpoints: a single bucket
+that faulted in a page reports its whole spike as growth at the end of a run,
+or as an improvement at the start. `src/util/trend.h` is Theil-Sen — the median
+of all pairwise slopes — with a ~29% breakdown point, so a page-fault bucket
+moves it by nothing. At two points it *is* the old two-point delta, and the
+probe says `degraded` rather than pretending otherwise. Unit-tested in
+`tests/unit/test_trend.cpp`, which is the first test this estimator has ever
+had.
+
+It also reports **`rising`**: the fraction of bucket pairs that went up. A leak
+adds on every bucket and reads 1.00; noise is a coin and reads ~0.50. That
+column is what tells a reader whether to believe the slope above it.
+
+Five things are gated, all **per 1000 frames**:
 
 | metric | budget / 1000 frames | why this one |
 | --- | --- | --- |
-| RSS | +512 KB | the reported symptom itself: a process that grows without bound gets slower and then freezes |
-| live malloc bytes | +512 KB | moves the instant something is not freed, where RSS lags by whole pages |
+| RSS | +512 KB | the reported symptom itself; also the noisiest, so the loosest |
+| live malloc bytes | +256 KB | moves the instant something is not freed, where RSS lags by whole pages |
+| **live malloc blocks** | **+1000** | one leaked block a frame. The sharpest of the five |
 | entities | +25 | an ECS that is not being torn down |
-| frame time | +3.0 ms | deliberately loose; see below |
+| frame CPU | +1.0 ms | `CLOCK_THREAD_CPUTIME_ID`, not wall — see below |
 
-**What set 512 KB.** Nine consecutive clean runs read
+**Live blocks is gated, and that is new.** It was report-only on the grounds
+that it "sawtooths by thousands either way", which was true of a two-point
+delta over 1000 frames and is not true of a median of fifteen slopes over 2000:
+34 clean runs across three load levels read a worst sample of **+16.0**, against
+**+9996** from the pool-less binary. It catches what the byte budgets cannot —
+verified against a build retaining two ~40-byte strings a frame:
+
+```
+  RSS          +96.0 KB/1000f   ok
+  heap bytes  +117.5 KB         ok
+  heap blocks +1728.0           FAIL 1.7x
+```
+
+A leak of one 32-byte map node a frame is 32 KB of heap and zero KB of RSS per
+1000 frames — inside both byte budgets, over this one. That is
+`docs/perf/MEMORY.md` entry 1's five per-session maps, and nothing here could
+see them before.
+
+**Frame time is gated on the thread CPU clock.** Wall clock measures how much
+of the machine the app was *given*; a regression is a change in how much work
+it *does*. Ten clean runs at load average 27:
+
+| metric | min | median | max | spread |
+| --- | ---: | ---: | ---: | ---: |
+| cpu ms / 1000f | -0.1 | +0.0 | +0.0 | **0.1** |
+| wall ms / 1000f | -0.8 | -0.1 | +0.7 | **1.5** |
+
+Fifteen times tighter, with no defect in either column. Wall is kept as
+report-only: a run where wall climbs while CPU is flat is the app *waiting* on
+something, which is a real and different finding.
+
+**A run with too little data says so.** Fewer than two buckets past the
+warm-up prints `INCONCLUSIVE` and returns 2, where the old code printed a
+sentence and returned 0. Below six buckets it warns: measured on the `bigidle`
+arm, at four fit points one clean run in six read +789 blocks per 1000 frames
+against +45 for the other five; at ten points the worst of six was +13. The
+robustness of a median is a function of how many points it has.
+
+**Smaller buckets were tried and are worse**, which is the useful negative:
+1000 frames in 100-frame buckets gives five fit points and a clean RSS spread
+of 206.7 KB per 1000 frames, against 0.0 at 250-frame buckets. RSS noise is a
+whole page arriving at once, so a shorter window multiplies it. On that metric
+the way to more points is more frames.
+
+**What set the old 512 KB.**  Nine consecutive clean runs read
 `+0, +0, +32, +32, +64, +96, +96, +192` KB of RSS growth per 1000 frames, and
 `-19, -19, -1, +13, +13, +45, +61, +77` KB of heap. The same binary with the
 autorelease pool removed read `+2784, +2816, +2848, +2912, +3040` KB of RSS and
@@ -381,6 +449,22 @@ a driven one, which is the difference between having a budget and not.
 
 ## 4. `make soak` — the long form, for before a release
 
+**Twelve arms, four at a time, 53 seconds.** `scripts/soak.sh`. Parallel
+because every gated metric is now load-insensitive — counts of things, plus a
+frame budget on the thread CPU clock, so a sibling arm descheduling an arm
+costs it nothing. `make soak JOBS=1` runs it serially (84 s) and produces the
+same verdicts and a byte-identical report; that is how the claim was checked.
+
+`open` and `mixed` accumulate tabs on purpose, so they run `REPORTED` rather
+than gated: growth there is a cost per tab, and gating them flat would assert
+that opening a hundred tabs is free. An arm that DROVE NOTHING is its own
+outcome alongside PASS / FAIL / INCOMPLETE.
+
+`make soak-report` reduces the same run to a diffable text artifact and diffs
+it against `docs/perf/soak-baseline.txt`. See `docs/perf/STRESS.md`.
+
+### The old five-arm form
+
 `scripts/soak.sh`. Five arms, 4000 frames each, about 65 seconds total.
 
 | arm | what it drives | why it is here |
@@ -440,6 +524,35 @@ line at all). Re-running the arm on its own is the first move, every time.
 
 ---
 
+## Where the stress harness is, and what it adds
+
+`docs/perf/STRESS.md` is the other half of this file: the twelve scenarios,
+`HANABI_STRESS_UNTIL` (run until a failure condition and report where it
+broke — the app manages **245 open threads** before a frame costs 3x what it
+did at rest), the diffable report, and the footguns found building it.
+
+Three of its findings belong here because they change what the gates above
+mean:
+
+- **`tabs` has never opened more than one tab.** `requestOpenTab` opens a
+  PREVIEW, which reuses one slot, so the arm this file described as catching
+  "anything the tab strip or a per-tab cache holds on to" was re-pointing a
+  single tab. `open` is the arm that grows the strip; every scenario now
+  reports what it drove, and a scenario that drove nothing fails.
+
+- **The synthetic stress catalog rendered the cheapest path this app has.**
+  `HANABI_STRESS_SESSIONS` generated one user line and one paragraph per turn
+  — no tool rows, no thinking rows, no code fences, no failed runs. So every
+  big-catalog number ever taken scaled up the part of a transcript that costs
+  nothing. Fixed, at +14% a frame for 2.1x the rows.
+
+- **A slope cannot see a defect that was always there.** Every arm is read
+  three ways now — a slope (a leak), a ratio between the halves' minima (a
+  cost that arrived and stayed), and the report's exact counts (a level, with
+  no threshold at all). Pair every trend arm with a level arm.
+
+---
+
 ## What could NOT be gated, and why
 
 This is the most useful section in the file, because it is a map of where the
@@ -470,6 +583,19 @@ A leak of GPU memory, of file descriptors, of Mach ports, or of anything in a
 allocates them on the GPU and hanabi creates them from the font atlas and the
 icon atlas. Nothing in this project counts them. A gate would need sokol's own
 `sg_query_stats`, which afterhours does not surface.
+
+### A window resize, because the headless resize path leaks worse than the app
+
+`afterhours_gaps.md` **#200**. The headless backend honours a resize by
+recreating the offscreen render target, and `load_render_texture` →
+`sgl_make_context` creates five Metal render pipelines that
+`sgl_destroy_context` does not release: **4.8 MB per 1000 frames, 18.7 MB a
+minute** — twice the autorelease leak that started this project, and named with
+`malloc_history` (40510 live `_sg_init_pipeline` allocations over 8103
+resizes). It is the headless branch only; a real window resize goes through
+Cocoa. `HANABI_STRESS=resize` therefore resizes the LAYOUT only and measures
+flat; `HANABI_STRESS_RESIZE_BACKEND=1` reproduces #200 in one run. The
+render-target half of a resize stays unmeasured.
 
 ### Anything only the windowed app does
 
