@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -574,46 +575,87 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // cannot go stale -- a changed title is a different key, not an invalid
     // entry, and there is nothing to invalidate on a theme change, a resize or
     // a catalog refresh.
-    static std::string fit_to_width(const std::string& text, float px,
-                                    float maxW) {
-        if (maxW <= 0.0f) return std::string();
+    //
+    // The lookup is HETEROGENEOUS and the result comes back by reference, and
+    // both of those are load-bearing. A first version built an owning Key to
+    // search with and returned the hit by value, which is two string
+    // allocations per row per frame -- and `sample` still put this function at
+    // 15% of the main thread afterwards, because replacing quadratic
+    // measurement with a pair of mallocs is a smaller win than it sounds. A
+    // transparent hash/equal pair lets a string_view search the map, so a hit
+    // costs a hash and a compare and nothing else.
+    //
+    // The returned reference is valid until the next call that MISSES (which
+    // can rehash or clear). Every caller hands it straight to with_label,
+    // which copies, so nothing outlives its entry.
+    struct FitKey {
+        std::string text;
+        float px;
+        float maxW;
+    };
+    struct FitView {
+        std::string_view text;
+        float px;
+        float maxW;
+    };
+    // Hash the float BITS, not the value: two column widths that differ by a
+    // hair are different keys and must hash apart.
+    static size_t fit_hash(std::string_view text, float px, float maxW) {
+        size_t h = std::hash<std::string_view>{}(text);
+        const auto mix = [&h](float f) {
+            h ^= std::hash<uint32_t>{}(std::bit_cast<uint32_t>(f)) +
+                 0x9e3779b9 + (h << 6) + (h >> 2);
+        };
+        mix(px);
+        mix(maxW);
+        return h;
+    }
+    struct FitHash {
+        using is_transparent = void;
+        size_t operator()(const FitKey& k) const {
+            return fit_hash(k.text, k.px, k.maxW);
+        }
+        size_t operator()(const FitView& k) const {
+            return fit_hash(k.text, k.px, k.maxW);
+        }
+    };
+    struct FitEq {
+        using is_transparent = void;
+        static bool same(std::string_view at, float ap, float aw,
+                         std::string_view bt, float bp, float bw) {
+            return ap == bp && aw == bw && at == bt;
+        }
+        bool operator()(const FitKey& a, const FitKey& b) const {
+            return same(a.text, a.px, a.maxW, b.text, b.px, b.maxW);
+        }
+        bool operator()(const FitKey& a, const FitView& b) const {
+            return same(a.text, a.px, a.maxW, b.text, b.px, b.maxW);
+        }
+        bool operator()(const FitView& a, const FitKey& b) const {
+            return same(a.text, a.px, a.maxW, b.text, b.px, b.maxW);
+        }
+    };
 
-        struct Key {
-            std::string text;
-            float px;
-            float maxW;
-            bool operator==(const Key& o) const {
-                return px == o.px && maxW == o.maxW && text == o.text;
-            }
-        };
-        struct KeyHash {
-            size_t operator()(const Key& k) const {
-                size_t h = std::hash<std::string>{}(k.text);
-                // Hash the float BITS, not the value: two column widths that
-                // differ by a hair are different keys and must hash apart.
-                const auto mix = [&h](float f) {
-                    h ^= std::hash<uint32_t>{}(std::bit_cast<uint32_t>(f)) +
-                         0x9e3779b9 + (h << 6) + (h >> 2);
-                };
-                mix(k.px);
-                mix(k.maxW);
-                return h;
-            }
-        };
-        static std::unordered_map<Key, std::string, KeyHash> cache;
+    static const std::string& fit_to_width(std::string_view text, float px,
+                                           float maxW) {
+        static const std::string kEmpty;
+        if (maxW <= 0.0f) return kEmpty;
+
+        static std::unordered_map<FitKey, std::string, FitHash, FitEq> cache;
         // Bounded, so a long scroll through a large catalog cannot grow it
         // without limit. Only ~40 rows are on screen at once, so the live
         // working set is tiny and a wholesale clear costs one cold frame.
         constexpr size_t kCacheMax = 4096;
 
-        const Key key{text, px, maxW};
-        if (auto it = cache.find(key); it != cache.end()) return it->second;
+        if (auto it = cache.find(FitView{text, px, maxW}); it != cache.end())
+            return it->second;
 
+        std::string owned{text};
         std::string fitted = hanabi::text::fit_to_width(
-            text, maxW, [px](const char* s) { return theme::text_px(s, px); });
+            owned, maxW, [px](const char* s) { return theme::text_px(s, px); });
         if (cache.size() >= kCacheMax) cache.clear();
-        cache.emplace(key, fitted);
-        return fitted;
+        return cache.emplace(FitKey{std::move(owned), px, maxW},
+                             std::move(fitted)).first->second;
     }
 
     // The collapsedFolders sentinel that folds the VIEWS section. Reusing that
@@ -678,6 +720,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // leading occurrence, case-sensitive, so it can't chew into real titles.
     static std::string strip_parked_prefix(const std::string& title) {
         return fmtutil::display_title(title);  // shared canonical impl
+    }
+    // The same answer without the copy, for the per-row render path. The view
+    // aliases `title`, which lives in app.sessions and outlives the call.
+    static std::string_view display_title_view(const std::string& title) {
+        return fmtutil::display_title_view(title);
     }
 
     // ---- automated / scheduled row detection -------------------------------
@@ -2856,7 +2903,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // lets the text use the full column instead of ellipsizing early.
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fit_to_width(strip_parked_prefix(s.title),
+                .with_label(fit_to_width(display_title_view(s.title),
                                          theme::type::LIST_ROW,
                                          rowTitleW - kRowTitlePad -
                                              (showCount ? kCountTextPad : 0.0f)))

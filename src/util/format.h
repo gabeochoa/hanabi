@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <ctime>
 #include <string>
+#include <string_view>
 
 namespace fmtutil {
 
@@ -143,7 +144,12 @@ inline std::string ellipsize(const std::string& s, size_t n) {
 // row styling / ordering). This NEVER mutates the stored title — it is applied
 // only at render time, and is the single canonical implementation shared by the
 // sidebar rows, digest cards, and tab labels so they can never drift apart.
-inline std::string display_title(const std::string& title) {
+// The strip is always a PREFIX strip, so the answer is a window onto the
+// caller's own string and needs no copy. The sidebar asks this for every
+// rendered row of every frame, where a returned std::string is a malloc for
+// bytes that already exist. The owning form below is the same function, for
+// callers that need to keep the result.
+inline std::string_view display_title_view(std::string_view title) {
     size_t i = 0;
     while (i < title.size() && (title[i] == ' ' || title[i] == '\t')) ++i;
     if (title.compare(i, 3, "[P]") == 0) {
@@ -152,6 +158,10 @@ inline std::string display_title(const std::string& title) {
         return title.substr(i);
     }
     return title;
+}
+
+inline std::string display_title(const std::string& title) {
+    return std::string(display_title_view(title));
 }
 
 }  // namespace fmtutil
