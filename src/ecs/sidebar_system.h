@@ -2245,12 +2245,27 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // another, and the surest way for them to agree is for there to be one
     // answer rather than two derivations of it.
     int visible_limit(const AppComponent& app, const std::string& key,
-                      const std::string& q, int total, int cap) {
-        // A live search shows ALL matches uncapped -- the filter has already
-        // narrowed the list, and hiding matches behind "show more" would
-        // defeat it. So does an explicit "Show N more" opt-in.
+                      int total, int cap) {
+        // A live search used to show ALL matches uncapped, on the reasoning
+        // that the filter has already narrowed the list and hiding matches
+        // behind "show more" would defeat it. That reasoning holds for a query
+        // that narrows to a handful and fails completely for the FIRST
+        // KEYSTROKE, which narrows nothing: at a 2020-session catalog, typing
+        // "r" rendered every match -- 10,615 entities and 18 ms a frame,
+        // thirteen times the idle cost of the same list, and it got worse with
+        // every session in the catalog.
+        //
+        // A search result list is a list. It gets the same cap and the same
+        // "Show N more" affordance as the unfiltered one, which is what that
+        // affordance is for. The count in the header is still the true number
+        // of matches, so the search still ANSWERS with all of them; it just
+        // does not draw all of them.
+        //
+        // The query is no longer an input here at all. It still force-expands
+        // a COLLAPSED group (render_group_header) and that rule is still
+        // right: a match must not be hidden behind a fold. A cap does not hide
+        // a match, it defers it to a click.
         const bool expandedMore =
-            !q.empty() ||
             app.collapsedFolders.count(more_key(key, moreKeyScratch_)) > 0;
         return (expandedMore || total <= cap) ? total : cap;
     }
@@ -2305,7 +2320,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // is what drops non-matching folders out of the tree.
         if (members.empty()) return 0;
         const int total = static_cast<int>(members.size());
-        const int limit = visible_limit(app, key, q, total, cap);
+        const int limit = visible_limit(app, key, total, cap);
 
         // Per Gabe: do NOT day-bucket. Both named folders and the Recent
         // catch-all render as a single FLAT list, newest-first. (The old
