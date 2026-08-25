@@ -35,13 +35,27 @@
 #                     against what the frame BUILT. 1.0 is "you pay for what
 #                     is on screen".
 #
-# Measured on this branch, 500 sessions, 1080 frames, both ways:
+# Measured on this branch, 500 sessions, 1200 frames, both ways:
 #
 #                  live   built   stale   live/built
-#     sweep on      205     196       0         1.05
-#     sweep off    1270     199    1062         6.38
+#     sweep on      168     159       0         1.06
+#     sweep off    1251     159    1083         7.87
 #
 # The budgets below sit in the clear air between those two columns.
+#
+# WHY 1200 FRAMES AND NOT 1000. The census is taken on the LAST frame, so the
+# run has to stop on a cheap screen for the live/built ratio to have any range
+# in it: four of the five digest views are uncapped (docs/perf/RETIRE.md), and
+# a run that stops on one of those reads 692 live against 683 built with the
+# sweep ON and 1251 against 683 with it OFF -- 1.01x against 1.83x, which is
+# too little clear air under a 1.50x ceiling. Stopping on a thread reads 1.06x
+# against 7.87x.
+#
+# That is a sensitivity knob, not a correctness one, and it is worth knowing
+# which: the sweep holds live/built at ~1.0 on EVERY screen, so a phase shift
+# can never make this gate fail wrongly -- it can only make the ratio arm less
+# sensitive. The stale arm has the same enormous separation at every phase and
+# is the one to trust.
 #
 # REPRODUCING A FAILURE. The same run with the sweep switched off, which is
 # also the exact shape of the regression (someone deletes the system
@@ -52,8 +66,8 @@
 #
 # and it reads:
 #
-#     stale widgets     1062        budget 0      FAIL
-#     live / built      6.38x       budget 1.50x  FAIL
+#     stale widgets     1083        budget 0      FAIL
+#     live / built      7.87x       budget 1.50x  FAIL
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,7 +77,7 @@ EXE="$ROOT/output/hanabi.exe"
 STALE_BUDGET="${HANABI_RETIRE_STALE_BUDGET:-0}"
 HELD_RATIO_CEILING="${HANABI_RETIRE_HELD_CEILING:-1.50}"
 SESSIONS="${HANABI_RETIRE_GATE_SESSIONS:-500}"
-FRAMES="${HANABI_RETIRE_GATE_FRAMES:-1080}"
+FRAMES="${HANABI_RETIRE_GATE_FRAMES:-1200}"
 
 [ -x "$EXE" ] || { echo "no such binary: $EXE (make first)" >&2; exit 2; }
 

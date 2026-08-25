@@ -19,30 +19,49 @@ from 4 to 12. Every number that could be a ratio or a count is one.
 ## The headline
 
 `HANABI_STRESS=views` — Home, Blocked, Review, Starred, Archived, a thread,
-repeat — at `HANABI_STRESS_SESSIONS=2000`, 2880 frames after a 120-frame
-settle, **sampled every 360 frames** so every sample lands on the same screen
-(section 5 is about why that matters). Same binary both columns,
-`HANABI_RETIRE=0` against the default.
+repeat — at `HANABI_STRESS_SESSIONS=2000`. Same binary in both columns,
+`HANABI_RETIRE=0` against the default. Measured on `main` at `1abdaa3`, after
+`perf/scroll` (the sidebar's floor moved a long way in that branch; every
+number here is against the new one).
+
+**What the app HOLDS, sampled once per screen through two full navigation
+cycles** (`HANABI_SOAK_EVERY=60`, one bucket per dwell — the entity count is
+exact and identical run to run, so this needs no repetition):
+
+| what the frame is drawing | sweep off | sweep on |
+| --- | --- | --- |
+| the cheapest screen in the cycle (a thread) | 2589 | **167** |
+| the dearest (one of the uncapped digest views) | 2809 | **2467** |
+| every sample in between | 2589 – 2809, flat | 254 – 2191, tracking |
+
+The left column is flat because it is the union of everything: whatever is on
+screen, the app is carrying all five screens. The right column tracks the
+screen. On a thread that is **15.5x fewer entities**; on one of the four
+uncapped digest views it is barely better, because a digest view genuinely
+builds 2276 of those widgets and that is a different bug (see "What this does
+NOT fix").
+
+**What that costs per frame**, phase-locked buckets of 360 frames — one whole
+navigation cycle, so both columns average the same six screens — over 2880
+frames, CPU time (`CLOCK_THREAD_CPUTIME_ID`, not wall):
 
 | | sweep off | sweep on | |
 | --- | --- | --- | --- |
-| live widgets | 2844 | **200** | 14.2x fewer |
-| built this frame | 182 | 182 | identical work |
-| stale widgets | 2653 | **9** | |
-| ms/frame | 4.60 | **3.16** | −1.44 ms, −31% |
-| live heap | 48.8 MB | **43.5 MB** | −5.3 MB |
-| live heap blocks | 77,217 | **53,421** | −23,796 |
+| ms/frame (CPU) | 4.63 | **3.06** | −1.57 ms, −34% |
+| built this frame | 2182 | 2182 | identical work |
+| live widgets, same phase | 2820 | 2467 | |
+| stale widgets, same phase | 629 | **276** | |
+| live heap, on a thread frame | 48.2 MB | **43.4 MB** | −4.8 MB |
+| live heap blocks, same | 75,022 | **52,234** | −22,788 |
 
-Both columns are **flat** across the run — 2841, 2841, 2841, 2844 against 216,
-216, 216, 200. This was never a leak. It is a plateau: the app accumulates the
+Both columns are **flat** across the run: 2817, 2817, 2817, 2820 against 2467
+every time. This was never a leak. It is a plateau — the app accumulates the
 union of every screen you have visited, stops, and charges you for it forever.
 That is worth saying twice, because it is exactly why no existing gate could
 see it (section 6).
 
-The nine remaining stale widgets are the ones inside the 90-frame grace — the
-screen you were on one second ago, kept deliberately.
-
----
+The 276 widgets still stale with the sweep on are the ones inside the 90-frame
+grace: the screen you were looking at a second ago, kept deliberately.
 
 ## 1. The seam: hanabi owns `mk`
 
@@ -168,7 +187,8 @@ interleaved:
 
 Indistinguishable, and if anything the sweep is ahead, because it takes the
 launch skeletons away. The stamp's 0.030 ms is inside this and does not surface
-above the noise.
+above the noise. (Measured before the `perf/scroll` merge; the absolute floor
+has come down since, the comparison has not changed.)
 
 ## 5. Measuring an app that is moving
 
@@ -211,10 +231,13 @@ because they say what a third gate had to do differently.
   navigates. With the sweep off it reads 1.31x widgets; with it on, 1.32x. It
   is blind by construction, not by accident.
 
+- **`scroll_gate.sh` expands one list and sweeps it**, which is a different
+  question about the same screen. It does not leave it either.
+
 So `scripts/retire_gate.sh` (`make retire-gate`, ~3 s, in `make test`) navigates
 and then counts. Two counts, no milliseconds: **stale widgets** (budget 0, with
 the grace turned down to 2 frames for the run) and **live / built** (ceiling
-1.50x, measured 1.05x against 6.38x defective).
+1.50x, measured 1.06x against 7.87x defective).
 
 **The check that keeps that gate honest is the epoch.** The likeliest shape of
 this regression is not a broken sweep, it is someone deleting one line from

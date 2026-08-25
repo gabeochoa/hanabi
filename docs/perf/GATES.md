@@ -399,16 +399,19 @@ one exists:
   uselessly reads as an app that settled.
 - **The scaling gate measures one screen at two catalog sizes and never
   navigates.** 1.31x widgets with the sweep off, 1.32x with it on.
+- **The scroll gate expands one list and sweeps it.** It never leaves the
+  screen either, so the widgets of the screen it is not on are not its
+  question.
 
-So this one navigates — one run of the `views` arm, 500 sessions, 1080 frames
+So this one navigates — one run of the `views` arm, 500 sessions, 1200 frames
 — and then reports two COUNTS off the soak census. No milliseconds: an entity
 count is exact and identical run to run, which an ms figure on this box is not.
 
 | metric | budget | measured | with the sweep off |
 | --- | --- | --- | --- |
-| stale widgets | 0 | 0 | 1062 |
-| live / built | 1.50x | 1.05x | 6.38x |
-| epoch | >= frames | 1204 | — |
+| stale widgets | 0 | 0 | 1083 |
+| live / built | 1.50x | 1.06x | 7.87x |
+| epoch | >= frames | 1324 | — |
 
 "Stale" is widgets `imm::mk()` still owns that nothing has built for longer
 than the grace. The run turns the grace down to 2 frames and sweeps every frame
