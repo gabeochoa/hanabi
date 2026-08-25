@@ -5976,3 +5976,293 @@ there is nothing to ask.
 
 CLASS: TEDIOUS
 
+
+### #135 — `wrap_text` measures one growing PREFIX per word and materialises every line, so "how many lines is this" costs O(words) measures and O(words) string builds
+
+**What was wanted.** The line count of a message body at a given width, to
+place the messages after it. Nothing more: not the lines, not their text, not
+their widths. A number.
+
+**What happens.** The only way to ask is
+`ui::wrap_text(text, max_width, font, size)`, which returns
+`std::vector<std::string>` — every wrapped line, materialised — and hanabi
+throws all of it away:
+
+```cpp
+static int count_lines(const std::string& text, float widthPx, float fontPx) {
+    return static_cast<int>(wrapped_lines(text, widthPx, fontPx).size());
+}
+```
+
+Underneath, `detail::wrap_runs_to_width` is a greedy word-wrap that measures
+the CANDIDATE LINE at every word boundary, and the candidate is the whole
+accumulated prefix:
+
+```cpp
+const std::string candidate = current_text + pending_ws.text + chunk.text;
+if (!current_text.empty() &&
+    measure_candidate(current, pending_ws.parts, chunk.parts) > max_width) {
+```
+
+and `measure_candidate` concatenates the parts into a fresh `std::string seg`
+before handing it to `measure`. So an N-word line costs N measure calls whose
+arguments are N distinct strings of average length N/2 — quadratic in bytes —
+plus N string constructions for the candidate and N more for the measured
+segment, before the vector of results is built and dropped.
+
+Measured, on hanabi's 120-message perf fixture at 1180x949: 22 KB of text
+wrapped per frame producing 3,456 `TextMeasureCache` lookups per frame, to
+answer a question whose whole output is one integer per message.
+
+The cache saves the fontstash call but not the rest: at a 100% hit rate those
+3,456 lookups are still 3,456 FNV hashes over the candidate strings plus 3,456
+list splices, and the candidate strings still had to be built to be hashed.
+
+**Why the obvious escapes do not work.**
+
+- **Cache the line count in the app.** hanabi does, and it is the right answer
+  for a body whose text has not changed — but it is a memo over the library's
+  answer, so the first ask still pays, every distinct width pays again, and
+  anything genuinely dynamic (a streaming message, a live filter) pays every
+  frame. It moves the cost, it does not remove it.
+- **Use `measure_text_wrapped`.** Same primitive underneath
+  (`detail::measure_wrapped` calls `wrap_text_to_width` and then measures each
+  resulting line AGAIN), so it is strictly more work for the same answer.
+- **Estimate from `length / chars_per_line`.** hanabi did exactly this and the
+  comment recording its removal is still in the file: the wrapper honours hard
+  newlines and the estimate did not, so a three-line message measured as one
+  and the bubble clipped. An estimate that disagrees with the wrapper is a
+  rendering bug, not an optimisation.
+- **Reserve the vector / move the strings out.** The allocation is not the
+  return value, it is the N candidate strings built inside the loop; the
+  returned vector is the cheap part.
+
+**The workaround, and its cost.** A per-message memo of (display body, line
+count, measured height) keyed by (message id, wrap width) —
+`src/ecs/transcript_render_cache.h`, 120 lines including the reason it holds
+TWO widths per key (see #136). It works: it took the transcript's measure pass
+from 2.01 ms/frame to 0.08 ms at 120 messages and from 5.79 to 0.27 at 480.
+The cost is that a cache is now load-bearing for correctness of the frame
+budget, with the failure mode caches have — it silently had a 34% hit rate and
+the only symptom was that long threads were slow.
+
+**Minimal upstream fix.** A counting overload that does not materialise:
+`detail::wrapped_line_count(text, max_width, measure) -> int`, sharing the same
+break logic so it cannot disagree with `wrap_text`. Better still, have
+`measure_candidate` measure the DELTA (the pending whitespace plus the new
+chunk) and accumulate the width, instead of re-measuring the whole prefix —
+the comment above it already explains that pieces are summed per same-weight
+stretch rather than per word to avoid losing inter-character spacing at joins,
+which is the same trade at a different granularity, and it would turn the
+quadratic byte count linear for the plain single-run case that `wrap_text`
+always is.
+
+CLASS: PERFORMANCE
+
+### #136 — Nothing sizes a box to its own text, so a hug costs a wrap plus a measure per line — and forces every memo of that measurement to hold two widths, not one
+
+**What was wanted.** A user's chat bubble that is as wide as its longest
+wrapped line and no wider, capped at a maximum. The universal chat layout.
+
+**What happens.** Already filed as #79 / #87 / #103 as a *tedium* gap: there is
+no `size_to_content`, so the app measures. This entry is about what that costs
+per frame, which turned out to be a different and larger problem than the
+typing.
+
+Hugging is inherently a TWO-PASS measurement, and both passes are the app's:
+
+```cpp
+const float maxTextW = maxW - 2.0f * kBubbleCfgPadX;
+const auto& mr = measured(m, maxTextW, ...);           // pass A, at 630 px
+float widest = 0.0f;
+for (const auto& ln : wrapped_lines(mr.body, maxTextW))
+    widest = std::max(widest, theme::text_px(ln, theme::type::BODY));
+box.textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);  // 458 px
+```
+
+and then the height pass asks for the same message again at `box.textW`. So a
+memo keyed by (message, width) — the obvious and correct key — is asked for one
+key at two widths, alternating, forever. hanabi's held one entry per key and
+therefore had a **negative** hit rate on every user message: put at 630, ask at
+458, miss, recompute, put at 458; next frame ask at 630, miss, recompute, put
+at 630. Measured on the 120-message fixture: 72.5 misses per frame against
+37.4 hits, of which 99.8% were this ping-pong and 0.2% were genuinely cold.
+
+The library shape causes this. If the box could size itself there is one width
+and one entry; because the app must derive the width from a measurement of the
+content, there are necessarily two, and any cache in front of it has to know
+that.
+
+**Why the obvious escapes do not work.**
+
+- **Measure once at the hugged width.** Circular — the hugged width is the
+  output of the measurement.
+- **`children()` sizing.** It sizes a parent to its laid-out children, and the
+  child here is a text label whose own width is the thing in question; the
+  label fills the width it is given rather than reporting the width it wants.
+- **Key the memo by width.** Bounded at a fixed pane width, unbounded across a
+  resize DRAG: an entry per message per intermediate width, which is a worse
+  version of the bug.
+- **Round the two widths together.** They are 172 px apart. They are different
+  questions.
+
+**The workaround, and its cost.** Two width slots per key, newest-first,
+insert evicting the older — enough for exactly the working set a hug creates,
+bounded by construction. Plus a second memo for the hug result itself, so the
+wrap and the per-line measures do not run for every user message in the thread
+on every frame. Together: render-cache hit rate 34% -> 99.9%, wrap calls per
+frame 242.9 -> 61.8, allocations per frame 30,015 -> 9,565 at 120 messages.
+
+The cost is that both memos, and the reason the pair is two and not one, are
+now permanent load-bearing complexity in a chat app for want of a layout mode.
+
+**Minimal upstream fix.** `ComponentSize{fit_content(max), ...}` resolved
+inside AutoLayout, which already has the text, the font and the width and
+already wraps — it is measuring all of this anyway to lay the label out. One
+sizing mode removes both memos and the entire class of bug.
+
+CLASS: PERFORMANCE
+
+### #137 — The measure that IS cached and the measure the app can call answer different questions, so routing app measurement through `TextMeasureCache` moves pixels
+
+**What was wanted.** hanabi measures text constantly (#79 / #87 / #103 / #136).
+afterhours ships `TextMeasureCache`, an LRU with a 4096 default, wired up as a
+singleton by `ui::utilities`. The obvious move is to send hanabi's measuring
+through it.
+
+**What happens.** There are two measure functions and they do not agree.
+
+`theme::text_px`, hanabi's app-facing measure, calls
+`afterhours::measure_text_internal`, which is the backend's own single-line
+measure and knows nothing about the cache:
+
+```cpp
+// backends/sokol/font_helper.h
+inline float measure_text_internal(const char *text, const float size) {
+  ...
+  return fonsTextBounds(ctx, 0, 0, text, nullptr, nullptr) / dpi;   // ADVANCE
+}
+```
+
+The cached path is `ui::measure_text_line`, which goes
+`TextMeasureCache::measure` -> the measure function registered in
+`ui::utilities` -> `measure_text(font, ...)`:
+
+```cpp
+// backends/sokol/font_helper.h
+fonsTextBounds(ctx, 0, 0, text, nullptr, bounds);
+float w = (bounds[2] - bounds[0]) / dpi;                            // INK BOX
+```
+
+One returns the pen ADVANCE, the other the INK BOUNDING BOX. Measured in
+hanabi with both called on the same string, same font, same size, in the same
+frame:
+
+```
+[probe] uncached=440.0000 cached=442.0000  delta=+2.0000  "Follow-up question #0: can you dig into th"
+[probe] uncached=435.0000 cached=437.0000  delta=+2.0000  "Follow-up question #1: can you dig into th"
+[probe] uncached=440.0000 cached=442.0000  delta=+2.0000  "Follow-up question #2: can you dig into th"
+```
+
+A consistent 2 px. So the cache is not a drop-in: switching hanabi's hug
+measurement to it widens every user bubble by 2 px, which in a project with a
+frozen pixel reference and a floor-scored parity harness is a regression, not
+an optimisation. The result is that hanabi's own measuring goes AROUND the
+cache — 70.6 uncached fontstash calls per frame — while the library's internal
+layout goes through it, and the two are measuring the same strings.
+
+**Why the obvious escapes do not work.**
+
+- **Absorb the 2 px into the padding constant.** The delta is a property of the
+  STRING (ink bearing on the first and last glyph), not a constant; it is 2 px
+  for these and something else for a line ending in a comma.
+- **Call `measure_text` directly and cache it in hanabi.** That is the ink box,
+  so it moves the same 2 px. The advance is the number the current layout was
+  tuned against.
+- **Register `measure_text_internal` as the cache's measure function.** It is
+  registered by `ui::utilities::register_...`, inside the library's own setup,
+  and the library's layout pass reads the same cache — changing it changes what
+  AutoLayout believes about every widget in the app.
+
+**The workaround, and its cost.** Leave `theme::text_px` uncached and avoid
+CALLING it: hanabi now memoizes the hug so the measure happens once per message
+instead of once per message per frame (70.6/frame is what is left, all of it
+outside the transcript). The cost is that the one shared cache the library
+provides for exactly this is unusable by the app that needs it most, and every
+app-side measurement needs its own memo instead.
+
+**Minimal upstream fix.** Make the two agree — pick advance or ink box, use it
+in both `measure_text_internal` and `measure_text`, and document which. Failing
+that, expose the cache over `measure_text_internal`'s semantics as a second
+entry point (`ui::measure_advance_cached(text, size)`), so an app can cache the
+number it is already using without adopting a different one.
+
+CLASS: FOOTGUN
+
+### #138 — Rebuilding one widget costs ~4.6 heap allocations per frame, so any list that must draw a mark per item is linear in allocations however well the CONTENT is virtualized
+
+**What was wanted.** A minimap rail beside the transcript: one small mark per
+message, the whole thread at a glance. Every mark is on screen by definition —
+that is what a minimap is — so there is nothing to virtualize away.
+
+**What happens.** Each mark is a widget, and an immediate-mode widget is
+rebuilt every frame:
+
+```cpp
+auto slot = button(ctx, mk(rail.ent(), static_cast<int>(i) + 1),
+    ComponentConfig{}
+        .with_size(...)
+        .with_custom_hover_bg(...)
+        .with_on_draw_fg([mark, hot](RectangleType r) { ... })
+        .with_debug_name("minimap_mark_" + std::to_string(i)));
+```
+
+Counted with a global `operator new` counter over 300 frames, the minimap's
+own scope allocates 72 / 572 / 2,218 times per frame for 12 / 120 / 480
+messages — **~4.6 heap allocations per widget per frame**, flat per item. At
+480 messages and 60 fps that is 133,000 allocations per second for a strip of
+dots.
+
+`ComponentConfig` is the shape of it: it is a by-value builder holding
+`std::string debug_name`, `std::string font_name`, `std::vector<TextSpan>
+styled_label` and two `std::function` draw callbacks, constructed and destroyed
+per widget per frame, and the entity's components are added and resolved
+alongside.
+
+For the transcript proper this does not bite, because virtualization means only
+the visible turns are built and the count is flat in thread length — measured
+5,456 allocations per frame at 120 messages and 5,534 at 480, correctly
+independent. It bites precisely where the widget count is the item count by
+design.
+
+**Why the obvious escapes do not work.**
+
+- **Virtualize the minimap.** It is a map OF the whole thread; culling it to
+  the viewport is deleting the feature.
+- **Coalesce adjacent marks into one widget.** `minimap::draw_mark` clamps each
+  dot to `kMinDotH` and centres it in its slot, so merging two slots does not
+  draw what two slots drew — it moves pixels, in the most pixel-tested pane in
+  the app.
+- **Draw all the marks from the rail's own `on_draw_fg`** — one widget, N dots.
+  This does work for the drawing, and loses per-mark hover (`with_custom_hover_bg`
+  is per-widget) and per-mark hit testing. Hover would have to be
+  re-implemented against a hand-rolled hit test, which is #111 again.
+- **Skip invisible marks.** Already done (`if (h <= 0.0f) continue;`), and it
+  does not help: at 480 messages every slot is a positive fraction of a pixel,
+  so nothing is skipped.
+
+**The workaround, and its cost.** None applied. It is documented and left: at
+120 messages the minimap is 0.13 ms and 572 allocations per frame, which is
+real but is not what was making long threads slow, and every way of removing it
+either changes what is drawn or re-implements hover by hand. hanabi's slope
+gate (`scripts/perf_transcript_slope.sh`) sets its allocation limit at 12 per
+message specifically to leave room for this, and says so.
+
+**Minimal upstream fix.** Let a `ComponentConfig` be built once and reused
+across frames, or give the immediate-mode API a batched primitive for "N
+uniform children of this parent" that resolves rects without a full config per
+child. The narrower version: make `debug_name` a `std::string_view` or drop it
+in release builds, and give `on_draw_fg` a non-owning callable overload — those
+three fields are the per-widget allocation.
+
+CLASS: PERFORMANCE
