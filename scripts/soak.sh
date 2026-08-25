@@ -16,6 +16,7 @@
 #   make soak                    # every arm, 4000 frames each
 #   make soak FRAMES=20000       # a long night
 #   make soak ARMS="scroll tabs" # just these
+#   make soak ARMS=views         # the navigation arm on its own
 #
 # WHY EACH ARM IS HERE
 #   idle     the control. Nothing is touched. Anything that grows here grows
@@ -36,6 +37,11 @@
 #            transcript rebuild, a tab. One every 30 frames, forever.
 #   tabs     eight tabs, then round-robin between them. Catches anything the
 #            tab strip or a per-tab cache keeps hold of.
+#   views    the only arm that CHANGES SCREEN. Everything above sits on one
+#            screen for its whole run, and the cost of a screen you left is
+#            exactly the thing afterhours does not clean up
+#            (afterhours_gaps.md #115) — so for a month no arm could see it.
+#            Sampled in whole navigation cycles; see the note at `every`.
 #   bigidle  the same control arm against a 2000-session catalog. A per-row
 #            leak is 100x more visible here, and a cache sized by the catalog
 #            shows up as a plateau at a different height rather than a slope.
@@ -46,7 +52,7 @@ cd "$ROOT"
 EXE="$ROOT/output/hanabi.exe"
 
 FRAMES="${HANABI_SOAK_LONG_FRAMES:-4000}"
-ARMS="${HANABI_SOAK_ARMS:-idle scroll scrollall threads tabs bigidle}"
+ARMS="${HANABI_SOAK_ARMS:-idle scroll scrollall threads tabs views bigidle}"
 EVERY="${HANABI_SOAK_LONG_EVERY:-500}"
 
 # The long form gates HARDER than the short one, and can: over 4000 frames the
@@ -102,19 +108,30 @@ ARM_TIMEOUT="${HANABI_SOAK_ARM_TIMEOUT:-600}"
 for arm in $ARMS; do
     scenario="$arm"
     sessions=""
+    # Buckets, per arm. Every other arm sits on ONE screen, so any bucket
+    # boundary reads the same app and the default is fine. `views` does not:
+    # its entity count is a function of WHICH SCREEN the sample landed on, and
+    # a bucket that is not a whole number of navigation cycles compares Home
+    # against a thread and reports the difference as growth. It read +31
+    # entities per 1000 frames that way, against a budget of 25, on a run whose
+    # memory was flat to the kilobyte. 360 is the cycle: six screens at the
+    # 60-frame dwell.
+    every="$EVERY"
     case "$arm" in
         bigidle) scenario="idle"; sessions=2000 ;;
         # A window that is not a window is invisible on the twenty-row
         # fixture: twenty rows fit in a viewport, so every one of them is on
         # screen and there is nothing to leave out.
         scrollall) sessions=2000 ;;
+        views) every=360 ;;
     esac
 
     echo
-    echo "--- arm: ${arm} (scenario=${scenario}${sessions:+, catalog=${sessions}}) ---"
+    echo "--- arm: ${arm} (scenario=${scenario}${sessions:+, catalog=${sessions}}, buckets of ${every}) ---"
     started=$(date +%s)
     (
         export HANABI_SOAK="$FRAMES"
+        export HANABI_SOAK_EVERY="$every"
         export HANABI_STRESS="$scenario"
         [ -n "$sessions" ] && export HANABI_STRESS_SESSIONS="$sessions"
         timeout "$ARM_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
