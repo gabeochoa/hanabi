@@ -15,47 +15,62 @@
 #
 #   WIDGET ratio — how many UI widgets the frame builds at 2000 sessions
 #     divided by how many at 20. This is the primary gate, because it is
-#     DETERMINISTIC: five consecutive runs gave 348 and 2985 widgets, exactly,
+#     DETERMINISTIC: five consecutive runs gave 338 and 444 widgets, exactly,
 #     every time. It is also the property itself rather than a symptom of it —
-#     the sidebar builds a widget per row whether or not that row is on screen,
-#     and every one of those widgets is torn down and re-laid-out each frame.
+#     the frame should build what it draws, and what it draws is a viewport;
+#     every widget it builds is torn down and re-laid-out the next frame.
 #
 #   FRAME-TIME ratio — the best (minimum) per-frame time over 120 frames at
 #     2000 divided by the same at 20. Reported and gated loosely, as a backstop
 #     for a regression that costs time without costing widgets.
 #
 # ---------------------------------------------------------------------------
-# WHERE THE THRESHOLDS COME FROM  (measured 2026-08-25, main @ 3bb921d,
-# gabeochoa-mac-GRQ7Y259H4)
+# WHERE THE THRESHOLDS COME FROM
+#
+# ORIGINALLY (2026-08-25, main @ 3bb921d) the ceilings were 10.00 and 12.00,
+# because frame time was linear in the catalog and a gate that is red on main
+# is a gate somebody deletes:
 #
 #   sessions   widgets   min ms (quiet)   min ms (load ~20)
 #         20       348             1.41                1.40
-#        100       454             1.65                1.65
-#        500       986             2.83                4.22
 #       2000      2985             7.86               11.32
 #
-#   widget ratio 2985/348 = 8.58, on every one of five runs
-#   frame ratio  7.86/1.41 = 5.57 quiet, 11.32/1.40 = 8.09 under load
+#   widget ratio 8.58x, frame ratio 5.57x quiet / 8.09x under load
 #
-# THE GATE AS IT SHIPS ASSERTS WHAT IS TRUE TODAY, NOT WHAT SHOULD BE. Frame
-# time is linear in the catalog on main right now; a gate demanding otherwise
-# would fail on main, and a gate that is red on main is a gate somebody
-# deletes. So the ceilings below sit just above today's measurements: they
-# catch a regression that makes the scaling WORSE (a second per-row pass, an
-# O(n^2) sort, a per-row layout that stops being shared), which is the failure
-# this project has actually had.
+# NOW (perf/scroll, same box) the sidebar builds a window rather than a list,
+# so the widget count no longer tracks the catalog at all:
 #
-# WHEN perf/sidebar-scaling LANDS — the branch virtualizing the sidebar so only
-# visible rows are built — the widget ratio should collapse to about 1.0 and
-# the frame ratio to under 2.0. That branch should lower these two constants to
-# 1.50 and 2.50 in the SAME commit that makes them true; the gate is worth very
-# little at 10.00, and the whole point of it is to hold the fix in place. Both
-# numbers are one line each, right here, deliberately.
+#   sessions   widgets   min ms/f over three runs
+#         20       338       1.56  1.59  1.58
+#       2000       444       2.00  1.94  1.88
+#
+#   widget ratio 1.31x, on every one of five runs, zero spread
+#   frame ratio  1.19x to 1.30x across those runs, and 1.29x to 1.30x on
+#                unmodified main measured back to back with them
+#
+# So the ceilings drop to 1.50 and 2.50, which is the pair the original text
+# of this file named for the branch that would make them true. The gate was
+# worth very little at 10.00 — its whole job is holding a fix in place, and it
+# cannot do that from eight times away.
+#
+# WHAT THE NEW CEILINGS STILL CATCH, rehearsed by breaking it on purpose:
+#
+#   Home's per-section cap removed (kMaxSection, the original finding)
+#       355 -> 8934 widgets, 25.17x, and 15.61x on frame time.
+#   the sidebar's row cap AND its window both removed
+#       391 -> 6636 widgets, 16.97x, and 14.94x on frame time.
+#
+# WHAT IT DELIBERATELY DOES NOT CATCH ANY MORE. Removing the sidebar's row cap
+# ALONE moves neither number, and that is correct rather than a hole: an
+# uncapped list that is windowed costs a window. The cap is now a statement
+# about what the user is SHOWN, not about what the frame costs, and the cost
+# side of the sidebar is held by `make scroll-gate`, which drives the list the
+# user has expanded. See docs/perf/SCROLL.md.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-WIDGET_RATIO_CEILING="${HANABI_SCALE_WIDGET_CEILING:-10.00}"
-FRAME_RATIO_CEILING="${HANABI_SCALE_FRAME_CEILING:-12.00}"
+WIDGET_RATIO_CEILING="${HANABI_SCALE_WIDGET_CEILING:-1.50}"
+FRAME_RATIO_CEILING="${HANABI_SCALE_FRAME_CEILING:-2.50}"
 
 SMALL="${HANABI_SCALE_SMALL:-20}"
 BIG="${HANABI_SCALE_BIG:-2000}"
@@ -132,7 +147,7 @@ if awk "BEGIN{exit !($WR > $WIDGET_RATIO_CEILING)}"; then
     echo "  FAIL: widget ratio ${WR}x exceeds ${WIDGET_RATIO_CEILING}x." >&2
     echo "        A ${SESSION_RATIO}x catalog is building ${WR}x the widgets, so the frame's" >&2
     echo "        work is growing with the catalog faster than it did when this" >&2
-    echo "        ceiling was set (${SESSION_RATIO}x sessions -> 8.58x widgets, 2026-08-25)." >&2
+    echo "        ceiling was set (${SESSION_RATIO}x sessions -> 1.31x widgets, 2026-08-25)." >&2
     echo "        Look for a per-row widget added to the sidebar or the tab strip," >&2
     echo "        or a row that stopped being culled. docs/perf/GATES.md." >&2
     FAIL=1

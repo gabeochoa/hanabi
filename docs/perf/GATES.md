@@ -28,10 +28,11 @@ apology for the numbers; it is the reason several of them are ratios.
 | --- | --- | --- | --- |
 | soak | `make soak-gate` | yes | ~4 s |
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
+| scroll | `make scroll-gate` | yes | ~6 s |
 | autorelease source check | `make source-checks` | yes | <1 s |
-| long soak | `make soak` | **no** — before a release | ~65 s |
+| long soak | `make soak` | **no** — before a release | ~33 s |
 
-The three additions cost about **fourteen seconds** on a `make test` that runs
+The four additions cost about **twenty seconds** on a `make test` that runs
 between four and six minutes depending on what else this box is doing
 (observed: 228 s, 283 s, 336 s for the same tree). That was the budget: a suite
 that takes fifteen minutes is a suite people stop running, and a gate nobody
@@ -198,32 +199,48 @@ whether or not the row is on screen, torn down and re-laid-out every frame.
 whole timeslice — best-of-two runs, because the minimum is the sample least
 polluted by whatever else the box is doing.
 
-### The honest part: this gate asserts what is true today
+### The ceilings, and the day they came down
 
-Frame time **is** linear in the catalog on `main` right now. A gate demanding
-otherwise would be red on `main`, and a gate that is red on `main` is a gate
-somebody deletes on a Tuesday. So the two ceilings sit just above today's
-measurements. What they catch is a regression that makes the scaling *worse* —
-a second per-row pass, a row that stops being culled, a lookup that walks the
-catalog — which is the failure this project has actually had.
+This section used to read "the honest part: this gate asserts what is true
+today", because frame time was linear in the catalog and a gate that is red on
+`main` is a gate somebody deletes on a Tuesday. It also said what should happen
+next: *"`perf/sidebar-scaling` should lower both numbers in the same commit
+that makes them true ... the gate is worth very little at 10.00x."* That branch
+landed and the constants did not move; `perf/scroll` moved them.
 
-**`perf/sidebar-scaling` should lower both numbers in the same commit that
-makes them true.** After the sidebar is virtualized the widget ratio should
-collapse to about 1.0 and the frame ratio to under 2.0; the constants to change
-are the first two lines of `scripts/scaling_gate.sh`:
+| | widgets | frame time |
+| --- | ---: | ---: |
+| ceiling, as written | 10.00x | 12.00x |
+| measured now | 1.31x | 1.19x – 1.30x |
+| ceiling now | **1.50x** | **2.50x** |
 
-```bash
-WIDGET_RATIO_CEILING="${HANABI_SCALE_WIDGET_CEILING:-10.00}"   # -> 1.50
-FRAME_RATIO_CEILING="${HANABI_SCALE_FRAME_CEILING:-12.00}"     # -> 2.50
-```
+1.31x on every one of five runs — 338 and 444 widgets, exactly — and the frame
+ratio measured against unmodified `main` back to back, which read 1.29x and
+1.30x in the same minutes on the same box.
 
-The gate is worth very little at 10.00x. Holding the fix in place is the entire
-reason it exists, and it does not do that until that line changes.
+What makes it hold is not the cap. Before `perf/scroll` the widget count was
+bounded because `fillCap` happened to be small; now it is bounded because the
+sidebar builds a window (`docs/perf/SCROLL.md`). The difference shows in what
+this gate no longer catches: **removing the sidebar's row cap alone moves
+neither number**, which is correct rather than a hole — an uncapped list that
+is windowed costs a window. The cost side of the sidebar has moved to
+`make scroll-gate`.
 
 ### Reproducing a failure
 
-The rehearsal used the most likely real regression: a row that stops being
-culled. In `src/ecs/sidebar_system.h`, replace
+Rehearsed against the new ceilings by breaking it on purpose, both arms firing
+each time:
+
+| defect | widgets | frame |
+| --- | ---: | ---: |
+| Home's per-section cap removed (`kMaxSection`) | 355 → 8934, 25.17x | 15.61x |
+| the sidebar's row cap AND its window removed | 391 → 6636, 16.97x | 14.94x |
+
+The original rehearsal below still describes the shape, but note that it no
+longer fires on its own: with a window in place, uncapping the list changes
+what the user is SHOWN and not what the frame builds.
+
+In `src/ecs/sidebar_system.h`, replace
 
 ```cpp
 const int limit = (expandedMore || total <= cap) ? total : cap;
@@ -316,6 +333,52 @@ check_autorelease: FAIL
 
 ---
 
+## 3b. The scroll gate — the list the report was about
+
+`scripts/scroll_gate.sh`, and `docs/perf/SCROLL.md` is the whole story. Two
+arms, ~6 s, in `make test`:
+
+| arm | what it asks | budget | measured |
+| --- | --- | ---: | ---: |
+| level | entity count at 20 sessions vs 2000, list EXPANDED | 1.60x | 1.30x, zero spread |
+| trend | min-of-half frame CPU, second half over first | 1.15x | 0.986 – 1.027 over 8 runs |
+| trend | live malloc blocks per 1000 frames | +150 | −149 to 0 over the same 8 |
+
+**Why the level arm exists, and why it runs first.** The defect this gate was
+written for has no slope. Against the build with row virtualization reverted
+the trend arm reads 17.040 ms then 17.326 ms — ratio 1.017, blocks +1.9 — and
+passes cleanly. It is eleven times too expensive on the first frame and eleven
+times too expensive on the six-thousandth. Every gate this project added after
+the Metal leak measures a slope, because the leak was a slope; **"does it get
+worse" and "is it bad" are different questions.**
+
+All three arms have been made to fail on purpose:
+
+| arm | defect | read |
+| --- | --- | ---: |
+| level | `row_window()` returns the whole list | 16.61x vs 1.60 |
+| blocks | row ids keyed on the row index, not the window slot (#115's shape) | +180/1k vs 150 |
+| frame cpu | a per-frame walk over an index of rows visited | 1.223x vs 1.15 |
+
+The frame-CPU arm fires at about +0.47 ms of drift across the halves of a
+1600-frame run.
+
+**Minimum, not mean.** Contention and downclocking only ever *add* time to a
+bucket — there is no mechanism by which a busy machine makes a frame cheaper —
+so the cheapest bucket of a half is the least-polluted estimate of what the app
+cost over that half, and a ratio of two of them removes most of what is left.
+`scripts/perf_ab.sh` makes the same argument.
+
+**And the settle pass had to be fixed before any of this could be measured.**
+The soak's settle loop rendered without calling the stress driver, so it
+settled the launch burst and nothing else: every scenario's warm-up landed
+inside the measured window. On the scroll arm that is a title memo filling with
+1800 entries while the first buckets are sampled. Eight clean runs spanned
+−148 to +847 blocks per 1000 frames with an undriven settle and −149 to 0 with
+a driven one, which is the difference between having a budget and not.
+
+---
+
 ## 4. `make soak` — the long form, for before a release
 
 `scripts/soak.sh`. Five arms, 4000 frames each, about 65 seconds total.
@@ -326,6 +389,7 @@ check_autorelease: FAIL
 | `scroll` | sidebar wheel, 60 frames down and 60 up | the reported symptom was "scroll the sidebar until it breaks" |
 | `threads` | opens a thread every 30 frames | the heaviest thing the app does: fetch, transcript rebuild, tab |
 | `tabs` | 8 tabs, then round-robin | anything the tab strip or a per-tab cache holds on to |
+| `scrollall` | the sidebar's list EXPANDED, then swept, at 2000 sessions | the arm above scrolls the list the cap allows; this one scrolls the list the user asked for, which is the one in the report |
 | `bigidle` | idle, against a 2000-session catalog | a per-row leak is 100x more visible; a catalog-sized cache shows as a higher plateau rather than a slope |
 
 Memory budgets are **tighter** than the short gate's — 256 KB per 1000 frames
@@ -335,12 +399,16 @@ over 4000 frames the settling and the page quantisation that dominate a
 
 ```
 === soak summary (per 1000 frames) ===
-  idle      PASS  RSS +32.0 KB     heap +11.5 KB        5s
-  scroll    PASS  RSS +5.3 KB      heap +4.1 KB         5s
-  threads   PASS  RSS +64.0 KB     heap +19.9 KB        7s
-  tabs      PASS  RSS +53.3 KB     heap +32.6 KB        6s
-  bigidle   PASS  RSS +10.7 KB     heap +0.2 KB        41s
+  idle      PASS  RSS +0.0 KB      heap +1.7 KB         5s
+  scroll    PASS  RSS +26.7 KB     heap +0.5 KB         5s
+  scrollall PASS  RSS +0.0 KB      heap +0.1 KB         8s
+  threads   PASS  RSS +0.0 KB      heap -1.4 KB         5s
+  tabs      PASS  RSS +0.0 KB      heap +0.2 KB         4s
+  bigidle   PASS  RSS -5.3 KB      heap +0.1 KB         6s
 ```
+
+Six arms in 33 s, against five in 65 s before `perf/scroll`. The arms got
+faster because the app did — `bigidle` alone went from 41 s to 6 s.
 
 Overrides: `make soak FRAMES=20000`, `make soak ARMS="scroll tabs"`.
 
@@ -422,7 +490,16 @@ injecting a wheel event, because the injector lives behind
 `AFTER_HOURS_ENABLE_E2E_TESTING` and is therefore absent from the binary a
 person actually runs. It exercises the same clamp, ease, layout and clip — but
 not the wheel handler itself, and not the OS event path. A leak in the event
-path is not reachable from here.
+path is not reachable from here. Filed as **afterhours_gaps.md #172**.
+
+**And it was scrolling the wrong list.** The `scroll` arm wheels the sidebar as
+the app first shows it, which the sidebar caps at two viewports — so at a
+2000-session catalog `idle` and `scroll` allocated 7,422,071 and 7,422,153
+times over the same 2000 frames. Eighty-two apart in 7.4 million: the arm named
+after the bug report was a second idle arm. The list a person scrolls is the
+one they clicked "Show N more…" on, and that list cost 17.2 ms of CPU a frame.
+`scrollall` drives it, `make scroll-gate` gates it, and `docs/perf/SCROLL.md`
+is the write-up.
 
 The same is true of every input: **no gate here presses a key, opens a menu, or
 resizes a window**, and the scripted-UI suite that can do those things runs 45

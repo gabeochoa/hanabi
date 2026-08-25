@@ -31,6 +31,7 @@
 // can drive it from outside the widget tree without changing the tree.
 //
 //   HANABI_STRESS=scroll   wheel the sidebar up and down
+//   HANABI_STRESS=scrollall  the same, after asking for the WHOLE list
 //   HANABI_STRESS=read     wheel the TRANSCRIPT up and down
 //   HANABI_STRESS=threads  open every session in the catalog, in turn
 //   HANABI_STRESS=tabs     open N tabs, then round-robin between them
@@ -59,6 +60,7 @@ enum struct Scenario {
     None,
     Idle,
     Scroll,
+    ScrollAll,
     Read,
     Threads,
     Tabs,
@@ -72,6 +74,7 @@ inline Scenario scenario() {
         const std::string_view name{v};
         if (name == "idle") return Scenario::Idle;
         if (name == "scroll") return Scenario::Scroll;
+        if (name == "scrollall") return Scenario::ScrollAll;
         if (name == "read") return Scenario::Read;
         if (name == "threads") return Scenario::Threads;
         if (name == "tabs") return Scenario::Tabs;
@@ -96,6 +99,7 @@ inline const char* name(Scenario s) {
     switch (s) {
         case Scenario::Idle: return "idle";
         case Scenario::Scroll: return "scroll";
+        case Scenario::ScrollAll: return "scrollall";
         case Scenario::Read: return "read";
         case Scenario::Threads: return "threads";
         case Scenario::Tabs: return "tabs";
@@ -114,6 +118,7 @@ struct Driver {
     Scenario mode = Scenario::None;
     int tabsOpened = 0;
     int threadCursor = 0;
+    std::string moreKeyScratch;
 
     // The scroll, in pixels per frame. Sixty frames down, sixty up: a full
     // sweep of the list and back, which is what the report described.
@@ -130,7 +135,20 @@ struct Driver {
     // same clamp, the same ease, the same layout and the same clip, one step
     // closer to the thing under test.
     [[nodiscard]] float scroll_step(int frame) const {
-        if (mode != Scenario::Scroll && mode != Scenario::Read) return 0.0f;
+        if (mode != Scenario::Scroll && mode != Scenario::Read &&
+            mode != Scenario::ScrollAll)
+            return 0.0f;
+        // `scrollall` sweeps a list that is the whole catalog rather than two
+        // viewports, so it gets a longer period and a faster step -- 96 px is
+        // three rows a frame, a flick rather than a nudge. The product,
+        // 96 x 600 = 57,600 px, is 1800 rows: at the 2000-session catalog one
+        // half-period walks nearly the entire list, so a row that is only
+        // expensive the first time it is reached is reached.
+        if (mode == Scenario::ScrollAll) {
+            const int period = 1200;
+            const int phase = frame % period;
+            return phase < period / 2 ? 96.0f : -96.0f;
+        }
         const int period = 120;
         const int phase = frame % period;
         // The transcript opens pinned to its BOTTOM, so it sweeps up first and
@@ -167,6 +185,28 @@ struct Driver {
             case Scenario::Scroll:
             case Scenario::Read:
                 break;
+
+            case Scenario::ScrollAll: {
+                // Ask for the whole list, once, on the first measured frame --
+                // the same write the "Show N more..." row at the bottom of the
+                // sidebar performs when it is clicked, through the same
+                // sentinel (ecs::more_key), so this is the user's own gesture
+                // and not a back door.
+                //
+                // WHY THIS SCENARIO EXISTS. `scroll` scrolls a list the
+                // sidebar has already capped at two viewports, so scrolling it
+                // moves a clip rectangle over rows that were going to be built
+                // anyway: measured at a 2000-session catalog over 2000 frames,
+                // `scroll` and `idle` allocate 7,422,153 and 7,422,071 times
+                // -- a difference of 82 allocations in four hundred million
+                // bytes, which is to say the arm was a second idle arm. The
+                // list a person scrolls is the one they asked to see all of,
+                // and that is the list this drives.
+                if (frame != 0) break;
+                app.collapsedFolders.insert(
+                    ecs::more_key("recent", moreKeyScratch));
+                break;
+            }
 
             case Scenario::Search: {
                 // Type a query in, hold it, clear it, repeat.

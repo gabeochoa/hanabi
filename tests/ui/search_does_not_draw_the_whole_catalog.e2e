@@ -31,7 +31,7 @@
 
 # The control: with no query the flat list is already capped, and 320 rows
 # come down to a viewport's worth.
-expect_text "sidebar rows 38 of 320"
+expect_text "sidebar rows 29 of 320 @ 0"
 
 # Type one character. "e" is in almost every synthetic title (the verbs are
 # "profiling", "migrating", "sweeping", "reindexing", "draining",
@@ -50,4 +50,4 @@ expect_no_text "No matches"
 # And here is the fix: still 38 drawn, now against 299 matched. Before it, a
 # live query set the limit to the total and all 299 were built -- the label
 # would have read "sidebar rows 299 of 299".
-expect_text "sidebar rows 38 of 299"
+expect_text "sidebar rows 38 of 299 @ 0"

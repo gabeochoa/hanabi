@@ -6834,3 +6834,190 @@ means, cannot go stale, and fails with the name of the thing it could not find.
 
 CLASS: TEDIOUS
 
+
+---
+
+### #170 — `Overflow::Scroll` clips what you built; there is no way to build less, so every consumer with a long list re-implements windowing against state the library writes AFTER the build
+
+**What was wanted.** A sidebar whose per-frame cost is its viewport, not its
+catalog. The reported bug is "open the program and scroll the sidebar up and
+down until it broke", and the shape of it was that a 2000-row list built 2000
+rows to show nineteen: 6645 entities and 17.2 ms of CPU per frame, against 461
+and 1.55 for the same list capped at two viewports.
+
+**What happens.** A scroll view is a clip. `HasScrollView` holds an offset, a
+target, a content size and a viewport size; `RunAutoLayout` positions every
+child, `MeasureScrollViews` sums every child's height into `content_size`, and
+the renderer scissors the ones that fall outside. Every one of those steps is
+per CHILD, and the children are all of them. There is no hook that says "these
+are the indices you need this frame", no spacer primitive, and no way to tell
+the layout that a child is a run of N identical boxes.
+
+So the consumer writes it. hanabi's version is ~120 lines: first =
+`scroll_offset.y / rowHeight`, span = `viewport_size.y / rowHeight` plus
+overscan, two `div`s of the exact height of the rows that were skipped so
+`content_size` still comes out right, and an id scheme (#171) that keeps the
+window's entities from accumulating.
+
+Two things make that harder than it sounds, and both are properties of the
+library rather than of the problem:
+
+- **The numbers it needs are a frame stale, by construction.** The build runs
+  inside the UI system pass. `MeasureScrollViews` runs after `RunAutoLayout`,
+  which runs after the build; `ease_scroll` moves `scroll_offset` toward
+  `scroll_target` later still. So the offset a builder reads is the one the
+  PREVIOUS frame settled on, and the viewport size is last frame's too. A
+  window sized exactly to what it reads shows a strip of empty list for one
+  frame every time the view moves. hanabi covers it by overscanning by
+  `|scroll_target - scroll_offset|`, which is exactly the distance the easing
+  is about to travel -- correct, but it is a compensation every consumer has to
+  independently discover, and the failure when you do not is one frame of
+  blank at 60 Hz, which is precisely the kind of thing that is never seen in
+  development and is reported as "flickers when I scroll fast".
+- **The first frame has no viewport at all.** `viewport_size` is zero until
+  something has been measured, so the window has to have a "build everything"
+  fallback for frame one, which is the frame with the least budget for it.
+
+**Why the obvious escapes do not work.**
+
+- **Use `Overflow::Auto`.** Same clip, same children, same layout. Auto decides
+  whether to clip, not what to build.
+- **Build one child that draws N rows in its `on_draw_fg`.** This is #138's
+  escape and it fails the same way: per-row hover (`with_custom_hover_bg`) and
+  per-row hit testing are per-WIDGET, so a list drawn as one widget has to
+  re-implement both by hand against a coordinate.
+- **Keep the scroll view's state from last frame and window on that.** That IS
+  what this does; the staleness is the whole complaint.
+- **Read the rects after layout and skip the draw.** Too late: the cost being
+  removed is the build, the `ComponentConfig`, the component add, and the
+  layout pass -- ~4.6 heap allocations per widget per frame (#138) -- and all
+  of it has happened by the time a rect exists.
+
+**The workaround, and its cost.** Applied, and it is the largest single win on
+this branch: 17.217 -> 1.533 ms, 6645 -> 496 entities, 46,508 -> 3,703
+allocations a frame. The cost is that it is hanabi's, in hanabi's sidebar, and
+the next list in this app -- or in any of the twenty projects vendoring this --
+starts from nothing. It is also only correct because every sidebar row is the
+same height: the arithmetic that makes it cheap is `offset / rowHeight`, and
+hanabi has to switch the whole thing off when a search snippet makes the rows
+uneven.
+
+**Minimal upstream fix.** A `HasVirtualList` component beside `HasScrollView`:
+the consumer sets `item_count` and `item_height`, the library resolves
+`[first, last)` from the offset it already owns AND the offset it is about to
+ease to, hands them to a build callback, and adds the leading and trailing
+extents into `content_size` itself instead of making the consumer fake them
+with two invisible divs. Uniform height covers the case that actually recurs; a
+`std::function<float(size_t)>` covers the rest without changing the shape.
+
+CLASS: MISSING
+
+---
+
+### #171 — A widget's identity is its call-site id and nothing retires one, so a virtualized list must key rows on the SLOT, which silently re-points every per-widget state at a different row
+
+**What was wanted.** To render rows 291 through 320 of a list this frame and
+rows 288 through 317 the next, without the library accumulating an entity for
+every row ever scrolled past.
+
+**What happens.** `imm::mk()` keeps a permanent `std::map<UI_UUID, EntityID>`
+and hands back the same entity for the same call site forever, and nothing
+sweeps one (#115). So the id a virtualized list chooses IS its memory policy:
+
+- **id from the row index** -- the natural spelling, and it reads as the safe
+  one because the widget then "is" the row -- mints an entity per row ever
+  reached. Measured on a 1600-frame sweep of a 2000-row list: **+180 live
+  malloc blocks per 1000 frames**, still climbing at the end of the run,
+  against -18 for the same list keyed on the slot. The virtualization is
+  perfect and the leak is exactly the one it was written to remove.
+- **id from the window slot** -- 0..29, re-used as the list moves under them --
+  is flat, and is what hanabi ships.
+
+The slot is right and it is not free. Everything the library keys on entity id
+now belongs to a POSITION rather than to a row: `hot`/`active`, the click
+listener's `down`, `with_custom_hover_bg`, drag state, and the debug name a
+test or an out-of-tree driver looks the widget up by (#147). Most of the time
+that is what you want -- the cursor is over a place, and the row under that
+place is the row to highlight. It is not what you want when the list moves
+under a held button: the press began on row 291's entity and ends on the same
+entity now showing row 294, and there is nothing in the library that can tell
+those apart, because as far as it is concerned nothing happened.
+
+**Why the obvious escapes do not work.**
+
+- **Call `clear_existing_ui_elements()` when the window moves.** It is called
+  from nowhere in the library and orphans entities rather than destroying them
+  (#115), so it converts a bounded map into an unbounded entity collection.
+- **Hash the session id into the `mk()` id.** That is the row-index case with
+  extra steps: distinct rows, distinct ids, one entity each, forever.
+- **Keep the slot and re-assert the state by hand.** There is nothing to
+  re-assert it against: `UIContext::hot`/`active` take an `EntityID`, and the
+  row identity the app cares about is not one.
+
+**The workaround, and its cost.** Slot-keyed ids, and a comment at the loop
+saying why the drag path uses the absolute index while the widget uses the
+slot. The cost is that "which row is this widget" has two answers in the same
+five lines, and the compiler will never tell you when a third caller picks the
+wrong one.
+
+**Minimal upstream fix.** Make recycling a thing the library knows about:
+`mk()` taking an optional stable KEY distinct from its slot, so the library can
+re-use the slot's entity while telling the consumer the key changed -- one
+`bool key_changed` on the returned wrapper is enough to let a press be
+cancelled and a hover re-evaluated. Retiring unbuilt entities (#115) would
+solve the memory half on its own and leave this half exactly where it is.
+
+CLASS: FOOTGUN
+
+---
+
+### #172 — Input can only be INJECTED in a build with the e2e plugin compiled in, so the one gesture the bug report names cannot be driven in the binary a person runs
+
+**What was wanted.** To measure the app while it scrolls, in the build that
+ships. The report is a gesture: "scroll the sidebar up and down until it
+broke."
+
+**What happens.** There are two ways in, and neither is the one that is
+wanted. `test_input::simulate_click` / the `scroll_wheel` e2e command live
+behind `AFTER_HOURS_ENABLE_E2E_TESTING`, so they are absent from
+`output/hanabi.exe` and present only in `output/hanabi_uitest.exe`. And the
+uitest binary is a different build with a different loop: it runs scripts and
+asserts on text, and nothing in it samples RSS, live malloc blocks or frame
+CPU.
+
+So the soak driver writes `HasScrollView::scroll_offset` and `scroll_target`
+directly. That exercises the clamp, the ease, the layout and the clip -- most
+of what matters -- and it skips `HandleScrollInput` entirely, along with
+`HandleScrollbarDrag`, the natural-scrolling inversion, the sync-group
+propagation, and whatever the OS event path does before any of them. A leak or
+a per-event allocation in the wheel handler is not reachable from any
+instrument this project has, and the same is true of every other input: no gate
+here presses a key, opens a menu or resizes a window while anything is
+watching memory.
+
+**Why the obvious escapes do not work.**
+
+- **Build the shipping binary with the e2e flag on.** Then it is not the
+  shipping binary, which is the whole point -- and the flag pulls in the
+  command runner, the pending-command component and the systems that drain it.
+- **Put the soak's instrumentation into the uitest binary instead.** Two
+  measured binaries then diverge silently: the thing you gate is not the thing
+  you ship, which is the failure mode this file exists to avoid.
+- **Post an OS event.** On macOS that is a `CGEventPost` into a headless
+  process with no window server session, and it lands nowhere.
+
+**The workaround, and its cost.** `src/util/soak.h`'s `scroll_named`, and a
+paragraph in `docs/perf/GATES.md` under "What could NOT be gated" saying which
+half of the scroll path is measured and which half is not. The cost is a
+permanent blind spot with a known shape, which is the best available outcome
+and is still a blind spot.
+
+**Minimal upstream fix.** Split the injector from the harness. A tiny
+always-compiled seam -- `input::post_synthetic(Event)`, guarded at RUNTIME by a
+flag the app sets rather than at compile time by a macro -- costs an untaken
+branch in the input collector and makes every gesture drivable in the shipping
+binary. The scripting, the assertions and the command runner can stay behind
+the existing macro; it is only the one-line "pretend a wheel turned" that needs
+to be in the build a person runs.
+
+CLASS: MISSING
