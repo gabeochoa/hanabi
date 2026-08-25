@@ -39,6 +39,31 @@ AUTORELEASE_H = ROOT / "src" / "util" / "autorelease.h"
 BEGIN_FRAME = re.compile(r"\bgraphics::begin_frame\s*\(")
 POOL_DECL = re.compile(r"\bAutoreleaseFrame\b\s+\w+\s*(?:;|\{|=)")
 
+# The OTHER call that hands back autoreleased Metal objects, and the one this
+# check could not see until 2026-08-25.  sg_make_image builds an MTLTextureDesc
+# and friends; outside a pool they are never drained.  Measured: 2000
+# load+unload pairs leak 646 KB of live heap bare against 420 KB pooled, so
+# 113 bytes a load that only a pool reclaims.
+#
+# Small per call and unbounded per process, which is exactly the shape of the
+# bug this whole file exists for.  A frame loop is not the only place a texture
+# is created: a pre-warm, a lazy atlas, a cache miss serviced off the render
+# path all reach it, and none of them contains a begin_frame() for the old
+# check to notice.
+TEXTURE_CALL = re.compile(
+    r"\b(?:afterhours::)?(?:metal_texture_detail::)?"
+    r"(load_texture|load_texture_from_pixels|unload_texture|"
+    r"load_texture_with_color_key)\s*\("
+)
+
+# Nothing is exempt.  The first version of this excused src/ui/decode_to_fit.h
+# as "the seam"; it is not, it is a caller, and a caller that can be reached
+# from a pre-warm as easily as from a frame.  A function that creates a texture
+# owns its own pool, because it cannot know whose scope it will be called in --
+# which is the whole lesson of the two sites this check found the day it was
+# widened.
+TEXTURE_SEAM_EXEMPT: set = set()
+
 
 def strip_noise(line: str) -> str:
     """Remove // comments and string/char literal bodies.
@@ -72,8 +97,8 @@ def strip_noise(line: str) -> str:
     return "".join(out)
 
 
-def check_file(path: Path):
-    """Return a list of (lineno, text) for begin_frame calls with no pool."""
+def check_file(path: Path, check_textures: bool = True):
+    """Return a list of (lineno, kind, text) for calls with no pool in scope."""
     failures = []
     # One bool per open brace: does this scope declare an AutoreleaseFrame?
     scopes = [False]
@@ -103,7 +128,10 @@ def check_file(path: Path):
             scopes[-1] = True
 
         if BEGIN_FRAME.search(code) and not any(scopes):
-            failures.append((lineno, raw.strip()))
+            failures.append((lineno, "graphics::begin_frame()", raw.strip()))
+        if check_textures and TEXTURE_CALL.search(code) and not any(scopes):
+            m = TEXTURE_CALL.search(code)
+            failures.append((lineno, m.group(1) + "()", raw.strip()))
 
         for ch in code:
             if ch == "{":
@@ -148,33 +176,40 @@ def main() -> int:
     unparsed = []
     for path in sources:
         text = path.read_text()
-        if "graphics::begin_frame" not in text:
+        rel = str(path.relative_to(ROOT))
+        check_textures = rel not in TEXTURE_SEAM_EXEMPT
+        interesting = "graphics::begin_frame" in text or (
+            check_textures and TEXTURE_CALL.search(text) is not None
+        )
+        if not interesting:
             continue
-        failures, ok = check_file(path)
+        failures, ok = check_file(path, check_textures)
         if not ok:
             unparsed.append(path)
-        for lineno, snippet in failures:
-            all_failures.append((path, lineno, snippet))
+        for lineno, kind, snippet in failures:
+            all_failures.append((path, lineno, kind, snippet))
 
     problems = check_pool_type()
 
     if not all_failures and not problems and not unparsed:
-        print("check_autorelease: every graphics::begin_frame() is inside an "
-              "AutoreleaseFrame scope")
+        print("check_autorelease: every graphics::begin_frame() and every "
+              "texture load is inside an AutoreleaseFrame scope")
         return 0
 
     print("check_autorelease: FAIL")
-    for path, lineno, snippet in all_failures:
+    for path, lineno, kind, snippet in all_failures:
         rel = path.relative_to(ROOT)
-        print(f"  {rel}:{lineno}: graphics::begin_frame() with no autorelease "
-              f"pool in scope")
+        print(f"  {rel}:{lineno}: {kind} with no autorelease pool in scope")
         print(f"      {snippet}")
     if all_failures:
         print()
-        print("  A frame loop that calls into Metal without a pool leaks the")
-        print("  render pass's autoreleased objects — about 2.5 KB a frame,")
-        print("  ~9 MB a minute at 60fps, never returned. Add, as the first")
-        print("  line inside the loop body:")
+        print("  Both calls hand back autoreleased Objective-C objects that")
+        print("  nothing else will drain. A frame loop leaks the render pass's")
+        print("  — about 2.5 KB a frame, ~9 MB a minute at 60fps. A texture")
+        print("  load leaks the descriptors sg_make_image builds — measured at")
+        print("  113 bytes a load (2000 load+unload pairs: 646 KB of live heap")
+        print("  bare against 420 KB pooled), which is small per call and")
+        print("  unbounded per process. Add, as the first line of the scope:")
         print()
         print("      const hanabi::AutoreleaseFrame framePool;")
         print()

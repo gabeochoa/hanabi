@@ -46,6 +46,7 @@
 #include <vector>
 
 #include "../rl.h"
+#include "../util/autorelease.h"
 #include "../util/downscale.h"
 
 namespace hanabi::decode_to_fit {
@@ -91,6 +92,7 @@ namespace detail {
 inline void reject_if_unsamplable(TextureType& tex) {
     if (tex.img_id == 0) return;       // already an honest failure
     if (tex.sampler_id != 0) return;   // fine
+    const hanabi::AutoreleaseFrame texPool;
     ++pool_exhaustions();
     afterhours::unload_texture(tex);   // frees the image and the view too
     tex = TextureType{};
@@ -111,6 +113,11 @@ inline void reject_if_unsamplable(TextureType& tex) {
 // the raylib backend has no equivalent, so the fallback below is what any
 // other backend would get.
 inline Loaded load(const char* path, int maxDim = hanabi::downscale::kMaxTextureDim) {
+    // This function's own pool. The upload hands back autoreleased Metal
+    // descriptors and this is reached from a render system (pooled by the
+    // frame) and, in principle, from anywhere else; a function that creates a
+    // texture cannot know whose scope it is in.
+    const hanabi::AutoreleaseFrame texPool;
     Loaded out;
     int w = 0;
     int h = 0;
@@ -166,6 +173,7 @@ inline Loaded load(const char* path, int maxDim = hanabi::downscale::kMaxTexture
 // No pixel-upload entry point outside the Metal backend (#125), so every other
 // backend gets the library's own behaviour: full-resolution pixels, resident.
 inline Loaded load(const char* path, int = hanabi::downscale::kMaxTextureDim) {
+    const hanabi::AutoreleaseFrame texPool;
     Loaded out;
     out.tex = afterhours::load_texture(path);
     detail::reject_if_unsamplable(out.tex);

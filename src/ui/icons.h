@@ -24,6 +24,7 @@
 #include <afterhours/src/plugins/files.h>
 
 #include "icons_atlas.h"
+#include "../util/autorelease.h"
 #include "theme.h"
 #include "viewport.h"
 
@@ -88,6 +89,13 @@ struct AtlasTexture {
         if (state == 2)
             return nullptr;
         // First attempt.
+        //
+        // Its own pool, not the caller's. load_texture hands back autoreleased
+        // Metal descriptors (~113 bytes a load, measured), and this is reached
+        // both from inside a frame loop -- where the frame's pool would cover
+        // it -- and from the pre-warm, which runs before any frame exists.
+        // scripts/check_autorelease.py enforces the same rule everywhere.
+        const hanabi::AutoreleaseFrame texPool;
         const std::string path =
             afterhours::files::get_resource_path("icons", "icons.png").string();
         tex = afterhours::load_texture(path.c_str());

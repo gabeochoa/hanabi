@@ -50,6 +50,7 @@
 #include <string>
 
 #include "../ui/icons.h"
+#include "autorelease.h"
 
 namespace hanabi::prewarm {
 
@@ -66,6 +67,13 @@ inline bool enabled() {
 // not extra work even when something has already drawn an icon.
 inline void run() {
     if (!enabled()) return;
+    // A pool, because this runs OUTSIDE any frame -- that is the entire point
+    // of it -- and both calls reach Metal. ensure() carries its own now, but
+    // sgl_make_pipeline builds an autoreleased MTLRenderPipelineDescriptor and
+    // no check in this repo would notice: check_autorelease.py knows about
+    // frames and textures, not pipelines. One object, once; the pool is here
+    // so the next thing added to this function inherits it.
+    const hanabi::AutoreleaseFrame prewarmPool;
     (void)hanabi::icons::AtlasTexture::get().ensure();
     (void)hanabi::icons::AtlasTexture::get().blend_pipeline();
 }

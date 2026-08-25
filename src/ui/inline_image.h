@@ -69,6 +69,7 @@
 #include <unordered_map>
 
 #include "../rl.h"     // global TextureType / RectangleType / Vector2Type + draw_*
+#include "../util/autorelease.h"     // a texture load autoreleases; pool it
 #include "../util/gpu_mem.h"        // texture_bytes() + the GPU ledger
 #include "../util/texture_budget.h"  // the LRU policy, with no texture in it
 #include "decode_to_fit.h"           // decode to the size it is DRAWN at (#125)
@@ -125,6 +126,10 @@ inline Store& store() {
 }
 
 inline void evict(Store& s) {
+    // The unload's own pool: this is reached from get(), which a render system
+    // calls inside a pooled frame today and a cache warm-up could call outside
+    // one tomorrow. A function that touches Metal owns its pool.
+    const hanabi::AutoreleaseFrame texPool;
     s.budget.trim([&s](const std::string& victim, std::size_t bytes) {
         auto found = s.map.find(victim);
         if (found == s.map.end()) return;
