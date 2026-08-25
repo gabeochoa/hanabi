@@ -29,6 +29,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | soak | `make soak-gate` | yes | ~4 s |
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
 | scroll | `make scroll-gate` | yes | ~6 s |
+| digest screens | `make digest-gate` | yes | ~9 s |
 | autorelease source check | `make source-checks` | yes | <1 s |
 | long soak | `make soak` | **no** — before a release | ~33 s |
 
@@ -38,6 +39,15 @@ between four and six minutes depending on what else this box is doing
 that takes fifteen minutes is a suite people stop running, and a gate nobody
 runs is worth exactly as much as a gate that cannot fail. Anything longer went
 behind `make soak`.
+
+`make digest-gate` was added later, by `perf/digest`, and the reason it exists
+is worth reading before adding a sixth: **the three gates above it were all
+green over a Blocked screen building 569 cards a frame, for as long as that
+screen had existed.** Not because any of them was wrong — because
+`scaling-gate` opens one screen and never navigates, `scroll-gate` drives a
+different pane, and `soak-gate` measures a slope where this was a plateau.
+Every gate is blind to whatever it does not open, and the blindness is
+invisible from a green board. `docs/perf/DIGEST.md`.
 
 They sit alongside `scripts/perf_transcript_slope.sh`, the transcript agent's
 gate on per-message allocation slope, which `make test` also runs. That one
