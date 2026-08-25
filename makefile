@@ -385,6 +385,16 @@ $(TEST_DIR)/test_diff: tests/unit/test_diff.cpp src/util/diff.h $(TEST_HDRS) | $
 	@echo "Compiling test_diff..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_diff.cpp -o $@
 
+# Ellipsizing a row title to a pixel width. The sidebar's ellipsizer went from
+# a linear scan to a binary search for speed, so what is worth pinning is that
+# it returns the SAME string -- checked differentially against the old linear
+# scan at every width, under rulers no font would give you (including a
+# backwards kern, where prefix width is not monotonic and a bare binary search
+# is wrong). Pure logic -- the metric is a callable, no font, no graphics.
+$(TEST_DIR)/test_ellipsize: tests/unit/test_ellipsize.cpp src/util/ellipsize.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_ellipsize..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_ellipsize.cpp -o $@
+
 $(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_input_pipeline..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
@@ -479,7 +489,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

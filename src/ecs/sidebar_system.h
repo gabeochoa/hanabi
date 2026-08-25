@@ -17,7 +17,9 @@
 // The collapse toggle flips layout.sidebarCollapsed; Cmd+B does the same.
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <string>
@@ -27,6 +29,7 @@
 #include "../test_hooks.h"
 #include "../settings.h"
 #include "../version.h"
+#include "../util/ellipsize.h"
 #include "../util/format.h"
 #include "../ui/icons.h"
 #include "../ui/snippet_highlight.h"
@@ -559,19 +562,58 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // clips a title early or overflows the column when either changes.
     // Only the rows in the viewport reach this, so the cost is bounded by
     // viewport height rather than by list size.
+    // Ellipsize `text` to fit `maxW` at font size `px`, memoized.
+    //
+    // The ALGORITHM is hanabi::text::fit_to_width (src/util/ellipsize.h), which
+    // is where the note on why it stopped being a linear scan lives. What is
+    // here is the other half of the fix, and the bigger one: a row's title, its
+    // font size and its column width are all the same this frame as last, and
+    // an idle frame should re-measure nothing at all.
+    //
+    // The cache is keyed on the WHOLE argument tuple of a pure function, so it
+    // cannot go stale -- a changed title is a different key, not an invalid
+    // entry, and there is nothing to invalidate on a theme change, a resize or
+    // a catalog refresh.
     static std::string fit_to_width(const std::string& text, float px,
                                     float maxW) {
         if (maxW <= 0.0f) return std::string();
-        if (theme::text_px(text, px) <= maxW) return text;
-        const float ell = theme::text_px("\xe2\x80\xa6", px);
-        size_t n = text.size();
-        while (n > 0) {
-            --n;
-            while (n > 0 && (static_cast<unsigned char>(text[n]) & 0xC0) == 0x80)
-                --n;  // never cut a UTF-8 sequence in half
-            if (theme::text_px(text.substr(0, n), px) + ell <= maxW) break;
-        }
-        return text.substr(0, n) + "\xe2\x80\xa6";
+
+        struct Key {
+            std::string text;
+            float px;
+            float maxW;
+            bool operator==(const Key& o) const {
+                return px == o.px && maxW == o.maxW && text == o.text;
+            }
+        };
+        struct KeyHash {
+            size_t operator()(const Key& k) const {
+                size_t h = std::hash<std::string>{}(k.text);
+                // Hash the float BITS, not the value: two column widths that
+                // differ by a hair are different keys and must hash apart.
+                const auto mix = [&h](float f) {
+                    h ^= std::hash<uint32_t>{}(std::bit_cast<uint32_t>(f)) +
+                         0x9e3779b9 + (h << 6) + (h >> 2);
+                };
+                mix(k.px);
+                mix(k.maxW);
+                return h;
+            }
+        };
+        static std::unordered_map<Key, std::string, KeyHash> cache;
+        // Bounded, so a long scroll through a large catalog cannot grow it
+        // without limit. Only ~40 rows are on screen at once, so the live
+        // working set is tiny and a wholesale clear costs one cold frame.
+        constexpr size_t kCacheMax = 4096;
+
+        const Key key{text, px, maxW};
+        if (auto it = cache.find(key); it != cache.end()) return it->second;
+
+        std::string fitted = hanabi::text::fit_to_width(
+            text, maxW, [px](const char* s) { return theme::text_px(s, px); });
+        if (cache.size() >= kCacheMax) cache.clear();
+        cache.emplace(key, fitted);
+        return fitted;
     }
 
     // The collapsedFolders sentinel that folds the VIEWS section. Reusing that
