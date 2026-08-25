@@ -203,7 +203,10 @@ inline bool sites_enabled() {
     return on;
 }
 
-inline constexpr size_t kSiteDepth = 6;
+#ifndef HANABI_PROF_SITE_DEPTH
+#define HANABI_PROF_SITE_DEPTH 8
+#endif
+inline constexpr size_t kSiteDepth = HANABI_PROF_SITE_DEPTH;
 inline constexpr size_t kSiteSlots = 16384;
 
 struct Site {

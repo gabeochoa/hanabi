@@ -10,6 +10,8 @@ renders it as a bare hex number.
 Reads the run's log on stdin, writes the table on stdout.
 """
 import bisect
+import pathlib
+import re
 import subprocess
 import sys
 
@@ -54,11 +56,61 @@ def main() -> int:
         for pc, sym in zip(uniq, out):
             resolved[pc] = tidy(sym, short)
 
+    # Roll every site up to the innermost frame that is hanabi's OWN code.
+    #
+    # Without this the table is a list of libc++ and afterhours internals: the
+    # top twenty rows of a real run were nineteen `string::__init_copy_ctor`
+    # and one `ComponentConfig::ComponentConfig`, which is true and useless.
+    # The actionable question is which function in src/ is asking for it, and
+    # the same hanabi function reaches the allocator down a dozen different
+    # vendor paths, so it only shows up once the vendor frames are collapsed.
+    owner: dict[str, list[float]] = {}
+    for _, per_frame, per_frame_bytes, pcs in rows:
+        names = [resolved.get(pc, hex(pc)) for pc in pcs]
+        who = next((n for n in names if is_app(n)), "(no hanabi frame)")
+        acc = owner.setdefault(who, [0.0, 0.0])
+        acc[0] += float(per_frame)
+        acc[1] += float(per_frame_bytes)
+
+    print(f"  {'calls/f':>9} {'bytes/f':>9}  rolled up to the innermost "
+          f"hanabi frame")
+    for who, (calls, byts) in sorted(owner.items(), key=lambda kv: -kv[1][0]):
+        print(f"  {calls:>9.1f} {byts:>9.0f}  {who}")
+
+    print()
     print(f"  {'calls/f':>9} {'bytes/f':>9}  innermost frame  <-  callers")
     for _, per_frame, per_frame_bytes, pcs in rows:
         names = [resolved.get(pc, hex(pc)) for pc in pcs]
         print(f"  {per_frame:>9} {per_frame_bytes:>9}  " + "  <-  ".join(names))
     return 0
+
+
+VENDOR_PREFIX = ("ah::ui::", "afterhours::", "std::", "string", "sokol",
+                 "_sg_", "sg_", "fons", "sgl_", "operator new", "void* std::")
+
+
+def app_files() -> set[str]:
+    """Basenames of hanabi's own sources.
+
+    A frame belongs to the app when its `atos` location names one of these AND
+    its symbol is not in a vendored namespace -- both halves are needed,
+    because `theme.h` and `components.h` exist in src/ and in
+    vendor/afterhours/ alike, and libc++ reports header locations (`vector.h`,
+    `future`) that no glob of src/ would ever match.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent
+    return {p.name for p in (root / "src").rglob("*")
+            if p.suffix in (".h", ".cpp", ".mm")}
+
+
+APP_FILES = app_files()
+
+
+def is_app(name: str) -> bool:
+    if name.startswith("0x") or name.startswith(VENDOR_PREFIX):
+        return False
+    m = re.search(r"\[([^\]:]+)[:\]]", name)
+    return m is not None and m.group(1) in APP_FILES
 
 
 def tidy(sym: str, image: str) -> str:

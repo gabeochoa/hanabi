@@ -50,11 +50,19 @@ LOG="$(mktemp -t hanabi_sites_XXXX).log"
 cleanup() { rm -rf "$H"; rm -f "$LOG"; }
 trap cleanup EXIT
 
+# Separate argv entries, not one "A=1 B=2" string: zsh does not word-split an
+# unquoted expansion, so the string form sets ONE variable named A whose value
+# is "1 B=2" -- which silently measured the wrong fixture for an afternoon.
+BIG_ENV=()
+if [ -n "${HANABI_SITES_BIG:-}" ]; then
+    BIG_ENV=(HANABI_BIG_TRANSCRIPT=1 "HANABI_BIG_TURNS=${HANABI_BIG_TURNS:-120}")
+fi
+
 env HOME="$H" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
     HANABI_CONFIG=/tmp/none HANABI_PROF=1 HANABI_PROF_SITES=1 \
     HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$FRAMES" \
     HANABI_STRESS="$SCENARIO" HANABI_STRESS_SESSIONS="$SESSIONS" \
-    ${HANABI_SITES_BIG:+HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_TURNS=${HANABI_BIG_TURNS:-120}} \
+    "${BIG_ENV[@]}" \
     "$EXE" --screenshot "$H/shot.png" > "$LOG" 2>&1
 
 grep -E '^\[prof\] ALLOCATIONS' "$LOG" | sed 's/^/  /'
