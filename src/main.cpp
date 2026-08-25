@@ -1182,8 +1182,11 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         auto bucketStart = std::chrono::steady_clock::now();
         for (int i = 1; i <= soakFrames; ++i) {
             if (appForWait != nullptr) driver.act(i - 1, *appForWait);
-            if (const float step = driver.scroll_step(i - 1); step != 0.0f)
-                hanabi::soak::scroll_sidebar(step);
+            if (const float step = driver.scroll_step(i - 1); step != 0.0f) {
+                if (!hanabi::soak::scroll_named(driver.scroll_target_name(),
+                                                step))
+                    hanabi::prof::tick("stress.scroll_target_missing");
+            }
             const unsigned long long cpu0 = hanabi::prof::enabled()
                                                 ? hanabi::prof::cpu_nanos()
                                                 : 0;

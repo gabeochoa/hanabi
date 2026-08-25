@@ -31,6 +31,7 @@
 // can drive it from outside the widget tree without changing the tree.
 //
 //   HANABI_STRESS=scroll   wheel the sidebar up and down
+//   HANABI_STRESS=read     wheel the TRANSCRIPT up and down
 //   HANABI_STRESS=threads  open every session in the catalog, in turn
 //   HANABI_STRESS=tabs     open N tabs, then round-robin between them
 //   HANABI_STRESS=idle     nothing; the control arm
@@ -57,6 +58,7 @@ enum struct Scenario {
     None,
     Idle,
     Scroll,
+    Read,
     Threads,
     Tabs,
 };
@@ -68,6 +70,7 @@ inline Scenario scenario() {
         const std::string_view name{v};
         if (name == "idle") return Scenario::Idle;
         if (name == "scroll") return Scenario::Scroll;
+        if (name == "read") return Scenario::Read;
         if (name == "threads") return Scenario::Threads;
         if (name == "tabs") return Scenario::Tabs;
         return Scenario::None;
@@ -90,6 +93,7 @@ inline const char* name(Scenario s) {
     switch (s) {
         case Scenario::Idle: return "idle";
         case Scenario::Scroll: return "scroll";
+        case Scenario::Read: return "read";
         case Scenario::Threads: return "threads";
         case Scenario::Tabs: return "tabs";
         case Scenario::None: return "none";
@@ -122,10 +126,33 @@ struct Driver {
     // same clamp, the same ease, the same layout and the same clip, one step
     // closer to the thing under test.
     [[nodiscard]] float scroll_step(int frame) const {
-        if (mode != Scenario::Scroll) return 0.0f;
+        if (mode != Scenario::Scroll && mode != Scenario::Read) return 0.0f;
         const int period = 120;
         const int phase = frame % period;
-        return phase < period / 2 ? 12.0f : -12.0f;
+        // The transcript opens pinned to its BOTTOM, so it sweeps up first and
+        // then back down; the sidebar opens at its top and sweeps the other
+        // way. Same triangle, opposite phase, so each starts by moving into
+        // content that exists rather than pushing against a clamp for half a
+        // period and measuring nothing.
+        // 12 px/frame for the sidebar, 40 for the transcript, and the
+        // difference is not taste. The transcript re-arms its follow-latch
+        // whenever the viewport is within 24 px of the content end
+        // (`nearEnd`), and then pins itself back to the bottom. A 12 px step
+        // never leaves that band, so the pane clawed the scroll back every
+        // frame and a scrolling run produced counters byte-identical to an
+        // idle one -- wrap_text 55584 in both, to the call. 40 clears the band
+        // on the first frame, which is also what a real wheel notch does.
+        const float mag = mode == Scenario::Read ? 40.0f : 12.0f;
+        const float down = phase < period / 2 ? mag : -mag;
+        return mode == Scenario::Read ? -down : down;
+    }
+
+    // Which scroll view the step drives. `scroll` has always meant the
+    // sidebar, and the transcript -- the pane with the genuinely large
+    // content, and the one the report was about ("scroll until it breaks") --
+    // had no scenario at all, so its scrolled cost had never been measured.
+    [[nodiscard]] const char* scroll_target_name() const {
+        return mode == Scenario::Read ? "transcript_scroll" : "sidebar_scroll";
     }
 
     // Drive the app's own request flags, the same ones a click sets.
@@ -134,6 +161,7 @@ struct Driver {
             case Scenario::None:
             case Scenario::Idle:
             case Scenario::Scroll:
+            case Scenario::Read:
                 break;
 
             case Scenario::Threads: {
