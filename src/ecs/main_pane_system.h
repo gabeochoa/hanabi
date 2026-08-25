@@ -631,7 +631,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float cardW = wrap_width(paneW);
         for (const auto* s : rows)
             digest_card(ctx, wrap, ++i, *s, app, false, cardW, singleState);
+        cardsBuilt_ = i;
+        cardsMatched_ = static_cast<int>(rows.size());
+        cardsFirst_ = 0;
+        digest_audit(ctx, parent);
         scroll_cursor_into_view(scroll.ent(), listH);
+    }
+
+    // The cards this frame BUILT, against the sessions that matched, and the
+    // index the build started at. See test_hooks::card_audit for why this is
+    // an on-screen label rather than a log line.
+    int cardsBuilt_ = 0;
+    int cardsMatched_ = 0;
+    int cardsFirst_ = 0;
+
+    void digest_audit(UIContext<InputAction>& ctx, Entity& parent) {
+        if (!hanabi::test_hooks::card_audit()) return;
+        div(ctx, mk(parent, 8),
+            ComponentConfig{}
+                .with_label("digest cards " + std::to_string(cardsBuilt_) +
+                            " of " + std::to_string(cardsMatched_) + " @ " +
+                            std::to_string(cardsFirst_))
+                .with_size(ComponentSize{pixels(300), pixels(14)})
+                .with_absolute_position()
+                .with_translate(0.0f, 0.0f)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_render_layer(2)
+                .with_debug_name("digest_audit"));
     }
 
     // Collapse internal runs of whitespace to single spaces and trim ends, so
