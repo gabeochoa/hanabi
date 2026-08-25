@@ -33,6 +33,7 @@
 #include "util/prof.h"
 #include "util/gpu_mem.h"
 #include "util/launch_curve.h"
+#include "util/prewarm.h"
 #include "util/mem_ladder.h"
 #include "util/breaker.h"
 #include "util/soak.h"
@@ -1274,6 +1275,13 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     app_state::systemManager = &sm;
     build_systems(sm);
     hmark("build_systems");
+
+    // Pay the GPU's first-use costs -- the icon atlas, its blend pipeline, the
+    // glyph atlas and the four draw paths -- on a frame that builds no widget
+    // tree, so the first REAL frame is warm. See util/prewarm.h and
+    // afterhours_gaps.md #155.
+    hanabi::prewarm::run();
+    hmark("prewarm");
 
     auto readyTime = std::chrono::high_resolution_clock::now();
     auto startupMs = std::chrono::duration_cast<std::chrono::milliseconds>(
