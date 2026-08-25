@@ -18,6 +18,7 @@
 #include "../util/format.h"
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
+#include "digest_layout.h"
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
@@ -639,8 +640,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // The cards this frame BUILT, against the sessions that matched, and the
-    // index the build started at. See test_hooks::card_audit for why this is
-    // an on-screen label rather than a log line.
+    // row the build started at. See test_hooks::card_audit.
     int cardsBuilt_ = 0;
     int cardsMatched_ = 0;
     int cardsFirst_ = 0;
@@ -906,107 +906,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return static_cast<size_t>(n);
     }
 
-    // Build the metadata line under a card title. On the mock (rich preview)
-    // that's the preview text — kept verbatim so the mock's state-matched
-    // detail ("waiting on you · 22m", "done · 12m", "self-running · 61%")
-    // stays rich (never regress it).
-    //
-    // On a real backend preview is empty. The CRITICAL rule (v3 review):
-    // the sub-line must NEVER contradict or redundantly restate the derived
-    // chip sitting above it. The old code leaked the RAW api status word
-    // ("active") beneath a derived BLOCKED/DONE chip — so every WAITING card
-    // read "3h · active" under a red BLOCKED pill and every FINISHED card read
-    // "1d · active" under a DONE pill: two lines fighting each other, reads as
-    // broken software. Instead, when a card carries a derived chip/state we
-    // compose a state-MATCHED second token from the SAME derived verdict, and
-    // deliberately drop the raw status word. Only a genuinely calm card (no
-    // chip, Unknown state) may fall back to a neutral age line.
-    static std::string card_meta(const api::SessionSummary& s) {
-        if (!s.preview.empty()) return s.preview;  // mock: keep rich preview.
-        const std::string age = fmtutil::relative_time(s.updated_at);
-        std::string phrase;  // the state-matched verdict word.
-        switch (s.tag) {
-            case api::ThreadTag::Blocked:
-                phrase = "waiting on you";  // matches the red BLOCKED chip.
-                break;
-            case api::ThreadTag::Done:
-                phrase = "done";  // matches the DONE chip.
-                break;
-            case api::ThreadTag::Review:
-                phrase = "ready for review";  // matches the REVIEW chip.
-                break;
-            default:
-                // No tag chip. Derive from state so a RUNNING card (green
-                // RUNNING chip, added below) reads "running · <age>", and a
-                // calm/archived card gets a NEUTRAL age-first line — never the
-                // raw "active" status word.
-                switch (s.state) {
-                    case api::ThreadState::Running: phrase = "running"; break;
-                    case api::ThreadState::Archived: phrase = "archived"; break;
-                    default: phrase.clear(); break;  // calm: age only.
-                }
-                break;
-        }
-        if (phrase.empty()) {
-            // Genuinely calm card with no chip: a neutral relative age reads as
-            // "last active <age>" without restating a raw session-status word.
-            if (age.empty()) return "";
-            return "last active " + age;
-        }
-        // Chip-bearing / stateful card: lead with the state-matched verdict,
-        // then the age — e.g. "waiting on you  ·  3h", "done  ·  1d",
-        // "running  ·  8h". Never the raw "active".
-        if (age.empty()) return phrase;
-        return phrase + "  \xc2\xb7  " + age;
-    }
-
-    // Sub-line for a card rendered INSIDE a homogeneous grouped section (Home's
-    // Waiting / Finished / Self-running). The section HEADER already names the
-    // state (and carries its color), so restating "waiting on you" on every card
-    // — plus a red BLOCKED chip — was the same fact three times (v5 defect #4:
-    // "7 identical red chips = noise"). In grouped mode we therefore drop the
-    // chip and show only the DISCRIMINATING detail that actually differs between
-    // sibling cards: the age, or a running card's progress ("61%", "tests",
-    // "landing"). We derive it by stripping a leading state phrase from the mock
-    // preview ("waiting on you \xc2\xb7 22m" -> "22m", "self-running \xc2\xb7 61%" -> "61%");
-    // a real backend (no preview) falls back to the relative age.
-    static std::string grouped_meta(const api::SessionSummary& s) {
-        const std::string age = fmtutil::relative_time(s.updated_at);
-        if (!s.preview.empty()) {
-            // Take the detail AFTER the first " \xc2\xb7 " separator, i.e. drop the
-            // redundant leading state phrase the section header already conveys.
-            const std::string sep = "\xc2\xb7";
-            size_t p = s.preview.find(sep);
-            if (p != std::string::npos) {
-                std::string tail = s.preview.substr(p + sep.size());
-                // trim surrounding spaces
-                size_t a = tail.find_first_not_of(' ');
-                size_t b = tail.find_last_not_of(' ');
-                if (a != std::string::npos)
-                    return tail.substr(a, b - a + 1);
-            }
-            // No separator: the preview is a BARE phrase with no discriminating
-            // detail. If it merely restates the section's state word (e.g.
-            // "self-running" under the SELF-RUNNING header, "running", "waiting
-            // on you"), echoing it is the exact redundancy grouped mode exists to
-            // kill (v5 #4) — so fall back to the age instead. Only a preview that
-            // carries REAL detail (not a state label) is kept verbatim.
-            if (!is_bare_state_word(s.preview)) return s.preview;
-        }
-        return age;  // no discriminating detail: the age is what differs.
-    }
-
-    // True when a preview string is just a state/status label (which the grouped
-    // section header already conveys) rather than a discriminating detail.
-    static bool is_bare_state_word(const std::string& p) {
-        static const char* kStateWords[] = {
-            "self-running", "running", "waiting on you", "waiting",
-            "blocked", "done", "ready for review", "review", "active",
-            "archived", "parked"};
-        for (const char* w : kStateWords)
-            if (p == w) return true;
-        return false;
-    }
+    // A digest card's sub-line and its height live in ecs/digest_layout.h.
+    // They moved out of this file when the digest lists were windowed: the
+    // window has to know a card's height WITHOUT building the card, so the
+    // height stopped being something the card decides on the way past and
+    // became arithmetic two callers share. It is also the only part of this
+    // 8000-line UI header that a unit test can reach
+    // (tests/unit/test_digest_layout.cpp).
 
     static const char* tag_label(api::ThreadTag t) {        switch (t) {
             case api::ThreadTag::Blocked: return "BLOCKED";
@@ -1156,34 +1062,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // essentially just an age) rides INLINE on the title row, right-aligned,
         // and the card collapses to a single tight row. A RICH sub-line (mock
         // preview, or a state+detail line) keeps the roomier two-line card.
-        const std::string subLine = grouped ? grouped_meta(s) : card_meta(s);
-        const bool sparseSub =
-            subLine.empty() ||
-            (subLine.size() <= 6 && subLine.find("\xc2\xb7") == std::string::npos);
-        const float cardH = sparseSub ? 34.0f : 52.0f;
+        std::string subScratch;
+        const std::string_view subLine = digest::sub_line(s, grouped, subScratch);
+        const bool sparseSub = digest::sub_is_sparse(subLine);
+        const float cardH = digest::card_body_height(subLine);
 
         // Every card in every list comes through here, so this is where the
         // keyboard cursor is both drawn and counted: the order below IS the
         // order on screen. The cursor row wears the hover surface plus an
         // accent border — a keyboard hover, reading like the mouse one.
         const bool onCursor = !app.listCursorId.empty() && s.id == app.listCursorId;
-        constexpr float kCardMarginTop = 3.0f;
-        constexpr float kCardMarginBot = 5.0f;
         listRows_.push_back(s.id);
         if (onCursor) {
             listCursorY_ = listY_;
-            listCursorH_ = kCardMarginTop + cardH + kCardMarginBot;
+            listCursorH_ = digest::card_pitch(subLine);
         }
-        list_extent(kCardMarginTop + cardH + kCardMarginBot);
+        list_extent(digest::card_pitch(subLine));
 
         auto card = div(ctx, mk(parent, 100 + id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(cardH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_margin(Margin{.top = pixels(kCardMarginTop),
+                .with_margin(Margin{.top = pixels(digest::kCardMarginTop),
                                     .right = pixels(0),
-                                    .bottom = pixels(kCardMarginBot),
+                                    .bottom = pixels(digest::kCardMarginBot),
                                     .left = pixels(0)})
                 .with_padding(Padding{.top = pixels(7), .right = pixels(16),
                                       .bottom = pixels(7), .left = pixels(16)})
@@ -1279,7 +1182,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // instead of alone on a wasted second line. Muted so the title leads.
             div(ctx, mk(top.ent(), 2),
                 ComponentConfig{}
-                    .with_label(subLine)
+                    .with_label(std::string(subLine))
                     .with_size(ComponentSize{percent(0.16f), pixels(16)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
@@ -1296,7 +1199,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!sparseSub) {
             div(ctx, mk(card.ent(), 2),
                 ComponentConfig{}
-                    .with_label(subLine)
+                    .with_label(std::string(subLine))
                     .with_size(ComponentSize{percent(1.0f), pixels(16)})
                     .with_margin(Margin{.top = pixels(3), .right = pixels(0),
                                         .bottom = pixels(0), .left = pixels(0)})
