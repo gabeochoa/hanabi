@@ -115,13 +115,25 @@ export HANABI_STRESS_PINNED=10
 export HANABI_STRESS_ARCHIVED=10
 
 # echoes "<widgets> <built> <matched>"
+#
+# Every field is read from the ONE line that owns it, never from the log at
+# large. `built=` appears on the FrameTiming line too -- widget_epoch counts
+# what a frame built, DigestCards counts what the card list built -- and a
+# `head -1` over the whole log silently read the wrong one the day the two
+# landed together, reporting 214 cards on a screen that built 13.
 measure() {  # $1 = view, $2 = session count
-    local view="$1" n="$2" w b m
+    local view="$1" n="$2" w b m cards
     ( HANABI_VIEW="$view" HANABI_STRESS_SESSIONS="$n" \
           timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1 ) || true
+    cards="$(grep -E 'DigestCards:' "$LOG" | head -1)"
+    if [ -z "$cards" ]; then
+        echo "  digest_gate: no DigestCards line in $LOG -- the app did not" >&2
+        echo "  report card counts, so this gate has nothing to assert." >&2
+        exit 2
+    fi
     w="$(grep -Eo 'widgets=[0-9]+' "$LOG" | head -1 | cut -d= -f2)"
-    b="$(grep -Eo 'built=[0-9]+' "$LOG" | head -1 | cut -d= -f2)"
-    m="$(grep -Eo 'matched=[0-9]+' "$LOG" | head -1 | cut -d= -f2)"
+    b="$(printf '%s' "$cards" | grep -Eo 'built=[0-9]+' | cut -d= -f2)"
+    m="$(printf '%s' "$cards" | grep -Eo 'matched=[0-9]+' | cut -d= -f2)"
     printf '%s %s %s' "${w:-0}" "${b:-0}" "${m:-0}"
 }
 
