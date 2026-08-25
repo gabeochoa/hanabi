@@ -32,6 +32,7 @@
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
 #include "util/gpu_mem.h"
+#include "util/launch_curve.h"
 #include "util/mem_ladder.h"
 #include "util/breaker.h"
 #include "util/soak.h"
@@ -1351,11 +1352,19 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         while (std::chrono::steady_clock::now() < deadline) {
             if (ready()) break;
             ++settleFrames;
-            const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
-            graphics::clear_background(theme::window_bg());
-            sm.run(1.0f / 60.0f);
-            graphics::end_frame();
+            {
+                // Scoped to the RENDER and nothing else. The first version put
+                // this at the top of the loop body, so its wall column also
+                // carried the backoff sleep below -- and on a box at load 20 a
+                // 1 ms sleep is 18 ms of waiting to be rescheduled, which read
+                // as a 21 ms second frame that no pre-warm could ever move.
+                const hanabi::launch_curve::Frame curveFrame{"settle"};
+                const hanabi::AutoreleaseFrame framePool;
+                graphics::begin_frame();
+                graphics::clear_background(theme::window_bg());
+                sm.run(1.0f / 60.0f);
+                graphics::end_frame();
+            }
             // Ask again before sleeping: this render is usually the one that
             // resolved it, and the old shape slept anyway.
             if (ready()) break;
@@ -1671,11 +1680,14 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     constexpr int kFrames = 45;
     hmark("pre-capture pumps done");
     for (int i = 0; i < kFrames; ++i) {
-        const hanabi::AutoreleaseFrame framePool;
-        graphics::begin_frame();
-        graphics::clear_background(theme::window_bg());
-        sm.run(1.0f / 60.0f);
-        graphics::end_frame();
+        {
+            const hanabi::launch_curve::Frame curveFrame{"capture"};
+            const hanabi::AutoreleaseFrame framePool;
+            graphics::begin_frame();
+            graphics::clear_background(theme::window_bg());
+            sm.run(1.0f / 60.0f);
+            graphics::end_frame();
+        }
         // Test-only instrumentation: log time-to-first-frame once, so the perf
         // harness (scripts/measure_launch.sh) can gate cold launch against the
         // FirstFrame metric in addition to the internal "Startup" init log.
@@ -1794,6 +1806,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         }
         fflush(stdout);
     }
+
+    hanabi::launch_curve::report();
 
     bool ok = graphics::capture_frame(path);
     graphics::shutdown();
