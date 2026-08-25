@@ -7633,3 +7633,120 @@ the RENDERED offset, so the stored intent survives a frame in which the tree
 was not built.
 
 CLASS: WORKAROUND
+
+---
+
+### #230 — `UIContext::mouse.pos` is NaN until the first mouse event, and every hit test is run against it
+
+**What was wanted.** A hit test over a byte range inside a wrapped label
+(hanabi's tracker-id links; the same shape as gap #51). It runs from the UI
+build, every frame, for every label that carries a link, because that is also
+where the pointer cursor comes from.
+
+**What happens.** Before any mouse event has been delivered — the whole of the
+launch, the whole of a scripted run's settle, and every frame of a headless
+render — `ctx.mouse.pos` is `(nan, nan)`. Instrumented over twenty scripted
+runs of `tests/ui/tracker_links.e2e`:
+
+```
+866  [link] miss id=D948120  point=(nan,nan)  rect=(432.0,140.5 46.0x13.0)
+520  [link] HIT  id=D948120  point=(455.0,147.0)  rect=(432.0,140.5 46.0x13.0)
+```
+
+Two thirds of the hit tests in a scripted run are against NaN.
+
+**Why it is not merely ugly.** NaN compares false against everything, so
+`px >= r.x && px <= r.x + r.width` is false and the miss is silent and
+correct-looking. Any hit test written the other way round — an exclusion test,
+`if (outside) return;`, or anything that treats "not inside" as "inside
+something else" — inverts, and it inverts only on the frames before the user
+has moved the mouse, which is the set of frames nobody tests. It also means a
+profile of the hit path counts work that can never produce an answer.
+
+**The workaround.** None needed in hanabi, because the comparison happens to
+be the safe way round. The cost was diagnostic: `HANABI_LINK_AUDIT=1`
+(src/ui/link_detect.h) prints the point with the rect, and the NaN is only
+visible because that diagnostic prints misses as well as hits.
+
+**Minimal upstream fix.** Initialise `mouse.pos` to something a comparison can
+be reasoned about — off-screen (`{-1, -1}`) is the conventional answer — or
+give `UIContext` a `mouse.valid` flag so a caller can skip a hit test that
+cannot have an answer. Either is one line and removes a class of bug that only
+appears before the first mouse move.
+
+CLASS: FOOTGUN
+
+---
+
+### #231 — the e2e runner's `wait_frames N` is stored as SECONDS, so it is a frame count only while the host ticks at exactly 1/60
+
+**What was wanted.** `wait_frames 4` between a `mouse_move` and a `click`, on
+a machine whose load average has been over 100 — a wait that means four frames
+of app work whatever the box is doing, which is the whole reason a scripted UI
+test counts frames instead of sleeping.
+
+**What happens.** `runner.h` parses it as
+`cmd.wait_seconds = frames * (1.0f / 60.0f)` and `tick(dt)` decrements
+`wait_time_ -= dt`. The command is a *duration*, and it is a frame count only
+because hanabi's e2e loop happens to pass a fixed `kDt = 1.0f / 60.0f`. A host
+that passes a real frame delta — which is what every non-test host does, and
+what `tick()`'s own doc comment calls the preferred form — turns every
+`wait_frames` in every script into "wait 66 ms", and then a busy machine runs
+two frames where the script asked for four.
+
+**Why it matters here.** hanabi's scripted suite is 89 scripts of
+`wait_frames`, and the fixed dt that makes them mean what they say is one
+constant in `src/main.cpp` with nothing pinning it. Change it to a measured
+delta to make the harness more realistic and every timing-sensitive script in
+the suite becomes load-dependent at once, with no error message that says so.
+
+**The workaround.** Keep `kDt` fixed and say why. Done, in main.cpp.
+
+**Minimal upstream fix.** Give `PendingCommand` a frame COUNT alongside
+`wait_seconds` and have `tick` decrement whichever the command set. A frame
+count is what the command is named after and it is exact under any dt.
+
+CLASS: FOOTGUN
+
+---
+
+### #232 — a coordinate-addressed test cannot state its own precondition
+
+**What was wanted.** `tests/ui/tracker_links.e2e` clicks a point inside a byte
+range because there is no way to address the range (#51). Fine. What it also
+wants is to say *the point I am about to click is inside the thing I mean*, so
+that a layout change fails as "the layout moved" rather than as "the feature
+is broken".
+
+**What happens.** There is no such assertion. `expect_text`, `assert_ui_text`
+and friends assert on TEXT and on named ELEMENTS; a byte range is neither.
+So the only signal a coordinate test can produce is the downstream one — here
+`expect_text "Opened D948120"` — which is the same failure a genuinely broken
+tracker feature produces, and the reader cannot tell them apart without
+rendering the thread and scanning the PNG for text rows (FRICTION_LOG section
+12 prices that at ~20 minutes for three tests).
+
+Worse, it cannot detect the *silent* form. `tests/ui/tracker_links_need_a_host`
+clicked (456,492), 348 px below the only tracker id in the thread, and passed
+for as long as it existed — a negative test on empty space passes whatever the
+app does. Verified: with the host check removed from `link_hotspot`, so that
+clicking an id raises the toast with no tracker configured, the old coordinate
+still passed and the corrected one failed.
+
+**The workaround.** An app-side diagnostic, `HANABI_LINK_AUDIT=1`, that prints
+every rect the hit test considered next to the point it tested:
+
+```
+[link] HIT  id=D948120  point=(455.0,147.0)  rect=(432.0,140.5 46.0x13.0)
+```
+
+That is the precondition, after the fact, in the log of a normal run. It is
+also the mechanical re-measure that replaces the screenshot ruler.
+
+**Minimal upstream fix.** `expect_point_in <element> <x> <y>`, asserting that
+the point is inside a named element's rect, would cover the general case
+without any notion of a text run. For the text-run case specifically, #51's
+"where did byte N land" would make the coordinate unnecessary in the first
+place.
+
+CLASS: TEDIOUS

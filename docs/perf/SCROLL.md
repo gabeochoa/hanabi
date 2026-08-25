@@ -188,7 +188,10 @@ Zero spread, to the entity, and flat across a 1000x catalog.
   |---|---|---|
   | level | expanded-list entity count at 20 sessions against 2000 | 1.60x |
   | trend | min-of-half frame CPU, last half over first | 1.15x |
-  | trend | live malloc blocks, per 1000 frames | +150 |
+  | trend | live malloc blocks, per 1000 frames | +40 |
+
+  The block budget was +150 and the arm was red one run in five. Section 8
+  is what that turned out to be.
 
   The level arm runs first because it is the one that catches the bug that
   happened. It is also exact: entity counts have zero spread, run to run, which
@@ -205,12 +208,107 @@ Zero spread, to the entity, and flat across a 1000x catalog.
   | arm | defect | read |
   |---|---|---|
   | level | `row_window()` returns the whole list | 16.61x vs 1.60 |
-  | blocks | ids keyed on row index, not window slot (#115's shape) | +180/1k vs 150 |
+  | blocks | ids keyed on row index, not window slot (#115's shape) | +277/1k vs 40 |
   | frame cpu | a per-frame walk over an index of rows visited | 1.223x vs 1.15 |
 
   The frame-CPU arm fires at about **+0.47 ms of drift across the halves of a
   1600-frame run**. Anything a person would describe as getting slower is far
   larger than that.
+
+## 4b. The one-in-five red was the measurement, and it always had been
+
+- **What I wanted** — the cause of the step this file's owner was asked to
+  explain: "a real, occasional, one-bucket step of a few hundred live blocks —
+  something filling late, not something leaking, because the run after it is
+  flat again." Three claims about the app, none of them checked. A retry had
+  been bolted over it, which is the part that matters: a retry that hides a
+  genuine 400-block step hides the next real leak too.
+
+- **What happened** — it reproduced in three runs out of ten, so the first
+  thing to do was look at the buckets rather than the verdict. The failing
+  runs did not have a step in the SECOND half. They had a first bucket about
+  900 blocks LOW:
+
+  ```
+  pass:  102604  102756  102757  102756
+  fail:  101705  102525  102098  102730
+  ```
+
+  At one sample every 50 frames the shape is not a step at all. It is a ramp
+  down of almost exactly one block per frame for a thousand frames, and then a
+  single jump back up of ~950. Per frame, the jump is **+1018 blocks for
+  +16 KB** — a thousand allocations of sixteen bytes each, appearing in one
+  frame, in a run whose entity count, RSS and heap bytes do not move.
+
+  Nothing allocates like that. So the next question was whether anything
+  allocated at all, and the way to ask it is to walk the heap instead of asking
+  the allocator. `HANABI_SOAK_SIZES=1` prints the live blocks grouped by size,
+  from the zone's own enumerator:
+
+  | frame | zone tally | heap walk | difference |
+  |---:|---:|---:|---:|
+  | 20 | 102497 | 100699 | 1798 |
+  | 500 | 101828 | 100512 | 1316 |
+  | 580 | 102769 | 100510 | 2259 |
+  | 1540 | 101960 | 100685 | 1275 |
+
+  **The heap is flat to nineteen blocks. The moving quantity is the difference
+  between the two columns.** `malloc_zone_statistics().blocks_in_use` is the
+  allocator's own running tally, not a count of live blocks, and on this OS it
+  drifts. Setting `MallocNanoZone=0` removes the drift entirely — two runs,
+  spreads of 18 and 20 — which places it in the nano allocator's per-magazine
+  object counters, approximate by construction and re-synced in lumps.
+
+  It is not specific to scrolling either. The same drift is in `idle` and in
+  `scroll`, in about half of all runs:
+
+  ```
+  idle, run 1   100580 100483 100384 ... 99766 100696 100593   (spread 930)
+  idle, run 2   100724 100727 100728 ... 100710 100712 100713  (spread  19)
+  ```
+
+  Whether the lump lands inside a bucket half decided the verdict. That is the
+  whole of the one-in-five.
+
+- **The fix** — `src/util/heap_walk.h` counts live blocks by walking the zones
+  (`introspect->enumerator` with a null reader, which means "these addresses
+  are mine"). Exact, repeatable, and still sensitive: the row-id defect the
+  block arm exists to catch reads +8,900 blocks on the walk. The tally is kept
+  as a report-only column on the bucket line, so the divergence stays visible
+  rather than becoming a mystery again. `tests/unit/test_heap_walk.cpp` pins it
+  with the drift itself — churn 200,000 x 48 bytes, free every one, and the
+  walk reads +0 against a tally that reads +341, the same number every round.
+
+  Twelve consecutive clean runs of the arm now span **6.9** blocks per 1000
+  frames. They spanned **845**. The budget came down from 150 to 40 and the
+  retry came off.
+
+- **Two other things the fix exposed**, both about giving each half more than
+  two buckets to reduce over:
+
+  1. The settle was 700 frames and the driven triangle's period is 1200, so
+     the first measured bucket was still watching the title memo fill — worth
+     +184 blocks, which two buckets a half cannot median away. Every clean run
+     read +110 to +117 against a budget of 150, and nobody had asked why a
+     "flat" arm sat at 75% of its budget. Settle is 1300 now and it reads
+     under +9.
+  2. The frame-CPU arm has its own flake, and this file's claim that "a busy
+     box cannot produce it" is wrong. Contention only ever ADDS time, yes — so
+     the minimum of a half is clean **only if at least one bucket in that half
+     was clean.** With two buckets a half, a busy patch covering both of the
+     last half's buckets is a FAIL: one run in ten read 1.722x on a tree whose
+     block column was flat. Buckets are 200 frames now, four to a half.
+
+- **The part worth keeping** — **a retry is a claim about a distribution, and
+  nobody had looked at the distribution.** The note over that retry made three
+  statements about the app ("real", "filling late", "not leaking") and the
+  quantity it described was never produced by the app at all. The tell was
+  there in the printed line the whole time: a thousand blocks arriving in one
+  frame for sixteen kilobytes, next to an RSS that did not move.
+
+  Retries have their place — `soak_gate.sh` keeps one, over a whole-run failure
+  that a killed process produces. This one was over a NUMBER, and a number that
+  needs a retry needs an explanation first.
 
 ## 5. Wall clock was measuring the neighbours
 
@@ -365,6 +463,10 @@ clock to run.
 ## How to measure this
 
 ```bash
+# What the block column is actually made of, by size class. This is the
+# diagnostic that ended section 4b -- it was the column that did NOT move.
+HANABI_SOAK_SIZES=1 ... | grep '^\[size\]'
+
 # The reproduction. The scenario clicks "Show N more…" itself.
 HANABI_BACKEND=mock HANABI_STRESS=scrollall HANABI_STRESS_SESSIONS=2000 \
   HANABI_SOAK=3000 HANABI_SOAK_EVERY=500 HANABI_SOAK_CENSUS=1 HANABI_PROF=1 \
@@ -385,3 +487,15 @@ scripts/perf_ab.sh /path/to/base/hanabi.exe output/hanabi.exe scrollall 7 600
 
 Read the entity count first, the allocation count second, and the frame time
 last. The first two are exact and the third is a shared laptop.
+
+### Generating load to reproduce, without leaving the load behind
+
+`docs/perf/GATES.md` section 0b has the whole story and the trap idiom. The
+short version, because this file is where somebody will be told to "reproduce
+under load": **`jobs -p` does not give you your background PIDs in a
+non-interactive shell**, so the kill matches nothing and every spinner is
+reparented to init and burns a core until someone notices. Fifty-two were
+leaked in one session this way, and the box reached a load average of 134 —
+which then contaminated the very measurements the load was for. Capture `$!`
+per job, `trap` the kill on EXIT INT TERM, and check
+`ps -Ao pid,ppid,pcpu,args | awk '$2==1 && $3>10'` before you finish.

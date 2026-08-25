@@ -32,6 +32,15 @@ apology for the numbers; it is the reason several of them are ratios.
 | source checks | `make source-checks` | yes | <1 s |
 | long soak | `make soak` | **no** — before a release | ~53 s |
 | soak report | `make soak-report` | **no** | ~60 s |
+| widget retirement | `make retire-gate` | yes | ~3 s |
+| transcript slope | `scripts/perf_transcript_slope.sh` | yes | ~10 s |
+| text measurement | `scripts/perf_text_gate.sh` | yes | ~14 s |
+| launch / RSS | `scripts/measure_launch.sh` | yes | ~4 s |
+
+This table was two tables run together for a while: the note below interrupted
+the rows and the rest were appended after it, so `retire-gate`, `soak-report`
+and the three script gates each appeared once, twice or not at all depending
+where the reader stopped. One table now.
 
 > **Every wall clock in this file used to be a lie in any pipeline.** Two
 > gates bounded their run with `( sleep "$RUN_TIMEOUT"; kill … ) &`, and
@@ -42,11 +51,6 @@ apology for the numbers; it is the reason several of them are ratios.
 > on every run. Invisible on a terminal, which is why it survived.
 > `scripts/watchdog.sh` fixes it; `scripts/check_watchdogs.py` keeps it fixed;
 > `make source-checks` runs that. The numbers above are piped numbers.
-
-The additions cost about **twenty seconds** on a `make test` that runs
-| widget retirement | `make retire-gate` | yes | ~3 s |
-| autorelease source check | `make source-checks` | yes | <1 s |
-| long soak | `make soak` | **no** — before a release | ~33 s |
 
 The five additions cost about **twenty-three seconds** on a `make test` that runs
 between four and six minutes depending on what else this box is doing
@@ -60,6 +64,248 @@ gate on per-message allocation slope, which `make test` also runs. That one
 gates the cost of a *longer thread*; these gate the cost of a *longer run* and
 of a *bigger catalog*. Three different axes, three different gates, and none of
 them would have caught the other two's bug.
+
+---
+
+---
+
+## 0. The audit — every gate, the defect it claims to catch, and what it did
+
+**Why this section is first.** Two gates in this suite were found this month
+to have stopped asserting anything, and both were found by luck.
+`perf_transcript_slope.sh` went permanently green when a fix rerouted its work
+to a new function. `scaling_gate.sh` asserted nothing at all for a while after
+sidebar virtualization landed. A gate that cannot fail is worse than no gate:
+it occupies the slot, it costs the wall clock, and it is read as evidence.
+
+So every gate and every perf script in `scripts/` was taken in turn, the
+defect it names in its own failure message was constructed, and the gate was
+run against it. Everything below is an observed reading, not an argument.
+The injections are one-line patches; each row names the patch precisely enough
+to reproduce it.
+
+Measured 2026-08-25 on `gabeochoa-mac-GRQ7Y259H4`, branch `perf/flake`.
+
+### The table
+
+| gate · arm | defect injected | observed |
+| --- | --- | --- |
+| **measure_launch** · FirstFrame | `usleep(400000)` once on the first frame | `FirstFrame: 470 ms` — `FAIL: FirstFrame 470 ms >= 250 ms` |
+| **measure_launch** · peak RSS | retain 400 × 1 MB strings at startup | `Peak RSS: 457 MB` — `FAIL: peak RSS 457 MB >= 250 MB` |
+| **soak_gate** · RSS | retain one 512-byte string per frame | `RSS +661.3 KB /1000f  budget 512  FAIL 1.3x over` |
+| **soak_gate** · heap bytes | same | `heap bytes +657.5 KB  budget 256  FAIL 2.6x over` |
+| **soak_gate** · heap blocks | `new char[24]` × 4 per frame, retained | `heap blocks +3985.6  budget 1000  FAIL 4.0x over` |
+| **soak_gate** · entities | sidebar folder base id keyed on the epoch, unbounded, `HANABI_RETIRE=0` | `entities +33500.0  budget 25  FAIL` (frame 250 → 1500: 25,125 → 108,875 entities, 23.6 → 151.4 ms) |
+| **soak_gate** · cpu time | a per-frame walk over a vector that grows by one each frame | `cpu time +3.5 ms  budget 1.0  FAIL 3.5x over` (2.4 → 7.7 ms/frame across the run) |
+| **scaling_gate** · widgets | the sidebar's cap AND its row window both removed | `widgets 373 → 6618 = 17.74x  budget 1.50x  FAIL` |
+| **scaling_gate** · frame time | same | `min ms/f 1.44 → 16.55 = 11.49x  budget 2.50x  FAIL` |
+| **scroll_gate** · level (entities) | `row_window()` returns the whole list | `entities, list expanded 381 → 6626 = 17.39x  budget 1.60x  FAIL` |
+| **scroll_gate** · trend, frame cpu | a per-frame walk over an index of every row visited | `frame cpu, min-of-half 1.24x  budget 1.15x  FAIL` |
+| **scroll_gate** · trend, blocks | row ids keyed on the row INDEX, not the window slot (#115) | `live blocks /1000f +276.9  budget 40  FAIL` |
+| **retire_gate** · epoch | `begin_epoch()` removed from `WidgetRetireSystem::once` | `epoch 1 after 1200 frames  FAIL` |
+| **retire_gate** · stale | `HANABI_RETIRE=0` | `stale widgets 774  budget 0  FAIL` |
+| **retire_gate** · live/built | `HANABI_RETIRE=0` | `live / built 2.15x  ceiling 1.50x  FAIL` |
+| **perf_text_gate** · measures/frame | the line-count memo's `find` forced to miss | `measures/frame 125.37 → 137.22  limit 20.0  FAIL` |
+| **perf_text_gate** · line-count memo rate | same | `0 hit / 76.5 miss = 0.00%  limit 95.0  FAIL` |
+| **perf_text_gate** · advance memo rate | `theme::text_px`'s memo `find` forced to miss | `0 hit / 21.7 miss = 0.00%  limit 95.0  FAIL` |
+| **perf_text_gate** · memo bound | `kLineCountEntries` 512 → 4096 | `line-count memo bound 1208 entries peak  cap 512  FAIL` |
+| **perf_transcript_slope** · allocations slope | the transcript render cache's `get` forced to miss | `allocations/frame 8636.7 → 24112.8  slope 36.8/msg  limit 12  FAIL` |
+| **perf_transcript_slope** · render-cache rate | same | `0 hit / 342.8 miss = 0.0%  limit 95.0%  FAIL` (both sizes) |
+| **perf_transcript_slope** · wrap calls, level | the line-count memo's `find` forced to miss | **added by this branch** — `wrap calls/frame 81.4  limit 5.0  FAIL` |
+| **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL` |
+| **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |
+| **check_autorelease** | one `AutoreleaseFrame` use deleted from `src/main.cpp` | *(see below)* |
+| **check_label_padding** | a label given a padding the baseline does not allow | *(see below)* |
+| **check_watchdogs** | an unredirected backgrounded `sleep` added to a script | *(see below)* |
+| **compare.py --selftest** | the exclusion arithmetic altered | *(see below)* |
+
+### The four gates that did NOT go red, and what was done about each
+
+Every one of these is the same shape: **an arm that measures a SLOPE, against
+a defect that has no slope.** It is the finding `docs/perf/SCROLL.md` section 4
+made about the scroll bug, arriving three more times.
+
+**1. `perf_transcript_slope` · wrap calls — could not fail, now can.**
+The line-count memo was disabled completely. Wrap calls per frame went from
+**0.2 to 76.5** at 60 messages and **1.6 to 81.4** at 480 — 380 times the work
+the memo exists to remove — and the gate passed every arm:
+
+```
+  wrap calls/frame        76.5 -> 81.4   slope 0.012 calls/message  limit 0.05   ok
+  transcript slope gate: PASS
+```
+
+Of course it passed. Wrap work with no memo is proportional to what is ON
+SCREEN, and the same amount is on screen at 60 messages and at 480. The arm
+gates the per-message slope, so the one regression that removes the memo
+entirely is invisible to it — and that regression is the one the script's own
+header is about ("1.58 calls per message before the render-cache fix").
+`perf_text_gate.sh` does catch it (125 measures a frame against a limit of
+20), so the defect was never unguarded; the arm named after it simply was not
+the guard. **Fixed**: the arm now has a LEVEL beside its slope — wrap calls
+per frame at the longer thread, ceiling 5.0 against a clean read of 1.6.
+
+**2. `soak_gate` · entities — could not fail on a bounded explosion, now can.**
+A widget minted per frame with retirement off, cycling over 400 ids so the set
+SATURATES: 27,001 entities and **36 ms a frame**, from the first bucket to the
+last. The gate:
+
+```
+  [soak]   entities            +0.0             +0.0                25   0.00  ok
+  [soak] PASS: flat over the run.
+```
+
+Perfectly flat, and perfectly ruined. The soak gate measures slope by design
+and this is its blind spot stated exactly: **a defect that costs from frame
+one costs the same on frame two thousand.** Worse, nothing else in the suite
+caught it either — `scaling_gate` compares two catalog sizes and this defect
+is catalog-independent, so its ratio stays flat. Which means, before this
+branch, **an idle app rendering at 27 fps passed every gate in `make test`.**
+`measure_launch.sh` bounds the FIRST frame and nothing bounds the rest.
+**Fixed**: soak_gate now has a level arm on the absolute entity count at its
+own fixed catalog — a count, not a millisecond, so it is exact and the shared
+box cannot move it. Clean reads 250; the ceiling is 4000; the defect reads
+27,001.
+
+**3. `scaling_gate` — bites, but not on either mechanism alone.**
+The sidebar's row count is bounded twice over: `visible_limit` caps the list at
+two viewports, and `row_window` builds only the slice on screen. Remove
+EITHER and the gate stays green:
+
+| what was removed | widgets @20 → @2000 | ratio | verdict |
+| --- | --- | --- | --- |
+| nothing | 320 → 426 | 1.33x | ok |
+| `row_window` (virtualization) | 329 → 435 | 1.32x | **ok** |
+| `visible_limit` (the cap) | 319 → 425 | 1.33x | **ok** |
+| both | 373 → 6618 | 17.74x | FAIL |
+
+Each mechanism alone holds the count flat, so the gate cannot tell you either
+one is still there. That is not a broken gate — it is a gate whose subject is
+"is the sidebar's row count bounded", and the answer is still correctly yes.
+But it does not gate virtualization, and after virtualization landed it was
+read as though it did. **The scroll gate's level arm is the one that gates
+virtualization** (`row_window()` returning the whole list: 17.39x against
+1.60x), and that division is now written down here and in both scripts. No
+code change: adding a third gate for a property two others already cover would
+be the redundancy this audit exists to find.
+
+**4. `soak_gate` · heap blocks — the budget was 25x looser than it needed.**
+Not a "cannot fail", a "barely can". The first RSS-leak injection above leaked
+exactly 1000 blocks per 1000 frames, and the arm printed:
+
+```
+  [soak]   heap blocks      +1000.0          +3600.0              1000   1.00  ok
+```
+
+Over budget by nothing, on a `>` comparison, in a run whose RSS arm was
+already red. The budget was set when the metric was
+`malloc_zone_statistics().blocks_in_use`, which drifts by a thousand blocks on
+a run that allocates nothing (`src/util/heap_walk.h`). The metric is exact
+now, so the budget comes down — see the block-budget note in section 1.
+
+### The source checks
+
+| check | defect injected | observed |
+| --- | --- | --- |
+| `check_autorelease.py` | one `const hanabi::AutoreleaseFrame framePool;` deleted from `src/main.cpp` | `check_autorelease: FAIL` / `src/main.cpp:1047: graphics::begin_frame() with no autorelease pool in scope` |
+| `check_label_padding.py` | `.with_padding(Padding{.left = pixels(6.f)})` added to a `with_label` element with no child div | `NEW  src/ecs/sidebar_system.h:294  sb_snippet_audit  (up to 6px)` / `1 NEW label(s) set horizontal padding that does nothing` |
+| `check_watchdogs.py` | `( sleep 30; echo late ) &` appended to `scripts/soak_gate.sh` | `check_watchdogs: FAIL` / `scripts/soak_gate.sh:233: a backgrounded job that sleeps, with the caller's stdout` |
+| `compare.py --selftest` | the exclusion dropped from the DENOMINATOR (`total = w * h`) | `FAIL  shared pct: got 1.0, want 1.0416666666666665` / `selftest: FAIL` |
+
+One note on the last one, because it is the kind of thing this section exists
+to stop: changing `TOL` from 12 to 200 does **not** fail the selftest, and that
+is correct rather than a hole. The selftest declares its subject — "prove the
+exclusion arithmetic" — and builds black-against-white frames on purpose so the
+threshold is not part of what it is measuring. A check that fails for reasons
+outside its stated subject is a check that gets waived. `TOL` is unguarded, and
+saying so here is the honest version of "it did not go red".
+
+### The instruments this audit added
+
+Three env-gated diagnostics, all hard no-ops when unset, all of them the thing
+that turned a guess into a reading:
+
+| knob | prints | found |
+| --- | --- | --- |
+| `HANABI_SOAK_SIZES=1` | live blocks grouped by size class, from the same heap walk | that the block column was moving while the heap was not — the scroll gate's one-in-five red |
+| `HANABI_LINK_AUDIT=1` | every rect the link hit test tested a point against, hits and misses | that `tracker_links_need_a_host` was clicking 348px from any link; that `mouse.pos` is NaN two thirds of the time (gap #230) |
+| `HANABI_SELECT_AUDIT=1` | the element a press resolved to: rect, byte offset, click run, text | that one press on a line seam was two hits and a single click selected a word |
+| `HANABI_DBG_SETTLE=1` | now also `frames=`, `content_ready_at=`, `settled_with_content=` | that the scripted settle is NOT the variable it looked like — 46 frames and content at frame 5, identical across sixteen runs at load 28 |
+
+The pattern is worth naming. Each of these prints what the code DECIDED, next
+to the input it decided from, at the moment it decided. None of them is a
+metric. Every one of them ended an investigation that had been running on
+plausible theories — the scroll step was blamed on "something filling late",
+the UI flake on the settle, the selection on a stale coordinate — and in each
+case the theory was wrong and one line of output said so.
+
+---
+
+## 0b. Reproducing under load, and the footgun in doing it
+
+Several gates here are only interesting under contention, and this box already
+carries other agents' builds. **Do not generate load with a job-control idiom
+that relies on `jobs -p`.** In a non-interactive shell it does not return what
+you expect, the kill silently matches nothing, and every spinner is reparented
+to init and keeps burning a core forever. This session leaked **52** of them
+across four measurement batches before anyone noticed; the box's load average
+reached 134, and every reading taken in that window was against a machine
+carrying an unknown number of runaway processes — including readings whose
+whole point was the load level.
+
+Capture the PIDs explicitly and trap:
+
+```sh
+LOADPIDS=""
+for i in $(seq 1 16); do ( while :; do :; done ) & LOADPIDS="$LOADPIDS $!"; done
+trap 'kill -9 $LOADPIDS 2>/dev/null' EXIT INT TERM
+...the measurement...
+kill -9 $LOADPIDS 2>/dev/null
+```
+
+The `trap` is the part that matters: it fires when the measurement dies, times
+out, or is interrupted, which is exactly when the manual kill does not run.
+Before finishing, confirm you left nothing:
+
+```sh
+ps -Ao pid,ppid,pcpu,args | awk '$2==1 && $3>10'
+```
+
+Anything of yours reparented to init (`ppid == 1`) burning CPU is a leak. On a
+clean box that command prints only system daemons.
+
+Two more rules from the same hour:
+
+- **Re-take anything measured during a window you were not sure about.** A
+  number taken under a load you mismeasured is not a number. The heap-walk
+  diagnosis in `src/util/heap_walk.h` survived because it predates the first
+  spinner; the audit runs above were re-taken.
+- **An injection harness must rebuild after it restores.** The driver used for
+  this audit patched a source, built, ran the gate and restored the source —
+  and left the DEFECTIVE binary in `output/`. The next clean `soak_gate.sh` run
+  read 6,883 entities and 8.7 ms a frame off it. `scripts/fresh.sh` exists for
+  exactly this and its header tells the same story from an afternoon that cost
+  two debugging sessions. It warns; it does not stop you.
+
+### What is NOT a gate, and does not pretend to be
+
+These are in `scripts/` and assert nothing. That is correct for all of them —
+they are instruments, not verdicts — and the list is here so that "it did not
+go red" is never mistaken for a finding:
+
+`perf_ab.sh` (interleaved A/B of two binaries), `perf_curve.sh` (frame cost
+against catalog size), `perf_text.sh` (text-measure counters), `soak_spread.sh`
+(run-to-run spread of the soak's own numbers), `ceiling.py`, `probe.py`,
+`downsample.py`, `inkdiff.py`, `gen_icons.py`, `compare_screenshots.py`,
+`screens.sh`, `shoot_hanabi.sh`, `shoot_hanabi_02.sh`, `shoot_puffin.sh`,
+`review_shots.sh`, `winlist.swift`, and the two libraries `fresh.sh` and
+`watchdog.sh`.
+
+`perf_curve.sh` exits 1 on a missing binary or missing output — a plumbing
+error, not a verdict, and the same is true of every "could not measure" exit in
+the gates above. Those paths are deliberate and are covered in each script:
+a gate that reports PASS on no data is the worst failure mode in this file,
+and every gate here distinguishes "measured and flat" from "measured nothing".
 
 ---
 
