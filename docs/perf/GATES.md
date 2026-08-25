@@ -31,10 +31,18 @@ apology for the numbers; it is the reason several of them are ratios.
 | autorelease source check | `make source-checks` | yes | <1 s |
 | long soak | `make soak` | **no** — before a release | ~65 s |
 
-`make test` was about four minutes before this and is about four minutes and
-fifteen seconds after it. That was the budget: a suite that takes fifteen
-minutes is a suite people stop running, and a gate nobody runs is worth exactly
-as much as a gate that cannot fail.
+The three additions cost about **fourteen seconds** on a `make test` that runs
+between four and six minutes depending on what else this box is doing
+(observed: 228 s, 283 s, 336 s for the same tree). That was the budget: a suite
+that takes fifteen minutes is a suite people stop running, and a gate nobody
+runs is worth exactly as much as a gate that cannot fail. Anything longer went
+behind `make soak`.
+
+They sit alongside `scripts/perf_transcript_slope.sh`, the transcript agent's
+gate on per-message allocation slope, which `make test` also runs. That one
+gates the cost of a *longer thread*; these gate the cost of a *longer run* and
+of a *bigger catalog*. Three different axes, three different gates, and none of
+them would have caught the other two's bug.
 
 ---
 
