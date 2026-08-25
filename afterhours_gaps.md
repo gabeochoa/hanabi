@@ -6967,8 +6967,6 @@ re-use the slot's entity while telling the consumer the key changed -- one
 cancelled and a hover re-evaluated. Retiring unbuilt entities (#115) would
 solve the memory half on its own and leave this half exactly where it is.
 
-CLASS: FOOTGUN
-
 ---
 
 ### #172 — Input can only be INJECTED in a build with the e2e plugin compiled in, so the one gesture the bug report names cannot be driven in the binary a person runs
@@ -7021,3 +7019,216 @@ the existing macro; it is only the one-line "pretend a wheel turned" that needs
 to be in the build a person runs.
 
 CLASS: MISSING
+
+---
+
+### #190 — `TextMeasureCache` is keyed by a font's NAME, so swapping the FACE behind that name serves stale measurements with no way to know
+
+**What was wanted.** hanabi lets the reader pick a typeface — Settings →
+Standard / Hyperlegible. Applying it is the one line the library offers:
+
+```cpp
+fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT, path.c_str());
+```
+
+**What happens.** Every glyph in the app changes and *nothing that any cache
+is keyed by* changes with it. `TextMeasureCache::compute_hash` mixes the text,
+the font NAME, the size and the spacing; the name is `DEFAULT_FONT` before and
+after, the sizes are the type scale, the strings are the same strings. So the
+cache goes on answering with measurements of a face that is no longer on
+screen, and it is not degraded — it is confidently wrong, at a 100% hit rate.
+
+It self-heals eventually and by accident: `end_frame` prunes entries older
+than `DEFAULT_MAX_AGE` (120 frames) every `DEFAULT_PRUNE_INTERVAL` (60), so a
+string that stops being asked for drops out in about two seconds. A string
+asked for every frame — every visible label — is refreshed on every access and
+`last_used_generation` never ages, so it never prunes. The entries that are
+wrong for longest are exactly the ones on screen.
+
+The library offers no invalidation finer than `clear()`, and no signal that
+the font manager's contents moved. There is no `FontManager` callback, no
+generation counter on the loaded font, and `load_font` returns void.
+
+**Why the obvious escapes do not work.**
+
+- **Use a different font NAME per face.** Then every widget in the app has to
+  be told which name to use, and `UIStylingDefaults::set_default_font` plus
+  every `with_font_name` call site becomes a switch on the reader's
+  preference. The whole point of loading into `DEFAULT_FONT` is that nothing
+  downstream has to know.
+- **Let the age-based prune handle it.** It is a two-second window for the
+  text nobody is looking at and an unbounded one for the text they are.
+- **Call `clear()` from the app.** This is what hanabi does now, and it is the
+  right call — but it only works because hanabi happens to know where the
+  singleton lives and that the swap happened. Any app that loads a font from
+  somewhere the settings screen does not own (a hot reload, a fallback face
+  for a missing glyph, a DPI change that reloads at another size) has the same
+  bug with nothing to hang the `clear()` on.
+- **Trust that nobody swaps a font at runtime.** An accessibility typeface
+  toggle is not exotic; it is the reason the feature exists.
+
+**The workaround, and its cost.** `src/util/text_epoch.h` — a generation
+counter hanabi bumps in `apply_pending_font`, plus a `tmc->clear()` for the
+library's own cache. Every hanabi memo of a measurement reads the counter and
+drops itself when it moves, and the check lives inside the shared cache TYPE
+(`src/util/text_cache.h`) rather than at the call sites, because a call site
+can forget. Four hanabi caches were stale before this: the transcript's
+per-message render memo, its hug memo, the sidebar's ellipsis memo and the
+line-count memo.
+
+The honest cost is small and worth stating: on hanabi's mock fixtures a live
+swap and a cold start in the other face produce frames 0.02% apart, and every
+one of those pixels is a relative-time label ticking between the two captures
+rather than a measurement. The bug is real, the current symptom is not
+visible, and it gets worse in exactly the direction every app moves — more
+measurement memoized, for longer.
+
+**Minimal upstream fix.** A generation counter on `FontManager`, bumped by
+`load_font`, and a `TextMeasureCache` that mixes it into the key or checks it
+on lookup. That is two integers and turns a silent wrong answer into a cold
+miss. Failing that, an `on_font_replaced` callback on `FontManager`, so an app
+can invalidate the caches it owns without having to notice the swap itself.
+
+CLASS: FOOTGUN
+
+---
+
+### #191 — `wrap_text` will tell you the LINES or nothing: no offsets, no count, so any consumer that needs less must reimplement the break rule
+
+**What was wanted.** Two questions a chat transcript asks constantly, neither
+of which needs the lines themselves:
+
+1. *How many lines is this paragraph at this width?* — to place the paragraph
+   after it. Filed as **#135**.
+2. *How wide is the widest of them?* — to hug a bubble to its text. Filed as
+   **#136**.
+
+**What happens.** `ui::wrap_text` returns `std::vector<std::string>`, and
+`detail::wrap_text_to_width` builds it by joining the runs of every line into
+a fresh string. There is no overload that returns a count, no overload that
+returns offsets into the input, and no way to hand in a sink. For (1) the
+caller takes `.size()` and drops the vector; for (2) it iterates the vector,
+measures each string, keeps a float, and drops the vector.
+
+Per word, the wrapper builds the candidate line TWICE — once as `candidate`
+for the accepted branch and once as `seg` inside `measure_candidate` — so a
+paragraph of N words costs 2N string constructions of average length N/2
+before the result vector exists at all. On hanabi's 120-message fixture,
+standing still, that was 61.8 wraps and ~3.2 KB of text per frame, and the
+whole output was one integer and one float per paragraph.
+
+This is #135 seen from one step further out. #135 asks for a counting
+overload; that alone would not have helped the hug, which needs the extent of
+each line. What is missing is any form of the answer smaller than "the lines".
+
+**Why the obvious escapes do not work.**
+
+- **`measure_text_wrapped`.** It calls `wrap_text_to_width` and then measures
+  each resulting line AGAIN (`detail::measure_wrapped`), so it is strictly
+  more work than doing it yourself, and its `WrappedTextMetrics` gives the
+  overall extent rather than the widest LINE — which for a hug is not the same
+  number when the last line is short.
+- **Reserve the vector, or move the strings out.** The allocation is not the
+  return value; it is the 2N candidates built inside the loop.
+- **Wrap once and cache the lines.** That is holding every wrapped line of
+  every message in memory to avoid rebuilding them, which trades the gap for
+  #136's memory problem.
+- **Reimplement it.** Which is what hanabi did — and it is the escape that
+  works, so the gap is about what it costs. `src/util/wrap_count.h` restates
+  the break rule over byte offsets: hard-newline split, space/non-space
+  chunking, greedy accept with the first word of a line taken unmeasured,
+  pending whitespace kept when the word fits and eaten by a break, trailing
+  whitespace kept on the last line of a source line. Every one of those is a
+  detail that can drift from upstream silently and only shows up as a message
+  clipped by one line.
+
+**The workaround, and its cost.** ~230 lines of counter plus a 200-line
+differential test that compares BOTH forms against
+`ui::detail::wrap_text_to_width` itself — 9,200 (string, width) pairs per
+metric for the count, 3,082 wraps compared line for line for the spans. The
+test is the whole safety story: the two implementations share no code, so
+nothing but a differential check can notice upstream changing a break rule.
+It has already earned it, catching two whitespace details during
+development (`span 0 is "a b" but the line is "a b "`).
+
+It bought: 474 → 5.6 text measurements per idle frame, 9,508 → 5,942
+allocations per frame, and 134 fewer allocations per bubble hug. Restating a
+vendored algorithm to get a cheaper form of its answer is a bad trade that
+was worth making.
+
+**Minimal upstream fix.** One more overload beside `wrap_text`, sharing the
+same loop so it cannot disagree:
+
+```cpp
+// Byte ranges of each wrapped line, into `text`. No allocation per line.
+void wrap_text_spans(const std::string& text, float max_width,
+                     const std::string& font, float size,
+                     std::vector<std::pair<size_t, size_t>>& out);
+```
+
+A count is then `out.size()` and #135 is closed too. Separately, and worth
+almost as much on its own: build the candidate once instead of twice inside
+`wrap_runs_to_width`.
+
+CLASS: PERFORMANCE
+
+---
+
+### #192 — `dump_ui` is fully implemented, is not registered, and reports itself as a typo
+
+**What was wanted.** To find which widget's width changed when the font
+changed — the geometry, not the pixels. `ui_commands.h` has exactly the right
+thing: `HandleDumpUICommand`, ~100 lines, walks the tree and emits XML with
+every element's debug name, rect and text, with optional subtree scoping.
+
+**What happens.** `register_ui_commands` does not register it. Sixteen other
+handlers in the same function are registered; this one is defined and never
+mentioned again. Its argument shape is also absent from the runner's
+`single_arg_commands` / `two_arg_commands` tables, so even if it were
+registered the parser would not hand it the name it requires.
+
+So a script containing `dump_ui` fails with:
+
+```
+[E2E ERROR] dump_ui (line 3): Unknown command: 'dump_ui'. Either a typo, or
+its handler was registered after register_unknown_handler()/
+register_all_handlers() -- custom handlers must come before those.
+```
+
+which is a message about the CONSUMER's registration order, for a command the
+consumer never had the chance to register. Everything in it is true and all of
+it points the wrong way: the reader checks their own `register_*` ordering,
+finds it correct, and concludes they mistyped a command that does not exist —
+when it does exist, in the file they are looking at.
+
+This is the same shape as #86 and #117 (a harness that cannot report where
+anything landed) with an extra turn of the knife: the capability is written,
+it works, and it is unreachable.
+
+**Why the obvious escapes do not work.**
+
+- **Register it from the app.** `HandleDumpUICommand` is public, so this is
+  possible — but the parser still will not give it an argument, so it fails on
+  `has_args(1)`. Both halves have to be worked around and one of them is
+  inside the runner's parse tables.
+- **`assert_ui <name> w=<wrong value>` and read the error.** This is what
+  hanabi does. It reports the real width in the failure message, so it is a
+  one-widget-at-a-time `dump_ui` that requires knowing the debug name in
+  advance and makes the script fail on purpose. Finding which of ~200 widgets
+  moved this way is not a search, it is a guess.
+- **Screenshot and diff.** Gives pixels, not names, and is exactly the tool
+  #86 already records as insufficient.
+
+**The workaround, and its cost.** None applied; the investigation was done
+with `assert_ui` probes against guessed names, and the question ("which
+widget's geometry depends on the face?") went unanswered. It is a detour of
+maybe forty minutes for anyone who reads `ui_commands.h`, sees the command,
+and believes it is available.
+
+**Minimal upstream fix.** Two lines: register the handler in
+`register_ui_commands`, and add `dump_ui` to the runner's arg-shape table
+(it takes a name and an optional subtree root, so it wants a one-or-two-arg
+entry). Separately, the unknown-command message should not assert a cause it
+cannot know — "no handler consumed 'dump_ui'" is both shorter and true.
+
+CLASS: TEDIOUS
