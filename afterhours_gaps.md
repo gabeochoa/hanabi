@@ -6266,3 +6266,175 @@ in release builds, and give `on_draw_fg` a non-owning callable overload — thos
 three fields are the per-widget allocation.
 
 CLASS: PERFORMANCE
+
+---
+
+### #145 — `begin_frame`/`end_frame` are two free calls, not a frame SCOPE, so the Metal objects the library autoreleases have nowhere to be drained and nothing says so
+
+**What was wanted.** A render loop that does not grow.
+
+**What happens.** `graphics::begin_frame()` reaches
+`backends/sokol/backend.h:391`, which calls `sg_begin_pass`. On Metal that
+returns a command buffer, a render-pass descriptor and its colour, depth and
+stencil attachment descriptors — six autoreleased Objective-C objects per
+frame, created **inside the library**, owned by nobody. In a Cocoa app the run
+loop's own pool drains every iteration. A render loop is not a run loop, so
+they stay live for the life of the process: measured over a 10,248-frame idle
+run, exactly one of each per frame, ~2.5 KB a frame, ~9 MB a minute, never
+returned. That is the whole of a shipped "it gets slower and slower every
+second until it freezes".
+
+The fix is four lines in the consumer (`src/util/autorelease.h`,
+`hanabi::AutoreleaseFrame`, opened at the top of every frame loop). The gap is
+that the library gives the consumer no place to put them and no reason to know
+they are needed:
+
+- `graphics_common.h:294` and `:309` are two independent free functions. There
+  is no `graphics::Frame` RAII object, no `on_frame_begin` / `on_frame_end`
+  hook, and no scope the library owns that a caller could hang a pool off. A
+  caller writes `begin_frame(); …; end_frame();` by hand, in as many loops as
+  it has — hanabi has eleven — and each one is a separate opportunity to
+  forget.
+- Nothing in the backend's own code, comments or headers mentions
+  autorelease. The Metal path was added without one and the library's own
+  examples do not have one either, so every consumer that renders on Apple
+  inherits the leak silently. Twenty projects vendor this.
+- The consumer cannot fix it where it belongs, because `vendor/afterhours` is
+  read-only.
+
+**Why the obvious escapes do not work.**
+
+- **Drain inside `end_frame`** — that is the right place and it is the library's
+  to write, not ours. A patch here is a patch to a submodule twenty projects
+  share.
+- **Wrap `sm.run()` instead of the whole frame** — the objects are created by
+  `begin_frame`, before `sm.run()` is reached, so a pool around the systems
+  drains nothing that matters.
+- **One pool for the whole loop** — a pool that is popped when the app exits is
+  the leak with extra steps.
+
+**The workaround, and its cost.** An RAII class in the consumer, opened as the
+first line of every frame loop, plus a source check
+(`scripts/check_autorelease.py`) whose entire job is to notice when someone
+deletes one — because a four-line RAII object with no callers and no return
+value reads as dead code in a diff. Writing the check found **two more loops
+that had never had a pool at all** (the frame-timing diagnostic and the
+scripted-UI loop, the latter running 85 test scripts). Eleven call sites, one
+runtime gate and one source gate, for something a scoped type in the library
+would have made unforgettable.
+
+**Minimal upstream fix.** Either (a) push and pop an autorelease pool inside
+`begin_frame`/`end_frame` on Apple platforms — two `objc_autoreleasePool*`
+calls, already in libobjc, no Objective-C++ translation unit needed — or (b)
+ship a `graphics::FrameScope` RAII type that brackets the pair, so the frame
+has a scope and the pool has an owner. (a) is four lines and fixes every
+consumer that already exists.
+
+CLASS: FOOTGUN
+
+---
+
+### #146 — Nothing reports the size of the tree the library just built, so "did this stay O(1) in the data?" has to be answered by walking an internal collection, and the answer counts survivors rather than work
+
+**What was wanted.** A gate that fails when the per-frame cost starts scaling
+with the size of the session list — the assertion that a virtualization fix,
+once made, stays made.
+
+**What happens.** The honest measurement is "how many widgets did this frame
+build", because frame time on a shared machine is not portable (the same binary
+read 8.27 ms on a quiet minute and 16.07 ms on a busy one, so a millisecond
+threshold is a coin flip; a ratio between two data sizes is not). The library
+exposes no such number. What hanabi does instead, in `src/main.cpp`, is:
+
+```cpp
+for (const auto& e :
+     afterhours::ui::UICollectionHolder::get().collection.get_entities())
+  if (e && e->has<afterhours::ui::UIComponent>()) ++widgets;
+```
+
+Three problems with that as an instrument:
+
+- It reaches through `UICollectionHolder::get().collection`, which is the
+  library's own storage. A consumer counting a library's internal container is
+  a consumer that breaks when the container changes.
+- It counts what the tree **is** at the end of the frame, not what was
+  **built** during it. A widget created and discarded inside the frame costs
+  real layout and real allocation and is invisible to this count.
+- It is a whole-tree number with no breakdown. 2985 widgets at a 2000-session
+  catalog against 348 at 20 says the frame scales with the data; it does not
+  say which subtree does, which is the first thing anyone wants next.
+
+**Why the obvious escapes do not work.**
+
+- **Time it instead** — that is the thing that is not portable, which is why
+  the count was wanted.
+- **Count by debug name** — `UIComponentDebug::name_value` exists and is how
+  the soak driver finds the scroll view (#147), but naming is per-call-site and
+  optional, so a count over names measures how diligently the app named things.
+- **Count ECS entities** — that is every entity in the world, UI or not; it
+  moved from 268 to 2993 across the same two catalog sizes and cannot separate
+  a widget from a data component.
+
+**The workaround, and its cost.** `scripts/scaling_gate.sh` gates the ratio of
+that survivor count between two catalog sizes (8.58x at 100x the data today, on
+five runs, with zero spread — it is at least perfectly repeatable). The cost is
+a gate that is one indirection away from the library's internals and blind to
+transient widgets.
+
+**Minimal upstream fix.** A per-frame counter on the UI context — widgets
+created, widgets laid out, widgets drawn — readable after `end_frame`. It is
+three increments in code that already runs, and it turns "is this O(1) in the
+data?" from an archaeology exercise into an assertion.
+
+CLASS: WORKAROUND
+
+---
+
+### #147 — A scroll view can only be driven from outside by finding its entity by DEBUG NAME, so the one input the bug report was about is reachable only through a string
+
+**What was wanted.** A soak arm that scrolls the sidebar, because the report was
+"open it, scroll the sidebar up and down until it breaks".
+
+**What happens.** There is no handle on a scroll view. The widget is rebuilt
+every frame and its state lives in a `HasScrollView` component on an entity
+whose id the caller never sees; `imm::` returns a wrapper valid for that frame
+only. So the driver (`src/util/soak.h`, `scroll_sidebar`) walks every entity in
+the world, looks for a `UIComponentDebug` whose `name_value` is
+`"sidebar_scroll"`, and writes `scroll_target` on it:
+
+```cpp
+for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
+  …
+  if (e.get<afterhours::ui::UIComponentDebug>().name_value != "sidebar_scroll")
+    continue;
+```
+
+The consequences are all the ones a string lookup has. Renaming a debug name —
+which is documentation, and reads as safe — silently turns the scroll arm into
+a second idle arm that passes forever. Compiling without debug names would do
+the same. The lookup is O(entities) and is done per frame. And it can only be
+written for a widget somebody remembered to name.
+
+**Why the obvious escapes do not work.**
+
+- **Inject a wheel event** — the injector is behind
+  `AFTER_HOURS_ENABLE_E2E_TESTING`, so it is absent from the binary a person
+  actually runs, which is the binary the bug report is about.
+- **Keep the entity id from the frame that built it** — the tree is cleared and
+  rebuilt every frame (#27); the id is stable only because `mk()` derives it,
+  and `mk()`'s inputs are private to the building code.
+- **Hold the `HasScrollView` reference** — same lifetime problem, one level
+  down.
+
+**The workaround, and its cost.** The name lookup above, plus a comment
+explaining why it is a name and not a handle, plus the standing risk that a
+rename disables a gate without failing anything. It is the reason the scroll
+soak arm is the one arm in `make soak` that cannot prove it is still driving
+anything.
+
+**Minimal upstream fix.** Have `imm::scroll_view` (and the other stateful
+widgets) return a stable, addressable handle the caller can keep — an id plus
+an accessor that resolves it against the current frame's collection — so an
+out-of-tree driver addresses a widget rather than searching for one.
+
+CLASS: WORKAROUND
