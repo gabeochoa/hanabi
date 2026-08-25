@@ -444,3 +444,31 @@ and a fix nobody can measure is the thing this branch exists to argue against.
 The harness's own `settle finished with no transcript loaded` warning did not
 fire in either log, so the frame-count settle is a *suspect with a motive*, not
 a diagnosis.
+
+---
+
+## Suite status on this branch
+
+`make test`: **19/19 unit**, **84/85 scripted**, launch gate **PASS**,
+transcript slope gate **PASS**, both source checks pass.
+
+The one scripted failure is `select_word_and_line`, and it is **not from this
+branch**. Proven rather than asserted: `git checkout 73f7613 -- src/ tests/`
+(the exact commit this branch was cut from, none of my changes present),
+rebuild, same solo invocation — **it fails there too**. It also fails on
+current `main`, which has since advanced past my branch point. Its symptom is
+the same one the flakes showed: `[TIMEOUT] expect_text` with only the sidebar
+painted, i.e. the restored tab's transcript never arrived.
+
+Two other scripted tests, `thinking_disclosure` and `tool_fold_persists`,
+failed one run at load ~28 and pass 10/10 at load 11 — see the section above
+for why I am confident those are flakes and not the fixture cache.
+
+**Final launch numbers on this branch**, ten consecutive headless runs at load
+average 23 (the gate reads best-of-six, so it sees the low end):
+
+    60 63 71 79 88 101 104 107 127 199   ms
+
+against a **249 ms** reading at the start of the night and a 250 ms budget. The
+spread is the machine, not the app — which is the whole reason the A/B in
+section 1 was run interleaved rather than as two batches.
