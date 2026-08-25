@@ -547,6 +547,8 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
 	@bash scripts/perf_transcript_slope.sh
+	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
+	@bash scripts/perf_text_gate.sh
 
 # `make test` = unit + e2e + scripted UI + perf (the full harness, one command).
 test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
@@ -557,6 +559,8 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
 	@bash scripts/perf_transcript_slope.sh
+	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
+	@bash scripts/perf_text_gate.sh
 	@$(MAKE) soak-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) scroll-gate
