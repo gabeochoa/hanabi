@@ -9,6 +9,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../../vendor/afterhours/src/core/base_component.h"
@@ -71,6 +72,25 @@ enum class ArrowIntent {
     Transcript,
     List,
 };
+
+// The `collapsedFolders` sentinel under which a group's "Show N more" opt-in
+// is recorded. Presence = the user asked for the whole list.
+//
+// It lives next to the set it is a key of, and not in the sidebar that builds
+// it, because two things now write it: the sidebar's expander row, and the
+// stress driver's `scrollall` scenario, which exists precisely to measure what
+// that expander costs. A second spelling of the same string in the driver
+// would be a scenario that silently stops expanding anything the day the
+// sentinel changes -- the failure #147 describes, one field over.
+//
+// Written into a caller-owned buffer rather than returned by value: the
+// sidebar asks this on the render path of every frame, and a std::set lookup
+// that allocates its key first is a malloc per frame for a string that is the
+// same string it was last frame.
+inline const std::string& more_key(std::string_view key, std::string& scratch) {
+    scratch.assign("__more_").append(key).append("__");
+    return scratch;
+}
 
 // Singleton: owns the API client and the whole app's data + view state.
 struct AppComponent : public afterhours::BaseComponent {

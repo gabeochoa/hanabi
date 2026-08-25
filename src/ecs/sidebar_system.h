@@ -2257,15 +2257,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return is_named_folder(s.folder) ? s.folder : std::string("recent");
     }
 
-    // The collapsedFolders sentinel under which a group's "Show N more" opt-in
-    // is recorded. Written into a caller-owned buffer rather than returned by
-    // value: this is asked on the render path of every frame and a std::set
-    // lookup that allocates its own key first is a malloc per frame for a
-    // string that is the same string it was last frame.
     static const std::string& more_key(const std::string& key,
                                        std::string& scratch) {
-        scratch.assign("__more_").append(key).append("__");
-        return scratch;
+        return ecs::more_key(key, scratch);
     }
 
     // How many of a group's `total` members will actually be rendered.
