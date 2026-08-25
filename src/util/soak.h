@@ -42,6 +42,7 @@
 #include <mach/mach.h>
 #include <malloc/malloc.h>
 
+#include "heap_walk.h"
 #include "prof.h"
 #include "trend.h"
 #include "../../vendor/afterhours/src/core/entity_helper.h"
@@ -118,34 +119,27 @@ inline bool scroll_named(const char* debugName, float dy) {
 
 inline void scroll_sidebar(float dy) { (void)scroll_named("sidebar_scroll", dy); }
 
-// Live allocation count and bytes, from the malloc zones themselves.
+// Live allocation count and bytes.
 //
 // RSS alone cannot tell a leak from a cache that grew once and settled, and it
-// moves in page-sized steps that lag the allocation by a long way. The zone's
-// own in-use count moves the instant something is not freed, and the BLOCK
-// COUNT next to the byte total says how big the leaked thing is -- which is
-// most of the way to finding it.
+// moves in page-sized steps that lag the allocation by a long way. The block
+// COUNT next to the byte total moves the instant something is not freed, and
+// says how big the leaked thing is -- which is most of the way to finding it.
+//
+// The count is a WALK of the zones, not the zones' own tally: the tally drifts
+// by a thousand blocks over a run on which nothing was allocated, and cost
+// scroll_gate.sh a one-in-five red before anyone read it. src/util/heap_walk.h
+// has the two runs side by side. `approx` is that tally, kept as a
+// report-only column so the divergence stays visible.
 struct HeapStat {
     unsigned count = 0;
     size_t bytes = 0;
+    unsigned approx = 0;
 };
 
 inline HeapStat heap_in_use() {
-    HeapStat out;
-    vm_address_t* zones = nullptr;
-    unsigned n = 0;
-    if (malloc_get_all_zones(mach_task_self(), nullptr, &zones, &n) !=
-        KERN_SUCCESS)
-        return out;
-    for (unsigned i = 0; i < n; ++i) {
-        auto* z = reinterpret_cast<malloc_zone_t*>(zones[i]);
-        if (z == nullptr || z->introspect == nullptr) continue;
-        malloc_statistics_t st{};
-        malloc_zone_statistics(z, &st);
-        out.count += st.blocks_in_use;
-        out.bytes += st.size_in_use;
-    }
-    return out;
+    const hanabi::heapwalk::Live l = hanabi::heapwalk::live();
+    return HeapStat{l.count, l.bytes, l.approxCount};
 }
 
 // The entity count, broken down by the widget that made them.
@@ -257,10 +251,13 @@ struct Sample {
 inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
                    long rss, size_t ents) {
     const HeapStat h = heap_in_use();
+    hanabi::heapwalk::dump_sizes(frame);
     out.push_back(Sample{frame, ms, cpuMs, rss, ents, h});
     std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
-                "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB\n",
-                frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024);
+                "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB  "
+                "(zone tally %u)\n",
+                frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024,
+                h.approx);
     std::fflush(stdout);
 }
 
