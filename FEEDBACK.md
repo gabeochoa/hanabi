@@ -123,6 +123,20 @@ Scrub the transcript by dragging the minimap, not just clicking it. Note gap
 rebuilds marks per frame is the expensive shape — build the interaction so it
 does not.
 
+
+## C7. Mouse wheel must scroll a thread — IN PROGRESS
+
+His words, 2026-08-26: *"can you make sure that scrolling with the scroll wheel
+works in threads, i would love that feature"*.
+
+Something is already there — `src/main.cpp:401` documents an eased wheel glide,
+and `main_pane_system.h` twice refers to "what every wheel scroll here already
+does". So this is a debugging task, not a new feature. Prime suspect: the
+transcript's follow-latch re-pinning to the end on the frame after a wheel
+event, which would make the wheel look dead while working perfectly.
+
+On `feat/transcript-wheel`.
+
 ---
 
 # D. Audits he asked for
