@@ -8190,49 +8190,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static constexpr float kEventRowH = 20.0f;
     static constexpr float kEventRowGap = 4.0f;
-    static constexpr float kEventChipW = 62.0f;
 
     static float event_row_height() {
         return kEventRowH + 2.0f * kEventRowGap;
     }
 
+    // The class word in its own colour, then the fact in the body colour, as
+    // ONE label. `with_styled_label` takes coloured runs and sets the label to
+    // their concatenation, so the row measures, aligns and overflows like any
+    // other label -- a two-child row with a fixed-width first column would
+    // have to guess that width in pixels and would drift with the font.
+    static std::vector<afterhours::ui::TextSpan> event_spans(
+        const api::Message& m) {
+        const EventStyle st = event_style(m);
+        return {{std::string(st.word) + "   ", st.tint},
+                {fmtutil::ellipsize(event_line(m), 110),
+                 theme::text_secondary()}};
+    }
+
     void render_event_row(UIContext<InputAction>& ctx, Entity& parent,
                           int index, const api::Message& m, float colW) {
-        const EventStyle st = event_style(m);
-        auto row = div(ctx, mk(parent, 3600 + index * 10),
+        div(ctx, mk(parent, 3600 + index * 10),
             ComponentConfig{}
+                .with_styled_label(event_spans(m))
                 .with_size(ComponentSize{pixels(colW), pixels(kEventRowH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
                 .with_margin(Margin{.top = pixels(kEventRowGap),
                                     .bottom = pixels(kEventRowGap)})
                 .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("event_row"));
-
-        div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_label(st.word)
-                .with_size(ComponentSize{pixels(kEventChipW), pixels(kEventRowH)})
-                .with_transparent_bg()
-                .with_custom_text_color(st.tint)
-                .with_font_size(theme::type::XS)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("event_word"));
-
-        div(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
-                .with_label(fmtutil::ellipsize(event_line(m), 110))
-                .with_size(ComponentSize{pixels(colW - kEventChipW),
-                                         pixels(kEventRowH)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("event_text"));
+                .with_debug_name("event_row"));
     }
 
     // A delivery has a BODY — a child's settlement, a peer session's message,
@@ -8303,22 +8291,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
-                .with_label(st.word)
-                .with_size(ComponentSize{pixels(kEventChipW), pixels(18)})
+                .with_styled_label(
+                    {{std::string(st.word) + "   ", st.tint},
+                     {fmtutil::ellipsize(delivery_head(m), 90),
+                      theme::text_secondary()}})
+                .with_size(ComponentSize{pixels(colW - 14.0f), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(st.tint)
-                .with_font_size(theme::type::XS)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("delivery_word"));
-
-        div(ctx, mk(head.ent(), 3),
-            ComponentConfig{}
-                .with_label(fmtutil::ellipsize(delivery_head(m), 90))
-                .with_size(ComponentSize{pixels(colW - kEventChipW - 14.0f),
-                                         pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
