@@ -17,6 +17,68 @@
 # never leaves a stray process.
 set -uo pipefail
 
+# ---- Is the 1-minute load average above the ceiling? -------------------------
+# Compared in HUNDREDTHS, and that is the whole point of the function.
+#
+# This used to be `LOAD1_INT=${LOAD1%%.*}` and `[ "$LOAD1_INT" -gt "$LOAD_CEILING" ]`,
+# which threw the fraction away and made the escape hatch documented below a
+# lie in exactly the case someone reaches for it: with HANABI_LOAD_CEILING=0
+# ("never judges") on a quiet box at load 0.5, the truncation gave 0, `0 -gt 0`
+# is false, and the latency verdict was ENFORCED. A threshold guard that
+# truncates its own input is a guard with a hole the width of one unit.
+#
+# Integer hundredths rather than a float compare so the arithmetic stays in the
+# shell and the ceiling may still be given as a plain integer. A ceiling with a
+# fraction (HANABI_LOAD_CEILING=0.5) works too. A load that could not be parsed
+# reads as 0, which withholds nothing — the old behaviour.
+hundredths() {
+    case "${1:-}" in
+        ''|*[!0-9.]*) echo 0; return;;
+    esac
+    local whole="${1%%.*}" frac="0"
+    case "$1" in *.*) frac="${1#*.}";; esac
+    frac="${frac}00"
+    frac="${frac:0:2}"
+    echo $(( ${whole:-0} * 100 + 10#$frac ))
+}
+load_exceeds() { [ "$(hundredths "$1")" -gt "$(hundredths "$2")" ]; }
+
+# `scripts/measure_launch.sh --selftest` exercises that comparison against the
+# cases the truncating version got wrong, and needs no binary and no GPU. Run
+# by `make source-checks`, the same way scripts/compare.py --selftest is.
+if [ "${1:-}" = "--selftest" ]; then
+    rc=0
+    check() {  # check <load> <ceiling> <expect: exceeds|within>
+        local got=within
+        load_exceeds "$1" "$2" && got=exceeds
+        if [ "$got" = "$3" ]; then
+            echo "  ok    load $1 vs ceiling $2 -> $got"
+        else
+            echo "  FAIL  load $1 vs ceiling $2 -> $got (want $3)" >&2
+            rc=1
+        fi
+    }
+    echo "measure_launch --selftest: the load-ceiling comparison"
+    # The bug: a fractional load under a ceiling of 0 must still WITHHOLD,
+    # because 0 is documented as "never judges".
+    check 0.5 0 exceeds
+    check 0.04 0 exceeds
+    check 0 0 within
+    check 0.0 0 within
+    # The other documented end: 99999 always judges, whatever the box is doing.
+    check 147.25 99999 within
+    # And the ordinary case the gate is actually for, on both sides of it.
+    check 20.4 20 exceeds
+    check 19.99 20 within
+    check 20 20 within
+    # A ceiling given with a fraction, and an unparseable load.
+    check 0.6 0.5 exceeds
+    check 0.4 0.5 within
+    check "" 0 within
+    [ "$rc" -eq 0 ] && echo "measure_launch --selftest: PASS"
+    exit "$rc"
+fi
+
 # ---- TUNABLE THRESHOLDS (project hard budgets; tighten as it gets faster) ----
 STARTUP_CEILING_MS=250   # Phase P: cold launch to first frame < 250 ms
 RSS_CEILING_MB=250       # Phase X: peak RSS < 250 MB
@@ -145,13 +207,11 @@ echo "  Gate: ${LAUNCH_METRIC} < ${STARTUP_CEILING_MS} ms, RSS < ${RSS_CEILING_M
 # are load-insensitive, so a leak or a crash is still caught here.
 NCPU=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
 LOAD1=$(uptime | sed -nE 's/.*load averages?: ([0-9]+([.,][0-9]+)?).*/\1/p' | tr ',' '.')
-LOAD1_INT=${LOAD1%%.*}
-[ -n "$LOAD1_INT" ] || LOAD1_INT=0
 # Overridable so CI can demand a strict verdict on a machine it controls
 # (HANABI_LOAD_CEILING=99999 always judges; 0 never does).
 LOAD_CEILING=${HANABI_LOAD_CEILING:-$(( NCPU * 2 ))}
 LATENCY_GATED=1
-if [ "$LOAD1_INT" -gt "$LOAD_CEILING" ]; then
+if load_exceeds "$LOAD1" "$LOAD_CEILING"; then
     LATENCY_GATED=0
     echo "  NOTE: load ${LOAD1} on ${NCPU} cores exceeds ${LOAD_CEILING};"
     echo "        latency is unmeasurable here, so the ${LAUNCH_METRIC} verdict is"

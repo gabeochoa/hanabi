@@ -787,6 +787,7 @@ source-checks:
 	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
 	done; \
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
+	if bash scripts/measure_launch.sh --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate scroll-gate \
