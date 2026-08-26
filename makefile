@@ -789,7 +789,7 @@ source-checks:
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
-.PHONY: test unit-e2e e2e perf test-real soak soak-gate scaling-gate scroll-gate \
+.PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate scroll-gate \
 	retire-gate alloc-gate source-checks soak-report soak-baseline stress stress-break gate-audit
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
@@ -802,6 +802,24 @@ test-real:
 	@$(MAKE) HANABI_TLS=1 $(TEST_DIR)/test_real
 	@echo "Running read-only real-backend smoke (test_real)..."
 	@$(TEST_DIR)/test_real
+
+# A LIVE agentcloud session, end to end -- the check the mock cannot be.
+# Reads a real transcript through the real socket and, with
+# HANABI_AC_PROBE_SEND=1, sends ONE turn and asserts the reply is the agent's
+# answer and nothing else (see the file header; this is the A1 regression).
+# Self-skips without HANABI_AC_* and HANABI_AC_PROBE_SESSION, so it is not in
+# `make test`. Endpoints come from .env, which is gitignored.
+#     HANABI_AC_PROBE_SESSION=<id> make test-agentcloud-real
+#     HANABI_AC_PROBE_SESSION=<id> HANABI_AC_PROBE_SEND=1 make test-agentcloud-real
+$(TEST_DIR)/test_agentcloud_real: tests/e2e/test_agentcloud_real.cpp src/api/agentcloud_auth.cpp src/api/agentcloud_client.cpp src/ws_socket.mm $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_agentcloud_real..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
+	    -framework Foundation -framework CFNetwork -o $@
+
+test-agentcloud-real: $(TEST_DIR)/test_agentcloud_real
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	echo "Running live agentcloud round-trip (test_agentcloud_real)..."; \
+	$(TEST_DIR)/test_agentcloud_real
 
 count:
 	git ls-files | grep "src" | grep -v "resources" | grep -v "vendor" | xargs wc -l | sort -rn

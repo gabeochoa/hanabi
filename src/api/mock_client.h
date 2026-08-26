@@ -502,6 +502,21 @@ class MockClient : public Client {
     // Convenience: days-ago in the same now-based frame.
     static int64_t days_ago(int64_t d) { return hrs_ago(d * 24); }
 
+    // A transcript row that is an EVENT rather than speech. Not an aggregate
+    // literal like the messages above: EventKind sits last in Message (so the
+    // literals keep meaning what they meant), and the fields these rows use
+    // are the label and the body, not the author.
+    static Message event_row(EventKind kind, std::string label,
+                             std::string body, int64_t at) {
+        Message m;
+        m.role = Role::System;
+        m.kind = kind;
+        m.subtitle = std::move(label);
+        m.text = std::move(body);
+        m.created_at = at;
+        return m;
+    }
+
     // Local noon today. A fixture that wants messages on distinct CALENDAR
     // days cannot subtract 86400 from "now": run at 00:30 and "a day ago" is
     // still yesterday evening, but run at 23:30 and two stamps 25 hours apart
@@ -1070,6 +1085,33 @@ class MockClient : public Client {
                  "needed a rollback.",
                  mins_ago(24), ""},
             };
+            // The event classes a real session emits and this thread is the
+            // mock's sample of: a node, a skill, a spawn, a delivery, a
+            // status. Built field-by-field rather than as literals because
+            // EventKind is the LAST member of Message and these rows are
+            // about the kind, not the author.
+            s.messages.push_back(
+                event_row(EventKind::Node, "od-4471.quota", "attached",
+                          mins_ago(39)));
+            s.messages.push_back(
+                event_row(EventKind::Skill, "presto-query", "platform",
+                          mins_ago(38)));
+            api::Message spawned =
+                event_row(EventKind::SubAgent, "tenant class 4 dry-run",
+                          "Shadow class 4 against the new quota service for "
+                          "an hour and report the divergences",
+                          mins_ago(36));
+            spawned.tool_status = "completed";
+            s.messages.push_back(std::move(spawned));
+            s.messages.push_back(
+                event_row(EventKind::Delivery, "child",
+                          "child session settled: completed\n\nNo divergences "
+                          "over 61 minutes and 1.2M requests. Class 4 is safe "
+                          "to cut over in week five.",
+                          mins_ago(28)));
+            s.messages.push_back(
+                event_row(EventKind::Status, "working",
+                          "shadowing class 3", mins_ago(26)));
             v.push_back(std::move(s));
         }
         {

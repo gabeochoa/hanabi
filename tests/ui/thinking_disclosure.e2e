@@ -23,3 +23,8 @@ click_ui thinking_head
 wait_frames 8
 expect_no_text "The backoff doubles from 200ms"
 expect_text "The budget is per-request"
+
+# The row says how MUCH reasoning it is folding. The label was the constant
+# "Thought for a moment" above four lines and above four hundred alike, which
+# is the one thing a reader deciding whether to open it cannot use.
+expect_text "words"

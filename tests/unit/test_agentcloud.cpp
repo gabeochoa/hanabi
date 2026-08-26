@@ -8,9 +8,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
+#include "../../vendor/nlohmann/json.hpp"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                 \
@@ -492,6 +494,206 @@ static void test_block_delta_append_is_a_true_increment() {
     CHECK(classify_live_frame(weird).kind == LF::Kind::Ignore);
 }
 
+// The five event classes the transcript could not represent, in the shapes a
+// real session emits them (captured from be9a28d7 and 144601bb, 2026-08-26).
+static const char* const kEventClassPage = R"({"type":"page","frames":[
+  {"seq":3,"created_at_unix_ms":1787710982169,
+   "event":{"type":"node_granted","grant_id":"g-1","node_id":"mac-GRQ7Y259H4",
+            "granted_by":"be9a28d7"}},
+  {"seq":9,"created_at_unix_ms":1787710985000,
+   "event":{"type":"node_attached","node_id":"mac-GRQ7Y259H4"}},
+  {"seq":14,"created_at_unix_ms":1787710990000,
+   "event":{"type":"skill_invoked","name":"meta-cli","source":"platform",
+            "content":"# Meta CLI Quick Reference\n…"}},
+  {"seq":21,"created_at_unix_ms":1787711000000,
+   "event":{"type":"child_spawn_intended","child":"ff0c19ed",
+            "prompt":"You are working on hanabi…"}},
+  {"seq":22,"created_at_unix_ms":1787711000500,
+   "event":{"type":"child_spawned","child":"ff0c19ed",
+            "title":"vis: tab strip, reopened","harness":"native"}},
+  {"seq":40,"created_at_unix_ms":1787711400000,
+   "event":{"type":"child_spawn_settled","intent":21,
+            "outcome":{"outcome":"completed"}}},
+  {"seq":41,"created_at_unix_ms":1787711401000,
+   "event":{"type":"subscription_delivered","subscription":3916,
+            "key":{"kind":"child","child":"ff0c19ed","run_seq":80511},
+            "body":"child session ff0c19ed settled: completed"}},
+  {"seq":50,"created_at_unix_ms":1787711500000,
+   "event":{"type":"message_enqueued","message_id":"m-1","to":"96b16ae2",
+            "body":"git stash is per-REPOSITORY, not per-worktree."}},
+  {"seq":51,"created_at_unix_ms":1787711500500,
+   "event":{"type":"message_delivered","intent":50,
+            "outcome":{"outcome":"delivered"}}},
+  {"seq":60,"created_at_unix_ms":1787711600000,
+   "event":{"type":"notice","kind":"refusal","message":"the model declined"}},
+  {"seq":61,"created_at_unix_ms":1787711601000,
+   "event":{"type":"status_reported","state":"working",
+            "headline":"reading the transcript renderer"}},
+  {"seq":70,"created_at_unix_ms":1787711700000,
+   "event":{"type":"node_detached","node_id":"mac-GRQ7Y259H4"}}
+]})";
+
+static const api::Message* row_of(const std::vector<api::Message>& rows,
+                                  api::EventKind kind, const std::string& label) {
+    for (const auto& m : rows)
+        if (m.kind == kind && m.subtitle == label) return &m;
+    return nullptr;
+}
+
+static void test_every_event_class_gets_a_row() {
+    // "you are missing thinking and deliveries" / "you are missing subagents"
+    // / "you are missing nodes" / "you are missing skills". All one cause:
+    // an event that was not one of four ROLES had nowhere to land, so the
+    // fold dropped it and the reader saw a gap.
+    const auto rows = parse_page_frames(kEventClassPage);
+
+    CHECK(row_of(rows, api::EventKind::Node, "mac-GRQ7Y259H4") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Skill, "meta-cli") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Notice, "refusal") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Status, "working") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Delivery, "child") != nullptr);
+
+    // A node row says WHICH node and WHAT happened to it -- three node events
+    // that all read "node" would be no better than dropping two of them.
+    int node_rows = 0;
+    std::string verbs;
+    for (const auto& m : rows)
+        if (m.kind == api::EventKind::Node) { ++node_rows; verbs += m.text + " "; }
+    CHECK(node_rows == 3);
+    CHECK(verbs == "granted attached detached ");
+
+    // An event row is not authored by anybody, and must never render as one.
+    for (const auto& m : rows)
+        if (m.kind != api::EventKind::Text && m.kind != api::EventKind::Thinking &&
+            m.kind != api::EventKind::ToolCall)
+            CHECK(m.role == Role::System);
+}
+
+static void test_a_spawn_row_learns_its_title_and_its_outcome() {
+    // Three events, one row: the intent carries the prompt, `child_spawned`
+    // the title (the only human-readable name a spawn gets), and the
+    // settlement the outcome -- each arriving later than the last.
+    const auto rows = parse_page_frames(kEventClassPage);
+    const api::Message* spawn =
+        row_of(rows, api::EventKind::SubAgent, "vis: tab strip, reopened");
+    CHECK(spawn != nullptr);
+    if (spawn == nullptr) return;
+    CHECK(spawn->tool_status == "completed");
+    CHECK(spawn->text == "You are working on hanabi…");
+    // One row, not three.
+    int spawn_rows = 0;
+    for (const auto& m : rows)
+        if (m.kind == api::EventKind::SubAgent) ++spawn_rows;
+    CHECK(spawn_rows == 1);
+}
+
+static void test_an_outbound_message_carries_its_receipt() {
+    // message_enqueued is this session speaking to another; the delivery
+    // receipt lands later and names the enqueue's seq, exactly as a tool
+    // result names its intent.
+    const auto rows = parse_page_frames(kEventClassPage);
+    const api::Message* sent =
+        row_of(rows, api::EventKind::Delivery, "to 96b16ae2");
+    CHECK(sent != nullptr);
+    if (sent != nullptr) CHECK(sent->tool_status == "delivered");
+}
+
+// Every frame below is the shape a real turn puts on the wire, taken from a
+// capture of one (session 69167c25, 2026-08-26): a thinking block and a
+// tool_use block stream through the SAME `block_delta{append}` frames the
+// reply does, and only the `start` says which is which.
+static const char* const kRealTurnFrames[] = {
+    R"({"type":"frame","frame":"delta","seq":135,"event":{"type":"model_call_started","call":128}})",
+    R"({"type":"frame","frame":"delta","seq":136,"event":{"type":"block_delta","run":7,"call":128,"index":0,
+        "delta":{"delta":"start","kind":{"kind":"thinking"}}}})",
+    R"({"type":"frame","frame":"delta","seq":137,"event":{"type":"block_delta","run":7,"call":128,"index":0,
+        "delta":{"delta":"append","text":"I shouldn't reuse any existing nodes"}}})",
+    R"({"type":"frame","frame":"durable","seq":152,"event":{"type":"block","run":7,"call":128,"index":0,
+        "block":{"kind":"thinking","text":"I shouldn't reuse any existing nodes"}}})",
+    R"({"type":"frame","frame":"delta","seq":154,"event":{"type":"block_delta","run":7,"call":128,"index":1,
+        "delta":{"delta":"start","kind":{"kind":"tool_use","call_id":"toolu_1","tool":"step"}}}})",
+    R"({"type":"frame","frame":"delta","seq":156,"event":{"type":"block_delta","run":7,"call":128,"index":1,
+        "delta":{"delta":"append","text":"{\"text\": \"Probing\"}"}}})",
+    R"({"type":"frame","frame":"durable","seq":164,"event":{"type":"block","run":7,"call":128,"index":1,
+        "block":{"kind":"tool_use","call_id":"toolu_1","tool":"step","input":"{\"text\": \"Probing\"}"}}})",
+    R"({"type":"frame","frame":"durable","seq":180,"event":{"type":"tool_intent","call_id":"toolu_1","tool":"step"}})",
+    R"({"type":"frame","frame":"delta","seq":190,"event":{"type":"block_delta","run":7,"call":128,"index":2,
+        "delta":{"delta":"start","kind":{"kind":"text"}}}})",
+    R"({"type":"frame","frame":"delta","seq":191,"event":{"type":"block_delta","run":7,"call":128,"index":2,
+        "delta":{"delta":"append","text":"PONG-A1"}}})",
+    R"({"type":"frame","frame":"durable","seq":192,"event":{"type":"block","run":7,"call":128,"index":2,
+        "block":{"kind":"text","text":"PONG-A1"}}})",
+    R"({"type":"frame","frame":"durable","seq":200,"event":{"type":"run_finished","run":7,
+        "outcome":{"outcome":"completed"}}})",
+};
+
+static void test_a_live_turn_is_only_what_the_agent_said() {
+    // A1. Reply text, reasoning and the JSON argument object of a tool call
+    // all arrive as block_delta appends carrying nothing but `index` and
+    // `text`. Streaming every append as reply text concatenated all three
+    // into one bubble: against the real session above, the reply came back
+    //     {"text": "Probing"}PONG-A1
+    // and in a turn with real reasoning and a dozen tool rounds the answer is
+    // a fragment buried in a wall of JSON -- "i cant see your messages to me".
+    api::StreamSink sink;
+    std::string streamed;
+    int thinking_events = 0, tool_events = 0;
+    sink.on_delta = [&](const std::string& d) { streamed += d; };
+    sink.on_event = [&](const api::StreamEvent& e) {
+        if (e.kind == api::StreamEventKind::Thinking) ++thinking_events;
+        if (e.kind == api::StreamEventKind::ToolCall) ++tool_events;
+    };
+
+    api::agentcloud::LiveTurn turn;
+    bool finished = false;
+    for (const char* f : kRealTurnFrames) {
+        if (!turn.feed(nlohmann::json::parse(f, nullptr, false), sink)) {
+            finished = true;
+            break;
+        }
+    }
+    CHECK(finished);
+    CHECK(turn.assembled().text == "PONG-A1");
+    CHECK(streamed == "PONG-A1");
+    // Reasoning and the call are still REPORTED -- they are just not the reply.
+    CHECK(thinking_events >= 1);
+    CHECK(tool_events == 1);
+}
+
+static void test_an_unattributed_increment_is_still_shown() {
+    // Attaching mid-block means the `start` that named the kind is already
+    // past. Dropping the append would lose real reply text, so an increment
+    // this build cannot attribute is text -- the same reading the stateless
+    // classifier has always taken.
+    api::agentcloud::LiveBlocks blocks;
+    const std::string app =
+        R"({"type":"frame","frame":"delta","event":{"type":"block_delta","index":4,
+            "delta":{"delta":"append","text":"orphan"}}})";
+    const LF lf = classify_live_frame_parsed(
+        nlohmann::json::parse(app, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::TextAppend);
+    CHECK(lf.payload == "orphan");
+}
+
+static void test_block_indices_restart_with_each_model_call() {
+    // Indices are per model call. Without the reset, call N+1's index 0 --
+    // its reply -- inherits call N's index 0, which is usually reasoning.
+    api::agentcloud::LiveBlocks blocks;
+    const auto feed = [&](const std::string& s) {
+        return classify_live_frame_parsed(nlohmann::json::parse(s, nullptr, false),
+                                          blocks);
+    };
+    feed(R"({"type":"frame","event":{"type":"block_delta","index":0,
+             "delta":{"delta":"start","kind":{"kind":"thinking"}}}})");
+    CHECK(feed(R"({"type":"frame","event":{"type":"block_delta","index":0,
+                  "delta":{"delta":"append","text":"x"}}})")
+              .kind == LF::Kind::ThinkingAppend);
+    feed(R"({"type":"frame","event":{"type":"model_call_started","call":2}})");
+    CHECK(feed(R"({"type":"frame","event":{"type":"block_delta","index":0,
+                  "delta":{"delta":"append","text":"x"}}})")
+              .kind == LF::Kind::TextAppend);
+}
+
 static void test_the_parsed_frame_overload_is_what_the_socket_uses() {
     // The websocket receive loop parses each frame to read its "type", then
     // classifies it. It used to hand the CLASSIFIER a msg.dump() of the object
@@ -681,6 +883,12 @@ int main() {
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();
+    test_every_event_class_gets_a_row();
+    test_a_spawn_row_learns_its_title_and_its_outcome();
+    test_an_outbound_message_carries_its_receipt();
+    test_a_live_turn_is_only_what_the_agent_said();
+    test_an_unattributed_increment_is_still_shown();
+    test_block_indices_restart_with_each_model_call();
     test_the_parsed_frame_overload_is_what_the_socket_uses();
     test_settled_block_does_not_reprint_streamed_text();
     test_attach_greeting_carries_budget_and_occupancy();

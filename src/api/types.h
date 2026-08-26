@@ -22,6 +22,54 @@ enum class Role {
     Tool,
 };
 
+// WHAT a transcript row is, as distinct from WHO authored it (Role).
+//
+// A session emits far more than four authors' worth of things. The wire's own
+// vocabulary is ~90 event types (agentcloud's `SessionEvent`), and the ones a
+// reader needs are not all speech: a skill being loaded, a node being
+// attached, a child session being spawned and settling, a delivery the
+// platform made into this session. With Role as the only axis, every one of
+// them had to be somebody TALKING or be dropped, and they were dropped —
+// "you are missing thinking and deliveries", "you are missing subagents",
+// "you are missing nodes", "you are missing skills", all one root cause.
+//
+// Role stays what it is: the author, for the rows that have one. This says
+// what the row IS, and the renderer keys its treatment off it. They are
+// deliberately two fields — a Delivery is authored by the platform and a
+// SubAgent row by the agent, and collapsing that into one enum would force
+// every switch over Role (author label, bubble colour, tool piling, the find
+// index) to grow cases for things that are not authors.
+//
+// APPEND-ONLY, same reason as ThreadState: these are persisted to the on-disk
+// transcript cache as their integer values.
+enum class EventKind {
+    // Somebody said something: the row's text is the message. Role says who.
+    Text,
+    // The model's reasoning. Not the answer, and never presented as one.
+    Thinking,
+    // A tool call (Role::Tool). Its result folds back into the same row.
+    ToolCall,
+    // A child session this thread spawned, and how it ended.
+    SubAgent,
+    // A worker node attached, detached, granted or released.
+    Node,
+    // A skill loaded into the session.
+    Skill,
+    // Something the PLATFORM put into this session rather than the human: a
+    // child's settlement, a peer session's message, a subscription firing.
+    // Its own kind because a delivery reads as the user talking otherwise,
+    // and it is not the user — nobody typed it.
+    Delivery,
+    // A server notice, and the agent's own status testimony.
+    Notice,
+    Status,
+    // A durable event whose `type` this build does not know. Drawn as a muted
+    // one-liner naming the wire tag rather than dropped, because a reader who
+    // can see "this build cannot draw a X" can say so, and a reader looking
+    // at a gap cannot.
+    Unsupported,
+};
+
 // High-signal attention state of a thread. This is the single notion the UI
 // uses to decide whether a row shouts (dot + bold) or stays calm. It is
 // deliberately backend-agnostic: an adapter maps whatever a real service
@@ -163,6 +211,11 @@ struct Message {
     // the divider prints the word the server said, so an outcome this build
     // predates still reads instead of rendering as "unknown".
     std::string run_outcome;
+
+    // What this row IS (see EventKind). LAST, and defaulted, because the mock
+    // builds Messages by aggregate initialization — a member inserted above
+    // this line silently reinterprets every one of those literals.
+    EventKind kind = EventKind::Text;
 };
 
 // Lightweight summary of a session for the list view.

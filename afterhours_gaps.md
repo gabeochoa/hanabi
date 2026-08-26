@@ -9087,3 +9087,138 @@ consumer aligning anything to a label actually needs, and it is the same
 primitive #191 asks for on measurement.
 
 CLASS: FOOTGUN
+
+---
+
+---
+
+### #240 — NOT A GAP: coloured runs are first-class (`with_styled_label`), so a two-colour row is ONE widget and needs no hand-sized column
+
+Filed as a negative result, and filed because this session got it wrong first
+and the wrong version very nearly shipped.
+
+**What was wanted.** The transcript grew rows that are not speech — a skill
+loading, a node attaching, a delivery, a status report. Each wants a class word
+in its own colour followed by the fact in the body colour:
+
+```
+node     attached  od-4471.quota
+skill    presto-query
+```
+
+**What the obvious reading of the API says.** `with_label` takes one
+`std::string` and `with_custom_text_color` takes one `Color`. One label, one
+colour. So the shape that suggests itself is a Row div with two children — a
+chip and a line — and the chip needs a WIDTH, which nothing hugs (#136), so it
+becomes a constant:
+
+```cpp
+static constexpr float kEventChipW = 62.0f;   // guessed, drifts with the font
+```
+
+Three entities per row instead of one (#138 prices a widget at ~4.6 heap
+allocations per frame), a magic number that is wrong at any other font size,
+and a second child sized `colW - kEventChipW` that has to be kept in step by
+hand.
+
+**What actually exists.** `ComponentConfig::with_styled_label(std::vector<TextSpan>)`
+— `component_config.h:658`. A `TextSpan` is `{text, color, weight}`
+(`ui_core_components.h:457`), and the setter concatenates the runs into `label`
+so "layout, measurement, and overflow behave exactly like a normal label". The
+renderer's `draw_runs_in_rect` (`rendering.h:830`) wraps runs across lines,
+swaps the font face per run for weight, and mirrors `position_text_ex`'s
+alignment maths so a styled label lands where a plain one would.
+
+So the row is one widget:
+
+```cpp
+.with_styled_label({{"node   ", theme::status_active()},
+                    {"attached  od-4471.quota", theme::text_secondary()}})
+```
+
+No column width, no second entity, and the ellipsize/overflow path is the one
+every other label uses. hanabi already had two callers
+(`code_spans`, inline-code runs in `main_pane_system.h`) and this theme did not
+find them before building the three-entity version.
+
+**Why it is worth an entry anyway.** The discoverability is the defect, not the
+capability. `with_label` and `with_custom_text_color` are what a consumer meets
+first, they are scalar, and nothing on either points at the run-based form —
+so the natural conclusion is "one label is one colour", which is false, and the
+workaround it leads to is worse in entity count, in allocations, and in
+correctness across font sizes. One `@see with_styled_label` on
+`with_custom_text_color` retires it.
+
+The neighbouring gaps are real and unaffected: #90 (`ctx.theme` is frame-wide)
+and #17 (some widgets ignore `custom_text_color`) are about which colour a
+widget gets, not about how many a label may have.
+
+CLASS: NOT A GAP
+
+---
+
+### #241 — NOT A GAP: `imm::mk` hashes the SOURCE LOCATION, so two row kinds cannot collide, and the hand-allocated id bases in hanabi's transcript protect against nothing
+
+The second negative result of this theme, and the one that was one edit away
+from being filed as a gap with a confident wrong mechanism — the #115 failure
+mode exactly.
+
+**What was wanted.** The transcript is a heterogeneous virtualized list: a
+bubble, a tool pile, a thinking fold, a spawn card, and now an event row and a
+delivery fold, all children of the same column entity. Adding two row kinds
+meant choosing widget ids for them, and hanabi's existing renderer reads as if
+the id space were a hand-allocated flat namespace per parent:
+
+```
+render_meta_line     mk(parent, 200 + index * 10)
+render_spawn_card    mk(parent, 240 + index * 10)
+render_thinking_block mk(parent, 3400 + index * 10)
+```
+
+The `* 10` stride and the disjoint bases say, plainly, "these must not
+collide". The gap that suggests itself is: *the id space has no allocator, and
+a collision between two row kinds silently reuses one entity — including its
+`HasClickListener` — so a new row kind means auditing every base and stride in
+an 8400-line file.*
+
+**That is false, and the source says so in eleven lines.**
+`imm::mk` (`entity_management.h:26`) hashes
+
+```cpp
+pre_hash << parent.id << otherID << "file: " << location.file_name()
+         << '(' << location.line() << ':' << location.column() << ") `"
+         << location.function_name() << "`: ";
+```
+
+The `std::source_location` defaults to the CALL SITE. So the identity of a
+widget is (parent, integer, file, line, column, function): two different
+functions cannot collide whatever integers they pass, and two calls on
+different lines of the SAME function cannot either. The integer disambiguates
+one call site invoked more than once — a loop — and nothing else.
+
+Which means the bases are inert. `render_event_row` is one `mk` call reached
+once per row; `mk(parent, index)` is sufficient and `mk(parent, 3600 + index * 10)`
+buys nothing. The convention costs a decision on every new row kind and defends
+against a collision the hash makes unrepresentable.
+
+**The one real edge, and it is handled loudly.** Calling `mk` twice from the
+same line with the same integer DOES return the same hash, and afterhours logs
+it by name before rethrowing:
+
+```
+Entity ID conflict detected! This usually happens when mk() is called multiple
+times from the same source location without proper index management.
+Location: {}:{}:{}, Function: {} …
+```
+
+Loud, attributed, with the fix in the message. That is the opposite of silent.
+
+**What this does NOT retire.** #171 stands untouched and is the gap that
+actually bites a virtualized list: identity is keyed on the SLOT, so when the
+row at index 40 changes kind between frames the entity is reused and any
+per-widget state points at the wrong row. That is why the delivery fold's
+open/closed state is keyed by MESSAGE ID in app state
+(`app.expandedThinking`, `"d" + m.id`) rather than by index — and #171 is why
+it has to live in app state at all.
+
+CLASS: NOT A GAP

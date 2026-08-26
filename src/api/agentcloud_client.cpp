@@ -475,6 +475,12 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
     // later -- sometimes much later. Remember where each intent's row landed so
     // the result can be folded back into it instead of appended as a stray row.
     std::unordered_map<int64_t, size_t> row_for_intent_seq;
+    // Same trick for anything whose OUTCOME lands later and names the seq of
+    // the intent that started it: a spawn settling, a peer message being
+    // delivered. Seqs are unique across the journal, so one map serves both.
+    // child_spawned carries the title and keys by child id instead.
+    std::unordered_map<std::string, size_t> row_for_child_id;
+    std::unordered_map<int64_t, size_t> row_for_outcome_seq;
 
     for (const json& f : msg["frames"]) {
         if (!f.is_object()) continue;
@@ -493,6 +499,15 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             m.created_at = created;
             out.push_back(std::move(m));
             return out.back();
+        };
+        // An event row: not speech, so it carries a KIND and a short label
+        // rather than an author and a paragraph.
+        const auto push_event = [&](EventKind kind, std::string label,
+                                    std::string body) -> Message& {
+            Message& m = push(Role::System, std::move(body));
+            m.kind = kind;
+            m.subtitle = std::move(label);
+            return m;
         };
 
         if (type == "user_input") {
@@ -513,11 +528,15 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 // so the renderer can fold or dim it rather than presenting it
                 // as something the assistant said to you.
                 std::string text = str_or(b, "text", "");
-                if (!text.empty()) push(Role::Assistant, std::move(text)).subtitle =
-                    "thinking";
+                if (!text.empty()) {
+                    Message& m = push(Role::Assistant, std::move(text));
+                    m.kind = EventKind::Thinking;
+                    m.subtitle = "thinking";
+                }
             }
         } else if (type == "tool_intent") {
             Message& m = push(Role::Tool, readable_tool_input(str_or(e, "input", "")));
+            m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             row_for_intent_seq[seq] = out.size() - 1;
         } else if (type == "tool_node_selected") {
@@ -541,10 +560,70 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             // the call was made, not where the answer landed.
             if (created > 0 && m.created_at > 0)
                 m.tool_duration_ms = (created - m.created_at) * 1000;
+        } else if (type == "skill_invoked") {
+            // The skill's own body is the whole SKILL.md and is prompt
+            // material, not transcript material -- the row says which skill
+            // loaded and where it came from.
+            push_event(EventKind::Skill, str_or(e, "name", ""),
+                       str_or(e, "source", ""));
+        } else if (type == "child_spawn_intended") {
+            const std::string child = str_or(e, "child", "");
+            Message& m = push_event(EventKind::SubAgent, child,
+                                    str_or(e, "prompt", ""));
+            m.tool_status = "running";
+            row_for_outcome_seq[seq] = out.size() - 1;
+            if (!child.empty()) row_for_child_id[child] = out.size() - 1;
+        } else if (type == "child_spawned") {
+            // The title the child was actually given, which is the only
+            // human-readable name a spawn ever gets. It arrives AFTER the
+            // intent, so it replaces the id the row was holding.
+            auto it = row_for_child_id.find(str_or(e, "child", ""));
+            const std::string title = str_or(e, "title", "");
+            if (it != row_for_child_id.end() && !title.empty())
+                out[it->second].subtitle = title;
+            else if (it == row_for_child_id.end())
+                push_event(EventKind::SubAgent,
+                           title.empty() ? str_or(e, "child", "") : title, "")
+                    .tool_status = "running";
+        } else if (type == "child_spawn_settled") {
+            auto it = row_for_outcome_seq.find(int_or(e, "intent", 0));
+            if (it == row_for_outcome_seq.end()) continue;  // intent off-page
+            out[it->second].tool_status =
+                str_or(obj_at(e, "outcome"), "outcome", "");
+        } else if (type == "node_attached" || type == "node_detached" ||
+                   type == "node_granted" || type == "node_released" ||
+                   type == "node_reserved") {
+            // The verb, stripped of its prefix: "attached", "detached", …
+            push_event(EventKind::Node, str_or(e, "node_id", ""),
+                       type.substr(std::string("node_").size()));
+        } else if (type == "subscription_delivered") {
+            // How everything the platform puts INTO a session arrives: a
+            // child settling, a timer firing, a peer session speaking. The
+            // key says which; the body is what was delivered.
+            push_event(EventKind::Delivery,
+                       str_or(obj_at(e, "key"), "kind", "subscription"),
+                       str_or(e, "body", ""));
+        } else if (type == "message_enqueued") {
+            Message& m = push_event(EventKind::Delivery,
+                                    "to " + str_or(e, "to", ""),
+                                    str_or(e, "body", ""));
+            m.tool_status = "running";
+            row_for_outcome_seq[seq] = out.size() - 1;
+        } else if (type == "message_delivered") {
+            auto it = row_for_outcome_seq.find(int_or(e, "intent", 0));
+            if (it == row_for_outcome_seq.end()) continue;  // intent off-page
+            out[it->second].tool_status =
+                str_or(obj_at(e, "outcome"), "outcome", "");
+        } else if (type == "notice") {
+            push_event(EventKind::Notice, str_or(e, "kind", ""),
+                       str_or(e, "message", ""));
+        } else if (type == "status_reported") {
+            push_event(EventKind::Status, str_or(e, "state", ""),
+                       str_or(e, "headline", ""));
         }
-        // Everything else -- run_started, model_call_*, epoch_change_*, noop,
-        // status_reported and the rest of a vocabulary the server says will
-        // grow -- folds as nothing on purpose.
+        // Everything else -- run_started, model_call_*, epoch_change_*, noop
+        // and the rest of a vocabulary the server says will grow -- folds as
+        // nothing on purpose.
     }
     return out;
 }
@@ -580,7 +659,7 @@ std::string delta_from_accumulated(const std::string& emitted,
 //
 // Published (agentcloud_client.h) so the path production actually takes is the
 // path a test can drive; .cpp-private would have left the hot path untested.
-LiveFrame classify_live_frame_parsed(const json& root) {
+LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
     LiveFrame lf;
     if (root.is_discarded() || !root.is_object()) return lf;
     // A retract says a live partial is gone; there is nothing to show for it.
@@ -590,23 +669,45 @@ LiveFrame classify_live_frame_parsed(const json& root) {
     const json& e = obj_at(root, "event");
     const std::string type = str_or(e, "type", "");
 
+    if (type == "model_call_started") {
+        // Block indices are per model call and restart at 0, so a stale map
+        // would attribute the next call's reply to the last call's reasoning.
+        blocks.clear();
+        return lf;
+    }
     if (type == "block_delta") {
         // The live increment. `delta` is a tagged union: "start" opens a block,
         // "append" carries new text. Anything else is a shape this build does
         // not know and must not guess at.
+        const int index = static_cast<int>(int_or(e, "index", -1));
         const json& d = obj_at(e, "delta");
         const std::string which = str_or(d, "delta", "");
         if (which == "start") {
+            const std::string kind = str_or(obj_at(d, "kind"), "kind", "");
+            blocks.note(index, kind);
             lf.kind = LiveFrame::Kind::BlockStart;
+            lf.payload = kind;
         } else if (which == "append") {
-            lf.kind = LiveFrame::Kind::TextAppend;
+            const std::string kind = blocks.kind_at(index);
             lf.payload = str_or(d, "text", "");
+            if (kind == "thinking") {
+                lf.kind = LiveFrame::Kind::ThinkingAppend;
+            } else if (kind == "tool_use" || kind == "redacted_thinking") {
+                // The JSON argument object of a call, arriving a few
+                // characters at a time. It is the tool row's content, not the
+                // reply's, and the tool row is built from tool_intent.
+                lf.kind = LiveFrame::Kind::ToolInputAppend;
+                lf.payload.clear();
+            } else {
+                lf.kind = LiveFrame::Kind::TextAppend;
+            }
         }
         return lf;
     }
     if (type == "block") {
         const json& b = obj_at(e, "block");
         const std::string kind = str_or(b, "kind", "");
+        blocks.note(static_cast<int>(int_or(e, "index", -1)), kind);
         if (kind == "text") {
             lf.kind = LiveFrame::Kind::Text;
             lf.payload = str_or(b, "text", "");
@@ -633,6 +734,81 @@ LiveFrame classify_live_frame_parsed(const json& root) {
         return lf;
     }
     return lf;
+}
+
+void LiveBlocks::note(int index, std::string kind) {
+    if (index < 0 || kind.empty()) return;
+    kind_[index] = std::move(kind);
+}
+
+void LiveBlocks::clear() { kind_.clear(); }
+
+std::string LiveBlocks::kind_at(int index) const {
+    auto it = kind_.find(index);
+    return it == kind_.end() ? std::string() : it->second;
+}
+
+bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
+    if (final_.created_at == 0) {
+        final_.role = Role::Assistant;
+        final_.created_at = static_cast<int64_t>(std::time(nullptr));
+    }
+    if (str_or(msg, "type", "") != "frame") return true;
+
+    const LiveFrame lf = classify_live_frame_parsed(msg, blocks_);
+    switch (lf.kind) {
+        case LiveFrame::Kind::BlockStart:
+            // A fresh block: the per-block buffer restarts, but the assembled
+            // reply keeps everything before it.
+            emitted_.clear();
+            break;
+        case LiveFrame::Kind::TextAppend:
+            if (!lf.payload.empty()) {
+                sink.emit_delta(lf.payload);
+                final_.text += lf.payload;
+                emitted_ += lf.payload;
+            }
+            break;
+        case LiveFrame::Kind::Text: {
+            // The payload is the ACCUMULATED text at this key, installed
+            // whole -- so emit only the part the sink has not seen. A
+            // shorter payload means a different block started, not a
+            // rewind, so start the diff over from there.
+            // The whole block: either the settled durable copy of what we
+            // just streamed (diff is empty -- do NOT print it twice), or a
+            // partial handed to us by attaching mid-turn (diff is the lot).
+            const std::string d = delta_from_accumulated(emitted_, lf.payload);
+            if (!d.empty()) {
+                sink.emit_delta(d);
+                final_.text += d;
+            }
+            emitted_ = lf.payload;
+            break;
+        }
+        case LiveFrame::Kind::ThinkingAppend:
+        case LiveFrame::Kind::Thinking:
+            sink.emit_event({StreamEventKind::Thinking, lf.payload});
+            break;
+        case LiveFrame::Kind::ToolCall:
+            sink.emit_event({StreamEventKind::ToolCall, lf.payload});
+            break;
+        case LiveFrame::Kind::Title:
+            sink.emit_event({StreamEventKind::TitleUpdate, lf.payload});
+            break;
+        case LiveFrame::Kind::Finished:
+            return false;
+        case LiveFrame::Kind::ToolInputAppend:
+        case LiveFrame::Kind::Ignore:
+            break;
+    }
+    return true;
+}
+
+// The stateless form, kept for callers that classify one frame in isolation.
+// It cannot attribute an append to a block, so it calls every increment text.
+LiveFrame classify_live_frame_parsed(const json& root) {
+    LiveBlocks scratch;
+    return classify_live_frame_parsed(root, scratch);
 }
 
 // The published entry point: parse, then classify. Unchanged contract — never
@@ -835,10 +1011,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     // An agent turn can legitimately run for minutes -- tool rounds, model
     // calls -- so the wait is bounded by SILENCE, not by total duration:
     // as long as frames keep arriving we keep reading.
-    Message final;
-    final.role = Role::Assistant;
-    final.created_at = static_cast<int64_t>(std::time(nullptr));
-    std::string emitted;  // what the sink has already been told
+    agentcloud::LiveTurn turn;
 
     const auto deadline_from_now = [] {
         return std::chrono::steady_clock::now() +
@@ -865,57 +1038,12 @@ void AgentcloudClient::run_turn(const std::string& session_id,
                             str_or(msg, "message", "(no message)"));
             return;
         }
-        if (str_or(msg, "type", "") != "frame") continue;
-
-        const agentcloud::LiveFrame lf =
-            agentcloud::classify_live_frame_parsed(msg);
-        switch (lf.kind) {
-            case agentcloud::LiveFrame::Kind::BlockStart:
-                // A fresh block: the per-block buffer restarts, but the
-                // assembled reply keeps everything before it.
-                emitted.clear();
-                break;
-            case agentcloud::LiveFrame::Kind::TextAppend:
-                if (!lf.payload.empty()) {
-                    sink.emit_delta(lf.payload);
-                    final.text += lf.payload;
-                    emitted += lf.payload;
-                }
-                break;
-            case agentcloud::LiveFrame::Kind::Text: {
-                // The payload is the ACCUMULATED text at this key, installed
-                // whole -- so emit only the part the sink has not seen. A
-                // shorter payload means a different block started, not a
-                // rewind, so start the diff over from there.
-                // The whole block: either the settled durable copy of what we
-                // just streamed (diff is empty -- do NOT print it twice), or a
-                // partial handed to us by attaching mid-turn (diff is the lot).
-                const std::string d =
-                    agentcloud::delta_from_accumulated(emitted, lf.payload);
-                if (!d.empty()) {
-                    sink.emit_delta(d);
-                    final.text += d;
-                }
-                emitted = lf.payload;
-                break;
-            }
-            case agentcloud::LiveFrame::Kind::Thinking:
-                sink.emit_event({StreamEventKind::Thinking, lf.payload});
-                break;
-            case agentcloud::LiveFrame::Kind::ToolCall:
-                sink.emit_event({StreamEventKind::ToolCall, lf.payload});
-                break;
-            case agentcloud::LiveFrame::Kind::Title:
-                sink.emit_event({StreamEventKind::TitleUpdate, lf.payload});
-                break;
-            case agentcloud::LiveFrame::Kind::Finished:
-                sink.emit_done(final);
-                return;
-            case agentcloud::LiveFrame::Kind::Ignore:
-                break;
+        if (!turn.feed(msg, sink)) {
+            sink.emit_done(turn.assembled());
+            return;
         }
     }
-    sink.emit_done(final);
+    sink.emit_done(turn.assembled());
 }
 
 void AgentcloudClient::send_message_streaming(const std::string& session_id,
