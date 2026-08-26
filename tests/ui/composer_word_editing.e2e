@@ -1,0 +1,109 @@
+# Word-granular and line-granular editing in the composer, macOS bindings.
+#
+# Gabe: "alt-backspace doesnt work, i thought we added these already?" — it had
+# never worked. afterhours has had word motion and word delete the whole time,
+# but it guards each one on the consuming app's InputAction enum carrying the
+# matching NAME (`if constexpr enum_contains<InputAction>("TextWordLeft")`), and
+# hanabi's enum stopped at TextSelectAll. So the feature was compiled out with
+# no error to notice. This script is the thing that would have noticed.
+#
+# WHY THE MODIFIERS ARE SPELLED THE WAY THEY ARE. The harness holds ALT itself,
+# so ALT+ chords are the real chord a Mac user presses. It does NOT hold Super:
+# parse_key_combo maps the CMD+ prefix onto Ctrl and drops SUPER+ entirely
+# (afterhours_gaps.md #49, #256). Every Cmd chord hanabi binds is therefore also
+# bound to Ctrl (src/input_mapping.h), which is what makes `key CMD+...` below
+# reach the same action a real Cmd press reaches.
+#
+# Asserted with expect_input_text, not expect_text: it reads the field's own
+# state, which is the thing under test. (composer_history.e2e explains why the
+# painted transcript is not a witness for anything typed into the composer.)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "needs a decision"
+
+click_ui composer_reply_input
+wait_frames 4
+type "hello world foo"
+wait_frames 6
+expect_input_text composer_reply_input "hello world foo"
+
+# ---------------------------------------------------------------------------
+# Alt+Backspace deletes the word before the caret, not one character. If the
+# bare-BACKSPACE binding were firing alongside the chord this would read
+# "hello worl" instead.
+# ---------------------------------------------------------------------------
+key ALT+BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input "hello world "
+
+# A second one takes the trailing space with the word before it.
+key ALT+BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input "hello "
+
+# ---------------------------------------------------------------------------
+# Plain Backspace still deletes exactly one character. The chord must not have
+# taken the bare key with it.
+# ---------------------------------------------------------------------------
+key BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input "hello"
+
+# ---------------------------------------------------------------------------
+# Alt+Left / Alt+Right move the caret by a word. Asserted by typing at the
+# caret: where the marker lands says where the caret was.
+# ---------------------------------------------------------------------------
+type " there world"
+wait_frames 6
+expect_input_text composer_reply_input "hello there world"
+
+key ALT+LEFT
+wait_frames 6
+type "-"
+wait_frames 6
+expect_input_text composer_reply_input "hello there -world"
+
+key ALT+RIGHT
+wait_frames 6
+type "!"
+wait_frames 6
+expect_input_text composer_reply_input "hello there -world!"
+
+# ---------------------------------------------------------------------------
+# Cmd+Left / Cmd+Right are the LINE ends on macOS, not word steps. This is the
+# half the library's own default keymap gets wrong: it binds Cmd+Arrow to word
+# motion, which would land the marker one word in rather than at the very edge.
+# ---------------------------------------------------------------------------
+key CMD+LEFT
+wait_frames 6
+type ">"
+wait_frames 6
+expect_input_text composer_reply_input ">hello there -world!"
+
+key CMD+RIGHT
+wait_frames 6
+type "<"
+wait_frames 6
+expect_input_text composer_reply_input ">hello there -world!<"
+
+# ---------------------------------------------------------------------------
+# Alt+Delete deletes the word AFTER the caret.
+# ---------------------------------------------------------------------------
+key CMD+LEFT
+wait_frames 6
+key ALT+DELETE
+wait_frames 6
+expect_input_text composer_reply_input " there -world!<"
+
+# ---------------------------------------------------------------------------
+# Cmd+A selects the whole field, so the next character typed replaces all of
+# it. TextSelectAll was in the enum from the beginning with no key bound to it.
+# ---------------------------------------------------------------------------
+key CMD+A
+wait_frames 6
+type "x"
+wait_frames 6
+expect_input_text composer_reply_input "x"
+
+wait_frames 10

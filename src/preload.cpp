@@ -74,33 +74,10 @@ Preload& Preload::make_singleton() {
     auto& sophie = EntityHelper::createEntity();
     {
         {
-            // Input mappings for text input
-            std::map<int, afterhours::input::ValidInputs> mapping;
-            mapping[static_cast<int>(InputAction::TextBackspace)] = {
-                afterhours::keys::BACKSPACE,
-            };
-            mapping[static_cast<int>(InputAction::TextDelete)] = {
-                afterhours::keys::DELETE_KEY,
-            };
-            mapping[static_cast<int>(InputAction::TextHome)] = {
-                afterhours::keys::HOME,
-            };
-            mapping[static_cast<int>(InputAction::TextEnd)] = {
-                afterhours::keys::END,
-            };
-            mapping[static_cast<int>(InputAction::WidgetLeft)] = {
-                afterhours::keys::LEFT,
-            };
-            mapping[static_cast<int>(InputAction::WidgetRight)] = {
-                afterhours::keys::RIGHT,
-            };
-            mapping[static_cast<int>(InputAction::WidgetPress)] = {
-                afterhours::keys::ENTER,
-            };
-            mapping[static_cast<int>(InputAction::MenuBack)] = {
-                afterhours::keys::ESCAPE,
-            };
-            input::add_singleton_components(sophie, mapping);
+            // The chords themselves live in input_mapping.h, next to the
+            // enum they are keyed by: the two only work as a pair, and a unit
+            // test asserts the same table this line installs.
+            input::add_singleton_components(sophie, hanabi::input::key_mapping());
         }
         {
             window_manager::add_singleton_components(sophie, 200);
