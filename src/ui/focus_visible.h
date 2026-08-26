@@ -42,6 +42,25 @@ inline bool& armed() {
 // A navigation keystroke arms the ring; a pointer press disarms it. Both in
 // one call so the order is fixed in one place: a frame carrying both is a
 // click, because a click is what the user did last.
+//
+// "A navigation keystroke" is Tab, and only Tab. This used to arm on any of
+// Tab/Up/Down/Left/Right, on the reasoning that all five are navigation — but
+// in hanabi none of the four arrows moves this ring's focus and each of them
+// already has an indicator of its own:
+//
+//   - preload.cpp sets theme.arrows_tab = false, so process_tabbing leaves the
+//     arrows alone and an arrow cannot move focus_id at all;
+//   - Up/Down in a list walk MainPaneSystem's own keyboard cursor, which draws
+//     the hover surface plus an accent border on the row it is on;
+//   - Left/Right (and Up/Down) inside a text field walk the caret, which is
+//     the field's focus indicator and is already on screen.
+//
+// So an arrow armed a ring around a widget the arrow had not gone to. Pressing
+// Left to move the caret one character in the composer put a second outline
+// around the field on top of the focused border the composer draws itself —
+// two rings on one control, out of register, for a keystroke that moved a
+// caret. Tab is the only keystroke in this app whose whole purpose is to move
+// focus, which makes it the only unambiguous "I am navigating by keyboard".
 inline void observe(bool navKeyPressed, bool pointerPressed) {
     if (navKeyPressed) armed() = true;
     if (pointerPressed) armed() = false;

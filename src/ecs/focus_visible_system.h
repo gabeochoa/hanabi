@@ -19,10 +19,7 @@ struct FocusVisibleSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         namespace fv = hanabi::ui::focus_visible;
         namespace k = hanabi::keys;
-        const bool navKey = k::pressed(k::kTab) || k::pressed(k::kUp) ||
-                            k::pressed(k::kDown) || k::pressed(k::kLeft) ||
-                            k::pressed(k::kRight);
-        fv::observe(navKey, ctx.mouse.just_pressed);
+        fv::observe(k::pressed(k::kTab), ctx.mouse.just_pressed);
         ctx.theme.focus_ring_thickness = fv::ring_thickness();
         // The single writer of the ring's colour. It used to be re-asserted
         // as theme::accent() by each of the three systems that build a

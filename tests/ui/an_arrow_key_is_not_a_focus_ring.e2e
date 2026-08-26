@@ -1,0 +1,44 @@
+# An arrow key is not a request for a focus ring.
+#
+# The rule used to arm on any of Tab/Up/Down/Left/Right, because all five look
+# like navigation. In hanabi none of the four arrows moves the ring's focus and
+# each already has an indicator of its own: preload.cpp sets arrows_tab = false
+# so process_tabbing never sees them, a list arrow walks MainPaneSystem's own
+# keyboard cursor (which draws the hover surface plus an accent border on the
+# row), and an arrow in a text field walks the caret.
+#
+# So the ring an arrow armed was a ring around a widget the arrow had not gone
+# to. Pressing Left to move the caret one character in the composer put a
+# second outline around the field, on top of the focused border the composer
+# draws for itself: two rings on one control, out of register, for a keystroke
+# that moved a caret.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FOCUS_AUDIT=1
+
+# A click puts the ring away and puts the caret in the composer.
+click_ui composer_reply_input
+wait_frames 6
+type "hello"
+wait_frames 6
+expect_text "ring off"
+
+# Left moves the caret. The field's own focused border is the indicator here,
+# and it is already drawn — nothing about this keystroke asks for a ring.
+key LEFT
+wait_frames 8
+expect_text "ring off"
+
+key RIGHT
+wait_frames 8
+expect_text "ring off"
+
+# Up and Down in the composer walk the send history, which is the same story.
+key UP
+wait_frames 8
+expect_text "ring off"
+
+# Tab still arms it: the rule narrowed, it did not go away.
+key TAB
+wait_frames 8
+expect_text "ring on"
