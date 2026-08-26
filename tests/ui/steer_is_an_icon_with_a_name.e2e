@@ -1,0 +1,56 @@
+# Steer is a mark, and the word for it is in the strip beside it.
+#
+# Gabe: "the steer button should be an icon."
+#
+# It was the one state that widened the send button into a 78x32 pill reading
+# "Steer", on the argument that a drawn arrow cannot tell you the verb has
+# changed. That argument is right about the verb and wrong about where the verb
+# has to live. The composer's own status caption already says "Enter to steer"
+# the moment there is text to send -- and the button is only pressable when
+# there IS text, so the caption is on screen exactly when the mark is live. The
+# name is in the frame; it does not also have to be in the control.
+#
+# Which is the whole reason this test asserts BOTH halves in one script.
+# afterhours has no tooltip and no accessible name (gap #112), so an icon-only
+# button is unlabelled in every sense, and a later change that quietly dropped
+# the caption would leave a nameless glyph with nothing failing. The two
+# assertions below are one property: an icon, and a name for it.
+#
+# The mark itself is drawn (src/ui/icons.h, hanabi::glyph::steer) rather than
+# blitted from the atlas -- same as the send arrow it replaces, and for the
+# reason gap #114 gives: a sprite's rendered INK extent is not derivable from
+# its atlas rect and its draw_px, so an icon sized that way costs a
+# build-measure-repeat loop. Two drawings sharing an `extent` share a centre by
+# arithmetic.
+#
+# The fixture is t9 ("kicker-tick"), whose state is Running, with the mock
+# backend -- which reports supports_steer -- so should_steer_open() is true.
+# Typing gives the button something to do; without text it is disabled and the
+# caption is absent, which is the correct pairing and not a gap in the test.
+#
+# The numbers: pane 1100-280 = 820, gutter 38. A 19px circle leaves the input
+# 820 - 76 - 19 - 9 = 716 and sits at 318 + 716 + 9 = 1043, ending on the row's
+# content edge at 1062. The pill left the input 657 and started at 984, so this
+# hands 59px back to the field you are typing in.
+#
+# Verified to fail without the fix: restoring
+# `sendIsCircle = !steerMode && !sending` and the "Steer" label gives
+#
+#   assert_ui 'composer_send': x=1043 but got 984          (line 50)
+#   assert_ui 'composer_input_wrap': w=716 but got 657     (line 53)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
+
+wait_frames 14
+click_ui composer_reply_input
+type "hold on"
+wait_frames 8
+
+# An icon: the same 19px circle Send uses, not a 78px word.
+assert_ui composer_send x=1043 w=19 h=19
+
+# And the 59px the pill was taking go back to the input.
+assert_ui composer_input_wrap w=716
+
+# The name the glyph cannot carry, in the strip six pixels above it.
+expect_text "Enter to steer"

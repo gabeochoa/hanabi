@@ -4716,7 +4716,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // spending them outside the row.
         constexpr float kSendPillW = 78.0f;
         constexpr float kSendPillH = 32.0f;
-        const bool sendIsCircle = !steerMode && !sending;
+        const bool sendIsCircle = !sending;
         const float sendW = sendIsCircle ? kSendDia : kSendPillW;
         const float sendH = sendIsCircle ? kSendDia : kSendPillH;
         // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
@@ -5136,15 +5136,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // and the arrow DRAWN (Roboto has no U+2191 and a missing codepoint
         // paints nothing — gap #48; see hanabi::glyph::arrow_up).
         //
-        // Two of the three states this button has cannot fit in a 19px circle,
-        // and both of them matter more than the shape: when the open thread's
-        // agent is RUNNING and the backend can steer, this button STEERS
-        // (interrupt/redirect) rather than sends, and while a turn is in flight
-        // it says so. A drawn arrow cannot tell you either. So the circle is
-        // the IDLE shape only, and the button falls back to its labelled pill
-        // for Steer and for in-flight — the label is the honest thing there.
-        const char* sendLabel =
-            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "");
+        // STEER IS A MARK, NOT A WORD (Gabe: "the steer button should be an
+        // icon"). It used to be the one state that widened this button into a
+        // 78x32 pill reading "Steer", on the argument that a drawn arrow
+        // cannot tell you the verb changed. The argument was right about the
+        // verb and wrong about where the verb has to live: the composer's own
+        // status caption already reads "Enter to steer" the moment there is
+        // text to send, six lines above the button, in words -- and the button
+        // is only pressable when there IS text, so the caption is present
+        // exactly when the mark is live. The name is in the frame; it does not
+        // also have to be in the control.
+        //
+        // Which matters because of gap #112: afterhours has no tooltip and no
+        // accessible name, so an icon-only button is unlabelled in every
+        // sense, and the honest way to add one is a neighbouring string rather
+        // than a pill. tests/ui/steer_is_an_icon_with_a_name.e2e pins both
+        // halves so a later change cannot quietly drop the caption and leave a
+        // nameless glyph.
+        //
+        // In-flight keeps the pill. Its label is an ellipsis, which is not a
+        // verb and not a name -- it is "wait" -- and a 78px box of nothing-
+        // to-press reads as disabled in a way a small circle does not.
+        const char* sendLabel = sending ? "\xe2\x80\xa6" : "";
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
@@ -5163,11 +5176,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_corner_radius(sendIsCircle ? kSendDia * 0.5f : 8.0f)
-                .with_on_draw_fg([sendIsCircle, sendEnabled](RectangleType rr) {
+                .with_on_draw_fg([sendIsCircle, steerMode,
+                                  sendEnabled](RectangleType rr) {
                     if (!sendIsCircle) return;
-                    hanabi::glyph::arrow_up(
-                        rr, sendEnabled ? theme::window_bg()
-                                        : theme::disabled_text());
+                    const theme::Color ink = sendEnabled
+                                                 ? theme::window_bg()
+                                                 : theme::disabled_text();
+                    // Same box, same centre, same extent: the two marks differ
+                    // by the bend and by nothing else, so the button does not
+                    // move when the verb changes.
+                    if (steerMode) hanabi::glyph::steer(rr, ink);
+                    else hanabi::glyph::arrow_up(rr, ink);
                 })
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {

@@ -255,6 +255,52 @@ inline void arrow_up(RectangleType rect, theme::Color c, float extent = 4.5f,
                               afterhours::vec2{cx, top}, c);
 }
 
+// A STEER mark: a stem that rises and turns right into a solid head.
+//
+// Send and Steer are the same button in two moods -- one starts a turn, the
+// other redirects one already running -- so the two marks are deliberately the
+// same drawing with one difference: the stem bends. Read together they say
+// "up" and "up, then somewhere else", which is what steering an agent is. A
+// steering WHEEL was the other candidate and is worse at 10px: a ring with
+// three spokes is mush at this size, and it is a metaphor about cars rather
+// than about the thing on screen.
+//
+// Drawn and not blitted, like every other mark in this namespace, and here
+// that buys something specific: gap #114 -- a sprite's rendered INK extent is
+// not derivable from its atlas rect and its draw_px, so every icon is sized by
+// build-measure-repeat. A drawing's extent is the arithmetic below, exact and
+// checkable without a screenshot, which is what let the send arrow and this
+// share a centre to the pixel rather than to a measurement.
+//
+// `extent` is the mark's half-height, the same parameter arrow_up takes and
+// the same default, so the two occupy the same box in the same button.
+inline void steer(RectangleType rect, theme::Color c, float extent = 4.5f,
+                  float thickness = 1.6f) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    const float e = viewport::px(extent);
+    const float t = viewport::px(thickness);
+    const float head = e * 0.95f;  // half-height of the arrowhead
+    // The bend sits at 40% of the height from the top, which is where the
+    // corner has room for a full-width head above it and a stem below it that
+    // still reads as a stem.
+    const float bendY = cy - e * 0.2f;
+    // The stem is drawn from the FOOT to the bend and then across, and the two
+    // strokes overlap by half a thickness at the corner. Without the overlap
+    // afterhours' un-antialiased line ends leave a notch at the join (#92):
+    // two butt caps meeting at a right angle miss the corner pixel.
+    const float half = t * 0.5f;
+    afterhours::draw_line_ex(afterhours::vec2{cx - e * 0.6f, cy + e},
+                             afterhours::vec2{cx - e * 0.6f, bendY - half}, t,
+                             c);
+    afterhours::draw_line_ex(afterhours::vec2{cx - e * 0.6f - half, bendY},
+                             afterhours::vec2{cx + e * 0.25f, bendY}, t, c);
+    // The head points RIGHT off the end of the crossbar: redirect, not send.
+    afterhours::draw_triangle(afterhours::vec2{cx + e * 0.25f, bendY - head},
+                              afterhours::vec2{cx + e * 0.25f, bendY + head},
+                              afterhours::vec2{cx + e, bendY}, c);
+}
+
 // A radio mark: a ring, filled when it is the current choice. Drawn rather
 // than typed for the same reason the chevron is — the font has no geometric
 // shapes, and a missing codepoint paints nothing at all.
