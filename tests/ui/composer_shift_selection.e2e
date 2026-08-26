@@ -1,0 +1,66 @@
+# Holding Shift with any of the motion chords extends the selection.
+#
+# There is no binding for these. afterhours reads the raw shift state inside
+# the widget and wraps every caret move in a navigate() that starts or extends
+# a selection when it is held (text_input/component.h) — so word motion and
+# line motion get their Shift variants the moment the motions themselves are
+# bound, and the ones missing here were missing because the motions were
+# (src/input_mapping.h, and the enum comment there for why they were silent).
+#
+# Asserted with expect_selected_text: WHAT is selected, not which byte offsets,
+# so the assertions do not turn into statements about font metrics.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "needs a decision"
+
+click_ui composer_reply_input
+wait_frames 4
+type "alpha beta gamma"
+wait_frames 6
+
+# Shift+Alt+Left takes the word before the caret.
+key ALT+SHIFT+LEFT
+wait_frames 6
+expect_selected_text composer_reply_input "gamma"
+
+# A second one extends it by another word rather than starting over.
+key ALT+SHIFT+LEFT
+wait_frames 6
+expect_selected_text composer_reply_input "beta gamma"
+
+# Typing replaces what is selected.
+type "x"
+wait_frames 6
+expect_input_text composer_reply_input "alpha x"
+
+# Shift+Cmd+Left takes everything back to the start of the line.
+key CMD+SHIFT+LEFT
+wait_frames 6
+expect_selected_text composer_reply_input "alpha x"
+
+# Shift+Cmd+Right from the line start takes the whole line the other way.
+key CMD+LEFT
+wait_frames 6
+key CMD+SHIFT+RIGHT
+wait_frames 6
+expect_selected_text composer_reply_input "alpha x"
+
+# Shift+Alt+Right from the line start takes the first word only.
+key CMD+LEFT
+wait_frames 6
+key ALT+SHIFT+RIGHT
+wait_frames 6
+expect_selected_text composer_reply_input "alpha"
+
+# An unshifted motion COLLAPSES the selection rather than extending it, and
+# collapses it to the near edge without stepping a further word -- which is
+# what a Mac field does with a plain arrow on a selection. The marker lands at
+# the end of the selected word, not past the next one.
+key ALT+RIGHT
+wait_frames 6
+type "!"
+wait_frames 6
+expect_input_text composer_reply_input "alpha! x"
+
+wait_frames 10
