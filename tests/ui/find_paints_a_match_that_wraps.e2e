@@ -1,0 +1,21 @@
+# A phrase broken across a soft wrap is counted AND painted.
+#
+# collect_matches scans the LOGICAL line; paint_bands used to scan each WRAPPED
+# one, and the wrapper consumes the whitespace at a break — so "The import",
+# split between two rendered lines, was in the logical line and in neither
+# rendered one. Counted, never painted, at any scroll position: the one class
+# of match that breaks find's rule outright rather than because the message is
+# off screen. docs/SEARCH.md S12.
+#
+# find_sees_through_markdown.e2e uses a two-word query too, at a width where it
+# happens not to wrap. This is the same shape at a width where it does: 1000px
+# puts the break inside "The import" in r2's last reply.
+#
+# One tally, one band: the match is drawn in as many pieces as it has lines,
+# and counted once, so the audit and the bar still report the same number.
+#
+# settings: {"window_width":1000,"window_height":760,"open_tabs":["r2"],"active_tab":"r2","theme":"dark"}
+# env: HANABI_FIND_DEMO='The import' HANABI_FIND_AUDIT=1
+
+expect_text "1 of 1"
+expect_text "bands 1"

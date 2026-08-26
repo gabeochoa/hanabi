@@ -2921,8 +2921,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // The rule that IS load-bearing runs the other way — nothing is counted
     // that find could not paint. Same rows (user and assistant, no tool rows,
     // no system captions, no thinking blocks), same normalization
-    // (paintable_lines), same operator predicate on both sides. A match that
-    // survives all of that is one a scroll can bring under a band.
+    // (paintable_lines), same operator predicate on both sides, and the same
+    // LOGICAL line on both sides: find_highlight::paint_bands matches over the
+    // whole line and then places the hit on the wrapped ones, so a multi-word
+    // query broken across a soft wrap is painted rather than counted-only
+    // (docs/SEARCH.md S12). A match that survives all of that is one a scroll
+    // can bring under a band.
+    //
+    // The remaining exception is a match in the folded tail of a long message,
+    // which is at least reachable by a click on the fold rather than by
+    // nothing at all.
     struct Match {
         int msg = 0;
         size_t off = 0;

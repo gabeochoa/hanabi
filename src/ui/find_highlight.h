@@ -104,13 +104,58 @@ inline void paint_bands(RectangleType rect, const std::string& text,
     const float blockH = lineH * static_cast<float>(lines.size());
     const float y0 = rect.y + std::max(0.0f, (rect.height - blockH) * 0.5f);
 
-    for (size_t i = 0; i < lines.size(); ++i) {
-        const std::string& ln = lines[i];
-        for (size_t off : occurrences(ln, query)) {
-            const float x0 = rect.x + kTextMarginX + measure(ln.substr(0, off));
-            const float w = measure(ln.substr(off, query.size()));
+    // Match over the WHOLE line, then place the hit on the wrapped ones.
+    //
+    // Searching each wrapped line separately is what a straddling multi-word
+    // query falls through: the wrapper consumes the whitespace at a break, so
+    // "6 failures" broken across two rendered lines is in neither of them,
+    // while collect_matches — which scans the logical line — counts it. That
+    // is a match no scroll can ever bring under a band, and it breaks the one
+    // rule the tally rests on (docs/SEARCH.md S12).
+    //
+    // The mapping is reconstructed rather than asked for, because the wrapper
+    // returns only the lines. It is exact rather than a guess, and the reason
+    // is a property of the wrapper worth naming: it breaks ONLY between
+    // whitespace-separated chunks, never inside a word (a word wider than the
+    // line gets a line to itself, uncut), and it never rewrites a byte —
+    // "hard-broken text round-trips byte for byte", text_selection.h. So each
+    // wrapped line is a contiguous substring of the original, in order, and
+    // find() from the previous line's end locates it. See afterhours_gaps.md
+    // #366 for the API that would make this stop being a reconstruction.
+    std::vector<size_t> lineAt(lines.size(), 0);
+    for (size_t i = 0, from = 0; i < lines.size(); ++i) {
+        if (lines[i].empty()) {
+            lineAt[i] = from;
+            continue;
+        }
+        const size_t at = text.find(lines[i], from);
+        if (at == std::string::npos) return;  // not our text; paint nothing
+        lineAt[i] = at;
+        from = at + lines[i].size();
+    }
+
+    for (size_t off : occurrences(text, query)) {
+        const size_t end = off + query.size();
+        // One tally per MATCH, one rectangle per line it lands on. A hit
+        // across a break is one match the reader can see, drawn in two
+        // pieces — counting it twice would make the audit disagree with the
+        // find bar for a reason that is not a defect.
+        bool counted = false;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const size_t lo = lineAt[i];
+            const size_t hi = lo + lines[i].size();
+            if (hi <= off || lo >= end) continue;
+            const size_t a = off > lo ? off - lo : 0;
+            const size_t b = (end < hi ? end : hi) - lo;
+            if (b <= a) continue;
+            const float x0 =
+                rect.x + kTextMarginX + measure(lines[i].substr(0, a));
+            const float w = measure(lines[i].substr(a, b - a));
             if (w <= 0.0f) continue;
-            ++tally;
+            if (!counted) {
+                ++tally;
+                counted = true;
+            }
             afterhours::draw_rectangle_rounded(
                 RectangleType{x0, y0 + lineH * static_cast<float>(i) + kVPad,
                               w, lineH - kVPad * 2.0f},

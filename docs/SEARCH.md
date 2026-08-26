@@ -440,17 +440,35 @@ text run, so nothing distinguishes it once it is stored"*. It does not:
 a thinking row has no highlight path, so the operator could only ever answer
 "no matches". The two stale copies now say that.
 
-### S12 — a multi-word query that straddles a wrap is counted and not painted
+### S12 — a multi-word query that straddles a wrap is counted and not painted — FIXED HERE
 
-`collect_matches` scans the **logical** line; `paint_bands` scans each
+`collect_matches` scans the **logical** line; `paint_bands` scanned each
 **wrapped** line, and the wrapper consumes the whitespace at the break
-(`vendor/afterhours/.../text_selection.h:184`), so `"6 failures"` split across
-two rendered lines exists in neither. Independent of S1 and it breaks the same
-rule. `find_sees_through_markdown.e2e` uses exactly such a query at a window
-width where it happens not to wrap.
+(`vendor/afterhours/.../text_selection.h`), so a phrase split across two
+rendered lines was in the logical line and in neither rendered one. Counted,
+never painted, at any scroll position — the one class of match that breaks the
+rule outright rather than because the message is off screen.
 
-**What it would take: small.** Count over the wrapped lines — which is what
-"count what you paint" actually means.
+Fixed the other way round from the entry's suggestion. Counting over the
+wrapped lines would have made the tally a function of the window width, so
+resizing the window would change "of 47"; and it would have needed the layout
+in the counting path, which has no rect and no font. Instead `paint_bands`
+matches over the whole line and then MAPS each hit onto the wrapped ones,
+painting a rectangle per line the match lands on and counting it once.
+
+The mapping is reconstructed, not asked for, and it is exact rather than a
+guess because of a property of the wrapper worth naming: it breaks only between
+whitespace-separated chunks, never inside a word (a word wider than the line
+gets a line to itself, uncut), and it never rewrites a byte — *"hard-broken
+text round-trips byte for byte"*. So every wrapped line is a contiguous
+substring of the original, in order, and `find()` from the previous line's end
+locates it. `afterhours_gaps.md` #366 is the API that would make it stop being
+a reconstruction.
+
+`find_paints_a_match_that_wraps.e2e` drives it at a 1000px window, where the
+break falls inside `The import` in `r2`'s last reply. `find_sees_through_
+markdown.e2e` — the test the entry names — keeps its 1100px width, where the
+same shape of query happens not to wrap.
 
 ### S13 — smaller things
 
