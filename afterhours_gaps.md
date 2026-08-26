@@ -6998,6 +6998,27 @@ was filed against.
 
 ---
 
+
+**POSTSCRIPT (2026-08-26).** Twice more, and the second time it cost four
+investigations. The three body lines moved again — 218/234/250, then
+244/260/276 when six feature branches landed on one day — and
+`select_word_and_line.e2e` and `a_click_on_a_line_seam_is_one_click.e2e`
+failed on master both times, exactly as this gap says they would. Once
+re-measured they passed ALONE and in the suite, which is the detail worth
+recording: a stale coordinate looks like an order-dependent flake, because
+the test that was green yesterday is red today and nothing about the app
+changed. `tracker_links.e2e` was the same failure, missed by that re-measure,
+and spent three sessions being called a flake; one agent ran it 148 times
+green inside a suite trying to reproduce it.
+
+The maintenance log this gap complains about is now four entries long in one
+script. hanabi stopped writing it: `click_link <id>` (src/ecs/e2e_commands.h)
+presses the centre of the rect the RENDERER derived for that id this frame,
+so the click and the hit test read the same number and a layout move cannot
+put them out of step. That is the shape of the fix for any coordinate a test
+pins — ask the thing that drew it — and it needs a per-feature command each
+time, because the library has nothing to ask.
+
 ### #200 — Every headless resize creates five Metal render pipelines that destroying the render texture does not release, so a resize loop leaks 4.8 MB per 1000 frames — larger than the bug that started this project
 
 **What was wanted.** A stress scenario that drags the window narrower and wider
@@ -8605,6 +8626,27 @@ without any notion of a text run. For the text-run case specifically, #51's
 "where did byte N land" would make the coordinate unnecessary in the first
 place.
 
+
+**POSTSCRIPT (2026-08-26).** The precondition is now stated IN the script,
+which is what this gap asked for, and it took a custom command rather than a
+library feature: `require_thread <id>` (src/ecs/e2e_commands.h) waits for the
+named thread to be open with messages on screen and fails naming what was
+open instead —
+
+    precondition not met: thread 't1' is not open with content
+    (open=nothing, messages=0). The assertions below this line would have
+    been checked against a screen that does not have the thread on it.
+
+Before it, a script whose thread never arrived asserted against the sidebar
+and failed with `Text not found: 'Built the config diff'` plus a dump of the
+VIEWS rail — a failure that reads as a broken transcript and was read that
+way three times. tests/harness/precondition_not_met.e2e exists to produce
+that failure on purpose, and scripts/harness_gate.sh fails if it stops
+naming the precondition.
+
+Note what the custom command needed that the library could not give: a
+timeout message of its own (#380).
+
 CLASS: TEDIOUS
 
 ---
@@ -10194,3 +10236,101 @@ box) instead of skipping the quad would turn an invisible failure into the
 oldest visible one in typography.
 
 CLASS: FOOTGUN
+## #380 A custom command that retries cannot say why it timed out — the runner overwrites its reason, unless it is literally named `expect_text`
+
+**What was wanted.** Two commands the generic vocabulary cannot express
+(`require_thread <id>`, `click_link <id>` — see #232 and #51). Registering
+them is the easy half: `PendingE2ECommand` carries a name and string args,
+`register_unknown_handler` documents the ordering, and a hanabi system that
+matches on the name works first try. The hard half is FAILING WELL, which is
+the entire point of writing them.
+
+**What happens.** A command that waits for a condition calls `cmd.retry()`,
+and the runner's `E2ECommandCleanupSystem` gives up for it after
+`MAX_FRAMES`. That give-up path composes the failure message itself:
+
+```cpp
+if (cmd.name == "expect_text" && !cmd.args.empty()) {
+    error_msg = std::format("Text not found: '{}'. Visible: {:.200}", ...);
+} else {
+    error_msg = std::format("Command '{}' timed out after {} frames", ...);
+}
+```
+
+One command name is special-cased into a good message and every other
+command — including every custom one — gets "Command 'require_thread' timed
+out after 30 frames", which names nothing. `cmd.error_message` set by the
+handler before retrying is discarded: `fail()` overwrites it.
+
+That matters more for a custom command than for a built-in, because a custom
+command exists precisely to answer a question the generic ones cannot, and
+the answer it has (which thread WAS open; which link ids WERE painted) is
+the whole reason it was written.
+
+**The workaround.** Do not let the runner's timeout arrive. Each handler
+counts its own frames off `cmd.frames_alive` and calls `cmd.fail()` with its
+own diagnosis at frame 24, six frames before the runner would:
+
+```cpp
+if (cmd.frames_alive < kGiveUpFrame) { cmd.retry(); return; }
+cmd.fail(std::format("precondition not met: thread '{}' is not open with "
+                     "content (open={}, messages={})", want, open, msgs));
+```
+
+It works, and every custom command in every app has to reinvent it, with a
+magic number that has to stay under a constant it does not own.
+
+**Minimal upstream fix.** Let a handler own its timeout message: either keep
+`cmd.error_message` if the handler already set one (the cleanup system would
+use it instead of composing), or a `cmd.fail_on_timeout("...")` that records
+the message to use when the frames run out. Both are a couple of lines and
+neither needs the library to know what a thread is.
+
+CLASS: TEDIOUS
+
+---
+
+## #381 `load_scripts_from_directory` runs a whole suite in ONE process with no reset between scripts, so the only hermetic way to run N scripts is N processes from a shell script
+
+**What was wanted.** Run `tests/ui/` and get one verdict per script, where
+each verdict depends on that script and nothing else.
+
+**What happens.** The runner offers exactly that entry point —
+`load_scripts_from_directory(path)` — and it loads every script into ONE
+process and one ECS world. Everything a script touches that is not an entity
+is shared with the next script: `double_click_detail`/`triple_click_detail`'s
+run counters, `key_release_detail`, the `VisibleTextRegistry`, the app's own
+singletons, and whatever the app under test has persisted to disk by the time
+script 2 starts. Nothing runs between two scripts. `reset_test_state` exists
+and does most of what would be needed (`test_input::reset_all`, the click
+detail resets, clearing the registry) but it is a SCRIPT command: the only
+way to get it between two scripts is to write it at the top of all 105 of
+them and hope nobody forgets, and it still cannot reset the application.
+
+So hanabi does not use the directory mode. `scripts/run_ui_tests.sh` runs one
+process per script, and now one home directory per script as well, because
+"one process" is only half of it — the other half is the app's own state on
+disk, which the library has no view of and cannot be expected to reset.
+
+The cost of the library's version being the non-hermetic one is not
+theoretical. Three separate investigations in one session, and 148 repeat
+runs of one test looking for a race, went into failures that were understood
+as order dependence. (They were not, in the end: the tests were failing on
+stale pinned coordinates — #117, #232 — alone AND in suite. But "some earlier
+script left state behind" was the reasonable first hypothesis every time,
+precisely because the harness could not rule it out, and ruling it out took
+running all 105 scripts one per process and diffing the verdicts.)
+
+**The workaround.** A shell loop: one process per script, one HOME/cache/
+token directory per script, and a `HANABI_UI_SEED` that shuffles the order so
+an accidental dependence fails the suite rather than hiding in it
+(`scripts/run_ui_tests.sh`, `make uitest-shuffle`, `make uitest-alone`). ~120s
+for 105 scripts, and the per-script directories cost nothing measurable.
+
+**Minimal upstream fix.** Have the directory mode run `reset_test_state`'s
+body between scripts, and expose a `set_between_scripts(std::function<void()>)`
+so the host can reset ITS state too. That makes the library's own entry point
+mean what its name suggests. A `--shuffle`/seed on the runner would be the
+other half.
+
+CLASS: MISSING
