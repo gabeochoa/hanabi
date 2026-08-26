@@ -8319,6 +8319,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          colW - kThinkingInset);
     }
 
+    // The fold's own comment has always said this row is "one quiet row
+    // saying how much reasoning there is", and the label was the constant
+    // "Thought for a moment" — the same six words above four lines of
+    // reasoning and above four hundred. Six seconds of thought and six
+    // minutes of it are different facts about the turn, and a reader deciding
+    // whether to open the fold has nothing else to decide on.
+    static std::string thinking_summary(const api::Message& m) {
+        size_t words = 0;
+        bool in_word = false;
+        for (char c : m.text) {
+            const bool space = (c == ' ' || c == '\n' || c == '\t');
+            if (!space && !in_word) ++words;
+            in_word = !space;
+        }
+        if (words == 0) return "Thought for a moment";
+        return "Thought for a moment  \xc2\xb7  " + std::to_string(words) +
+               (words == 1 ? " word" : " words");
+    }
+
     static std::string thinking_key(const api::Message& m, int index) {
         return m.id.empty() ? ("think" + std::to_string(index)) : m.id;
     }
@@ -8379,7 +8398,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
-                .with_label("Thought for a moment")
+                .with_label(thinking_summary(m))
                 .with_size(ComponentSize{children(), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
