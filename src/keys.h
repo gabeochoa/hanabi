@@ -29,6 +29,12 @@ inline constexpr int kRightSuper = ah::RIGHT_SUPER;
 inline constexpr int kEscape = ah::ESCAPE;
 inline constexpr int kComma = ah::COMMA;
 inline constexpr int kSlash = ah::SLASH;
+// Cmd+\ splits the pane. The chord is what VS Code, Zed and Sublime all use
+// for the same action, and it was the one obvious candidate this app had not
+// already taken: Cmd + B , C , F , G , K , N , W , comma and slash are bound
+// (shortcuts_system.h lists every one), and A / arrows / Backspace belong to
+// text editing (input_mapping.h). Backslash was bound to nothing anywhere.
+inline constexpr int kBackslash = ah::BACKSLASH;
 inline constexpr int kB = ah::B;
 inline constexpr int kC = ah::C;
 inline constexpr int kF = ah::F;

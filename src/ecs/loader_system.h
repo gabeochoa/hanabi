@@ -65,9 +65,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Synced/Failed). Finds it by app.optimisticSendId in the open transcript;
     // no-op if the id is empty or the thread was switched away.
     static void mark_optimistic(AppComponent& app, api::SyncState st) {
-        if (app.optimisticSendId.empty() || !app.openSession) return;
-        for (auto it = app.openSession->messages.rbegin();
-             it != app.openSession->messages.rend(); ++it) {
+        if (app.optimisticSendId.empty() || !app.pane().openSession) return;
+        for (auto it = app.pane().openSession->messages.rbegin();
+             it != app.pane().openSession->messages.rend(); ++it) {
             if (it->id == app.optimisticSendId) {
                 it->sync = st;
                 return;
@@ -86,8 +86,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // id AND by text, since the server may assign a new id), and append them so
     // they stay visible until a later refetch includes the real turn.
     static void reconcile_optimistic(AppComponent& app, api::Session& fresh) {
-        if (!app.openSession) return;
-        for (const auto& m : app.openSession->messages) {
+        if (!app.pane().openSession) return;
+        for (const auto& m : app.pane().openSession->messages) {
             // Any LOCALLY-ORIGINATED message (sync != None) is a candidate: a
             // just-sent bubble is LocalOnly/Persisting/Failed, and even after
             // the server ACKs it (flipped to Synced) the backend may take up to
@@ -106,6 +106,153 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
             if (!already) fresh.messages.push_back(m);
         }
+    }
+
+    // ---- One pane's transcript, from request to painted ---------------------
+    // Everything a pane needs done for it each frame: service its open
+    // request, poll its disk read, poll its network fetch. It takes the PANE,
+    // so the second pane is this same code with a different value rather than
+    // a second, simpler, subtly different copy of it.
+    //
+    // That copy existed. The split pane used to be serviced by a forty-line
+    // block below this one that had a cache hit and a network fetch and
+    // nothing else: no disk-cache read, so a thread that was only on disk
+    // opened blank in the right pane; no stale-while-revalidate, so it never
+    // showed anything while it fetched; no error state, so a failed fetch was
+    // a permanent "Loading...". Every one of those is a thing this function
+    // does and that one did not.
+    void service_pane(AppComponent& app, Pane& pane) {
+        // --- Transcript ---
+        if (!pane.requestOpenId.empty() && !pane.transcriptPending) {
+            std::string id = pane.requestOpenId;
+            pane.requestOpenId.clear();
+            pane.selectedId = id;
+            // Refresh this thread's disk-cache recency (mtime) so the cache-cap
+            // eviction's LRU ordering reflects OPENS, not just saves — the
+            // least-recently-OPENED thread is trimmed first when over cap.
+            if (disk_cache_enabled(app)) api::disk_cache::touch_transcript(id);
+
+            // Phase X fast path: cache HIT -> render synchronously, no async
+            // round-trip, no Loading flash. Marks the thread most-recently-used
+            // so "last 5 interacted with" stays accurate on every open/switch.
+            if (auto hit = app.transcriptCache.get(id)) {
+                pane.openSession = std::move(*hit);
+                pane.transcriptState = LoadState::Loaded;
+                pane.transcriptError.clear();
+                pane.transcriptLoadingId.clear();  // nothing loading now
+                pane.hasMoreOlder = pane.openSession->has_more_older;
+                // Mock is static -> cache is authoritative (no revalidation).
+                // SEAM: a live backend would kick a background revalidate here
+                // and swap in fresh data if it changed. Not built for the mock.
+                // Live subscriptions are managed by sync_subscriptions()
+                // each frame (one per open tab), so no per-open binding here.
+            } else {
+                // MISS in the in-memory LRU. FEATURE #1 (never beachball): the
+                // disk-cache read USED to happen synchronously RIGHT HERE, on
+                // the UI thread — open + JSON-parse of an up-to-690-message
+                // transcript file. On a big thread that blocked the UI thread
+                // for tens of ms (the beachball). Now we:
+                //   (a) set transcriptState=Loading + transcriptLoadingId
+                //       IMMEDIATELY (trivially cheap) so the pane can paint a
+                //       spinner on the very next frame, and
+                //   (b) launch the disk read on a WORKER THREAD (diskReadFuture)
+                //       and the network revalidate on ANOTHER worker
+                //       (transcriptFuture) — the UI thread does NEITHER the
+                //       disk read/parse NOR the network. Whichever lands first
+                //       (disk = stale paint, network = fresh) is applied by the
+                //       pollers below.
+                // The heavy parse/window work is entirely off the UI thread.
+                pane.transcriptState = LoadState::Loading;
+                pane.transcriptLoadingId = id;
+
+                // (a) Disk-cache read on a worker (stale-while-revalidate).
+                if (disk_cache_enabled(app)) {
+                    pane.diskReadPending = true;
+                    pane.diskReadId = id;
+                    pane.diskReadFuture = std::async(
+                        std::launch::async,
+                        [id] { return api::disk_cache::load_transcript(id); });
+                }
+                // (b) Network revalidate / first-ever load, newest-N only.
+                pane.transcriptPending = true;
+                pane.transcriptPendingId = id;
+                api::Client* c = app.client.get();
+                pane.transcriptFuture = std::async(
+                    std::launch::async,
+                    [c, id] { return c->get_session(id, kMessagesWindow); });
+                // Live subscriptions are managed by sync_subscriptions()
+                // each frame (one per open tab), so no per-open binding here.
+            }
+        }
+        // Poll the worker-thread disk-cache read (stale paint). Lands ahead of
+        // — or alongside — the network fetch; applied only if this is still the
+        // thread the user wants AND the network hasn't already painted it.
+        if (pane.diskReadPending && pane.diskReadFuture.valid() &&
+            pane.diskReadFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto disk = pane.diskReadFuture.get();
+            pane.diskReadPending = false;
+            if (disk && pane.selectedId == pane.diskReadId &&
+                // Don't clobber a fresh network result that already landed.
+                pane.transcriptState != LoadState::Loaded) {
+                app.transcriptCache.put(*disk);
+                pane.openSession = std::move(*disk);
+                pane.transcriptState = LoadState::Loaded;  // show stale now
+                pane.transcriptError.clear();
+                pane.hasMoreOlder = pane.openSession->has_more_older;
+                // A stale paint clears the spinner for THIS thread; the network
+                // revalidate still runs in the background (no Loading flash).
+                if (pane.transcriptLoadingId == pane.diskReadId)
+                    pane.transcriptLoadingId.clear();
+            }
+        }
+        if (pane.transcriptPending && pane.transcriptFuture.valid()) {
+            if (pane.transcriptFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+                auto r = pane.transcriptFuture.get();
+                pane.transcriptPending = false;
+                if (r.ok) {
+                    // Insert into the cache (capped to the last 20 msgs) and
+                    // mark most-recently-used, then render. Also persist to disk
+                    // for the next session's instant (stale) paint.
+                    app.transcriptCache.put(r.value);
+                    save_and_trim(app, r.value);
+                    // Only swap into the view if this is still the open thread
+                    // (the user may have switched tabs during a slow fetch).
+                    if (pane.selectedId == r.value.summary.id) {
+                        pane.openSession = std::move(r.value);
+                        pane.transcriptState = LoadState::Loaded;
+                        pane.transcriptError.clear();
+                        pane.hasMoreOlder = pane.openSession->has_more_older;
+                        // Fresh data landed — clear the "loading this thread"
+                        // spinner flag for this id.
+                        if (pane.transcriptLoadingId ==
+                            pane.openSession->summary.id)
+                            pane.transcriptLoadingId.clear();
+                    }
+                } else {
+                    // Network fetch failed. If we already painted a stale copy
+                    // from disk/LRU, KEEP it rather than blanking the pane on a
+                    // transient slow-network error; only surface the error when
+                    // there's nothing to show.
+                    pane.transcriptError = r.error;
+                    if (pane.openSession &&
+                        pane.openSession->summary.id == pane.transcriptPendingId) {
+                        pane.transcriptState = LoadState::Loaded;  // keep stale
+                    } else {
+                        pane.openSession.reset();
+                        pane.transcriptState = LoadState::Error;
+                    }
+                    // Fetch resolved (success or fail) for this thread — stop
+                    // showing the spinner. A pending disk read (if any) may
+                    // still paint a stale copy afterwards.
+                    if (pane.transcriptLoadingId == pane.transcriptPendingId &&
+                        !pane.diskReadPending)
+                        pane.transcriptLoadingId.clear();
+                }
+            }
+        }
+
     }
 
     void for_each_with(Entity&, AppComponent& app, float) override {
@@ -149,14 +296,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // to the existing immediate START below (no behavior change for the
         // common single-send case). drive_send_queue only ever re-sets the flag
         // when the session is free, so this intercept never re-captures it.
-        if (!app.selectedId.empty() && app.sending_for(app.selectedId)) {
+        if (!app.pane().selectedId.empty() && app.sending_for(app.pane().selectedId)) {
             if (!app.requestStreamPrompt.empty()) {
-                app.enqueue_send(app.selectedId,
+                app.enqueue_send(app.pane().selectedId,
                                  std::move(app.requestStreamPrompt));
                 app.requestStreamPrompt.clear();
             }
             if (!app.requestSendPrompt.empty()) {
-                app.enqueue_send(app.selectedId,
+                app.enqueue_send(app.pane().selectedId,
                                  std::move(app.requestSendPrompt));
                 app.requestSendPrompt.clear();
             }
@@ -181,8 +328,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.listState = LoadState::Loaded;  // show stale now
                     // sessions is provably non-empty here (loaded from a
                     // !cached->empty() cache), so no re-check needed.
-                    if (app.selectedId.empty())
-                        app.requestOpenId = app.sessions.front().id;
+                    if (app.pane().selectedId.empty())
+                        app.pane().requestOpenId = app.sessions.front().id;
                 } else {
                     app.listState = LoadState::Loading;
                 }
@@ -205,8 +352,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (disk_cache_enabled(app))
                         api::disk_cache::save_sessions(app.sessions);
                     // Auto-open the first session if nothing selected yet.
-                    if (app.selectedId.empty() && !app.sessions.empty())
-                        app.requestOpenId = app.sessions.front().id;
+                    if (app.pane().selectedId.empty() && !app.sessions.empty())
+                        app.pane().requestOpenId = app.sessions.front().id;
                     // Screenshot affordance: HANABI_STREAM_DEMO forces the
                     // first thread OPEN in the Chat transcript so a headless
                     // capture has an openSession for the composer's stream demo
@@ -216,8 +363,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (const char* d = std::getenv("HANABI_STREAM_DEMO");
                         d && *d && !app.sessions.empty()) {
                         app.view = SmartView::Chat;
-                        app.selectedId = app.sessions.front().id;
-                        app.requestOpenId = app.sessions.front().id;
+                        app.pane().selectedId = app.sessions.front().id;
+                        app.pane().requestOpenId = app.sessions.front().id;
                     }
                 } else {
                     // The network fetch failed (e.g. slow-network timeout). If
@@ -233,177 +380,67 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
-        // --- Transcript ---
-        if (!app.requestOpenId.empty() && !app.transcriptPending) {
-            std::string id = app.requestOpenId;
-            app.requestOpenId.clear();
-            app.selectedId = id;
-            // Refresh this thread's disk-cache recency (mtime) so the cache-cap
-            // eviction's LRU ordering reflects OPENS, not just saves — the
-            // least-recently-OPENED thread is trimmed first when over cap.
-            if (disk_cache_enabled(app)) api::disk_cache::touch_transcript(id);
+        // --- Transcripts: every pane that is showing ---
+        for (size_t i = 0; i < app.active_pane_count(); ++i)
+            service_pane(app, app.panes[i]);
 
-            // Phase X fast path: cache HIT -> render synchronously, no async
-            // round-trip, no Loading flash. Marks the thread most-recently-used
-            // so "last 5 interacted with" stays accurate on every open/switch.
-            if (auto hit = app.transcriptCache.get(id)) {
-                app.openSession = std::move(*hit);
-                app.transcriptState = LoadState::Loaded;
-                app.transcriptError.clear();
-                app.transcriptLoadingId.clear();  // nothing loading now
-                app.hasMoreOlder = app.openSession->has_more_older;
-                // Mock is static -> cache is authoritative (no revalidation).
-                // SEAM: a live backend would kick a background revalidate here
-                // and swap in fresh data if it changed. Not built for the mock.
-                // Live subscriptions are managed by sync_subscriptions()
-                // each frame (one per open tab), so no per-open binding here.
-            } else {
-                // MISS in the in-memory LRU. FEATURE #1 (never beachball): the
-                // disk-cache read USED to happen synchronously RIGHT HERE, on
-                // the UI thread — open + JSON-parse of an up-to-690-message
-                // transcript file. On a big thread that blocked the UI thread
-                // for tens of ms (the beachball). Now we:
-                //   (a) set transcriptState=Loading + transcriptLoadingId
-                //       IMMEDIATELY (trivially cheap) so the pane can paint a
-                //       spinner on the very next frame, and
-                //   (b) launch the disk read on a WORKER THREAD (diskReadFuture)
-                //       and the network revalidate on ANOTHER worker
-                //       (transcriptFuture) — the UI thread does NEITHER the
-                //       disk read/parse NOR the network. Whichever lands first
-                //       (disk = stale paint, network = fresh) is applied by the
-                //       pollers below.
-                // The heavy parse/window work is entirely off the UI thread.
-                app.transcriptState = LoadState::Loading;
-                app.transcriptLoadingId = id;
-
-                // (a) Disk-cache read on a worker (stale-while-revalidate).
-                if (disk_cache_enabled(app)) {
-                    app.diskReadPending = true;
-                    app.diskReadId = id;
-                    app.diskReadFuture = std::async(
-                        std::launch::async,
-                        [id] { return api::disk_cache::load_transcript(id); });
-                }
-                // (b) Network revalidate / first-ever load, newest-N only.
-                app.transcriptPending = true;
-                app.transcriptPendingId = id;
-                api::Client* c = app.client.get();
-                app.transcriptFuture = std::async(
-                    std::launch::async,
-                    [c, id] { return c->get_session(id, kMessagesWindow); });
-                // Live subscriptions are managed by sync_subscriptions()
-                // each frame (one per open tab), so no per-open binding here.
+        // Open a thread in the pane that is not focused, splitting if
+        // it is not already. The pane then loads it through the SAME
+        // service_pane path above on the next frame.
+        if (app.requestSplitToggle) {
+            app.requestSplitToggle = false;
+            if (app.splitOpen) {
+                app.requestSplitClose = true;
+            } else if (app.pane().openSession) {
+                // Splitting shows the SAME thread in both panes: it is
+                // the cheapest useful default (two places in one long
+                // transcript) and the second pane is one tab click from
+                // becoming anything else.
+                app.requestSplitOpen = app.pane().selectedId;
             }
         }
-        // Poll the worker-thread disk-cache read (stale paint). Lands ahead of
-        // — or alongside — the network fetch; applied only if this is still the
-        // thread the user wants AND the network hasn't already painted it.
-        if (app.diskReadPending && app.diskReadFuture.valid() &&
-            app.diskReadFuture.wait_for(std::chrono::seconds(0)) ==
-                std::future_status::ready) {
-            auto disk = app.diskReadFuture.get();
-            app.diskReadPending = false;
-            if (disk && app.selectedId == app.diskReadId &&
-                // Don't clobber a fresh network result that already landed.
-                app.transcriptState != LoadState::Loaded) {
-                app.transcriptCache.put(*disk);
-                app.openSession = std::move(*disk);
-                app.transcriptState = LoadState::Loaded;  // show stale now
-                app.transcriptError.clear();
-                app.hasMoreOlder = app.openSession->has_more_older;
-                // A stale paint clears the spinner for THIS thread; the network
-                // revalidate still runs in the background (no Loading flash).
-                if (app.transcriptLoadingId == app.diskReadId)
-                    app.transcriptLoadingId.clear();
-            }
-        }
-        if (app.transcriptPending && app.transcriptFuture.valid()) {
-            if (app.transcriptFuture.wait_for(std::chrono::seconds(0)) ==
-                std::future_status::ready) {
-                auto r = app.transcriptFuture.get();
-                app.transcriptPending = false;
-                if (r.ok) {
-                    // Insert into the cache (capped to the last 20 msgs) and
-                    // mark most-recently-used, then render. Also persist to disk
-                    // for the next session's instant (stale) paint.
-                    app.transcriptCache.put(r.value);
-                    save_and_trim(app, r.value);
-                    // Only swap into the view if this is still the open thread
-                    // (the user may have switched tabs during a slow fetch).
-                    if (app.selectedId == r.value.summary.id) {
-                        app.openSession = std::move(r.value);
-                        app.transcriptState = LoadState::Loaded;
-                        app.transcriptError.clear();
-                        app.hasMoreOlder = app.openSession->has_more_older;
-                        // Fresh data landed — clear the "loading this thread"
-                        // spinner flag for this id.
-                        if (app.transcriptLoadingId ==
-                            app.openSession->summary.id)
-                            app.transcriptLoadingId.clear();
-                    }
-                } else {
-                    // Network fetch failed. If we already painted a stale copy
-                    // from disk/LRU, KEEP it rather than blanking the pane on a
-                    // transient slow-network error; only surface the error when
-                    // there's nothing to show.
-                    app.transcriptError = r.error;
-                    if (app.openSession &&
-                        app.openSession->summary.id == app.transcriptPendingId) {
-                        app.transcriptState = LoadState::Loaded;  // keep stale
-                    } else {
-                        app.openSession.reset();
-                        app.transcriptState = LoadState::Error;
-                    }
-                    // Fetch resolved (success or fail) for this thread — stop
-                    // showing the spinner. A pending disk read (if any) may
-                    // still paint a stale copy afterwards.
-                    if (app.transcriptLoadingId == app.transcriptPendingId &&
-                        !app.diskReadPending)
-                        app.transcriptLoadingId.clear();
-                }
-            }
-        }
-
-        // --- SPLIT VIEW (I2): open/close the RIGHT pane's second transcript.
-        // Mirrors the primary open path but simpler: cache-hit renders
-        // synchronously; a miss fills app.splitSession on a worker thread. The
-        // primary pane is untouched, so single-pane behavior is unchanged.
         if (app.requestSplitClose) {
             app.requestSplitClose = false;
-            app.splitSessionId.clear();
-            app.splitSession.reset();
-            app.splitPending = false;
-            app.splitPendingId.clear();
+            app.splitOpen = false;
+            app.focusedPane = 0;
+            // Let go of the closed pane's transcript. Its ID is kept -- that
+            // is what gets persisted and what makes reopening the split
+            // instant off the LRU -- but the messages are the largest thing
+            // this app holds, and a pane nobody can see holding a 690-message
+            // transcript for the rest of the session is a leak with a
+            // plausible excuse. Anything in flight for it is dropped the same
+            // way a tab switch drops a slow fetch.
+            Pane& closed = app.panes[1];
+            closed.openSession.reset();
+            closed.transcriptState = LoadState::Idle;
+            closed.transcriptError.clear();
+            closed.transcriptLoadingId.clear();
+            closed.transcriptPending = false;
+            closed.diskReadPending = false;
+            closed.requestOpenId.clear();
+            closed.findOpen = false;
+            closed.findQuery.clear();
+            // ...and reopening must actually re-open it, so the pane asks for
+            // its thread again rather than sitting empty.
+            if (!closed.selectedId.empty())
+                closed.scrollBottomPending = closed.selectedId;
         }
         if (!app.requestSplitOpen.empty()) {
-            std::string id = app.requestSplitOpen;
+            const std::string id = app.requestSplitOpen;
             app.requestSplitOpen.clear();
-            // Don't split a pane against itself; and opening the primary thread
-            // in the split is a no-op (nothing to compare).
-            if (id != app.selectedId) {
-                app.splitSessionId = id;
-                if (auto hit = app.transcriptCache.get(id)) {
-                    app.splitSession = std::move(*hit);  // instant from LRU
-                    app.splitPending = false;
-                } else if (!app.splitPending) {
-                    app.splitPending = true;
-                    app.splitPendingId = id;
-                    api::Client* c = app.client.get();
-                    app.splitFuture = std::async(std::launch::async, [c, id] {
-                        return c->get_session(id, kMessagesWindow);
-                    });
-                }
+            app.splitOpen = true;
+            Pane& target = app.other_pane();
+            // `|| !target.openSession` is not belt and braces: closing a split
+            // drops the pane's transcript and keeps its id, so a pane that is
+            // already "on" this thread has nothing to show until it asks
+            // again. Without it, splitting -> closing -> splitting left the
+            // second pane permanently blank.
+            if (target.selectedId != id || !target.openSession) {
+                target.selectedId = id;
+                target.requestOpenId = id;
+                target.scrollBottomPending = id;
             }
-        }
-        if (app.splitPending && app.splitFuture.valid() &&
-            app.splitFuture.wait_for(std::chrono::seconds(0)) ==
-                std::future_status::ready) {
-            auto r = app.splitFuture.get();
-            app.splitPending = false;
-            if (r.ok && app.splitSessionId == r.value.summary.id) {
-                app.transcriptCache.put(r.value);
-                app.splitSession = std::move(r.value);
-            }
+            app.view = SmartView::Chat;
         }
 
         //
@@ -421,8 +458,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // reuses the open transcript for the appended turn). A steer already in
         // flight for this session holds off a second dispatch (steerPending).
         if (app.should_steer_open() && !app.steerPending &&
-            !app.selectedId.empty() && app.openSession &&
-            app.openSession->summary.id == app.selectedId &&
+            !app.pane().selectedId.empty() && app.pane().openSession &&
+            app.pane().openSession->summary.id == app.pane().selectedId &&
             (!app.requestSendPrompt.empty() ||
              !app.requestStreamPrompt.empty())) {
             std::string prompt = !app.requestStreamPrompt.empty()
@@ -431,7 +468,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // Consume BOTH so the downstream send/stream paths don't also fire.
             app.requestStreamPrompt.clear();
             app.requestSendPrompt.clear();
-            std::string id = app.selectedId;
+            std::string id = app.pane().selectedId;
             app.steerPending = true;
             app.steerSessionId = id;
             app.sendingPrompt = prompt;  // reuse the "…" in-flight hint
@@ -459,20 +496,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // Append the user's steering message + the returned reply to
                     // the open transcript, mirroring the reply path so the
                     // transcript reads as a full turn, then refresh the cache.
-                    if (app.openSession &&
-                        app.openSession->summary.id == app.steerSessionId) {
+                    if (app.pane().openSession &&
+                        app.pane().openSession->summary.id == app.steerSessionId) {
                         api::Message um;
                         um.role = api::Role::User;
                         um.id = app.steerSessionId + "-u" +
-                                std::to_string(app.openSession->messages.size());
+                                std::to_string(app.pane().openSession->messages.size());
                         um.text = userText;
                         um.created_at = r.value.created_at;
-                        app.openSession->messages.push_back(std::move(um));
-                        app.openSession->messages.push_back(r.value);
-                        app.transcriptCache.put(*app.openSession);
+                        app.pane().openSession->messages.push_back(std::move(um));
+                        app.pane().openSession->messages.push_back(r.value);
+                        app.transcriptCache.put(*app.pane().openSession);
                     }
                 } else {
-                    app.transcriptError = r.error;
+                    app.pane().transcriptError = r.error;
                 }
             }
         }
@@ -541,9 +578,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
         // --- Reply (transcript composer "Send" -> continue the open thread) ---
         if (!app.requestSendPrompt.empty() && !app.sendPending &&
-            !app.selectedId.empty()) {
+            !app.pane().selectedId.empty()) {
             std::string prompt = app.requestSendPrompt;
-            std::string id = app.selectedId;
+            std::string id = app.pane().selectedId;
             app.requestSendPrompt.clear();
             app.sendPending = true;
             app.sendSessionId = id;
@@ -562,21 +599,21 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const bool fromOutbox = claim_outbox_dispatch(app, id, prompt);
             if (!fromOutbox) api::disk_cache::outbox_add(id, prompt);
             app.optimisticSendId.clear();
-            if (app.openSession && app.openSession->summary.id == id) {
+            if (app.pane().openSession && app.pane().openSession->summary.id == id) {
                 if (fromOutbox && adopt_local_bubble(app, prompt)) {
-                    app.scrollBottomPending = id;
+                    app.pane().scrollBottomPending = id;
                 } else {
                     api::Message um;
                     um.role = api::Role::User;
                     um.id = id + "-u" +
-                            std::to_string(app.openSession->messages.size());
+                            std::to_string(app.pane().openSession->messages.size());
                     um.text = prompt;
                     um.created_at =
                         static_cast<int64_t>(std::time(nullptr));
                     um.sync = api::SyncState::Persisting;
                     app.optimisticSendId = um.id;
-                    app.openSession->messages.push_back(std::move(um));
-                    app.scrollBottomPending = id;  // keep the new bubble in view
+                    app.pane().openSession->messages.push_back(std::move(um));
+                    app.pane().scrollBottomPending = id;  // keep the new bubble in view
                 }
             }
             api::Client* c = app.client.get();
@@ -597,8 +634,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // (appended at dispatch with sync=Persisting). Flip it to
                     // Synced, append the assistant reply, drop it from the local
                     // outbox (confirmed on the server), and refresh the cache.
-                    if (app.openSession &&
-                        app.openSession->summary.id == app.sendSessionId) {
+                    if (app.pane().openSession &&
+                        app.pane().openSession->summary.id == app.sendSessionId) {
                         mark_optimistic(app, api::SyncState::Synced);
                         // Fallback: if the optimistic bubble wasn't recorded
                         // (e.g. the thread was switched at dispatch), reconstruct
@@ -608,14 +645,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             um.role = api::Role::User;
                             um.id = app.sendSessionId + "-u" +
                                     std::to_string(
-                                        app.openSession->messages.size());
+                                        app.pane().openSession->messages.size());
                             um.text = userText;
                             um.created_at = r.value.created_at;
                             um.sync = api::SyncState::Synced;
-                            app.openSession->messages.push_back(std::move(um));
+                            app.pane().openSession->messages.push_back(std::move(um));
                         }
-                        app.openSession->messages.push_back(r.value);
-                        app.transcriptCache.put(*app.openSession);
+                        app.pane().openSession->messages.push_back(r.value);
+                        app.transcriptCache.put(*app.pane().openSession);
                     }
                     api::disk_cache::outbox_remove(app.sendSessionId, userText);
                     app.outboxRetry.confirmed(app.sendSessionId, userText);
@@ -627,7 +664,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // the entry sat on disk forever and "kept in the outbox to
                     // retry" was only the first half of a sentence.
                     mark_optimistic(app, api::SyncState::Failed);
-                    app.transcriptError = r.error;
+                    app.pane().transcriptError = r.error;
                     note_outbox_failure(app, app.sendSessionId, userText);
                 }
             }
@@ -700,9 +737,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // duplicate. True if one was adopted.
     static bool adopt_local_bubble(AppComponent& app,
                                    const std::string& prompt) {
-        if (!app.openSession) return false;
-        for (auto it = app.openSession->messages.rbegin();
-             it != app.openSession->messages.rend(); ++it) {
+        if (!app.pane().openSession) return false;
+        for (auto it = app.pane().openSession->messages.rbegin();
+             it != app.pane().openSession->messages.rend(); ++it) {
             if (it->role != api::Role::User) continue;
             if (it->sync == api::SyncState::None) continue;
             if (it->text != prompt) continue;
@@ -715,9 +752,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
     static void mark_local_prompt(AppComponent& app, const std::string& prompt,
                                   api::SyncState st) {
-        if (!app.openSession) return;
-        for (auto it = app.openSession->messages.rbegin();
-             it != app.openSession->messages.rend(); ++it) {
+        if (!app.pane().openSession) return;
+        for (auto it = app.pane().openSession->messages.rbegin();
+             it != app.pane().openSession->messages.rend(); ++it) {
             if (it->role != api::Role::User) continue;
             if (it->sync == api::SyncState::None) continue;
             if (it->text != prompt) continue;
@@ -728,8 +765,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
     static void drop_local_prompt(AppComponent& app,
                                   const std::string& prompt) {
-        if (!app.openSession) return;
-        auto& msgs = app.openSession->messages;
+        if (!app.pane().openSession) return;
+        auto& msgs = app.pane().openSession->messages;
         for (auto it = msgs.begin(); it != msgs.end(); ++it) {
             if (it->role != api::Role::User) continue;
             if (it->sync == api::SyncState::None) continue;
@@ -759,13 +796,13 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // ever produce it, and without this the user's words are on disk and
     // nowhere else.
     static void restore_outbox_bubbles(AppComponent& app) {
-        if (!app.openSession) return;
-        const std::string id = app.openSession->summary.id;
+        if (!app.pane().openSession) return;
+        const std::string id = app.pane().openSession->summary.id;
         if (app.outboxRetry.count_for(id) == 0) return;
         for (const auto& e : app.outboxRetry.entries()) {
             if (e.sessionId != id) continue;
             bool present = false;
-            for (const auto& m : app.openSession->messages) {
+            for (const auto& m : app.pane().openSession->messages) {
                 if (m.role == api::Role::User && m.text == e.prompt) {
                     present = true;
                     break;
@@ -775,12 +812,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             api::Message um;
             um.role = api::Role::User;
             um.id = id + "-ob" +
-                    std::to_string(app.openSession->messages.size());
+                    std::to_string(app.pane().openSession->messages.size());
             um.text = e.prompt;
             um.created_at = static_cast<int64_t>(std::time(nullptr));
             um.sync = api::SyncState::LocalOnly;
-            app.openSession->messages.push_back(std::move(um));
-            app.scrollBottomPending = id;
+            app.pane().openSession->messages.push_back(std::move(um));
+            app.pane().scrollBottomPending = id;
         }
     }
 
@@ -813,14 +850,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
         // A retry can only be dispatched into the OPEN thread, for the same
         // reason drive_send_queue's dispatch can: the send START blocks below
-        // read app.selectedId, so a prompt aimed anywhere else would land in
+        // read the focused pane's selectedId, so a prompt aimed anywhere else would land in
         // the wrong transcript. An entry for a closed thread waits, durably,
         // until it is opened.
         const api::outbox::Entry* pick = app.outboxRetry.next(
             now, [&app](const std::string& id) {
-                if (id != app.selectedId) return false;
+                if (id != app.pane().selectedId) return false;
                 if (app.sending_for(id)) return false;
-                if (!app.openSession || app.openSession->summary.id != id)
+                if (!app.pane().openSession || app.pane().openSession->summary.id != id)
                     return false;
                 if (!app.requestSendPrompt.empty()) return false;
                 if (!app.requestStreamPrompt.empty()) return false;
@@ -853,16 +890,16 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const std::string& id = it->sessionId;
             if (app.sending_for(id)) continue;  // busy: keep it queued
             // Don't stomp an un-consumed dispatch for this same session.
-            if (!app.requestSendPrompt.empty() && app.selectedId == id) continue;
-            if (!app.requestStreamPrompt.empty() && app.selectedId == id)
+            if (!app.requestSendPrompt.empty() && app.pane().selectedId == id) continue;
+            if (!app.requestStreamPrompt.empty() && app.pane().selectedId == id)
                 continue;
             // Dispatch this one. The existing reply/stream START blocks read
-            // requestSendPrompt/requestStreamPrompt for app.selectedId, so a
+            // requestSendPrompt/requestStreamPrompt for app.pane().selectedId, so a
             // queued send only fires against the OPEN thread — which is the
             // only thread the composer can target anyway. If the queued send
             // is for a non-open thread, hold it until that thread is opened
             // (keeps ordering; never sends into the wrong transcript).
-            if (app.selectedId != id) continue;
+            if (app.pane().selectedId != id) continue;
             const std::string prompt = it->prompt;
             app.pendingSendQueue.erase(it);
             if (app.client->supports_stream())
@@ -1000,27 +1037,27 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
     // ---- Load OLDER (full transcript on demand) --------------------------
     //
-    // The render side sets app.requestLoadOlder when the user scrolls to the
-    // top of a windowed transcript (app.hasMoreOlder == true). Since the
+    // The render side sets app.pane().requestLoadOlder when the user scrolls to the
+    // top of a windowed transcript (app.pane().hasMoreOlder == true). Since the
     // backend has NO working backward cursor yet (offset/before are ignored),
     // "load older" is serviced by re-fetching the FULL transcript once (no
     // limit) and replacing openSession->messages, preserving the open session.
     // This is the documented interim until the backend cursor lands — at which
     // point this becomes an incremental page-back instead of a full re-fetch.
     void drive_load_older(AppComponent& app) {
-        if (app.requestLoadOlder && !app.loadingOlder && app.client &&
-            !app.selectedId.empty()) {
-            app.requestLoadOlder = false;
-            app.loadingOlder = true;
+        if (app.pane().requestLoadOlder && !app.pane().loadingOlder && app.client &&
+            !app.pane().selectedId.empty()) {
+            app.pane().requestLoadOlder = false;
+            app.pane().loadingOlder = true;
             // Record the message count BEFORE the fetch. When the older page
             // lands and prepends messages, the render side measures the height
             // of the newly-prepended messages and bumps scroll_offset by that
             // amount so the viewport stays on the same message (no snap to the
             // oldest). Only the count is needed here — the render computes the
             // exact prepended height from its own per-message measurement.
-            app.anchorPrevMsgCount =
-                app.openSession ? app.openSession->messages.size() : 0;
-            std::string id = app.selectedId;
+            app.pane().anchorPrevMsgCount =
+                app.pane().openSession ? app.pane().openSession->messages.size() : 0;
+            std::string id = app.pane().selectedId;
             api::Client* c = app.client.get();
             // limit=0 => the FULL transcript (no ?limit query).
             app.liveFuture = std::async(std::launch::async,
@@ -1056,7 +1093,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 now - ls.lastRefetch >= kEventDebounce) {
                 ls.dirty->store(false);
                 ls.lastRefetch = now;
-                if (id == app.selectedId) app.requestListRefresh = true;
+                if (id == app.pane().selectedId) app.requestListRefresh = true;
                 api::Client* c = app.client.get();
                 std::string sid = id;
                 ls.future = std::async(std::launch::async, [c, sid] {
@@ -1075,12 +1112,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // Persist fresh transcript for ANY open tab (instant switch).
                     save_and_trim(app, r.value);
                     app.transcriptCache.put(r.value);
-                    if (app.selectedId == r.value.summary.id &&
-                        !app.loadingOlder && !app.livePending) {
-                        app.openSession = r.value;
-                        app.transcriptState = LoadState::Loaded;
-                        app.transcriptError.clear();
-                        app.hasMoreOlder = app.openSession->has_more_older;
+                    if (app.pane().selectedId == r.value.summary.id &&
+                        !app.pane().loadingOlder && !app.livePending) {
+                        app.pane().openSession = r.value;
+                        app.pane().transcriptState = LoadState::Loaded;
+                        app.pane().transcriptError.clear();
+                        app.pane().hasMoreOlder = app.pane().openSession->has_more_older;
                     }
                 }
             }
@@ -1100,31 +1137,31 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             return;
         auto r = app.liveFuture.get();
         app.livePending = false;
-        if (fromLoadOlder) app.loadingOlder = false;
+        if (fromLoadOlder) app.pane().loadingOlder = false;
         if (!r.ok) {
             // Non-fatal: keep whatever is on screen; surface the error.
-            app.transcriptError = r.error;
+            app.pane().transcriptError = r.error;
             return;
         }
         // Only swap if this is still the open thread (the user may have
         // switched during the fetch).
-        if (app.selectedId != r.value.summary.id) return;
+        if (app.pane().selectedId != r.value.summary.id) return;
         // Load-older: if the re-fetch actually added older messages above the
         // current window, arm the render-side scroll anchor so the viewport is
         // held on the same message instead of snapping to the newly-loaded
         // oldest. Only arm when the count actually grew.
-        if (fromLoadOlder && r.value.messages.size() > app.anchorPrevMsgCount) {
-            app.anchorPending = r.value.summary.id;
+        if (fromLoadOlder && r.value.messages.size() > app.pane().anchorPrevMsgCount) {
+            app.pane().anchorPending = r.value.summary.id;
         }
         // Preserve just-sent optimistic messages the server hasn't materialized
         // yet, so they don't blink out on a refetch that predates the turn.
         reconcile_optimistic(app, r.value);
         app.transcriptCache.put(r.value);
         save_and_trim(app, r.value);
-        app.openSession = std::move(r.value);
-        app.transcriptState = LoadState::Loaded;
-        app.transcriptError.clear();
-        app.hasMoreOlder = app.openSession->has_more_older;
+        app.pane().openSession = std::move(r.value);
+        app.pane().transcriptState = LoadState::Loaded;
+        app.pane().transcriptError.clear();
+        app.pane().hasMoreOlder = app.pane().openSession->has_more_older;
     }
 
     // Open a live (SSE) subscription bound to `id`, tearing down any previous
@@ -1162,7 +1199,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     const auto& tab = opt->get<Tab>();
                     if (tab.sessionId.empty()) continue;
                     if (!tab.keptOpen) {
-                        if (tab.sessionId == app.selectedId)
+                        if (tab.sessionId == app.pane().selectedId)
                             selectedIsPreview = true;
                         continue;
                     }
@@ -1173,8 +1210,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // Always keep the focused thread subscribed even if (transiently) it
         // has no tab entity yet — unless the tab it does have is a preview,
         // which would put the live stream back behind the frozen one.
-        if (!app.selectedId.empty() && !selectedIsPreview)
-            openIds.insert(app.selectedId);
+        if (!app.pane().selectedId.empty() && !selectedIsPreview)
+            openIds.insert(app.pane().selectedId);
 
         // Reap subscriptions whose tab closed (detach so stop()/join is off the
         // UI thread — the blocking SSE read can sit up to the read timeout).
@@ -1212,8 +1249,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
         // The open thread is "live" iff it has an active subscription.
         app.openThreadLive =
-            !app.selectedId.empty() && app.liveSubs.count(app.selectedId) &&
-            app.liveSubs.at(app.selectedId).sub != nullptr;
+            !app.pane().selectedId.empty() && app.liveSubs.count(app.pane().selectedId) &&
+            app.liveSubs.at(app.pane().selectedId).sub != nullptr;
     }
 
     // Reap the whole pool off the UI thread (backend swap / shutdown).
@@ -1261,11 +1298,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // reply is gathered. The sink captures deltas into a queue; a
         // non-streaming backend simply yields one delta.
         if (!app.requestStreamPrompt.empty() && !app.streamActive &&
-            !app.streamCollecting && !app.selectedId.empty() && app.client &&
-            app.openSession &&
-            app.openSession->summary.id == app.selectedId) {
+            !app.streamCollecting && !app.pane().selectedId.empty() && app.client &&
+            app.pane().openSession &&
+            app.pane().openSession->summary.id == app.pane().selectedId) {
             std::string prompt = app.requestStreamPrompt;
-            std::string id = app.selectedId;
+            std::string id = app.pane().selectedId;
             app.requestStreamPrompt.clear();
             // The outbox covers THIS path too, and for a long time it did not.
             // The write side was wired only into the synchronous reply above,
@@ -1324,10 +1361,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 note_outbox_failure(app, id, prompt);
             }
-            if (!app.openSession || app.openSession->summary.id != id) {
+            if (!app.pane().openSession || app.pane().openSession->summary.id != id) {
                 app.streamPhase = AppComponent::StreamPhase::Idle;
             } else if (!got.error.empty()) {
-                app.transcriptError = got.error;
+                app.pane().transcriptError = got.error;
                 app.streamPhase = AppComponent::StreamPhase::Idle;
                 mark_local_prompt(app, prompt, api::SyncState::Failed);
             } else {
@@ -1342,15 +1379,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 api::Message um;
                 um.role = api::Role::User;
                 um.id = id + "-u" +
-                        std::to_string(app.openSession->messages.size());
+                        std::to_string(app.pane().openSession->messages.size());
                 um.text = prompt;
                 um.created_at = got.finalMsg.created_at;
-                app.openSession->messages.push_back(std::move(um));
+                app.pane().openSession->messages.push_back(std::move(um));
 
                 api::Message assistant = got.finalMsg;
                 assistant.text.clear();  // starts empty; fills as we drain.
-                app.openSession->messages.push_back(assistant);
-                app.streamMsgIndex = app.openSession->messages.size() - 1;
+                app.pane().openSession->messages.push_back(assistant);
+                app.streamMsgIndex = app.pane().openSession->messages.size() - 1;
 
                 app.streamActive = true;
                 app.streamSessionId = id;
@@ -1369,9 +1406,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
         // If the open thread changed out from under an in-flight stream, drop
         // it cleanly rather than writing into the wrong transcript.
-        if (!app.openSession ||
-            app.openSession->summary.id != app.streamSessionId ||
-            app.streamMsgIndex >= app.openSession->messages.size()) {
+        if (!app.pane().openSession ||
+            app.pane().openSession->summary.id != app.streamSessionId ||
+            app.streamMsgIndex >= app.pane().openSession->messages.size()) {
             reset_stream(app);
             return;
         }
@@ -1415,18 +1452,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamPhase = AppComponent::StreamPhase::Streaming;
 
         // Rewrite the live Assistant bubble's text with what we have so far.
-        app.openSession->messages[app.streamMsgIndex].text = app.streamBuffer;
+        app.pane().openSession->messages[app.streamMsgIndex].text = app.streamBuffer;
 
         // --- DONE ---
         if (app.streamCursor >= app.streamQueue.size()) {
             // Finalize: stamp the real id/created_at, ensure the full text is
             // in place, refresh the cache so a re-open shows the complete turn.
-            api::Message& live = app.openSession->messages[app.streamMsgIndex];
+            api::Message& live = app.pane().openSession->messages[app.streamMsgIndex];
             live.text = app.streamFinal.text;
             if (!app.streamFinal.id.empty()) live.id = app.streamFinal.id;
             if (app.streamFinal.created_at != 0)
                 live.created_at = app.streamFinal.created_at;
-            app.transcriptCache.put(*app.openSession);
+            app.transcriptCache.put(*app.pane().openSession);
             app.streamPhase = AppComponent::StreamPhase::Done;
             reset_stream(app, /*keepPhase=*/true);
         }

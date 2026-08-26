@@ -38,6 +38,23 @@ inline bool enter_sends(const std::string& sendKey, bool cmdHeld) {
     return sendKey == kSendKeyCmdReturn ? cmdHeld : true;
 }
 
+// ── The split divider's limits ──────────────────────────────────────────
+// Here rather than beside the pane state, because BOTH sides need them and
+// two copies of a limit drift: the drag clamps as it writes, and the loader
+// clamps again as it reads a file that may have been hand-edited, truncated
+// by a crash, or written by a future build with different limits. One
+// definition, both call sites, and a pure function a test can drive.
+inline constexpr float kSplitMinRatio = 0.2f;
+inline constexpr float kSplitMaxRatio = 0.8f;
+inline float clamp_split_ratio(float r) {
+    // NaN fails both comparisons and falls through to the midpoint, which is
+    // the answer that cannot produce a zero-width pane.
+    if (!(r >= kSplitMinRatio)) return r > kSplitMaxRatio ? kSplitMaxRatio
+                                                          : kSplitMinRatio;
+    if (r > kSplitMaxRatio) return kSplitMaxRatio;
+    return r;
+}
+
 }  // namespace hanabi
 
 SINGLETON_FWD(Settings)
@@ -67,6 +84,29 @@ struct Settings {
     const std::vector<std::string>& get_pinned_tabs() const;
     void set_open_tabs(std::vector<std::string> ids, std::string activeId,
                        std::vector<std::string> pinnedIds = {});
+
+    // ── Split view ──────────────────────────────────────────────────────
+    // Whether the main pane is split, where the divider sits, and which
+    // thread each pane was showing. Machine-local, exactly like the open-tab
+    // set beside it and for the same reason: it says how THIS window was
+    // arranged, and no server field carries it.
+    //
+    // The ratio is stored as the LEFT pane's share and clamped on read as
+    // well as on write, so a hand-edited or truncated file cannot produce a
+    // pane of zero width. A remembered pane thread that no longer exists is
+    // no different from a remembered TAB that no longer exists -- the loader
+    // fails its fetch and the pane shows the error, which is the behaviour
+    // that already exists for tabs.
+    //
+    // Bounded by construction: two ids and two numbers, whatever the user
+    // does. Unlike last_read (kMaxLastRead), there is nothing here to prune.
+    bool get_split_open() const;
+    float get_split_ratio() const;
+    // Which thread each pane held, index 0 (left) and 1 (right). Empty means
+    // that pane had nothing open.
+    const std::string& get_split_pane(int index) const;
+    void set_split(bool open, float ratio, const std::string& left,
+                   const std::string& right);  // auto-persists
 
     // Theme mode: "dark" (default) or "light".
     const std::string& get_theme() const;
@@ -315,6 +355,9 @@ struct Settings {
     std::vector<std::string> pinned_tabs_;
     std::string active_tab_;
     std::string theme_ = "dark";
+    bool split_open_ = false;
+    float split_ratio_ = 0.5f;
+    std::string split_panes_[2];
     std::string font_choice_ = "default";
     std::string accent_choice_ = "default";
     std::string highlight_choice_ = "default";

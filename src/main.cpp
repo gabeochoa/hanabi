@@ -283,6 +283,15 @@ static void setup_app_state() {
     app.restoreTabIds = Settings::get().get_open_tabs();
     app.restorePinnedIds = Settings::get().get_pinned_tabs();
     app.restoreActiveId = Settings::get().get_active_tab();
+    // The split is restored here, but the PANES' threads are restored by the
+    // same pass that restores the tabs (tab_bar_system.h): a pane's thread has
+    // to exist in the session list before it can be opened, exactly like a
+    // tab's, and asking for it earlier is asking for a fetch of an id the
+    // backend may no longer know.
+    app.splitOpen = Settings::get().get_split_open();
+    app.splitRatio = hanabi::clamp_split_ratio(Settings::get().get_split_ratio());
+    app.restoreSplitIds[0] = Settings::get().get_split_pane(0);
+    app.restoreSplitIds[1] = Settings::get().get_split_pane(1);
     // Back-compat: if no tab set persisted, fall back to last_session.
     if (app.restoreTabIds.empty()) {
         const std::string& last = Settings::get().get_last_session();
@@ -302,13 +311,13 @@ static void setup_app_state() {
     // loads). Guarded to the http backend (the mock doesn't cache).
     if (!app.restoreActiveId.empty() && app.backend_label == "http") {
         if (auto cached = api::disk_cache::load_transcript(app.restoreActiveId)) {
-            app.openSession = std::move(*cached);
-            app.selectedId = app.restoreActiveId;
-            app.transcriptState = ecs::LoadState::Loaded;
+            app.pane().openSession = std::move(*cached);
+            app.pane().selectedId = app.restoreActiveId;
+            app.pane().transcriptState = ecs::LoadState::Loaded;
             app.view = ecs::SmartView::Chat;  // paint the transcript, not Home
             // A background refresh still runs (requestListRefresh below +
             // TabFlowSystem's tab restore), swapping in fresh data when it lands.
-            app.transcriptCache.put(*app.openSession);
+            app.transcriptCache.put(*app.pane().openSession);
         }
     }
 
@@ -821,8 +830,16 @@ static void app_cleanup() {
                  .gen();
     if (!q.empty()) {
         auto& app = q[0].get().get<ecs::AppComponent>();
-        if (!app.selectedId.empty())
-            Settings::get().set_last_session(app.selectedId);
+        if (!app.pane().selectedId.empty())
+            Settings::get().set_last_session(app.pane().selectedId);
+        // The split, the divider and what each pane held. Written HERE rather
+        // than from the drag, for the same reason the tab set is: a divider
+        // drag is sixty writes a second and this file is fully re-serialised
+        // on every one of them. Settings::set_split also refuses a write that
+        // changes nothing, so a launch that never splits never touches it.
+        Settings::get().set_split(app.splitOpen, app.splitRatio,
+                                  app.panes[0].selectedId,
+                                  app.panes[1].selectedId);
     }
     Settings::get().set_theme(theme::mode() == theme::Mode::Light ? "light"
                                                                   : "dark");
@@ -880,11 +897,11 @@ static void request_test_opens(ecs::AppComponent* app) {
 // indicator in it. Re-applying after the settle is what makes the knob honest,
 // so it must be safe to call twice.
 static void apply_stream_demo(ecs::AppComponent* app) {
-    if (app == nullptr || !app->openSession) return;
+    if (app == nullptr || !app->pane().openSession) return;
     const char* th = std::getenv("HANABI_THINK_DEMO");
     if (!(th && *th && std::string(th) != "0")) return;
 
-    auto& msgs = app->openSession->messages;
+    auto& msgs = app->pane().openSession->messages;
     if (msgs.empty() || msgs.back().id != "__thinking_demo__") {
         api::Message live;
         live.role = api::Role::Assistant;
@@ -893,9 +910,9 @@ static void apply_stream_demo(ecs::AppComponent* app) {
         msgs.push_back(live);
     }
     app->streamActive = true;
-    app->streamSessionId = app->openSession->summary.id;
+    app->streamSessionId = app->pane().openSession->summary.id;
     app->streamMsgIndex = msgs.size() - 1;
-    app->selectedId = app->openSession->summary.id;
+    app->pane().selectedId = app->pane().openSession->summary.id;
     app->streamPhase = ecs::AppComponent::StreamPhase::Thinking;
     // Without this the loader finds a stream with no chunks left and finishes
     // it on the next tick, one frame after the knob runs.
@@ -930,8 +947,8 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else set = false;
         if (set) {
             app->view = sv;
-            app->selectedId.clear();
-            if (sv == ecs::SmartView::Chat) app->openSession.reset();
+            app->pane().selectedId.clear();
+            if (sv == ecs::SmartView::Chat) app->pane().openSession.reset();
         }
     }
 
@@ -944,7 +961,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         if (os == "settings") app->showSettings = true;
         else if (os == "composer") app->composerOpen = true;
         else if (os == "shortcuts") app->showShortcuts = true;
-        else if (os == "find") app->findOpen = true;
+        else if (os == "find") app->pane().findOpen = true;
         else if (os == "palette") app->paletteOpen = true;
         else if (os == "search") app->sessionSearchOpen = true;
     }
@@ -955,12 +972,12 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // real settings file.
     if (const char* u = std::getenv("HANABI_UNREAD_DEMO"); u && *u) {
         const int back = std::atoi(u);
-        if (app->openSession && back > 0) {
-            const auto& ms = app->openSession->messages;
+        if (app->pane().openSession && back > 0) {
+            const auto& ms = app->pane().openSession->messages;
             if (static_cast<int>(ms.size()) > back) {
                 const int64_t at = ms[ms.size() - back - 1].created_at;
                 if (at > 0)
-                    Settings::get().set_last_read(app->openSession->summary.id,
+                    Settings::get().set_last_read(app->pane().openSession->summary.id,
                                                   at);
             }
         }
@@ -973,12 +990,12 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // (HANABI_CONTEXT_BUDGET_TOKENS); this supplies only the counted numerator
     // a mock session has no way to know.
     if (const char* u = std::getenv("HANABI_CONTEXT_USAGE"); u && *u) {
-        if (app->openSession) {
+        if (app->pane().openSession) {
             const std::string spec(u);
             const size_t comma = spec.find(',');
-            app->openSession->context.used_tokens =
+            app->pane().openSession->context.used_tokens =
                 std::atoll(spec.substr(0, comma).c_str());
-            app->openSession->context.stale =
+            app->pane().openSession->context.stale =
                 comma != std::string::npos && spec.substr(comma + 1) == "stale";
         }
     }
@@ -1005,8 +1022,8 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // with a query already typed, so the match highlighting and the "N of M"
     // tally can be photographed. Render-only; no network.
     if (const char* d = std::getenv("HANABI_FIND_DEMO"); d && *d) {
-        app->findOpen = true;
-        app->findQuery = d;
+        app->pane().findOpen = true;
+        app->pane().findQuery = d;
     }
 
     // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache
@@ -1018,7 +1035,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         app->sessions.clear();
         app->listState = ecs::LoadState::Loading;
         app->view = ecs::SmartView::Home;
-        app->selectedId.clear();
+        app->pane().selectedId.clear();
     }
 
     // Screenshot affordance: HANABI_LOADING_DEMO=1 forces the per-thread
@@ -1028,15 +1045,15 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     if (const char* d = std::getenv("HANABI_LOADING_DEMO"); d && *d &&
         std::string(d) != "0") {
         app->view = ecs::SmartView::Chat;
-        app->transcriptState = ecs::LoadState::Loading;
-        app->transcriptLoadingId = "__loading_demo__";
+        app->pane().transcriptState = ecs::LoadState::Loading;
+        app->pane().transcriptLoadingId = "__loading_demo__";
     }
     // Screenshot affordance: HANABI_OLDER_DEMO=1 forces the top
     // "loading older messages…" pill (loadingOlder=true) over the open
     // transcript, so a headless capture can photograph it. Render-only.
     if (const char* d = std::getenv("HANABI_OLDER_DEMO"); d && *d &&
         std::string(d) != "0") {
-        app->loadingOlder = true;
+        app->pane().loadingOlder = true;
     }
     // Screenshot affordance: HANABI_KICKOFF_DEMO=<text> fires the Home
     // landing composer's kickoff ONCE (create_session for a NEW thread),
@@ -1520,9 +1537,9 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             // A transcript is "pending" only when a thread is actually open and
             // its fetch hasn't resolved. No open thread => nothing to wait for.
             const bool transcriptPending =
-                !appForWait->selectedId.empty() &&
-                (appForWait->transcriptState == ecs::LoadState::Loading ||
-                 appForWait->transcriptState == ecs::LoadState::Idle);
+                !appForWait->pane().selectedId.empty() &&
+                (appForWait->pane().transcriptState == ecs::LoadState::Loading ||
+                 appForWait->pane().transcriptState == ecs::LoadState::Idle);
             return listReady && !transcriptPending;
         };
         // The sleep BACKS OFF rather than sitting at 8 ms. Two bugs it fixes,
@@ -1614,8 +1631,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         if (const char* ex = std::getenv("HANABI_EXPAND"); ex && *ex &&
             std::string(ex) != "0") {
             appForWait->expandedPiles.insert("__subagents__");
-            if (appForWait->openSession) {
-                const auto& ms = appForWait->openSession->messages;
+            if (appForWait->pane().openSession) {
+                const auto& ms = appForWait->pane().openSession->messages;
                 for (size_t k = 0; k < ms.size(); ++k)
                     if (ms[k].role == api::Role::Tool)
                         appForWait->expandedPiles.insert(
@@ -2128,13 +2145,13 @@ static int run_e2e(const std::string& path, int w, int h) {
             if (app != nullptr && contentReady == 0 &&
                 app->listState != ecs::LoadState::Loading &&
                 (!wantsThread ||
-                 (app->openSession && !app->openSession->messages.empty())))
+                 (app->pane().openSession && !app->pane().openSession->messages.empty())))
                 contentReady = i + 1;
             if (i < 45) continue;
             if (app == nullptr) break;
             if (app->listState == ecs::LoadState::Loading) continue;
             if (wantsThread &&
-                (!app->openSession || app->openSession->messages.empty()))
+                (!app->pane().openSession || app->pane().openSession->messages.empty()))
                 continue;
             break;
         }
@@ -2143,7 +2160,7 @@ static int run_e2e(const std::string& path, int w, int h) {
         // Say so rather than proceeding into a script that will fail three
         // assertions in and blame the feature.
         if (app != nullptr && wantsThread &&
-            (!app->openSession || app->openSession->messages.empty()))
+            (!app->pane().openSession || app->pane().openSession->messages.empty()))
             fprintf(stderr,
                     "e2e: WARNING settle finished with no transcript loaded; "
                     "assertions about message content will not mean what they "
@@ -2164,8 +2181,8 @@ static int run_e2e(const std::string& path, int w, int h) {
                     g_settle_frames, g_content_ready_frame,
                     g_settle_frames - g_content_ready_frame,
                     a.sessions.size(), static_cast<int>(a.listState),
-                    a.openSession ? a.openSession->summary.id.c_str() : "-",
-                    a.openSession ? a.openSession->messages.size() : 0u);
+                    a.pane().openSession ? a.pane().openSession->summary.id.c_str() : "-",
+                    a.pane().openSession ? a.pane().openSession->messages.size() : 0u);
         }
     }
 

@@ -277,9 +277,9 @@ static void test_tab_open_focus_no_duplicate() {
 
     ecs::model::open_session_in_tab(strip, app, "t1");
     CHECK(strip.tabOrder.size() == 1);
-    CHECK(app.selectedId == "t1");
+    CHECK(app.pane().selectedId == "t1");
     CHECK(app.view == ecs::SmartView::Chat);
-    CHECK(app.requestOpenId == "t1");
+    CHECK(app.pane().requestOpenId == "t1");
     // Label comes from the summary title.
     {
         auto* e = ecs::model::active_tab_entity();
@@ -290,12 +290,12 @@ static void test_tab_open_focus_no_duplicate() {
 
     ecs::model::open_session_in_tab(strip, app, "t4");
     CHECK(strip.tabOrder.size() == 2);
-    CHECK(app.selectedId == "t4");
+    CHECK(app.pane().selectedId == "t4");
 
     // Re-opening t1 must FOCUS the existing tab, not create a duplicate.
     ecs::model::open_session_in_tab(strip, app, "t1");
     CHECK(strip.tabOrder.size() == 2);  // still two tabs
-    CHECK(app.selectedId == "t1");
+    CHECK(app.pane().selectedId == "t1");
     // Exactly one tab is active.
     int active = 0;
     for (auto id : strip.tabOrder) {
@@ -323,7 +323,7 @@ static void test_tab_preview_keeps_one_slot() {
     ecs::model::open_session_in_tab(strip, app, "t1", /*keep=*/false);
     CHECK(strip.tabOrder.size() == 1);
     CHECK(!tab_at(0).keptOpen);
-    CHECK(app.selectedId == "t1");
+    CHECK(app.pane().selectedId == "t1");
 
     // Clicking down a list does not leave a trail: the second glance REUSES the
     // preview tab — same slot, same entity, new thread.
@@ -385,9 +385,9 @@ static void test_kickoff_opens_new_tab_without_summary() {
 
     ecs::model::open_session_in_tab(strip, app, freshId);
     CHECK(strip.tabOrder.size() == 1);
-    CHECK(app.selectedId == freshId);
+    CHECK(app.pane().selectedId == freshId);
     CHECK(app.view == ecs::SmartView::Chat);     // Home -> Chat transition
-    CHECK(app.requestOpenId == freshId);         // loader fetches the transcript
+    CHECK(app.pane().requestOpenId == freshId);         // loader fetches the transcript
     // With no summary, the label falls back to the id (no crash / empty label).
     {
         auto* e = ecs::model::active_tab_entity();
@@ -405,7 +405,7 @@ static void test_tab_close_fallback() {
     ecs::model::open_session_in_tab(strip, app, "t4");
     ecs::model::open_session_in_tab(strip, app, "t5");
     CHECK(strip.tabOrder.size() == 3);
-    CHECK(app.selectedId == "t5");  // last opened is active
+    CHECK(app.pane().selectedId == "t5");  // last opened is active
 
     // Close the active (last) tab -> fall back to the neighbor (min(idx,size-1)).
     auto activeId = ecs::model::active_tab_entity()->id;
@@ -415,7 +415,7 @@ static void test_tab_close_fallback() {
         if (strip.tabOrder[i] == activeId) idx = i;
     ecs::model::close_tab(strip, app, activeId, idx, /*wasActive=*/true);
     CHECK(strip.tabOrder.size() == 2);
-    CHECK(app.selectedId == "t4");  // fell back to previous tab
+    CHECK(app.pane().selectedId == "t4");  // fell back to previous tab
 
     // Close a non-active tab (t1 at index 0) while t4 active -> t4 stays.
     auto firstId = strip.tabOrder[0];
@@ -426,15 +426,15 @@ static void test_tab_close_fallback() {
     }
     ecs::model::close_tab(strip, app, firstId, 0, firstWasActive);
     CHECK(strip.tabOrder.size() == 1);
-    CHECK(app.selectedId == "t4");
+    CHECK(app.pane().selectedId == "t4");
 
     // Close the last remaining tab -> back to Home digest, no open transcript.
     auto lastId = strip.tabOrder[0];
     ecs::model::close_tab(strip, app, lastId, 0, /*wasActive=*/true);
     CHECK(strip.tabOrder.empty());
-    CHECK(app.selectedId.empty());
+    CHECK(app.pane().selectedId.empty());
     CHECK(app.view == ecs::SmartView::Home);
-    CHECK(!app.openSession.has_value());
+    CHECK(!app.pane().openSession.has_value());
 }
 
 // Explicit tab SWITCHING (Gabe: "make sure switching tabs works"): with several
@@ -475,10 +475,10 @@ static void test_tab_switch_between_open_tabs() {
         auto* e = tab_for(target);
         CHECK(e != nullptr);
         if (!e) continue;
-        app.requestOpenId.clear();  // prove the switch sets it fresh
+        app.pane().requestOpenId.clear();  // prove the switch sets it fresh
         ecs::model::switch_to_tab(app, *e);
-        CHECK(app.selectedId == target);
-        CHECK(app.requestOpenId == target);  // triggers transcript reload
+        CHECK(app.pane().selectedId == target);
+        CHECK(app.pane().requestOpenId == target);  // triggers transcript reload
         CHECK(app.view == ecs::SmartView::Chat);
         CHECK(active_count() == 1);  // exactly one active, no leak/dup
         CHECK(strip.tabOrder.size() == 3);  // switching never adds/removes tabs
@@ -536,7 +536,7 @@ static void test_tab_reorder_moves_and_preserves_active() {
     CHECK(activeBefore != nullptr);
     auto activeId = activeBefore->id;
     std::string activeSid = activeBefore->get<ecs::Tab>().sessionId;  // "t5"
-    std::string selectedBefore = app.selectedId;
+    std::string selectedBefore = app.pane().selectedId;
 
     auto sid_at = [&](size_t i) {
         auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
@@ -567,7 +567,7 @@ static void test_tab_reorder_moves_and_preserves_active() {
     CHECK(activeAfter != nullptr);
     CHECK(activeAfter->id == activeId);
     CHECK(activeAfter->get<ecs::Tab>().sessionId == activeSid);  // still "t5"
-    CHECK(app.selectedId == selectedBefore);
+    CHECK(app.pane().selectedId == selectedBefore);
     // Exactly one active tab still.
     int active = 0;
     for (auto id : strip.tabOrder) {
@@ -706,7 +706,7 @@ static void test_tab_close_others() {
     CHECK(keptOpt->get<ecs::Tab>().sessionId == "t4");
     // The kept tab becomes active and its content is open.
     CHECK(keptOpt->has<ecs::ActiveTab>());
-    CHECK(app.selectedId == "t4");
+    CHECK(app.pane().selectedId == "t4");
     CHECK(app.view == ecs::SmartView::Chat);
     // Exactly one active tab.
     int active = 0;
@@ -719,7 +719,7 @@ static void test_tab_close_others() {
     // Closing others when only the kept tab remains is a stable no-op.
     ecs::model::close_others(strip, app, "t4");
     CHECK(strip.tabOrder.size() == 1);
-    CHECK(app.selectedId == "t4");
+    CHECK(app.pane().selectedId == "t4");
 
     // Keeping a tab that isn't open is a no-op (order unchanged).
     ecs::model::close_others(strip, app, "does-not-exist");
@@ -822,20 +822,20 @@ struct CountingClient : api::Client {
 // cache hit (i.e. NO fetch happened).
 static bool resolve_transcript(ecs::AppComponent& app, api::Client& client,
                                const std::string& id) {
-    app.selectedId = id;
+    app.pane().selectedId = id;
     if (auto hit = app.transcriptCache.get(id)) {
-        app.openSession = std::move(*hit);
-        app.transcriptState = ecs::LoadState::Loaded;
+        app.pane().openSession = std::move(*hit);
+        app.pane().transcriptState = ecs::LoadState::Loaded;
         return true;  // synchronous hit, no fetch
     }
     auto r = client.get_session(id);
     if (r.ok) {
         app.transcriptCache.put(r.value);
-        app.openSession = std::move(r.value);
-        app.transcriptState = ecs::LoadState::Loaded;
+        app.pane().openSession = std::move(r.value);
+        app.pane().transcriptState = ecs::LoadState::Loaded;
     } else {
-        app.openSession.reset();
-        app.transcriptState = ecs::LoadState::Error;
+        app.pane().openSession.reset();
+        app.pane().transcriptState = ecs::LoadState::Error;
     }
     return false;  // miss -> fetched
 }
@@ -851,16 +851,16 @@ static void test_transcript_cache() {
     bool hit = resolve_transcript(app, client, "t1");
     CHECK(!hit);
     CHECK(client.getSessionCalls == 1);
-    CHECK(app.openSession.has_value());
-    CHECK(app.transcriptState == ecs::LoadState::Loaded);
+    CHECK(app.pane().openSession.has_value());
+    CHECK(app.pane().transcriptState == ecs::LoadState::Loaded);
     CHECK(app.transcriptCache.contains("t1"));
 
     // (a) Re-opening t1 is a cache HIT -> served SYNCHRONOUSLY, NO new fetch.
     hit = resolve_transcript(app, client, "t1");
     CHECK(hit);
     CHECK(client.getSessionCalls == 1);  // unchanged: no fetch on a hit
-    CHECK(app.openSession.has_value());
-    CHECK(app.openSession->summary.id == "t1");
+    CHECK(app.pane().openSession.has_value());
+    CHECK(app.pane().openSession->summary.id == "t1");
 
     // (b) Cached transcript is capped at 20 messages (most-recent).
     {

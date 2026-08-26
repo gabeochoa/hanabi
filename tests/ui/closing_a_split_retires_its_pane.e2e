@@ -1,0 +1,51 @@
+# Closing a pane retires its widgets, and this checks rather than assumes.
+#
+# A widget that stops being built is not gone: `imm::mk()` hands back the same
+# entity for a call site forever and every UI system walks the whole
+# collection every frame (afterhours_gaps.md #115). src/ui/widget_epoch.h
+# sweeps the ones nothing has built for `grace` frames -- but a sweep is only
+# as good as what it can reach, and a pane is a new way to make several
+# hundred widgets stop existing at once. Whether the sweep takes THEM is a
+# question, not a corollary.
+#
+# THE ASSERTION HAS TO BE A LABEL, for the reason
+# widgets_of_a_screen_you_left_are_retired.e2e gives: a widget that should have
+# been retired is by definition not on screen, and the matcher only reads what
+# rendered. HANABI_WIDGET_AUDIT=1 prints "stale widgets N of M" -- N being
+# widgets `mk` still owns that nothing has built for longer than the grace and
+# the sweep has not taken.
+#
+# Grace 2 and sweep-every 1, like its sibling: the shipping defaults are 90 and
+# 15, which is a second and a half of waiting that a scripted test should not
+# spend.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIDGET_AUDIT=1 HANABI_RETIRE_GRACE=2 HANABI_RETIRE_EVERY=1
+
+# One pane, settled.
+assert_ui transcript_scroll hidden=false
+expect_text "stale widgets 0"
+
+# Split. Several hundred widgets come into existence: a second transcript
+# column, its scroll view, its own copy of every message row.
+key CTRL+BACKSLASH
+wait_frames 30
+assert_ui split_right hidden=false
+assert_ui transcript_scroll_2 hidden=false
+expect_text "stale widgets 0"
+
+# Close it. Every one of those widgets stops being built on the next frame,
+# and none of them is reachable by any assertion from here -- which is exactly
+# why the count is the only honest way to ask.
+key CTRL+BACKSLASH
+wait_frames 30
+assert_ui transcript_scroll w=820
+expect_text "stale widgets 0"
+
+# And splitting again rebuilds it. A retired widget is one that has to be
+# built from nothing, so this is the half that says the sweep did not leave a
+# hole where the second pane used to be.
+key CTRL+BACKSLASH
+wait_frames 30
+assert_ui transcript_scroll_2 hidden=false
+expect_text "stale widgets 0"

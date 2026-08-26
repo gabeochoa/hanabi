@@ -40,6 +40,16 @@ bool Settings::load_save_file() {
         last_session_ = j.value("last_session", last_session_);
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
+        split_open_ = j.value("split_open", split_open_);
+        split_ratio_ = hanabi::clamp_split_ratio(j.value("split_ratio", split_ratio_));
+        split_panes_[0].clear();
+        split_panes_[1].clear();
+        if (j.contains("split_panes") && j["split_panes"].is_array()) {
+            const auto& arr = j["split_panes"];
+            for (size_t i = 0; i < 2 && i < arr.size(); ++i)
+                if (arr[i].is_string())
+                    split_panes_[i] = arr[i].get<std::string>();
+        }
         font_choice_ = j.value("font", font_choice_);
         accent_choice_ = j.value("theme_accent", accent_choice_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
@@ -163,6 +173,9 @@ void Settings::write_save_file() {
     j["default_model"] = default_model_;
     j["default_effort"] = default_effort_;
     j["send_key"] = send_key_;
+    j["split_open"] = split_open_;
+    j["split_ratio"] = split_ratio_;
+    j["split_panes"] = {split_panes_[0], split_panes_[1]};
     j["starred"] = starred_ids_;
     j["archived"] = archived_;
     j["muted"] = muted_ids_;
@@ -172,6 +185,30 @@ void Settings::write_save_file() {
     j["tool_fold"] = tool_fold_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
+}
+
+// The ratio is clamped on READ as well as on write. A settings.json that was
+// hand-edited, half-written by a crash, or produced by a future build with
+// different limits must not be able to give this window a pane of zero width;
+// the clamp is the one place that cannot be skipped.
+bool Settings::get_split_open() const { return split_open_; }
+float Settings::get_split_ratio() const { return split_ratio_; }
+const std::string& Settings::get_split_pane(int index) const {
+    static const std::string kEmpty;
+    if (index < 0 || index > 1) return kEmpty;
+    return split_panes_[index];
+}
+void Settings::set_split(bool open, float ratio, const std::string& left,
+                         const std::string& right) {
+    const float clamped = hanabi::clamp_split_ratio(ratio);
+    if (split_open_ == open && split_ratio_ == clamped &&
+        split_panes_[0] == left && split_panes_[1] == right)
+        return;  // no churn: this is written from a drag, sixty times a second
+    split_open_ = open;
+    split_ratio_ = clamped;
+    split_panes_[0] = left;
+    split_panes_[1] = right;
+    if (auto_save_enabled) write_save_file();
 }
 
 int Settings::get_window_width() const { return window_width_; }

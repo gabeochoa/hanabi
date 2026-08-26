@@ -103,8 +103,33 @@ struct PaneState {
     bool worth_keeping() const { return !replyDraft.empty(); }
 };
 
-// An LRU over PaneState, keyed by session id (or the composer's "__kickoff__"
-// / empty pseudo-ids, which is why the key is a string and not a session).
+// An LRU over PaneState, keyed by PANE AND session id.
+//
+// The key used to be the session id alone, and for one pane that was the same
+// thing. It stopped being the same thing the moment a split could show ONE
+// thread in TWO panes -- which is what splitting does by default. Sharing the
+// entry then means the two panes share a follow-the-bottom latch (scroll one,
+// the other jumps), a scroll velocity, a minimap drag (press in one rail, both
+// scrub) and, worst, a DRAFT: type on the left, watch it appear on the right,
+// send it once and lose it in both.
+//
+// So the key is `pane_key(index, id)`. What that costs: the two panes on one
+// thread hold two entries instead of one, and the bound is a count of entries,
+// so a split halves how many THREADS are remembered. kMaxPaneStates is 64 and
+// the tab strip tops out far below it, so this is a bound nobody reaches.
+//
+// (The pseudo-ids -- the composer's "__kickoff__", the empty id -- go through
+// the same helper, so a kickoff draft is per pane too. Two panes offering to
+// start two different new tasks is right for the same reason.)
+inline std::string pane_key(int paneIndex, const std::string& id) {
+    std::string k;
+    k.reserve(id.size() + 2);
+    k.push_back(static_cast<char>('0' + (paneIndex & 1)));
+    k.push_back('\x1f');
+    k.append(id);
+    return k;
+}
+
 class PaneStateStore {
   public:
     // This thread's state, creating it if new and marking it most-recently

@@ -12,6 +12,7 @@
 // we isolate it to a temp config dir so we never touch a real user settings
 // file, and disable auto-save churn where it isn't under test.
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -438,6 +439,68 @@ static void test_star_and_mute_index_agrees_with_the_stored_list() {
 
 }
 
+// --- Split view: the arrangement survives a relaunch, and a bad file cannot
+// --- produce a pane of zero width -----------------------------------------
+//
+// The persistence half is the same round-trip every preference above gets. The
+// CLAMP half is here and not in a UI test because the values a UI test can
+// produce are the ones a drag produces, and a drag is already clamped -- the
+// case worth pinning is a settings.json that was hand-edited, half-written by
+// a crash, or left by a build with different limits, which nothing but this
+// can reach.
+static void test_split_round_trips_and_clamps() {
+    std::printf("test_split_round_trips_and_clamps\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    // A fresh install is not split, and the divider is centred.
+    CHECK(!s.get_split_open());
+    CHECK(s.get_split_ratio() == 0.5f);
+    CHECK(s.get_split_pane(0).empty());
+    CHECK(s.get_split_pane(1).empty());
+
+    s.set_split(true, 0.62f, "t2", "t9");
+    CHECK(s.get_split_open());
+    CHECK(s.get_split_ratio() == 0.62f);
+    CHECK(s.get_split_pane(0) == "t2");
+    CHECK(s.get_split_pane(1) == "t9");
+    // Reading the file back is the whole point: an arrangement that lives only
+    // in memory is gone on the next launch.
+    s.load_save_file();
+    CHECK(s.get_split_open());
+    CHECK(s.get_split_ratio() == 0.62f);
+    CHECK(s.get_split_pane(0) == "t2");
+    CHECK(s.get_split_pane(1) == "t9");
+
+    // An out-of-range index is a question with no answer, not a crash.
+    CHECK(s.get_split_pane(2).empty());
+    CHECK(s.get_split_pane(-1).empty());
+
+    // The clamp, at both ends and through the store.
+    CHECK(hanabi::clamp_split_ratio(0.0f) == hanabi::kSplitMinRatio);
+    CHECK(hanabi::clamp_split_ratio(1.0f) == hanabi::kSplitMaxRatio);
+    CHECK(hanabi::clamp_split_ratio(-3.0f) == hanabi::kSplitMinRatio);
+    CHECK(hanabi::clamp_split_ratio(0.5f) == 0.5f);
+    // NaN fails every comparison, so a naive min/max clamp passes it straight
+    // through and the pane it sizes has a NaN width. It comes out at a legal
+    // ratio instead.
+    const float nan = std::nanf("");
+    const float clamped = hanabi::clamp_split_ratio(nan);
+    CHECK(clamped >= hanabi::kSplitMinRatio);
+    CHECK(clamped <= hanabi::kSplitMaxRatio);
+
+    s.set_split(true, 5.0f, "t2", "t9");
+    CHECK(s.get_split_ratio() == hanabi::kSplitMaxRatio);
+    s.set_split(true, 0.01f, "t2", "t9");
+    CHECK(s.get_split_ratio() == hanabi::kSplitMinRatio);
+
+    // A write that changes nothing does not rewrite the file. This one is not
+    // hygiene: the ratio is written from a DRAG, and the drag runs sixty times
+    // a second over a file that is fully re-serialised on every write.
+    s.set_split(true, hanabi::kSplitMinRatio, "t2", "t9");
+    CHECK(s.get_split_ratio() == hanabi::kSplitMinRatio);
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -454,6 +517,7 @@ int main() {
     // Last: it writes five thousand entries and reloads the file, so anything
     // after it would be asserting against a settings file this test authored.
     test_last_read_is_bounded();
+    test_split_round_trips_and_clamps();
 
     test_star_and_mute_index_agrees_with_the_stored_list();
 

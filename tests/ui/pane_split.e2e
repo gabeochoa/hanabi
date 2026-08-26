@@ -1,0 +1,94 @@
+# Two panes, side by side, and only one of them has the keyboard.
+#
+# The split is Cmd+\ (main_pane_system.h). The harness cannot hold Super at
+# all and turns its CMD+ prefix into Ctrl (afterhours_gaps.md #49, #256), which
+# is why the chord reads cmd_or_ctrl_down() and why this presses CTRL+.
+#
+# What is asserted here is GEOMETRY, by widget name, because that is what a
+# split IS: two transcript columns and a divider between them. The text in
+# them is the same text one pane was showing a moment ago -- splitting opens
+# the same thread in both panes -- so an assertion on words could not tell a
+# split from a pane that never split.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+# One pane. The transcript's scroll view spans the whole main pane.
+assert_ui transcript_scroll hidden=false
+assert_ui transcript_scroll x=280
+assert_ui transcript_scroll w=820
+
+# Split it.
+key CTRL+BACKSLASH
+wait_frames 20
+
+# Two columns and a divider, and they tile the pane exactly: 820 = 408 + 5 +
+# 407. The left column's width is the persisted ratio (0.5) of the USABLE
+# width -- the pane less the divider, 815 -- rounded; the right takes what is
+# left, so a pane width that does not halve evenly leaves no gap and no
+# overlap. That the three add up is the property; which side gets the odd
+# pixel is arbitrary.
+#
+# The divider is 5px WIDE and paints a 1px line down its middle. The width is
+# the hit target: a 1px bar is not something a person can grab. Puffin has no
+# 5px rules anywhere, which is why the ink and the target are different sizes.
+assert_ui split_left x=280
+assert_ui split_left w=408
+assert_ui split_divider x=688
+assert_ui split_divider w=5
+assert_ui split_right x=693
+assert_ui split_right w=407
+
+# Each pane has its own scroll view, and the second one has its own NAME. That
+# is not cosmetic: a scroll view is reachable from outside this app only by
+# debug name (afterhours_gaps.md #147), so two of them under one name would be
+# two widgets a driver cannot tell apart. Both are the width of their column.
+assert_ui transcript_scroll w=408
+assert_ui transcript_scroll_2 w=407
+
+# The keyboard is in the left pane, and the marker says which.
+assert_ui split_focus_edge x=280
+
+# Clicking in the right pane moves it there.
+click 900 400
+wait_frames 10
+assert_ui split_focus_edge x=693
+
+# ...and clicking back in the left pane moves it back, so this is a focus
+# model and not a one-way trip.
+click 400 400
+wait_frames 10
+assert_ui split_focus_edge x=280
+
+# The divider drags, and the panes follow it.
+#
+# The movement is a DELTA, not a position: imm::divider reports how far the
+# mouse moved while it was down, so grabbing the bar off centre moves it by
+# that much rather than snapping the bar under the cursor. 690 -> 560 is -130
+# over a usable 815, so the ratio goes 0.5 -> 0.341 and the left column
+# 408 -> 278.
+mouse_down 690 400
+mouse_move 640 400
+mouse_move 560 400
+mouse_up
+wait_frames 10
+assert_ui split_left w=278
+assert_ui split_divider x=558
+assert_ui split_right w=537
+
+# The clamp holds at the edges: dragged past the far left, the left pane stops
+# at a fifth of the width rather than collapsing to nothing (hanabi::
+# clamp_split_ratio, shared with the settings restore so a hand-edited file
+# cannot do what a drag cannot).
+mouse_down 560 400
+mouse_move 300 400
+mouse_move 0 400
+mouse_up
+wait_frames 10
+assert_ui split_left w=163
+
+# Close it. The single pane is full width again -- which is also the assertion
+# that the right pane is gone, since there is no negative form of assert_ui.
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui transcript_scroll x=280
+assert_ui transcript_scroll w=820

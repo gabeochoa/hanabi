@@ -38,6 +38,15 @@ numbers are independent of the main series (both happen to reuse 8–12).
 **Per-frame cost**
 - #27 immediate-mode clears + rebuilds the whole tree every frame (no retained/dirty layer — the idle-frame floor)
 - #200 every headless resize leaks five Metal render pipelines (4.8 MB per 1000 frames), so a resize scenario cannot gate anything
+- #340 every styled label re-wraps and re-allocates on the DRAW pass, uncached: 367 vector allocations/frame at one pane, the app's biggest single site
+- #341 (ours, unfixed) a second pane costs 1.42x frame CPU and 1.79x allocations; what the remaining 1.79x is and what fixing it would take
+
+**More than one of something (split view)**
+- #335 two independent view trees in one window is not a notion the library has — focus, the collection and the identity map are all process-wide singletons
+- #336 tab order cannot be scoped to a subtree; `FocusClusterRoot` only steers the ring, never navigation
+- #337 #147's consequence: with two panes a debug name stops naming one widget, and the driver silently gets either
+- #338 NOT A GAP: `mk` hashes `parent.id`, so two subtrees from the same call sites are disjoint; `TextMeasureCache` is width-independent
+- #339 NOT A GAP: `imm::divider` and `hsplit` already exist — the hand-rolled divider had the exact bug the library's doc comment warns about
 
 **Widgets**
 - #17 imm `text_input` ignores `with_font_size` / `with_custom_background`
@@ -9985,6 +9994,66 @@ each.
 does against the same offsets. A scrollbar, a minimap, a sparkline, a timeline
 and a tab underline are all this shape.
 
+---
+
+### #335 — Two independent view trees in one window is not a notion the library has: everything a "view" would scope is scoped to the process instead
+
+The headline finding of building split view, and the one every other entry in
+this block is a consequence of.
+
+**What was wanted.** Two transcripts side by side, each with its own scroll
+position, its own keyboard focus, its own find bar, and its own handle for a
+test driver. In a toolkit with a notion of a view (an `NSView`, a Flutter
+`Navigator`, an ImGui window) that is a container type: you make two, and
+everything scoped to a view is scoped twice by construction.
+
+**What happens.** There is no such container. A "pane" in afterhours is a
+`div`, and every piece of state that ought to be per-view is a process-wide
+singleton:
+
+| what | where | how many can exist |
+|---|---|---|
+| the entity collection every UI system walks | `UICollectionHolder::get()`, a Meyers singleton (`ui_collection.h:20-54`) | one |
+| focus, hot, active, `visual_focus_id`, `last_processed` | `UIContext<InputAction>` fields (`context.h:166-176`), one singleton component | one |
+| the widget-identity map | `imm::existing_ui_elements` (`entity_management.h`) | one |
+| pointer state | `UIContext::mouse` (`context.h:99-141`) | one |
+| the drag-reorder gesture | `DragGroupState` (`components.h:698-723`), one singleton | one |
+
+The macro `AFTER_HOURS_UI_SINGLE_COLLECTION` sounds like it is about this and
+is not: it chooses whether UI entities share the *game's* collection, not
+whether there can be two UI trees. `UICollectionHolder` has no second
+instance, no constructor a caller can reach, and `get()` returns a reference to
+a function-local static.
+
+The one thing that IS naturally per-view is the only thing that is a component:
+`HasScrollView` lives on the scroll entity, so two scroll views genuinely have
+two offsets. That is what makes this survivable.
+
+**What the app has to do instead.** All of it by hand, at the app layer:
+
+- Per-pane VALUE state: `struct Pane` in `src/ecs/components.h` holds the
+  session, load state, in-flight fetch, scroll latches and find state, and the
+  renderer takes the pane it is rendering. Before this, split view rendered its
+  second pane by MOVING the first pane's session out to a local, moving the
+  second's in, rendering, and moving both back.
+- Per-pane FOCUS: an `int focusedPane` on the app, a hit test against the
+  pane's screen rect on mouse-press, and every keyboard site reading
+  `app.pane()`. The library's `focus_id` is untouched by any of it, because
+  what it means -- which WIDGET has the caret -- is a different question from
+  which PANE has the keyboard, and the library has no vocabulary for the
+  second.
+- Per-pane MEMORY keys: everything hanabi keys by thread id had to become
+  keyed by pane and thread, because the default split shows one thread in both
+  panes. `ecs::model::pane_key`.
+- Per-pane NAMES: see #337.
+
+**Minimal upstream fix.** Not "make the singletons plural" -- that is a rewrite
+and most of them are correctly one per window. The smallest thing that would
+have helped: let a subtree be declared a FOCUS SCOPE, and let `UIContext` hold
+focus per scope rather than one id, with the app naming the active scope. That
+is the piece the app cannot build on top (see #336), and every other item above
+is state the app can own if it must.
+
 CLASS: MISSING
 
 ---
@@ -10044,6 +10113,82 @@ sibling entry point: `measure_text_checked(..., bool* complete)`, set false
 when any `fons__getGlyph` returned NULL. Three lines inside the existing loop.
 (b) `atlas_usage()` returning used/total, so a consumer can watch a slope and
 act before the ceiling instead of after.
+
+---
+
+### #336 — Tab order cannot be scoped to a subtree, so Tab in a split pane walks out of it
+
+**What was wanted.** Tab cycles the focusable widgets of the pane that has the
+keyboard, and stops at its edge. That is what every split-pane editor does.
+
+**What happens.** `UIContext::process_tabbing` (`context.h:416-451`) moves
+focus by remembering `last_processed`, and `last_processed` is assigned for
+EVERY entity the UI system visits (`systems.h:944`, in the per-entity system
+body). So the tab order is the whole collection's walk order -- sidebar,
+tab strip, both panes, the composer -- and the only per-widget control is
+`SkipWhenTabbing` (`components.h:144`), which removes a widget from the order
+entirely rather than assigning it to a group.
+
+**The near miss, and it is worth naming because it looks like the answer.**
+`FocusClusterRoot` / `InFocusCluster` (`components.h:147-148`) read exactly
+like a scoping mechanism. They are not: their only use is in
+`UpdateVisualFocus` (`systems.h:608-621`), which climbs from the focused entity
+through `InFocusCluster` parents to find a `FocusClusterRoot` and draws the
+RING on that ancestor. Navigation never consults either component. A cluster
+changes where the ring is painted and nothing about where Tab goes.
+
+**The workaround, and its cost.** None, and this is the one thing in the split
+that is simply absent rather than re-implemented. hanabi's panes are focused by
+CLICK and by chord, never by Tab, and Tab keeps its existing whole-window
+meaning. That is a real hole for keyboard-only use and it is not one an app can
+close: the order is derived inside the library from a walk the app does not
+drive, so the app cannot renumber it, filter it, or bound it.
+
+**Minimal upstream fix.** Honour the clusters that already exist -- when the
+focused entity is inside a `FocusClusterRoot`, confine `process_tabbing`'s
+`last_processed` to entities under that root, and wrap at its ends. The
+components, the parent chain and the climb are all already there; only the
+navigation half is missing.
+
+CLASS: MISSING
+
+---
+
+### #337 — #147's consequence: with two panes, a debug name stops naming one widget, and the driver silently gets whichever one the entity walk reaches first
+
+#147 says a scroll view is reachable from outside only by `UIComponentDebug::
+name_value`. This is what that costs once an app has two of anything, which is
+a different fact and one #147 could not have predicted.
+
+**What happens.** `src/util/soak.h`'s `scroll_named` walks
+`EntityHelper::get_entities_for_mod()` and takes the FIRST entity whose
+`name_value` matches. With one transcript that was a lookup. With two, the two
+scroll views are built by the same `mk` call on the same line of the same
+function -- so they carry the same debug name, and which one the driver drives
+depends on iteration order over the collection, which depends on entity id
+allocation, which depends on which ids the retire sweep (`widget_epoch.h`) freed
+last frame. It is not stable and nothing reports that it is not.
+
+The failure is silent in the worst direction: the soak arm that scrolls the
+transcript keeps passing, because scrolling the WRONG scroll view still returns
+`true`.
+
+**The workaround.** Two halves, and neither is satisfying:
+
+1. The panes give their scroll views different names -- pane 0 keeps the name
+   every existing driver and gate uses, pane 1 gets `transcript_scroll_2`. This
+   means the app now maintains a name-per-pane table (`MainPaneSystem::
+   scroll_name`) whose only purpose is to defeat an identity collision the
+   library created.
+2. `scroll_named` COUNTS its matches and prints to stderr when there is more
+   than one, so the next widget that gets duplicated fails loudly instead of
+   passing forever. That is a smoke alarm, not a fix.
+
+**Minimal upstream fix.** #147's -- a stable addressable handle from
+`imm::scroll_view` -- and this entry exists to raise its priority rather than
+to ask for something else. An id the caller keeps is unique by construction; a
+name the caller invents is unique only until the app renders the same code
+twice, which is what any split, any grid and any repeated card does.
 
 CLASS: FOOTGUN
 
@@ -10149,6 +10294,121 @@ cost is that this remains true only by luck, and the app now needs a gate
 defaulted to 2048, passed to `sfons_create`. Beside the pool sizes #210 asks
 for, since they are the same request about the same struct.
 
+---
+
+### #338 — NOT A GAP: two subtrees built from the same call sites get disjoint widget identities, and the text measure cache is width-independent
+
+Two walls that were expected while building split view and that the library
+handles. Written down so the next person does not spend the afternoon proving
+it again.
+
+**Widget identity.** Rendering the same `render_transcript` twice in one frame
+looks like it must alias every widget in it: same file, same line, same
+column, same function, same loop indices. It does not.
+`imm::mk` hashes `parent.id` FIRST (`entity_management.h:29`,
+`pre_hash << parent.id << otherID << "file: " ...`), and hanabi's own
+`widget_key` (`src/ui/mk.h`) mixes the same five facts. Each pane's subtree
+hangs off its own column div, so every descendant's parent chain differs at the
+root and every hash differs all the way down. Two panes need no id offsets, no
+namespacing, and no per-pane integer bases. (#241 established the source-
+location half of this for two row KINDS; this is the parent half, for two
+copies of one kind.)
+
+**Text measurement.** `TextMeasureCache` (`core/text_cache.h:29`) keys on
+(text, font, size, spacing) and NOT on a wrap width -- it measures unwrapped
+extents. So two panes at two different widths ask it the same questions and
+share every entry. Measured on a 480-message thread at 1180x949: one pane
+95.8% hit / 263 misses, two panes 97.6% hit / 272 misses. The second pane added
+NINE misses.
+
+The width-keyed thing that DID thrash was hanabi's own transcript render cache,
+which memoizes wrapped heights and holds two widths per message -- two panes at
+two widths is four. That is an app bug and was fixed app-side
+(`ecs/transcript_render_cache.h`), not a library one.
+
+CLASS: NOT A GAP
+
+---
+
+### #339 — NOT A GAP: `imm::divider` and `hsplit` already exist, and the hand-rolled version had exactly the bug the library's doc comment warns about
+
+Filed as a negative result because the mistake is instructive and I made it.
+
+A draggable pane divider was hand-rolled first: a 1px line, a 9px
+absolutely-positioned grab strip over it, a `bool splitDragging` on the app,
+and a ratio computed from the absolute mouse x against the pane origin. It
+worked, and it had a defect -- grabbing the bar 3px off centre snapped the bar
+under the cursor, because a position is not a delta.
+
+`imm::divider(ctx, mk(parent), Axis::X, config)`
+(`imm_components.h`, near `hsplit`/`vsplit`) is the library's own separator. It
+sizes itself thin across the drag axis, sets `CursorType::ResizeH`, attaches a
+`HasDragListener`, and returns the frame's MOVEMENT -- and its doc comment says
+why: *"Delta, not position, so grabbing the bar off centre does not jump it."*
+The hand-rolled one reproduced the exact bug the library had already written a
+sentence about.
+
+There is also `hsplit(ctx, mk(...), {pixels(200), expand(1)})`, which would
+have replaced the pane row's manual width arithmetic. hanabi does not use it
+here only because the pane widths are a persisted RATIO the app clamps itself,
+and `expand()` gives the leftover rather than a share -- a small enough
+difference that it is a preference, not a gap.
+
+The lesson, and the reason this is an entry rather than a commit message: the
+library's widget vocabulary is bigger than the parts an app happens to have
+needed so far, and `imm_components.h` is worth reading end to end before
+building any container-shaped thing.
+
+CLASS: NOT A GAP
+
+---
+
+### #340 — PERF: every styled text element re-wraps and re-allocates on the RENDER path, once per frame, and it is the single biggest allocation site in the app
+
+**What happens.** `RenderImm::render_me` calls `draw_runs_in_rect`
+(`rendering.h:1622`) for any label with spans, and that calls
+`detail::wrap_runs_to_width` (`rendering.h:874` -> `text_selection.h:66`). That
+function, per call:
+
+```cpp
+std::vector<TextRunLine> source_lines{TextRunLine{}};   // vector of vectors
+...
+source_lines.back().push_back(TextSpan{
+    run.text.substr(start, end - start), run.color, run.weight});  // a string per span
+```
+
+A fresh `std::vector<std::vector<TextSpan>>` and a fresh `std::string` per
+span, built from scratch, on the DRAW pass, for text that has not changed and
+at a width that has not changed. There is no cache, no caller-owned scratch
+buffer, and no way for the app to hand it one -- `draw_runs_in_rect` is a free
+function with no state parameter.
+
+**The number.** Measured with `HANABI_PROF_SITES=1` on a 480-message
+transcript at 1180x949, 300 frames, rolled up by innermost frame:
+
+| | one pane | two panes |
+|---|---|---|
+| `operator new` per frame, whole app | 3,836.9 | 5,399.1 |
+| bytes per frame | 462,059 | 601,807 |
+| `vector<TextSpan>::__init` under `render_me` | 367.0 /f | 811.0 /f (two passes) |
+
+That one library call site is ~10% of every allocation the app makes at one
+pane and grows linearly with panes. It is the top entry in the table below the
+two `run_headless_screenshot` roll-ups, which are the render and layout passes
+themselves.
+
+**Why the app cannot fix it.** The wrap is on the draw side of a widget the app
+builds declaratively; hanabi already memoizes its OWN wrapped heights
+(`ecs/transcript_render_cache.h`) and that cache is on the measure path, which
+this does not use. `use_batched` takes a different path (`rendering.h:2283`)
+that calls the same function.
+
+**Minimal upstream fix.** Cache the wrap result on `HasLabel` beside the spans,
+keyed by (rect width, font size, spacing) -- the same shape as the existing
+`TextMeasureCache`, and invalidated by the same edits that already rewrite
+`spans`. Failing that, hoist the two vectors to a thread-local scratch that is
+cleared rather than freed; that alone removes the per-span string.
+
 CLASS: MISSING
 
 ---
@@ -10194,3 +10454,73 @@ box) instead of skipping the quad would turn an invisible failure into the
 oldest visible one in typography.
 
 CLASS: FOOTGUN
+
+---
+
+### #341 — PERF (ours, not the library's): what a second pane costs, and the two things I did not do about it
+
+Filed here because the brief for this file now includes our own measured-but-
+unfixed costs. Everything below is hanabi's code, not afterhours'.
+
+**What a second pane costs.** 480-message thread in BOTH panes (the worst case
+the default produces, since splitting opens the same thread twice), 1400x900,
+900 frames, `-O2`:
+
+| | one pane | two panes | ratio |
+|---|---|---|---|
+| frame CPU | 2.755 ms | 3.925 ms | **1.42x** |
+| `operator new` /frame | 2,524 | 4,507 | 1.79x |
+| entities | 609 | 728 | 1.20x |
+| RSS | 41,952 KB | 43,328 KB | 1.03x |
+| `transcript.pass1_measure` | 0.265 ms | 0.296 ms | 1.12x |
+| `transcript.pass2_build` | 0.096 ms | 0.190 ms | 1.97x |
+| `transcript.minimap` | 0.175 ms | 0.193 ms | 1.10x |
+
+The shape is the one the windowing and memoization were built for: the MEASURE
+pass is +12% for 2x the calls, because the second pane's measurements come out
+of the render cache; the BUILD pass is the honest 2x, because those are real
+widgets that have to exist. 1.42x for a second full transcript is the number
+to hold onto, and it is a long way from 2x.
+
+**UNFIXED (1): allocations are 1.79x, and that is the worst column.** Roughly
+1,980 more `operator new` per frame. About 440/f of it is #340, which is the
+library's. The rest is hanabi's second pass through `render_rich_body`
+(`main_pane_system.h:7253`, 306 -> 430 calls/f) and `md_to_spans` (46 -> 93
+calls/f) -- both of which rebuild span vectors per visible message per frame
+from text that has not changed. THE FIX: memoize spans per (message id,
+variant) in the transcript render cache, which already holds the wrapped
+heights for the same keys and is already keyed per pane. Half a day, most of it
+in getting invalidation right for a STREAMING message whose text changes every
+frame. Not attempted on this branch because it touches the hottest path in the
+app and the branch's job was the pane, not the painter.
+
+**UNFIXED (2): the minimap is built per pane and is not windowed.**
+`transcript.minimap` is 0.175 ms/f at one pane and it walks every message in the
+thread, not every visible one -- it is a map OF the whole thread, so that is
+inherent to what it draws, but it recomputes the whole map every frame from
+data that changes only when the message list does. Two panes on one thread
+compute the identical map twice. THE FIX: memoize the rail's geometry per
+(thread, height) and invalidate on message count; two panes on one thread at
+the same height would then share it outright. An hour or two. Left alone
+because 0.19 ms is under 5% of the frame and I had no measurement showing
+anyone feels it.
+
+**CONSIDERED AND REJECTED: sharing the render cache between panes on the same
+thread.** The obvious saving, since the default split shows one thread twice.
+It does not work, and the reason is the interesting part: the cache is keyed by
+WIDTH and holds two widths per message (a user bubble is measured at its
+maximum text width and again at the hugged width that falls out of it). Two
+panes are two widths the moment the divider moves off centre, which is four
+through two slots -- so a shared cache does not save a lookup, it thrashes:
+measured 40 misses over 10 frames against 4 cold ones
+(`tests/unit/test_pane_memory.cpp`, `test_two_panes_at_two_widths_do_not_thrash`).
+Keyed per pane it is 4 cold misses and nothing after. The saving was negative.
+
+**CONSIDERED AND REJECTED: skipping the unfocused pane's build on frames where
+nothing in it changed.** This is the retained-mode idea (#27) applied to one
+subtree, and it cannot be done from the app: `imm::mk` is what keeps a widget
+alive, and a frame that does not call it is a frame the widget goes unbuilt --
+which after 90 such frames is a frame the retire sweep destroys it. "Do not
+rebuild but stay alive" is not expressible.
+
+CLASS: MISSING
