@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include <nlohmann/json.hpp>
 
@@ -138,11 +139,64 @@ struct LiveFrame {
         ToolCall,
         Title,
         Finished,
+        // An increment of a block that is NOT the reply: the model's reasoning,
+        // or the JSON argument object of a tool call. Both stream as
+        // block_delta appends exactly like reply text does, and telling them
+        // apart needs the block's kind, which only the `start` delta carries.
+        ThinkingAppend,
+        ToolInputAppend,
     };
     Kind kind = Kind::Ignore;
-    // TextAppend: the new text only. Text/Thinking: the whole block so far.
-    // ToolCall/Title: a short label.
+    // TextAppend/ThinkingAppend: the new text only. Text/Thinking: the whole
+    // block so far. BlockStart: the block's kind. ToolCall/Title: a label.
     std::string payload;
+};
+
+// What kind of block is open at each block index of the current model call.
+//
+// THE FRAME THAT CARRIES THE ANSWER IS NOT THE FRAME THAT NEEDS IT. A live
+// block arrives as `block_delta{delta:"start", index, kind:{kind:...}}`
+// followed by `block_delta{delta:"append", index, text}` frames that name
+// their index and NOTHING about what they are — reply text, reasoning and the
+// JSON argument object of a tool call are byte-identical in shape. A
+// stateless classifier can only guess, and guessing "text" concatenates all
+// three into the reply.
+//
+// Indices are per model call and restart at 0, so `model_call_started` clears
+// the map; a settled `block` also records its kind, which is what an append
+// that arrives after attaching mid-block has to fall back on.
+class LiveBlocks {
+   public:
+    void note(int index, std::string kind);
+    void clear();
+    // "" when this build has not been told -- the caller decides what an
+    // unattributed increment is, and the only safe answer is the reply.
+    [[nodiscard]] std::string kind_at(int index) const;
+
+   private:
+    std::unordered_map<int, std::string> kind_;
+};
+
+// One live turn, assembled from the frames of one `input`.
+//
+// Split out of run_turn so the assembly can be driven by a captured turn
+// rather than only by a socket: the defect this exists to prevent (the reply
+// bubble filling with reasoning and tool-call JSON) is invisible to every
+// offline test if the only way to reach the fold is over the network.
+class LiveTurn {
+   public:
+    // Feed one decoded server message. Returns false once the run has
+    // finished, at which point `assembled()` is the reply and the caller
+    // should stop reading.
+    bool feed(const nlohmann::json& msg, const StreamSink& sink);
+    [[nodiscard]] const Message& assembled() const { return final_; }
+    [[nodiscard]] Message& assembled() { return final_; }
+
+   private:
+    LiveBlocks blocks_;
+    Message final_;
+    // What the sink has already been told about the OPEN text block.
+    std::string emitted_;
 };
 
 // Classify one `{"type":"frame",...}` server message. Never throws; anything
@@ -160,6 +214,14 @@ struct LiveFrame {
 // moment it was tried. Two names, no trap.
 LiveFrame classify_live_frame_parsed(const nlohmann::json& root);
 LiveFrame classify_live_frame(const std::string& msg_json);
+
+// The same classifier, told what it is looking at. `blocks` is updated as
+// starts and settled blocks go past, so an append can be attributed to the
+// block it belongs to. This is the overload production uses; the stateless
+// one above cannot tell reasoning from a reply and says so by calling every
+// unattributed increment text.
+LiveFrame classify_live_frame_parsed(const nlohmann::json& root,
+                                     LiveBlocks& blocks);
 
 // Fold a durable `session_renamed` frame onto a summary's title.
 //

@@ -11,6 +11,7 @@
 
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
+#include "../../vendor/nlohmann/json.hpp"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                 \
@@ -492,6 +493,102 @@ static void test_block_delta_append_is_a_true_increment() {
     CHECK(classify_live_frame(weird).kind == LF::Kind::Ignore);
 }
 
+// Every frame below is the shape a real turn puts on the wire, taken from a
+// capture of one (session 69167c25, 2026-08-26): a thinking block and a
+// tool_use block stream through the SAME `block_delta{append}` frames the
+// reply does, and only the `start` says which is which.
+static const char* const kRealTurnFrames[] = {
+    R"({"type":"frame","frame":"delta","seq":135,"event":{"type":"model_call_started","call":128}})",
+    R"({"type":"frame","frame":"delta","seq":136,"event":{"type":"block_delta","run":7,"call":128,"index":0,
+        "delta":{"delta":"start","kind":{"kind":"thinking"}}}})",
+    R"({"type":"frame","frame":"delta","seq":137,"event":{"type":"block_delta","run":7,"call":128,"index":0,
+        "delta":{"delta":"append","text":"I shouldn't reuse any existing nodes"}}})",
+    R"({"type":"frame","frame":"durable","seq":152,"event":{"type":"block","run":7,"call":128,"index":0,
+        "block":{"kind":"thinking","text":"I shouldn't reuse any existing nodes"}}})",
+    R"({"type":"frame","frame":"delta","seq":154,"event":{"type":"block_delta","run":7,"call":128,"index":1,
+        "delta":{"delta":"start","kind":{"kind":"tool_use","call_id":"toolu_1","tool":"step"}}}})",
+    R"({"type":"frame","frame":"delta","seq":156,"event":{"type":"block_delta","run":7,"call":128,"index":1,
+        "delta":{"delta":"append","text":"{\"text\": \"Probing\"}"}}})",
+    R"({"type":"frame","frame":"durable","seq":164,"event":{"type":"block","run":7,"call":128,"index":1,
+        "block":{"kind":"tool_use","call_id":"toolu_1","tool":"step","input":"{\"text\": \"Probing\"}"}}})",
+    R"({"type":"frame","frame":"durable","seq":180,"event":{"type":"tool_intent","call_id":"toolu_1","tool":"step"}})",
+    R"({"type":"frame","frame":"delta","seq":190,"event":{"type":"block_delta","run":7,"call":128,"index":2,
+        "delta":{"delta":"start","kind":{"kind":"text"}}}})",
+    R"({"type":"frame","frame":"delta","seq":191,"event":{"type":"block_delta","run":7,"call":128,"index":2,
+        "delta":{"delta":"append","text":"PONG-A1"}}})",
+    R"({"type":"frame","frame":"durable","seq":192,"event":{"type":"block","run":7,"call":128,"index":2,
+        "block":{"kind":"text","text":"PONG-A1"}}})",
+    R"({"type":"frame","frame":"durable","seq":200,"event":{"type":"run_finished","run":7,
+        "outcome":{"outcome":"completed"}}})",
+};
+
+static void test_a_live_turn_is_only_what_the_agent_said() {
+    // A1. Reply text, reasoning and the JSON argument object of a tool call
+    // all arrive as block_delta appends carrying nothing but `index` and
+    // `text`. Streaming every append as reply text concatenated all three
+    // into one bubble: against the real session above, the reply came back
+    //     {"text": "Probing"}PONG-A1
+    // and in a turn with real reasoning and a dozen tool rounds the answer is
+    // a fragment buried in a wall of JSON -- "i cant see your messages to me".
+    api::StreamSink sink;
+    std::string streamed;
+    int thinking_events = 0, tool_events = 0;
+    sink.on_delta = [&](const std::string& d) { streamed += d; };
+    sink.on_event = [&](const api::StreamEvent& e) {
+        if (e.kind == api::StreamEventKind::Thinking) ++thinking_events;
+        if (e.kind == api::StreamEventKind::ToolCall) ++tool_events;
+    };
+
+    api::agentcloud::LiveTurn turn;
+    bool finished = false;
+    for (const char* f : kRealTurnFrames) {
+        if (!turn.feed(nlohmann::json::parse(f, nullptr, false), sink)) {
+            finished = true;
+            break;
+        }
+    }
+    CHECK(finished);
+    CHECK(turn.assembled().text == "PONG-A1");
+    CHECK(streamed == "PONG-A1");
+    // Reasoning and the call are still REPORTED -- they are just not the reply.
+    CHECK(thinking_events >= 1);
+    CHECK(tool_events == 1);
+}
+
+static void test_an_unattributed_increment_is_still_shown() {
+    // Attaching mid-block means the `start` that named the kind is already
+    // past. Dropping the append would lose real reply text, so an increment
+    // this build cannot attribute is text -- the same reading the stateless
+    // classifier has always taken.
+    api::agentcloud::LiveBlocks blocks;
+    const std::string app =
+        R"({"type":"frame","frame":"delta","event":{"type":"block_delta","index":4,
+            "delta":{"delta":"append","text":"orphan"}}})";
+    const LF lf = classify_live_frame_parsed(
+        nlohmann::json::parse(app, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::TextAppend);
+    CHECK(lf.payload == "orphan");
+}
+
+static void test_block_indices_restart_with_each_model_call() {
+    // Indices are per model call. Without the reset, call N+1's index 0 --
+    // its reply -- inherits call N's index 0, which is usually reasoning.
+    api::agentcloud::LiveBlocks blocks;
+    const auto feed = [&](const std::string& s) {
+        return classify_live_frame_parsed(nlohmann::json::parse(s, nullptr, false),
+                                          blocks);
+    };
+    feed(R"({"type":"frame","event":{"type":"block_delta","index":0,
+             "delta":{"delta":"start","kind":{"kind":"thinking"}}}})");
+    CHECK(feed(R"({"type":"frame","event":{"type":"block_delta","index":0,
+                  "delta":{"delta":"append","text":"x"}}})")
+              .kind == LF::Kind::ThinkingAppend);
+    feed(R"({"type":"frame","event":{"type":"model_call_started","call":2}})");
+    CHECK(feed(R"({"type":"frame","event":{"type":"block_delta","index":0,
+                  "delta":{"delta":"append","text":"x"}}})")
+              .kind == LF::Kind::TextAppend);
+}
+
 static void test_the_parsed_frame_overload_is_what_the_socket_uses() {
     // The websocket receive loop parses each frame to read its "type", then
     // classifies it. It used to hand the CLASSIFIER a msg.dump() of the object
@@ -681,6 +778,9 @@ int main() {
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();
+    test_a_live_turn_is_only_what_the_agent_said();
+    test_an_unattributed_increment_is_still_shown();
+    test_block_indices_restart_with_each_model_call();
     test_the_parsed_frame_overload_is_what_the_socket_uses();
     test_settled_block_does_not_reprint_streamed_text();
     test_attach_greeting_carries_budget_and_occupancy();
