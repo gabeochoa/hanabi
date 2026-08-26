@@ -102,7 +102,7 @@ inline afterhours::ui::imm::EntityParent mk(
     // library's derives the call-site key by streaming the source path and the
     // whole expanded function signature into a std::stringstream and hashing
     // the resulting string, per widget, per frame. Same five facts, same
-    // identity map, same reuse -- 2,589 fewer allocations a frame
+    // identity map, same reuse -- 2,164 fewer allocations a frame on Home
     // (afterhours_gaps.md #180). The two seams stack: this one stamps the
     // epoch, that one makes the key cheap.
     afterhours::ui::imm::EntityParent pair =

@@ -276,7 +276,7 @@ thousands of one and memoised the other should move RSS and leave the device
 counter alone, and that is exactly what happened. The RSS figures did move, and
 are quoted against the newest floor.
 
-#### 5a. The estimate every budget was built on was 32% low
+#### 5a. The estimate every budget was built on was 25% low
 
 `w * h * 4`. afterhours' `load_texture` builds and uploads a full box-filtered
 **mip chain** at image creation — sokol has no runtime mipmap generation, so
@@ -481,7 +481,10 @@ Blunt, because the point of a noise floor is to be allowed to say this.
   widgets, not a live-object count. Nothing was done about it and nothing
   should be until there is a measurement that separates the two.
 - **The residual per-thread slope after the four fixes.** 288 KB at 100
-  threads, 364 KB at 500, 537 KB at 2000: about 0.13 KB per thread. Named by
+  threads, 364 KB at 500, 537 KB at 2000: about 0.13 KB per thread opened — but that is the sum of all four families, and
+only `Settings::set_last_read` (0.039 KB/thread) actually scales with threads;
+the two `wrap_text` families track the widget high-water mark and
+`MockClient::list_sessions` tracks the catalog. Named by
   `MallocStackLogging=1` + `malloc_history -allBySize`, live allocations at
   1000 threads:
 

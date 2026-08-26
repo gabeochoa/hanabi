@@ -1030,6 +1030,17 @@ per-row id cache + base-color baking could collapse to a single call.
 - **Fix (PROVEN, vendor_patches/30-smooth-eased-scrolling.patch):** add `scroll_target` (wheel writes here) + `scroll_smoothing` factor; `scroll_offset` eases toward `scroll_target` once per frame (before the mouse-inside early return so an in-flight glide keeps animating). `scroll_smoothing >= 1` = instant (byte-identical legacy default); 0.28 = smooth glide that settles exactly (0.5px snap). clamp_scroll clamps both. Ease math unit-verified (first step 28%, settles ~21 frames ≈ 0.2-0.35s).
 - **hanabi-side (committed, SFINAE-guarded):** `apply_scroll_prefs` sets `scroll_smoothing=0.28` (env `HANABI_SCROLL_SMOOTH` overrides); programmatic offset writes (jump-to-bottom, scrollbar drag/page) sync `scroll_target`. All guarded via `hanabi::has_smooth_scroll<>` detection so hanabi compiles against BOTH pinned edfe234 (no-op) and the patched afterhours (active) — verified both directions build 0 + test 8/8. Activates automatically when Gabe lands the patch + bumps the pointer.
 
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): "unit-verified" is the wrong
+word and there is no test.** No test file in the repo names `scroll_smoothing`
+-- `git grep -l scroll_smoothing` reaches this file, `src/util/scroll_prefs.h`
+and the patch, and nothing under `tests/`. Nor could there be one that runs the
+ease: the eased code is in `vendor_patches/30-smooth-eased-scrolling.patch`,
+which `vendor_patches/README.md` still lists as ready-to-apply against the
+pinned base, so it is not compiled into anything `make test` builds. "First step
+28%, settles ~21 frames" is arithmetic on `0.28`, done on paper and correct as
+arithmetic; it is not a measurement of a running binary. `has_smooth_scroll`
+has since left `src/` entirely, so even the SFINAE half is gone.
+
 ---
 ## Reusable app-scaffolding gaps (survey 2026-08-03) — what a NATIVE DESKTOP app needs that afterhours doesn't provide
 
@@ -3972,7 +3983,7 @@ reports `Grab`, exactly like one nobody ever asked for.
   sidebar already does this to its VIEWS header strip, which is how the ring
   came to sit on the first *row*. Do it to everything and the app has no
   keyboard navigation at all, and hanabi's search field then swallows every
-  keystroke (gap #66).
+  keystroke (gap #72).
 - **`theme.focus = <the row's own background>`** hides the ring by painting it
   invisible, which also hides it when the keyboard IS being used — the ring's
   entire job.
@@ -5606,7 +5617,7 @@ CLASS: MISSING
 
 ---
 
-### #109 — #85's escape list rules out `with_margin`, and `with_margin` is the fix; the ignored padding it warns about was still live 2,200 lines down the same file and cost a whole region
+### #109 — #85's escape list rules out `with_margin`, and `with_margin` is the fix; the ignored padding it warns about was still live 1,100 lines down the same file and cost a whole region
 
 **This is not a new wall.** #85 (*"Padding on a label-only element is silently
 ignored"*) and #91 describe the mechanism exactly and correctly. This entry is
@@ -5712,6 +5723,28 @@ debug name. That single line would have turned six rounds of a parity
 workstream into a startup message.
 
 CLASS: FOOTGUN
+
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the audit above counted the
+CURE as the disease, and the real number is ten.** "Twenty label-bearing
+elements set horizontal padding, of which nine are this defect" was produced by
+a regex over the whole config chain --
+
+    H_PAD = re.compile(r"\.(?:left|right)\s*=\s*pixels\(\s*([0-9.]+)f?\s*\)")
+
+-- which is equally the shape of a `Margin`, and `with_margin` is the fix this
+entry exists to prescribe. `50237d3` tightened it to look only inside a
+`.with_padding(Padding{...})` block and to accept a constant rather than a
+numeral (this entry's own defect, `pixels(kRowTitlePad)`, the old pattern could
+not see at all). `scripts/label_padding_baseline.txt` is **ten** lines now:
+`effort_row_ fold_row_ md_table_cell model_row_ msg_time sb_no_results
+sb_show_more shortcuts_keys slash_item_ tab_menu_item`.
+
+Four of the nine named above are not the defect, each for a different reason,
+and that is the useful half: `tab_label` zeroes all four sides (the deliberate
+gap #76 no-op), `dc_tag` is `TextAlignment::Center` so horizontal padding cannot
+matter, and `welcome_chip` and `xsearch_note` were already using `with_margin`.
+The five that stand -- `md_table_cell`, `msg_time`, `sb_show_more`,
+`sb_no_results`, `shortcuts_keys` -- are all in the baseline.
 
 ---
 
@@ -6371,6 +6404,14 @@ The caller knows its draw box; the library is the only one holding the pixels.
 
 CLASS: WORKAROUND
 
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the ratio above is 1,450, not
+5,800.** 23.7 MB of RGBA over a 64x64 chip is 23,756,544 B / 16,384 B =
+**1,450**, and the same figure in pixels: 5,939,136 / 4,096 = 1,450. 5,800 is
+exactly four times it -- bytes on one side of the ratio and pixels on the other.
+The shape of the ask is unchanged and so is every measured number under it; the
+upstream payoff this entry advertises is 1,450x, which is still the largest
+single multiple in this file.
+
 ### #126 — A GPU texture is not a malloc block, and nothing in afterhours will say how many bytes it is holding
 
 **What was wanted.** To find a memory leak with the same instrument that found
@@ -6935,6 +6976,24 @@ resolves a rect by content and clicks its centre. Then the script says what it
 means, cannot go stale, and fails with the name of the thing it could not find.
 
 CLASS: TEDIOUS
+
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the coordinates above are the
+fourth set and the script is on its fifth, which is the entry restating
+itself.** `select_word_and_line.e2e` now clicks `415 226`, not `415 225`, and
+its comment records the three body lines at **218 / 234 / 250** as element tops,
+not 209 / 225 / 241. The "y = 228 / 244 / 260" measured here is superseded too:
+the script gained `HANABI_SELECT_AUDIT=1`, which prints the landing element and
+its rect for every press --
+
+    [sel] press=(415.0,226.0) run=1 off=17 rect=(329.0,218.0 656.0x16.0)
+          len=61 text="  acct 8842 - ledger $128.60, computed $116.20 ..."
+
+-- so the number is now mechanically re-derivable in a normal run instead of by
+rendering the frame and scanning the PNG. That is a real improvement to the
+WORKAROUND and it is not the fix: the script still holds a literal, it still
+cannot check itself, and a fifth move is a fifth hand edit. CLASS is unchanged.
+The quotations above are left as written, because they are the state this entry
+was filed against.
 
 
 ---
@@ -8134,6 +8193,23 @@ unit. Roughly the same number of lines as the version that is there.
 
 CLASS: PERFORMANCE
 
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): "2,589 allocations, 47% of
+every allocation" is not any arm's figure; the measured cost is 2,164 on the arm
+this entry names.** `scripts/alloc_gate.sh` now rehearses exactly this by
+pointing `src/ui/widget_epoch.h`'s wrapper back at `afterhours::ui::imm::mk` and
+changing nothing else, which makes the delta the hash's own cost:
+
+    arm         with hanabi's mk   with the library's   the hash costs
+    home20                 827.0               2466.0            1,639
+    home2000              1197.0               3361.0            2,164
+    thread480             2740.0               5803.0            3,063
+
+64% of the 2000-session Home frame, 53% of the 480-message thread. 47% is not
+reachable from any pair in the tree, and 2,589 cannot be a Home-view figure at
+all: the paragraph above reports 3,731 -> 1,426 on that arm, a saving of 2,305,
+which cannot contain a 2,589-allocation component. The conclusion is untouched
+and if anything understated.
+
 ---
 
 ### #181 — A `ComponentConfig` is copied three times on the way into a widget, so every string it carries is malloc'd three times per widget per frame
@@ -8245,6 +8321,15 @@ insert-many-then-query, which is the pattern a flat container is best at. The
 public shape of `focused_ids` would change; nothing else would.
 
 CLASS: PERFORMANCE
+
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the residue is ~242 widgets,
+not ~430.** Both operands are in this entry: 634 allocations a frame from the
+focusable set with a thread open, and a workaround "worth 392 allocations per
+frame on the 480-message fixture, 2,795 down from 3,187". 634 - 392 = 242. The direction is unchanged --
+what is left is the buttons and the rows, and they still cost a tree node each
+per frame -- but the residue is a third of the frame's original tabbing cost,
+not two thirds of it, which is what makes the upstream flat-set ask worth less
+than the sentence above implies.
 
 ---
 

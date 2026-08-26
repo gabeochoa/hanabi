@@ -1226,7 +1226,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // Taking the rows out of the tab order instead (`with_skip_tabbing`) is
     // worse: focus then lands on the search field, which silently swallows
     // every keystroke and the arrow keys with it. So the rows stay focusable
-    // and the keystroke is filtered here. (FRICTION_LOG / gap #66.)
+    // and the keystroke is filtered here. (FRICTION_LOG / gap #72 -- which is
+    // the ring-at-rest premise only; the Enter collision it causes is ours.)
     static bool pointer_click(UIContext<InputAction>& ctx, Entity& e) {
         if (!e.get<afterhours::ui::HasClickListener>().down) return false;
         // "Was the pointer on it" is the only reliable read: the listener can

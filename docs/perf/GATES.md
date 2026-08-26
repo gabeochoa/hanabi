@@ -70,7 +70,7 @@ behind `make soak`.
 
 `make digest-gate` was added later, by `perf/digest`, and the reason it exists
 is worth reading before adding a sixth: **the three gates above it were all
-green over a Blocked screen building 569 cards a frame, for as long as that
+green over a Blocked screen building 506 cards a frame, for as long as that
 screen had existed.** Not because any of them was wrong — because
 `scaling-gate` opens one screen and never navigates, `scroll-gate` drives a
 different pane, and `soak-gate` measures a slope where this was a plateau.
@@ -445,7 +445,7 @@ answers — "not measured — NO DEVICE" rather than a column of +0.0 — becaus
 zero that means "no accounting" and a zero that means "nothing leaked" are the
 same glyph, and reading the first as a pass is how a gate stops gating.
 
-**What set the old 512 KB.**  Nine consecutive clean runs read
+**What set the old 512 KB.**  Eight consecutive clean runs read
 `+0, +0, +32, +32, +64, +96, +96, +192` KB of RSS growth per 1000 frames, and
 `-19, -19, -1, +13, +13, +45, +61, +77` KB of heap. The same binary with the
 autorelease pool removed read `+2784, +2816, +2848, +2912, +3040` KB of RSS and
@@ -876,7 +876,7 @@ epoch row catch what the other two rows cannot.
 
 ## 4. `make soak` — the long form, for before a release
 
-**Twelve arms, four at a time, 53 seconds.** `scripts/soak.sh`. Parallel
+**Thirteen arms, four at a time, 53 seconds.** `scripts/soak.sh`. Parallel
 because every gated metric is now load-insensitive — counts of things, plus a
 frame budget on the thread CPU clock, so a sibling arm descheduling an arm
 costs it nothing. `make soak JOBS=1` runs it serially (84 s) and produces the
@@ -892,7 +892,7 @@ it against `docs/perf/soak-baseline.txt`. See `docs/perf/STRESS.md`.
 
 ### The old five-arm form
 
-`scripts/soak.sh`. Five arms, 4000 frames each, about 65 seconds total.
+`scripts/soak.sh`. Seven arms, 4000 frames each, about 65 seconds total.
 
 | arm | what it drives | why it is here |
 | --- | --- | --- |
@@ -1029,7 +1029,7 @@ command that lists the call sites; `docs/perf/ALLOCATIONS.md` is the full map.
 
 ## Where the stress harness is, and what it adds
 
-`docs/perf/STRESS.md` is the other half of this file: the twelve scenarios,
+`docs/perf/STRESS.md` is the other half of this file: the thirteen scenarios,
 `HANABI_STRESS_UNTIL` (run until a failure condition and report where it
 broke — the app manages **245 open threads** before a frame costs 3x what it
 did at rest), the diffable report, and the footguns found building it.

@@ -194,7 +194,7 @@ you. A number is worth more than an adjective.
   60-line detour through the library to find out that `visual_focus_id` is
   assigned unconditionally.
 - **Class** — `WORKAROUND`
-- **Gap filed?** — #66.
+- **Gap filed?** — #72 (filed as #66; renumbered at the merge).
 
 ### 14. Every gap in a measured design is an empty div
 
@@ -430,7 +430,7 @@ geometry rather than drawing them freehand.
   "focus the persisted active tab" loop directly below it has the same shape
   and is presumably equally inert.
 - **Class** — `WORKAROUND`
-- **Gap filed?** — #66.
+- **Gap filed?** — #70 (filed as #66; renumbered at the merge).
 
 ### 7. A drawn mark is invisible to every assertion
 
@@ -677,7 +677,7 @@ match Puffin's fixture.
 
 ## Session list (feat/vis-list)
 
-Region 19.21% -> 16.58%. Row pitch is the headline: it was drifting 2px a row
+Region 19.21% -> 16.50%. Row pitch is the headline: it was drifting 2px a row
 and is now exact.
 
 ### Grid snapping: the global lever was never actually tested — WORKAROUND (gap #71, now resolved)
@@ -778,12 +778,12 @@ making its text smaller.
 
 #77 — no bold face, and the weight API no-ops silently. Same wall from the
 sidebar side: Puffin's row titles are semibold near-white, hanabi's ink is 17%
-lighter than the reference's at the same size and position. Of the 16.58% left
+lighter than the reference's at the same size and position. Of the 16.50% left
 in this region, 6.11 points is title ink that does not overlap the reference's,
 and weight is the biggest single component of it. It ends where #77 ends: a
 Bold TTF is an asset decision.
 
-### Where the remaining 16.58% is
+### Where the remaining 16.50% is
 
 - **5.18 points is one row band** — hanabi's mock puts session `t2` in the open
   tab and highlights its row; Puffin's reference fixture has a different session
@@ -3660,7 +3660,7 @@ that said they were is why five rounds trusted the number.
 **And this was filed. Gap #85, from the smart-view row, in this same file:**
 *"its comment did the arithmetic out loud — kSbInset 9 + icon 16 + a 12px pad
 on the label = 37 … `pixels(12)` and `pixels(40)` produce a byte-identical
-frame."* Same defect, same file, 2,200 lines apart, same shape of comment. #85
+frame."* Same defect, same file, 1,100 lines apart, same shape of comment. #85
 closes with *"silence is what made this cost a day"*; filed, it cost six
 rounds. **Reading the gap log for the mechanism you are about to blame is
 cheaper than measuring, and nobody in this workstream did it** — including,
@@ -3680,11 +3680,17 @@ element and its text together"*), so one function in this codebase knew and the
 gap doc said not to. #85 shipped an empty `sb_spacer_x` div per row instead.
 Correction filed as gap #109, with the audit.
 
-The audit is the part to carry forward: **twenty labels in hanabi set
-horizontal padding**, nine of them on elements whose own label is the thing
-meant to move. None is in a region above its floor today, so none is touched —
-but `tab_label`, `md_table_cell`, `msg_time` and `dc_tag` are all drawing at
-their element's edge right now.
+The audit is the part to carry forward: **ten labels in hanabi set horizontal
+padding on an element whose own label is the thing meant to move** —
+`effort_row_`, `fold_row_`, `md_table_cell`, `model_row_`, `msg_time`,
+`sb_no_results`, `sb_show_more`, `shortcuts_keys`, `slash_item_`,
+`tab_menu_item`. None is in a region above its floor today, so none is touched.
+(This first read twenty of thirty. The checker's pattern matched a `Margin` as
+readily as a `Padding` — the cure as the disease — so two thirds of the list
+were elements already using the fix; `50237d3` tightened it. `tab_label` and
+`dc_tag`, named here as live defects, are not: the first zeroes all four sides,
+which is the deliberate gap #76 no-op, and the second is `TextAlignment::Center`,
+where horizontal padding cannot matter.)
 
 ### What is left, measured per glyph, and it IS the rasterizer
 
@@ -3793,9 +3799,9 @@ this project three times, and the third was the expensive one:
 Writing it in the gaps file a fourth time would not stop the fourth. So
 `scripts/check_label_padding.py` finds them, and `scripts/run_tests.sh` runs it.
 
-**There are thirty today, and they are not thirty bugs.** Wherever one is
+**There are ten today, and they are not ten bugs.** Wherever one is
 visible, somebody has already tuned the geometry around it, so "fixing" the
-padding moves something that currently looks right. What they are is thirty
+padding moves something that currently looks right. What they are is ten
 places where the next edit will silently do nothing. The set is frozen in
 `scripts/label_padding_baseline.txt`; the checker fails on a **new** one, and
 prints the list to anyone who touches an old one.

@@ -8,7 +8,7 @@
 #   scaling_gate.sh  opens ONE screen (Home, the landing view) at two catalog
 #                    sizes and never navigates. Home has been capped since
 #                    perf/sidebar-scaling, so the gate has been green over a
-#                    Blocked screen building 569 cards the whole time.
+#                    Blocked screen building 506 cards the whole time.
 #   scroll_gate.sh   expands the SIDEBAR's list and sweeps it. Different pane,
 #                    different question.
 #   soak_gate.sh     measures a slope. This was never a slope: a digest screen

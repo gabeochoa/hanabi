@@ -4,8 +4,9 @@
 //
 // WHY THIS FILE EXISTS. `render_digest` built one card per matching session,
 // unconditionally, on all four digest screens (Blocked / Review / Starred /
-// Archived). At a 2000-session catalog that is 569 cards and 2276 entities in
-// one frame -- twelve times what Home builds beside it, and Home is capped.
+// Archived). At a 2000-session catalog Blocked, the biggest of them, builds
+// 506 cards and 2,024 entities in one frame -- eight times what Home builds
+// beside it, and Home is capped.
 // `docs/perf/SCROLL.md` had already solved this shape for the sidebar's rows:
 // build the slice on screen plus a little slack, stand two spacers in for the
 // rest, and the list stays whole while the build stays O(viewport).
@@ -57,8 +58,8 @@ inline bool is_bare_state_word(std::string_view p) {
 // and the window being the new cost. Every branch that does not compose points
 // straight into the session -- the preview, its tail after the separator, a
 // string literal -- and the two that do compose write into a caller-owned
-// scratch that the pass reuses, so a 569-card pitch pass heap-allocates once
-// (the first frame, sizing the scratch) rather than 569 times a frame.
+// scratch that the pass reuses, so a 506-card pitch pass heap-allocates once
+// (the first frame, sizing the scratch) rather than 506 times a frame.
 //
 // The scratch MUST outlive the returned view. It is a parameter and not a
 // local static for the obvious reason and one less obvious one: two calls in

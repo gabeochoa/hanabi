@@ -242,7 +242,7 @@ std::string transcript_file(const std::string& id) {
 //
 // MEASURED (tools/bench_data_layer.cpp, CLOCK_THREAD_CPUTIME_ID):
 //     200 cache files    0.674 ms per save
-//    2000 cache files    5.904 ms per save   (~3.2 us/file)
+//    2000 cache files    5.904 ms per save   (~3.0 us/file)
 //
 // The estimate below is deliberately an OVER-estimate, which is what makes it
 // safe: it adds every byte written and never subtracts one. Overwriting a

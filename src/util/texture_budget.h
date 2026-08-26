@@ -77,9 +77,11 @@ inline constexpr std::size_t kDefaultProtectRecent = 16;
 // the only thing standing between the app and 450 images that silently do not
 // draw, and it was set four times too high to be it.
 //
-// Halved again from the 48 the reserve allows, to 32: a frame's working set is
-// the composer's five chips plus the inline images in view, the protection
-// window is 16, and 32 is double that. Nothing this cache does needs more, and
+// Cut from the 48 the reserve allows to 32 -- NOT by halving, which would give
+// 24, and the comment that said "halved again" was describing arithmetic it
+// does not do. 32 is chosen, not derived: a frame's working set is the
+// composer's five chips plus the inline images in view, the protection window
+// is 16, and 32 is double that. Nothing this cache does needs more, and
 // what the extra sixteen slots buy instead is room for the app's own atlases
 // to grow without the two budgets ever having to be reconciled at runtime.
 inline constexpr std::size_t kDefaultMaxEntries = 32;

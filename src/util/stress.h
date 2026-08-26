@@ -203,7 +203,7 @@ struct Driver {
         // `digest` sweeps a card list on the same reasoning and at the same
         // step. A digest card is 42 or 60 px against the sidebar row's 32, so
         // 96 px a frame is under two cards rather than three, and one
-        // half-period walks about 1200 cards -- more than the 569 the busiest
+        // half-period walks about 1200 cards -- more than the 506 the busiest
         // digest view holds at a 2000-session catalog, which is the point:
         // the sweep must reach the end of the list it is measuring.
         if (mode == Scenario::ScrollAll || mode == Scenario::Digest) {
@@ -316,8 +316,9 @@ struct Driver {
             case Scenario::Digest: {
                 // The screen whose whole job is to show everything. Blocked is
                 // the biggest of the four digest views at the mock catalog
-                // (569 cards at 2000 sessions against Review's 413), so it is
-                // the one the arm sits on.
+                // (506 cards at 2000 sessions against Review's 303, from
+                // scripts/digest_gate.sh's table), so it is the one the arm
+                // sits on.
                 //
                 // Written straight onto app.view, which is exactly what the
                 // sidebar's smart-view button writes (sidebar_system.h), so

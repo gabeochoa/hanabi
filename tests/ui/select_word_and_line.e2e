@@ -12,9 +12,10 @@ expect_no_text selected
 # Inside "ledger" on the first account line: six characters, and the line
 # itself is 61.
 #
-# THE Y IS A LINE CENTRE AND NOTHING ELSE WILL DO. 234 / 250 / 266 are the
-# element TOPS, not centres -- each line's element is 16px tall, so the first
-# account line is 218..234 and 234 is the seam it shares with the second. A
+# THE Y IS A LINE CENTRE AND NOTHING ELSE WILL DO. 218 / 234 / 250 are the
+# element TOPS and 234 / 250 / 266 their bottoms; neither set is a centre. Each
+# line's element is 16px tall, so the first account line is 218..234 and 234 is
+# the seam it shares with the second. A
 # press on a seam used to land in both (see
 # a_click_on_a_line_seam_is_one_click.e2e); it now lands in the lower one, and
 # 250 selected the SECOND account line -- 58 characters, not 61. That is what

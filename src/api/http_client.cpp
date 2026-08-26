@@ -33,7 +33,7 @@ namespace {
 
 #ifdef HANABI_ENABLE_TLS
 // Force a single, thread-safe OpenSSL initialization BEFORE any worker thread
-// runs a TLS handshake, AND serialize the handshake itself.
+// runs a TLS handshake, AND serialize the whole request the handshake is in.
 //
 // Root cause of the intermittent SIGSEGV on a large real-backend transcript:
 // opening a big thread kicks concurrent std::async fetches on separate worker
@@ -70,7 +70,11 @@ void ensure_openssl_init() {
     });
 }
 
-// Serializes TLS handshakes across the concurrent fetch workers (see above).
+// Serializes whole requests across the concurrent fetch workers (see above).
+// Held from before the httplib::Client is built to scope exit, so it covers
+// connect, handshake AND the full response read -- one fetch at a time, and up
+// to the read timeout of blocking for the others. Wider than the race needs;
+// narrowing it to the handshake needs httplib to expose a connect hook.
 std::mutex& http_request_mutex() {
     static std::mutex m;
     return m;
@@ -709,8 +713,10 @@ Result<std::string> HttpClient::get(const std::string& path) {
     try {
         ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
 #ifdef HANABI_ENABLE_TLS
-        // Serialize the TLS handshake across concurrent fetch workers so the
+        // Serialize this whole request across concurrent fetch workers so the
         // first-handshake OpenSSL lazy-init can't race (see http_request_mutex).
+        // The guard dies at scope exit, i.e. after the body is read: the read
+        // timeout below is also how long this can hold every other fetch off.
         std::lock_guard<std::mutex> _tls_lock(http_request_mutex());
 #endif
         httplib::Client cli(s.origin.c_str());
@@ -756,8 +762,10 @@ Result<std::string> HttpClient::post_json(const std::string& path,
     try {
         ensure_openssl_init();  // thread-safe one-time OpenSSL init (see above)
 #ifdef HANABI_ENABLE_TLS
-        // Serialize the TLS handshake across concurrent fetch workers so the
+        // Serialize this whole request across concurrent fetch workers so the
         // first-handshake OpenSSL lazy-init can't race (see http_request_mutex).
+        // The guard dies at scope exit, i.e. after the body is read: the 30 s
+        // read timeout below is also how long a send can hold every fetch off.
         std::lock_guard<std::mutex> _tls_lock(http_request_mutex());
 #endif
         httplib::Client cli(s.origin.c_str());

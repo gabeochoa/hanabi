@@ -106,7 +106,7 @@ each, ~20% of headroom. See `docs/perf/GATES.md`.
 
 Ordered by what they were worth. Every number is allocations per frame.
 
-### 1. The widget identity hash: 2,589/frame, 47% of everything
+### 1. The widget identity hash: 2,164/frame, 64% of everything
 
 `afterhours::ui::imm::mk()` is called once per widget per frame — that is what
 gives an immediate-mode widget a stable entity. It derived its key by streaming
@@ -186,8 +186,9 @@ plumbing for drag-select) and every minimap MARK.
 
 `with_skip_tabbing(true)` takes them out, and tabbing out of a long thread no
 longer walks several hundred stops to reach the composer — so the allocation
-fix and the behaviour fix are the same change. The ~430 widgets that
-legitimately are focusable still pay. `afterhours_gaps.md` **#183**.
+fix and the behaviour fix are the same change. The ~242 widgets that
+legitimately are focusable still pay — 634 before (`afterhours_gaps.md` #183),
+392 of them taken out by the skip. `afterhours_gaps.md` **#183**.
 
 ### 6. Pure derivations recomputed per row per frame: ~190/frame
 

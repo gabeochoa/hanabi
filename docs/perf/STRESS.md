@@ -2,7 +2,7 @@
 
 **Why this file exists.** `docs/perf/GATES.md` describes the gates that watch
 for a slope; this one describes the thing that *drives the app while they
-watch*. It is the half of the harness a person actually types at: eleven
+watch*. It is the half of the harness a person actually types at: thirteen
 scenarios, a way to run one until it breaks, and a report you can `diff`.
 
 Everything measured on `gabeochoa-mac-GRQ7Y259H4`, 2026-08-25, against
@@ -50,13 +50,15 @@ real input would be.
 | `resize` | the window narrower and wider, one step a frame | layout only by default; see gap #200 |
 | `churn` | open a thread, leave it, close it, open the next | the motion that found five unbounded per-session maps |
 | `mixed` | all of the above interleaved | the only arm that resembles use |
-| `bigidle` | `idle` against a 2000-session catalog | a per-row leak is 100x more visible |
+| `views` | Home / Blocked / Review / Starred / Archived / a thread, on a cycle | the only one that CHANGES SCREEN, which is why #115 lived a month |
+| `digest` | Blocked, swept end to end at 96 px a frame | the screen whose job is to show everything; the biggest card list |
+| `bigidle` | `idle` against a 2000-session catalog | a per-row leak is 100x more visible. **Not a `HANABI_STRESS` value** — it is a `soak.sh` ARM (`scenario="idle"; sessions=2000`); `HANABI_STRESS=bigidle` parses to `Scenario::None` |
 
 Knobs: `HANABI_STRESS_FRAMES`, `HANABI_STRESS_SETTLE` (120),
 `HANABI_STRESS_TABS` (8), `HANABI_STRESS_EVERY`, `HANABI_STRESS_SESSIONS`,
 `HANABI_STRESS_RESIZE_BACKEND`.
 
-Twelve arms, four at a time, **53 seconds** for the lot.
+Thirteen arms, four at a time, **53 seconds** for the lot.
 
 ### Every scenario terminates on a COUNT
 
