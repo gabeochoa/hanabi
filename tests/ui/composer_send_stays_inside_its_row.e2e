@@ -1,0 +1,49 @@
+# The send button is inside the composer row in every state it has.
+#
+# Gabe, testing the perf build: "many buttons are going outside the bounds."
+# This is the one you can see. The send affordance has three shapes -- a 19px
+# circle when idle, and a 78x32 labelled pill for Steer and for a turn in
+# flight, because neither of those two can be said by an arrow -- but the
+# input's width was carved out for the CIRCLE:
+#
+#   inputW = paneW - 2*gutter - kSendDia - kSendGap
+#
+# and the shape was not decided until 400 lines further down the function. So
+# in the two pill states the button ran 78 - 19 = 59px past the row's content
+# box, out over the pane's right gutter. On the parity window it drew
+# x=1083..1161 in a row whose content ends at 1102; at this window it ran to
+# x=1121 in a 1100px window, i.e. 21px off the right edge of the app.
+#
+# The fix is not a bigger reservation, it is deciding the shape where the
+# layout needs it: sendW is computed above the row and inputW is carved out of
+# what is left after IT. A fourth state with a fourth width now costs the input
+# those pixels instead of spending them outside the row.
+#
+# The state here is a turn in flight (HANABI_THINK_DEMO), the pill state a
+# person meets without doing anything unusual.
+#
+# The arithmetic these three numbers pin, so a reader can check them rather
+# than trust them: pane 1100-280 = 820, gutter (820-768)/2 + 12 = 38, so the
+# row's content runs 318..1062. 984 + 78 = 1062 exactly, and the input takes
+# the rest: 820 - 76 - 78 - 9 = 657.
+#
+# Verified to fail without the fix: restoring `- kSendDia` in inputW and moving
+# the sendW/sendIsCircle decision back below the input gives
+#
+#   assert_ui 'composer_send': x=984 but got 1043          (line 45)
+#   assert_ui 'composer_input_wrap': w=657 but got 716     (line 49)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
+# env: HANABI_WIN_W=1100 HANABI_WIN_H=760 HANABI_THINK_DEMO=1
+
+wait_frames 12
+
+# The row, so the two numbers below are relative to something stated.
+assert_ui composer_row x=280 w=820
+
+# The pill's right edge IS the row's content right edge, not 59px past it.
+assert_ui composer_send x=984 w=78
+
+# And the pixels it needed came out of the input, which is the property: the
+# row's children add up to the row.
+assert_ui composer_input_wrap w=657

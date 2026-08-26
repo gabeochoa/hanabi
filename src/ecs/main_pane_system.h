@@ -4688,6 +4688,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // padding is what the widget decides.
         constexpr float kSendDia = 19.0f;
         constexpr float kSendGap = 9.0f;
+        // THE SEND BUTTON'S SHAPE IS DECIDED HERE, ABOVE THE ROW, because the
+        // input's width is carved out of what is left after it -- and for a
+        // long time it was decided 400 lines further down instead, after the
+        // input had already been sized for a 19px circle. A pill-shaped state
+        // (in-flight) is 78 wide, so the button ran 78 - 19 = 59px past the
+        // row's content box, out over the pane's right gutter. That is the
+        // report's "buttons going outside the bounds" at its most visible:
+        // measured on the parity window, composer_send drew x=1083..1161
+        // inside a row whose content ends at 1102.
+        //
+        // Two facts, one place, in the order the layout needs them. A future
+        // state with a fourth width costs the input those pixels instead of
+        // spending them outside the row.
+        constexpr float kSendPillW = 78.0f;
+        constexpr float kSendPillH = 32.0f;
+        const bool sendIsCircle = !steerMode && !sending;
+        const float sendW = sendIsCircle ? kSendDia : kSendPillW;
+        const float sendH = sendIsCircle ? kSendDia : kSendPillH;
         // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
         // 46 rows and the reference's paints 47 (y=884 through y=930).
         constexpr float kInputH = 46.0f;
@@ -4705,7 +4723,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_row"));
 
-        float inputW = paneW - (composerGutter * 2.0f) - kSendDia - kSendGap;
+        float inputW = paneW - (composerGutter * 2.0f) - sendW - kSendGap;
         if (inputW < 120.0f) inputW = 120.0f;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
@@ -5112,11 +5130,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // it says so. A drawn arrow cannot tell you either. So the circle is
         // the IDLE shape only, and the button falls back to its labelled pill
         // for Steer and for in-flight — the label is the honest thing there.
-        const bool sendIsCircle = !steerMode && !sending;
         const char* sendLabel =
             sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "");
-        const float sendW = sendIsCircle ? kSendDia : 78.0f;
-        const float sendH = sendIsCircle ? kSendDia : 32.0f;
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
