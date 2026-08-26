@@ -1,0 +1,76 @@
+# The composer box GROWS with the draft, and stops at six rows.
+#
+# WHY THIS IS A TEST AND NOT A SCREENSHOT. The spike that made the composer
+# multiline left the box a fixed 46px while the field inside it grew, so a
+# three-line draft drew its second and third lines OUTSIDE the outline, over
+# the transcript. Nothing caught it: every geometric assertion in the suite is
+# about widgets whose size is a constant, the parity references have an empty
+# composer, and `make chrome-gate` shoots the composer at rest. A field that
+# outgrows its own box is the most visible thing the multiline move can do
+# wrong and it was invisible to all three.
+#
+# WHAT THE NUMBERS ARE. 46 is the one-row box (a 29px field plus 17px of box),
+# and every reference measurement in main_pane_system.h is written against it.
+# Each further row is one line height, 21px, so two rows is 67 and three is 88.
+# Six is the ceiling (kComposerMaxRows), which puts the box at 151 and holds
+# there however much more is typed -- the field scrolls to the caret instead.
+#
+# THE WAITS ARE LONG ON PURPOSE. The box's height is last frame's row count,
+# taken from the field's own layout cache so the two can never disagree (see
+# composerRows_). Growth therefore takes a frame to reach the box and another
+# to reach the strip's reserved height, and the pane relayouts behind it.
+# `wait_frames 8` was not enough and read 46 for a two-line draft -- a green
+# assertion on a stale layout is the failure mode this comment exists to stop
+# the next person walking into.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "needs a decision"
+
+click_ui composer_reply_input
+wait_frames 6
+
+# One row, and this is the number the whole composer band is measured against.
+assert_ui composer_input_wrap h=46
+
+type "one"
+wait_frames 8
+key SHIFT+ENTER
+wait_frames 24
+type "two"
+wait_frames 24
+assert_ui composer_input_wrap h=67
+
+key SHIFT+ENTER
+wait_frames 24
+type "three"
+wait_frames 24
+assert_ui composer_input_wrap h=88
+
+# Past the ceiling. Three more breaks takes the draft to six rows (151), and
+# the seventh must not make it 172.
+key SHIFT+ENTER
+wait_frames 16
+type "four"
+key SHIFT+ENTER
+wait_frames 16
+type "five"
+key SHIFT+ENTER
+wait_frames 24
+type "six"
+wait_frames 24
+assert_ui composer_input_wrap h=151
+
+key SHIFT+ENTER
+wait_frames 16
+type "seven"
+wait_frames 24
+assert_ui composer_input_wrap h=151
+
+# And it comes back down. Esc clears the draft; the box returns to one row
+# rather than staying tall around an empty field.
+key ESCAPE
+wait_frames 24
+assert_ui composer_input_wrap h=46
+
+wait_frames 10

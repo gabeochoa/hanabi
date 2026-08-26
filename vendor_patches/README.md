@@ -19,7 +19,7 @@ If you only want the diff applied to the working tree (no commit), use:
     git apply ../../vendor_patches/<file>.patch        # working-tree only
     git apply --check ../../vendor_patches/<file>.patch # dry-run: verify it applies
 
-Both are verified to apply cleanly against the pinned base (edfe234). Apply order
+All are verified to apply cleanly against the pinned base (428047e for #305; edfe234 for the older three). Apply order
 is independent — the two patches touch different files (drawing_helpers.h vs
 rendering.h) and do not conflict. After landing upstream, bump hanabi's
 `vendor/afterhours` submodule pointer to the new commit and delete the applied
@@ -61,6 +61,24 @@ patch from this folder.
      (+ a subtle code bg via a per-run pill if desired) instead of `.with_label`.
      Height already matches (spans wrap == plain wrap). Same for bold/italic if
      TextSpan grows a weight/style field later.
+
+- **305-text-area-wraps-every-frame.patch** — `text_area` called
+  `state.layout_cache.rebuild(...)` unconditionally on every frame, and reached
+  past `TextMeasureCache` to the raw backend `measure_text` (building a
+  `std::string` per probe to get a `const char*`). `HasTextAreaState` already
+  had `needs_layout_rebuild()` and nothing ever called it. Adds a LayoutKey
+  holding everything `rebuild` reads (text, wrap width, line height, font size,
+  font name) and skips the wrap when none moved; switches the probe to
+  `measure_text_line`. PROVEN: hanabi's composer standing still, operator new
+  per frame — empty 811→810, one 130-char line 1007→824, six lines 1030→847;
+  `make test` green with it applied, and the app builds and behaves identically
+  against BOTH the pinned 428047e and the patched tree. Applies cleanly to
+  428047e. (gap #305)
+
+  When this lands and the submodule pointer moves, drop
+  `scripts/alloc_gate.sh`'s `CEIL_DRAFT6` from 1250 to ~1050 in the same
+  commit — the ceiling exists to hold the pinned vendor's number, and the
+  comment above it says so.
 
 - **30-smooth-eased-scrolling.patch** — scroll was a raw wheel-delta add to the
   rendered `scroll_offset` (no smoothing), so scrolling felt stepped/janky vs

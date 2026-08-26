@@ -25,6 +25,7 @@
 #include "../util/text_cache.h"
 #include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
+#include "../ui/field_chrome.h"
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
 #include "../ui/link_detect.h"
@@ -159,7 +160,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app->escape == EscapeIntent::ClearTranscript)
             hanabi::text_select::clear();
 
-        layout->composerHeight = 98.0f + attachments_h(*app);
+        // 98 is the one-row strip. A draft that has grown past one row makes
+        // the whole strip taller, so the transcript above it gets shorter
+        // rather than being painted over -- the bar renders on layer 2 and
+        // would happily cover the last lines of the conversation otherwise.
+        layout->composerHeight =
+            98.0f + attachments_h(*app) + composer_extra_h(composerRows_);
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
@@ -648,6 +654,58 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // margin, not three slightly-different paddings). 24px matches the mock's
     // .hdr padding (16px 24px).
     static constexpr float kContentInset = 24.0f;
+    // The composer's growth, in one place because three sizes are derived from
+    // it: the strip's reserved height, the outlined box and the field.
+    static constexpr float kComposerLineH = 21.0f;
+    static constexpr size_t kComposerMaxRows = 6;
+    // The outlined box at ONE row. Every reference measurement in the composer
+    // band below is written against it (the box is y=884..930 on
+    // ref/01_home.png), so it is the anchor and growth is added to it rather
+    // than derived through the field.
+    static constexpr float kComposerBoxH1 = 46.0f;
+
+    static constexpr size_t composer_rows_clamped(size_t rows) {
+        return rows < 1 ? 1 : rows > kComposerMaxRows ? kComposerMaxRows : rows;
+    }
+    static constexpr float composer_box_h(size_t rows) {
+        return kComposerBoxH1 +
+               static_cast<float>(composer_rows_clamped(rows) - 1) *
+                   kComposerLineH;
+    }
+    static constexpr float composer_extra_h(size_t rows) {
+        return composer_box_h(rows) - kComposerBoxH1;
+    }
+
+    // The FIELD's height, which is not the box's and is not a round number.
+    //
+    // text_area gives its field a fixed padding of h720(4) top and bottom --
+    // a 720p-REFERENCE size, so it resolves to 4 * screenH/720 each, 5.27 at
+    // this app's 949 and 4.22 at the scripted suite's 760. Its own auto-grow
+    // then sizes the field `rows * line_height + kVerticalPadding` with
+    // kVerticalPadding a raw `8.f` (text_area.h:21, :141). The two agree at
+    // exactly one screen height, 720. Above it the field is SHORTER than the
+    // padding it carries plus the lines it holds, and the last line div hangs
+    // out of its own parent's content box -- 21.0 in an 18.5 box, over by 2.5,
+    // which is what `make bounds-gate` caught the moment this composer became
+    // a text_area (afterhours_gaps.md #309).
+    //
+    // So the field's height is stated here instead, with the padding resolved
+    // the way the widget will actually resolve it, and with_auto_grow is not
+    // used -- it would put `+ 8` back. The box above is unaffected: it stays
+    // 46 at one row whatever the padding resolves to, so nothing in the
+    // reference band moves.
+    static float composer_field_pad() {
+        float h = 720.0f;
+        if (auto* pcr = afterhours::EntityHelper::get_singleton_cmp<
+                afterhours::window_manager::ProvidesCurrentResolution>())
+            h = static_cast<float>(pcr->current_resolution.height);
+        return 8.0f * h / 720.0f;
+    }
+    static float composer_field_h(size_t rows) {
+        return static_cast<float>(composer_rows_clamped(rows)) *
+                   kComposerLineH +
+               composer_field_pad();
+    }
     static float wrap_width(float paneW) {
         float innerW = paneW - 48.0f;
         return innerW < kWrapCap ? innerW : kWrapCap;
@@ -1220,6 +1278,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // cursor's y is a sum of what actually got drawn rather than a mirror of
     // the layout kept in a second place.
     std::vector<std::string> listRows_, listRowsPrev_;
+    // How many VISUAL rows the composer's draft occupied on the frame just
+    // rendered, clamped to kComposerMaxRows.
+    //
+    // Read one frame late, and that is the point rather than a compromise:
+    // text_area's own `with_auto_grow` sizes the FIELD from
+    // `state.layout_cache.line_count()` at the top of its call, which is the
+    // count the PREVIOUS frame's rebuild left there. Taking the same number
+    // from the same place, one frame after it was written, is the only way the
+    // box around the field and the field itself can be guaranteed to agree --
+    // and they must, or a three-line draft either clips against a one-line box
+    // or leaves a gap under a six-line one. It also costs nothing: the count
+    // is already computed, so nothing here wraps the draft a second time.
+    //
+    // The alternative was hanabi::text::wrapped_line_count over the draft with
+    // the composer's own width, memoized like the transcript's. That is a
+    // second wrap of the same string against a width this side has to derive
+    // from the widget's padding rules, and it can disagree by a line. This
+    // cannot.
+    size_t composerRows_ = 1;
     float listY_ = 0.0f;
     float listCursorY_ = -1.0f;
     float listCursorH_ = 0.0f;
@@ -5079,7 +5156,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float sendH = sendIsCircle ? kSendDia : kSendPillH;
         // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
         // 46 rows and the reference's paints 47 (y=884 through y=930).
-        constexpr float kInputH = 46.0f;
+        //
+        // Not a constant any more, because the box GROWS with the draft. At one
+        // row it is 46 and every reference measurement above still holds; each
+        // further row adds one line height, to a ceiling of six. The row count
+        // is last frame's, from the field's own layout cache, for the reason
+        // composerRows_ carries.
+        const float kInputH = composer_box_h(composerRows_);
 
         auto row = div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
@@ -5131,9 +5214,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // render time, so whatever the sidebar left in font_muted is what this
         // pane's muted text gets (gap #90).
         ctx.theme.font_muted = theme::text_faint();
-        // What the empty field says it is for. text_input renders this itself
-        // now; it used to be an absolutely-positioned on_draw_fg child laid
-        // over the field, because the widget had no placeholder of its own.
+        // What the empty field says it is for, painted by the pane over the
+        // top of the empty field.
+        //
+        // text_input renders a placeholder itself and this used to be its
+        // config; text_area does not render one at all -- "placeholder" does
+        // not appear anywhere in text_area.h, while component.h has had it
+        // since gap #29 was closed. So moving the composer to multiline took
+        // the hint away with it, and the overlay below is 982376a's code
+        // brought back for the widget that still needs it
+        // (afterhours_gaps.md #261).
         //
         // Puffin's reads "Message Agentcloud… (↵)". The key hint is dropped:
         // Roboto has no U+21B5, and a missing codepoint draws nothing at all
@@ -5151,7 +5241,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // pick the height that yields it — 10/0.35 = 28.6. The box still reads
         // as 45px tall because the wrap owns the border and centres the field
         // inside it. See afterhours_gaps.md #65.
-        constexpr float kFieldH = 29.0f;
+        //
+        // text_area derives neither -- its padding is a fixed 6/4 and its font
+        // size is whatever the caller states -- so 29 survives the move as the
+        // ONE-ROW height rather than as the rule that produced it, and the
+        // glyphs land on the same pixel either way (measured: byte-identical).
+        // Past one row it is the field's grown height, the same number
+        // with_auto_grow computes from the same cache.
+        const float kFieldH = composer_field_h(composerRows_);
         // The PLACEHOLDER's ink, scoped by save/restore. text_input hardcodes
         // `field_label.explicit_text_color = ctx.theme.font_muted` (vendor
         // text_input/component.h:194) and offers no with_placeholder_color, so
@@ -5185,10 +5282,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // rule is not "never match Puffin's token"; it is "measure what lands".
         const auto savedMuted = ctx.theme.font_muted;
         ctx.theme.font_muted = theme::text_secondary();
-        auto inputRes = afterhours::ui::imm::text_input(
+        auto inputRes = afterhours::ui::imm::text_area(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
-                .with_placeholder(placeholder)
+                .with_line_height(pixels(kComposerLineH))
+                .with_max_lines(kComposerMaxRows)
+                .with_submit_on_enter(hanabi::enter_sends(
+                    Settings::get().get_send_key(), hanabi::keys::cmd_down()))
                 .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
@@ -5198,20 +5298,137 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("composer_reply_input"));
         ctx.theme.font_muted = savedMuted;
 
+        // The two things text_area does to this field that text_input did
+        // not, undone: it paints an opaque Theme::Usage::Secondary fill over
+        // the caller's with_transparent_bg (gap #262), and it draws no focused
+        // edge at all (gap #263). src/ui/field_chrome.h carries the whole
+        // argument, including why neither gap's own proposed workaround is the
+        // one used and what the fill actually costs here -- which is not the
+        // interior colour the gap describes but 42 pixels of the WRAP's
+        // outline, painted over by a field that is percent(1.0f) of it.
+        //
+        // ctx.theme.accent, because that is the one text_input reads. NOT
+        // theme::accent(), which is a different blue, and NOT ctx.theme.focus,
+        // which belongs to the :focus-visible ring and is written every frame
+        // by focus_visible_system.h -- taking that one would put this field's
+        // edge under the ring policy's colour correction and quietly bypass
+        // the policy at the same time. Both pinned by `make chrome-gate`.
+        // Last frame's row count for next frame's box (composerRows_).
+        if (inputRes.ent().has<afterhours::text_input::HasTextAreaState>()) {
+            const size_t rows = inputRes.ent()
+                                    .get<afterhours::text_input::HasTextAreaState>()
+                                    .layout_cache.line_count();
+            composerRows_ = rows < 1 ? 1
+                            : rows > kComposerMaxRows ? kComposerMaxRows
+                                                      : rows;
+        }
+
+        const auto composerFieldId = focusable_field(inputRes.ent());
+        hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);
+        hanabi::ui::field_chrome::apply_focus_edge(
+            composerFieldId,
+            inputRes.ent().has<afterhours::text_input::HasTextAreaState>() &&
+                inputRes.ent()
+                    .get<afterhours::text_input::HasTextAreaState>()
+                    .is_focused,
+            ctx.theme.accent);
+
+        // Faint hint text ON TOP of the empty field, via an absolutely
+        // positioned on_draw_fg child -- the same pattern the sidebar search
+        // uses, and the one this composer used before the widget grew a
+        // placeholder of its own. Replaced by real glyphs the moment you type.
+        //
+        // kComposerHintH, not kFieldH, and the difference is 495 pixels of the
+        // parity frame. The hint is centred in this box, so the box's height
+        // is where its baseline comes from -- and kFieldH now carries the
+        // widget's h720(4) padding, which resolves to 5.27 at the parity
+        // window's 949 and 4.22 at the scripted suite's 760. Following it
+        // would move the hint 1.3px down at one window size and not at
+        // another, against a reference measured at neither. 29 is the one-row
+        // field height in 720p reference units, which is the number this hint
+        // has always been centred in and the only one that does not depend on
+        // how tall the window is. The hint is only ever drawn on an EMPTY
+        // draft, so one row is the only case.
+        constexpr float kComposerHintH = 29.0f;
+        if (replyDraft.empty()) {
+            div(ctx, mk(inputWrap.ent(), 2),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(
+                        ComponentSize{percent(1.0f), pixels(kComposerHintH)})
+                    .with_absolute_position()
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(3)
+                    .with_on_draw_fg([placeholder](RectangleType rect) {
+                        const float px = theme::type::BODY;
+                        const float ty = rect.y + rect.height * 0.5f - px * 0.5f;
+                        afterhours::draw_text(placeholder, rect.x + 10.0f, ty,
+                                              px, theme::text_secondary());
+                    })
+                    .with_debug_name("composer_placeholder"));
+        }
+
+        // A SHADOW HasTextInputState, for the scripted-UI harness only.
+        //
+        // text_area's state component is HasTextAreaState. It DERIVES from
+        // HasTextInputState, but the ECS keys components by exact type id
+        // (core/entity.h: componentSet[get_type_id<T>()]), so a query for the
+        // base never matches the derived one. The harness knows this and says
+        // so in its own source -- expect_selected_text and
+        // expect_input_selection both test for either component. The third
+        // one, expect_input_text, was left asserting HasTextInputState alone,
+        // and it is the only assertion in the harness that reads a field's
+        // TEXT. So moving this field to multiline made every composer script
+        // fail with "Text input not found: composer_reply_input", and that was
+        // the ONLY thing that broke -- not the send key, not the slash menu,
+        // not the history walk, not the layout (afterhours_gaps.md #258).
+        //
+        // vendor/afterhours is read-only here, so the field carries a copy of
+        // its text in the component the harness looks for. Nothing reads it
+        // but the harness: hanabi's own lookups ask for the area state first
+        // (keyboard_focus.h), and is_focused is deliberately left alone on
+        // this one so it cannot answer "is a field focused" with a stale yes.
+        if (inputRes.ent().has<afterhours::text_input::HasTextAreaState>()) {
+            const auto& live =
+                inputRes.ent()
+                    .get<afterhours::text_input::HasTextAreaState>();
+            auto& shadow =
+                inputRes.ent()
+                    .addComponentIfMissing<
+                        afterhours::text_input::HasTextInputState>();
+            if (shadow.text() != live.text()) {
+                shadow.storage.clear();
+                shadow.storage.insert(0, live.text());
+            }
+        }
+
         // Screenshot affordance: HANABI_TEST_FOCUS_COMPOSER=1 force-focuses the
         // composer field so a capture can photograph the caret WITH text in it
         // (verifying caret position). Test-only; ignored when unset.
+        //
+        // focusable_field, not the wrapper's own id, and that is a SECOND bug
+        // on top of the one 8b0bc3d fixed. That commit armed focus-visible so
+        // the app's :focus-visible RING would draw; this is the field's own
+        // focused BORDER, which is a different indicator and was still
+        // missing. focus_id survives a frame only if the widget put itself in
+        // `focused_ids` via try_to_grab (systems.h:562), and the only entity
+        // in this pair that does is the FIELD child carrying InFocusCluster --
+        // so EndUIContextManager dropped the wrapper's id back to ROOT at the
+        // end of every frame and text_input's `state.is_focused` was never
+        // true. It is the same call session_search_system and
+        // rename_modal_system already make.
         if (hanabi::test_hooks::focus_composer())
-            ctx.set_focus(inputRes.ent().id);
+            ctx.set_focus(focusable_field(inputRes.ent()));
 
         // Opt-in field diagnostics: dump the live text_input state so we can
         // see EXACTLY what the field receives (chars, cursor, h-scroll) —
         // pins down space/backspace/wrap issues instead of guessing across the
         // vendored widget. Gated on HANABI_DBG_INPUT; a no-op when unset.
         if (std::getenv("HANABI_DBG_INPUT") &&
-            inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
+            inputRes.ent().has<afterhours::text_input::HasTextAreaState>()) {
             const auto& st =
-                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+                inputRes.ent().get<afterhours::text_input::HasTextAreaState>();
             static std::string s_last;
             std::string cur = st.text();
             if (cur != s_last) {  // only log on change (avoid per-frame spam)
@@ -5230,9 +5447,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // behavior.) Only when Esc belongs to the transcript this frame: with
         // an overlay or the find bar up, Esc dismisses THAT and the draft you
         // typed survives (escape_system.h).
-        if (inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
+        if (inputRes.ent().has<afterhours::text_input::HasTextAreaState>()) {
             auto& st =
-                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+                inputRes.ent().get<afterhours::text_input::HasTextAreaState>();
             if (st.is_focused && app.escape == EscapeIntent::ClearTranscript) {
                 st.storage.clear();
                 st.cursor_position = 0;
@@ -5262,9 +5479,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (kids.empty()) return;
             ctx.set_focus(kids[0]);
             if (inputRes.ent()
-                    .has<afterhours::text_input::HasTextInputState>())
+                    .has<afterhours::text_input::HasTextAreaState>())
                 inputRes.ent()
-                    .get<afterhours::text_input::HasTextInputState>()
+                    .get<afterhours::text_input::HasTextAreaState>()
                     .was_focused = true;
         };
 
@@ -5299,14 +5516,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const auto set_field = [&](const std::string& text) {
             replyDraft = text;
             if (!inputRes.ent()
-                     .has<afterhours::text_input::HasTextInputState>())
+                     .has<afterhours::text_input::HasTextAreaState>())
                 return;
             auto& st =
-                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+                inputRes.ent().get<afterhours::text_input::HasTextAreaState>();
             st.storage.clear();
             st.storage.insert(0, text);
             st.cursor_position = text.size();
             st.clear_selection();
+            // NOT rebuild_line_index(). HasTextAreaState keeps a LineIndex of
+            // where every '\n' is, the widget refreshes it at each of its own
+            // edits, and an outside write like this one leaves it describing
+            // the previous string -- which looks exactly like a bug worth
+            // fixing until you check what reads it. In text_area, nothing
+            // does: Home and End are move_to_visual_line_*, the vertical moves
+            // are visual too, and both read layout_cache, which is rebuilt
+            // from the text every frame. The line_index consumers in
+            // text_input/utils.h (:334, :355, :403, :410) have no call site in
+            // text_area.h at all. See afterhours_gaps.md #307 -- a stale index
+            // here is unobservable, and a "fix" for it is a line of code that
+            // cannot be tested.
         };
 
         // The send decided at the top of this frame: empty the field now that
@@ -5375,9 +5604,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Up/Down belong to the menu while it is up — the history walk below
         // stands down so one keystroke never does two things.
         if (slashOpen && !slashRows.empty() &&
-            inputRes.ent().has<afterhours::text_input::HasTextInputState>() &&
+            inputRes.ent().has<afterhours::text_input::HasTextAreaState>() &&
             inputRes.ent()
-                .get<afterhours::text_input::HasTextInputState>()
+                .get<afterhours::text_input::HasTextAreaState>()
                 .is_focused) {
             const int count = static_cast<int>(slashRows.size());
             if (hanabi::keys::pressed(hanabi::keys::kUp))
@@ -5394,9 +5623,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The arrows are not bound to any InputAction (preload.cpp), and the
         // text_input widget itself does nothing with them, so nothing upstream
         // has already eaten the keystroke.
-        if (inputRes.ent().has<afterhours::text_input::HasTextInputState>()) {
+        if (inputRes.ent().has<afterhours::text_input::HasTextAreaState>()) {
             auto& st =
-                inputRes.ent().get<afterhours::text_input::HasTextInputState>();
+                inputRes.ent().get<afterhours::text_input::HasTextAreaState>();
             const std::string typed = st.text();
             const size_t caret = std::min(st.cursor_position, typed.size());
             // A draft with line breaks in it wants Up/Down for the caret, so
@@ -5470,8 +5699,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // Read the CURRENT field text off the input state (the most
                     // up-to-date value, incl. the char typed just before Enter).
                     std::string text;
-                    if (e.has<afterhours::text_input::HasTextInputState>())
-                        text = e.get<afterhours::text_input::HasTextInputState>()
+                    if (e.has<afterhours::text_input::HasTextAreaState>())
+                        text = e.get<afterhours::text_input::HasTextAreaState>()
                                    .text();
                     // Trim trailing whitespace/newline the Enter may leave.
                     while (!text.empty() &&

@@ -5,6 +5,35 @@
 # which is also why it exists: a short highlight behind text is easy to miss.
 #
 # env: HANABI_SELECT_AUDIT=1
+#
+# THE FIXTURE'S CLOCK IS PINNED BY THE RUNNER NOW, AND THAT IS WHY THESE
+# COORDINATES ARE THE ORIGINAL ONES AGAIN.
+#
+# This script and its sibling have now been re-measured three times in one day
+# -- 218/234/250, then 244/260/276, then back -- and every re-measure was
+# correct when it was taken. The transcript was not being changed by the
+# branches that kept moving it. It moves by itself.
+#
+# Photographed, same tree, same fixture, 67 minutes apart: at 08:01 there is a
+# "Today" DATE DIVIDER above the assistant turn and at 09:08 there is not, and
+# kDateDividerH is 26 -- exactly the 26px every re-measure has been chasing.
+# The mock seeds message times relative to std::time(nullptr), so whether two
+# adjacent messages fall on the same LOCAL date, and whether the newest one is
+# "Today", changes as the wall clock moves. Every coordinate below the divider
+# moves with it. scripts/screens.sh already says this in its own words -- "the
+# set was reproducible for an hour or two after it was captured and rotted by
+# the clock after that" -- and pins HANABI_MOCK_NOW + HANABI_CAPTURE_EPOCH + TZ
+# to stop it. The scripted-UI runner pins nothing (util/capture_clock.h: "Only
+# the SCREENSHOT path freezes").
+#
+# scripts/run_ui_tests.sh now exports HANABI_MOCK_NOW and TZ for every script,
+# which puts the whole fixture at a fixed instant in the past: no message is
+# ever "today", no date boundary ever falls between two of them, and the
+# divider is permanently absent instead of permanently uncertain. The
+# coordinates below are then stable for good -- and they are this script's
+# ORIGINAL numbers, which is the evidence that the numbers were never what was
+# wrong. (The two scripts that are ABOUT time opt out with
+# HANABI_MOCK_NOW=0.)
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
 require_thread t2
@@ -52,12 +81,12 @@ expect_no_text selected
 # way to ask where a piece of text landed), so if this starts selecting the
 # wrong word, re-measure rather than nudge -- render t2 at this script's own
 # 1100x760 and scan the PNG for the bubble's band.
-double_click 415 252
+double_click 415 226
 wait_frames 6
 expect_text "6 selected"
 
 # The whole line is much longer than one word.
-triple_click 415 252
+triple_click 415 226
 wait_frames 6
 expect_no_text "6 selected"
 expect_text "61 selected"

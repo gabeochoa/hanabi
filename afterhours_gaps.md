@@ -138,6 +138,11 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #351 `fonsSetErrorCallback` is exactly the hook needed, is never called, and the `FONScontext` is a backend-private static — so `FONS_ATLAS_FULL` is raised, checked against a null pointer and discarded, twice per dropped glyph
 - #352 the atlas is a hardcoded 2048×2048 with no `graphics::Config` field, so the ceiling belongs to the library *(same request as #210's pool sizes)*
 - #353 a dropped glyph is not DRAWN either, so an unmeasurable string is also invisible — the failure looks like missing data, not like a font problem
+**Added 2026-08-26** (shipping the multiline composer; full entries at the end)
+- #305 `text_area` re-wraps its whole text EVERY FRAME — `needs_layout_rebuild` exists and nothing calls it — and measures through the raw backend instead of `TextMeasureCache` *(+196 allocs/frame for a 130-char draft standing still; patch proven, `vendor_patches/305-…`)*
+- #306 `with_auto_grow` knows the row count and `ElementResult` will not carry it, so an app drawing the BOX around a growing field must read `state.layout_cache` to size it
+- #307 NOT A GAP: `HasTextAreaState::line_index` moves no caret — `text_area` navigates by VISUAL rows off `layout_cache` — so an outside write that leaves the index stale is unobservable *(a one-line "fix" whose test passes without it)*
+- #308 `assert_ui` understands x/y/w/h/hidden/text and nothing about colour, so 106 scripted UI tests passed straight through both #262 and #263
 
 **Resolved / corrected**
 - #115 (a widget that stops being built is never retired) is **worked around
@@ -9998,6 +10003,63 @@ rather than a shipped change.
 **Minimal upstream fix.** Read the background from the config the way the rest
 of the widget reads everything else, defaulting to Secondary when unset.
 
+**POSTSCRIPT (shipped on `feat/composer-multiline`). The measurement above is
+WRONG, the gap is real, and it costs something else.**
+
+"None used" is no longer true — hanabi ships a workaround — and the
+description of the damage was wrong in a way worth correcting rather than
+quietly fixing, because it sent the fix in the wrong direction.
+
+*What is wrong.* The interior does NOT go to (57,57,68) on this composer, and
+it never did. `Theme::Usage::Secondary` is resolved at BUILD time, not at
+render time — `component_init.h:381-385` writes a concrete `Color` into
+`HasColor` from `ctx.theme.from_usage(...)` during the imm build — and this
+composer has pointed `ctx.theme.secondary` at the strip colour since gap #17,
+two lines above the call. So the forced fill lands on (23,23,35), which is
+exactly the colour the interior is supposed to be. Measured after the switch:
+every sampled interior pixel is (23,23,35), unchanged.
+
+That also retires the entry's own proposed workaround, and the objection to
+it. Save/restore of `ctx.theme.secondary` is not "defeating a hardcode with a
+global" here: the window is the build call, exactly as gap #105 records for
+`font_muted`, and the stated cost — "it would recolour anything else in the
+call that reads Secondary" — is empty. `text_area.h` reads the theme in
+four places (`:150` rounded corners, `:157` this background, `:268` and
+`:352` `custom_text_color.value_or(ctx.theme.font)`) and exactly one of them
+is Secondary. Nothing else in the call reads it.
+
+*What it actually costs.* The OUTLINE. The field is `percent(1.0f)` of a wrap
+whose own 1px border draws ON the box edge, so an OPAQUE field — of any
+colour, including the right one — paints over that border wherever the two
+overlap. Measured, 1100x760, resting composer, before against after:
+
+    42 pixels, all (41,41,52) -> (23,23,35)
+    both rounded top corners' 7px arcs, and the entire right-hand border
+    column x=1033 down the field's 29 rows
+
+The composer stopped being a rounded outlined box and became a box missing a
+corner and an edge. A same-coloured fill is invisible on a flat surface and
+destructive on top of a line, and that distinction is the difference between
+"the right colour" and "nothing" — which is what `with_transparent_bg()` asks
+for and what the widget refuses to give.
+
+*The workaround shipped.* Not the theme save/restore, because the right colour
+is not the ask. `src/ui/field_chrome.h::clear_forced_fill` sets the field
+entity's `HasColor` to `colors::transparent()` after the call — the exact
+value `with_transparent_bg()` would have put there
+(`component_config.h:344`). Reachable because the widget builds the field as a
+child div and then mutates that entity, so it is addressable by the time the
+call returns.
+
+*Cost of the workaround:* none measurable. The composer at rest and focused is
+byte-identical to the single-line one it replaced, and `make chrome-gate` now
+fails if the outline is ever painted over again ("the wrap's outline is
+painted over on 29 of its 45 interior rows").
+
+*The upstream fix above is still right*, and this makes it more urgent, not
+less: an app cannot even work around it by pointing the theme at the correct
+colour, because the correct colour is the bug.
+
 CLASS: MISSING
 
 ---
@@ -10034,6 +10096,59 @@ before the field it contains) and a ring around the 45px box rather than the
 measured widget in the app, so it is on the spike branch and not shipped.
 
 **Minimal upstream fix.** The four lines from `component.h`.
+
+**POSTSCRIPT (shipped on `feat/composer-multiline`). "None used" is no longer
+true, the proposed workaround was not the one taken, and its two stated costs
+were both avoidable.**
+
+*The workaround shipped.* `src/ui/field_chrome.h::apply_focus_edge` does the
+four lines from `component.h:257-262` from outside the widget, on the same
+entity, after `text_area()` returns:
+
+```cpp
+field.addComponentIfMissing<HasBorder>();
+field.get<HasBorder>().border = Border::all(ctx.theme.accent, pixels(2.f));
+```
+
+*Why not the wrapper div this entry proposed.* Both costs it names are real
+for the wrapper and neither applies here.
+
+- "one frame of lag (the wrapper is built before the field)" — true of the
+  wrapper, and the reason it does not bite is the mechanism this entry did
+  not spot: `text_input` does not put the border in its field's CONFIG, it
+  mutates the field ENTITY after building the div (`component.h:257`,
+  `addComponentIfMissing<HasBorder>` on `field_entity`). An app can do the
+  same thing to the same entity in the same frame. Zero lag.
+- "a ring around the 45px box rather than the 29px field" — same cause. The
+  field child is findable: `text_area.h:276` gives it `InFocusCluster`,
+  which is what hanabi's `ecs::focusable_field()` already looks for and what
+  two other call sites in the app already use to hand focus to a field.
+
+*Self-clearing, which is the part that surprises.* There is no "else" branch
+and there must not be one. `component_init.h:272-276`'s `apply_border`
+REMOVES `HasBorder` from any entity whose config carries no border, and the
+field div is rebuilt every frame, so an unfocused frame has already stripped
+the edge before the app's code runs. `text_input` relies on exactly this.
+
+*Cost of the workaround, measured.* None. 1100x760, three-tab dark fixture,
+composer focused: the accent rows land at y=696 and y=724 — the field's top
+and bottom, 29px apart — in (0,122,204), which is byte-identical to what
+`text_input` drew, and the resting frame is byte-identical too. `make
+chrome-gate` asserts both, plus that the edge is inside the wrap's border
+rows rather than on them, and that focusing repaints nothing outside the
+composer band.
+
+*On the focus POLICY,* since this entry raises it. hanabi's
+`ui/focus_visible.h` governs the app's :focus-visible RING — armed by Tab,
+disarmed by a pointer press, applied through `theme.focus_ring_thickness`. It
+is a different indicator from this one and that file says so itself, in the
+note about "the focused border the composer draws itself". Reproducing
+`text_input`'s edge is obeying that policy rather than bypassing it: the ring
+stays gated exactly as it was, and the colour is taken from
+`ctx.theme.accent` — deliberately NOT `ctx.theme.focus`, which
+`focus_visible_system.h` rewrites every frame with the ring's contrast
+correction, and taking it would have quietly put a policy value on a
+non-policy indicator.
 
 CLASS: MISSING
 
@@ -10272,6 +10387,137 @@ have helped: let a subtree be declared a FOCUS SCOPE, and let `UIContext` hold
 focus per scope rather than one id, with the app naming the active scope. That
 is the piece the app cannot build on top (see #336), and every other item above
 is state the app can own if it must.
+### #305 — `text_area` re-wraps its whole text every frame, and measures through the raw backend instead of the shared cache
+
+**What happens.** `text_area.h:228` (pinned 428047e):
+
+```cpp
+state.layout_cache.rebuild(display_text, wrap_width, line_height,
+                           line_width);
+```
+
+Unconditional. Every frame, for every text area on screen, whether or not
+anything about the wrap changed.
+
+`TextLayoutCache::rebuild` (`text_layout.h:43`) is not a cheap thing to
+repeat. It copies the text (`const std::string source(text)`), calls
+`ui::detail::wrap_text_to_width`, and that (`text_selection.h:156-200`) cuts
+the text into one `std::string` per word-or-space run, accumulates a
+`current_text + pending_ws.text + chunk.text` CANDIDATE string at every word
+boundary, and measures each candidate. Then `rebuild` walks the returned
+lines calling `source.find(line, pos)` per line. An N-word line is O(N)
+strings, O(N) measures and O(N²) bytes measured.
+
+Two things make it fixable rather than inherent, and both are already in the
+tree:
+
+1. **`HasTextAreaState::needs_layout_rebuild(uint64_t)` exists and NOTHING
+   CALLS IT.** `text_area_state.h:53-56`, with the comment "Check if layout
+   needs rebuilding", next to a `last_layout_version` that `mark_dirty`
+   maintains. `grep -rn needs_layout_rebuild vendor/afterhours` returns the
+   definition and no call site. The guard was written and never wired up.
+2. **The measure bypasses the cache.** `text_area.h:216-224` builds its
+   `line_width` out of the raw backend call:
+
+   ```cpp
+   return measure_text(font_manager->get_font(font_name),
+                       std::string(s).c_str(), resolved_font_size, 1.f).x;
+   ```
+
+   `measure_text_line` (`text_measure.h:22-31`) is the same measurement
+   through `TextMeasureCache` — its own comment reads "Cache first,
+   FontManager second" — and it is what the layout pass fills. So a text area
+   pays full price for every probe AND builds a `std::string` per probe to
+   reach a `const char *`, next to a cache that already holds the answer.
+
+**Measured**, hanabi's composer standing still, `operator new` calls per frame,
+headless 1180x949, `scripts/alloc_gate.sh` arithmetic:
+
+| composer draft | allocs/frame |
+| --- | --- |
+| empty | 811 |
+| one line, 130 chars (does not even wrap) | 1007 |
+| six short lines | 1025 |
+
++196 allocations per frame, at 60Hz, for a draft nobody is touching. The
+one-line figure is the one to look at: the text FITS, no wrapping is
+performed, and the cost is entirely the machinery deciding that.
+
+For scale against the widget it replaced: the same six-line string in a
+single-line `text_input` costs 978/frame, so `text_input` has a smaller
+version of the same problem (it re-measures its label every frame) and
+`text_area` is worse.
+
+**The workaround.** NONE IS POSSIBLE from app code, and the reason is worth
+stating because it is the shape of several entries here: the expensive call is
+made *inside* the widget function, on state the widget owns, with inputs the
+caller has already handed over. There is no config flag that reaches it —
+`with_word_wrap(false)` does NOT, because `text_layout.h:51` turns a zero wrap
+width into `1e9f` rather than into the `max_width <= 0` early-out that
+`wrap_text_to_width` itself provides. Every lever the caller has is on the
+wrong side of the call.
+
+What hanabi does instead is *bound* it: `scripts/alloc_gate.sh` grew a
+`draft6` arm so the cost cannot grow further unnoticed, and the ceiling
+carries a note saying it should come down when this lands.
+
+**Minimal upstream fix.** Both halves are small, and both are PROVEN — the
+patch is `vendor_patches/305-text-area-wraps-every-frame.patch`, applies
+cleanly to 428047e, and takes the table above to 810 / 824 / 847. Hold the
+inputs `rebuild` reads (text, wrap width, line height, font size, font name)
+beside the cache and skip the call when none moved; and measure through
+`measure_text_line`.
+
+CLASS: PERFORMANCE
+
+---
+
+### #306 — `text_area` knows how many rows it wraps to and will not tell the caller, so an app that draws the BOX around the field has to read the widget's private-by-convention state
+
+**What happens.** `with_auto_grow()` makes the FIELD's height follow its
+content (`text_area.h:135-143`):
+
+```cpp
+const size_t rows = std::max<size_t>(1, state.layout_cache.line_count());
+const size_t capped = config.text_area_max_lines > 0
+                          ? std::min(rows, config.text_area_max_lines) : rows;
+config.size.y_axis = pixels(capped * line_height + kVerticalPadding);
+```
+
+That is the right behaviour and it is exactly half of what a chat composer
+needs. The other half is that a real composer is a field inside something the
+APP draws — hanabi's is an outlined box on the window plane, with the border,
+the corner radius and the send button beside it all owned by the app — and
+none of that can size itself, because `rows` is a local and `ElementResult`
+(`element_result.h`) carries `changed` and the entity and nothing else.
+
+The result is a field that grows inside a box that does not: hanabi's
+three-line draft drew lines two and three outside the outline, over the
+transcript. It is not a layout bug in either place; the two sides simply have
+no way to agree.
+
+**The workaround.** Read `state.layout_cache.line_count()` off
+`HasTextAreaState` after the call and use it to size the box on the NEXT
+frame. It works and it is exact rather than approximate — which matters,
+because the obvious alternative (count the rows app-side with the app's own
+memoized wrapper) has to re-derive the widget's wrap width from its padding
+rules and can disagree by a line, and a line of disagreement is a clipped
+draft or a gap.
+
+It is exact for a reason worth writing down: reading the count one frame late
+puts the app on the SAME number `with_auto_grow` used, because auto-grow reads
+that same cache at the top of the call, before the frame's `rebuild` writes
+it. The lag is not a compromise, it is what makes the two agree.
+
+But it is reaching into the widget's state component for a number the widget
+computed and discarded, and every app that puts a text area inside its own
+chrome will do the same reach.
+
+**Minimal upstream fix.** Return it. Either a field on `ElementResult` (it is
+already the widget's channel back to the caller) or an accessor pair on
+`HasTextAreaState` that says `rows()` and `capped_rows()` in so many words —
+the value exists, it is one `size_t`, and the caller needs it in the same
+frame the widget used it.
 
 ---
 
@@ -10602,6 +10848,62 @@ The width-keyed thing that DID thrash was hanabi's own transcript render cache,
 which memoizes wrapped heights and holds two widths per message -- two panes at
 two widths is four. That is an app bug and was fixed app-side
 (`ecs/transcript_render_cache.h`), not a library one.
+### #307 — NOT A GAP: `HasTextAreaState::line_index` does not move the caret, so an outside write that leaves it stale is unobservable
+
+**The trap this entry exists to close.** `HasTextAreaState` carries a
+`LineIndex` — the byte offset of every `'\n'` — that is NOT derived on demand.
+`rebuild_line_index()` is called at every edit the widget makes
+(`text_area.h:122, 513, 548, 559, 575, 587`) and never automatically. So an
+app that writes a field's `storage` from outside — a history recall, a
+slash-command expansion, a clear-after-send: hanabi does all three — leaves
+the index describing the string that was there BEFORE.
+
+That reads as an obvious latent bug, and the fix is one line. I wrote the one
+line, and then wrote a scripted test for it, and the test passed WITHOUT the
+fix. Twice, with the fixture rebuilt so the recalled text had a different line
+structure from the text it replaced — which is the case where a stale index
+must be wrong.
+
+**Why it cannot be observed.** Nothing in `text_area` reads it.
+
+The `LineIndex` consumers are all in `text_input/utils.h` —
+`move_cursor_up`/`move_cursor_down` (`:334`, `:355`) and
+`move_to_line_start`/`move_to_line_end` (`:403`, `:410`, `:411`) — and
+**`grep -n` for any of them in `text_area.h` returns nothing.** The widget
+binds Home and End to `move_to_visual_line_start`/`_end`
+(`text_area.h:597-600`) with a comment saying why ("on a wrapped paragraph the
+source version jumps to the far end of the paragraph rather than the end of
+the row you can see"), and its vertical moves are visual for the same reason.
+Every one of those reads `layout_cache`, which `rebuild()` refreshes from the
+text on every frame (#305 — the same unconditional rebuild that costs so
+much is what makes this harmless).
+
+The remaining readers are `cursor_position_rc()` and `line_count()` on the
+state itself, and neither has a call site inside `text_area.h` either.
+
+**So: no workaround needed, and hanabi ships none.** `set_field` carries a
+comment pointing here instead of a call, because the next reader will notice
+the same asymmetry and reach for the same one-liner.
+
+**Worth doing upstream anyway, and it is not the call.** The index is dead
+weight in this widget: it is maintained at six sites, hashed and rebuilt by
+`systems.h:38-40` for the `HasLineIndex` component as well, and read by
+nothing the widget offers. Either drop it from `HasTextAreaState` and let
+`text_input` keep it, or — better, if it is meant to stay — say in the type
+that it is the SOURCE-line index and that the widget navigates by VISUAL rows,
+so the next person does not spend an afternoon proving a negative.
+
+**Related, and genuinely useful:** #257 records the other half of this — that
+`init_state`'s callback runs every frame, not only at creation
+(`component_init.h:700-708`), so the field re-seeds itself from the
+`std::string&` the caller binds. #257 frames it as a trap (erasing from the
+state alone does not survive the frame). The positive corollary is worth
+saying out loud and is not written down anywhere: **assigning the bound string
+IS a supported way to set a field's contents**, and unlike a hand-written
+`storage` edit it goes through the widget's own path — cursor to the end,
+`rebuild_line_index()` included. Verified empirically: hanabi's
+`HANABI_REPLY_DEMO` hook does nothing but `replyDraft = d` and the text
+renders on the next frame.
 
 CLASS: NOT A GAP
 
@@ -10898,6 +11200,38 @@ body between scripts, and expose a `set_between_scripts(std::function<void()>)`
 so the host can reset ITS state too. That makes the library's own entry point
 mean what its name suggests. A `--shuffle`/seed on the runner would be the
 other half.
+### #308 — The e2e harness can assert a widget's geometry and its text and nothing about its appearance, so no scripted test can see a colour regression
+
+**What happens.** `assert_ui <name> <prop>=<value>` is the scripted-UI
+harness's general assertion, and `check_ui_property`
+(`e2e_testing/ui_commands.h`) understands exactly six properties: `x`, `y`,
+`w`, `h`, `hidden`, `text`. There is no `color`, no `bg`, no `border`, no
+`focused-border`, nothing about `HasColor`, `HasBorder`, `HasRoundedCorners`
+or the render layer — all components the harness's own queries could reach on
+the entity it has already found.
+
+That is the whole reason two visible regressions in hanabi's composer
+(#262, #263) could be introduced by a change with 106 scripted UI tests
+passing over it. Both are pure colour: a field painting a fill it should not,
+and a focused field drawing no accent edge. Every geometric assertion in the
+suite stayed green through both, because nothing moved.
+
+**The workaround.** Shoot a PNG and read the pixels
+(`scripts/composer_chrome_gate.sh`). It works and it is the right check for a
+`--screenshot` app, but it is a whole capture, a Python dependency and ~4
+seconds per assertion, to answer a question the harness is one match arm away
+from answering in-process. And it can only be done for states a headless
+capture can reach, so a colour that only appears after a click or a keystroke
+— which is precisely what a focus colour is — needs a test-only env hook to
+force it.
+
+**Minimal upstream fix.** Add the colour components to
+`check_ui_property`, comparing against a parsed `r,g,b,a`:
+`bg=23,23,35`, `border=0,122,204`, and a `border-thickness`. The entity is
+already in hand at that point in the function; the components are public; the
+assertion is a comparison. It turns a four-second screenshot into a line of
+script, and it is the difference between a UI suite that tests behaviour and
+one that tests appearance too.
 
 CLASS: MISSING
 

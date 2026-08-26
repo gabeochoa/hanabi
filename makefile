@@ -667,6 +667,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) validate-screenshots-fast
 	@$(MAKE) events-gate
 	@$(MAKE) atlas-gate
+	@$(MAKE) chrome-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -746,6 +747,9 @@ events-gate: $(MAIN_EXE) copy-resources
 
 bounds-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/bounds_gate.sh
+
+chrome-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/composer_chrome_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
@@ -831,7 +835,7 @@ source-checks:
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate scroll-gate \
-	retire-gate alloc-gate events-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
+	retire-gate alloc-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

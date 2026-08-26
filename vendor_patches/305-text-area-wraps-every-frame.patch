@@ -1,0 +1,128 @@
+From 2e6a8d95fbb2b7a5e668f7abbdefdc1add8ba27e Mon Sep 17 00:00:00 2001
+From: hanabi <hanabi@localhost>
+Date: Wed, 26 Aug 2026 02:39:45 -0400
+Subject: [PATCH] text_area: wrap once per change, and measure through the
+ shared cache
+
+`text_area` rebuilt its whole wrap every frame, unconditionally:
+
+    state.layout_cache.rebuild(display_text, wrap_width, line_height,
+                               line_width);
+
+`TextLayoutCache::rebuild` chunks the text into one std::string per word,
+builds a candidate std::string per word boundary and measures each one, so
+it is by a distance the most expensive thing the widget does -- and it was
+being paid every frame for a field whose text, width, line height and font
+had not changed since the user stopped typing.
+
+`HasTextAreaState::needs_layout_rebuild(version)` was already there for
+exactly this and nothing ever called it. It is not quite enough on its own
+(the version only tracks the text; the wrap also depends on width, line
+height and font), so this adds a LayoutKey holding everything rebuild()
+reads and skips the rebuild when none of it moved.
+
+Second half: the measure function reached past the cache.
+
+    measure_text(font_manager->get_font(font_name),
+                 std::string(s).c_str(), resolved_font_size, 1.f)
+
+is the raw backend call, and it builds a std::string per probe to get a
+const char*. `measure_text_line` is the cached path the layout pass
+already fills (text_measure.h: "Cache first, FontManager second").
+
+MEASURED in hanabi (operator new calls per frame, steady state, headless
+1180x949, its composer sitting still with a draft in it):
+
+  draft                          before   after
+  empty                           810.0   810.0
+  one line, 130 chars            1007.0   824.0
+  six lines                      1030.0   847.0
+
+The six-line figure is also below what the same app paid with a
+single-line text_input holding the same string (978.0), because that
+widget re-measures its label every frame for the same reason.
+---
+ src/plugins/ui/text_input/text_area.h       | 23 +++++++++++++++---
+ src/plugins/ui/text_input/text_area_state.h | 27 +++++++++++++++++++++
+ 2 files changed, 46 insertions(+), 4 deletions(-)
+
+diff --git a/src/plugins/ui/text_input/text_area.h b/src/plugins/ui/text_input/text_area.h
+index ade5b4c..768f38b 100644
+--- a/src/plugins/ui/text_input/text_area.h
++++ b/src/plugins/ui/text_input/text_area.h
+@@ -218,15 +218,30 @@ ElementResult text_area(HasUIContext auto &ctx, EntityParent ep_pair,
+   auto line_width = [&](std::string_view s) -> float {
+     if (!font_manager)
+       return static_cast<float>(s.size()) * resolved_font_size * 0.5f;
+-    return measure_text(font_manager->get_font(font_name),
+-                        std::string(s).c_str(), resolved_font_size, 1.f)
++    // measure_text_line, not the raw backend call: it goes through the shared
++    // TextMeasureCache the layout pass already fills, and the raw call built a
++    // std::string per probe to reach a const char*.
++    return measure_text_line(std::string(s), font_name, resolved_font_size,
++                             1.f)
+         .x;
+   };
+   // The 6px horizontal padding each side is already out of viewport_width.
+   const float wrap_width =
+       config.text_area_word_wrap ? viewport_width : 0.f;
+-  state.layout_cache.rebuild(display_text, wrap_width, line_height,
+-                             line_width);
++  // Re-wrap only when an input to the wrap changed. rebuild() chunks the text
++  // into per-word std::strings, builds a candidate string per word and
++  // measures each one, so it is the most expensive thing this widget does --
++  // and it was being paid every frame for a field whose text, width and font
++  // had not moved since the user stopped typing. Measured in hanabi: a
++  // 130-character draft sitting still in the composer cost +193 operator new
++  // calls PER FRAME, forever.
++  if (state.layout_cache_key.differs(display_text, wrap_width, line_height,
++                                     resolved_font_size, font_name)) {
++    state.layout_cache.rebuild(display_text, wrap_width, line_height,
++                               line_width);
++    state.layout_cache_key.set(display_text, wrap_width, line_height,
++                               resolved_font_size, font_name);
++  }
+   const auto &vlines = state.layout_cache.lines();
+ 
+   // Rows are VISUAL from here down: with wrapping on, one source line can
+diff --git a/src/plugins/ui/text_input/text_area_state.h b/src/plugins/ui/text_input/text_area_state.h
+index 0c71f7e..a2e4b19 100644
+--- a/src/plugins/ui/text_input/text_area_state.h
++++ b/src/plugins/ui/text_input/text_area_state.h
+@@ -28,6 +28,33 @@ struct HasTextAreaStateT : HasTextInputStateT<Storage> {
+   float scroll_offset_y = 0.f;      // Vertical scroll position
+   size_t preferred_column = 0;      // For Up/Down preserving column
+   uint64_t last_layout_version = 0; // For invalidation
++
++  /// Everything TextLayoutCache::rebuild reads. A wrap whose inputs are
++  /// unchanged produces the same lines, so holding them is enough to skip it.
++  struct LayoutKey {
++    std::string text;
++    float wrap_width = -1.f;
++    float line_height = -1.f;
++    float font_size = -1.f;
++    std::string font_name;
++    bool valid = false;
++
++    bool differs(std::string_view t, float w, float lh, float fs,
++                 const std::string &fn) const {
++      return !valid || wrap_width != w || line_height != lh ||
++             font_size != fs || font_name != fn || text != t;
++    }
++    void set(std::string_view t, float w, float lh, float fs,
++             const std::string &fn) {
++      text.assign(t);
++      wrap_width = w;
++      line_height = lh;
++      font_size = fs;
++      font_name = fn;
++      valid = true;
++    }
++  };
++  LayoutKey layout_cache_key;
+   TextAreaConfig area_config;       // Text area specific config
+ 
+   // The font the field last rendered with. Listeners have to measure text to
+-- 
+2.50.1
+

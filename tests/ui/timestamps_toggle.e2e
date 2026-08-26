@@ -14,6 +14,13 @@
 # Driven through the real Settings sheet (the gear, not a state knob): the
 # preference is only worth having if the control writes it.
 #
+# env: HANABI_MOCK_NOW=0
+#
+# Opts out of the runner's pinned fixture clock, for the same reason
+# transcript_date_dividers.e2e does: "4h" is a duration since now, and the pin
+# puts the fixture at a fixed instant in the past so that a date divider
+# cannot move a coordinate test 26px (scripts/run_ui_tests.sh). mock_client.h
+# treats 0 as unset.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t4"],"active_tab":"t4","theme":"dark"}
 
 require_thread t4

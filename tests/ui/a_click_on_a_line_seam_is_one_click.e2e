@@ -26,13 +26,18 @@
 # select_word_and_line.e2e uses: after one click there is nothing selected.
 #
 # env: HANABI_SELECT_AUDIT=1
+#
+# The fixture's clock is pinned by the runner, for the reason
+# select_word_and_line.e2e sets out in full: a "Today" date divider appears and
+# disappears with the wall clock and moves every coordinate below it by its
+# own 26px.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
 require_thread t2
 
 expect_no_text selected
 
-click 415 260
+click 415 234
 wait_frames 20
 expect_no_text selected
 
@@ -46,23 +51,24 @@ expect_no_text selected
 # presses three and four of the run started above and would take the LINE
 # (58 selected) rather than the word (6).
 #
-# IT HAS TO LAND ON AN ELEMENT. This was `click 700 300` -- empty space, on the
-# argument that moving 300px away breaks the run on its near-in-space half.
-# It does not: the run is counted per ELEMENT HIT (that is the whole subject of
-# this script), and a press that hits nothing hits no element, so the counter
-# is never touched and the run survives. Measured, three runs each: with
-# `click 700 300` the audit reads runs 1, 2, 3 at the seam and the double is a
-# TRIPLE; with the press below it reads 1, then 1, 2. Waiting longer does not
-# help either -- `wait_frames 60` fails identically, which is #231 from the
-# other side: a headless run's frames are stepped, so a frame count cannot
-# spend the 400ms of wall clock the window is measured in.
+# IT HAS TO LAND ON AN ELEMENT, and the reason is the whole subject of this
+# script: the run is counted per ELEMENT HIT, so a press that hits nothing
+# hits no element, the counter is never touched, and the run survives however
+# far away it was. Measured: with a press into empty transcript the audit
+# reads runs 1, 2, 3 at the seam and the double below is a TRIPLE. Waiting
+# longer does not help either -- `wait_frames 60` fails identically, which is
+# #231 from the other side: a headless run's frames are stepped, so a frame
+# count cannot spend the 400ms of wall clock the window is measured in.
 #
-# 236 is the centre of the intro line's element (329,228 656x16), a different
-# element in the same bubble, re-measured with HANABI_SELECT_AUDIT=1 like every
-# other coordinate here.
-click 415 236
+# 700,300 IS on an element with the clock pinned: the reply's body element is
+# (329,289 656x32), so this is a real hit 285px along it, far enough in x to
+# reset the run. It was replaced by a coordinate on another line while the
+# date divider was pushing everything 26px down and this press fell off the
+# bottom of the turn -- the same drift the header describes, from the other
+# end.
+click 700 300
 wait_frames 6
 
-double_click 415 260
+double_click 415 234
 wait_frames 20
 expect_text "6 selected"

@@ -1,0 +1,80 @@
+# Shift+Enter puts a line break in the message; Enter still sends it.
+#
+# Gabe: "theres no shift+enter to add newlines in the message". The composer was
+# a single-line text_input and said so in a comment. afterhours has had a
+# multiline text_area the whole time, documented with this exact case as its
+# own example ("A chat composer that grows to five lines and sends on Enter"),
+# and moving onto it is the fix.
+#
+# WHY THE ASSERTIONS ARE BYTE COUNTS. The script parser is line-based
+# (std::getline per command) and has no escape for a newline, so there is no
+# way to spell a two-line expectation for expect_input_text -- the content of a
+# multiline field cannot be written down in this DSL at all
+# (afterhours_gaps.md #259). What CAN be written is a selection: select all and
+# assert the range, and the byte count says whether the break went in. "first
+# line" + "second line" is 21 bytes joined and 22 with a newline between them,
+# so 22 is the whole claim, and 0 would mean it sent instead.
+#
+# The four things that hang off this field are asserted rather than assumed:
+# Enter still sends, Shift+Enter does not, Esc still clears, and the up-arrow
+# history walk still reaches the previous message from a draft that now has
+# more than one line in it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "needs a decision"
+
+click_ui composer_reply_input
+wait_frames 4
+type "first line"
+wait_frames 6
+
+# Shift+Enter breaks the line instead of sending. 10 + 1 + 11 = 22; without the
+# break it would be 21, and if it had sent, 0.
+key SHIFT+ENTER
+wait_frames 8
+type "second line"
+wait_frames 6
+key CMD+A
+wait_frames 6
+expect_input_selection composer_reply_input 0 22
+
+# A third line. 22 + 1 + 10 = 33.
+key CMD+RIGHT
+wait_frames 6
+key SHIFT+ENTER
+wait_frames 8
+type "third line"
+wait_frames 6
+key CMD+A
+wait_frames 6
+expect_input_selection composer_reply_input 0 33
+
+# Plain Enter sends the whole thing and empties the field. (An empty string is
+# the one field content this DSL can spell.)
+key CMD+RIGHT
+wait_frames 6
+key ENTER
+wait_frames 40
+expect_input_text composer_reply_input ""
+expect_text "third line"
+
+# The history walk still works over a multi-line draft: Up recalls what was
+# just sent, with its line breaks intact — 33 bytes, not the 31 it would be if
+# they had been dropped on the way through.
+click_ui composer_reply_input
+wait_frames 4
+key UP
+wait_frames 8
+key CMD+A
+wait_frames 6
+expect_input_selection composer_reply_input 0 33
+
+# Esc clears the field, multi-line draft and all.
+key ESCAPE
+wait_frames 8
+click_ui composer_reply_input
+wait_frames 4
+expect_input_text composer_reply_input ""
+
+wait_frames 10
