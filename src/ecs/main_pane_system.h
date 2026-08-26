@@ -5201,8 +5201,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Screenshot affordance: HANABI_TEST_FOCUS_COMPOSER=1 force-focuses the
         // composer field so a capture can photograph the caret WITH text in it
         // (verifying caret position). Test-only; ignored when unset.
+        //
+        // focusable_field, not the wrapper's own id, and that is a SECOND bug
+        // on top of the one 8b0bc3d fixed. That commit armed focus-visible so
+        // the app's :focus-visible RING would draw; this is the field's own
+        // focused BORDER, which is a different indicator and was still
+        // missing. focus_id survives a frame only if the widget put itself in
+        // `focused_ids` via try_to_grab (systems.h:562), and the only entity
+        // in this pair that does is the FIELD child carrying InFocusCluster --
+        // so EndUIContextManager dropped the wrapper's id back to ROOT at the
+        // end of every frame and text_input's `state.is_focused` was never
+        // true. It is the same call session_search_system and
+        // rename_modal_system already make.
         if (hanabi::test_hooks::focus_composer())
-            ctx.set_focus(inputRes.ent().id);
+            ctx.set_focus(focusable_field(inputRes.ent()));
 
         // Opt-in field diagnostics: dump the live text_input state so we can
         // see EXACTLY what the field receives (chars, cursor, h-scroll) —
