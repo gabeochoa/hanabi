@@ -12,28 +12,32 @@ expect_no_text selected
 # Inside "ledger" on the first account line: six characters, and the line
 # itself is 61.
 #
-# THE Y IS A LINE CENTRE AND NOTHING ELSE WILL DO. 234 / 250 / 266 are the
+# THE Y IS A LINE CENTRE AND NOTHING ELSE WILL DO. 228 / 244 / 260 are the
 # element TOPS, not centres -- each line's element is 16px tall, so the first
-# account line is 218..234 and 234 is the seam it shares with the second. A
+# account line is 244..260 and 260 is the seam it shares with the second. A
 # press on a seam used to land in both (see
 # a_click_on_a_line_seam_is_one_click.e2e); it now lands in the lower one, and
-# 250 selected the SECOND account line -- 58 characters, not 61. That is what
+# 260 selected the SECOND account line -- 58 characters, not 61. That is what
 # this test was failing on, deterministically, on a clean tree: the count in
 # the assertion belongs to a line the coordinate stopped pointing at.
 #
-# 226 is the centre of 218..234, eight pixels from either edge.
+# 252 is the centre of 244..260, eight pixels from either edge.
 #
 # RE-MEASURE IT MECHANICALLY. HANABI_SELECT_AUDIT=1 prints, for every press,
 # the element it landed in, its rect, its length and its first characters:
 #
-#   [sel] press=(415.0,226.0) run=1 off=17 rect=(329.0,218.0 656.0x16.0)
+#   [sel] press=(415.0,252.0) run=1 off=17 rect=(329.0,244.0 656.0x16.0)
 #         len=61 text="  acct 8842 - ledger $128.60, computed $116.20 ..."
 #
 # That is the line, the count and the point in one line of a normal run.
 # Rendering the thread and scanning the PNG is what this cost last time.
 #
 # The history of the number, kept because it says how often this moves: the
-# three body lines sit at 218 / 234 / 250 as element tops. They were at 209 / 225 / 241 until the
+# three body lines sit at 228 / 244 / 260 as element tops. They were at 218 / 234 / 250 until the
+# six feature branches of 2026-08-26 (event model, focus rings, layout
+# containment) moved every one of them down 26px -- which is what had this
+# script and the seam script RED on main at 88fde14, with the selection code
+# itself untouched. They were at 209 / 225 / 241 until the
 # transcript's own spacing was re-derived against Puffin's source (turn air
 # 9+6+9 and a 12px top inset, feat/vis-pane), which put every reply 9px lower.
 # They were at 226 / 242 / 258 before that, until the hover
@@ -46,12 +50,12 @@ expect_no_text selected
 # way to ask where a piece of text landed), so if this starts selecting the
 # wrong word, re-measure rather than nudge -- render t2 at this script's own
 # 1100x760 and scan the PNG for the bubble's band.
-double_click 415 226
+double_click 415 252
 wait_frames 6
 expect_text "6 selected"
 
 # The whole line is much longer than one word.
-triple_click 415 226
+triple_click 415 252
 wait_frames 6
 expect_no_text "6 selected"
 expect_text "61 selected"
