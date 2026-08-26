@@ -2494,12 +2494,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // below could legitimately render a DIFFERENT set of rows than the
             // full sort did. With it the order is a total order: one answer,
             // independent of how it was reached.
-            const auto newestFirst = [](const api::SessionSummary* a,
-                                        const api::SessionSummary* b) {
-                if (a->updated_at != b->updated_at)
-                    return a->updated_at > b->updated_at;
-                return a->id < b->id;
-            };
+            // model::sidebar_before: starred first, then newest, then id.
+            // The tie-break and the reason the pin lives in the COMPARATOR
+            // rather than in a partition after the sort are both written up
+            // where it is defined -- the short version is that partial_sort
+            // leaves the tail arbitrary, so a partition could only order the
+            // starred rows it found there by nothing.
+            const auto newestFirst = model::sidebar_before;
             // Sort only as far as the rows that will be drawn. The list is
             // capped at roughly two viewports, so at a 2000-session catalog a
             // full sort ordered 2000 rows to show forty of them, every frame.
@@ -2513,6 +2514,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // sequence -- whose first limit-P entries all lie inside the
             // sorted prefix, because the prefix holds `limit` rows and lost at
             // most P of them to the partition.
+            //
+            // The star is INSIDE this sort rather than after it, so the
+            // argument above is untouched: partial_sort still leaves a
+            // correctly-ordered prefix of `limit`, and the rows the star lifts
+            // are lifted by the comparator, not out of the unsorted tail.
             hanabi::prof::Scope _psort("sidebar.sort");
             if (limit < total)
                 std::partial_sort(members.begin(), members.begin() + limit,
