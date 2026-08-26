@@ -3531,6 +3531,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.findOpen ? find_ops::parse(app.findQuery) : find_ops::Query{};
         std::vector<Match> matches;
         if (app.findOpen && !findQ.text.empty()) {
+            hanabi::prof::Scope _pfind("find.collect");
             matches = collect_matches(*app.openSession, findQ);
             if (app.findIndex >= static_cast<int>(matches.size()))
                 app.findIndex = 0;

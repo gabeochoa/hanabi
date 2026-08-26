@@ -102,6 +102,17 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #262 `text_area` hardcodes its field background and ignores `with_transparent_bg`
 - #263 `text_area` draws no focus ring; `text_input` sets a 2px accent border when focused
 - #264 `default_keymap()` is not macOS-correct: every editing chord is bound to Cmd and Ctrl alike, Option is bound to nothing, so Cmd+Left is "previous word" and Cmd+Backspace is "delete word"
+- #366 `wrap_text_to_width` returns the lines and not their offsets in the source, and a break CONSUMES the whitespace at it — so a query straddling a wrap is in no rendered line and a consumer must reconstruct the mapping *(the smaller, cheaper half of #51)*
+
+**Search subsystem: what it costs, and what is left** *(docs/SEARCH.md)*
+- #365 find-in-conversation re-normalizes every loaded message every frame — **2.43 ms/f, 45% of the frame**, +5.6x allocations; a LEVEL, so every gate reads it as flat. NOT FIXED, wants a per-message memo
+- #367 opening Cmd+Shift+F parsed the whole disk cache on the UI thread — **370 ms at 2000 threads**. FIXED: 0.2 ms to open, 8 transcripts a frame after
+- #368 the sidebar's deep filter reads a file per thread on the first frame of every NEW query — **165 ms at 2000 threads**, memoized to 0.05 ms after. NOT FIXED
+- #369 a sidebar search plus "Show N more" un-virtualizes the list, and the two tests that would catch it never overlap. NOT FIXED; blocked on #224/#326
+- #370 NOT A GAP: `ui::measure_text_line` / `TextMeasureCache` exist and hanabi's highlight code bypasses them — ours to fix, not theirs
+- #371 four small leftovers: two snippet cutters with one bug, the mock reading another backend's cache, no Unicode folding, `advance(..., Step::None)` returning 0
+- #372 the sidebar truncates search results and the catch-all group is headerless, so nothing says how many matched. NOT FIXED
+- #373 ideas considered and rejected, with reasons
 
 **Resolved / corrected**
 - #115 (a widget that stops being built is never retired) is **worked around
@@ -9711,3 +9722,396 @@ platform-independent (`afterhours::keys` are GLFW codes); it is only the
 modifier choice that is not.
 
 CLASS: FOOTGUN
+
+---
+
+### #366 — `wrap_text_to_width` returns the lines it made and not where they came from, so highlighting a byte range means reconstructing the mapping
+
+**What I was trying to build.** Find-in-conversation paints a band behind every
+occurrence of the query. #51 already covers the big version of this ("nothing
+will tell you where a byte range landed on screen"), and the workaround it
+describes — call afterhours' own wrapper and redo the arithmetic — works. This
+is the smaller, sharper thing that workaround runs into next.
+
+**The mechanism.** `detail::wrap_text_to_width`
+(`vendor/afterhours/src/plugins/ui/text_selection.h:219-241`) returns
+`std::vector<std::string>`: the joined text of each wrapped line, and nothing
+about where each line began in the input. It cannot be inferred by
+concatenation, because a break CONSUMES the whitespace at it —
+`wrap_runs_to_width` holds a `pending_ws` chunk and discards it when the next
+word does not fit (`:172-200`, the `if (!current_text.empty() &&
+measure_candidate(...) > max_width)` arm pushes the word without the pending
+whitespace). So `join(lines) != text` in general, and the difference is a
+variable number of bytes at a variable number of places.
+
+That matters for exactly one case, and it is the case a user notices: a
+multi-word query that STRADDLES a break. Search each wrapped line separately
+and `"6 failures"` split across two of them is in neither, so it is counted
+(the counting side scans the logical line) and never painted. In hanabi that
+was docs/SEARCH.md S12, and the phrase was unpaintable at every scroll
+position — not off-screen, just absent.
+
+**The workaround, and why it is exact rather than a guess.** Match over the
+whole logical line, then locate each wrapped line inside it with `find()` from
+the end of the previous one (`src/ui/find_highlight.h`). That is sound because
+of three properties I read out of `text_selection.h` before relying on them:
+
+1. the wrapper only ever breaks between whitespace-separated chunks — the
+   chunking loop at `:150-168` splits on runs of `' '` and never inside one;
+2. a word wider than the line gets a line to itself rather than being cut
+   (`:215-217`, and the greedy arm never splits `chunk.text`);
+3. it never rewrites a byte — the trailing-whitespace branch at `:203-206`
+   exists so that "hard-broken text round-trips byte for byte through
+   `joined_text()`".
+
+So every returned line is a contiguous substring of the input, in order.
+The reconstruction is O(text) per label per frame on top of the wrap.
+
+**Minimal upstream fix.** Return the ranges alongside the lines, or as a
+sibling entry point:
+
+```cpp
+struct WrappedLine { std::string text; std::size_t begin, end; };
+std::vector<WrappedLine> wrap_text_to_width_spans(const std::string&, float,
+                                                  MeasureFn&&);
+```
+
+The information exists inside `wrap_runs_to_width` already — the chunk loop
+knows exactly how many bytes of whitespace it dropped — and it is thrown away
+one line before it is returned. This is strictly cheaper for the library than
+#51's `text_rects_for`, and it is most of what #51's consumers actually need.
+
+CLASS: MISSING
+
+---
+
+### #370 — NOT A GAP: there IS a cached measure path (`ui::measure_text_line` / `TextMeasureCache`), and hanabi's highlight code bypasses it
+
+Filed so the next person does not re-derive this as a library complaint. It is
+ours.
+
+**What it looked like.** `find_highlight.h` measures text a lot: a wrap
+(a measure per candidate line) plus two measures per painted band, for every
+label the find bar highlights, every frame. The obvious suspicion is that
+afterhours makes you pay the font engine every time.
+
+**What is actually there.** `vendor/afterhours/src/plugins/ui/text_measure.h`
+exposes `ui::measure_text_line(text, font_name, size, spacing)`, which goes
+`TextMeasureCache` first and `FontManager` second — the same path
+`AutoLayout::get_text_size_for_axis` uses, "so the two answers cannot drift".
+`ui::wrap_text` (`:37`) is `wrap_text_to_width` already wired to it.
+`TextMeasureCache` is registered as a singleton by
+`ui/utilities.h:122-138`, so it is live in every app that brings up the UI
+plugin.
+
+hanabi calls the RAW `afterhours::measure_text(font, str, px, spacing)`
+instead, with a font handle from `fm->get_active_font()`. Verified in the
+profile: with the find bar open on the 480-message fixture the cache reports
+`5565 hits / 263 misses` against `4803 / 263` with it closed — 1.3 extra
+lookups a frame, while `find.paint` alone runs 6 times a frame and each of
+those does a wrap plus two measures per band. Find's measuring is not in the
+cache's numbers because it never asks the cache.
+
+**What to do about it.** Route `find_highlight.h` and `snippet_highlight.h`
+through `ui::measure_text_line` / `ui::wrap_text`. The blocker is small and
+real: those take a font NAME and hanabi holds a `Font` handle, so it needs the
+active font's name plumbed to the call site. Measured upside is bounded —
+`find.paint` is 0.34 ms/frame of a 5.45 ms frame (see #365), and the wrap
+inside it is most of that — so this is worth doing when someone is next in
+these files, not on its own.
+
+CLASS: NOT A GAP (app-side)
+
+---
+
+### #365 — PERF (ours, NOT FIXED): find-in-conversation re-normalizes every loaded message every frame, and it is 45% of the frame
+
+**Measured.** `HANABI_PROF=1 HANABI_SOAK=600`, 1180x949, the 480-message
+`rbig` fixture (40 messages loaded — `LoaderSystem::kMessagesWindow`), CPU
+time, gabeochoa-mac. Two `hanabi::prof::Scope`s were added for this and they
+ship (`find.collect`, `find.paint`) — the find path was invisible to the
+profiler, which is part of why a doubling of the frame went unnoticed:
+
+```
+                        find bar CLOSED     find bar OPEN
+  FRAME (cpu)              2.807 ms/f         5.452 ms/f     +94%
+  find.collect                   --           2.430 ms/f     44.6% of frame
+  find.paint                     --           0.341 ms/f
+  allocs                    2660 /f          14788 /f        +5.6x
+```
+
+**The mechanism.** `MainPaneSystem::collect_matches` runs every frame the bar
+is open, over every loaded message, and for each one calls `paintable_lines`,
+which is `strip_inline_md(redact_secrets(m.text))` — two whole-string
+allocations — plus `md_to_spans(line).visible` per line. Nothing is cached.
+`paint_query_for` then re-parses the query per row, and `message_has_match`
+normalizes the same message again on the render side.
+
+It is a LEVEL, not a slope, so every gate in `make test` reads it as perfectly
+flat and green: `soak-gate` measures trend, `scaling-gate` measures the ratio
+between two catalog sizes with no find bar open, and `alloc-gate` has three
+fixtures and none of them opens find. This is the same blind spot
+`soak_gate.sh`'s own header describes for leaks, in the other axis.
+
+**How it scales.** 2.43 ms for 40 loaded messages is 0.061 ms per message per
+frame. The window is 40 today, but "load older" appends and the transcript
+keeps everything it has fetched, so a reader who scrolls back through a long
+thread walks that number up linearly — at 480 loaded it extrapolates to ~29 ms
+a frame, which is 34 fps with the find bar open and nothing else happening.
+(Extrapolation, not a measurement: the headless path does not run the
+load-older prefetch far enough to hold 480.)
+
+**The fix, and its size.** A per-message memo of `paintable_lines`, keyed on
+the message id plus its text length (the text only changes while a message is
+streaming, and the length changes with it). The app already has this exact
+shape three times over — `cache.msgrender_hit`, `cache.hug_hit`,
+`cache.lines_hit` are 293, 146 and 34 hits a frame in the profile above — so
+the pattern and its invalidation story are established, and the work is
+wiring find into one of them rather than inventing a cache. Half a day,
+including a fixture in `alloc-gate` that opens the find bar so the level is
+gated afterwards rather than rediscovered.
+
+**One cheap piece IS taken.** `paint_bands` now answers "does this label
+contain the query at all" with a byte scan before doing the wrap, so a label
+with no match costs a `find()` instead of a wrap plus a vector of strings.
+Worth 0.19 ms/f and ~850 allocations/f of the numbers above, which is 7% of
+the find bar's cost — the other 93% is `find.collect` and needs the memo.
+
+---
+
+### #367 — PERF (ours, FIXED HERE): opening Cmd+Shift+F parsed the entire disk cache on the UI thread — 370 ms at a 2000-thread cache
+
+**Measured.** `tools/bench_search_index.cpp` (new), 2000 threads x 40
+messages = 19 MB of cache, `CLOCK_THREAD_CPUTIME_ID`, gabeochoa-mac:
+
+```
+                          before                     after
+  open the panel          370.5 ms, 2000 reads       0.2 ms, 0 reads
+  one frame after         --                         1.1 ms, 8 reads
+  to full coverage        370.5 ms in one frame      324.3 ms over 250 frames
+```
+
+**The mechanism.** `SessionSearchSystem::build_index` called
+`api::disk_cache::load_transcript` — a full nlohmann parse — once per session
+not already in the in-memory LRU, synchronously, on the frame the panel opened.
+No cap, no budget, no thread. It grows with the user's history forever, and
+"once per opening" was undercut by `close()` and the chord both resetting the
+flag, so it was once per open, every open.
+
+**The fix.** `src/search/session_corpus.h`. The panel opens having done no
+disk I/O at all, and each frame it is open reads `kDeepenPerFrame = 8` more
+transcripts, newest thread first. The total work is unchanged; no single frame
+pays it. `coverage_note` was already the sentence that says how much of your
+history was read, so the partial state needed no new UI — it just carries an
+ellipsis until it is done.
+
+**Gated on a COUNT, not a clock** (`test_opening_the_panel_reads_nothing_from_
+disk`): opening a 500-thread corpus performs zero loader calls, one frame
+performs exactly eight whatever the catalog size, no thread is read twice, and
+it converges. A time budget would read a different number of files on a loaded
+box than on a quiet one, which is a UI whose behaviour depends on what else the
+machine is doing — and it could not be gated on a shared box at all.
+
+**Rejected, with reasons.**
+- **A cap on how many transcripts are indexed.** Cheapest fix, and it makes
+  Cmd+Shift+F permanently blind to old threads. `session_index.h` opens by
+  naming that exact failure: "a search that quietly misses half your history
+  and reports '3 results' is the failure mode this file exists to avoid".
+- **Build it off-thread.** `api::disk_cache` has no ownership story for a
+  reader racing a save: `save_transcript` bumps a generation the reader would
+  have to re-check per file, and the whole corpus can be invalidated under one.
+  A worker would need that contract designed first, and spreading the reads
+  gets the responsiveness without it.
+- **Keep the corpus across opens** instead of rebuilding. Tempting — reopening
+  the panel re-reads everything. The disk cache has a generation counter
+  (`invalidate_content_index`) that would cover the file half, but the LRU has
+  nothing equivalent, so a thread read since the last open would be stale with
+  no way to notice. Worth doing after the LRU grows a generation; not before.
+
+---
+
+### #368 — PERF (ours, NOT FIXED): the sidebar's deep filter reads a file per thread on the first frame of every new query — 165 ms at a 2000-thread cache
+
+**Measured.** Same bench, same fixture, `CLOCK_THREAD_CPUTIME_ID`, three
+alternating runs each:
+
+```
+  sidebar filter, first frame of a query    ~165 ms   (0.082 ms/thread)
+  the same query again (memoized)             0.05 ms
+```
+
+**The mechanism.** `api::disk_cache::content_matches` is called for every
+session whose TITLE did not match, on every frame a sidebar query is live
+(`sidebar_system.h`, `render_folder`). It is memoized on `(id, query)` and the
+memo is correct, so the steady state is 0.05 ms — but the memo is keyed on the
+WHOLE query, so the first frame of each new query pays the full walk. The
+narrowing shortcut only helps when the new query CONTAINS the old one as a
+substring; the first keystroke of any query, and every backspace past a
+previously-typed prefix, is a cold walk of the catalog.
+
+So the shape a user feels is: type `r`, hitch; type `re`, cheap; backspace,
+hitch. At 2000 cached threads the hitch is ~165 ms — ten frames.
+
+**Not a regression from this branch.** The same walk with the old
+lowercase-the-whole-file scan measures ~184 ms against the new
+`json_field_contains` scan's ~164 ms (three alternating runs of each), so
+searching the values rather than the document is about 11% cheaper as well as
+correct. The cost was always there.
+
+**The fix, and its size.** An inverted index would be the real answer and is
+out of proportion. The cheap 80%: keep a per-thread lowercased BODY in memory
+(the memo already holds a bool per thread; holding the text instead costs the
+cache's size in RAM, ~12 MB for the 19 MB fixture) so the walk is a substring
+scan over memory rather than a file read per thread, and the first frame of a
+new query costs what the memoized one does. A day, and it wants the
+`Depth::Windowed` bookkeeping from docs/SEARCH.md S2 so it does not quietly
+hold half a thread and call it the thread. Alternatively: pay it off the frame
+thread — same ownership problem as #367's rejected arm.
+
+---
+
+### #369 — PERF (ours, NOT FIXED): a sidebar search plus "Show N more" un-virtualizes the list, and the two tests that would catch it never overlap
+
+**The mechanism, in our code.** `SidebarSystem::row_window` returns the whole
+range whenever the rows are not uniform in height, and a search result carries
+a snippet under its title, so a live query means no windowing at all:
+
+```cpp
+return render_group(..., row_window(parent, limit, q.empty()));
+```
+
+The argument for that is written next to it — `visible_limit` already caps a
+searched list at roughly two viewports, so there is "nothing here to win". It
+holds until the user clicks the expander: `visible_limit` returns the whole
+total once `__more_<key>__` is in `collapsedFolders`. Compose the two — search,
+scroll, click `sb_show_more` — and every matched row is built every frame,
+which is the exact defect `sidebar_show_all_is_still_virtualized.e2e` exists to
+prevent. That test never types a query;
+`search_does_not_draw_the_whole_catalog.e2e` never clicks the expander.
+
+**The number, from this repo rather than from me.** The unvirtualized sidebar
+at a 2000-session catalog is 6645 entities and 17.2 ms a frame against 461 and
+1.55 ms for the same list windowed — measured when row virtualization was
+added, recorded in `sidebar_system.h`'s own comment above `row_window`. This
+path walks straight back into it. I did not re-measure it; the entry is a code
+path plus the repo's own figure for that code path.
+
+**Why it is not a one-liner, and where afterhours comes in.** The reason
+`row_window` bails is that the arithmetic is `offset / kRowHeight`, and a
+search row is a different height from a plain one. Windowing a
+variable-height list means knowing how tall a child WOULD be before building
+it, which is **#224** — nothing in the library will answer that, and #326's
+`imm::vlist` only virtualizes uniform rows, which is why this app hand-rolled
+the same window three times (sidebar, transcript, digest). The app-side fix
+that does not need any of that is narrow: a searched list has exactly TWO row
+heights, so window it with the taller pitch while a query is live, or refuse to
+uncap while one is. Half a day with a test that does both halves —
+type a query AND click the expander — which is the test neither existing script
+is.
+
+---
+
+### #372 — PERF/HONESTY (ours, NOT FIXED): the sidebar truncates its search results and there is no header to say so
+
+**The mechanism.** `visible_limit`'s justification for capping a searched list
+is written in the code: "the count in the header is still the true number of
+matches, so the search still ANSWERS with all of them; it just does not draw
+all of them". The catch-all group — which is where every unfoldered thread
+lands, and therefore where nearly every search result lands — is rendered
+headerless (`render_folder(..., headerless=true)`). There is no header, so
+there is no count. `Show N more…` does exist and says the number, and it sits
+at the bottom of two viewports of rows by construction, so it is never on
+screen without scrolling.
+
+The net effect: type a query that matches 300 threads, see 40, and nothing
+anywhere says 300.
+
+**Why it is not the one-line fix it looks like.** The count is known inside
+`render_folder`, which runs AFTER the search row has already been built that
+frame — the search box is at the top of the panel and the groups are below it.
+Putting "40 of 300" next to the box means either (a) reading last frame's
+number, which the sidebar already does for `HANABI_ROW_AUDIT` (`rowsMatched_`,
+`rowsRendered_`) and which is a real precedent but currently gets overwritten
+per GROUP rather than accumulated across them, or (b) hoisting the member
+collection above the search row's build, which reorders a function that also
+owns sorting, pinning and the drag pass. (a) is right; it needs
+`rowsMatched_`/`rowsRendered_` turned into accumulators reset once per frame
+rather than once per group, and a label that is not a test-only audit. Two
+hours, and the risk is entirely in the accumulator's reset point.
+
+---
+
+### #371 — SMALL (ours, NOT FIXED): four leftovers in the search subsystem
+
+Each is real, each is minor, and none is worth a commit of its own. Recorded so
+the next person in these files can take them on the way past. From
+docs/SEARCH.md S13.
+
+1. **Two snippet cutters with the same bug.** `session_index.h::snippet_around`
+   (32 bytes of context) and `snippet_text::extract` (22) share a
+   "don't start mid-word" trick and share its flaw: the trim only fires if
+   whitespace exists between the window start and the match, so a hit inside a
+   long token still yields the `…imization` the comment says it prevents. Both
+   also cut at raw byte offsets with no UTF-8 boundary check, so a snippet can
+   begin or end mid-codepoint and render as a replacement glyph. One function
+   with a context parameter, plus a boundary walk. An hour.
+
+2. **The sidebar reads the disk cache on a backend where caching is off.**
+   `content_matches` is called unconditionally; cache WRITES are gated on
+   `backend_label != "mock"`. The mock's cache dir is the same flat directory
+   an http backend with an empty base URL writes to, so the mock's sidebar can
+   match files another backend left behind. Harmless in the suite (the mock
+   never writes any), confusing on a dev machine that has run both. The fix is
+   to gate the READ on the same predicate as the write — but that predicate
+   lives in `loader_system.h` and `disk_cache` does not know about backends, so
+   it wants a small "is this cache live" flag set at startup rather than a
+   condition copied to a second place.
+
+3. **No Unicode anywhere.** All four matchers fold `A-Z` only and nothing
+   normalizes, so `Café` does not match `café`. This is a decision, not an
+   oversight — the alternative is a normalization table in a repo with no ICU —
+   but it is undocumented outside the fold functions themselves. (The
+   locale-dependent `std::tolower` that used to be in `disk_cache.cpp`'s scan
+   is gone; the remaining three were already ASCII.)
+
+4. **`find_nav::advance(i, n, Step::None)` returns 0, not `i`.** Asserted as
+   intended in `test_find_nav.cpp:62`, harmless because the only caller
+   short-circuits on `Step::None` before reaching it, and a footgun for the
+   second caller. Ten minutes, and the test says the wrong thing rather than
+   the code doing it.
+
+---
+
+### #373 — Ideas considered for the search subsystem and rejected, with reasons
+
+Recorded so nobody spends the afternoon I would have.
+
+- **Make find's tally scroll-dependent** (count only what the window built), so
+  "tally equals bands" becomes true. Rejected: "3 of 47" means 47 in the
+  document in every editor there is, and a number that changes when you drag a
+  scrollbar is a worse lie than the one being fixed. The claim was wrong, not
+  the count. docs/SEARCH.md S1.
+
+- **Count find's matches over the WRAPPED lines**, which is what "count what
+  you paint" literally says. Rejected: it makes the tally a function of the
+  window width — resize and "of 47" changes — and it needs the layout in the
+  counting path, which has neither a rect nor a font. The mapping goes the
+  other way instead (S12, #366).
+
+- **Parse the disk cache off-thread** for Cmd+Shift+F. Rejected for now: no
+  ownership story for a reader racing a save. See #367.
+
+- **A true result total for Cmd+Shift+F** ("showing 6 of 213"). Rejected: it
+  means scanning every body to its end, every frame, over a corpus that reaches
+  tens of megabytes — for a number whose only use is to tell you to keep
+  typing. It asks for seven and says "more" instead.
+
+- **Give the sidebar's deep filter a real inverted index.** Out of proportion
+  to a list filter; the cheap 80% is an in-memory lowercased body per thread.
+  See #368.
+
+- **Search tool OUTPUT.** The sidebar's comment claimed it did. It cannot:
+  `to_json(const Message&)` never writes `tool_result`, so it is not on disk to
+  search. Persisting it would grow the cache by roughly the size of the
+  transcripts again and wants a decision about the cache cap first, not a
+  search change.

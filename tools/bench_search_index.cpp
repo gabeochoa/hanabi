@@ -146,6 +146,24 @@ int main(int argc, char** argv) {
     std::printf("  to full coverage         %8.3f ms over %d frames\n\n",
                 cpu_ms() - t2 + tSlice, frames);
 
+    // ── 3. the SIDEBAR's deep filter, first frame of a query ────────────────
+    // A different reader of the same cache: api::disk_cache::content_matches,
+    // called for every session whose TITLE did not match, on every frame a
+    // sidebar query is live. It is memoized on (id, query), so the cost lands
+    // on the first frame of each new query — which is every keystroke.
+    {
+        const double t0 = cpu_ms();
+        int hits = 0;
+        for (const auto& id : ids)
+            if (api::disk_cache::content_matches(id, "parser_cache")) ++hits;
+        const double dt = cpu_ms() - t0;
+        std::printf("  sidebar filter, cold     %8.3f ms  (%.4f ms/thread, "
+                    "%d hits)\n", dt, dt / threads, hits);
+        const double t1 = cpu_ms();
+        for (const auto& id : ids) api::disk_cache::content_matches(id, "parser_cache");
+        std::printf("  sidebar filter, memoized %8.3f ms\n\n", cpu_ms() - t1);
+    }
+
     fs::remove_all(dir);
     return 0;
 }

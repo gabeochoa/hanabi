@@ -22,7 +22,7 @@ This is the map, and then the honest part.
 | Markdown markers | present | present | stripped |
 | Code fences / tables | present | present | skipped |
 | Index | none | rebuilt on every open, a few threads a frame | none |
-| Cost | file read per session, first frame of a query | 0 disk reads to open; 8 transcripts a frame after | full re-scan **every frame** |
+| Cost | **165 ms** first frame of a new query, 2000 threads (#368) | 0 disk reads to open; 8 transcripts a frame after (#367) | **+2.65 ms/frame**, doubling it (#365) |
 | Cap | ~2 viewports of rows | 6 results | none |
 | Says when it truncated | no | no | n/a |
 
@@ -167,9 +167,26 @@ plain text; an unknown *value*, or a bare `is:`, sets `invalid` and the bar
 renders `Try: is:user, is:assistant, has:tool, state:failed`. A well-formed
 operator with no plain text reports "no matches" with no hint (**S9**).
 
-**Cost.** Nothing is cached. Every frame the bar is open, every loaded message
-is re-scanned: two whole-string allocations per message (`redact_secrets`,
-`strip_inline_md`) plus `md_to_spans` per line (`:3387-3395`). No file I/O.
+**Cost. Measured: the find bar doubles the frame.** Nothing is cached. Every
+frame the bar is open, every loaded message is re-scanned: two whole-string
+allocations per message (`redact_secrets`, `strip_inline_md`) plus
+`md_to_spans` per line. No file I/O.
+
+`HANABI_PROF=1 HANABI_SOAK=600`, 1180×949, the 480-message fixture (40 loaded),
+CPU time — two new profiler scopes, because this path was invisible to the
+profiler and that is part of why it went unnoticed:
+
+| | bar closed | bar open |
+|---|---|---|
+| `FRAME (cpu)` | 2.807 ms/f | **5.452 ms/f** |
+| `find.collect` | — | 2.430 ms/f (45% of the frame) |
+| `find.paint` | — | 0.341 ms/f |
+| allocations | 2660 /f | 14788 /f |
+
+It is a LEVEL, not a slope, so `soak-gate` reads it as flat, `scaling-gate`
+never opens the bar, and none of `alloc-gate`'s three fixtures does either.
+`afterhours_gaps.md` #365: the fix is a per-message memo of `paintable_lines`,
+half a day, and the app already has three caches of exactly that shape.
 
 ---
 
@@ -370,7 +387,7 @@ deepened over several frames (**S5**), so an unstable order would move results
 under an arrow key between frames. `test_results_come_out_newest_first` feeds
 it a wire-ordered list and a three-way tie.
 
-### S8 — "Show N more…" on a search result list un-virtualizes it
+### S8 — "Show N more…" on a search result list un-virtualizes it — STILL OPEN, `afterhours_gaps.md` #369
 
 `row_window` bails out whenever a query is live (`:2364`), on the argument that
 `visible_limit` caps the list at two viewports. `visible_limit` returns the
@@ -381,8 +398,15 @@ every frame, which is the exact defect
 types a query; `search_does_not_draw_the_whole_catalog.e2e` never clicks the
 expander. The combination is untested.
 
-**What it would take: small.** Window with the taller search-row pitch instead
-of skipping, or refuse to uncap while a query is live.
+**What it would take: small, but not one line.** `row_window` bails because its
+arithmetic is `offset / kRowHeight` and a search row is a different height;
+windowing a variable-height list means knowing how tall a child would be, which
+the library will not say (`afterhours_gaps.md` #224, and #326's `imm::vlist`
+only virtualizes uniform rows). A searched list has exactly TWO heights, so the
+app-side answer is to window with the taller pitch while a query is live, or
+refuse to uncap while one is. Half a day, and the test has to do BOTH halves —
+type a query AND click the expander — which is the test neither existing script
+is. #369 carries the repo's own figure for the unvirtualized path.
 
 ### S9 — three things nobody is told — TWO OF THREE FIXED HERE
 
@@ -470,7 +494,7 @@ break falls inside `The import` in `r2`'s last reply. `find_sees_through_
 markdown.e2e` — the test the entry names — keeps its 1100px width, where the
 same shape of query happens not to wrap.
 
-### S13 — smaller things
+### S13 — smaller things — ONE FIXED, THE REST WRITTEN UP AS `afterhours_gaps.md` #371
 
 - **Two snippet cutters** with different context widths (32 in
   `session_index.h:77`, 22 in `snippet_text.h:27`) and different whitespace
@@ -479,10 +503,12 @@ same shape of query happens not to wrap.
   match, so a hit inside a long token still yields the `…imization` the comment
   says it prevents. Both cut at raw byte offsets with no UTF-8 boundary check.
 - **The sidebar reads the disk cache on a backend where caching is off.**
-  `content_matches` is called unconditionally (`:2468`); writes are gated on
+  `content_matches` is called unconditionally; writes are gated on
   `backend_label != "mock"` (`loader_system.h:37`). The mock's cache dir is the
   same flat directory an http backend with an empty base URL writes to, so the
-  mock's sidebar can match files another backend left behind.
+  mock's sidebar can match files another backend left behind. Not a one-line
+  gate: `disk_cache` does not know about backends, so it wants an "is this
+  cache live" flag set at startup rather than the predicate copied.
 - **No Unicode anywhere.** All four matchers fold `A-Z` only; nothing
   normalizes. `Café` does not match `café`. The locale-dependent
   `std::tolower` in `disk_cache.cpp` is gone with **S3**; the remaining three
@@ -495,14 +521,24 @@ same shape of query happens not to wrap.
 
 ## 6. The shortest version
 
-The find bar is the best-built of the three and rested on an invariant that is
-false as soon as the thread is longer than the screen; the invariant is now the
-true one and the culled case is tested (**S1**). The
-cross-session panel has the right instinct — it tells you what it could not
-see — and then lies in the sentence that does it (**S2**), while parsing your
-whole cache on the UI thread to get there (**S5**). The sidebar's deep search
-searched the JSON document rather than the conversation (**S3**, fixed). None
-of the
-three tells you when it truncated (**S9**), and the two tests that would have
-caught the two most embarrassing of these pass without the code they name
-(**S10**).
+The find bar is the best-built of the three and rested on an invariant that was
+false as soon as the thread was longer than the screen; the invariant is the
+true one now — *nothing is counted that find could not paint* — and the culled
+case is tested (**S1**), the one match that broke it outright is painted
+(**S12**), and the bar admits when the thread it searched is only its newest 40
+messages (**S9**). The cross-session panel had the right instinct — it tells
+you what it could not see — and lied in the sentence that does it (**S2**),
+while parsing your whole cache on the UI thread to get there (**S5**, 370 ms at
+2000 threads, now 0.2 ms); both fixed, and it says when there were more results
+than fit (**S9**) and comes back newest-first (**S7**). The sidebar's deep
+search searched the JSON document rather than the conversation (**S3**).
+
+Still open, all written up with numbers in `afterhours_gaps.md`: the sidebar
+truncates without saying so (**S9**, #372) and un-virtualizes when a search
+meets "Show N more" (**S8**, #369); its deep filter costs 165 ms on the first
+frame of a new query (#368); the find bar costs 2.43 ms a frame it does not
+need to (#365); and four small things are #371.
+
+And the two tests that would have caught the two most embarrassing of these
+passed without the code they name (**S10**) — both fixed, one renamed, three
+new scripts and five new unit tests around them.

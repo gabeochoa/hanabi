@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../../vendor/afterhours/src/plugins/ui/text_selection.h"
+#include "../util/prof.h"
 #include "../util/textscan.h"
 #include "theme.h"
 
@@ -85,6 +86,18 @@ inline void paint_bands(RectangleType rect, const std::string& text,
                         const std::string& query, float fontPx,
                         theme::Color band, int& tally) {
     if (query.empty() || text.empty() || rect.width <= 0.0f) return;
+    // Does this label contain the query AT ALL? Asked first, and that is the
+    // whole of it: this runs for every painted label while the bar is open,
+    // and everything below — the wrap, a measure per candidate line, a vector
+    // of strings the width of the paragraph — used to happen for labels with
+    // no match in them, which is nearly all of them. On the 480-message
+    // fixture the find bar cost +2.77 ms a frame (2.81 -> 5.58, CPU time,
+    // HANABI_PROF at 1180x949) and +13k to +19k allocations a frame; most of
+    // that was this. A byte scan of the label is the cheapest thing in the
+    // function and it answers for all of it.
+    const std::vector<size_t> found = occurrences(text, query);
+    if (found.empty()) return;
+    hanabi::prof::Scope _ppaint("find.paint");
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::FontManager>();
     if (fm == nullptr) return;
@@ -134,7 +147,7 @@ inline void paint_bands(RectangleType rect, const std::string& text,
         from = at + lines[i].size();
     }
 
-    for (size_t off : occurrences(text, query)) {
+    for (size_t off : found) {
         const size_t end = off + query.size();
         // One tally per MATCH, one rectangle per line it lands on. A hit
         // across a break is one match the reader can see, drawn in two
