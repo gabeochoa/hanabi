@@ -10831,3 +10831,356 @@ mean what its name suggests. A `--shuffle`/seed on the runner would be the
 other half.
 
 CLASS: MISSING
+
+---
+
+### #405 — A trackpad and a mouse wheel arrive as the same float, so an app can match the platform's per-notch distance or track a finger 1:1, never both
+
+**What was wanted.** Wheel scrolling that feels like a Mac. Two separate things
+hide inside that sentence: a mouse detent should move about three lines, and a
+two-finger drag on a trackpad should move the content exactly as far as the
+fingers moved. Both are conventions, both are checkable against any native
+scroll view, and neither is reachable from here.
+
+**What happens.** macOS distinguishes the two at the event
+(`NSEvent.hasPreciseScrollingDeltas`), and the vendored sokol reads that flag
+and then throws it away, keeping only a fixed scale on one of the branches
+(`vendor/sokol/sokol_app.h:6078`):
+
+```objc
+float dy = (float) event.scrollingDeltaY;
+if (event.hasPreciseScrollingDeltas) {
+    dx *= 0.1;
+    dy *= 0.1;
+}
+```
+
+Downstream there is one number and one multiplier
+(`src/plugins/ui/components.h:519`, `src/plugins/ui/systems.h:2097`):
+
+```cpp
+float scroll_speed = 20.0f;         // Pixels per scroll wheel notch
+...
+scroll_state.scroll_target.y += direction * wheel_v.y * scroll_state.scroll_speed;
+```
+
+So work the arithmetic through, in pixels the reader sees:
+
+| input | what AppKit sends | after sokol | x speed 20 | what it should be |
+|---|---|---|---|---|
+| trackpad / Magic Mouse, 10 pt of finger | 10.0 (precise) | 1.0 | 20 px | 10 px (1:1) |
+| third-party wheel, one detent | ~1.0 (lines) | 1.0 | 20 px | ~57 px (3 lines) |
+
+VERIFIED and NOT VERIFIED, separately, because the difference matters. The
+precise-delta row is verified: the 0.1 is in sokol's source above, the 20 is in
+`components.h:519`, and the multiply is `systems.h:2097`. The wheel row's
+`~1.0` is NOT verified here — there is no wheel mouse on this machine and #172
+means the injector cannot stand in for one, since it writes the post-sokol float
+directly and never sees `hasPreciseScrollingDeltas` at all. It is AppKit's
+documented behaviour for non-precise events (`scrollingDeltaY` in lines) and it
+is what the 3-line convention is measured against; if a detent turns out to
+deliver 3.0 rather than 1.0 on real hardware, the wheel is already right and
+only the trackpad's 2x remains. Either way the two rows want different
+multipliers, which is the gap.
+
+The same 1.0 has to become 10 and 57. A trackpad therefore runs at twice the
+finger and a wheel at a third of the platform's step, and moving `scroll_speed`
+to fix either makes the other worse by the same factor. On Apple's own hardware
+— trackpad and Magic Mouse both send precise deltas — the 2x is the one a reader
+actually gets.
+
+There is a second cost on the same seam. hanabi eases the rendered offset toward
+the wheel's target so a detent glides instead of jumping. macOS momentum is
+ALREADY smooth, so on a trackpad that easing is a second smoothing on top of the
+OS's, and it shows up as the content lagging the fingers by a few frames rather
+than sitting under them. The fix is to ease line deltas and pass precise ones
+straight through — which needs the flag that was discarded.
+
+**Why the obvious escapes do not work.**
+
+- **Pick a better single number.** There is no single number: the two wants are
+  10 and 57 through the same multiplier. 20 is not a compromise anyone chose, it
+  is afterhours' default sitting between them.
+- **Infer the kind from the delta.** Line deltas are whole numbers and precise
+  deltas usually are not, so "integer means wheel" almost works — and a trackpad
+  flick that happens to deliver exactly 10.0 points then scrolls three times too
+  far, at the fastest moment of the gesture, which is the worst place for it.
+  A heuristic that is wrong only when moving fast is worse than a constant.
+- **Read the flag from the app.** `NSApp.currentEvent` is stale by the time the
+  frame callback runs, so the app would have to install its own
+  `NSEvent` local monitor and shadow-track every scroll event alongside sokol's
+  handler — a second input path, in ObjC++, that no harness here can drive
+  (#172), to recover a boolean the first path already had.
+
+**The workaround, and its cost.** `HANABI_SCROLL_SPEED` in
+`src/util/scroll_prefs.h`, so the number is a per-machine setting rather than a
+rebuild, with the default left at 20 so nothing moves for anyone who does not
+set it (`tests/ui/wheel_notch_distance_is_settable.e2e`). The cost is that the
+app ships feeling wrong on one input or the other, and which one depends on the
+mouse the reader happens to own.
+
+**Minimal upstream fix.** Carry the bit. sokol already has it: one more field on
+`sapp_event` (`bool scroll_precise`) set beside `scroll_x`/`scroll_y`, plumbed
+through `input::get_mouse_wheel_move_v` as a second return or a sibling
+accessor, and `HasScrollView` grows `scroll_speed_precise` next to
+`scroll_speed`. Four lines of plumbing for a flag the OS already computed.
+
+CLASS: MISSING
+
+---
+
+### #406 — `HandleScrollInput` hit-tests the wheel against a rect its own sibling system corrects and it does not, so a scroll view inside a scroll view is wheel-tested at the wrong place
+
+**What was wanted.** Certainty about where a wheel event lands, while chasing a
+transcript that would not scroll. (It was not this — the cause was on hanabi's
+side, and this is filed as the thing that was ruled out, with the asymmetry that
+made ruling it out take longer than it should have.)
+
+**What happens.** Two systems in the same file hit-test the pointer against the
+same widget's rect, sixty lines apart, and only one of them corrects for the
+ancestor scroll offset.
+
+`HandleScrollbarDrag` (`src/plugins/ui/systems.h:1893-1896`):
+
+```cpp
+RectangleType view = cmp.rect();
+const Vector2Type outer = detail::accumulated_scroll_offset(entity);
+view.x -= outer.x;
+view.y -= outer.y;
+```
+
+with the comment "Same rect the bar is drawn against, so grabbing it where you
+see it works even inside another scroll view."
+
+`HandleScrollInput` (`src/plugins/ui/systems.h:2081-2085`, no correction):
+
+```cpp
+RectangleType rect = cmp.rect();
+if (rect.width <= 0.0f || rect.height <= 0.0f)
+    return;
+if (!is_mouse_inside(context->mouse.pos, rect))
+    return;
+```
+
+`accumulated_scroll_offset` (`systems.h:35`) walks ANCESTORS, so it is zero for
+a top-level scroll view and both spellings agree — which is why this is latent
+and not a live bug in this app. Put one scroll view inside another, though, and
+the thumb is grabbable where you see it while the wheel is hit-tested against
+where the inner view would be if the outer one had never scrolled: the further
+the outer view is scrolled, the further the wheel's target is from the pointer.
+The same rect is also the one `apply_scroll_offset_for_e2e`
+(`e2e_testing/ui_commands.h:35`) corrects for clicks, so the scripted suite
+agrees with the drag and disagrees with the wheel.
+
+**Verified, and verified as NOT the reported bug.** hanabi's transcript scroll
+view has no scroll-view ancestor, so its accumulated offset is zero and the
+wheel arrived exactly where it looked like it should: instrumented, one notch
+over the transcript moved `scroll_target` by the full notch every time. The
+transcript's own follow-latch then erased it. A negative result, filed because
+the asymmetry is real and the next person reading these two systems will ask the
+same question.
+
+**Why the obvious escapes do not work.** Nothing to work around yet — an app
+that nests scroll views cannot correct this from outside, because the wheel is
+consumed inside the library before the app sees a frame.
+
+**Minimal upstream fix.** Three lines: the same `accumulated_scroll_offset`
+subtraction `HandleScrollbarDrag` already does, moved into a shared helper both
+call. Or a comment on `HandleScrollInput` saying nesting is unsupported, which
+is at least honest.
+
+CLASS: TEDIOUS
+
+---
+
+### #407 — An injected wheel event is delivered on TWO frames, so a script cannot spell one notch
+
+**What was wanted.** A scripted test for the gesture in a bug report: put the
+pointer over the transcript, turn the wheel one notch, assert the transcript
+moved by one notch.
+
+**What happens.** The e2e injector deliberately lets a wheel delta survive one
+`reset_frame`, and the comment says exactly why
+(`src/plugins/e2e_testing/input_injector.h:36-46`):
+
+> Survives one extra reset, because the reader may run before the command that
+> sets it -- HandleScrollInput does exactly that, which is why injected wheel
+> events used to do nothing at all.
+
+That is a correct fix for a real ordering problem, and it has a consequence
+nothing states: `HandleScrollInput` runs on the frame the command lands AND on
+the frame after, reads the same non-zero delta both times, and adds it to
+`scroll_target` twice. Measured in hanabi, at the default `scroll_speed` of 20:
+`scroll_wheel 0 3` moves the transcript 120 px, not 60.
+
+So every scripted wheel distance in this repo is twice what it spells, and a
+test that pins a pixel position is pinning a harness artifact alongside the
+app's arithmetic. Worse, it is silently *self-consistent*: the numbers were read
+back out of the harness in the first place, so nothing ever disagrees and the
+factor is invisible until someone works out the arithmetic by hand.
+
+**Why the obvious escapes do not work.**
+
+- **Halve the delta in the script.** `scroll_wheel 0 1.5` for one notch is a lie
+  in the other direction, and the factor is a property of the injector's
+  lifetime rule rather than of the wheel, so it belongs nowhere in a script.
+- **Drain on read, like pinch does.** That is exactly the bug the survival rule
+  fixed: the reader can run before the setter, and a drained wheel then does
+  nothing at all.
+
+**The workaround, and its cost.** Every wheel `.e2e` here states the doubling
+and its arithmetic in a comment
+(`tests/ui/wheel_scrolls_the_transcript.e2e`, `wheel_notch_distance_is_settable.e2e`).
+The cost is that a change to the injector's lifetime rule silently moves every
+one of those pixel assertions, and they will fail as "the wheel broke".
+
+**Minimal upstream fix.** Make the survival one-shot rather than
+one-frame-long: mark the delta consumed the first time
+`get_mouse_wheel_move_v` actually reads it, and clear it on the following
+`reset_frame` whether it was read or not. The setter-before-reader problem stays
+fixed, the delta is delivered once, and a script's `scroll_wheel 0 3` means
+three.
+
+CLASS: MISSING
+
+---
+
+### #408 — `assert_ui` cannot see a scroll offset, though the dump command next to it prints one
+
+**What was wanted.** To assert, in a scripted test, that a wheel moved a scroll
+view — the most direct possible spelling: `assert_ui transcript_scroll
+scroll_y=120`.
+
+**What happens.** `check_ui_property` (`e2e_testing/ui_commands.h:1014-1046`)
+knows five properties: `x`, `y`, `w`, `h`, `hidden`, plus `text`. Anything else
+is `unknown property`. Twenty lines away, `dump_ui_node`
+(`ui_commands.h:948`, the scroll line at `:974`) formats the very thing:
+
+```cpp
+if (entity.has<ui::HasScrollView>()) {
+    auto &sv = entity.get<ui::HasScrollView>();
+    out += std::format(" scroll_x=\"{}\" scroll_y=\"{}\"", ...);
+}
+```
+
+— but `dump_ui` writes an XML tree to a file through an app-supplied callback,
+so it is a debugging aid, not an assertion, and a script cannot branch on it.
+
+So a scroll assertion has to go through a proxy: find a named element that sits
+at a known place in the content, and assert its SCREEN y, which moves as the
+view scrolls. That works (`assert_ui transcript_bottom_pad y=766`) and it costs
+the test its own subject: a layout change that moves the proxy fails as "the
+wheel broke", the number is only meaningful at one window size, and the reader
+of the failure has to know that the pad is a proxy for an offset at all.
+
+**Why the obvious escapes do not work.**
+
+- **Use `dump_ui` and grep the file.** The runner has no variables and cannot
+  branch (#285's complaint); the grep would live outside the script, in the shell
+  that runs it, and no other assertion in this suite works that way.
+- **Give the scroll view a debug name and assert its own y.** The viewport does
+  not move when its content scrolls. That is the whole point of a viewport.
+
+**The workaround, and its cost.** A proxy element and a comment recording where
+its number came from and the window size it is true at, in every wheel test
+here. Cost: exactly gap #232's complaint, one more time.
+
+**Minimal upstream fix.** Two lines in `check_ui_property`:
+
+```cpp
+else if (prop == "scroll_y" && entity.has<ui::HasScrollView>())
+    actual_int = std::lroundf(entity.get<ui::HasScrollView>().scroll_offset.y);
+```
+
+and the same for `scroll_x`. The component is already in hand.
+
+CLASS: TEDIOUS
+
+---
+
+### #409 — PERF, not fixing: reading an OS preference inside the widget build, 333 ns a scroll panel a frame, invisible to every gate here
+
+**What was measured.** hanabi's `apply_scroll_prefs`
+(`src/util/scroll_prefs.h`) runs once per scroll panel per frame — that is how
+immediate mode works, the panel is rebuilt every frame and its preferences are
+re-applied — and it used to answer "is macOS natural scrolling on?" by reading
+`NSUserDefaults` every time:
+
+```objc
+@autoreleasepool {
+    return [[NSUserDefaults standardUserDefaults]
+               boolForKey:@"com.apple.swipescrolldirection"];
+}
+```
+
+Measured on this machine, `-O2`, 100,000 calls after a warm-up: **333 ns a
+call**. Three or four scroll panels are on screen at once in split view
+(sidebar, two transcripts, and the digest when Home is up), so about a
+microsecond a frame — a tenth of a percent of a 1.2 ms frame.
+
+**Why it is worth writing down anyway.** It is invisible to every instrument
+this project has. The allocation gate counts `operator new`; this allocates
+through CoreFoundation and the gate reads 810.0 / 1162.0 / 2743.0 allocations a
+frame with it and without it, identical to the tenth. The soak gate watches
+slopes and this is flat. The scroll gate watches a ratio and this is in both
+arms. A cost that no gate can see does not get smaller on its own, and the shape
+— an OS call inside the per-frame widget build — is the shape that is cheap at
+one panel and is not at ten.
+
+FIXED here (resolved once into a function-local static, along with the two
+`getenv` reads beside it), which costs live tracking: flipping the OS
+natural-scroll preference now takes effect on the next launch. That matches how
+this repo already treats the sibling preference — `macos_is_dark_mode` in
+`sokol_impl.mm` is documented "Read on demand (theme apply), cheap".
+
+**The library's part in it.** afterhours offers no seam for "apply this to the
+scroll view once, when it is created, and not every frame". `component_init`
+creates `HasScrollView` for `Overflow::Auto`/`Scroll` during config application,
+and the app has no callback on that event — so `apply_scroll_prefs` is called
+after every `div()` because there is nowhere else to call it from, and any work
+it does is per-frame work by construction. Every immediate-mode app that wants
+per-widget configuration that is expensive to compute hits this.
+
+CLASS: MISSING
+
+---
+
+### #410 — PERF, not fixing: the soak driver's only handle on a widget is a linear walk of every entity, per call, per frame
+
+**What was measured.** `hanabi::soak::scroll_named` (`src/util/soak.h:106`) is how
+every perf arm drives a scroll view, and it finds the view by walking
+`EntityHelper::get_entities_for_mod()` and string-comparing a debug name:
+
+```cpp
+for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
+    if (!ptr) continue;
+    if (!e.has<UIComponentDebug>()) continue;
+    if (e.get<UIComponentDebug>().name_value != debugName) continue;
+```
+
+At the scroll gate's 2000-session arm that is a walk of ~450 live entities and
+up to 450 string compares, once per driven view per frame, inside the thing
+whose frame cost is being measured. The gate's own numbers are a RATIO between
+two catalog sizes and the walk is in both, so it cancels — which is the only
+reason it does not matter.
+
+**Why it is worth writing down.** It is measurement apparatus inside the
+measurement. The entity count it walks is the same quantity the gate reports
+(`entities, list expanded 327 -> 453`), so the driver gets more expensive
+exactly as the thing under test does, and a future arm that compares an absolute
+number across catalog sizes rather than a ratio would be reading the driver's
+cost as the app's.
+
+**Not fixing** because the fix belongs upstream and the workaround is worse than
+the problem: caching the entity pointer between frames is wrong (immediate mode
+destroys and rebuilds it), and caching the ID needs a name-to-ID index the
+library does not offer. afterhours has `UIEntityMappingCache` for its own
+lookups and no public way to ask it "which entity has this debug name".
+
+**Minimal upstream fix.** Expose the debug-name lookup the e2e plugin already
+performs (`ui_commands.h`, the `whereLambda` name match in every `*_ui` handler)
+as a plain `ui::find_by_debug_name(name)`, backed by the mapping cache rather
+than a walk. Both the e2e handlers and every out-of-tree driver would stop
+walking.
+
+CLASS: MISSING
