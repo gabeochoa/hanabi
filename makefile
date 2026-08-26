@@ -465,6 +465,15 @@ $(TEST_DIR)/test_tab_colors: tests/unit/test_tab_colors.cpp src/ecs/tab_colors.h
 	@echo "Compiling test_tab_colors..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_tab_colors.cpp -o $@
 
+# The focus ring's colour. rendering.h derives the ring's two contrast edges
+# from the RING's luminance rather than the backdrop's, so which side of its
+# 0.5 threshold the ring lands on decides whether those edges are invisible or
+# are the brightest thing on screen. Same split as test_tab_colors: no scripted
+# assertion can see a colour, so the guard is arithmetic.
+$(TEST_DIR)/test_focus_ring: tests/unit/test_focus_ring.cpp src/ui/focus_visible.h src/ui/theme.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_focus_ring..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_focus_ring.cpp -o $@
+
 # The sidebar footer's arithmetic. The one property here that no other harness
 # in the repo can see is that the activity light's origin is on a whole pixel:
 # assert_ui reads x/y/w/h and ROUNDS them, so it cannot tell a snapped position
@@ -560,7 +569,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

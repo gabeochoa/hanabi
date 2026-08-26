@@ -71,7 +71,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // because when it did not the main pane's score moved 0.14 points on
         // a change that touched only the sidebar (gap #90).
         ctx.theme.font_muted = kSearchHintFg;
-        ctx.theme.focus = theme::accent();
 
         // Apply a pending star-toggle request (set by a row's star affordance).
         // The mutation lives HERE so this owned system is the single writer of

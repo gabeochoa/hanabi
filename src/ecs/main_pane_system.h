@@ -2928,7 +2928,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // render time, so whatever the sidebar left in font_muted is what this
         // pane's muted text gets (gap #90).
         ctx.theme.font_muted = theme::text_faint();
-        ctx.theme.focus = theme::accent();
         // No padding on the field: text_input's own inner element is sized to
         // the element's OUTER width, so any padding here makes the child wider
         // than the content box it sits in and afterhours warns every frame
@@ -4742,7 +4741,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // render time, so whatever the sidebar left in font_muted is what this
         // pane's muted text gets (gap #90).
         ctx.theme.font_muted = theme::text_faint();
-        ctx.theme.focus = theme::accent();
         // What the empty field says it is for. text_input renders this itself
         // now; it used to be an absolutely-positioned on_draw_fg child laid
         // over the field, because the widget had no placeholder of its own.
