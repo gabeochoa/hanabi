@@ -75,6 +75,11 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #162 an app can retire the widgets it built and cannot see the ones the library built
 - #163 a scroll view off-screen is measured against zero children, so leaving a screen resets it to the top *(pre-dates the retirement work)*
 
+**Added 2026-08-26** (full entries at the end of the file)
+- #275 nothing asks whether a widget is inside its PARENT: the one warning is main-axis only and goes to a discarded log, and `assert_no_overflow` measures the VIEWPORT *(it named 1 of 55)*
+- #276 `Dim::Percent` is the one sizing mode that ignores the child's own margin, so `percent(1) + margin` overflows by exactly the margin — and moves the WRAP, not just the child
+- #277 the 5px a label is drawn at is hard-coded, unexposed and unqueryable, so a text child and a drawn child of one parent are on different columns *(the app carries 5 AND 6 for it)*
+
 ---
 
 **Added 2026-08-25** (windowing the digest screens; full entries at the end)
@@ -8417,3 +8422,253 @@ without any notion of a text run. For the text-run case specifically, #51's
 place.
 
 CLASS: TEDIOUS
+
+---
+
+### #275 — Nothing in the stack asks whether a widget is inside its PARENT: the one warning is main-axis only and goes to a log, and the one assertion measures the viewport
+
+**What was wanted.** To answer "which widgets are drawing outside their own
+box", after a one-sentence report — *"many buttons are going outside the
+bounds"* — that named no widget and no screen.
+
+**What happens.** There are three things in the stack that look like they
+answer it and none of them does.
+
+1. **`assert_no_overflow`** (`e2e_testing/command_handlers.h:653`) is the only
+   containment ASSERTION, and its first check is
+   ```cpp
+   bool rect_out = (rect.x < -TOLERANCE) || (rect.y < -TOLERANCE) ||
+                   (rect.x + rect.width > vw + TOLERANCE) ||
+                   (rect.y + rect.height > vh + TOLERANCE);
+   ```
+   `vw`/`vh` are `e2e_screen_size()`. So a child can escape its parent by any
+   amount at all and pass, as long as it lands inside the WINDOW. The parent's
+   rect is never fetched. Its other two checks are about text fitting its own
+   element, which is a different question again.
+
+2. **The layout warning** does compare a child to its parent —
+   ```
+   [WARN] Layout overflow: 'composer_send' extends outside parent
+   'composer_row' bounds (child_rel=[725.0,7.0], child_size=[78.0,32.0],
+   child_end=[803.0,39.0], parent_size=[744.0,46.0], ...)
+   ```
+   — and it is exactly right when it fires. It fires when a `NoWrap` flow would
+   have had to wrap on the MAIN axis. Measured against the app's real
+   population: of **55** elements outside their parent's content box across
+   twelve reachable states, this warning named **one**. The other 54 were
+   cross-axis (a 32px button in a 30px row), or margin-driven (below, #276),
+   and produced nothing.
+
+3. And it is a `log_error`/`log_warn` line, so even the one it catches reaches
+   nobody: it goes to a per-script log the scripted runner discards on a pass.
+   It had been firing every frame, in a suite that was green.
+
+**Why the obvious escapes do not work.**
+
+- **Read `assert_no_overflow`'s output and tighten the tolerance** — it is not
+  a tolerance problem. The rectangle it compares against is the window.
+- **Assert geometry per widget with `assert_ui <name> x= y= w= h=`** — this is
+  what the app does now, and it is per-widget and per-window-size: it pins the
+  three or four you already know about. The report was about the ones nobody
+  knew about, and a list of 55 is not something anyone writes by hand.
+- **Diff a screenshot** — a picture cannot distinguish a button 59px past its
+  row from a button that belongs there, and it only covers the screens someone
+  thought to capture. Containment is not a fact about pixels; it is a
+  relationship between two rects that both exist, exactly, after autolayout.
+- **Walk the tree in app code** — this is the workaround, and it is ~120 lines
+  before it is trustworthy, because the skip list is where all the difficulty
+  is (below).
+
+**The workaround, and its cost.** `src/util/bounds_audit.h`
+(`HANABI_BOUNDS_AUDIT=1`) walks every `UIComponent` after the last frame and
+reports each one whose `rect()` escapes its parent's rect inset by the parent's
+`computed_padd`. `scripts/bounds_gate.sh` runs it over twelve states and fails
+on anything outside a frozen baseline. It found 55; three were real horizontal
+escapes and 44 were one rule written twice, and the app is at 3 known
+1–1.5px vertical survivors.
+
+**The cost is the skip list, and it is the part worth reading**, because every
+line of it is a thing the library knows and an app has to re-derive:
+
+- `absolute` — out of flow by construction; flagging them buries the flow
+  overflows in noise.
+- a child of a `HasScrollView` — content taller than the viewport IS a scroll
+  view.
+- `computed[axis] < 0` — never laid out.
+- **`was_rendered_to_screen`** — and this one cost the audit its first
+  finding. A widget built on an earlier frame and never rebuilt keeps its
+  parent id, its computed rect and its last position (#115), so it looks
+  exactly like a live overflow. `composer_status` was in the baseline at
+  `right=50.0` and is not a defect: probed, its parent's shrink-to-fit width
+  was correct to the pixel over a child list that did not contain it, and it
+  reported `parent=85 rendered=0`. `assert_no_overflow` tests that flag first
+  and I did not copy it.
+- a floor — 0.5px, because nothing rounds a widget's origin (#110) and a
+  fractional overflow fires on almost every `percent()`-sized element.
+
+**Minimal upstream fix.** Two small ones, and the first is nearly free:
+`assert_no_overflow` already walks every laid-out element with its parent one
+hop away, so adding the parent-content-box comparison beside the viewport one
+is a few lines and turns the only containment assertion into one that answers
+the question people mean. Second, extend the existing layout warning past the
+main axis — it already has the child and parent rects in hand at the point it
+decides not to warn.
+
+CLASS: MISSING
+
+---
+
+### #276 — `Dim::Percent` is the one sizing mode that ignores the child's own margin, so `percent(1) + margin` is a child that does not fit — and it moves the WRAP, not just the child
+
+**What was wanted.** A row of chips, full width of its parent, indented 16px.
+
+```cpp
+.with_size(ComponentSize{percent(1.0f), children()})
+.with_flex_wrap(FlexWrap::Wrap)
+.with_margin(Margin{.top = pixels(6), .left = pixels(16)})
+```
+
+**What happens.** The row comes out **exactly as wide as its parent's content
+box and 16px to the right of it**. `autolayout.h`'s `Dim::Percent` case says so
+itself:
+
+```cpp
+case Dim::Percent: {
+  // Percent of parent's content area (computed minus padding only;
+  // margins are external spacing and not included in computed).
+  float parent_size = parent.computed[axis] - parent.computed_padd[axis];
+  return constraint.value * parent_size;
+}
+```
+
+and the margin is then applied as a pure translation in
+`compute_relative_positions`. Measured: `subrollup_chips` 736 wide at x=378
+inside a parent whose content is 736 wide at x=362.
+
+**This is a specific inconsistency and not "margins are ignored", which is why
+it is worth an entry.** The other two sizing modes do account for a child's
+margin, in opposite directions:
+
+- `_sum_children_size` adds it — *"Include child margins so `Dim::Children`
+  parents are sized to fit children including their external spacing."*
+- cross-axis `Dim::Expand` subtracts it —
+  `child->computed[cross] = fmaxf(0.f, content - child->computed_margin[cross])`.
+
+So a consumer who has learned that margin participates in sizing learns it
+correctly, twice, and then meets the third mode.
+
+**And the damage is not the 16px.** The row is `FlexWrap::Wrap`, and wrapping
+is decided against the row's own width. The row's width was a lie, so **the
+last chip on every line wrapped 16px late** — 16px outside the parent, on every
+line, at every window size. A pure position bug would have been visible at the
+edge; this one is visible in the middle of the list, as chips that do not line
+up with anything.
+
+**Why the obvious escapes do not work.**
+
+- **`percent(0.98)`** — the margin is pixels and the percent is a fraction, so
+  the arithmetic is only right at one parent width.
+- **Compute the width in pixels from the parent's own** — the parent's content
+  width is not a number the child has; that is what `percent` was for.
+- **Give the PARENT the padding instead** — right when the indent applies to
+  every child, wrong here: the rollup's header sits flush and only the chip row
+  is indented.
+
+**The workaround, and its cost.** `Padding{.left = 16}` on the row instead of a
+margin. Padding insets the CHILDREN and leaves the element the size its parent
+gave it, so it is the same indent and the right box. The cost is that this is
+the OPPOSITE of the advice #109 gives — margin over padding — and both are
+right: #109 is about a LABEL, which is drawn from the element's own rect and
+never sees padding, and this is about child DIVS, which are all padding
+reaches. A consumer has to know which of the two shapes they are holding before
+they can pick, and nothing in the API distinguishes them.
+
+**Minimal upstream fix.** Subtract the child's `computed_margin[axis]` in the
+`Dim::Percent` resolution, exactly as the cross-axis `Dim::Expand` path already
+does. `percent(1.0f)` with a margin then means "as wide as will fit next to my
+margin", which is what every caller writing it believes it means. Failing that,
+the same `log_error` that already fires for "parents sized with mode 'children'
+cannot have children sized with mode 'percent'" would fire for a percent child
+with a non-zero margin, and this would have been a build-time complaint instead
+of a wrap that is wrong on every line.
+
+CLASS: FOOTGUN
+
+---
+
+### #277 — The 5px a label is drawn at is hard-coded, unexposed and unqueryable, so a text child and a drawn child of one parent are on different columns and the app carries two different constants for the one number
+
+**What was wanted.** A pulsing dot in an assistant bubble whose leftmost lit
+pixel is the column the bubble's prose starts on — so that when the first token
+arrives and the dot is replaced by text, nothing moves sideways.
+
+**What happens.** They cannot be on the same column without the app knowing a
+number the library never says. `rendering.h` draws a label at a literal inset
+from the element's own rect:
+
+```cpp
+position_text_ex(fm, hasLabel.label.c_str(), text_rect, hasLabel.alignment,
+                 Vector2Type{5.f, 5.f}, ...);
+```
+
+— origin at `container.x + margin_px.x`, wrap width at
+`container.width - 2 * margin_px.x`. The literal appears three times in that
+file. A CUSTOM DRAW (`with_on_draw_fg`) gets the element's rect untouched, and
+so does a child widget. So two children of one parent, given the same box, put
+their ink 5px apart, and the number is in neither the config nor the component
+nor any query.
+
+**What it costs a consumer, which is more than 5px.** The app's transcript
+bubble wants its first glyph 13px inside the bubble, so it sets its padding to
+`13 - 6 = 7` and lets the library add the rest back. That is correct for text
+and silently wrong for everything else in the same bubble: the thinking
+indicator's dot drew its ink at x=372..383 where every line of prose in the
+same bubble began at x=374. The code block one screen away pays the same 6 back
+by hand at its right edge, with a comment saying why. Each site is a separate
+discovery.
+
+**And the number is not agreed on, in one file.** `main_pane_system.h` carries
+BOTH:
+
+```cpp
+static constexpr float kLabelInset  = 5.0f;   // the composer
+static constexpr float kLabelInsetX = 6.0f;   // the transcript
+```
+
+Both are named for the same library behaviour and both comments describe it
+correctly. 5 is right: it is the literal, read out of `rendering.h`. 6 is what
+you get when you MEASURE it off a capture, because what a screenshot shows is
+the first lit pixel and that is the 5 plus the leading side bearing of whatever
+glyph you measured. Neither reader was careless; one had the source and one had
+a PNG, and the library gave them no way to agree. A consumer measuring a
+capital letter and a consumer measuring a lowercase one would have got two
+different sixes.
+
+**Why the obvious escapes do not work.**
+
+- **`with_padding` on the label** — inert (#85, #91, #109): the words are drawn
+  from the element's own rect and padding never reaches them.
+- **Give the drawn child a 5px margin so it matches** — this is the workaround,
+  and it is per-child forever, in app code, against a literal in a vendored
+  file that no test anywhere pins. If afterhours changes the 5 the app silently
+  goes back to being 5px out on every hand-drawn mark.
+- **Measure it once at startup** — there is nothing to measure it against
+  without rendering a glyph and scanning pixels, which is the loop that
+  produced the 6.
+
+**The workaround, and its cost.** The indicator's row takes
+`Padding{.left = kLabelInsetX}` so its children start on the text column, and
+its dot's gap to the label is written `kDotLabelGap - kLabelInsetX` — "the gap
+a reader sees is dot-ink to first glyph, and the label's own rect already
+spends some of it". That idiom now appears four times in the file, with two
+different values for the one constant.
+
+**Minimal upstream fix.** Name it and expose it: a
+`ui::kLabelTextInset` (or a field on the theme, since it is a styling decision)
+that `position_text_ex`'s callers read instead of the literal, plus a
+`text_origin_for(const Entity&)` returning where a label's text will actually
+be drawn. The first stops it being a magic number; the second is what a
+consumer aligning anything to a label actually needs, and it is the same
+primitive #191 asks for on measurement.
+
+CLASS: FOOTGUN
