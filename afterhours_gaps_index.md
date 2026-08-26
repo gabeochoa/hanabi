@@ -1,13 +1,13 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is ~10,500 lines and 196 entries, written by dozens of
+`afterhours_gaps.md` is ~10,900 lines and 198 entries, written by dozens of
 agents over several days. As a record it is good. As a work queue it is
 unusable: you cannot see what matters, what is one change, what is the same
 finding filed four times, and what has already been fixed under it.
 
 Built against `afterhours_gaps.md` at this branch's head. The file grows while
-you read it — it gained eleven entries from two other branches during the two
-hours this took — so the counts below are a snapshot and the *shape* is the
+you read it — it gained thirteen entries from three other branches during the
+two hours this took — so the counts below are a snapshot and the *shape* is the
 durable part.
 
 This file is the front matter. It changes no entry's number — **source code and
@@ -18,12 +18,12 @@ only sorts, weighs, groups and corrects them.
 
 | | |
 |---|---|
-| Numbered headings in the file | **191** |
-| Distinct gap numbers | **181** (nine numbers are used twice, one three times — §5) |
+| Numbered headings in the file | **193** |
+| Distinct gap numbers | **183** (nine numbers are used twice, one three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **196** — one per heading, nothing dropped |
+| **Rows in the triage table (§6)** | **198** — one per heading, nothing dropped |
 | Standalone live asks | **123** |
-| Live but subsumed into a family canonical | **42** (§3) |
+| Live but subsumed into a family canonical | **44** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **10** (§4) |
 | hanabi's own, not afterhours' | **7** |
@@ -330,7 +330,7 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Thirteen families cover 108 of the 196 entries.** Fix the canonical one and the
+**Thirteen families cover 110 of the 198 entries.** Fix the canonical one and the
 rest either close or shrink to a footnote — 41 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
@@ -351,7 +351,7 @@ to fix.
 | **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
 | **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
-| **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, and its best diagnostic is unregistered. #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
+| **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259, #380, #381 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, its best diagnostic is unregistered, a handler cannot own its own timeout message (#380 — and #113 is that same overwrite from the other side), and the directory mode runs a whole suite in one process with no reset between scripts (#381). #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
 
 **Exact duplicates**, as opposed to families — the same finding written twice:
 
@@ -682,6 +682,8 @@ correction narrows them rather than closing them.
 | 339 | `imm::divider` and `hsplit` already exist | NOT A GAP | — | — | neg |
 | 340 | Styled text re-wraps and re-allocates on the RENDER path, per frame | MISSING | HIGH | M | **live — top 10** |
 | 341 | What a second pane costs (hanabi's own accounting) | PERF | — | — | app |
+| 380 | A custom command cannot own its timeout message | TEDIOUS | MED | XS | dup→#223 |
+| 381 | The directory mode runs a suite in one process with no reset | MISSING | HIGH | S | dup→#223 |
 
 ---
 
