@@ -618,7 +618,8 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
 	@bash scripts/perf_text_gate.sh
 
-# `make test` = unit + e2e + scripted UI + perf (the full harness, one command).
+# `make test` = unit + e2e + scripted UI + perf + the screenshot subset (the
+# full harness, one command).
 test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running unit + e2e tests..."
 	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES))
@@ -636,6 +637,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) retire-gate
 	@$(MAKE) digest-gate
 	@$(MAKE) bounds-gate
+	@$(MAKE) validate-screenshots-fast
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -874,9 +876,33 @@ uitest-build: $(UITEST_EXE) copy-resources
 
 SHOT_BASELINES := docs/screenshots/baselines
 SHOT_CURRENT := $(OUTPUT_DIR)/screenshots/current
+SHOT_FAST_CURRENT := $(OUTPUT_DIR)/screenshots/fast
 SHOT_DETERMINISM := $(OUTPUT_DIR)/screenshots/determinism
 SHOT_DECLARED := $(OUTPUT_DIR)/screenshots/declared.txt
 SHOT_FAILURES := test-failures
+
+# THE FAST SUBSET, the one `make test` runs.
+#
+# The full compare was a separate target for months and rotted unnoticed: by
+# the time anyone ran it, 30 of 30 baselines failed and no commit in between
+# had been told about it. A net nothing runs is not a net, so a subset runs on
+# every `make test` and the whole set stays behind validate-screenshots.
+#
+# Eight screens, chosen to touch each thing a rendering change breaks rather
+# than to cover each feature: both palettes, the digest and the transcript, a
+# sheet over a dimmed backdrop, the folded rail, the icon atlas, and the
+# composer with its focus ring — the exact widget gap #262's grey-interior
+# regression edited. Anything that moves the theme, the fonts, the roundness
+# or the layout shows up in these.
+SHOT_FAST := 01_home_dark 02_home_light 03_transcript_dark 14_sidebar_folded_dark \
+             15_settings_dark 18_auth_dark 22_split_view_dark 28_composer_focus_dark
+
+# --only takes one comma-separated value; make has no join, so build the
+# separators by hand.
+comma := ,
+empty :=
+space := $(empty) $(empty)
+SHOT_FAST_CSV = $(subst $(space),$(comma),$(strip $(SHOT_FAST)))
 
 # The states that have a committed baseline.
 SHOT_BASELINED = $(shell ls $(SHOT_BASELINES)/*.png 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.png$$//')
@@ -957,6 +983,18 @@ validate-screenshots: $(MAIN_EXE) copy-resources
 	    --declared $(SHOT_DECLARED) \
 	    --failures-dir $(SHOT_FAILURES) --json $(SHOT_FAILURES)/summary.json
 
+# The fast subset, in `make test`. Captures and compares $(SHOT_FAST) and
+# nothing else, so it says nothing about the other screens — validate-screenshots
+# is still the one that checks the whole set and the declared/unbaselined
+# accounting. Its failures land in the same $(SHOT_FAILURES)/ evidence dir.
+validate-screenshots-fast: $(MAIN_EXE) copy-resources
+	@echo "=== screenshots: the $(words $(SHOT_FAST))-screen subset ==="
+	$(call CAPTURE_SCREENS,$(SHOT_FAST_CURRENT),$(call shot_filter_of,$(SHOT_FAST)))
+	@$(SHOT_PYTHON) scripts/compare_screenshots.py \
+	    --baselines $(SHOT_BASELINES) --current $(SHOT_FAST_CURRENT) \
+	    --only '$(SHOT_FAST_CSV)' \
+	    --failures-dir $(SHOT_FAILURES) --json $(SHOT_FAILURES)/summary-fast.json
+
 # Chunk 3: adopt the current render as the new truth, for an INTENTIONAL visual
 # change. Review `git diff --stat $(SHOT_BASELINES)` (and the PNGs) before
 # committing. Captures the baselined states plus any that have no baseline yet,
@@ -970,7 +1008,7 @@ update-baselines: $(MAIN_EXE) copy-resources
 	@git status --short $(SHOT_BASELINES) | grep '^??' || true
 	@echo "Baselines updated. Review the PNGs before committing."
 
-.PHONY: test-screenshot-determinism validate-screenshots update-baselines
+.PHONY: test-screenshot-determinism validate-screenshots validate-screenshots-fast update-baselines
 
 # ==============================================================================
 # THE PRE-PUSH GATE  (docs/breakdown/screenshot-testing.md, chunks 6-7)
