@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 
 namespace capture_clock {
@@ -19,19 +20,48 @@ namespace capture_clock {
 // Only the SCREENSHOT path freezes. The app, the scripted UI tests and every
 // real run read the wall clock exactly as before.
 //
-// Deliberately NOT wired into the relative ages in the sidebar and transcript.
-// Their datum is seeded by the mock from its own std::time() call, which
-// happens after the freeze, so pinning the display side alone would make every
-// age a fraction of a second SHORT of its true value — enough to round a datum
-// seeded at exactly now-3h down to "2h".
+// HANABI_CAPTURE_EPOCH=<unix epoch> goes further: it pins the whole notion of
+// now for the run, DISPLAY side included, and scripts/screens.sh sets it
+// alongside HANABI_MOCK_NOW so the fixture datum and the rendering of it are
+// literally the same integer. That is what makes a transcript reproducible.
+// Freezing the display alone was deliberately avoided before, and rightly: the
+// mock seeds its stamps from its own std::time() call AFTER the freeze, so a
+// pinned display against a live datum makes every age a fraction of a second
+// short — enough to round now-3h down to "2h". Pinning BOTH to one constant
+// removes the skew instead of splitting it.
+//
+// Unpinned, display_now() is the wall clock, so nothing outside the screenshot
+// harness changes: scripts/soak.sh and `make stress` set HANABI_MOCK_NOW and
+// not this, and their rendered ages stay exactly what they were.
 inline int64_t g_frozen_at = 0;
+inline int64_t g_pinned_at = 0;
 
-inline void freeze() { g_frozen_at = static_cast<int64_t>(std::time(nullptr)); }
+inline int64_t pinned_epoch() {
+    const char* v = std::getenv("HANABI_CAPTURE_EPOCH");
+    if (v == nullptr || *v == '\0') return 0;
+    const long long parsed = std::atoll(v);
+    return parsed > 0 ? static_cast<int64_t>(parsed) : 0;
+}
+
+inline void freeze() {
+    g_pinned_at = pinned_epoch();
+    g_frozen_at = g_pinned_at != 0 ? g_pinned_at
+                                   : static_cast<int64_t>(std::time(nullptr));
+}
 
 inline bool frozen() { return g_frozen_at != 0; }
 
 inline int64_t now() {
     return g_frozen_at != 0 ? g_frozen_at
+                            : static_cast<int64_t>(std::time(nullptr));
+}
+
+// The reference a RELATIVE age or a date divider is rendered against, as
+// opposed to now(), which a duration inside one capture is measured against.
+// Pinned only by HANABI_CAPTURE_EPOCH; otherwise the live wall clock, which is
+// what every non-capture caller has always read.
+inline int64_t display_now() {
+    return g_pinned_at != 0 ? g_pinned_at
                             : static_cast<int64_t>(std::time(nullptr));
 }
 

@@ -246,6 +246,11 @@ def main():
     parser.add_argument("--declared", default=None, help=(
         "file listing every capturable state, one per line "
         "(bash scripts/screens.sh --list); - reads stdin"))
+    parser.add_argument("--only", default=None, help=(
+        "compare just these baselines (comma-separated state names). For the "
+        "fast subset in `make test`: the states outside the list are neither "
+        "captured nor compared, so the run says nothing about them and the "
+        "declared/unbaselined accounting is skipped"))
     parser.add_argument("--lenient-new", action="store_true", help=(
         "report unbaselined states without failing the run"))
     parser.add_argument("--print-new", action="store_true", help=(
@@ -268,7 +273,19 @@ def main():
         print("ERROR: no baseline directory at {}".format(args.baselines), file=sys.stderr)
         return 2
 
+    only = None
+    if args.only:
+        only = [n for n in (s.strip() for s in args.only.split(",")) if n]
+        missing = [n for n in only if n not in baselines]
+        if missing:
+            print("ERROR: --only names {} which has no baseline in {}".format(
+                ", ".join(missing), args.baselines), file=sys.stderr)
+            return 2
+        baselines = only
+
     declared = read_declared(args.declared)
+    if only is not None:
+        declared = None
 
     # Unbaselined = capturable (declared by the harness, or already sitting in
     # the current dir) with nothing committed to compare against, minus the
@@ -331,7 +348,7 @@ def main():
 
     print("{}/{} screens within threshold".format(len(baselines) - len(failures), len(baselines)))
 
-    if excluded:
+    if excluded and only is None:
         print("unbaselined on purpose: {} state(s) — see 'unbaselined' in {}".format(
             len(excluded), manifest_path))
         # An entry that names a baselined state, or one the harness no longer

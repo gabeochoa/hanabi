@@ -150,6 +150,29 @@ fi   # ! listing
 FAILED=0
 declare -a SUMMARY
 
+# THE CAPTURE'S NOW, and its timezone.
+#
+# The mock seeds every stamp at now-N and the UI renders it against now, so an
+# age reads "3h" on any day — but a DATE DIVIDER and a wall-clock stamp are
+# absolute, and they move with the hour. Measured across three local hours on
+# one machine and one build, 17 of these 35 states changed: every transcript
+# screen gained or lost a date row as local midnight swept through the fixture.
+# The set was reproducible for an hour or two after it was captured and rotted
+# by the clock after that, which is why 28 of 30 baselines could fail on a tree
+# that had not touched rendering.
+#
+# Pinning both ends removes it: HANABI_MOCK_NOW fixes the datum, and
+# HANABI_CAPTURE_EPOCH fixes what the renderer measures it against
+# (src/util/capture_clock.h) plus the frozen durations. TZ is pinned too, since
+# a divider and a "14:05" are LOCAL, and a baseline should not belong to one
+# machine's zone. Midday Monday keeps the fixture off a date boundary.
+#
+# Changing these three re-renders every screen: it is a baseline update, not a
+# knob to tune.
+export HANABI_CAPTURE_EPOCH="${HANABI_CAPTURE_EPOCH:-1781524800}"   # 2026-06-15 12:00:00Z
+export HANABI_MOCK_NOW="$HANABI_CAPTURE_EPOCH"
+export TZ="${HANABI_SHOT_TZ:-UTC}"
+
 # write settings.json into the isolated HOME
 write_settings() {
     # $1 = json body

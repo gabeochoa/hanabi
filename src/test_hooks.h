@@ -212,4 +212,21 @@ inline float ui_scale() {
     return v;
 }
 
+// HANABI_TEST_FOCUS_COMPOSER=1 puts keyboard focus on the composer field for a
+// capture, so 28_composer_focus_dark can photograph the caret and the focus
+// ring. Setting focus is only half of it: ui/focus_visible.h keeps the ring off
+// until Tab has been pressed (the :focus-visible rule), and a headless capture
+// presses nothing — so the screen rendered byte-identical to
+// 03_transcript_dark, a baseline claiming to watch a focus ring that was never
+// in the frame. The hook therefore arms focus-visible as well, which is what a
+// keyboard user reaching the field would have done. Same contract as the hooks
+// above: read once, hard no-op when unset.
+inline bool focus_composer() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_TEST_FOCUS_COMPOSER");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
 }  // namespace hanabi::test_hooks

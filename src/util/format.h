@@ -6,6 +6,8 @@
 #include <string>
 #include <string_view>
 
+#include "capture_clock.h"
+
 namespace fmtutil {
 
 // ASCII case conversion (shared — was hand-rolled in ~4 places, REFACTOR_REVIEW
@@ -57,7 +59,7 @@ inline std::string relative_time(int64_t epoch, int64_t now) {
     return std::to_string(d / 365) + "y";
 }
 inline std::string relative_time(int64_t epoch) {
-    return relative_time(epoch, static_cast<int64_t>(std::time(nullptr)));
+    return relative_time(epoch, capture_clock::display_now());
 }
 
 // Clock time for a timestamp, e.g. "14:05". Empty for an unset (<=0) epoch.
@@ -109,7 +111,7 @@ inline std::string day_label(int64_t epoch, int64_t now) {
     return out;
 }
 inline std::string day_label(int64_t epoch) {
-    return day_label(epoch, static_cast<int64_t>(std::time(nullptr)));
+    return day_label(epoch, capture_clock::display_now());
 }
 
 // A count as a short human figure: 940, 4.2k, 130k, 1.5M.
