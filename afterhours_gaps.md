@@ -1,10 +1,10 @@
 # afterhours gaps (from building hanabi)
 
 > **Start with [`afterhours_gaps_index.md`](afterhours_gaps_index.md).** This
-> file is the record — 185 entries, ~10,000 lines, appended by many hands. The
+> file is the record — 189 entries, ~10,000 lines, appended by many hands. The
 > index is the work queue: a ranked top ten with the argument for each, every
-> entry weighed for impact and upstream size, the twelve families that are one
-> mechanism seen from twelve angles, the nine entries the vendored source shows
+> entry weighed for impact and upstream size, the thirteen families that are one
+> mechanism seen from thirteen angles, the nine entries the vendored source shows
 > are wrong or already fixed, the deliberate NOT-A-GAP results that must not be
 > promoted, and the map of the nine gap numbers that are used twice.
 > **Numbers here are never reused or renumbered** — source code and eight commit

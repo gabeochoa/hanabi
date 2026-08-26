@@ -13,11 +13,11 @@ only sorts, weighs, groups and corrects them.
 
 | | |
 |---|---|
-| Numbered headings in the file | **180** |
-| Distinct gap numbers | **170** (nine numbers are used twice, one three times — §5) |
+| Numbered headings in the file | **184** |
+| Distinct gap numbers | **174** (nine numbers are used twice, one three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **185** — one per heading, nothing dropped |
-| Standalone live asks | **116** |
+| **Rows in the triage table (§6)** | **189** — one per heading, nothing dropped |
+| Standalone live asks | **120** |
 | Live but subsumed into a family canonical | **41** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **8** (§4) |
@@ -41,16 +41,52 @@ must work around** beats one only hanabi hits.
 
 ---
 
-### 1. #211 — the glyph atlas is a fixed 2048², nothing watches it overflow, and the symptom is that `measure_text` starts returning wrong numbers
+### 1. #351 + #350 + #352 + #353 (origin: #211) — the glyph atlas fills silently, and the symptom is that `measure_text` starts returning wrong numbers
 
-**~3 lines.** Nothing in the stack registers `fonsSetErrorCallback`, so when the
-atlas fills, text measurement quietly begins lying — one measured string came
-back 5,933 px, then 230 px, then **0.0** — and every box sized from it is wrong.
-A layout engine fed a 0.0 width does not crash; it draws a frame that is subtly
-and unfixably wrong, and there is no message anywhere. This is the worst failure
-mode a library can have and the cheapest one on this list to remove: one
-callback that logs `FONS_ATLAS_FULL` once turns silent corruption into a name.
-Put the atlas dimensions on `graphics::Config` while you are there.
+**#351 is about six lines and it is the single highest-value change in this
+file.** `fonsSetErrorCallback` already exists, is exactly the hook a consumer
+needs, and nothing in the backend registers it — so when the 2048² atlas fills,
+text measurement quietly begins lying and every box sized from it is wrong. A
+layout engine handed a wrong width does not crash; it draws a frame that is
+subtly and unfixably wrong, with no message anywhere.
+
+This is now the best-evidenced finding in the file, because the condition has
+been **reached and watched** rather than reasoned about
+(`hanabi.exe --atlas-stress`, driving printable ASCII at climbing sizes):
+
+```
+  pt          width   detector
+  64         2644.0   ok
+  120        4836.0   FULL   <- the atlas can take no new rect
+  124         622.0   fault  <- the app's own measurement is now WRONG
+  136         231.0   fault
+```
+
+622.0 where the truth is ~5,000 is the dangerous number, not the 0.0 further
+down: a zero is catchable, and a plausible-but-wrong width is indistinguishable
+from a correct measurement of a shorter string. Note also that a dropped glyph
+is not *drawn* either (#353), so the string is invisible as well as
+unmeasurable, and both failures are reported the same way — not at all.
+
+Four asks, cheapest first, and the first one alone converts silent corruption
+into a message with a name:
+
+* **#351** — call `fonsSetErrorCallback` in the backend's init and `log_error`
+  `FONS_ATLAS_FULL` once.
+* **#350** — return whether the call that just measured dropped a glyph.
+  `fonsTextBounds` already knows: it gets NULL back from `fons__getGlyph` per
+  refused codepoint and discards that on the way out. One `bool`.
+* **#352** — `graphics::Config::font_atlas_width/height`, defaulted to 2048.
+  Same struct and same request as #210's pool sizes; do them together.
+* **#353** — draw the substitute glyph (codepoint 0) instead of skipping the
+  quad, so an invisible failure becomes the oldest visible one in typography.
+
+hanabi has since built `src/util/atlas_guard.h` — a probe that asks for a glyph
+the atlas has never held at a size it has never held, which is exact rather than
+heuristic and fires one step before the app's own text is affected — and gated
+it. That is a fifty-line workaround for a six-line library change, in every app
+that vendors afterhours, and it can only ever detect the condition, never
+prevent it.
 
 ### 2. #115 — nothing retires a widget, so every system walks the union of every screen the app has ever shown
 
@@ -276,7 +312,7 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Twelve families cover 100 of the 185 entries.** Fix the canonical one and the
+**Thirteen families cover 104 of the 189 entries.** Fix the canonical one and the
 rest either close or shrink to a footnote — 41 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
@@ -295,7 +331,8 @@ to fix.
 | **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. |
 | **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. |
 | **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). |
-| **GPU accounting** | **#210** | #211, #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, an atlas nobody watches, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
+| **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
+| **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
 | **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, and its best diagnostic is unregistered. #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
 
 **Exact duplicates**, as opposed to families — the same finding written twice:
@@ -570,6 +607,10 @@ correction narrows them rather than closing them.
 | 200 | A headless resize leaks five Metal pipelines a frame | BLOCKING | HIGH | S | live |
 | 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | CRIT | XS | **live — top 10** |
 | 211 | Fixed glyph atlas; overflow corrupts `measure_text` | — | CRIT | XS | **live — top 10** |
+| 350 | Nothing can be asked of the atlas, not even "was that measure complete" | MISSING | CRIT | XS | **live — top 10** |
+| 351 | `fonsSetErrorCallback` exists and is never registered | MISSING | CRIT | XS | **live — top 10** |
+| 352 | The 2048² atlas is a build-time constant of the library | MISSING | HIGH | XS | **live — top 10** |
+| 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** |
 | 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live |
 | 220 | A scroll view's viewport is zero on frame one | SHARP EDGE | MED | XS | wrong |
 | 221 | `with_label` takes `const std::string&` | TEDIOUS | MED | XS | dup→#180 |
