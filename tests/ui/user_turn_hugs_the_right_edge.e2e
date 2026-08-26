@@ -30,6 +30,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
+require_thread t2
+
 expect_text "Reconcile this cycle's Stars payouts"
 
 # The reading column the turn is laid out in.

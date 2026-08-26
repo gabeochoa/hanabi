@@ -12,6 +12,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r8"],"active_tab":"r8","theme":"dark"}
 
 # A node event names the verb and the node, not just "node".
+require_thread r8
+
 expect_text "node"
 expect_text "attached"
 expect_text "od-4471.quota"

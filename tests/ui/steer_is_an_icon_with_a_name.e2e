@@ -41,6 +41,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
 
+require_thread t9
+
 wait_frames 14
 click_ui composer_reply_input
 type "hold on"

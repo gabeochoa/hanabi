@@ -13,6 +13,8 @@
 # env: HANABI_FOLD_DEMO=1 HANABI_OPEN=rfold
 
 # Folded is the default: both piles are one row apiece, no output.
+require_thread rfold
+
 expect_text "wc -l cache/evict.rs"
 expect_no_text "182 cache/evict.rs"
 expect_no_text "lru_drops_the_oldest_entry_first"

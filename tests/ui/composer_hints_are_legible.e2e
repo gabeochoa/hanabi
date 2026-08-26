@@ -21,6 +21,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
+require_thread t2
+
 assert_ui composer_send w=19
 assert_ui composer_send h=19
 assert_ui composer_send hidden=false

@@ -16,6 +16,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t4"],"active_tab":"t4","theme":"dark"}
 
+require_thread t4
+
 expect_text "proration.   ·   4h"
 
 click_ui sb_settings

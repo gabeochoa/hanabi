@@ -17,6 +17,8 @@
 # env: HANABI_FOCUS_AUDIT=1
 
 # A click puts the ring away and puts the caret in the composer.
+require_thread t2
+
 click_ui composer_reply_input
 wait_frames 6
 type "hello"

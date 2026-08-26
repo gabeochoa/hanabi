@@ -12,4 +12,6 @@
 
 # "prorate" appears in this thread — but only inside a fenced code block, which
 # has no highlight path. Not paintable, so not counted.
+require_thread t4
+
 expect_text "no matches"

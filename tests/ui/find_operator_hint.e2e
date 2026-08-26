@@ -16,6 +16,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r1"],"active_tab":"r1","theme":"dark"}
 # env: HANABI_FIND_DEMO='backoff is:thinking' HANABI_FIND_AUDIT=1
 
+require_thread r1
+
 expect_text "Try: is:user, is:assistant, has:tool, state:failed"
 expect_text "no matches"
 

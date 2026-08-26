@@ -12,6 +12,8 @@
 # env: HANABI_DATES_DEMO=1 HANABI_OPEN=rdates
 
 # The thread is here, in full.
+require_thread rdates
+
 expect_text "how did the verification go?"
 expect_text "Clean"
 

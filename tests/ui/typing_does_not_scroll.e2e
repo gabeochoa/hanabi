@@ -7,6 +7,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
 
+require_thread rbig
+
 expect_no_text #0:
 
 # Focus the composer and type, then press Home: the caret moves, the thread

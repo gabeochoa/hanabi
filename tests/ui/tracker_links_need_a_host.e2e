@@ -20,6 +20,8 @@
 # env: HANABI_LINK_AUDIT=1
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
 
+require_thread t1
+
 expect_text "Built the config diff"
 
 mouse_move 455 147

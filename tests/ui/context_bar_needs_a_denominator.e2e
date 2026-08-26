@@ -10,6 +10,8 @@
 # env: HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000
 
 # A counted numerator over a real budget reads as a proportion.
+require_thread t2
+
 expect_text "258k / 800k tokens"
 # No tilde: the "~" is reserved for the estimate, and this is not one.
 expect_no_text "~"

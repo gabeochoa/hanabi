@@ -16,6 +16,8 @@
 # env: HANABI_XSEARCH_DEMO=ledger
 
 # The hit, by thread title...
+require_thread t2
+
 expect_text "needs a decision"
 # ...and the line of the conversation it was found in, which is the part that
 # makes a cross-thread result usable at all.

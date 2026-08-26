@@ -16,6 +16,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_MD_DEMO=1 HANABI_OPEN=rmd
 
+require_thread rmd
+
 expect_text "Release readiness"
 expect_text "Findings"
 expect_text "Rollback plan"

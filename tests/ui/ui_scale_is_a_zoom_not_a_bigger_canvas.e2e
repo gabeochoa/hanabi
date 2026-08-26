@@ -51,6 +51,8 @@
 # settings: {"window_width":2200,"window_height":1520,"open_tabs":["r5"],"active_tab":"r5","theme":"dark"}
 # env: HANABI_UI_SCALE=2.0 HANABI_WIN_W=2200 HANABI_WIN_H=1520
 
+require_thread r5
+
 wait_frames 30
 
 # The sidebar is 280 logical px wide, so 560 device px — not 280 in a 2200px

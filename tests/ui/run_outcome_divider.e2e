@@ -10,6 +10,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
 
+require_thread r9
+
 expect_text "That is the Autograph key"
 
 # The word itself is a real text element, not paint: a divider drawn wholesale

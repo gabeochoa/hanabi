@@ -32,6 +32,8 @@
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
 
 # Opens at the end: the first question is far above the viewport.
+require_thread rbig
+
 expect_no_text #0:
 
 # 1. Press low on the rail. That is a click, and it lands somewhere late.

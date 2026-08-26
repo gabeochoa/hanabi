@@ -43,6 +43,8 @@
 #
 # settings: {"window_width":1180,"window_height":949,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
 
+require_thread t2
+
 assert_ui row_title hidden=false
 assert_ui row_title x=23
 

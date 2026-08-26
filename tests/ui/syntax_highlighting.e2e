@@ -16,6 +16,8 @@
 # settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_CODE_DEMO=1 HANABI_OPEN=rcode HANABI_SYNTAX_AUDIT=1
 
+require_thread rcode
+
 expect_text "show me the retry helper"
 
 # JSON: three quoted keys, two numbers, one literal (true), no comments.
