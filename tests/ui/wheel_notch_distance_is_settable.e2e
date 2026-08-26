@@ -1,0 +1,30 @@
+# The wheel's per-notch distance is a knob, and the knob works.
+#
+# WHY THERE IS A KNOB AND NOT A BETTER DEFAULT. hanabi receives two kinds of
+# scroll through one float. A trackpad or a Magic Mouse sends PRECISE deltas,
+# which sokol divides by 10 before the app sees them (vendor/sokol/sokol_app.h,
+# scrollWheel:), so at afterhours' default speed of 20 the content moves twice
+# as far as the finger and 10 would track it exactly. A third-party wheel sends
+# LINE deltas, about one line a detent, so at 20 a detent moves one line of text
+# where the macOS convention is three -- about 57. One multiplier cannot be both
+# numbers, nothing downstream can tell the two kinds apart, and no harness here
+# can drive a real trackpad (afterhours_gaps.md #405, #172). So the default is
+# left where it was and the number is settable per machine.
+#
+# WHAT THIS PINS. That HANABI_SCROLL_SPEED reaches the transcript's scroll view
+# at all -- an env knob nothing asserts on is the class of thing that reads as
+# working and does nothing. tests/ui/wheel_scrolls_the_transcript.e2e pins the
+# same notch at the default 20 (766 = 646 + 3 x 20 x 2); this pins it at 10
+# (706 = 646 + 3 x 10 x 2). The x2 is the e2e injector letting one wheel delta
+# survive one reset_frame, so a scroll_wheel command is read on two frames.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_SCROLL_SPEED=10
+
+mouse_move 650 400
+wait_frames 10
+assert_ui transcript_bottom_pad y=646
+
+scroll_wheel 0 3
+wait_frames 25
+assert_ui transcript_bottom_pad y=706
