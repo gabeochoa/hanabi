@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -70,7 +71,8 @@ class MockClient : public Client {
     std::string backend_label() const override { return "mock"; }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
-        const auto& sessions = seed();
+        const SeedPtr seedRef = seed_ptr();
+        const auto& sessions = *seedRef;
         std::vector<SessionSummary> out;
         out.reserve(sessions.size() + created_.size());
         // created_ holds both composer-created sessions AND live overrides of
@@ -101,9 +103,10 @@ class MockClient : public Client {
                 return Result<Session>::success(s);
             }
         }
-        for (const auto& s : seed()) {
+        const SeedPtr seedRef = seed_ptr();
+        for (const auto& s : *seedRef) {
             if (s.summary.id == id) {
-                // Already filled by seed(); copy the one row out.
+                // Already filled by seed_ptr(); copy the one row out.
                 return Result<Session>::success(s);
             }
         }
@@ -173,7 +176,7 @@ class MockClient : public Client {
         s.ok = true;
         s.user_id = "mock-user@example.invalid";
         s.bank_id = "mock-bank";
-        s.session_count = static_cast<int64_t>(seed().size());
+        s.session_count = static_cast<int64_t>(seed_ptr()->size());
         s.asset_count = 0;
         s.schedule_count = 0;
         s.skill_count = 0;
@@ -463,12 +466,13 @@ class MockClient : public Client {
     // Find a session by id that we can mutate. Composer-created sessions live
     // in created_ already. A seed session is copied into created_ on first
     // touch so the appended turn persists for the rest of this run (the seed
-    // catalog is shared and const — see seed() — so it cannot hold per-run
+    // catalog is shared and const — see seed_ptr() — so it cannot hold per-run
     // state itself).
     Session* find_mutable(const std::string& id) {
         for (auto& s : created_)
             if (s.summary.id == id) return &s;
-        for (const auto& s : seed()) {
+        const SeedPtr seedRef = seed_ptr();
+        for (const auto& s : *seedRef) {
             if (s.summary.id == id) {
                 created_.push_back(s);
                 return &created_.back();
@@ -548,7 +552,7 @@ class MockClient : public Client {
         s.state = state;             // Unknown / Running / Archived only
         s.tag = ThreadTag::None;     // real rows carry no high-signal tag
         s.folder = "";               // real rows are folderless
-        s.starred = false;           // see isPinned note in seed()
+        s.starred = false;           // see isPinned note in seed_ptr()
         s.preview = std::move(preview);
         return s;
     }
@@ -737,17 +741,28 @@ class MockClient : public Client {
         return out;
     }
 
-    static const std::vector<Session>& seed() {
-        // A mutex rather than bare static-local init. Magic statics make the
-        // FIRST build thread-safe, but this cache can REBUILD when the key
-        // changes, and list_sessions() runs under std::async while the main
-        // thread can be in get_session() — two threads rebuilding the same
-        // vector is a data race. An uncontended lock is tens of nanoseconds
-        // against the 0.007 ms this function now costs, so it is free.
+    using SeedPtr = std::shared_ptr<const std::vector<Session>>;
+
+    // The catalog, as a value the caller OWNS for as long as it reads it.
+    //
+    // This returned `const std::vector<Session>&` and took a mutex around the
+    // rebuild. The lock was released at the return, so it serialised rebuild
+    // against rebuild and left rebuild against READ -- which is the race the
+    // comment claimed to fix and the only one that can happen here.
+    // list_sessions() runs under std::async and iterates the reference while
+    // the main thread can be in get_session(); one `s_cache = build_seed()`
+    // reallocates the buffer under that live iterator. Found by the commit
+    // audit, docs/COMMIT_AUDIT.md.
+    //
+    // A shared_ptr to an IMMUTABLE vector removes the race by construction
+    // rather than by timing: a rebuild publishes a NEW vector and the old one
+    // stays alive until the last reader drops it. Copying the pointer is one
+    // atomic increment and allocates nothing, so scripts/alloc_gate.sh does
+    // not move.
+    static SeedPtr seed_ptr() {
         static std::mutex mu;
         static std::string s_key;
-        static std::vector<Session> s_cache;
-        static bool s_built = false;
+        static SeedPtr s_cache;
         std::string key;
         for (const char* name : kFixtureEnv) {
             const char* v = std::getenv(name);
@@ -755,11 +770,11 @@ class MockClient : public Client {
             key += '\x1f';  // a separator no env value will contain
         }
         std::lock_guard<std::mutex> lk(mu);
-        if (!s_built || key != s_key) {
-            s_cache = build_seed();
-            for (auto& s : s_cache) fill_sub_agent_counts(s);
+        if (!s_cache || key != s_key) {
+            auto fresh = std::make_shared<std::vector<Session>>(build_seed());
+            for (auto& s : *fresh) fill_sub_agent_counts(s);
+            s_cache = std::move(fresh);
             s_key = key;
-            s_built = true;
         }
         return s_cache;
     }

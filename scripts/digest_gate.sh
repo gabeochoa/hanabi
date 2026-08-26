@@ -126,15 +126,30 @@ measure() {  # $1 = view, $2 = session count
     ( HANABI_VIEW="$view" HANABI_STRESS_SESSIONS="$n" \
           timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1 ) || true
     cards="$(grep -E 'DigestCards:' "$LOG" | head -1)"
-    if [ -z "$cards" ]; then
-        echo "  digest_gate: no DigestCards line in $LOG -- the app did not" >&2
-        echo "  report card counts, so this gate has nothing to assert." >&2
-        exit 2
-    fi
     w="$(grep -Eo 'widgets=[0-9]+' "$LOG" | head -1 | cut -d= -f2)"
     b="$(printf '%s' "$cards" | grep -Eo 'built=[0-9]+' | cut -d= -f2)"
     m="$(printf '%s' "$cards" | grep -Eo 'matched=[0-9]+' | cut -d= -f2)"
     printf '%s %s %s' "${w:-0}" "${b:-0}" "${m:-0}"
+}
+
+# A gate that cannot find its subject must FAIL, and saying so inside measure()
+# does not do that: measure() is only ever called in $(...), so an `exit` there
+# kills the subshell and the parent reads on. This script sets -uo pipefail but
+# not -e, so the empty fields that follow make every integer test error to
+# false and the run prints PASS -- which is what it did, with four blank rows,
+# until this was caught by the commit audit. The subshell reports absence in
+# the FIELDS, and the parent is the only place that may exit.
+measured_or_die() {  # $1 = session count, $2 = view, $3 = built, $4 = matched
+    if [ -z "${3:-}" ] || [ -z "${4:-}" ] || \
+       { [ "${3:-0}" = "0" ] && [ "${4:-0}" = "0" ]; }; then
+        echo "" >&2
+        echo "  FAIL: no DigestCards line for '$2' at $1 sessions." >&2
+        echo "        The app did not report card counts, so this gate has" >&2
+        echo "        nothing to assert. That is a crash, a killed run, or a" >&2
+        echo "        binary built without the counters -- never a pass." >&2
+        tail -20 "$LOG" | sed 's/^/        /' >&2
+        exit 2
+    fi
 }
 
 echo "=== hanabi digest-screen gate ==="
@@ -143,8 +158,10 @@ printf '  %-10s %8s %8s %9s %9s %8s\n' \
 
 FAIL=0
 for view in blocked review starred archived; do
-    read -r W_SMALL _ _ <<<"$(measure "$view" "$SMALL")"
+    read -r W_SMALL S_BUILT S_MATCHED <<<"$(measure "$view" "$SMALL")"
+    measured_or_die "$SMALL" "$view" "$S_BUILT" "$S_MATCHED"
     read -r W_BIG BUILT MATCHED <<<"$(measure "$view" "$BIG")"
+    measured_or_die "$BIG" "$view" "$BUILT" "$MATCHED"
 
     if [ "$W_SMALL" = "0" ] || [ "$W_BIG" = "0" ]; then
         echo "" >&2
