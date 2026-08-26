@@ -9,6 +9,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_THINK_DEMO=1
 
+require_thread t2
+
 expect_text "Thinking"
 # The timer is stamped at a fixed 32s so the reading cannot drift between runs.
 expect_text "32s"

@@ -28,6 +28,8 @@
 # env: HANABI_SELECT_AUDIT=1
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
+require_thread t2
+
 expect_no_text selected
 
 click 415 260

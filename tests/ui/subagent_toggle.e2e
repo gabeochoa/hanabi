@@ -13,6 +13,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
 # The headline counts everything, folded.
+require_thread t2
+
 expect_text "2 sub-agents"
 expect_no_text "Duplicate-payout check"
 

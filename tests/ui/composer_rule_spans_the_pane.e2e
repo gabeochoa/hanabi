@@ -27,6 +27,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
 # The pane, for the numbers below to be read against.
+require_thread t2
+
 assert_ui composer_divider x=280
 
 # The rule: the full pane, not the reading column.

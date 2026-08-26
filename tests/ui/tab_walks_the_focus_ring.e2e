@@ -21,6 +21,8 @@
 # env: HANABI_FOCUS_AUDIT=1
 
 # At rest the ring is away, and focus is parked on the first view row.
+require_thread t2
+
 expect_text "ring off Home"
 
 # Each Tab is one step down the list, and the ring goes with it.

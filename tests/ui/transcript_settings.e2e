@@ -15,6 +15,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_TEST_OVERLAY=settings HANABI_THINKING_DEMO=1 HANABI_OPEN=rthink
 
+require_thread rthink
+
 expect_text "Transcript"
 expect_text "Date dividers"
 expect_text "Reasoning"

@@ -13,6 +13,8 @@
 # "ledger" is paintable three times in this thread (find_in_conversation.e2e),
 # so a find bar that has not stepped reads "1 of 3". One step in and it is the
 # second match that is current.
+require_thread t2
+
 expect_text "2 of 3"
 
 # And the rule that makes the tally mean anything: it equals the number of

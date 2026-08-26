@@ -12,6 +12,8 @@
 
 # Opens at the bottom, so the first message is far above the viewport and is
 # not rendered at all.
+require_thread rbig
+
 expect_no_text #0:
 
 key HOME

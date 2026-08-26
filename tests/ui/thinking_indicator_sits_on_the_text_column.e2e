@@ -51,6 +51,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
 # env: HANABI_WIN_W=1100 HANABI_WIN_H=760 HANABI_THINK_DEMO=1
 
+require_thread r9
+
 wait_frames 14
 
 assert_ui asst_bubble x=322

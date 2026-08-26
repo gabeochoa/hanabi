@@ -13,6 +13,8 @@
 # env: HANABI_XSEARCH_DEMO=decision
 
 # The thread we hold in full: no qualifier on the row.
+require_thread t2
+
 expect_text "needs a decision before it can go on"
 
 # The thread we do not: marked, on the row itself.

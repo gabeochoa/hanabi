@@ -20,6 +20,8 @@
 
 # Home is the first smart_item and the one the window opens selected, so the
 # first match is the row whose fill this is about.
+require_thread t2
+
 assert_ui smart_item h=29
 
 # Its top edge, which is where the 1px of margin above it puts it. The row

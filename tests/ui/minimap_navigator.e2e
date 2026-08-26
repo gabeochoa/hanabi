@@ -19,6 +19,8 @@
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
 
 # Opens at the end: the first message is far above the viewport.
+require_thread rbig
+
 expect_no_text #0:
 
 click_ui minimap_mark_0

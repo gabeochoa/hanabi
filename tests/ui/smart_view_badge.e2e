@@ -24,6 +24,8 @@
 # Home's badge. Addressed by its text so it is THIS badge and not the first
 # one in the tree: 9 is blocked (6) + review (3) on the fixture, and no other
 # widget on screen carries a bare "9".
+require_thread t2
+
 assert_ui_text "9" w=16
 assert_ui_text "9" h=16
 # x is the LAYOUT rect, which sits one pixel right of where the box lands on

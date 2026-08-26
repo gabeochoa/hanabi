@@ -9,6 +9,8 @@
 # env: HANABI_THINKING_DEMO=1 HANABI_OPEN=rthink
 
 # The answer is here from the start.
+require_thread rthink
+
 expect_text "The budget is per-request"
 # The reasoning is not — only the row that offers it.
 expect_text "Thought for a moment"

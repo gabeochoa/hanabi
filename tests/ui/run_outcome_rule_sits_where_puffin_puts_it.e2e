@@ -29,5 +29,7 @@
 
 # Row top 289, 22 tall, so the rule is centred on y=300 in the element's own
 # space and paints the frame's row 299 -- the reference's row.
+require_thread r9
+
 assert_ui run_outcome_divider y=289 h=22
 assert_ui_text "failed" hidden=false

@@ -17,6 +17,8 @@
 
 # At rest, before anything has been touched: focus is parked on the first row
 # and it does NOT wear a ring.
+require_thread t2
+
 expect_text "ring off"
 
 # Tab is the user saying they are driving with the keyboard. Now the ring is

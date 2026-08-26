@@ -5,5 +5,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_CONTEXT_USAGE=258937,stale HANABI_CONTEXT_BUDGET_TOKENS=800000
 
+require_thread t2
+
 expect_text "258k / 800k tokens"
 expect_text "stale"

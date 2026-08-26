@@ -11,6 +11,8 @@
 # argument here is matched WITH its quote characters and can never hit.
 # afterhours_gaps.md #47.
 
+require_thread t2
+
 expect_text "Reconciled 4,812 accounts"
 expect_no_text Copy
 

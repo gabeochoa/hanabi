@@ -4,40 +4,49 @@
 # reference to something that lives elsewhere, and it used to be prose. It is
 # now drawn as a link and a press on it opens the configured tracker.
 #
-# The click is by COORDINATE, which the harness otherwise discourages, because
-# the thing under test IS a hit test: the id is a byte range inside one wrapped
-# label, not an element, so there is no name to click (afterhours_gaps.md #51 —
-# nothing will say where a byte range landed, so both the underline and this
-# hit test re-derive the wrap). The point below is the centre of the rect that
-# re-derivation produces for D948120 in this thread at 1100x760; if the layout
-# moves, this fails loudly rather than passing on empty space. It moved once
-# already: y was 465 before the pane lost its title header and its short-thread
-# bottom anchor, which put this line 321px higher.
+# THIS SCRIPT USED TO PIN THE PIXEL, and that is the whole reason it has a
+# reputation. The id is a byte range inside one wrapped label, not an element,
+# so there is no name to click (afterhours_gaps.md #51 — nothing will say
+# where a byte range landed), and the script clicked the centre of the rect a
+# re-derivation produced at 1100x760. A pinned pixel is a coordinate that
+# rots. It rotted twice:
 #
-# RE-MEASURE IT MECHANICALLY, not off a screenshot. HANABI_LINK_AUDIT=1 makes
-# the hit test print every rect it tested a point against:
+#   y=465 -> 144   the pane lost its title header and its short-thread bottom
+#                  anchor, which put this line 321px higher.
+#   y=147 -> 173   the six feature branches of 2026-08-26 moved every
+#                  transcript body line down 26px. perf/post-merge re-measured
+#                  select_word_and_line.e2e and
+#                  a_click_on_a_line_seam_is_one_click.e2e for that move and
+#                  did not reach this script, so it went on failing — alone
+#                  AND in the full suite — and was read as a flake for three
+#                  sessions. One agent ran it 148 times looking for a race.
 #
-#   [link] HIT  id=D948120  point=(455.0,147.0)  rect=(432.0,140.5 46.0x13.0)
+# So it no longer pins anything. `click_link` (src/ecs/e2e_commands.h) presses
+# the centre of the rect the RENDERER derived for that id this frame, which is
+# the same rect the hit test tests against, so the two cannot disagree and the
+# layout can move as often as it likes. When the id is not on screen at all
+# the failure names the links that were, instead of reporting a miss on empty
+# space.
 #
-# which is the rect, the point, and the verdict in one line. Scanning a PNG for
-# text rows is what this cost last time it moved, and it was 20 minutes.
-#
-# y was 144 until that audit existed. The rect is 140.5 to 153.5, so 144 sat
-# 3.5px below the top edge and 9.5 above the bottom, on a point the comment
-# above already called the centre -- it had eaten 46% of the vertical margin
-# for nothing. 147 is the centre.
+# `require_thread` states this script's precondition where a reader can see
+# it. The `# settings:` line below ASKS for t1; that line is a request, and
+# until this command existed nothing checked that it was granted — a script
+# whose thread never opened asserted against the sidebar and failed with
+# "text not found", which is what three separate investigations chased.
 #
 # The browser is never launched: a headless render has nobody to hand it to,
 # so the open is recorded and the transcript's own confirmation is what is
 # asserted here (src/ui/link_detect.h).
 #
+# HANABI_LINK_AUDIT=1 still prints every rect the hit test tested, and is
+# still the way to see where a link landed.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
 # env: HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
 
+require_thread t1
 expect_text "Built the config diff"
 
-mouse_move 455 147
-wait_frames 4
-click 455 147
+click_link D948120
 wait_frames 10
 expect_text "Opened D948120"

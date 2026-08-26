@@ -9,6 +9,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
+require_thread t2
+
 expect_text "Reconciled 4,812 accounts"
 
 # y=242 is the middle body line of the first reply, re-measured after the

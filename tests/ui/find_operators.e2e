@@ -18,6 +18,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r1"],"active_tab":"r1","theme":"dark"}
 # env: HANABI_FIND_DEMO='backoff has:tool' HANABI_FIND_AUDIT=1
 
+require_thread r1
+
 expect_text "1 of 2"
 
 # Two counted, two painted.

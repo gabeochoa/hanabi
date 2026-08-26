@@ -12,6 +12,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_UNREAD_DEMO=4
 
+require_thread rbig
+
 expect_text "4 new messages"
 
 # Scrolling back through the thread does not un-read it or move the line.

@@ -17,6 +17,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_THINKING_DEMO=1 HANABI_OPEN=rthink HANABI_FIND_DEMO=budget HANABI_FIND_AUDIT=1
 
+require_thread rthink
+
 expect_text "The budget is per-request"
 # The reasoning is there to be found, and is not found.
 expect_text "Thought for a moment"
