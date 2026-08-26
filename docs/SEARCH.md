@@ -238,20 +238,35 @@ Still counted-but-unpaintable, and tracked separately: a multi-word query
 straddling a soft wrap (**S12**), and a match inside the folded tail of a long
 message (which is at least reachable by a click on the fold).
 
-### S2 — "Full text" is not full text for the threads you most recently read
+### S2 — "Full text" is not full text for the threads you most recently read — FIXED HERE
 
-`transcript_cache.h:108` caps the in-memory copy at the **last 20 messages**.
-`build_index` prefers that copy over the disk one (`:302`) and stamps it
-`Depth::Full`, so `coverage_note` says *"Full text for all N threads"* while
-the five threads you were just reading were indexed 20 messages deep.
+`transcript_cache.h` caps the in-memory copy at the **last 20 messages**.
+`build_index` preferred that copy over the disk one and stamped it
+`Depth::Full`, so `coverage_note` said *"Full text for all N threads"* while
+the five threads you were just reading were indexed 20 messages deep — the
+shallowest entries in the corpus, reported as the deepest.
 
 The comment justifying the preference — *"it is the newer of the two"* — is
-true and irrelevant. Newer is not fuller. This defeats the file's own stated
-purpose: *"A search that quietly misses half your history and reports '3
-results' is the failure mode this file exists to avoid"* (`session_index.h:22`).
+true and irrelevant. Newer is not fuller.
 
-**What it would take: small.** Prefer disk when the cached copy is at the cap,
-or add a third `Depth::Windowed` and say so in the note.
+Fixed both ways the entry suggested, because they answer different halves:
+
+- `TranscriptCache` now records whether an entry was **cut** on the way in
+  (`truncated(id)`; a size check cannot answer it, since a thread with exactly
+  20 messages is complete). `build_index` prefers the LRU only while it holds
+  the whole thread, and reads the disk copy when it does not — whichever holds
+  more messages wins.
+- `Depth::Windowed` is the third state, for a body that is a tail: cut into the
+  cache, or fetched with `has_more_older`. `coverage_note` grew a clause for it
+  — *"Full text for 0 of 21 threads; 1 to their newest messages only; the rest
+  by title and preview only"* — and the result row is marked
+  *"(recent messages only)"*, distinct from *"(title and preview only)"*,
+  because an absent match in a tail is not evidence that the word was never
+  said.
+
+`session_search_says_what_it_only_skimmed.e2e` drives it on the 480-message
+fixture, where the searchable copy is the last 20 of 480, plus a unit test on
+the three-way depth and every branch of the note's wording.
 
 ### S3 — the sidebar's "content" search greps JSON structure — FIXED HERE
 

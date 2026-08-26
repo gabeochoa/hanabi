@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------------
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -196,10 +197,12 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
 
             // A thread this search could only read the outside of says so on
             // its own row: the reason it matched is not the same kind of fact
-            // as a hit inside the conversation.
-            const std::string title =
-                hits[i].partial ? hits[i].title + "  (title and preview only)"
-                                : hits[i].title;
+            // as a hit inside the conversation. And a thread it read only the
+            // TAIL of says that too — an absent match in one of those is not
+            // evidence of anything (docs/SEARCH.md S2).
+            std::string title = hits[i].title;
+            if (hits[i].partial) title += "  (title and preview only)";
+            else if (hits[i].windowed) title += "  (recent messages only)";
             div(ctx, mk(row.ent(), 1),
                 ComponentConfig{}
                     .with_label(title)
@@ -297,8 +300,20 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Everything readable about one thread, and how deep the reading went.
-    // The in-memory LRU is preferred over the disk copy: it is the newer of
-    // the two whenever they differ (the loader puts every fetch there).
+    //
+    // The in-memory LRU used to be preferred over the disk copy unconditionally
+    // — "it is the newer of the two whenever they differ" — and the result was
+    // stamped Depth::Full. Both halves were wrong together: the LRU holds only
+    // a thread's last 20 messages (ecs::model::kCacheMaxMessagesPerThread), so
+    // the five threads you had just been reading were the SHALLOWEST entries in
+    // the corpus, and the sentence under the results called them full text
+    // (docs/SEARCH.md S2). Newer is not fuller.
+    //
+    // So: prefer the LRU only while it holds the whole thread. When it was cut
+    // down, the disk copy is read and whichever holds more messages wins — and
+    // if the winner is itself a window (cut on the way into the cache, or
+    // fetched with has_more_older), it is indexed as Windowed and the note says
+    // so instead of claiming a depth nobody has.
     static hanabi::search::Index build_index(AppComponent& app) {
         hanabi::search::Index ix;
         for (const auto& s : app.sessions) {
@@ -306,12 +321,26 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
             d.id = s.id;
             d.title = s.title;
             d.preview = s.preview;
-            if (const api::Session* held = app.transcriptCache.peek(s.id)) {
-                d.body = flatten(*held);
-                d.depth = hanabi::search::Depth::Full;
-            } else if (auto disk = api::disk_cache::load_transcript(s.id)) {
+            const api::Session* held = app.transcriptCache.peek(s.id);
+            const bool heldCut =
+                held != nullptr && app.transcriptCache.truncated(s.id);
+            std::optional<api::Session> disk;
+            if (held == nullptr || heldCut)
+                disk = api::disk_cache::load_transcript(s.id);
+            const bool takeDisk =
+                disk.has_value() &&
+                (held == nullptr ||
+                 disk->messages.size() > held->messages.size());
+            if (takeDisk) {
                 d.body = flatten(*disk);
-                d.depth = hanabi::search::Depth::Full;
+                d.depth = disk->has_more_older
+                              ? hanabi::search::Depth::Windowed
+                              : hanabi::search::Depth::Full;
+            } else if (held != nullptr) {
+                d.body = flatten(*held);
+                d.depth = (heldCut || held->has_more_older)
+                              ? hanabi::search::Depth::Windowed
+                              : hanabi::search::Depth::Full;
             }
             ix.add(std::move(d));
         }

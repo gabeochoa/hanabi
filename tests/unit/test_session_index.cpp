@@ -48,6 +48,13 @@ static Doc shallow(const std::string& id, const std::string& title,
     return d;
 }
 
+static Doc windowed(const std::string& id, const std::string& title,
+                    const std::string& body, const std::string& preview = "") {
+    Doc d = full(id, title, body, preview);
+    d.depth = Depth::Windowed;
+    return d;
+}
+
 static Index sample() {
     Index ix;
     ix.add(full("a", "Stars payout reconciliation",
@@ -133,6 +140,55 @@ static void test_the_note_says_how_partial_the_answer_is() {
     CHECK(coverage_note(Index().coverage()) == "Nothing to search yet");
 }
 
+// A thread read only to its newest messages is neither Full nor TitleOnly, and
+// the difference is the whole honesty of the feature: an absent match in the
+// tail of a thread is not evidence that the word was never said. Before this,
+// the in-memory LRU's 20-message tail was stamped Full and counted as Full.
+// docs/SEARCH.md S2.
+static void test_a_thread_read_only_to_its_tail_is_its_own_depth() {
+    std::printf("test_a_thread_read_only_to_its_tail_is_its_own_depth\n");
+    Index ix;
+    ix.add(full("a", "Read whole", "the retry queue is draining"));
+    ix.add(windowed("b", "Read recently", "the retry budget was raised"));
+    ix.add(shallow("c", "Never opened", "retry notes"));
+
+    const Coverage c = ix.coverage();
+    CHECK(c.threads == 3);
+    CHECK(c.full == 1);
+    CHECK(c.windowed == 1);
+    CHECK(c.shallow() == 1);
+    CHECK(!c.complete());
+
+    // partial keeps its old meaning -- title and preview only -- so the row
+    // qualifier that says exactly that does not start appearing on threads
+    // whose conversation WAS searched. `windowed` is the new, weaker mark.
+    const auto hits = ix.query("retry", 10);
+    CHECK(hits.size() == 3);
+    if (hits.size() != 3) return;
+    CHECK(!hits[0].partial && !hits[0].windowed);
+    CHECK(!hits[1].partial && hits[1].windowed);
+    CHECK(hits[2].partial && !hits[2].windowed);
+
+    // Three clauses, and each optional one appears only when its count is not
+    // zero -- the note is read across a 500px panel.
+    const std::string note = coverage_note(c);
+    CHECK(note == "Full text for 1 of 3 threads; 1 to their newest messages "
+                  "only; the rest by title and preview only");
+
+    Index noShallow;
+    noShallow.add(full("a", "One", "text"));
+    noShallow.add(windowed("b", "Two", "text"));
+    CHECK(coverage_note(noShallow.coverage()) ==
+          "Full text for 1 of 2 threads; 1 to their newest messages only");
+
+    // All windowed is not complete, and must not read as "all N threads".
+    Index allWindowed;
+    allWindowed.add(windowed("a", "One", "text"));
+    CHECK(coverage_note(allWindowed.coverage()) ==
+          "Full text for 0 of 1 threads; 1 to their newest messages only");
+    CHECK(!allWindowed.coverage().complete());
+}
+
 static void test_a_snippet_is_one_readable_line() {
     std::printf("test_a_snippet_is_one_readable_line\n");
     const std::string body =
@@ -163,6 +219,7 @@ int main() {
     test_an_empty_query_is_not_everything();
     test_coverage_counts_what_was_actually_read();
     test_the_note_says_how_partial_the_answer_is();
+    test_a_thread_read_only_to_its_tail_is_its_own_depth();
     test_a_snippet_is_one_readable_line();
     if (g_failures == 0) {
         std::printf("OK\n");

@@ -39,9 +39,18 @@
 namespace hanabi::search {
 
 // How much of a thread the index could actually read.
+//
+// Windowed exists because "or as much as the cache kept" used to be a
+// parenthetical on Full, and a parenthetical is not an admission. The
+// in-memory LRU holds the last 20 messages of a thread; build_index preferred
+// it over the disk copy because it is the NEWER of the two, which is true and
+// irrelevant — newer is not fuller. So the threads you had just been reading
+// were the least deeply indexed ones in the corpus, and coverage_note called
+// them Full (docs/SEARCH.md S2).
 enum class Depth {
     TitleOnly,  // the list row: title + preview. Never the conversation.
-    Full,       // a transcript we hold, in full (or as much as the cache kept)
+    Windowed,   // the tail of the conversation: what a windowed copy held
+    Full,       // the whole conversation, as this machine has it
 };
 
 struct Doc {
@@ -58,6 +67,7 @@ struct Hit {
     std::string snippet;   // context around the match; empty for a title hit
     bool in_body = false;  // matched inside the conversation, not the title
     bool partial = false;  // this thread was searched title-and-preview only
+    bool windowed = false; // only the tail of this thread was searched
 };
 
 // What the answer is worth: how many threads were searched, and how many of
@@ -65,7 +75,8 @@ struct Hit {
 struct Coverage {
     std::size_t threads = 0;
     std::size_t full = 0;
-    std::size_t shallow() const { return threads - full; }
+    std::size_t windowed = 0;
+    std::size_t shallow() const { return threads - full - windowed; }
     bool complete() const { return threads > 0 && full == threads; }
 };
 
@@ -131,8 +142,10 @@ class Index {
     Coverage coverage() const {
         Coverage c;
         c.threads = docs_.size();
-        for (const auto& d : docs_)
+        for (const auto& d : docs_) {
             if (d.depth == Depth::Full) ++c.full;
+            else if (d.depth == Depth::Windowed) ++c.windowed;
+        }
         return c;
     }
 
@@ -151,7 +164,8 @@ class Index {
             Hit h;
             h.id = d.id;
             h.title = d.title;
-            h.partial = d.depth != Depth::Full;
+            h.partial = d.depth == Depth::TitleOnly;
+            h.windowed = d.depth == Depth::Windowed;
 
             const std::size_t inBody = lo.body.find(needle);
             if (inBody != std::string::npos) {
@@ -188,10 +202,15 @@ inline std::string coverage_note(const Coverage& c) {
     if (c.complete())
         return "Full text for all " + std::to_string(c.threads) + " threads";
     // Short on purpose: a line nobody can read across the panel is the same
-    // as not admitting anything.
-    return "Full text for " + std::to_string(c.full) + " of " +
-           std::to_string(c.threads) +
-           " threads; the rest by title and preview only";
+    // as not admitting anything. Three clauses at the very worst, and the two
+    // optional ones only appear when the number in front of them is not zero.
+    std::string note = "Full text for " + std::to_string(c.full) + " of " +
+                       std::to_string(c.threads) + " threads";
+    if (c.windowed > 0)
+        note += "; " + std::to_string(c.windowed) +
+                " to their newest messages only";
+    if (c.shallow() > 0) note += "; the rest by title and preview only";
+    return note;
 }
 
 }  // namespace hanabi::search

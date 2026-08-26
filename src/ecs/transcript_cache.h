@@ -58,11 +58,12 @@ class TranscriptCache {
     // exceed the 5-thread capacity.
     void put(api::Session session) {
         const std::string id = session.summary.id;
-        cap_messages(session);
+        const bool cut = cap_messages(session);
 
         auto it = map_.find(id);
         if (it != map_.end()) {
             it->second.session = std::move(session);
+            it->second.truncated = cut;
             touch_locked(it);
             return;
         }
@@ -71,8 +72,21 @@ class TranscriptCache {
         order_.push_front(id);
         Entry e;
         e.session = std::move(session);
+        e.truncated = cut;
         e.pos = order_.begin();
         map_.emplace(id, std::move(e));
+    }
+
+    // Was `id`'s copy CUT DOWN on the way in? A reader that treats what it
+    // holds as the whole thread needs to know: the cross-session index called
+    // a 20-message tail of a 400-message thread "full text" and said so in the
+    // sentence whose whole job is admitting what it could not read
+    // (docs/SEARCH.md S2). A size check cannot answer this — a thread with
+    // exactly kCacheMaxMessagesPerThread messages is complete — so the answer
+    // is recorded at the cut.
+    bool truncated(const std::string& id) const {
+        auto it = map_.find(id);
+        return it != map_.end() && it->second.truncated;
     }
 
     // Read a cached transcript WITHOUT touching recency. Two readers are not
@@ -102,14 +116,17 @@ class TranscriptCache {
   private:
     struct Entry {
         api::Session session;
+        bool truncated = false;  // messages were dropped to fit the cap
         std::list<std::string>::iterator pos;  // position in order_
     };
 
-    static void cap_messages(api::Session& s) {
+    // Returns whether anything was dropped.
+    static bool cap_messages(api::Session& s) {
         auto& m = s.messages;
-        if (m.size() > kCacheMaxMessagesPerThread)
-            m.erase(m.begin(),
-                    m.end() - static_cast<long>(kCacheMaxMessagesPerThread));
+        if (m.size() <= kCacheMaxMessagesPerThread) return false;
+        m.erase(m.begin(),
+                m.end() - static_cast<long>(kCacheMaxMessagesPerThread));
+        return true;
     }
 
     void touch_locked(std::unordered_map<std::string, Entry>::iterator it) {
