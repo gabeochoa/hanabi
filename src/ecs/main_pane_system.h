@@ -1939,7 +1939,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
     struct Item {
         enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider,
-                    DateDivider, Thinking, RunOutcome } kind;
+                    DateDivider, Thinking, RunOutcome, Event, Delivery } kind;
         int lo = 0;
         int hi = 0;
         float height = 0.0f;
@@ -2027,7 +2027,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case Item::ToolBlock:
                     mark = hanabi::minimap::Mark::Machinery;
                     break;
-                case Item::Spawn: mark = hanabi::minimap::Mark::Notice; break;
+                case Item::Spawn:
+                case Item::Delivery:
+                case Item::Event: mark = hanabi::minimap::Mark::Notice; break;
                 case Item::Bubble:
                     mark = (it.lo < static_cast<int>(msgs.size()) &&
                             msgs[static_cast<size_t>(it.lo)].role ==
@@ -3290,20 +3292,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     items.push_back(d);
                 }
                 const auto& m = msgs[i];
+                if (is_spawn_tool(m)) {
+                    Item it;
+                    it.kind = Item::Spawn;
+                    it.lo = i;
+                    it.height = spawn_card_height();
+                    totalH += it.height;
+                    items.push_back(it);
+                    ++i;
+                    continue;
+                }
+                if (is_delivery(m)) {
+                    Item it;
+                    it.kind = Item::Delivery;
+                    it.lo = i;
+                    it.height = delivery_height(app, m, i, colW);
+                    totalH += it.height;
+                    items.push_back(it);
+                    ++i;
+                    continue;
+                }
+                if (is_one_line_event(m)) {
+                    Item it;
+                    it.kind = Item::Event;
+                    it.lo = i;
+                    it.height = event_row_height();
+                    totalH += it.height;
+                    items.push_back(it);
+                    ++i;
+                    continue;
+                }
                 if (m.role == api::Role::Tool) {
-                    // A SPAWN (sub-agent launch) is rendered as its own distinct
-                    // inline card, NOT lumped into a tool pile (Gabe: "add UI for
-                    // when a thing is spawned").
-                    if (is_spawn_tool(m)) {
-                        Item it;
-                        it.kind = Item::Spawn;
-                        it.lo = i;
-                        it.height = spawn_card_height();
-                        totalH += it.height;
-                        items.push_back(it);
-                        ++i;
-                        continue;
-                    }
                     int j = i;
                     while (j < n && msgs[j].role == api::Role::Tool &&
                            !is_spawn_tool(msgs[j]))
@@ -3668,6 +3687,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case Item::Thinking:
                     render_thinking_block(ctx, col, it.lo, msgs[it.lo], app,
                                           colW);
+                    break;
+                case Item::Event:
+                    render_event_row(ctx, col, it.lo, msgs[it.lo], colW);
+                    break;
+                case Item::Delivery:
+                    render_delivery_row(ctx, col, it.lo, msgs[it.lo], app,
+                                        colW);
                     break;
             }
         }
@@ -8103,7 +8129,216 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kThinkingPadBot = 8.0f;
 
     static bool is_thinking(const api::Message& m) {
-        return m.role == api::Role::Assistant && m.subtitle == "thinking";
+        // The kind is the answer; the subtitle is how the adapter used to say
+        // it and how the http adapter and the mock's literals still do.
+        return m.kind == api::EventKind::Thinking ||
+               (m.role == api::Role::Assistant && m.subtitle == "thinking");
+    }
+
+    // ---- Event rows -------------------------------------------------------
+    //
+    // A session emits things that are not speech: a skill loading, a node
+    // attaching, a delivery the platform made, the agent's own status. They
+    // are NOT painted alike, deliberately — he named them separately because
+    // he wants to tell them apart, and a row that says only "something
+    // happened" is the same gap as no row at all. Each carries its own word,
+    // its own colour and its own shape: a one-line stamp for the facts, a
+    // disclosure for a delivery (which has a body worth reading), and the
+    // spawn card for a sub-agent.
+    static bool is_one_line_event(const api::Message& m) {
+        switch (m.kind) {
+            case api::EventKind::Node:
+            case api::EventKind::Skill:
+            case api::EventKind::Notice:
+            case api::EventKind::Status: return true;
+            default: return false;
+        }
+    }
+    static bool is_delivery(const api::Message& m) {
+        return m.kind == api::EventKind::Delivery;
+    }
+
+    struct EventStyle {
+        const char* word;
+        theme::Color tint;
+    };
+    static EventStyle event_style(const api::Message& m) {
+        switch (m.kind) {
+            case api::EventKind::Node:     return {"node", theme::status_active()};
+            case api::EventKind::Skill:    return {"skill", theme::link()};
+            case api::EventKind::Status:   return {"status", theme::status_review()};
+            case api::EventKind::Notice:   return {"notice", theme::destructive()};
+            case api::EventKind::Delivery: return {"delivered", theme::accent()};
+            default:                       return {"event", theme::text_faint()};
+        }
+    }
+
+    // "node · attached mac-GRQ7Y259H4" — the verb and the subject, in that
+    // order, because the verb is what changed and the subject is which one.
+    static std::string event_line(const api::Message& m) {
+        switch (m.kind) {
+            case api::EventKind::Node:
+                return m.text + "  " + m.subtitle;
+            case api::EventKind::Skill:
+                return m.subtitle;
+            case api::EventKind::Status:
+                return m.text.empty() ? m.subtitle : m.subtitle + "  " + m.text;
+            default:
+                return m.text.empty() ? m.subtitle : m.text;
+        }
+    }
+
+    static constexpr float kEventRowH = 20.0f;
+    static constexpr float kEventRowGap = 4.0f;
+    static constexpr float kEventChipW = 62.0f;
+
+    static float event_row_height() {
+        return kEventRowH + 2.0f * kEventRowGap;
+    }
+
+    void render_event_row(UIContext<InputAction>& ctx, Entity& parent,
+                          int index, const api::Message& m, float colW) {
+        const EventStyle st = event_style(m);
+        auto row = div(ctx, mk(parent, 3600 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), pixels(kEventRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_margin(Margin{.top = pixels(kEventRowGap),
+                                    .bottom = pixels(kEventRowGap)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("event_row"));
+
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(st.word)
+                .with_size(ComponentSize{pixels(kEventChipW), pixels(kEventRowH)})
+                .with_transparent_bg()
+                .with_custom_text_color(st.tint)
+                .with_font_size(theme::type::XS)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("event_word"));
+
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(event_line(m), 110))
+                .with_size(ComponentSize{pixels(colW - kEventChipW),
+                                         pixels(kEventRowH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("event_text"));
+    }
+
+    // A delivery has a BODY — a child's settlement, a peer session's message,
+    // a subscription's payload — so it folds like reasoning does rather than
+    // being ellipsized into a stamp. Its head names the source and, when the
+    // wire said so, whether it actually landed.
+    static std::string delivery_head(const api::Message& m) {
+        std::string head = m.subtitle.empty() ? std::string("delivery")
+                                              : m.subtitle;
+        if (!m.tool_status.empty()) head += "  \xc2\xb7  " + m.tool_status;
+        return head;
+    }
+    static std::string delivery_key(const api::Message& m, int index) {
+        return m.id.empty() ? ("deliv" + std::to_string(index)) : ("d" + m.id);
+    }
+    static float delivery_height(AppComponent& app, const api::Message& m,
+                                 int index, float colW) {
+        if (app.expandedThinking.count(delivery_key(m, index)) == 0)
+            return event_row_height();
+        return event_row_height() +
+               rich_body_h(strip_inline_md(m.text), colW - kThinkingInset) +
+               kThinkingPadBot;
+    }
+
+    void render_delivery_row(UIContext<InputAction>& ctx, Entity& parent,
+                             int index, const api::Message& m,
+                             AppComponent& app, float colW) {
+        const std::string key = delivery_key(m, index);
+        const bool open = app.expandedThinking.count(key) != 0;
+        const EventStyle st = event_style(m);
+
+        auto wrap = div(ctx, mk(parent, 3700 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("delivery_block"));
+
+        auto head = div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), pixels(event_row_height())})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("delivery_head"));
+        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (head.ent().get<afterhours::ui::HasClickListener>().down) {
+            if (open) app.expandedThinking.erase(key);
+            else app.expandedThinking.insert(key);
+        }
+
+        div(ctx, mk(head.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(14), pixels(18)})
+                .with_transparent_bg()
+                .with_on_draw_fg([open](RectangleType r) {
+                    hanabi::glyph::chevron(r, !open, theme::text_faint(), 3.2f);
+                })
+                .with_debug_name("delivery_chev"));
+
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(st.word)
+                .with_size(ComponentSize{pixels(kEventChipW), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(st.tint)
+                .with_font_size(theme::type::XS)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("delivery_word"));
+
+        div(ctx, mk(head.ent(), 3),
+            ComponentConfig{}
+                .with_label(fmtutil::ellipsize(delivery_head(m), 90))
+                .with_size(ComponentSize{pixels(colW - kEventChipW - 14.0f),
+                                         pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("delivery_summary"));
+
+        if (!open) return;
+
+        auto body = div(ctx, mk(wrap.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW - kThinkingInset),
+                                         children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.left = pixels(kThinkingInset),
+                                    .bottom = pixels(kThinkingPadBot)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("delivery_body"));
+        render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
+                         colW - kThinkingInset);
     }
 
     static std::string thinking_key(const api::Message& m, int index) {
@@ -8193,10 +8428,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static bool is_spawn_tool(const api::Message& m) {
+        // A spawn the FOLD recognized: three events (intent, spawned,
+        // settled) already collapsed into one row carrying the child's title
+        // and its outcome. That is the real thing; the tool-name list below
+        // is the guess that came before it and only ever fired on the mock —
+        // the tool a real session calls is `subagent__spawn`, which was not
+        // in it, which is why "i dont see any subagents".
+        if (m.kind == api::EventKind::SubAgent) return true;
         if (m.role != api::Role::Tool) return false;
         const std::string& n = m.subtitle;
-        return n == "spawn_agent" || n == "spawn" || n == "Task" ||
-               n == "task" || n == "sub_agent" || n == "spawn_sub_agent";
+        return n == "subagent__spawn" || n == "spawn_agent" || n == "spawn" ||
+               n == "Task" || n == "task" || n == "sub_agent" ||
+               n == "spawn_sub_agent";
     }
     static constexpr float kSpawnCardH = 46.0f;
     static float spawn_card_height() {
@@ -8206,7 +8449,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            int index, const api::Message& m, float paneWidth) {
         float rowW = paneWidth - 4.0f;
         if (rowW < 160.0f) rowW = 160.0f;
-        const std::string task = tool_command(m);  // the spawned task/prompt
+        // A fold-recognized spawn (EventKind::SubAgent) knows the child's
+        // TITLE — the name it was actually given, and the only thing that
+        // tells one of six concurrent children from another. The prompt is
+        // the fallback for a spawn recognized only by its tool name, which
+        // has no title to show.
+        const std::string task = (m.kind == api::EventKind::SubAgent &&
+                                  !m.subtitle.empty())
+                                     ? m.subtitle
+                                     : tool_command(m);
         const bool failed = tool_failed(m);
 
         auto card = div(ctx, mk(parent, 240 + index * 10),

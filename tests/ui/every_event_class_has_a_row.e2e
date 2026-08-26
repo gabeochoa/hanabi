@@ -1,0 +1,40 @@
+# Every event class a session emits has a row, and they do not look alike.
+#
+# `api::Role` is {User, Assistant, System, Tool}, so anything that was not one
+# of those four authors had nowhere to land and the transcript dropped it —
+# "you are missing thinking and deliveries", "you are missing subagents",
+# "you are missing nodes", "you are missing skills". EventKind is the second
+# axis (what the row IS, beside who authored it) and this asserts each kind
+# reaches the screen with its own word, not a shared "something happened".
+#
+# The mock's r8 thread carries one of each, in the shapes the real wire uses.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r8"],"active_tab":"r8","theme":"dark"}
+
+# A node event names the verb and the node, not just "node".
+expect_text "node"
+expect_text "attached"
+expect_text "od-4471.quota"
+
+# A skill names the skill that loaded.
+expect_text "skill"
+expect_text "presto-query"
+
+# A sub-agent is a CARD, not a line: it is the one event that starts something
+# else running, and it carries the child's own title.
+expect_text "Spawned agent"
+expect_text "tenant class 4 dry-run"
+
+# The agent's own status testimony.
+expect_text "status"
+expect_text "shadowing class 3"
+
+# A delivery is folded — it has a body worth reading, so it discloses rather
+# than being ellipsized into a stamp. Closed, the head shows; the body does not.
+expect_text "delivered"
+expect_no_text "No divergences"
+
+# Opening it shows the body.
+click_ui delivery_head
+wait_frames 8
+expect_text "No divergences"
