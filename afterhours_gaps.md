@@ -8640,3 +8640,199 @@ returning `down` on the `ElementResult` the way `drag_handle` returns `moved`.
 The threshold override is a second, smaller field on the same config.
 
 CLASS: MISSING
+
+---
+
+### #265 — A focus ring is three outlines, not one, and the two you did not ask for take their colour from the RING rather than from what it is drawn on
+
+**What was wanted.** The ring hanabi's own `preload.cpp` believes it is asking
+for, in a comment: "ONE hairline, flush with the element." `theme.focus_ring_thickness
+= 1.0f`, `focus_ring_offset = 0.0f`.
+
+**What happens.** Measured off a Tab capture at 1180x949, the ring on the
+sidebar's first row is three pixels of white-blue-white:
+
+```
+  y=67  (187,187,190)     <- outer contrast, white @180 over (23,23,35)
+  y=68  ( 90,128,255)     <- the ring
+  y=69  (194,197,206)     <- inner contrast, white @180 over the row fill
+```
+
+`rendering.h`'s `focus_ring_for` emits `outer_contrast()` at `expanded(thickness)`
+and `inner_contrast()` at `expanded(-1)` alongside the coloured ring, and the
+draw sites emit all three unconditionally. Only the coloured one is gated on
+`focus_ring_thickness` — the early return exists precisely because, as the
+comment there says, "the contrast edges are not gated on it". So `thickness`
+selects between *no ring at all* and *at least three lines*. There is no value
+of any theme field that produces one line.
+
+**And the edges' colour is not a theme value.** It is derived from the ring:
+
+```c++
+ring.contrast = luminance(ring.color) > 0.5f ? Color{0,0,0,180}
+                                             : Color{255,255,255,180};
+```
+
+That is the right rule for the case the comment names — a ring on a widget
+whose fill is the ring's own colour — and the wrong one for a ring on a dark
+app, which is the ordinary case. hanabi's dark accent {90,128,255} has a WCAG
+luminance of 0.248, so both edges came out white at 70% opacity: 9.27:1 against
+the {23,23,35} backdrop, where the blue they exist to protect manages 5.04:1.
+The thing drawn to make the ring legible was the brightest thing on screen and
+the ring was a detail inside it.
+
+The two rules are the same rule with opposite answers. "Contrast with the
+ring" and "disappear into the backdrop" agree only when the ring and the
+backdrop are on the same side of the threshold, and nothing in the library
+knows what the backdrop is.
+
+**Why the obvious escapes do not work.**
+
+- **Turn the edges off.** There is no flag. `theme_io.h` exposes
+  `focus_ring_thickness` and `focus_ring_offset` and nothing else about the
+  ring; the edges are not in the theme at all.
+- **Raise the thickness so the edges are a smaller fraction.** The loop draws
+  `thickness` rings OUTWARD from `ring.rect`; `inner_contrast` is at
+  `expanded(-1)` and is never covered by any of them. The inner white line
+  survives every thickness.
+- **Give the ring an alpha.** `ring.color` alpha is only touched by
+  `compute_effective_opacity`, which scales the contrast alpha by the same
+  factor. The edges fade exactly as fast as the ring.
+- **Pick the real macOS accent.** #0A84FF reads 0.238 and lands on the wrong
+  side. So does every saturated blue: the threshold cuts straight through the
+  range an accent would plausibly come from — {140,190,255} is 0.496 and
+  {150,195,255} is 0.527, so six units on one channel flips both edges from
+  black to white.
+
+**The workaround, and its cost.** `ui/focus_visible.h`'s `ring_color()` walks
+the palette's ring colour toward white (dark backdrop) or black (light) until
+`afterhours::colors::luminance` — the same function that will make the
+decision — puts it on the backdrop's side, then hands that to `theme.focus`.
+The edges are still drawn; they are simply drawn in the backdrop's own
+direction and vanish into it. Dark: the ring becomes {173,192,255} and the
+edges composite to {7,7,10} against {23,23,35}, 1.13:1. Light was already
+correct at {46,90,236} and is returned untouched.
+
+The cost is that the app can no longer choose its ring's colour. The colour is
+now an output of a constraint the library imposes, so hanabi's accent blue
+cannot be its focus ring, and a custom accent swatch is walked wherever the
+threshold requires rather than to where the designer put it. An app that wants
+the system accent, on a dark theme, cannot have it.
+
+**Minimal upstream fix.** Gate the two contrast edges the way the coloured ring
+is already gated — a `focus_ring_contrast` field, or simply `bool` — so an app
+that has decided its ring is legible can say so. Better, derive the edge from
+the backdrop rather than the ring: `focus_ring_for` already has the entity, so
+`HasColor` is one lookup away, and "contrast with what is behind me" is the
+question the edge was written to answer.
+
+CLASS: WORKAROUND
+
+---
+
+### #266 — The ring's rect is the widget's LAYOUT box and its offset is one number for the whole app, so a UI with both full-bleed rows and inset chips cannot have a correct ring on either
+
+**What was wanted.** The macOS convention the rest of this app is matched
+against: a focus ring sits a couple of points OUTSIDE the control, clear of it.
+`focus_ring_offset` looks like exactly that knob — positive insets, negative
+outsets.
+
+**What happens.** It is one number, read from the theme at draw time for every
+widget in the frame, and the rect it insets is `UIComponent::focus_rect`, which
+is built from `rect()` — the layout box — with no reference to what the widget
+actually paints.
+
+Both halves bite, in opposite directions, in one app:
+
+- A sidebar row is full-bleed: its layout box runs from x=-1 to the sidebar's
+  right edge, so at offset 0 the ring's left edge and its outer contrast are
+  already off-screen and only the inner edge is visible. Outsetting it moves
+  the ring further off-screen on the left and into the 3px gap above the next
+  row on the other side.
+- The composer's effort chip is an 18px transparent button whose layout box is
+  wider than the text it draws, and which sits butted against the model chip.
+  At offset 0 the ring already overlaps the neighbouring label; measured at
+  -2 it cuts a further two pixels into it. The macOS-correct direction makes
+  this widget worse.
+
+So the correct offset is +something for one widget, -something for another and
+0 for a third, and there is one field. Nor is there an opt-out: no per-widget
+"no ring" flag exists — #83 noted that already — and none of `with_*` on
+`ComponentConfig` reaches the ring at all.
+
+**Why the obvious escapes do not work.**
+
+- **Write the theme field per widget as the frame builds.** `theme` is one
+  global struct read at RENDER time, not captured per widget (the same shape
+  as gap #90), so the last writer of the frame decides the offset for
+  everything in it.
+- **Size the layout box to the ink.** That is #136 and #114: nothing sizes a
+  box to its own content, and a sprite's ink extent is not derivable, so
+  "make the rect the visible shape" is not a change the app can make either.
+- **`with_skip_tabbing`** removes the widget from focus entirely rather than
+  from the ring, which costs the keyboard user the control (#83).
+
+**The workaround.** None that is correct. hanabi keeps `focus_ring_offset = 0`
+because flush is the least-wrong single answer for its mix of widgets, and
+accepts a ring that overlaps a label on the chips.
+
+**Minimal upstream fix.** Let a widget carry its own offset — the same
+override `HasRoundedCorners` already gives the ring for corner radius, which
+`focus_ring_for` reads two lines above where it reads the global offset. A
+`HasFocusRing{offset, thickness, enabled}` component would cover the offset,
+the per-widget opt-out #83 asked for, and #265's edge control in one place.
+
+CLASS: MISSING
+
+---
+
+### #267 — The ring is drawn from focus STATE with no reference to whether focus can move, so an input map missing one binding paints a ring that is a lie
+
+**What was wanted.** Tab moves focus; the ring follows it. The ordinary
+contract.
+
+**What happens.** hanabi bound `WidgetLeft`, `WidgetRight`, `WidgetPress`,
+`MenuBack` and the four text actions, and never `WidgetNext`. Four Tab presses
+against the sidebar then produced four byte-identical frames (md5
+`e7ac8de4d5be67dbdbcd36b2ffbd26a9` for captures 2, 3 and 4): `process_tabbing`
+is the only thing that moves `focus_id`, it moves it only on `WidgetNext`, and
+`WidgetNext` could not be pressed. The ring still painted — on whatever
+`UIContext::try_to_grab` parked focus on at startup — and stayed there for the
+life of the process.
+
+That is worse than no ring. A ring says "you are here, and the keyboard can
+take you elsewhere", and the second half was false.
+
+Nothing reports it. `process_tabbing` guards on
+`magic_enum::enum_contains<InputAction>("WidgetNext")`, which is satisfied by
+an app that DECLARES the enumerator, so declaring it and never binding it
+compiles to a live branch whose condition is permanently false. The ring is
+computed from `visual_focus_id` in `focus_ring_for`, which never asks whether
+anything in the frame could change it. And `default_keymap` — which ships
+exactly the bindings that were missing — is opt-in, so an app that hand-rolls
+a mapping (the natural thing to do when it has actions of its own) silently
+opts out of the UI plugin's own requirements.
+
+**Why the obvious escapes do not work.** There is nothing to escape from once
+the binding exists; the gap is that it took a screenshot diff to find. No
+warning, no assert, no debug overlay names it: `dump_ui` is not registered
+(#192), and the scripted harness cannot see a ring at all (#61), so a suite of
+92 passing UI tests said nothing.
+
+**The workaround.** Bind it — `WidgetNext = TAB`, `WidgetMod = SHIFT` — and
+prove it with a test that names the widget wearing the ring. hanabi extends its
+own `HANABI_FOCUS_AUDIT` to print the focused widget's first labelled
+descendant next to the version string, because the focusable thing is the row
+CONTAINER and it holds no text of its own; that string is what a scripted test
+asserts, and it is the only way from outside to say WHICH element the ring is
+on.
+
+**Minimal upstream fix.** Two lines in `focus_ring_for`: if no binding can
+reach `WidgetNext`, the frame cannot move focus by keyboard, so log once and
+skip the ring. The mapping is already a singleton the context can read. A
+cheaper version is a startup check — `init_ui_plugin` warning for every action
+the UI plugin consumes that the app declared and left unbound — which would
+also catch `WidgetPress`, `WidgetMod` and the text actions, and costs nothing
+at runtime.
+
+CLASS: FOOTGUN

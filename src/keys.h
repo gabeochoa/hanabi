@@ -38,11 +38,12 @@ inline constexpr int kN = ah::N;
 inline constexpr int kV = ah::V;
 inline constexpr int kW = ah::W;
 
-// Keyboard navigation: the keys that mean "I am driving with the keyboard now"
-// and so bring the focus ring out (ui/focus_visible.h).
+// Tab: the one keystroke in this app whose whole purpose is to move focus, and
+// so the one that brings the focus ring out (ui/focus_visible.h). The arrows
+// are NOT here — they walk a caret or a list cursor, each of which draws its
+// own indicator, and preload.cpp's arrows_tab = false keeps them off focus
+// entirely.
 inline constexpr int kTab = ah::TAB;
-inline constexpr int kLeft = ah::LEFT;
-inline constexpr int kRight = ah::RIGHT;
 
 // Transcript navigation.
 inline constexpr int kPageUp = ah::PAGE_UP;
