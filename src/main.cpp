@@ -36,6 +36,7 @@
 #include "util/prewarm.h"
 #include "util/mem_ladder.h"
 #include "util/breaker.h"
+#include "util/bounds_audit.h"
 #include "util/soak.h"
 #include "util/stress.h"
 #include "util/notify_events.h"
@@ -1873,6 +1874,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     }
 
     hanabi::launch_curve::report();
+    hanabi::bounds_audit::report();
 
     bool ok = graphics::capture_frame(path);
     graphics::shutdown();

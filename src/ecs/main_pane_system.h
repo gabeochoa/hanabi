@@ -1869,7 +1869,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{percent(1.0f), children()})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::Wrap)
-                    .with_margin(Margin{.top = pixels(6), .left = pixels(16)})
+                    // The 16px indent is PADDING, not a left margin. A
+                    // percent()-sized child resolves against its parent's
+                    // content box and its own margin is never subtracted from
+                    // that (autolayout.h, Dim::Percent: "margins are external
+                    // spacing and not included in computed"), so `percent(1)`
+                    // plus `margin.left = 16` is a row exactly as wide as the
+                    // parent, shifted 16px right -- 16px of chips outside the
+                    // rollup, and the last chip on a line wrapping 16px late.
+                    // Padding indents the CHILDREN and leaves the row the size
+                    // the parent gave it, which is the same indent and the
+                    // right box. (Padding is inert on a label-only element,
+                    // gap #85 -- these are child divs, so it applies.)
+                    .with_margin(Margin{.top = pixels(6)})
+                    .with_padding(Padding{.left = pixels(16)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("subrollup_chips"));
@@ -4765,6 +4778,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // padding is what the widget decides.
         constexpr float kSendDia = 19.0f;
         constexpr float kSendGap = 9.0f;
+        // THE SEND BUTTON'S SHAPE IS DECIDED HERE, ABOVE THE ROW, because the
+        // input's width is carved out of what is left after it -- and for a
+        // long time it was decided 400 lines further down instead, after the
+        // input had already been sized for a 19px circle. A pill-shaped state
+        // (in-flight) is 78 wide, so the button ran 78 - 19 = 59px past the
+        // row's content box, out over the pane's right gutter. That is the
+        // report's "buttons going outside the bounds" at its most visible:
+        // measured on the parity window, composer_send drew x=1083..1161
+        // inside a row whose content ends at 1102.
+        //
+        // Two facts, one place, in the order the layout needs them. A future
+        // state with a fourth width costs the input those pixels instead of
+        // spending them outside the row.
+        constexpr float kSendPillW = 78.0f;
+        constexpr float kSendPillH = 32.0f;
+        const bool sendIsCircle = !sending;
+        const float sendW = sendIsCircle ? kSendDia : kSendPillW;
+        const float sendH = sendIsCircle ? kSendDia : kSendPillH;
         // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
         // 46 rows and the reference's paints 47 (y=884 through y=930).
         constexpr float kInputH = 46.0f;
@@ -4782,7 +4813,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_row"));
 
-        float inputW = paneW - (composerGutter * 2.0f) - kSendDia - kSendGap;
+        float inputW = paneW - (composerGutter * 2.0f) - sendW - kSendGap;
         if (inputW < 120.0f) inputW = 120.0f;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
@@ -5181,18 +5212,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // and the arrow DRAWN (Roboto has no U+2191 and a missing codepoint
         // paints nothing — gap #48; see hanabi::glyph::arrow_up).
         //
-        // Two of the three states this button has cannot fit in a 19px circle,
-        // and both of them matter more than the shape: when the open thread's
-        // agent is RUNNING and the backend can steer, this button STEERS
-        // (interrupt/redirect) rather than sends, and while a turn is in flight
-        // it says so. A drawn arrow cannot tell you either. So the circle is
-        // the IDLE shape only, and the button falls back to its labelled pill
-        // for Steer and for in-flight — the label is the honest thing there.
-        const bool sendIsCircle = !steerMode && !sending;
-        const char* sendLabel =
-            sending ? "\xe2\x80\xa6" : (steerMode ? "Steer" : "");
-        const float sendW = sendIsCircle ? kSendDia : 78.0f;
-        const float sendH = sendIsCircle ? kSendDia : 32.0f;
+        // STEER IS A MARK, NOT A WORD (Gabe: "the steer button should be an
+        // icon"). It used to be the one state that widened this button into a
+        // 78x32 pill reading "Steer", on the argument that a drawn arrow
+        // cannot tell you the verb changed. The argument was right about the
+        // verb and wrong about where the verb has to live: the composer's own
+        // status caption already reads "Enter to steer" the moment there is
+        // text to send, six lines above the button, in words -- and the button
+        // is only pressable when there IS text, so the caption is present
+        // exactly when the mark is live. The name is in the frame; it does not
+        // also have to be in the control.
+        //
+        // Which matters because of gap #112: afterhours has no tooltip and no
+        // accessible name, so an icon-only button is unlabelled in every
+        // sense, and the honest way to add one is a neighbouring string rather
+        // than a pill. tests/ui/steer_is_an_icon_with_a_name.e2e pins both
+        // halves so a later change cannot quietly drop the caption and leave a
+        // nameless glyph.
+        //
+        // In-flight keeps the pill. Its label is an ellipsis, which is not a
+        // verb and not a name -- it is "wait" -- and a 78px box of nothing-
+        // to-press reads as disabled in a way a small circle does not.
+        const char* sendLabel = sending ? "\xe2\x80\xa6" : "";
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
@@ -5211,11 +5252,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_corner_radius(sendIsCircle ? kSendDia * 0.5f : 8.0f)
-                .with_on_draw_fg([sendIsCircle, sendEnabled](RectangleType rr) {
+                .with_on_draw_fg([sendIsCircle, steerMode,
+                                  sendEnabled](RectangleType rr) {
                     if (!sendIsCircle) return;
-                    hanabi::glyph::arrow_up(
-                        rr, sendEnabled ? theme::window_bg()
-                                        : theme::disabled_text());
+                    const theme::Color ink = sendEnabled
+                                                 ? theme::window_bg()
+                                                 : theme::disabled_text();
+                    // Same box, same centre, same extent: the two marks differ
+                    // by the bend and by nothing else, so the button does not
+                    // move when the verb changes.
+                    if (steerMode) hanabi::glyph::steer(rr, ink);
+                    else hanabi::glyph::arrow_up(rr, ink);
                 })
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
@@ -6646,6 +6693,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // "Thinking…" (a backend free-text step label like "Laying the groundwork"
     // needs a status SSE field we don't parse yet — logged as an API ask); the
     // dot pulse + elapsed timer are fully client-side.
+    //
+    // WHAT IT IS ANCHORED TO, which is the whole of its geometry: this row is
+    // the PLACEHOLDER for the assistant's first line of prose. render_rich_body
+    // replaces it the instant a token arrives, so anything about it that does
+    // not match that line is a jump the eye catches. Two consequences, and
+    // neither is a tuned constant:
+    //
+    //   * its height is body_text_h(1) -- one wrapped line -- not a round 24.
+    //   * its content starts on the TEXT column, which is kLabelInsetX inside
+    //     the bubble's own content box and not on it. kBubbleCfgPadX is
+    //     deliberately 6 short of the 13px the design wants (kBubblePadX)
+    //     because afterhours adds that 6 back when it draws a LABEL into an
+    //     element's rect and adds nothing at all for a custom draw. So a text
+    //     child of this bubble lands at 13 and a drawn child lands at 7, and
+    //     the dot was drawing into the bubble's left padding: measured on the
+    //     parity capture its ink ran x=372..383 where every line of assistant
+    //     prose above it began at x=374. Padding here (not a margin -- a
+    //     percent-sized child plus a margin is the overflow this branch just
+    //     fixed one pane over) puts the row's children on the text column.
+    static constexpr float kDotInk = 14.0f;    // the halo's own max diameter
+    static constexpr float kDotLabelGap = 8.0f;  // dot ink -> first glyph
     void render_thinking_indicator(UIContext<InputAction>& ctx, Entity& parent,
                                    AppComponent* app) {
         // Elapsed seconds since the turn began. During a headless capture the
@@ -6661,7 +6729,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 2),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(24.0f)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(body_text_h(1))})
+                .with_padding(Padding{.left = pixels(kLabelInsetX)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -6671,13 +6741,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // Pulsing dot: a filled accent circle whose radius eases up/down with a
         // sine of wall-clock time, plus a fainter halo — a soft "breathing"
-        // glow. Drawn in a fixed slot so the label sits at a stable x.
+        // glow.
+        //
+        // The slot is the INK and not a round number, so where the dot starts
+        // is arithmetic rather than something to measure off a screenshot: the
+        // halo's radius peaks at 5 + 2 = 7, so its widest is kDotInk across,
+        // and a circle centred in a kDotInk box fills that box exactly. The
+        // dot's leftmost lit pixel is therefore the row's content origin,
+        // which is the text column. An 18px slot put it 2px inside instead --
+        // gap #114's problem (a drawing's ink extent is not its box) solved
+        // the only way it can be, by making the box the ink.
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(18.0f), pixels(18.0f)})
+                .with_size(ComponentSize{pixels(kDotInk), pixels(kDotInk)})
                 .with_transparent_bg()
-                .with_margin(Margin{.right = pixels(8)})
+                // The gap the eye sees is dot-ink to first glyph; the label's
+                // own rect already spends kLabelInsetX of it before its first
+                // glyph, so the margin is what is left. Same idiom as the
+                // composer meter's "10 ... less the 5 the effort run's box
+                // already carries".
+                .with_margin(Margin{
+                    .right = pixels(kDotLabelGap - kLabelInsetX)})
                 .with_on_draw_fg([](RectangleType r) {
                     const float cx = r.x + r.width * 0.5f;
                     const float cy = r.y + r.height * 0.5f;
@@ -6706,7 +6791,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label("Thinking\xe2\x80\xa6")
-                .with_size(ComponentSize{children(), pixels(18.0f)})
+                // kLinePitch, so the placeholder's text box is the box the
+                // line it stands in for will have.
+                .with_size(ComponentSize{children(), pixels(kLinePitch)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
@@ -6719,7 +6806,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 3),
             ComponentConfig{}
                 .with_label(timer)
-                .with_size(ComponentSize{children(), pixels(18.0f)})
+                .with_size(ComponentSize{children(), pixels(kLinePitch)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)

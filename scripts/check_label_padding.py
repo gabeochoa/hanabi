@@ -40,8 +40,8 @@ WHAT TO DO ABOUT A HIT. `with_margin()` — margin moves the ELEMENT, and the
 element's rect is what the text is drawn from. #85's escape list rules that
 out, wrongly, which is what kept #109 alive; #109 is the correction.
 
-WHY THERE IS A BASELINE RATHER THAN A CLEAN SWEEP. There are thirty of these
-today, and they are NOT thirty bugs to go and fix: wherever one is visible,
+WHY THERE IS A BASELINE RATHER THAN A CLEAN SWEEP. There are ten of these
+today, and they are NOT ten bugs to go and fix: wherever one is visible,
 somebody has already tuned the geometry around it, so "fixing" the padding
 moves something that currently looks right. What they are is thirty places
 where the next edit will silently do nothing. So the existing set is frozen in
@@ -65,7 +65,28 @@ CHAIN = re.compile(
     r"ComponentConfig\{\}(?P<body>.*?)\.with_debug_name\(\s*\"(?P<name>[^\"]*)\"",
     re.S,
 )
-H_PAD = re.compile(r"\.(?:left|right)\s*=\s*pixels\(\s*([0-9.]+)f?\s*\)")
+# The PADDING blocks in a chain, and then the horizontal fields inside one.
+#
+# Two regexes and not one, because one was wrong. It used to match
+# `.left|.right = pixels(N)` anywhere in the chain body -- which is also the
+# shape of a MARGIN, the very thing #109 prescribes as the FIX. So a widget
+# that had already been fixed was counted as a defect: `thinking_dot` sat in
+# the baseline for its `Margin{.right = pixels(8)}`, and the only reason it
+# ever left was that the 8 became an expression and stopped looking like a
+# number. A checker whose job is to stop false confidence cannot be a source
+# of it.
+#
+# The value is `[^,}]+` and not a numeral for the same reason: a real defect
+# written `pixels(kRowTitlePad)` -- which is exactly how #109's was written --
+# must count. Only a literal zero is exempt (gap #76's deliberate no-op), and
+# that is now tested for rather than inferred from a failed parse.
+PAD_BLOCK = re.compile(r"\.with_padding\(\s*Padding\{(?P<pad>.*?)\}\s*\)", re.S)
+H_PAD = re.compile(r"\.(?:left|right)\s*=\s*pixels\(\s*(?P<v>[^,}]+?)\s*\)")
+
+
+def _is_zero(value: str) -> bool:
+    """A literal zero, in any of the spellings this repo uses."""
+    return value.strip().rstrip("f") in ("0", "0.0", "0.")
 
 BASELINE = ROOT / "scripts" / "label_padding_baseline.txt"
 
@@ -83,12 +104,14 @@ def hits():
                 continue
             if "TextAlignment::Center" in body:
                 continue
-            pads = [float(v) for v in H_PAD.findall(body)]
-            if not pads or all(p == 0.0 for p in pads):
+            pads = [v for blk in PAD_BLOCK.finditer(body)
+                    for v in H_PAD.findall(blk.group("pad"))]
+            live = [v for v in pads if not _is_zero(v)]
+            if not live:
                 continue
             line = text[: m.start()].count("\n") + 1
             out.append((path.relative_to(ROOT), line, name or "<unnamed>",
-                        max(pads)))
+                        ", ".join(live)))
     return out
 
 
@@ -114,7 +137,7 @@ def main():
         print(f"  FIXED   {name}  (in the baseline, no longer a hit)")
     for name in new:
         path, line, pad = found[name]
-        print(f"  NEW     {path}:{line}  {name}  (up to {pad:g}px)")
+        print(f"  NEW     {path}:{line}  {name}  ({pad})")
 
     if new:
         print(f"\n{len(new)} NEW label(s) set horizontal padding that does "

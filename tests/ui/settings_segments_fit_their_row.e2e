@@ -1,0 +1,49 @@
+# A segmented button is exactly as tall as the row it sits in.
+#
+# Gabe, testing the perf build: "many buttons are going outside the bounds."
+# Forty-four of them were in this sheet, and they were one rule written twice:
+# five builders (theme_choice, rotate_choice, font_choice_btn, real_segmented,
+# swatch_btn) each hardcoded `pixels(32)` for a button they put inside a
+# `pixels(kThemeRowH)` row, and kThemeRowH is 30. Every wired segmented
+# control in Settings therefore drew 1px above and 1px below the box its row
+# had set aside for it, over the row's own breathing space.
+#
+# Nothing could see it. afterhours' own assert_no_overflow measures elements
+# against the VIEWPORT, so a button inside the window passes however far out of
+# its parent it is; the containment probe that found these is
+# HANABI_BOUNDS_AUDIT=1 (src/util/bounds_audit.h) and its gate is
+# scripts/bounds_gate.sh.
+#
+# This pins the property in the sheet's own coordinates, on three of the five
+# builders, so a sixth caller writing 32 again fails here as well as in the
+# gate. It reads the ROW's height and the BUTTON's height and asserts they are
+# the same number -- which is the actual rule, and is why this test does not
+# care what that number is.
+#
+# Verified to fail without the fix: restoring `pixels(32)` at all five sites
+# and re-running gives
+#
+#   assert_ui 'settings_theme_dark': h=30 but got 32       (line 38)
+#   assert_ui 'settings_theme_light': h=30 but got 32      (line 39)
+#   assert_ui 'settings_yap_0': h=30 but got 32            (line 44)
+#   assert_ui 'settings_font_default': h=30 but got 32     (line 48)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings
+
+wait_frames 8
+
+# theme_choice: the row is 30 tall and so is its button, top edge included --
+# a 32px button in this row started 1px above it.
+assert_ui settings_theme_row h=30
+assert_ui settings_theme_dark h=30
+assert_ui settings_theme_light h=30
+
+# real_segmented: the builder behind every wired Behavior/Notifications row,
+# and the one that carried this thirty-odd times over.
+assert_ui settings_yap_row h=30
+assert_ui settings_yap_0 h=30
+
+# font_choice_btn: a third builder, same literal, same row constant.
+assert_ui settings_font_row h=30
+assert_ui settings_font_default h=30

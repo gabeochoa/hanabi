@@ -1016,6 +1016,76 @@ static void test_sidebar_row_manual_order() {
     CHECK(capped[1] == "s0");
 }
 
+static void test_sidebar_pinned_rows_head_the_list() {
+    std::printf("-- pinned threads head the sidebar list --\n");
+
+    // Gabe: "pinned threads arent there". docs/sidebar-model.md has said since
+    // the model was written that Starred is "user-pinned, pinned to top", and
+    // nothing consulted `starred` when ordering the list: a pinned thread sat
+    // wherever its last activity put it, wearing a 12px star. There are two
+    // things in this codebase called pinned -- this flag, and apply_row_order's
+    // PINNED PREFIX above, which is the drag order -- and the one that had a
+    // sort was not the one the user pins.
+    api::SessionSummary a, b, c, d;
+    a.id = "a"; a.updated_at = 400;
+    b.id = "b"; b.updated_at = 300;
+    c.id = "c"; c.updated_at = 200;
+    d.id = "d"; d.updated_at = 100;
+
+    std::vector<const api::SessionSummary*> rows{&a, &b, &c, &d};
+    std::sort(rows.begin(), rows.end(), ecs::model::sidebar_before);
+    CHECK(rows[0]->id == "a");
+    CHECK(rows[3]->id == "d");
+
+    // The oldest thread, pinned, is first -- and the rest keep activity order
+    // behind it.
+    d.starred = true;
+    std::sort(rows.begin(), rows.end(), ecs::model::sidebar_before);
+    CHECK(rows[0]->id == "d");
+    CHECK(rows[1]->id == "a");
+    CHECK(rows[2]->id == "b");
+    CHECK(rows[3]->id == "c");
+
+    // Two pins are in activity order among THEMSELVES, not in pin order: a pin
+    // is a bookmark, and the shelf it makes is still a list of threads.
+    b.starred = true;
+    std::sort(rows.begin(), rows.end(), ecs::model::sidebar_before);
+    CHECK(rows[0]->id == "b");
+    CHECK(rows[1]->id == "d");
+    CHECK(rows[2]->id == "a");
+    CHECK(rows[3]->id == "c");
+
+    // It is a STRICT WEAK ORDERING, which is what lets it be a comparator
+    // rather than a partition after the sort -- the sidebar partial_sorts to
+    // `limit` and leaves the tail arbitrary, so a partition could only order
+    // the starred rows it found in that tail by nothing at all. Irreflexive,
+    // and antisymmetric across every pair in the set.
+    const api::SessionSummary* all[] = {&a, &b, &c, &d};
+    for (const auto* x : all) CHECK(!ecs::model::sidebar_before(x, x));
+    for (const auto* x : all)
+        for (const auto* y : all)
+            if (x != y)
+                CHECK(ecs::model::sidebar_before(x, y) !=
+                      ecs::model::sidebar_before(y, x));
+
+    // Equal age and equal pin still has ONE answer, because the list must not
+    // reshuffle for a reason nobody can see.
+    api::SessionSummary e, f;
+    e.id = "e"; f.id = "f";
+    e.updated_at = f.updated_at = 500;
+    CHECK(ecs::model::sidebar_before(&e, &f));
+    CHECK(!ecs::model::sidebar_before(&f, &e));
+
+    // And the drag order still wins over the pin, because it is the more
+    // specific statement: a dragged row names a POSITION, a pin names a
+    // thread. apply_row_order runs after this sort.
+    std::vector<const api::SessionSummary*> rows2{&b, &d, &a, &c};
+    ecs::model::apply_row_order(rows2, {"c"});
+    CHECK(rows2[0]->id == "c");
+    CHECK(rows2[1]->id == "b");
+    CHECK(rows2[2]->id == "d");
+}
+
 static void test_sidebar_scroll_list_single_column() {
     std::printf("test_sidebar_scroll_list_single_column\n");
     using namespace afterhours;
@@ -1203,6 +1273,7 @@ int main() {
     test_transcript_cache();
     test_sidebar_scroll_list_single_column();
     test_sidebar_row_manual_order();
+    test_sidebar_pinned_rows_head_the_list();
     test_find_operators();
 
     std::printf("----------------------------------------\n");

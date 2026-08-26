@@ -1,0 +1,47 @@
+# A pinned thread is at the top of the sidebar list.
+#
+# Gabe: "pinned threads arent there."
+#
+# They were there, and that is what made it hard to see: a pinned thread sat
+# exactly where its last activity put it, wearing a 12px star, in a list of
+# twenty. docs/sidebar-model.md has said since the model was written that
+# Starred is "user-pinned, pinned to top", and nothing in the ordering ever
+# read `starred`.
+#
+# The trap, for whoever reads this next: there are TWO things in this codebase
+# called pinned. `SessionSummary::starred` is the user's pin, the one the star
+# affordance sets and the Pinned smart view filters on. apply_row_order's
+# "PINNED PREFIX" (src/ecs/thread_model.h) is the DRAG order, a different
+# feature with its own sort pass -- and looking at sidebar_system.h for a
+# pinned-row sort finds that one, working perfectly, ordering something else.
+#
+# NOT a regression from today's sidebar virtualization, which was the first
+# suspect. Windowing slices the member list by INDEX after the ordering has
+# happened, so it renders whatever the first rows are; it could not have moved
+# a pinned row out of view and it was never in the path. The ordering simply
+# never had a pin in it.
+#
+# The fixture is the mock catalog with t9 ("kicker-tick") pinned through the
+# settings blob, which is where a real pin persists too (Settings::set_starred,
+# re-applied over every list fetch by loader_system's apply_local_overlays). By
+# activity t9 is the THIRD row -- "profiling the disk" and "two workers still
+# out" are both newer -- so a first row of "kicker-tick" is the pin and nothing
+# else. The title is chosen for having no spaces in it: assert_ui splits its
+# arguments on whitespace.
+#
+# The ordering rule itself -- strict weak ordering, the id tie-break, two pins
+# in activity order among themselves, and the drag order still winning over a
+# pin -- is tests/e2e/test_e2e.cpp, test_sidebar_pinned_rows_head_the_list.
+# This one is the other half: that the sidebar actually uses it.
+#
+# Verified to fail without the fix: dropping the `starred` clause from
+# ecs::model::sidebar_before and re-running gives
+#
+#   assert_ui 'row_title': text="kicker-tick" but got "profiling the disk"
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t9"]}
+
+wait_frames 14
+
+# The list's first row is the pinned one, not the most recently active one.
+assert_ui row_title text=kicker-tick

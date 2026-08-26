@@ -163,6 +163,34 @@ inline bool in_archived_view(const api::SessionSummary& s) {
     return is_archived(s);
 }
 
+// The order the sidebar list is in, and it is TWO statements, not one.
+//
+// The first is the pin. `docs/sidebar-model.md` has said since the model was
+// written that Starred is "user-pinned, pinned to top", and for the whole of
+// that time nothing consulted `starred` when ordering: a pinned thread sat
+// wherever its last activity put it, wearing a 12px star, and Gabe's "pinned
+// threads arent there" is that. There are two things in this file called
+// pinned -- this flag, and apply_row_order's PINNED PREFIX below, which is the
+// drag order -- and the one that has a sort is not the one the user pins.
+//
+// The second is activity, newest first. The id tie-break is not cosmetic:
+// `updated_at` is a whole number of seconds and a real catalog has plenty of
+// rows sharing one, so without it the order among tied rows is whatever the
+// sort algorithm happens to leave, and the list can reshuffle for no reason a
+// person can see.
+//
+// Written as ONE comparator rather than a partition after the sort, and the
+// reason is the sidebar's partial_sort: only the first `limit` members are
+// ordered and the tail is left arbitrary, so a partition that pulled starred
+// rows out of that tail would order them by nothing at all. A comparator is a
+// total order over the whole vector however far the sort runs.
+inline bool sidebar_before(const api::SessionSummary* a,
+                           const api::SessionSummary* b) {
+    if (a->starred != b->starred) return a->starred;
+    if (a->updated_at != b->updated_at) return a->updated_at > b->updated_at;
+    return a->id < b->id;
+}
+
 // ---- Manual sidebar row order (drag-to-reorder) ---------------------------
 //
 // The sidebar list is sorted by ACTIVITY — newest-touched first, recomputed

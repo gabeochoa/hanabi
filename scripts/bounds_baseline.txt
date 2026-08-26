@@ -1,0 +1,23 @@
+# Flow-positioned UI elements that escape their parent's CONTENT box.
+#
+# Written and checked by scripts/bounds_gate.sh, off HANABI_BOUNDS_AUDIT=1
+# (src/util/bounds_audit.h). One line per <element> in <parent> plus the sides
+# it escapes on -- NOT the number of pixels, so a design change that moves a
+# known overflow does not fail the gate and teach people to run --update.
+#
+# THIS IS A FREEZE, NOT AN APPROVAL. Everything here is 1.0-1.5px and VERTICAL:
+# a label or button box a couple of pixels taller than the row it sits in,
+# centred, so it hangs equally off the top and the bottom and nothing is
+# visible. Each is also tuned around -- the six sidebar view rows are measured
+# against a frozen pixel reference, and giving their 22px label a 22px content
+# box moves every row in the Views section. The gate exists to stop the NEXT
+# one, and to hand this list to anyone who touches one of them.
+#
+# A HORIZONTAL entry does not belong here. A control wider than the space its
+# parent reserved draws over its siblings and you can see it happen; the three
+# in this file at the moment it was created (composer_send, composer_status,
+# subrollup_chips) are being fixed, not forgiven, and their lines come out as
+# each one lands.
+sb_search_text in sb_search bottom top
+sv_icon in smart_item bottom top
+sv_label in smart_item bottom top

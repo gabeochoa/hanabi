@@ -378,6 +378,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // One row name's total vertical footprint.
     static constexpr float kRowNameFoot = kRowNameH + kRowNameGap;
     static constexpr float kThemeRowH = 30.0f;   // segmented control
+    // A segment button is exactly its row, and this constant is why there is
+    // one number rather than two. Five builders (theme_choice, rotate_choice,
+    // font_choice_btn, real_segmented, swatch_btn) each wrote `pixels(32)`
+    // into a `pixels(kThemeRowH)` row, so forty-four buttons drew 1px above
+    // and 1px below the box their row set aside for them -- the whole of
+    // "many buttons are going outside the bounds", one rule spelled twice.
+    // 30 and not 32 because kThemeRowH is what the SHEET is measured from
+    // (kRowNameFoot + kThemeRowH is a group's height); growing the button
+    // would have moved every section under it.
+    static constexpr float kSegBtnH = kThemeRowH;
     static constexpr float kCacheRowH = 28.0f;   // usage + clear button
     // The export row is two lines, not one: the destination is a PATH now
     // that the user can choose it, and a path plus two buttons does not fit
@@ -572,7 +582,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto btn = button(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
                 .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
                 .with_custom_background(selected ? theme::button_primary()
                                                  : theme::button_secondary())
@@ -640,7 +650,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto btn = button(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
                 .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
                 .with_custom_background(selected ? theme::button_primary()
                                                  : theme::button_secondary())
@@ -1009,7 +1019,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             auto btn = button(ctx, mk(row.ent(), i + 1),
                 ComponentConfig{}
                     .with_label(labels[static_cast<size_t>(i)])
-                    .with_size(ComponentSize{pixels(segW), pixels(32)})
+                    .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
                     .with_margin(Margin{.right = pixels(last ? 0.0f : kSegGap)})
                     .with_custom_background(sel ? theme::button_primary()
                                                 : theme::button_secondary())
@@ -1402,7 +1412,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto btn = button(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
                 .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
                 .with_custom_background(selected ? theme::button_primary()
                                                  : theme::button_secondary())
@@ -1536,7 +1546,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto btn = button(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{pixels(segW), pixels(32)})
+                .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
                 .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
                 .with_custom_background(selected ? theme::button_primary()
                                                  : theme::button_secondary())
