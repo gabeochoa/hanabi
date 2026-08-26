@@ -846,6 +846,7 @@ static void app_cleanup() {
 #include "../vendor/afterhours/src/plugins/e2e_testing/e2e_testing.h"
 #include "../vendor/afterhours/src/plugins/e2e_testing/platform_test_input.h"
 #include "../vendor/afterhours/src/plugins/e2e_testing/ui_commands.h"
+#include "ecs/e2e_commands.h"
 #endif
 
 // State-only test knobs, shared by the two headless entry points (the
@@ -2058,6 +2059,7 @@ static int run_e2e(const std::string& path, int w, int h) {
     // its own assertions.
     t::register_builtin_handlers(sm);
     t::ui_commands::register_ui_commands<InputAction>(sm);
+    hanabi::e2e::register_hanabi_commands(sm);
     t::register_unknown_handler(sm);
     t::register_cleanup(sm);
     build_systems(sm);

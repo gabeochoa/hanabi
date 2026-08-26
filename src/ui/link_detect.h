@@ -28,6 +28,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -133,6 +134,29 @@ inline std::vector<RectangleType> rects_for(RectangleType rect,
     return out;
 }
 
+// WHERE A LINK ACTUALLY LANDED, for the scripted-UI harness only.
+//
+// A .e2e script cannot ask for a byte range's position (gap #51), so
+// tests/ui/tracker_links.e2e pinned the pixel it had measured — and a pinned
+// pixel is a coordinate that rots. It rotted twice: once by 321px when the
+// pane lost its title header, once by 26px when six feature branches moved
+// every transcript body line down, and each time the test read as "the link
+// feature is broken". draw_underlines already derives the rect for every link
+// it paints, so the e2e build keeps the last one per id and the `click_link`
+// command aims at its centre. Nothing outside the e2e binary compiles this,
+// and a script that names an id that is not on screen fails saying which ids
+// were.
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+inline std::map<std::string, RectangleType>& painted_rects() {
+    static std::map<std::string, RectangleType> m;
+    return m;
+}
+
+inline void record_painted(const std::string& id, const RectangleType& r) {
+    painted_rects()[id] = r;
+}
+#endif
+
 // Underline every link in `text` as it is laid out inside `rect`. Called from
 // on_draw_fg so the rule sits over the element's own fill, under nothing.
 inline void draw_underlines(RectangleType rect, const std::string& text,
@@ -142,6 +166,9 @@ inline void draw_underlines(RectangleType rect, const std::string& text,
     for (const Link& l : links)
         for (const RectangleType& r : rects_for(rect, text, l.off, l.len,
                                                 fontPx)) {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+            record_painted(l.id, r);
+#endif
             const float y = r.y + r.height - 2.0f;
             afterhours::draw_line_ex(afterhours::vec2{r.x, y},
                                      afterhours::vec2{r.x + r.width, y}, 1.0f,
