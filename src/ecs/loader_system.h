@@ -552,22 +552,32 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // transcript IMMEDIATELY with sync=Persisting (in flight), and
             // record it in the local outbox (survives a crash). On success it
             // flips to Synced + the reply is appended; on failure it flips to
-            // Failed and stays in the outbox to retry. We remember the
-            // optimistic bubble's id so the resolver can find + update it.
-            api::disk_cache::outbox_add(id, prompt);
+            // Failed and STAYS in the outbox, where drive_outbox() picks it up
+            // and tries again. We remember the optimistic bubble's id so the
+            // resolver can find + update it.
+            //
+            // A retry issued by drive_outbox() came OUT of the store, so it
+            // must not be written back into it (that is how one failed prompt
+            // becomes four), and its bubble is already in the transcript.
+            const bool fromOutbox = claim_outbox_dispatch(app, id, prompt);
+            if (!fromOutbox) api::disk_cache::outbox_add(id, prompt);
             app.optimisticSendId.clear();
             if (app.openSession && app.openSession->summary.id == id) {
-                api::Message um;
-                um.role = api::Role::User;
-                um.id = id + "-u" +
-                        std::to_string(app.openSession->messages.size());
-                um.text = prompt;
-                um.created_at =
-                    static_cast<int64_t>(std::time(nullptr));
-                um.sync = api::SyncState::Persisting;
-                app.optimisticSendId = um.id;
-                app.openSession->messages.push_back(std::move(um));
-                app.scrollBottomPending = id;  // keep the new bubble in view
+                if (fromOutbox && adopt_local_bubble(app, prompt)) {
+                    app.scrollBottomPending = id;
+                } else {
+                    api::Message um;
+                    um.role = api::Role::User;
+                    um.id = id + "-u" +
+                            std::to_string(app.openSession->messages.size());
+                    um.text = prompt;
+                    um.created_at =
+                        static_cast<int64_t>(std::time(nullptr));
+                    um.sync = api::SyncState::Persisting;
+                    app.optimisticSendId = um.id;
+                    app.openSession->messages.push_back(std::move(um));
+                    app.scrollBottomPending = id;  // keep the new bubble in view
+                }
             }
             api::Client* c = app.client.get();
             app.sendFuture = std::async(std::launch::async, [c, id, prompt] {
@@ -608,12 +618,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         app.transcriptCache.put(*app.openSession);
                     }
                     api::disk_cache::outbox_remove(app.sendSessionId, userText);
+                    app.outboxRetry.confirmed(app.sendSessionId, userText);
                     app.optimisticSendId.clear();
                 } else {
-                    // Send failed: mark the optimistic bubble Failed (it stays
-                    // in the outbox to retry) and surface the error.
+                    // Send failed: mark the optimistic bubble Failed, leave the
+                    // prompt in the outbox and hand it to the retry policy,
+                    // which backs off and tries it again. Before this existed
+                    // the entry sat on disk forever and "kept in the outbox to
+                    // retry" was only the first half of a sentence.
                     mark_optimistic(app, api::SyncState::Failed);
                     app.transcriptError = r.error;
+                    note_outbox_failure(app, app.sendSessionId, userText);
                 }
             }
         }
@@ -623,6 +638,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         sync_subscriptions(app);
         drive_live_events(app);
         drive_send_queue(app);
+        drive_outbox(app);
         drive_settings(app);
         drive_settings_sync(app);
     }
@@ -650,6 +666,183 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // else the synchronous reply path. Because sending_for(id) already covers
     // sendPending + streamCollecting + streamActive, a session drains exactly
     // one queued item per completed turn, in FIFO order.
+    // ---- The outbox's READ side (api/outbox.h holds the policy) ----------
+    //
+    // Every prompt is written to disk before it is sent. Nothing read it back:
+    // `disk_cache::outbox_list` had no caller in src, tests or tools, so a send
+    // that failed left its entry on disk forever and a crash mid-send restored
+    // nothing. The design note that specified the feature says so itself --
+    // "HONEST GAP: there is no reconnect-DRAIN yet ... the user must re-send"
+    // (LOCAL_FIRST_DESIGN.md) -- and docs/COMMIT_AUDIT.md CB3 found the same
+    // hole from the code. These four functions are that drain.
+    //
+    // Three rules shape it and each one is a bug that would otherwise exist:
+    //
+    //   * A retry must not re-ADD its own prompt to the store it came from,
+    //     or one failed send becomes two entries, then four.
+    //   * A retry must not paint a SECOND bubble for a turn already on screen.
+    //   * The user's own queued sends go first. A retry is old work; a
+    //     keystroke is not.
+
+    // Is this (id, prompt) the dispatch drive_outbox() just issued? Consumes
+    // the flag, so the answer is true exactly once per retry.
+    static bool claim_outbox_dispatch(AppComponent& app, const std::string& id,
+                                      const std::string& prompt) {
+        if (!app.outboxSuppressAdd) return false;
+        if (app.outboxRetryId != id || app.outboxRetryPrompt != prompt)
+            return false;
+        app.outboxSuppressAdd = false;
+        return true;
+    }
+
+    // Find the locally-originated bubble already holding `prompt` and take it
+    // over as the optimistic bubble for this attempt, rather than appending a
+    // duplicate. True if one was adopted.
+    static bool adopt_local_bubble(AppComponent& app,
+                                   const std::string& prompt) {
+        if (!app.openSession) return false;
+        for (auto it = app.openSession->messages.rbegin();
+             it != app.openSession->messages.rend(); ++it) {
+            if (it->role != api::Role::User) continue;
+            if (it->sync == api::SyncState::None) continue;
+            if (it->text != prompt) continue;
+            it->sync = api::SyncState::Persisting;
+            app.optimisticSendId = it->id;
+            return true;
+        }
+        return false;
+    }
+
+    static void mark_local_prompt(AppComponent& app, const std::string& prompt,
+                                  api::SyncState st) {
+        if (!app.openSession) return;
+        for (auto it = app.openSession->messages.rbegin();
+             it != app.openSession->messages.rend(); ++it) {
+            if (it->role != api::Role::User) continue;
+            if (it->sync == api::SyncState::None) continue;
+            if (it->text != prompt) continue;
+            it->sync = st;
+            return;
+        }
+    }
+
+    static void drop_local_prompt(AppComponent& app,
+                                  const std::string& prompt) {
+        if (!app.openSession) return;
+        auto& msgs = app.openSession->messages;
+        for (auto it = msgs.begin(); it != msgs.end(); ++it) {
+            if (it->role != api::Role::User) continue;
+            if (it->sync == api::SyncState::None) continue;
+            if (it->text != prompt) continue;
+            msgs.erase(it);
+            return;
+        }
+    }
+
+    static void note_outbox_failure(AppComponent& app, const std::string& id,
+                                    const std::string& prompt) {
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        // The prompt is already on disk (outbox_add ran at dispatch); this is
+        // where the retry loop learns about it.
+        app.outboxRetry.adopt(id, prompt);
+        app.outboxRetry.failed(id, prompt, now);
+        fprintf(stderr,
+                "[outbox] send failed for %s; %zu prompt(s) held on disk, "
+                "retrying (attempt %d)\n",
+                id.c_str(), app.outboxRetry.count_for(id),
+                app.outboxRetry.attempts_for(id, prompt));
+    }
+
+    // Paint any unconfirmed prompt for the OPEN thread that the transcript
+    // does not already contain. This is what makes a crash mid-send visible
+    // after a relaunch: the server never heard the prompt, so no refetch will
+    // ever produce it, and without this the user's words are on disk and
+    // nowhere else.
+    static void restore_outbox_bubbles(AppComponent& app) {
+        if (!app.openSession) return;
+        const std::string id = app.openSession->summary.id;
+        if (app.outboxRetry.count_for(id) == 0) return;
+        for (const auto& e : app.outboxRetry.entries()) {
+            if (e.sessionId != id) continue;
+            bool present = false;
+            for (const auto& m : app.openSession->messages) {
+                if (m.role == api::Role::User && m.text == e.prompt) {
+                    present = true;
+                    break;
+                }
+            }
+            if (present) continue;
+            api::Message um;
+            um.role = api::Role::User;
+            um.id = id + "-ob" +
+                    std::to_string(app.openSession->messages.size());
+            um.text = e.prompt;
+            um.created_at = static_cast<int64_t>(std::time(nullptr));
+            um.sync = api::SyncState::LocalOnly;
+            app.openSession->messages.push_back(std::move(um));
+            app.scrollBottomPending = id;
+        }
+    }
+
+    void drive_outbox(AppComponent& app) {
+        if (!app.client) return;
+
+        // The startup enumeration. Once per process, as soon as there is a
+        // client to send with. outbox_sessions() is the function that had to
+        // be added for this: outbox_list can only answer about an id somebody
+        // already named, and after a restart nothing in memory names any.
+        if (!app.outboxRestored) {
+            app.outboxRestored = true;
+            std::vector<api::outbox::Entry> found;
+            for (const auto& id : api::disk_cache::outbox_sessions())
+                for (const auto& p : api::disk_cache::outbox_list(id))
+                    found.push_back(api::outbox::Entry{id, p, 0, 0});
+            if (!found.empty()) {
+                app.outboxRetry.restore(found);
+                fprintf(stderr,
+                        "[outbox] restored %zu unconfirmed prompt(s) across "
+                        "%zu thread(s) from the last run; will retry\n",
+                        found.size(),
+                        api::disk_cache::outbox_sessions().size());
+            }
+        }
+
+        if (app.outboxRetry.empty()) return;
+        restore_outbox_bubbles(app);
+
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        // A retry can only be dispatched into the OPEN thread, for the same
+        // reason drive_send_queue's dispatch can: the send START blocks below
+        // read app.selectedId, so a prompt aimed anywhere else would land in
+        // the wrong transcript. An entry for a closed thread waits, durably,
+        // until it is opened.
+        const api::outbox::Entry* pick = app.outboxRetry.next(
+            now, [&app](const std::string& id) {
+                if (id != app.selectedId) return false;
+                if (app.sending_for(id)) return false;
+                if (!app.openSession || app.openSession->summary.id != id)
+                    return false;
+                if (!app.requestSendPrompt.empty()) return false;
+                if (!app.requestStreamPrompt.empty()) return false;
+                if (!app.pendingSendQueue.empty()) return false;
+                return true;
+            });
+        if (!pick) return;
+
+        const std::string id = pick->sessionId;
+        const std::string prompt = pick->prompt;
+        app.outboxRetry.attempted(*pick);
+        app.outboxRetryId = id;
+        app.outboxRetryPrompt = prompt;
+        app.outboxSuppressAdd = true;
+        fprintf(stderr, "[outbox] retrying a held prompt for %s (attempt %d)\n",
+                id.c_str(), app.outboxRetry.attempts_for(id, prompt));
+        if (app.client->supports_stream())
+            app.requestStreamPrompt = prompt;
+        else
+            app.requestSendPrompt = prompt;
+    }
+
     void drive_send_queue(AppComponent& app) {
         if (app.pendingSendQueue.empty() || !app.client) return;
         // Find the FIRST queued send whose session is free AND not already
@@ -1074,6 +1267,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             std::string prompt = app.requestStreamPrompt;
             std::string id = app.selectedId;
             app.requestStreamPrompt.clear();
+            // The outbox covers THIS path too, and for a long time it did not.
+            // The write side was wired only into the synchronous reply above,
+            // and every backend that ships -- the mock and agentcloud both --
+            // reports supports_stream(), so the composer takes this branch and
+            // the crash-safe log the local-first work was built for was never
+            // written on the path the app actually runs. (COMMIT_AUDIT CB3
+            // found the missing READER; this is the missing WRITER.)
+            const bool fromOutbox = claim_outbox_dispatch(app, id, prompt);
+            if (!fromOutbox) api::disk_cache::outbox_add(id, prompt);
             app.streamCollecting = true;
             app.streamPendingPrompt = prompt;
             app.streamPendingSession = id;
@@ -1112,16 +1314,31 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamPendingSession.clear();
 
             // The open thread may have changed while we were collecting; only
-            // apply the result if the target thread is still open.
+            // apply the result if the target thread is still open. The OUTBOX
+            // verdict does not depend on that: whether the server took the
+            // prompt is decided by got.error, not by what the user is looking
+            // at now.
+            if (got.error.empty()) {
+                api::disk_cache::outbox_remove(id, prompt);
+                app.outboxRetry.confirmed(id, prompt);
+            } else {
+                note_outbox_failure(app, id, prompt);
+            }
             if (!app.openSession || app.openSession->summary.id != id) {
                 app.streamPhase = AppComponent::StreamPhase::Idle;
             } else if (!got.error.empty()) {
                 app.transcriptError = got.error;
                 app.streamPhase = AppComponent::StreamPhase::Idle;
+                mark_local_prompt(app, prompt, api::SyncState::Failed);
             } else {
                 // Append the User bubble + an empty Assistant bubble that fills
                 // in as we drain. The live Assistant message's index is
                 // remembered so the drain can rewrite its text each frame.
+                // A restored/failed copy of this same prompt may already be
+                // sitting in the transcript (drive_outbox paints one so the
+                // user's words are visible before the retry lands); it is the
+                // same turn, so it goes rather than doubling.
+                drop_local_prompt(app, prompt);
                 api::Message um;
                 um.role = api::Role::User;
                 um.id = id + "-u" +

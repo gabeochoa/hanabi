@@ -1,0 +1,37 @@
+# A send the backend refuses is HELD and RETRIED, not lost.
+#
+# The local-first outbox writes every prompt to disk before the network and
+# removes it on confirmation. Nothing ever read it back: `outbox_list` had no
+# caller in src, tests or tools, so "kept in the outbox to retry" (the send
+# path's own comment, and the commit message that shipped it) stopped after
+# "kept". docs/COMMIT_AUDIT.md CB3.
+#
+# HANABI_MOCK_SEND_FAIL=1 makes the FIRST send of the process fail like a dead
+# backend and every send after it succeed, which is the shape of the case the
+# feature exists for: the network was down for a moment and the user's words
+# must not be the thing that pays for it.
+#
+# HANABI_OUTBOX_BACKOFF=0 collapses the retry wait. The real curve is 2s, 4s,
+# 8s of WALL CLOCK, and a scripted run has no wall clock to spend: `wait_frames`
+# advances the app through a fixed dt without advancing time (gap #231), so a
+# script that waited for the real backoff would sleep for real seconds on a
+# shared box. Zero means "as soon as the thread can take it".
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_SEND_FAIL=1 HANABI_OUTBOX_BACKOFF=0
+
+expect_text "needs a decision"
+
+click_ui composer_reply_input
+wait_frames 4
+type "hold this until the backend comes back"
+wait_frames 4
+key ENTER
+
+# The send goes out, the backend refuses it, and the prompt is written to the
+# outbox before the network so it is still the user's. Nothing below touches
+# the mouse or the keyboard again: the retry is the app's job, and the reply
+# that only a SUCCESSFUL send produces is the witness that it ran.
+wait_frames 240
+expect_text "hold this until the backend comes back"
+expect_text "working on: hold this until the backend comes back"

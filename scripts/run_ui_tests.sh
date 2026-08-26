@@ -73,11 +73,22 @@ for s in "${SCRIPTS[@]}"; do
         done < <(printf '%s' "$env_line" | xargs -n1 2>/dev/null)
     fi
 
+    # A FRESH on-disk cache per script. The isolated HOME is created once for
+    # the whole suite, so anything a script leaves in the cache dir -- notably
+    # an unconfirmed local-first OUTBOX entry, which the next launch restores
+    # and retries by design -- would otherwise arrive in the NEXT script as an
+    # extra bubble it never sent. One dir per script keeps each run's durable
+    # state its own.
+    script_cache="$ISO_HOME/cache/$name"
+    rm -rf "$script_cache"
+    mkdir -p "$script_cache"
+
     # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": macOS ships bash 3.2, where
     # expanding an EMPTY array under `set -u` is an unbound-variable error. Bash
     # 4.4 fixed that, so the plain form works for anyone on a newer bash and
     # fails every script without an "# env:" line on a stock Mac.
     ( env HOME="$ISO_HOME" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock \
+        HANABI_CACHE_DIR="$script_cache" \
         ${extra_env[@]+"${extra_env[@]}"} "$EXE" --e2e "$s" >"$log" 2>&1 ) &
     pid=$!
     for ((i=0; i<TIMEOUT; i++)); do

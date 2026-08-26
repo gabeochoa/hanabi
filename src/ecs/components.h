@@ -15,6 +15,7 @@
 #include "../../vendor/afterhours/src/core/base_component.h"
 #include "../api/auth.h"
 #include "../api/client.h"
+#include "../api/outbox.h"
 #include "transcript_cache.h"
 
 namespace ecs {
@@ -497,6 +498,23 @@ struct AppComponent : public afterhours::BaseComponent {
     // sync=Persisting). The resolver flips its SyncState to Synced/Failed by
     // matching this id. Empty when no optimistic send is in flight.
     std::string optimisticSendId;
+
+    // ==== The local-first OUTBOX's read side =============================
+    // Every send is written to disk before it goes out (disk_cache::outbox_add)
+    // so a crash cannot lose the user's words. For a long time nothing read
+    // that back: outbox_list had no caller, so a failed send stayed on disk
+    // forever and a crash mid-send restored nothing (docs/COMMIT_AUDIT.md CB3).
+    //
+    // This is the state the loader's drive_outbox() needs. The POLICY -- which
+    // entry next, how long to wait -- is api::outbox::Retry, which is pure and
+    // unit-tested; what lives here is only which retry is currently occupying
+    // the one send slot, and the flag that stops a retry writing a SECOND copy
+    // of the same prompt into the store it came out of.
+    api::outbox::Retry outboxRetry;
+    bool outboxRestored = false;      // the startup enumeration has run
+    bool outboxSuppressAdd = false;   // this dispatch came FROM the outbox
+    std::string outboxRetryId;        // the retry occupying the send slot
+    std::string outboxRetryPrompt;
 
     // Phase STREAM: live token-by-token replies. When the active backend
     // supports_stream(), the transcript composer routes Send through here

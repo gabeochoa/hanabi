@@ -721,6 +721,26 @@ std::vector<std::string> outbox_list(const std::string& id) {
     return load_queue(outbox_key(id));
 }
 
+std::vector<std::string> outbox_sessions() {
+    std::vector<std::string> out;
+    json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object()) return out;
+    const std::string prefix = outbox_key("");
+    for (const auto& [key, entry] : doc["drafts"].items()) {
+        if (key.compare(0, prefix.size(), prefix) != 0) continue;
+        if (!entry.is_object()) continue;
+        if (!entry.contains("queue") || !entry["queue"].is_array()) continue;
+        if (entry["queue"].empty()) continue;
+        out.push_back(key.substr(prefix.size()));
+    }
+    // The JSON object's iteration order is the library's, not the user's.
+    // Sorting makes a restore deterministic, which is what lets a test assert
+    // on it and what stops the retry order changing between two launches that
+    // hold the same work.
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 // ---- cache cap / eviction (feature #C) -----------------------------------
 void touch_transcript(const std::string& id) {
     const std::string path = transcript_file(id);
