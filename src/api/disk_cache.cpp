@@ -170,7 +170,14 @@ json to_json(const Message& m) {
                 {"role", static_cast<int>(m.role)},
                 {"text", m.text},
                 {"created_at", m.created_at},
-                {"subtitle", m.subtitle}};
+                {"subtitle", m.subtitle},
+                // The one dropped field that something READS after a restore:
+                // find's `state:` operator resolves through tool_state_of(),
+                // which is a lookup on this string. Without it a thread
+                // restored from cache answered "no matches" to every state:
+                // query, and answered it as a VALID query, so no hint said
+                // why. docs/SEARCH.md S4.
+                {"tool_status", m.tool_status}};
 }
 
 Message message_from_json(const json& j) {
@@ -180,6 +187,11 @@ Message message_from_json(const json& j) {
     m.text = j.value("text", "");
     m.created_at = j.value("created_at", (int64_t)0);
     m.subtitle = j.value("subtitle", "");
+    // Absent in files written before this was saved. Empty is what those
+    // files behaved as, and it is also what "the backend said nothing"
+    // means to tool_state_of, so an old file degrades to the old answer
+    // rather than to a wrong one.
+    m.tool_status = j.value("tool_status", "");
     return m;
 }
 
