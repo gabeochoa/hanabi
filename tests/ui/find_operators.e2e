@@ -5,9 +5,10 @@
 # and twice in the assistant turn that ran the tool rows. Filtering drops the
 # user one — so the count must drop with it, and so must the highlighting.
 #
-# That second half is the load-bearing part (find_counts_only_what_it_paints
-# .e2e): a filter that hid a row from the tally but still painted a band behind
-# it would be exactly the lie that test exists to prevent. The harness cannot
+# That second half is the load-bearing part (find_counts_only_what_it_could
+# _paint.e2e): a filter that hid a row from the tally but still painted a band
+# behind it would be exactly the lie that test exists to prevent. This thread
+# fits the window, so the two numbers are equal outright here. The harness cannot
 # see a painted band — it is drawn, never registered as text — so
 # HANABI_FIND_AUDIT=1 has the find bar report how many bands the last frame
 # actually painted, and the script holds the two numbers against each other.

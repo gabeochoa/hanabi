@@ -14,8 +14,10 @@
 # opening line was a System caption, which has no highlight path and so was
 # never counted. That line is a real user message now (the transcript opens on
 # a user turn, to match Puffin's), and a user bubble paints like any other, so
-# the third occurrence counts. The tally equals the number of bands on screen,
-# always; that is the whole rule (see find_counts_only_what_it_paints.e2e).
+# the third occurrence counts. Every counted match is one find would paint, and
+# this thread fits the window, so here the tally and the bands are equal
+# outright (see find_counts_only_what_it_could_paint.e2e, and
+# find_counts_the_thread_not_the_window.e2e for the case where they are not).
 expect_text "1 of 3"
 
 # Next advances, and wraps at the end.

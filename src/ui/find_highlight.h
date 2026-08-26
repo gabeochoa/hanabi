@@ -43,12 +43,22 @@ inline constexpr float kVPad = 1.0f;  // trims the band off the line box
 
 using textscan::occurrences;
 
-// How many bands were painted since the last read. The tally the find bar
-// shows is only true if it equals this (see
-// tests/ui/find_counts_only_what_it_paints.e2e), and the scripted harness
-// cannot see pixels — a band is drawn, never registered as text. Counting
-// them here is the only way a test can hold the count and the painting to
-// each other rather than to two independent readings of the same code.
+// How many bands were painted since the last read.
+//
+// This is NOT the find bar's tally and must not be read as it. The tally is
+// every paintable match in the thread; a band is painted only for a message
+// the virtualization window actually built, so `bands <= tally`, with equality
+// only when the whole thread fits the window. The rule that does hold is the
+// one on the other side: nothing is counted that this could not paint if the
+// message were on screen — same rows, same normalization, same exclusions
+// (tests/ui/find_counts_only_what_it_could_paint.e2e), and the tally holds
+// still while the bands come and go under a scroll
+// (tests/ui/find_counts_the_thread_not_the_window.e2e).
+//
+// The scripted harness cannot see pixels — a band is drawn, never registered
+// as text. Counting them here is the only way a test can hold the painting and
+// the count against each other rather than against two readings of the same
+// code.
 inline int& band_count() {
     static int n = 0;
     return n;
@@ -65,12 +75,12 @@ inline int take_band_count() {
 //
 // The geometry lives here ONCE and takes its tally as a parameter, because a
 // second caller appeared (the sidebar's search snippets) and the two must not
-// share a counter: find's tally is asserted against the bands find painted
-// (tests/ui/find_counts_only_what_it_paints.e2e), and a band painted somewhere
-// else entirely landing in that count would break the one rule that makes the
-// tally worth reading. Copying the arithmetic instead would have been worse —
-// it is a transcription of the renderer's private constants (gap #51), and two
-// transcriptions rot independently.
+// share a counter: find's band count is asserted against find's own painting
+// (tests/ui/find_counts_only_what_it_could_paint.e2e), and a band painted
+// somewhere else entirely landing in that count would break the one reading
+// that can corroborate the tally at all. Copying the arithmetic instead would
+// have been worse — it is a transcription of the renderer's private constants
+// (gap #51), and two transcriptions rot independently.
 inline void paint_bands(RectangleType rect, const std::string& text,
                         const std::string& query, float fontPx,
                         theme::Color band, int& tally) {

@@ -26,7 +26,9 @@ This is the map, and then the honest part.
 | Cap | ~2 viewports of rows | 6 results | none |
 | Says when it truncated | no | no | n/a |
 
-Everything below cites `file:line` at `f012198`.
+Everything below cited `file:line` at `f012198`. Entries marked FIXED HERE
+have been changed since and cite by name instead — a line number in a file this
+branch edited is a number that has already moved.
 
 ---
 
@@ -142,10 +144,12 @@ markdown tables are skipped, headings contribute their text, and everything
 else contributes `md_to_spans(line).visible`. Tool rows, System captions and
 thinking blocks are excluded by role and subtitle (`:2916`).
 
-This is the design rule the whole feature is built on, stated in four separate
-files: **the tally equals the bands**. `find_highlight.h:46-51`,
-`find_operators.h:9-13`, `snippet_highlight.h:11-14`, and a test named
-`find_counts_only_what_it_paints.e2e`. See **S1**.
+This is the design rule the whole feature is built on, and it used to be
+stated in four separate files as **the tally equals the bands**, which is false
+as soon as the thread is longer than the screen. It now reads **nothing is
+counted that find could not paint** — `find_highlight.h`, `find_operators.h`,
+`snippet_highlight.h`, `main_pane_system.h` (`collect_matches`), and the test,
+renamed `find_counts_only_what_it_could_paint.e2e`. See **S1**.
 
 **Operators** (`ui/find_operators.h`). A token is an operator only if the text
 before its first `:` is exactly `is`, `has` or `state`; `http://x` and
@@ -182,7 +186,8 @@ is re-scanned: two whole-string allocations per message (`redact_secrets`,
    four of which `collect_matches` refuses. The commit message for
    `feat/cross-session-search` claims the opposite: *"the match is highlighted
    and counted by the machinery whose tally already equals the bands it
-   paints."*
+   paints."* That sentence was wrong twice over — see **S1** for the tally, and
+   this entry for the corpus mismatch, which is still open.
 
 3. **The sidebar matches JSON.** Type `state` and every thread with a cached
    transcript matches, because `"state"` is a key in the summary object.
@@ -194,22 +199,44 @@ is re-scanned: two whole-string allocations per message (`redact_secrets`,
 Ranked by how much it matters. Everything here was read out of the code; the
 two marked SUSPECT were not run.
 
-### S1 — the tally counts matches the app does not paint, and the rule says it can't
+### S1 — the tally counts matches the app does not paint — DECIDED AND FIXED HERE
 
-`main_pane_system.h:3395` sets `findCount` from every **loaded** message.
-Bands are painted only inside the virtualization window (`:3633`, and again per
-segment at `:6779`). So `bands ≤ count`, with equality only when the thread
-fits the window.
+`main_pane_system.h` sets `findCount` from every **loaded** message. Bands are
+painted only inside the virtualization window, and again per segment inside
+`render_rich_body`. So `bands ≤ count`, with equality only when the thread fits
+the window.
 
-The equality is asserted as law in four files and one test. All the fixtures
-that exercise it are short enough that nothing is culled — so the suite
-confirms the rule only in the case where virtualization is a no-op. Scroll a
-480-message thread and the tally is a number the screen cannot corroborate.
+**The decision: the count is right and the rule was wrong.** A reader searching
+a thread wants to know how many matches are in the thread — "3 of 47" means 47
+in the document in every editor there is, and the chevrons are how you reach
+the 44 that are not in front of you. Making the tally scroll-dependent would
+have made the number change under a scrollbar for no reason a user could name.
 
-**What it would take: large.** Either count only what the window built (making
-the tally scroll-dependent, which is worse) or accept "matches in the thread"
-as the contract and rewrite the rule wherever it is stated. This is a decision,
-not a patch.
+So the count is unchanged and the claim is rewritten. The invariant that is
+actually true, and is now what those files say, runs the other way: **nothing
+is counted that find could not paint** — same rows, same normalization, same
+operator predicate on both sides. `bands ≤ count` is a fact about the window,
+not a violation.
+
+The test is real now. It was one line, `expect_text "no matches"`, satisfied by
+any bug returning zero, and it never enabled the band audit it was named after:
+
+- `find_counts_only_what_it_could_paint.e2e` (renamed) asserts `bands 0`
+  alongside the zero. Deleting the code-fence skip from the PAINTER alone —
+  leaving the count at zero — now fails on `bands 0` and passes the old line.
+- `find_counts_a_paintable_match.e2e` (new) is the control: same thread, same
+  fence, `proration` outside it, `1 of 2` and `bands 2`. Making
+  `collect_matches` return nothing fails this and leaves the zero test green,
+  which is precisely how the zero test passed against broken code.
+- `find_counts_the_thread_not_the_window.e2e` (new) is the culled case the
+  suite never had: a 57-line reply, folding off, in a 760px window. `1 of 56`
+  with `bands 36` at the bottom and `bands 31` at the top — the tally holds
+  still across a `HOME`, the bands do not. Implementing the other decision
+  (`findCount = band_count()`) fails it at both ends and breaks nothing else.
+
+Still counted-but-unpaintable, and tracked separately: a multi-word query
+straddling a soft wrap (**S12**), and a match inside the folded tail of a long
+message (which is at least reachable by a click on the fold).
 
 ### S2 — "Full text" is not full text for the threads you most recently read
 
@@ -324,11 +351,11 @@ of skipping, or refuse to uncap while a query is live.
   in the LRU, so `snippet_for`'s transcript branch — the feature the commit
   sells, *"a matching row now carries the line the match is on"* — never runs.
   Delete that branch and the test stays green.
-- **`find_counts_only_what_it_paints.e2e`** is one line: `expect_text "no
-  matches"`. Any bug that makes find return zero satisfies it. It does not set
-  `HANABI_FIND_AUDIT=1`, so it never reads the band count the file it is named
-  after exists to expose. **One-line fix:** add the audit env and assert
-  `bands 0`, plus a companion where the same word outside a fence counts 1.
+- **`find_counts_only_what_it_paints.e2e`** was one line: `expect_text "no
+  matches"`. Any bug that makes find return zero satisfied it, and it never set
+  `HANABI_FIND_AUDIT=1`, so it never read the band count the file it is named
+  after exists to expose. FIXED under **S1**: renamed, `bands 0` asserted, and
+  given a control (`find_counts_a_paintable_match.e2e`).
 
 ### S11 — a comment claims a data-model limitation that does not exist — FIXED HERE
 
@@ -379,8 +406,9 @@ width where it happens not to wrap.
 
 ## 6. The shortest version
 
-The find bar is the best-built of the three and rests on an invariant that is
-false as soon as the thread is longer than the screen (**S1**). The
+The find bar is the best-built of the three and rested on an invariant that is
+false as soon as the thread is longer than the screen; the invariant is now the
+true one and the culled case is tested (**S1**). The
 cross-session panel has the right instinct — it tells you what it could not
 see — and then lies in the sentence that does it (**S2**), while parsing your
 whole cache on the UI thread to get there (**S5**). The sidebar's deep search

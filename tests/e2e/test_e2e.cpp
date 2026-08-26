@@ -1197,7 +1197,8 @@ static void test_sidebar_scroll_list_single_column() {
 // 20) Find operators: an operator only ever REMOVES rows from the search.
 //     Asserted against the mock's r1 thread, whose shape is the point — a user
 //     ask, then one assistant turn that runs tools and answers twice. The UI
-//     side of this (the tally equals the bands painted, even filtered) is
+//     side of this (an excluded row is dropped from the tally and from the
+//     painting by the same predicate) is
 //     tests/ui/find_operators.e2e; here is the meaning of each operator.
 // ---------------------------------------------------------------------------
 static size_t rows_kept(const api::Session& s, const std::string& query) {

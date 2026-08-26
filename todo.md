@@ -1104,8 +1104,9 @@ launch gate PASS, `make validate-screenshots` 30/30.
 
 ## Still open, and worth knowing
 
-- **`is:thinking` / `is:tool` find operators** need a data-model change; adding
-  them now would break the rule that the tally equals the bands painted.
+- **`is:thinking` / `is:tool` find operators** have no highlight path, so they
+  could only ever answer "no matches" — which breaks the rule that nothing is
+  counted that find could not paint. See src/ui/find_operators.h.
 - **The system menu bar is deliberately not started.** A menu item's key
   equivalent is consumed by AppKit before the app sees it, so binding Cmd+F or
   Cmd+B there rewires chords that work today — and no agent here can verify a

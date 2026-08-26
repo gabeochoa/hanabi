@@ -3,9 +3,9 @@
 # A thinking block is the model talking to itself on the way to the answer. It
 # arrives folded, and the path that draws it paints no highlight bands at all —
 # so before this, a query that appeared in the reasoning was COUNTED and could
-# never be shown. That breaks find's load-bearing rule: the tally must equal
-# the number of bands actually painted
-# (tests/ui/find_counts_only_what_it_paints.e2e).
+# never be shown. That breaks find's load-bearing rule: nothing is counted that
+# find could not paint
+# (tests/ui/find_counts_only_what_it_could_paint.e2e).
 #
 # "budget" appears three times in this thread — the question, the reasoning,
 # and the answer — and exactly two of them are conversation.

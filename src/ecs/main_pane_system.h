@@ -111,9 +111,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Only while the bar is open: with it closed there is no tally for a
         // step to mean anything against.
         //
-        // findCount is the count the LAST rendered frame painted. That is the
-        // only count that exists at the top of a frame, and it is the honest
-        // one to step over: it is the number of bands currently on screen.
+        // findCount is the count the LAST rendered frame computed: every
+        // paintable match in the loaded thread, not the subset the
+        // virtualization window happened to paint. That is the only count
+        // that exists at the top of a frame, and it is the right one to step
+        // over — stepping is how you reach a match that is NOT on screen.
         if (app->findOpen) {
             const hanabi::find_nav::Step step = hanabi::find_nav::chord(
                 hanabi::keys::cmd_down(), hanabi::keys::shift_down(),
@@ -2907,6 +2909,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // One match: which message, and where in it.
+    //
+    // WHAT THE TALLY IS. Every paintable match in the loaded thread — not the
+    // ones currently on screen. Bands are painted only for the messages the
+    // virtualization window built, so `bands <= findCount`, and equality holds
+    // only when the whole thread fits the window. That gap is the feature:
+    // "3 of 47" answers "how many are in this thread", which is what it
+    // answers in every other editor, and the chevrons are how you walk to the
+    // 44 that are not in front of you.
+    //
+    // The rule that IS load-bearing runs the other way — nothing is counted
+    // that find could not paint. Same rows (user and assistant, no tool rows,
+    // no system captions, no thinking blocks), same normalization
+    // (paintable_lines), same operator predicate on both sides. A match that
+    // survives all of that is one a scroll can bring under a band.
     struct Match {
         int msg = 0;
         size_t off = 0;
@@ -2926,8 +2942,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // model talking to itself on the way to the answer, it arrives
             // folded, and its body is drawn by a path that carries no
             // highlight — so a match in it could be counted and never shown.
-            // Skipped here AND in paint_query_for, which is what keeps the
-            // tally equal to the bands painted.
+            // Skipped here AND in paint_query_for, which is what keeps every
+            // counted match a match find would paint if it were on screen.
             if (is_thinking(m)) continue;
             // An operator excludes the row from the tally and from the
             // painting through this one test, so the two cannot disagree.

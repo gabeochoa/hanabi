@@ -8,11 +8,11 @@
 // (afterhours_gaps.md #51), so the only way to paint behind the matched run is
 // to redo the layout the renderer just did. That arithmetic is NOT copied here
 // — this calls find_highlight::paint_bands, which owns the one transcription
-// of the renderer's constants. What is separate is the TALLY: find's count is
-// asserted against the bands find painted, and a snippet band landing in that
-// number would break the rule that makes the find tally trustworthy
-// (tests/ui/find_counts_only_what_it_paints.e2e). So the counters are two, and
-// they are two on purpose.
+// of the renderer's constants. What is separate is the TALLY: find's band
+// count is asserted against find's own painting, and a snippet band landing in
+// that number would break the one reading that can corroborate find's tally at
+// all (tests/ui/find_counts_only_what_it_could_paint.e2e). So the counters are
+// two, and they are two on purpose.
 //
 // Fragility, inherited whole: the bands are placed by re-measuring the text
 // with the renderer's wrap inset, line pitch, vertical centering and left

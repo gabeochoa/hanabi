@@ -271,8 +271,8 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
 
     // Open the thread and hand the query to find-in-conversation, so the match
     // is highlighted and scrolled to by the machinery that already does that —
-    // and counted by the same tally, which is the only count of matches this
-    // app is allowed to show.
+    // and counted by the same tally, which counts every paintable match in the
+    // thread rather than the ones the window happens to be showing.
     void open(const hanabi::search::Hit& hit, AppComponent& app) {
         app.requestOpenTab = hit.id;
         app.view = SmartView::Chat;
@@ -321,9 +321,9 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
     // The same rows find-in-conversation can paint: user and assistant text.
     // A snippet is a promise that the words are in the thread you are about to
     // open AND that the find bar will show you where — tool output and the
-    // System caption have no highlight path (find_counts_only_what_it_paints
-    // .e2e is the rule), so indexing them would promise a match that opens a
-    // thread with nothing lit up in it.
+    // System caption have no highlight path (find_counts_only_what_it_could
+    // _paint.e2e is the rule), so indexing them would promise a match that
+    // opens a thread with nothing lit up in it.
     static std::string flatten(const api::Session& s) {
         std::string out;
         for (const auto& m : s.messages) {

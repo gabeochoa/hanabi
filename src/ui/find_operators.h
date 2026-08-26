@@ -6,11 +6,18 @@
 //
 // An operator narrows WHICH ROWS the plain text is searched in; it never
 // changes what a match is. That split matters because find's counting rule is
-// load-bearing: the tally must equal the number of highlight bands actually
-// painted (tests/ui/find_counts_only_what_it_paints.e2e). Keeping the operator
-// on the row side and the text on the match side means the filter can only
-// ever remove a row from BOTH sides at once — the same predicate decides
-// whether a row is counted and whether it is painted, so the two cannot drift.
+// load-bearing: every match in the tally must be one find would paint if that
+// message were on screen (tests/ui/find_counts_only_what_it_could_paint.e2e).
+// Keeping the operator on the row side and the text on the match side means
+// the filter can only ever remove a row from BOTH sides at once — the same
+// predicate decides whether a row is counted and whether it is painted, so the
+// two cannot drift.
+//
+// The tally is NOT a count of bands on screen, and never was: bands are
+// painted only inside the virtualization window, so a thread longer than the
+// screen paints a subset of what it counts. "3 of 47" means 47 in the thread,
+// which is what it means in every other editor
+// (tests/ui/find_counts_the_thread_not_the_window.e2e).
 //
 // Only rows the transcript can actually highlight are worth filtering, which
 // is why the vocabulary looks the way it does. `is:tool` and `is:thinking` are
