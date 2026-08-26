@@ -1,9 +1,9 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is 9,800 lines and 175 entries, written by dozens of agents
-over several days. As a record it is good. As a work queue it is unusable: you
-cannot see what matters, what is one change, what is the same finding filed four
-times, and what has already been fixed under it.
+`afterhours_gaps.md` is ~10,000 lines and 189 entries, written by dozens of
+agents over several days. As a record it is good. As a work queue it is
+unusable: you cannot see what matters, what is one change, what is the same
+finding filed four times, and what has already been fixed under it.
 
 This file is the front matter. It changes no entry's number — **source code and
 eight commit messages cite these numbers, so nothing is renumbered here** — it
@@ -380,7 +380,7 @@ Two more that read as gaps and are not, and belong on the same shelf:
 And the entries that are **hanabi's**, not afterhours': **#19**, **#20** (icon
 atlas resources), **#21** (the app's own screenshot harness), **#27b**
 (`spawn_status` overflows `spawn_card` — the app's width math), **#108** and
-**#114** (`gen_icons.py`). Five of them sit in the same numbered series as real
+**#114** (`gen_icons.py`). All six sit in the same numbered series as real
 library gaps and read as asks; they are not.
 
 ---
@@ -392,17 +392,20 @@ predates the current work and is not fixable by renumbering, because source code
 and commit messages cite these numbers. The map below is the fix: it says which
 entry each ambiguous citation means.
 
+Line numbers are as of this branch's head; the titles beside them are the
+durable handle, since the file only ever grows at the end and in postscripts.
+
 | # | Entry A | Entry B | Entry C |
 |---|---|---|---|
-| **27** | **L881** immediate-mode rebuild / idle-frame floor | L1149 `spawn_status` overflows `spawn_card` (app-side) | |
-| **28** | L924 no OS window-focus / frontmost query | **L1011** 2nd child of a custom-bg div (RESOLVED 2026-08-03) | |
-| **29** | L943 single `hot_id` steals the parent's hover (FIXED) | **L1017** `text_input` has no placeholder (RESOLVED) | |
-| **30** | L969 no scroll-anchor on prepend | L1022 raw wheel-delta, no smoothing | |
-| **31** | L990 virtualization window from a stale offset | L1032 no macOS `.app` bundle packaging | **L1080** sokol pushes U+007F into the CHAR queue (FIXED) |
-| **32** | L1036 `get_resource_path` resolves from CWD | L1105 caret draws inside the last glyph (FIXED) | |
-| **33** | L1041 no menu bar / notifications / hotkey / Spotlight | L1116 no Shift+Enter newline | |
-| **34** | L1044 no URL-scheme handling | L1125 `text_input` does not wrap or clip | |
-| **35** | L1047 no system-font enumeration | L1140 no Escape-to-clear | |
+| **27** | **L932** immediate-mode rebuild / idle-frame floor | L1225 `spawn_status` overflows `spawn_card` (app-side) | |
+| **28** | L975 no OS window-focus / frontmost query | **L1062** 2nd child of a custom-bg div (RESOLVED 2026-08-03) | |
+| **29** | L994 single `hot_id` steals the parent's hover (FIXED) | **L1068** `text_input` has no placeholder (RESOLVED) | |
+| **30** | L1020 no scroll-anchor on prepend | L1073 raw wheel-delta, no smoothing | |
+| **31** | L1041 virtualization window from a stale offset | L1094 no macOS `.app` bundle packaging | **L1156** sokol pushes U+007F into the CHAR queue (FIXED) |
+| **32** | L1098 `get_resource_path` resolves from CWD | L1181 caret draws inside the last glyph (FIXED) | |
+| **33** | L1103 no menu bar / notifications / hotkey / Spotlight | L1192 no Shift+Enter newline | |
+| **34** | L1106 no URL-scheme handling | L1201 `text_input` does not wrap or clip | |
+| **35** | L1109 no system-font enumeration | L1216 no Escape-to-clear | |
 
 **Which one does a live citation mean?** Every citation in the working tree
 resolves, and they resolve to the *second* entry in three of the four cases —
@@ -410,14 +413,14 @@ which is the opposite of what a reader assumes:
 
 | Citation | Means |
 |---|---|
-| `src/ecs/main_pane_system.h:6152,7317,7405` — "gap #28 now fixed" | **#28 at L1011** (nested custom-bg child + `on_draw_fg`) |
-| `tests/ui/sidebar_collapses_to_a_rail.e2e:5` — "no native placeholder, gap #29" | **#29 at L1017** (`text_input` placeholder) |
-| `tests/unit/test_textinput.cpp:13` — "FIXED UPSTREAM (afterhours gap #31)" | **#31 at L1080** (control codes in the CHAR queue) |
+| `src/ecs/main_pane_system.h:6152,7317,7405,7539` — "gap #28 now fixed" | **#28 at L1062** (nested custom-bg child + `on_draw_fg`) |
+| `tests/ui/sidebar_collapses_to_a_rail.e2e:5` — "no native placeholder, gap #29" | **#29 at L1068** (`text_input` placeholder) |
+| `tests/unit/test_textinput.cpp:13` — "FIXED UPSTREAM (afterhours gap #31)" | **#31 at L1156** (control codes in the CHAR queue) |
 | `tests/e2e/test_perf.cpp:223` — "Reported for afterhours (gap #43)" | #43 — not ambiguous; the second `#43` heading is its measurement section |
 
 No source file cites #27, #30, #32, #33, #34 or #35 bare, so those collisions
 are dormant. Commit messages citing #27 (`61c1700c6551`, `e391f61aa35d`, and 16
-earlier) mean **L881**, the perf entry, from context.
+earlier) mean **L932**, the perf entry, from context.
 
 **Separately, eight commits cite gap numbers that renumbering has since broken**
 — a branch picked a provisional number and the merge renumbered the entry. The
