@@ -41,8 +41,8 @@ static void test_pane_state_is_bounded() {
     // Defaults are the first-sight values the five maps used to be seeded
     // with on a miss -- follow armed, no previous offset, velocity unknown.
     const ecs::model::PaneState* fresh = store.peek("thread-499");
-    CHECK(fresh != nullptr && fresh->follow);
-    CHECK(fresh != nullptr && fresh->prevOffset == -1.0f);
+    CHECK(fresh != nullptr && fresh->latch.follow);
+    CHECK(fresh != nullptr && fresh->latch.prevOffset == -1.0f);
     CHECK(fresh != nullptr && !fresh->haveLastScrollY);
     CHECK(fresh != nullptr && !fresh->unreadComputed);
 }
@@ -159,13 +159,13 @@ static void test_two_panes_on_one_thread_keep_their_own() {
     ecs::model::PaneState& right = store.touch(ecs::model::pane_key(1, id));
 
     left.replyDraft = "typed on the left";
-    left.follow = false;          // the reader scrolled the left pane up
+    left.latch.follow = false;          // the reader scrolled the left pane up
     left.lastScrollY = 900.0f;
     left.haveLastScrollY = true;
 
     CHECK(left.replyDraft == "typed on the left");
     CHECK(right.replyDraft.empty());
-    CHECK(right.follow);          // the right pane is still pinned to the end
+    CHECK(right.latch.follow);          // the right pane is still pinned to the end
     CHECK(!right.haveLastScrollY);
     CHECK(store.size() == 2);
 

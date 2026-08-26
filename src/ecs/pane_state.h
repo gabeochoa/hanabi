@@ -54,6 +54,7 @@
 #include <vector>
 
 #include "../ui/minimap_scrub.h"
+#include "follow_latch.h"
 
 namespace ecs::model {
 
@@ -73,10 +74,12 @@ struct PaneState {
     int unreadCount = 0;
 
     // ---- Follow-the-bottom ------------------------------------------------
-    // Defaults ARE the first-sight values the old code wrote explicitly on a
-    // map miss: follow armed, no previous offset yet.
-    bool follow = true;
-    float prevOffset = -1.0f;
+    // The latch that decides whether this thread is pinned to its newest
+    // message, and the previous-frame record it needs to tell a gesture from
+    // the layout moving. Its defaults ARE the first-sight values the old maps
+    // were seeded with on a miss: follow armed, no previous frame yet.
+    // (follow_latch.h; the arithmetic is tested in test_follow_latch.cpp.)
+    FollowMemory latch;
 
     // ---- Virtualiser scroll velocity --------------------------------------
     bool haveLastScrollY = false;  // a first sight has velocity 0, not -scrollY

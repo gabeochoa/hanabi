@@ -1,0 +1,49 @@
+# The wheel drives the pane the pointer is over, and only that one.
+#
+# Splitting shows two transcripts at once, each with its own scroll view and its
+# own follow-latch (PaneState is keyed by pane index as well as thread id). The
+# thing that goes wrong when a second pane arrives is that a gesture keeps
+# addressing the first one -- the scroll views used to share a debug name, and
+# the follow-latch used to share a map key -- so the claim worth holding is not
+# "the wheel works" but "the wheel works on the one under the pointer".
+#
+# The right pane holds the long thread and the left holds a short one, so
+# "#39:" is text that exists in the RIGHT pane and nowhere else on screen. Its
+# disappearance is the right pane having scrolled, and its survival is the left
+# pane's wheel not having reached across.
+#
+# Note the right pane's transcript is a shorter slice than the same thread
+# opened alone -- the split-open path loads fewer messages -- so this asserts on
+# the newest message, which is loaded either way, rather than on the oldest.
+#
+# The panes are 280..688 and 693..1100 at this window size (measured with
+# `assert_ui transcript_scroll x=…` and `assert_ui transcript_scroll_2 x=…`), so
+# 400 is inside the left one and 900 inside the right. Coordinates because the
+# runner has no element-addressed pointer move (afterhours_gaps.md #285).
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=t2 HANABI_SPLIT=rbig
+
+# Both panes open pinned to their newest message. Both preconditions are
+# stated: require_thread asks every pane, so this holds that the split really
+# is t2 on the left and rbig on the right before a single wheel event.
+require_thread t2
+require_thread rbig
+wait_frames 20
+expect_text "Follow-up question #39:"
+
+# 1. The wheel over the LEFT pane does not reach across the divider.
+mouse_move 400 400
+wait_frames 5
+scroll_wheel 0 40
+wait_frames 25
+expect_text "Follow-up question #39:"
+
+# 2. The wheel over the RIGHT pane scrolls the right pane.
+mouse_move 900 400
+wait_frames 5
+scroll_wheel 0 40
+wait_frames 25
+expect_no_text #39:

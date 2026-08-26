@@ -3845,31 +3845,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool wantOpenBottom = (pane.scrollBottomPending == curId);
 
         // ---- Persistent FOLLOW-LATCH (fixes "page doesn't stay at bottom") ---
-        // The old model recomputed `atBottom` from geometry EVERY frame:
-        //   atBottom = (offset + viewH >= contentH - 24)
-        // But when a new message arrives or a stream token lands, contentH grows
-        // while offset stays put — so that test flips FALSE the instant content
-        // grows, and following stops one message from the end (exactly Gabe's
-        // repeated complaint). The distinction the geometry test misses: content
-        // GROWTH and a user SCROLL-UP both increase (contentH - offset - viewH),
-        // but only a scroll-up is a real "user left the bottom" signal.
+        // A per-session latch meaning "keep pinned to bottom". It starts TRUE
+        // (fresh opens pin to bottom), is broken when the reader scrolls up,
+        // and re-arms when they come back to the end — which is robust to the
+        // content-growth race a per-frame geometry test loses (a token landing
+        // grows contentH while the offset stays put, so `offset + viewH >=
+        // contentH - 24` flips FALSE the instant the thing being followed
+        // arrives, and following stops one message from the end).
         //
-        // Fix: a per-session latch that means "keep pinned to bottom". It starts
-        // TRUE (fresh opens pin to bottom) and is broken ONLY when the user
-        // actively scrolls UP — detected as scroll_offset DECREASING frame over
-        // frame (growth never decreases offset). It re-arms when the user comes
-        // back to within ~24px of the end. This makes "stay at bottom" robust to
-        // the content-growth race.
+        // The arithmetic is model::step_follow_latch (ecs/follow_latch.h),
+        // pulled out of this function because the version that lived here read
+        // the reader's intent off `scroll_offset` — the field the EASING
+        // writes — instead of `scroll_target`, the field the WHEEL writes, and
+        // so re-armed itself on the same frame every wheel notch broke it. The
+        // header has the full account; the short version is that the mouse
+        // wheel moved a thread exactly zero pixels.
         //
         // Keyed PER SESSION (not a single static) so split-view can render two
         // transcripts in one frame without their follow/scroll state clobbering
         // each other. Each pane's curId indexes its own latch.
-        // PaneState's defaults ARE the first-sight values the two maps used to
-        // be seeded with on a miss: follow armed, no previous offset yet.
         model::PaneState& mem =
             model::pane_states().touch(model::pane_key(pane_index(app, pane), curId));
-        bool& s_follow = mem.follow;
-        float& s_prevOffset = mem.prevOffset;
+        model::FollowMemory& latch = mem.latch;
+        // A reference, because the minimap rail below is handed the latch and
+        // breaks it when a drag scrubs backwards.
+        bool& s_follow = latch.follow;
         float curOffset = 0.0f;
         float contentH = totalH;
         bool contentLaidOut = false;
@@ -3881,14 +3881,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 contentH = sv.content_size.y;
                 contentLaidOut = true;
             }
-            nearEnd = (curOffset + viewH >= contentH - 24.0f);
-            // A meaningful DECREASE in offset = the user scrolled up → stop
-            // following. (Small jitter / clamp wobble ignored via a 2px floor.)
-            if (s_prevOffset >= 0.0f && curOffset < s_prevOffset - 2.0f)
-                s_follow = false;
-            // Returning to the bottom re-arms follow.
-            if (nearEnd) s_follow = true;
-            s_prevOffset = curOffset;
+            nearEnd = model::step_follow_latch(
+                          latch, model::FollowInput{curOffset,
+                                                    sv.scroll_target.y, viewH,
+                                                    contentH})
+                          .nearEnd;
         }
 
         // ---- Reading the transcript from the keyboard ----------------------
@@ -3929,7 +3926,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // Scrolling up by hand means "stop following the bottom", the
                 // same as a wheel scroll does; End means "follow again".
                 s_follow = jumpEnd;
-                s_prevOffset = scrollY;
+                model::note_follow_pinned(latch, scrollY, sv.scroll_target.y);
             }
         }
 
@@ -4076,7 +4073,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             sv.scroll_offset.y = 1e9f;  // clamped to content end next line
             hanabi::set_scroll_target_y(sv, 1e9f);  // sync eased target (patch)
             sv.clamp_scroll();
-            s_prevOffset = sv.scroll_offset.y;  // don't read the pin as scroll-up
+            // Both fields, so the next frame does not read our own pin back as
+            // a gesture — on either of the two signals the latch watches.
+            model::note_follow_pinned(latch, sv.scroll_offset.y,
+                                      sv.scroll_target.y);
         }
         // Clear the first-open request only once we've pinned against REAL
         // laid-out content (content_size known this frame). Until then keep the

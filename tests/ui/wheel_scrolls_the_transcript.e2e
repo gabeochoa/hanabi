@@ -1,0 +1,89 @@
+# The mouse wheel scrolls a thread, and the follow-latch gets out of its way.
+#
+# WHAT SHIPPED. The wheel moved a transcript exactly zero pixels. Not a dead
+# event and not a missed hit-test — the notch arrived, moved `scroll_target`,
+# and was erased by the pane's own bottom-pin on the very next frame. afterhours
+# writes a notch to the TARGET (plugins/ui/systems.h HandleScrollInput) and eases
+# the OFFSET toward it at 0.28 of the remaining distance per frame, so one frame
+# after a notch the offset has moved 5.6 px; the follow-latch re-armed for
+# anything within 24 px of the end, and re-pinned. The offset could never leave
+# the band. See src/ecs/follow_latch.h for the full account.
+#
+# Against that build, this script fails three ways:
+#
+#   [TIMEOUT] assert_ui (line 8): Command 'assert_ui' timed out after 30 frames
+#   [E2E ERROR] assert_ui (line 9): assert_ui 'transcript_bottom_pad':
+#       y=766 but got 646
+#   [E2E ERROR] expect_text (line 18): Text not found:
+#       'Follow-up question #0:'
+#
+# — the jump-to-bottom affordance never appeared because the latch never let go,
+# the transcript never moved, and 800 notches' worth of wheel never reached the
+# top of the thread.
+#
+# COORDINATES, AND WHERE THEY CAME FROM. `mouse_move 650 400` is the middle of
+# the transcript pane at this window size; the runner has no element-addressed
+# pointer move (afterhours_gaps.md #285), so a gesture is spelled in absolute
+# window coordinates. 646 is where `transcript_bottom_pad` sits when the pane is
+# pinned to the end, measured with `assert_ui transcript_bottom_pad y=-1`; it is
+# asserted at the top of the script as well as after the round trip, so a layout
+# change fails as "the pinned position moved" rather than as "the wheel broke".
+#
+# 766 is 646 + 120, and the 120 is 3 notches x 20 px x TWO frames: the e2e
+# injector deliberately lets a wheel delta survive one reset_frame, because its
+# reader can run before the command that sets it, so one `scroll_wheel` command
+# is read on two consecutive frames. That is the harness, not the app — a real
+# notch is 60 px here. If that survival rule ever changes, this is the number
+# that moves.
+#
+# HERMETIC: opens its own thread through HANABI_OPEN and starts from no tabs, so
+# it neither inherits a thread from an earlier script nor leaves one behind.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
+
+# 1. A thread opens pinned to its newest message. require_thread states the
+#    precondition in the script rather than leaving it to the `# env:` line, so
+#    a run that inherited someone else's thread fails saying so.
+require_thread rbig
+mouse_move 650 400
+wait_frames 10
+assert_ui transcript_bottom_pad y=646
+
+# 2. One notch of the wheel, with the pointer over the transcript, moves the
+#    transcript. This one line is the whole bug report.
+scroll_wheel 0 3
+wait_frames 25
+assert_ui jump_to_bottom hidden=false
+assert_ui transcript_bottom_pad y=766
+
+# 3. Scrolling up broke the follow-latch — which is what the jump-to-bottom
+#    affordance above means, since it is drawn only when the pane is NOT
+#    following. Keep wheeling and the top of the thread arrives.
+scroll_wheel 0 200
+wait_frames 20
+scroll_wheel 0 200
+wait_frames 20
+scroll_wheel 0 200
+wait_frames 20
+scroll_wheel 0 200
+wait_frames 30
+expect_text "Follow-up question #0:"
+
+# 4. Wheeling back down returns to the end...
+scroll_wheel 0 -200
+wait_frames 20
+scroll_wheel 0 -200
+wait_frames 20
+scroll_wheel 0 -200
+wait_frames 20
+scroll_wheel 0 -200
+wait_frames 30
+expect_no_text #0:
+
+# 5. ...and re-arms the latch, so the pane is pinned to the end again — exactly
+#    where step 1 found it, not merely near it. A pane that had stopped
+#    following would sit wherever the last notch left it.
+assert_ui transcript_bottom_pad y=646
