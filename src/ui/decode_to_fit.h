@@ -33,7 +33,7 @@
 // One that is over it is drawn from a level that still covers the largest box
 // the app will ever put it in, so the sampler is still minifying, never
 // magnifying -- EXCEPT above ui_scale 2, where the reading column can exceed
-// the retained level and the sampler magnifies by up to 1.17x on the long
+// the retained level and the sampler magnifies by up to 1.28x on the long
 // side. That is a real cost and it is scored: scripts/compare.py against both
 // frozen references, before and after, is in the commit message.
 //

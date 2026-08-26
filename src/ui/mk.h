@@ -18,8 +18,10 @@
 // function signature -- for this app that is routinely 200+ characters, built
 // character by character through `stringbuf::overflow`, hashed, and destroyed,
 // for every widget, 60 times a second. Measured with HANABI_PROF_SITES=1 at
-// 2000 sessions it was 2,589 allocations and 448 KB per frame: 47% of every
-// allocation the app makes, spent on a number.
+// 2000 sessions it is 2,164 allocations a frame on Home and 3,063 with a
+// 480-message thread open: 64% and 53% of every allocation the app makes,
+// spent on a number. (scripts/alloc_gate.sh's one-line rehearsal points this
+// wrapper back at the library's and reads the difference.)
 //
 // vendor/afterhours is read-only (~20 projects vendor it), so this is the
 // app-side workaround and afterhours_gaps.md #180 is the upstream ask.

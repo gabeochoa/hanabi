@@ -43,11 +43,10 @@ out, wrongly, which is what kept #109 alive; #109 is the correction.
 WHY THERE IS A BASELINE RATHER THAN A CLEAN SWEEP. There are ten of these
 today, and they are NOT ten bugs to go and fix: wherever one is visible,
 somebody has already tuned the geometry around it, so "fixing" the padding
-moves something that currently looks right. What they are is thirty places
+moves something that currently looks right. What they are is ten places
 where the next edit will silently do nothing. So the existing set is frozen in
 `label_padding_baseline.txt` and this fails only on a NEW one — the point is to
-stop the thirty-first, and to hand the list to anyone who touches one of the
-thirty.
+stop the eleventh, and to hand the list to anyone who touches one of the ten.
 
   usage: check_label_padding.py            fail on anything not in the baseline
          check_label_padding.py --update   rewrite the baseline (say why)

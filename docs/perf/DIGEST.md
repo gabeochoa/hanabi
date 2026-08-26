@@ -7,7 +7,7 @@
 > `perf/sidebar-scaling` fix). `render_digest` — Blocked, Review, Starred,
 > Archived — does not: it builds one card per matching session,
 > unconditionally. At 2000 sessions a single frame of one of those screens
-> builds **569 cards, 2191 entities**, which is 12x what Home builds beside
+> builds **506 cards, 2,024 entities**, which is 8x what Home builds beside
 > it. […] The fix is a cap (like Home's) or virtualization (like the
 > sidebar's), and it is a product decision rather than a performance one —
 > Blocked is *the* place you go to see everything blocked on you, and a cap
@@ -93,15 +93,15 @@ needed and would have been worse. `test_window_over_mixed_heights` carries the
 reason as an assertion: scrolled to a card whose real top is at y=5100, a
 uniform-pitch guess puts the first built card at index 121 — past the card
 actually under the top edge — so the top of the viewport paints empty. The
-exact sum costs 0.023 ms a frame at 569 cards, which is the entire price of
+exact sum costs 0.023 ms a frame at 506 cards, which is the entire price of
 knowing.
 
 ## 2. The pitch pass allocates nothing, and that was a design decision, not luck
 
-569 sub-lines get composed per frame to decide 569 heights. Done the obvious
-way — `std::string card_meta(const SessionSummary&)`, as it was — that is 569
+506 sub-lines get composed per frame to decide 506 heights. Done the obvious
+way — `std::string card_meta(const SessionSummary&)`, as it was — that is 506
 heap round trips a frame to answer a question about a length, and the window
-would have replaced 2276 entities with 569 mallocs.
+would have replaced 2,024 entities with 506 mallocs.
 
 So `sub_line` returns a `std::string_view`. Every branch that does not compose
 views straight into the session — the preview, its tail after the separator, a

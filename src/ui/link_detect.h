@@ -106,7 +106,9 @@ inline std::vector<RectangleType> rects_for(RectangleType rect,
     if (fm == nullptr) return out;
     const afterhours::Font font = fm->get_active_font();
     const auto measure = [&](const std::string& s) {
-        return afterhours::measure_text(font, s.c_str(), fontPx, 1.0f).x;
+        return hanabi::atlas::check(
+            s, fontPx,
+            afterhours::measure_text(font, s.c_str(), fontPx, 1.0f).x);
     };
     const size_t from = off;
     const size_t to = off + len;

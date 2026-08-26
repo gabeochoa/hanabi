@@ -82,7 +82,9 @@ inline void paint_bands(RectangleType rect, const std::string& text,
     const afterhours::Font font = fm->get_active_font();
     constexpr float kSpacing = 1.0f;  // 1 + letter_spacing, and body text has none
     const auto measure = [&](const std::string& s) {
-        return afterhours::measure_text(font, s.c_str(), fontPx, kSpacing).x;
+        return hanabi::atlas::check(
+            s, fontPx,
+            afterhours::measure_text(font, s.c_str(), fontPx, kSpacing).x);
     };
 
     const float maxW = rect.width - kWrapInset;

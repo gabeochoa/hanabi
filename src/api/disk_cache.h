@@ -139,9 +139,15 @@ void clear_draft(const std::string& key);
 // per-key store as the queue (survives restart). outbox_add appends `prompt`
 // under session `id`; outbox_remove drops the first matching `prompt`;
 // outbox_list returns the still-unconfirmed prompts for `id` (FIFO).
+// outbox_sessions returns every session id that HAS an unconfirmed prompt --
+// the enumeration a relaunch needs, because after a restart nothing in memory
+// remembers which threads were mid-send. Without it `outbox_list` can only be
+// asked about a thread somebody already thought to ask about, which is why the
+// read side sat unused for as long as it did (docs/COMMIT_AUDIT.md CB3).
 void outbox_add(const std::string& id, const std::string& prompt);
 void outbox_remove(const std::string& id, const std::string& prompt);
 std::vector<std::string> outbox_list(const std::string& id);
+std::vector<std::string> outbox_sessions();
 
 // --- Cache cap / eviction (feature #C) ----------------------------------
 // touch_transcript(id): bump the on-disk transcript file's modified-time to

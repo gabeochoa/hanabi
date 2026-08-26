@@ -105,7 +105,9 @@ inline Layout layout_of(RectangleType rect, const std::string& text,
     const afterhours::Font font = fm->get_active_font();
     constexpr float kSpacing = 1.0f;
     const auto measure = [&](const std::string& s) {
-        return afterhours::measure_text(font, s.c_str(), fontPx, kSpacing).x;
+        return hanabi::atlas::check(
+            s, fontPx,
+            afterhours::measure_text(font, s.c_str(), fontPx, kSpacing).x);
     };
     const float maxW = rect.width - find_highlight::kWrapInset;
     if (maxW <= 0.0f) return out;
@@ -127,7 +129,9 @@ inline size_t offset_at(const Layout& lay, const std::string& text,
     if (fm == nullptr) return 0;
     const afterhours::Font font = fm->get_active_font();
     const auto measure = [&](const std::string& s) {
-        return afterhours::measure_text(font, s.c_str(), fontPx, 1.0f).x;
+        return hanabi::atlas::check(
+            s, fontPx,
+            afterhours::measure_text(font, s.c_str(), fontPx, 1.0f).x);
     };
 
     int row = static_cast<int>((py - lay.y0) / lay.lineH);
@@ -214,7 +218,9 @@ inline void draw(afterhours::EntityID id, RectangleType rect,
     if (fm == nullptr) return;
     const afterhours::Font font = fm->get_active_font();
     const auto measure = [&](const std::string& str) {
-        return afterhours::measure_text(font, str.c_str(), fontPx, 1.0f).x;
+        return hanabi::atlas::check(
+            str, fontPx,
+            afterhours::measure_text(font, str.c_str(), fontPx, 1.0f).x);
     };
 
     const theme::Color band =

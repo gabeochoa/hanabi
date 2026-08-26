@@ -17,6 +17,7 @@
 
 #include "input_mapping.h"
 #include "ui/focus_visible.h"
+#include "util/atlas_guard.h"
 #include "rl.h"
 
 #include <afterhours/src/core/key_codes.h>
@@ -110,6 +111,12 @@ Preload& Preload::make_singleton() {
                       ui_font_path.c_str());
     fontMgr.load_font("mono", mono_font_path.c_str());
     fontMgr.load_font("hyperlegible", hyperlegible_font_path.c_str());
+
+    // From here a zero-width measurement is a FAULT, not a not-ready. Before
+    // this line measure_text_internal legitimately returns 0 (no font context,
+    // no active face) for the whole of launch, and counting that would drown
+    // the signal src/util/atlas_guard.h exists to raise.
+    hanabi::atlas::arm();
 
     // Dark theme setup
     {

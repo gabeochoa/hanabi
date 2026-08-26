@@ -266,12 +266,15 @@ tests have the same blind spot; this is what covers it.
 `render_home` caps every section at 20 cards (`kMaxSection`, the
 `perf/sidebar-scaling` fix). `render_digest` — Blocked, Review, Starred,
 Archived — does not: it builds one card per matching session, unconditionally.
-At 2000 sessions a single frame of one of those screens builds **569 cards,
-2191 entities**, which is 12x what Home builds beside it.
+At 2000 sessions a single frame of the biggest of them — Blocked — builds **506
+cards, 2,024 entities**, which is 8x what Home builds beside it. (The 569 this
+paragraph used to say is the `HANABI_STRESS=views` run-wide union: 506 for the
+digest screens' shared pool plus Home's own 63, all retained because nothing
+retires a widget. `scripts/digest_gate.sh` measures 506 matched, 13 built.)
 
 Retirement changes what that costs: it is now the cost of the screen you are
 LOOKING AT rather than a permanent tax. That is the right shape, and it is
-still a screen that costs 12x its neighbour. The fix is a cap (like Home's) or
+still a screen that costs 8x its neighbour. The fix is a cap (like Home's) or
 virtualization (like the sidebar's), and it is a product decision rather than a
 performance one — Blocked is *the* place you go to see everything blocked on
 you, and a cap there hides rows on the one screen whose job is not to.

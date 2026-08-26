@@ -207,9 +207,28 @@ class MockClient : public Client {
     // and prepare_stream below.
     bool supports_stream() const override { return true; }
 
-    // A streamed reply, split into deterministic word/token chunks so the UI
-    // fills in incrementally. Two consumers:
+    // TEST HOOK — off unless HANABI_MOCK_SEND_FAIL is set, and never true in a
+    // normal run. `HANABI_MOCK_SEND_FAIL=N` makes the first N sends (either
+    // path) come back as a transport failure, then everything works again.
     //
+    // It exists because the offline mock cannot fail, and the one behaviour
+    // that only appears on a FAILED send -- the local-first outbox holding the
+    // user's prompt and something retrying it -- was therefore unreachable from
+    // any test in the repo. That is a large part of why the outbox's read side
+    // went unwritten for as long as it did: nothing could exercise it.
+    static std::string injected_send_failure() {
+        static const int budget = [] {
+            const char* v = std::getenv("HANABI_MOCK_SEND_FAIL");
+            return (v && *v) ? std::atoi(v) : 0;
+        }();
+        static int used = 0;
+        if (used >= budget) return "";
+        ++used;
+        return "mock: injected send failure (HANABI_MOCK_SEND_FAIL)";
+    }
+
+    // A streamed reply, split into deterministic word/token chunks so the UI
+    // fills in incrementally. Two consumers:    //
     //   * send_message_streaming() (below) drives the whole sequence
     //     synchronously (a Thinking event, then every text chunk as a delta,
     //     then Done with the final Message). This is the pure, testable path:
@@ -279,6 +298,10 @@ class MockClient : public Client {
     void send_message_streaming(const std::string& session_id,
                                 const std::string& prompt,
                                 const StreamSink& sink) override {
+        if (const std::string why = injected_send_failure(); !why.empty()) {
+            sink.emit_error(why);
+            return;
+        }
         StreamPlan plan = prepare_stream(session_id, prompt);
         if (!plan.ok) {
             sink.emit_error(plan.error);
@@ -298,6 +321,8 @@ class MockClient : public Client {
     // appended turn persists for this run).
     Result<Message> send_message(const std::string& session_id,
                                  const std::string& prompt) override {
+        if (const std::string why = injected_send_failure(); !why.empty())
+            return Result<Message>::failure(why);
         Session* target = find_mutable(session_id);
         if (!target)
             return Result<Message>::failure("no such session: " + session_id);

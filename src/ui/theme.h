@@ -11,6 +11,7 @@
 // thin accessors that read the active token set, so existing call sites keep
 // working while the whole palette becomes runtime-swappable.
 
+#include "../util/atlas_guard.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
 #include <afterhours/src/drawing_helpers.h>
@@ -625,7 +626,7 @@ inline float text_px(const char* s, float px) {
         return *hit;
     }
     hanabi::prof::tick("text.text_px_uncached");
-    float w = afterhours::measure_text_internal(s, px);
+    float w = hanabi::atlas::check(s, px, afterhours::measure_text_internal(s, px));
     if (w > 0.0f) {
         memo.put(s, px, 0.0f, w);
         hanabi::prof::gauge("cache.advance_entries", memo.size());

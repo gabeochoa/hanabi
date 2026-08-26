@@ -88,7 +88,11 @@ binaries so both saw the same machine load:
 
 **The distributions do not overlap** — the old binary's best run is worse than
 the new binary's worst. `scripts/measure_launch.sh` went **199 → 66 ms**, moving
-FirstFrame from 1 ms under its 250 ms budget to 184 ms under it.
+FirstFrame from 51 ms under its 250 ms budget to 184 ms under it. (The 249 ms in
+section 1 is the same gate at the start of the night, not a different metric:
+it is best-of-six with an early break the moment a run clears the ceiling, so on
+a shared box its output wanders across that range. 51 ms is the arithmetic on
+the reading this A/B was taken against.)
 
 The captured PNG is **byte-identical** across both arms (md5
 `0cda24ab722ee0af5c4d0292c6edc2a8`, 1100×760), so nothing about what the capture
@@ -211,8 +215,20 @@ pure cost.
 | 200 | 0.630 ms | 0.674 ms |
 | 2000 | 6.408 ms | 5.904 ms |
 
-Linear at ~3.2 µs/file. Every transcript save — which is every thread opened on
-a real backend — pays this.
+Linear at ~3.2 µs/file — that is the `total_bytes()` column, which is the scan
+itself (6.408 ÷ 2000 = 3.20, 0.630 ÷ 200 = 3.15). Every transcript save — which
+is every thread opened on a real backend — pays it.
+
+**Two runs, and the before/after tables below quote the other one.** The
+2000-file trim reading here is 5.904 ms; the summary table and the fix's own
+before/after say **4.979 ms**. Both are real: this table is the diagnosis run
+(`c9b1e05`), and 4.979 is the before arm of the A/B the fix was measured with
+eight minutes later (`033eb4d`), taken in the same run as its 0.001 ms after.
+Neither has been restated as the other, because a before and an after belong to
+one run — the rule at the top of this file. A 16% spread between two
+`CLOCK_THREAD_CPUTIME_ID` walks of the same directory is what a box at load
+18–29 does to a syscall-bound loop, and it is the reason nothing here is quoted
+to a precision it cannot hold.
 
 **This number was also wrong the first time.** The bench wrote its fixture files
 to `$HOME/Library/Application Support/hanabi/cache`; `disk_cache::cache_dir()`
@@ -428,6 +444,9 @@ wrong the other way just costs a scan, which is the old behaviour.
 | | before | after |
 |---|---|---|
 | `trim_to_cap(1 GiB)`, under cap, 2000 files | 4.979 ms | **0.001 ms** |
+
+Both arms from one run, which is why the before is 4.979 and not §3b's 5.904 —
+see the note there.
 
 Invalidated on `wipe_all()` and `set_namespace()` (a different namespace is a
 different directory), refreshed after any eviction, and force-rescanned every

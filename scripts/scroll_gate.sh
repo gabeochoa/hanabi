@@ -63,7 +63,7 @@
 # allocator's own tally, which drifts by a thousand blocks over a run that
 # allocates nothing net. src/util/heap_walk.h has the two runs side by side and
 # tests/unit/test_heap_walk.cpp pins it. The budget comes down from 150 to 40,
-# which is six times the sensitivity for free.
+# which is 3.75x the sensitivity for free.
 #
 # TWO OTHER THINGS CHANGED WITH IT, both about giving each half more than two
 # buckets to be reduced over:
