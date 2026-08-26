@@ -1,0 +1,72 @@
+# Drag along the rail to scrub, the way you would drag a scrollbar.
+#
+# Clicking a mark already worked (minimap_navigator.e2e). What this holds is
+# the gesture: press, sweep, release — and the three things that are easy to
+# get wrong and invisible in a screenshot, because every one of them needs the
+# button to still be down.
+#
+#   1. The transcript follows DURING the drag, not on release. Asserted
+#      between a mouse_down and its mouse_up, which is the only place that
+#      claim can be made.
+#   2. Releasing OUTSIDE the rail ends the drag. A gesture that ended by
+#      hit-testing the cursor instead of watching the button would leave the
+#      drag latched, and the next idle mouse move would scrub the thread —
+#      step 5 is that test, and it is why the release happens off the rail.
+#   3. A press that never moves is still a click on the mark it landed on.
+#
+# The rail is at x=1084..1094, y=73..656 at this window size (measured with
+# `assert_ui minimap_rail x=…`), so 1089 is its centre line. Coordinates
+# rather than `click_ui minimap_mark_N` because the runner has no
+# element-addressed press or move — every *_ui input command is a click
+# (afterhours_gaps.md #285).
+#
+# The two ends of the scroll range are the deterministic assertions here: any
+# large upward sweep clamps at the top of the thread, where question #0 is,
+# whatever the exact px-per-message scale works out to at this window size. A
+# middle position would be pinning arithmetic that the unit test
+# (tests/unit/test_minimap_scrub.cpp) already pins properly.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
+
+# Opens at the end: the first question is far above the viewport.
+expect_no_text #0:
+
+# 1. Press low on the rail. That is a click, and it lands somewhere late.
+mouse_down 1089 650
+wait_frames 8
+expect_no_text #0:
+
+# 2. Still held: sweep up the rail. A short first step, because the injector
+#    teleports the cursor and the 6px drag threshold would otherwise swallow a
+#    whole long move. Then a long sweep past the rail's top edge, which the
+#    scroll clamp turns into "the top of the thread".
+mouse_move 1089 620
+wait_frames 4
+mouse_move 1089 300
+wait_frames 6
+mouse_move 1089 5
+wait_frames 12
+expect_text "Follow-up question #0:"
+
+# 3. Leave the rail sideways — a real hand does — and release out there.
+mouse_move 300 5
+wait_frames 6
+mouse_up
+wait_frames 8
+expect_text "Follow-up question #0:"
+
+# 4. The release ENDED it. Sweeping back down the rail with the button up
+#    moves nothing; a latched drag would have scrubbed to the far end.
+mouse_move 1089 650
+wait_frames 14
+expect_text "Follow-up question #0:"
+
+# 5. And a press that never moves is still the click it always was.
+mouse_down 1089 300
+wait_frames 6
+mouse_up
+wait_frames 14
+expect_no_text #0:
