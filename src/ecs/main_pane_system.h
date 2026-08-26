@@ -6598,6 +6598,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // "Thinking…" (a backend free-text step label like "Laying the groundwork"
     // needs a status SSE field we don't parse yet — logged as an API ask); the
     // dot pulse + elapsed timer are fully client-side.
+    //
+    // WHAT IT IS ANCHORED TO, which is the whole of its geometry: this row is
+    // the PLACEHOLDER for the assistant's first line of prose. render_rich_body
+    // replaces it the instant a token arrives, so anything about it that does
+    // not match that line is a jump the eye catches. Two consequences, and
+    // neither is a tuned constant:
+    //
+    //   * its height is body_text_h(1) -- one wrapped line -- not a round 24.
+    //   * its content starts on the TEXT column, which is kLabelInsetX inside
+    //     the bubble's own content box and not on it. kBubbleCfgPadX is
+    //     deliberately 6 short of the 13px the design wants (kBubblePadX)
+    //     because afterhours adds that 6 back when it draws a LABEL into an
+    //     element's rect and adds nothing at all for a custom draw. So a text
+    //     child of this bubble lands at 13 and a drawn child lands at 7, and
+    //     the dot was drawing into the bubble's left padding: measured on the
+    //     parity capture its ink ran x=372..383 where every line of assistant
+    //     prose above it began at x=374. Padding here (not a margin -- a
+    //     percent-sized child plus a margin is the overflow this branch just
+    //     fixed one pane over) puts the row's children on the text column.
+    static constexpr float kDotInk = 14.0f;    // the halo's own max diameter
+    static constexpr float kDotLabelGap = 8.0f;  // dot ink -> first glyph
     void render_thinking_indicator(UIContext<InputAction>& ctx, Entity& parent,
                                    AppComponent* app) {
         // Elapsed seconds since the turn began. During a headless capture the
@@ -6613,7 +6634,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 2),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(24.0f)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(body_text_h(1))})
+                .with_padding(Padding{.left = pixels(kLabelInsetX)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -6623,13 +6646,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // Pulsing dot: a filled accent circle whose radius eases up/down with a
         // sine of wall-clock time, plus a fainter halo — a soft "breathing"
-        // glow. Drawn in a fixed slot so the label sits at a stable x.
+        // glow.
+        //
+        // The slot is the INK and not a round number, so where the dot starts
+        // is arithmetic rather than something to measure off a screenshot: the
+        // halo's radius peaks at 5 + 2 = 7, so its widest is kDotInk across,
+        // and a circle centred in a kDotInk box fills that box exactly. The
+        // dot's leftmost lit pixel is therefore the row's content origin,
+        // which is the text column. An 18px slot put it 2px inside instead --
+        // gap #114's problem (a drawing's ink extent is not its box) solved
+        // the only way it can be, by making the box the ink.
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(18.0f), pixels(18.0f)})
+                .with_size(ComponentSize{pixels(kDotInk), pixels(kDotInk)})
                 .with_transparent_bg()
-                .with_margin(Margin{.right = pixels(8)})
+                // The gap the eye sees is dot-ink to first glyph; the label's
+                // own rect already spends kLabelInsetX of it before its first
+                // glyph, so the margin is what is left. Same idiom as the
+                // composer meter's "10 ... less the 5 the effort run's box
+                // already carries".
+                .with_margin(Margin{
+                    .right = pixels(kDotLabelGap - kLabelInsetX)})
                 .with_on_draw_fg([](RectangleType r) {
                     const float cx = r.x + r.width * 0.5f;
                     const float cy = r.y + r.height * 0.5f;
@@ -6658,7 +6696,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label("Thinking\xe2\x80\xa6")
-                .with_size(ComponentSize{children(), pixels(18.0f)})
+                // kLinePitch, so the placeholder's text box is the box the
+                // line it stands in for will have.
+                .with_size(ComponentSize{children(), pixels(kLinePitch)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
@@ -6671,7 +6711,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 3),
             ComponentConfig{}
                 .with_label(timer)
-                .with_size(ComponentSize{children(), pixels(18.0f)})
+                .with_size(ComponentSize{children(), pixels(kLinePitch)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)

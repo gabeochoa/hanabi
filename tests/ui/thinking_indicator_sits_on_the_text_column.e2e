@@ -1,0 +1,58 @@
+# The thinking indicator starts where the assistant's first glyph will.
+#
+# Gabe: "the position of the typing indicator doesnt line up where it should."
+#
+# WHAT IT SHOULD LINE UP WITH, because that is the actual question. This row is
+# the PLACEHOLDER for the assistant's first line of prose -- render_rich_body
+# replaces it the moment a token arrives -- so the thing it has to match is
+# that line, and anything that does not match is a jump the eye catches at the
+# exact moment you are watching the bubble.
+#
+# It did not match on either axis. The dot's ink ran x=372..383 on the parity
+# capture where every line of assistant prose in the same bubble begins at
+# x=374, so it hung into the bubble's left padding; and the row was a round 24
+# tall where one line of prose is body_text_h(1) = 20, so the placeholder
+# bubble was 4px taller than the bubble it turns into.
+#
+# The left edge is not a nudge, it is a rule the file already knows and this
+# row did not use. kBubbleCfgPadX (7) is deliberately kBubblePadX (13) minus
+# kLabelInsetX (6), because afterhours adds that 6 back when it draws a LABEL
+# into an element's rect and adds nothing for a custom draw. So a TEXT child of
+# the bubble puts its first glyph at 13 and a DRAWN child lands at 7, and the
+# fix is to give the drawn row the 6 the label path gets for free.
+#
+# The numbers below are that arithmetic, and the reader can check every one:
+#
+#   asst_bubble    x=322
+#   thinking_row   x=329   = 322 + kBubbleCfgPadX(7)
+#   thinking_dot   x=335   = 322 + kBubblePadX(13), the glyph column
+#   thinking_row   h=20    = body_text_h(1) = kLinePitch(16) + 2*kBodyPad(2)
+#   thinking_dot   w=14    = the halo's own max diameter (5 + 2), so the box
+#                            IS the ink and the dot's extent is arithmetic
+#                            rather than something measured off a screenshot
+#                            (gap #114).
+#
+# 335 is the glyph column and not an assertion about one: in the SAME fixture
+# without the thinking demo, `assert_ui asst_line` reports x=329, and a label's
+# first glyph lands kLabelInsetX inside its rect -- 329 + 6 = 335. The dot's
+# box begins exactly where a prose line's first glyph begins.
+#
+# Verified to fail without the fix: restoring `pixels(24.0f)` for the row, the
+# 18px dot slot and dropping the row's left padding gives
+#
+#   assert_ui 'thinking_row': h=20 but got 24              (line 53)
+#   assert_ui 'thinking_dot': x=335 but got 329            (line 54)
+#
+# -- the dot back on the bubble's raw content edge instead of the glyph column,
+# and the placeholder four pixels taller than the line it stands in for. (The
+# w=14 clause reports only the first mismatch per element, so the 18px slot is
+# named by the x it produces rather than by its own number.)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
+# env: HANABI_WIN_W=1100 HANABI_WIN_H=760 HANABI_THINK_DEMO=1
+
+wait_frames 14
+
+assert_ui asst_bubble x=322
+assert_ui thinking_row x=329 h=20
+assert_ui thinking_dot x=335 w=14 h=14
