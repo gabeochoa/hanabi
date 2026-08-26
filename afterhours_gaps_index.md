@@ -124,8 +124,9 @@ the pool sizes on `graphics::Config`.
 ### 4. #137 + #136 + #340 + #116 + #135 — text: the cache answers a different question than the app can ask, nothing hugs its own text, and the draw path re-wraps every frame
 
 Text metrics have been called the number-one papercut in this file since day
-one, and three weeks later they still are. Four entries, one subsystem, and the
-fix splits into a decision and a feature:
+one, and three weeks later they still are — the newest entry in the family
+(#340) was filed today. Five entries, one subsystem, and the fix splits into a
+correctness decision, a sizing feature, a cache and three overloads:
 
 * **The decision (#137, ~1 line, and it is a correctness bug).** There are two
   measure functions and they disagree. `measure_text_internal` returns the pen
