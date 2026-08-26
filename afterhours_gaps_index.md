@@ -21,11 +21,11 @@ only sorts, weighs, groups and corrects them.
 | Numbered headings in the file | **193** |
 | Distinct gap numbers | **183** (nine numbers are used twice, one three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **198** — one per heading, nothing dropped |
+| **Rows in the triage table (§6)** | **202** — one per heading, nothing dropped |
 | Standalone live asks | **123** |
 | Live but subsumed into a family canonical | **44** (§3) |
 | Already fixed upstream | **9** |
-| Deliberate NEGATIVE results — do not promote | **10** (§4) |
+| Deliberate NEGATIVE results — do not promote | **11** (§4) |
 | hanabi's own, not afterhours' | **7** |
 | **Entries WRONG or overtaken by events** | **9 found here, 4 already known** (§2) |
 
@@ -153,6 +153,22 @@ correctness decision, a sizing feature, a cache and three overloads:
   by (rect width, font size, spacing) — the same shape as the `TextMeasureCache`
   that already exists, invalidated by the same edits that rewrite `spans`.
   (#42 is the same finding for plain labels, without the current numbers.)
+* **The same defect in `text_area`, and this one has a PROVEN patch (#305).**
+  `state.layout_cache.rebuild(...)` is called unconditionally every frame
+  (`text_area.h:228`) and its probe reaches past `TextMeasureCache` to the raw
+  backend `measure_text`, building a `std::string` per probe. The guard is
+  already written and never called: `HasTextAreaState::needs_layout_rebuild()`
+  has no call site anywhere in the tree. Measured in hanabi's composer standing
+  still: **+196 `operator new` per frame for a 130-character draft that does
+  not even wrap**, forever, at 60Hz.
+  `vendor_patches/305-text-area-wraps-every-frame.patch` holds the inputs
+  `rebuild` reads and switches the probe to `measure_text_line`; applied to the
+  pinned 428047e it takes that arm from 1007 to 824 allocations a frame, and a
+  six-line draft from 1030 to 847 — below what the same string cost in a
+  single-line `text_input`. Unlike #340 the app has NO reach at all here:
+  `with_word_wrap(false)` does not take the cheap path, because
+  `text_layout.h:51` turns a zero wrap width into `1e9f` rather than into the
+  `max_width <= 0` early-out `wrap_text_to_width` itself provides.
 * **The cheap overloads (#116, #135, #191).** "How much of this string fits in W"
   and "how many lines is this" — the two questions a list UI and a transcript ask
   constantly — can only be answered today by materialising every wrapped line
@@ -382,6 +398,7 @@ reader. They must never be quietly folded into the ask list.
 | **#89** | Right-aligning a child needs no spacer sibling. `JustifyContent::FlexEnd` does it, with no phantom child. Written down because the reference client uses a real `Spacer` view and copying that shape would have added an entity per row. |
 | **#96** | A translucent **shape** blends correctly inside `on_draw_fg`; only the **texture** path needs its own pipeline. This one is load-bearing: it bounds family #92 above, and the evidence in front of you points the other way, so acting on the wrong reading costs every call site a manual pipeline dance. |
 | **#338** | **Two subtrees built from the same call sites get DISJOINT widget identities**, and the text measure cache is width-independent — so a split pane needed neither an id-namespacing scheme nor a per-pane cache. The natural fear about splitting a view is the one thing the library already handles. |
+| **#307** | **A stale `LineIndex` in a text area is unobservable.** `HasTextAreaState` maintains a source-line index at six sites and rebuilds it only when told, so an outside write to `storage` leaves it describing the previous string — an obvious latent bug with a one-line fix. Nothing reads it: `text_area` navigates by VISUAL rows off `layout_cache` (`text_area.h:597-600`) and the `line_index` consumers in `utils.h` have no call site in `text_area.h` at all. The one-line fix was written, and a scripted test for it passed WITHOUT the fix, twice. |
 | **#339** | **`imm::divider` and `hsplit` already exist**, and the hand-rolled version had exactly the bug the library's own doc comment warns about. The cost of not looking was a defect the library had already written down. |
 | **#4** | The status-glyph primitives are real and reachable — `draw_triangle`, etc. — so a shape-per-status glyph needed no gap at all. |
 | **#8** | Windowed launch cost is dominated by OS/graphics init, not by anything hanabi or afterhours does. **Log-only, deliberately.** Do not turn this into a performance ask. |
@@ -675,6 +692,10 @@ correction narrows them rather than closing them.
 | 325 | `with_debug_name` takes a `std::string` | PERF | MED | XS | dup→#180 |
 | 326 | `virtual_list` handles UNIFORM row heights only | MISSING | HIGH | S | **live — top 10** |
 | 327 | No draw-only element; a decorative mark costs an Entity | MISSING | HIGH | M | live |
+| 305 | `text_area` re-wraps EVERY FRAME and bypasses `TextMeasureCache` | PERF | HIGH | XS | **live — patch proven** |
+| 306 | `with_auto_grow` knows the row count and will not return it | MISSING | MED | XS | live |
+| 307 | `HasTextAreaState::line_index` moves no caret; a stale one is invisible | NOT A GAP | — | — | neg |
+| 308 | `assert_ui` can assert geometry and text, nothing about colour | MISSING | HIGH | S | live |
 | 335 | Two view trees in one window is not a notion the library has | MISSING | HIGH | L | live |
 | 336 | Tab order cannot be scoped, so Tab walks out of a split pane | MISSING | HIGH | S | live |
 | 337 | With two panes a debug name stops naming ONE widget | FOOTGUN | HIGH | S | dup→#51 |

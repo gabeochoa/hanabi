@@ -92,6 +92,23 @@ EVERY="${HANABI_ALLOC_GATE_EVERY:-200}"
 CEIL_HOME20="${HANABI_ALLOC_CEIL_HOME20:-1000}"
 CEIL_HOME2000="${HANABI_ALLOC_CEIL_HOME2000:-1450}"
 CEIL_THREAD480="${HANABI_ALLOC_CEIL_THREAD480:-3300}"
+# The composer holding a SIX-LINE DRAFT, standing still.
+#
+# The other three arms have an empty composer, and an empty composer is the one
+# state of this widget that costs nothing. text_area re-wraps its whole text
+# every frame -- unconditionally, with no memo, and through the raw backend
+# measure rather than the shared TextMeasureCache (afterhours_gaps.md #305) --
+# so the bill is proportional to what is typed and is paid again at 60Hz for a
+# draft nobody is touching. Measured here: 811/f empty, 1025/f with six short
+# lines in it, 1007/f with one 130-character line that does not even wrap.
+#
+# 1250 is where the PINNED vendor puts it plus the same ~20% headroom the other
+# three carry. vendor_patches/305-text-area-wraps-every-frame.patch takes the
+# same arm to 847/f, and when that lands upstream and the submodule pointer
+# moves, this ceiling should come down to ~1050 with it. Leaving it high is
+# what stops the number growing further in the meantime; it is not an
+# endorsement of it.
+CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-1250}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then
@@ -178,6 +195,16 @@ run_arm home20      20   "$CEIL_HOME20"     '[]'       '""'
 run_arm home2000  2000   "$CEIL_HOME2000"   '[]'       '""'
 run_arm thread480 2000   "$CEIL_THREAD480"  '["rbig"]' '"rbig"' \
     HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_TURNS=120
+# HANABI_REPLY_DEMO seeds the composer that is on screen with no thread open,
+# which is the Home one -- the same widget, the same code path, and the arm the
+# empty-composer figure above was taken on, so the two numbers subtract.
+run_arm draft6      20   "$CEIL_DRAFT6"     '[]'       '""' \
+    "HANABI_REPLY_DEMO=line one of six and it is long enough to wrap once on its own inside the field
+line two
+line three
+line four
+line five
+line six"
 
 if [ "$fail" -ne 0 ] && [ "$REPORT_ONLY" != "1" ]; then
     cat >&2 <<'MSG'

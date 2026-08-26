@@ -50,6 +50,7 @@ MP = "src/ecs/main_pane_system.h"
 WR = "src/ecs/widget_retire_system.h"
 TH = "src/ui/theme.h"
 FV = "src/ecs/focus_visible_system.h"
+FC = "src/ui/field_chrome.h"
 
 LEAK_ANCHOR = """    void once(float) override {
         hanabi::widget_epoch::begin_epoch();"""
@@ -152,6 +153,17 @@ DEFECTS = {
         patches=[(WR, "        hanabi::widget_epoch::begin_epoch();\n        if (!hanabi::widget_epoch::retire_enabled()) return;",
                   "        if (!hanabi::widget_epoch::retire_enabled()) return;")]),
     "retire.stale": dict(gate="retire-gate", build="app", env={"HANABI_RETIRE": "0"}),
+    # ---- composer_chrome_gate -------------------------------------------
+    # The two regressions the multiline composer shipped over, one defect each.
+    # Both are a deleted line, because both fixes ARE one line -- which is the
+    # point of the gate: nothing else in the suite can see either of them.
+    "chrome.fill": dict(
+        gate="chrome-gate", build="app",
+        patches=[(MP, "        hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);\n",
+                  "")]),
+    "chrome.focus_edge": dict(
+        gate="chrome-gate", build="app",
+        patches=[(FC, "    if (!focused) return;", "    if (true) return;")]),
     # ---- perf_text_gate -------------------------------------------------
     "text.measures": dict(
         gate="text", build="app",
@@ -201,6 +213,7 @@ GATE_CMD = {
     "scroll-gate": ["bash", "scripts/scroll_gate.sh"],
     "retire-gate": ["bash", "scripts/retire_gate.sh"],
     "text": ["bash", "scripts/perf_text_gate.sh"],
+    "chrome-gate": ["bash", "scripts/composer_chrome_gate.sh"],
     "slope": ["bash", "scripts/perf_transcript_slope.sh"],
     "launch": ["bash", "scripts/measure_launch.sh"],
     # The screenshot subset `make test` runs. It captures and compares, so it
