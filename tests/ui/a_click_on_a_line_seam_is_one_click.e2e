@@ -8,12 +8,19 @@
 # between two lines of a transcript, and it is invisible unless you happen to
 # click on the pixel.
 #
-# y=234 is that seam in this thread at 1100x760: the first account line's
-# element is (329,218 656x16) and the second's is (329,234 656x16).
+# y=260 is that seam in this thread at 1100x760: the first account line's
+# element is (329,244 656x16) and the second's is (329,260 656x16).
 # HANABI_SELECT_AUDIT=1 prints both, which is how it was found:
 #
-#   [sel] press=(415.0,234.0) run=1 rect=(329.0,218.0 656.0x16.0) len=61
-#   [sel] press=(415.0,234.0) run=2 rect=(329.0,234.0 656.0x16.0) len=58
+#   [sel] press=(415.0,260.0) run=1 rect=(329.0,244.0 656.0x16.0) len=61
+#   [sel] press=(415.0,260.0) run=2 rect=(329.0,260.0 656.0x16.0) len=58
+#
+# It was 234 (over lines at 218 and 234) until the six feature branches of
+# 2026-08-26 landed and moved every body line down 26px -- this script and
+# select_word_and_line.e2e were RED on main at 88fde14 for that reason and
+# that reason alone, with the selection code itself untouched and correct.
+# Re-measured with the audit knob rather than nudged; the current reading is
+# quoted above so the next move is a diff and not an investigation.
 #
 # The assertion is the composer's readout, the same observable
 # select_word_and_line.e2e uses: after one click there is nothing selected.
@@ -23,7 +30,7 @@
 
 expect_no_text selected
 
-click 415 234
+click 415 260
 wait_frames 20
 expect_no_text selected
 
@@ -34,11 +41,26 @@ expect_no_text selected
 # WALL CLOCK and a scripted run's waits are frame counts (afterhours_gaps.md
 # #231), so a whole script runs inside one 400ms window and every press at the
 # same point continues the same run -- without this, the double below would be
-# presses three and four of the run started above and would take the LINE.
-# Moving 300px away breaks it on the near-in-space half instead.
-click 700 300
+# presses three and four of the run started above and would take the LINE
+# (58 selected) rather than the word (6).
+#
+# IT HAS TO LAND ON AN ELEMENT. This was `click 700 300` -- empty space, on the
+# argument that moving 300px away breaks the run on its near-in-space half.
+# It does not: the run is counted per ELEMENT HIT (that is the whole subject of
+# this script), and a press that hits nothing hits no element, so the counter
+# is never touched and the run survives. Measured, three runs each: with
+# `click 700 300` the audit reads runs 1, 2, 3 at the seam and the double is a
+# TRIPLE; with the press below it reads 1, then 1, 2. Waiting longer does not
+# help either -- `wait_frames 60` fails identically, which is #231 from the
+# other side: a headless run's frames are stepped, so a frame count cannot
+# spend the 400ms of wall clock the window is measured in.
+#
+# 236 is the centre of the intro line's element (329,228 656x16), a different
+# element in the same bubble, re-measured with HANABI_SELECT_AUDIT=1 like every
+# other coordinate here.
+click 415 236
 wait_frames 6
 
-double_click 415 234
+double_click 415 260
 wait_frames 20
 expect_text "6 selected"

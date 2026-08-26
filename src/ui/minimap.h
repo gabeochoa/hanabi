@@ -18,21 +18,11 @@
 
 #include <algorithm>
 
+#include "minimap_marks.h"
 #include "minimap_scrub.h"
 #include "theme.h"
 
 namespace hanabi::minimap {
-
-// What a mark stands for. The transcript's row kinds collapse into these five:
-// a reader scanning the rail wants "where are the answers, where did it go off
-// and do things, where did I ask something", not a row-type taxonomy.
-enum class Mark {
-    Machinery,  // tool runs — a pile or a single block
-    Reply,      // an assistant turn
-    Ask,        // something the reader said
-    Notice,     // a sub-agent spawn: a notable event in the thread
-    Note,       // reasoning, dividers — present, but quiet
-};
 
 inline theme::Color colour_of(Mark m) {
     switch (m) {
@@ -43,28 +33,6 @@ inline theme::Color colour_of(Mark m) {
         case Mark::Note: return theme::text_faint();
     }
     return theme::text_faint();
-}
-
-// Rail geometry.
-inline constexpr float kRailW = 10.0f;      // the strip itself
-inline constexpr float kRailInset = 6.0f;   // gap to the pane's right edge
-inline constexpr float kDotW = 6.0f;        // a mark's drawn width
-inline constexpr float kMinDotH = 2.0f;     // and its smallest drawn height
-inline constexpr float kMaxDotH = 10.0f;    // and its largest
-
-// A rail is only worth the space when there is something off screen to reach.
-inline bool worth_showing(float contentH, float viewH) {
-    return contentH > viewH + 40.0f;
-}
-
-// The slot height for an item of `itemH` in a transcript of `totalH`, on a
-// rail `railH` tall. Slots are proportional and are NOT clamped: they have to
-// sum to the rail exactly, or the marks stop lining up with the scrollbar and
-// every mark below the drift points somewhere it does not mean. The DRAWN dot
-// inside the slot is what gets a minimum size.
-inline float slot_h(float itemH, float totalH, float railH) {
-    if (totalH <= 0.0f || railH <= 0.0f) return 0.0f;
-    return railH * (itemH / totalH);
 }
 
 // Draw one mark inside its slot: a small rounded dot, centred, never thinner
