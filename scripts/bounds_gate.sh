@@ -104,7 +104,11 @@ done
 sort -u "$FOUND" -o "$FOUND"
 
 if [ "${1:-}" = "--update" ]; then
-    cp "$FOUND" "$BASELINE"
+    # Keep the baseline's leading comment block: it is the argument for the
+    # freeze, and an --update that silently deleted it would leave the next
+    # reader a bare list with no reason attached to it.
+    { [ -f "$BASELINE" ] && sed -n '/^#/p;/^#/!q' "$BASELINE"; cat "$FOUND"; } \
+        > "$BASELINE.new" && mv "$BASELINE.new" "$BASELINE"
     echo "bounds-gate: baseline rewritten, $(wc -l < "$BASELINE" | tr -d ' ') entries."
     exit 0
 fi
