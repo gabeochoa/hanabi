@@ -53,6 +53,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../ui/minimap_scrub.h"
+
 namespace ecs::model {
 
 // The last N threads whose pane state is remembered. Sixty-four is well past
@@ -79,6 +81,14 @@ struct PaneState {
     // ---- Virtualiser scroll velocity --------------------------------------
     bool haveLastScrollY = false;  // a first sight has velocity 0, not -scrollY
     float lastScrollY = 0.0f;
+
+    // ---- The minimap drag -------------------------------------------------
+    // A press-drag-release along the rail outlives the frame it started in and
+    // the rail is rebuilt every frame, so the gesture parks here. Per thread
+    // rather than one global, for the same reason the follow-latch is: two
+    // panes in split-view each have a rail and only one of them is being
+    // dragged.
+    hanabi::minimap::DragState minimapDrag;
 
     // ---- The composer -----------------------------------------------------
     // This thread's half-typed reply, and the Up/Down history walk over what

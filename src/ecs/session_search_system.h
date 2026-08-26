@@ -260,6 +260,13 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         app.sessionSearchQuery.clear();
         app.sessionSearchIndex = 0;
         indexed_ = false;
+        // And drop the corpus. The index holds every indexed body TWICE — the
+        // doc and a pre-lowered copy (session_index.h, Index::add) — so a
+        // panel that has been opened once over a large cache and closed was
+        // holding the app's whole transcript history, doubled, for the life of
+        // the process. It is rebuilt on the next open regardless (indexed_ is
+        // false above), so nothing is lost by letting it go.
+        index_ = hanabi::search::Index{};
     }
 
     // Open the thread and hand the query to find-in-conversation, so the match

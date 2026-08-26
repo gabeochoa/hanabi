@@ -8417,3 +8417,226 @@ without any notion of a text run. For the text-run case specifically, #51's
 place.
 
 CLASS: TEDIOUS
+
+---
+
+### #285 — Every element-addressed input command is a CLICK, so a gesture on a named widget can only be scripted in absolute window coordinates
+
+**What was wanted.** A scripted test for dragging along the transcript's
+minimap rail. The rail's marks are named elements and the existing test clicks
+them by name — `click_ui minimap_mark_60` — precisely so that a layout change
+moves the test's target with it. The drag wants the same thing: press on the
+rail, sweep, release.
+
+**What happens.** The runner's commands split cleanly in two, and the split is
+along the wrong axis (`e2e_testing/runner.h:47-69`):
+
+```cpp
+constexpr std::array<std::string_view, 5> coord_commands = {
+    "click", "double_click", "triple_click", "mouse_move", "mouse_down"
+};
+constexpr std::array<std::string_view, 13> single_arg_commands = {
+    "key", "select_all", "screenshot", "arrow",
+    "action", "hold", "release", "click_ui",
+    "click_text", "click_button", "focus_ui",
+    "toggle_checkbox", "expect_focused"
+};
+```
+
+Everything that addresses an ELEMENT is a click: `click_ui`, `click_text`,
+`click_button`, `double_click_ui`, `triple_click_ui`, `focus_ui`. Everything
+that can compose a gesture — `mouse_down`, `mouse_move`, `mouse_up`, `drag`,
+`drag_to` — takes raw x/y. There is no `mouse_down_ui`, no `mouse_move_ui`, no
+`drag_ui`.
+
+The primitive is already there. `double_click_ui` takes an optional `dx dy`
+offset from the element's top-left (`runner.h:172-182`), so "resolve a name to
+a point, then aim the pointer at it" is machinery the runner has and does not
+share with the down/move/up trio.
+
+**Why the obvious escapes do not work.**
+
+- **`drag_to x1 y1 x2 y2`** — the right shape (press / move / release over
+  three frames, `command_handlers.h:398-453`) and still four raw coordinates.
+  It also cannot be asserted THROUGH: it consumes itself in one command, so
+  there is no point at which the script can ask "and is the transcript
+  following right now, with the button still down", which is the whole claim
+  a drag test exists to make. `mouse_down` / `mouse_move` / `mouse_up` can be
+  asserted between, which is why the test uses them, and they are the
+  coordinate-only ones.
+- **`assert_ui <name> x=…` first, then use the number** — a script has no
+  variables. The number has to be read by a human from a deliberately failing
+  assertion and pasted back in as a literal, which is how this test's `1089`
+  and `73` were obtained.
+- **Give the rail a debug name and click it** — a click is not a drag. That is
+  the gap.
+
+**The workaround, and its cost.** `tests/ui/minimap_drag.e2e` is written in
+absolute window coordinates, with a comment recording where they came from and
+the window size they are true at. Cost: the test is exactly gap #232's
+complaint — a coordinate test cannot state its own precondition, so a layout
+change that moves the rail 20px does not fail as "the rail moved", it fails as
+"dragging does not scrub". It also pins the window size for a reason that has
+nothing to do with what is under test, and every other pane's geometry is now
+load-bearing for a test about the minimap.
+
+**Minimal upstream fix.** `mouse_down_ui <name> [dx dy]` and `mouse_move_ui
+<name> [dx dy]`, parsed like `double_click_ui` and resolved through the same
+element lookup. Two entries in the parse switch and two handlers that call the
+existing `test_input::set_mouse_position` with a resolved point instead of a
+literal one. `mouse_up` already needs no argument.
+
+CLASS: TEDIOUS
+
+---
+
+### #286 — A widget cannot know its own position on the frame it is built: the coordinates it was CONFIGURED with are in the parent's space, and the only absolute answer is the one last frame's layout left behind
+
+**What was wanted.** To hit-test the pointer against the minimap rail on the
+frame the rail is built, so that a press landing on it starts a drag.
+
+**What happens.** The rail is built with an absolute position and a translate:
+
+```cpp
+const float railX = paneW - kRailW - kRailInset;   // 804
+const float railY = railTopY + 6.0f;               //   6
+auto rail = div(ctx, mk(parent, 7400),
+    ComponentConfig{}.with_absolute_position().with_translate(railX, railY) …);
+```
+
+`with_absolute_position` means absolute within the PARENT, and the pointer
+(`ctx.mouse.pos`) is in window space with letterbox and resolution scaling
+already applied. The rail's real rect at this window size is `x=1084, y=73`.
+The two numbers the caller has are off by the pane's origin — 280px and 67px —
+and nothing says so:
+
+```
+[mmdbg] pos=1089,600  rail=804,6 10x583  down=1 jp=1 on=0 armed=0 live=0
+```
+
+`on=0`, forever. Nothing warns, nothing asserts, nothing fails to compile. The
+gesture simply never starts, and the code that fails to start it is the code
+anyone would write. It cost an hour, and the only reason it was found at all
+is that a printf was cheaper than the next hypothesis.
+
+The recovery is to read the rect the entity already carries —
+`rail.ent().get<UIComponent>().rect()` — which is correct, absolute, and
+written by LAST frame's layout pass, because this frame's has not run yet.
+
+**Why the obvious escapes do not work.**
+
+- **Add the parent's origin to the config's translate.** That is
+  re-implementing the layout pass's coordinate composition in app code, one
+  ancestor at a time, and it is wrong the moment anything between the widget
+  and the root has padding, a border, or a scroll offset. It is #224's
+  complaint about SIZE, at the other axis.
+- **Do the hit test from a draw callback**, which does get an absolute
+  `RectangleType`. It runs in the render pass, after the frame's input
+  decisions have been made, and `RenderPrimitive::CustomDrawFn` takes the rect
+  and nothing else (#111) — so the callback would have to write the answer to
+  a variable the next frame reads, which is the one-frame-stale rect again with
+  more machinery around it.
+- **Ask afterhours whether the pointer is over the subtree** —
+  `ctx.mouse_was_in_subtree(id)` exists and is the right question, but it
+  resolves through `prev_hot_id`, so on the frame of a press that also moved
+  the pointer (which is every synthetic press, and a real trackpad tap) it
+  answers about where the cursor USED to be. Fine for a hover highlight,
+  which is what it is for; not fine for deciding whether a press was yours.
+
+**The workaround, and its cost.** Build the widget first, read
+`UIComponent::rect()` off the returned entity, hit-test against that. It is one
+line and it is correct — for a widget that has not moved since last frame,
+which the rail has not. The costs are that the gesture is dead on the first
+frame a widget exists (the rect is still 0x0, so a press on a rail that has
+never been laid out is ignored), that the ordering is now load-bearing and
+undocumented — build, THEN decide, when every other read in the function is the
+other way round — and that the trap is entirely silent for the next person, who
+will also have the parent-relative numbers in hand and no reason to distrust
+them.
+
+**Minimal upstream fix.** Either resolve `with_translate` against the parent's
+absolute origin at build time and hand it back on the `ElementResult`, or —
+smaller and more useful — make `mouse_was_in_subtree`'s geometry available as
+`ctx.point_in(id, pos)` answering against the retained rect rather than against
+`prev_hot_id`. The narrowest version costs nothing: make `with_absolute_position`
+say in its doc comment that "absolute" means the parent's frame and not the
+window's, so that the mistake is at least documented where it is made.
+
+CLASS: FOOTGUN
+
+---
+
+### #287 — There IS a drag primitive, and it is not reachable from `ComponentConfig`
+
+**What was wanted.** A press-drag-release on a plain element — the minimap
+rail. Not a slider, not a splitter: a strip of the app's own drawing that the
+reader can grab and sweep.
+
+**What happens.** afterhours has exactly the right primitive, and no builder
+for it. `HasDragListener` (`ui/components.h:102`) carries a `down` flag that
+`HandleDrags` (`ui/systems.h:1060`) maintains, with the semantics a drag needs
+spelled out in its own comment:
+
+```cpp
+// ResolveHitTarget grants active on the press. Deliberately not gated on
+// the hit target below: a drag has to keep firing once the cursor leaves
+// the handle, which is exactly what active persisting across frames buys.
+```
+
+That is the hard half of a drag — the press keeps belonging to the thing it
+started on — solved, in the library, with `down` designed to be polled from
+the next build pass rather than read inside a callback.
+
+`ComponentConfig` cannot ask for it. Every listener the builder exposes is a
+click or a value change; the drag-adjacent entry, `with_draggable_children`
+(`component_config.h:623`), is drag-and-drop REORDERING of a container's
+children (`entity.enableTag(DragTag::Group)`), a different feature that shares
+a word. The only components that get a `HasDragListener` are the two the
+library builds itself — `imm::drag_handle` (`imm_components.h:358`) and
+`imm::slider` (`:1434`) — and both do it by reaching past the builder:
+
+```cpp
+entity.addComponentIfMissing<HasDragListener>([](Entity &) {});
+const float moved = entity.get<HasDragListener>().down ? ctx.mouse.delta.y : 0.f;
+```
+
+**Why the obvious escapes do not work.**
+
+- **Use `imm::drag_handle`.** It is a splitter: it sizes itself to a fixed
+  thickness across the cross-axis, sets a resize cursor, and reports a per-frame
+  DELTA. A scrubber needs its own geometry, its own cursor, its own drawing,
+  and an ANCHOR rather than a delta — accumulated deltas detach from the cursor
+  the first time the scroll clamps at an end, which is the classic scrollbar
+  bug and is unfixable from the delta alone.
+- **Do what `drag_handle` does — `addComponentIfMissing` on the returned
+  entity.** It compiles and it would work. It also makes the rail hit-testable
+  (`systems.h:688`), which puts a hit target over the per-mark buttons that are
+  the rail's whole point, and it means the app is adding a library component to
+  an entity the immediate-mode layer owns and rebuilds. The two call sites that
+  do it are inside the library.
+- **`ctx.mouse.delta`** — the same delta problem, without even the active
+  tracking.
+
+**The workaround, and its cost.** The gesture is hand-rolled in
+`src/ecs/main_pane_system.h` (`minimap_rail`) out of `ctx.mouse.just_pressed`,
+`left_down`, `press_moved` and `pos`, with four fields of state on the pane.
+It is about twenty lines and it works.
+
+What it costs is that hanabi now has a second, private definition of "a drag is
+in progress" that the library cannot see. `is_active` says the mark that was
+pressed is active, which is true and not the same fact. The cursor is whatever
+the element under the pointer says, so sweeping off the rail reverts it to an
+arrow mid-scrub — a real scrubber holds its cursor for the duration, and there
+is nowhere to say so. Focus is untouched. And `MousePointerState::
+press_drag_threshold_px` is a hard 6px with no per-widget override, which on a
+583px rail standing for 12,000px of transcript is a 124px dead zone at the
+start of every drag; a scrubber wants a smaller threshold than a list row does
+and cannot ask for one.
+
+**Minimal upstream fix.** `ComponentConfig::with_drag_listener()` (or a bare
+`with_draggable()`, since the useful half is `down` and not the callback),
+adding the component the two built-in widgets already add by hand, and
+returning `down` on the `ElementResult` the way `drag_handle` returns `moved`.
+The threshold override is a second, smaller field on the same config.
+
+CLASS: MISSING

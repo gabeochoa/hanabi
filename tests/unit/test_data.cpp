@@ -82,9 +82,29 @@ static void test_disk_cache_total_and_wipe() {
     CHECK(back && back->messages.size() == 5);
     CHECK(back && back->summary.id == "sess-a");
 
-    // wipe_all removes exactly our cache files (sessions.json + 2 transcripts).
+    // A tool row's STATUS survives the round trip. This is not a field the
+    // transcript draws differently — it is the one find's `state:` operator
+    // resolves through (find_operators.h, tool_state_of). Dropped, every
+    // state: query against a restored thread answered "no matches", as a
+    // VALID query, so the bar rendered no hint saying why. docs/SEARCH.md S4.
+    api::Session s3;
+    s3.summary.id = "sess-c";
+    api::Message tm;
+    tm.id = "t0";
+    tm.role = api::Role::Tool;
+    tm.subtitle = "shell";
+    tm.text = "make test";
+    tm.tool_status = "failed";
+    s3.messages.push_back(tm);
+    api::disk_cache::save_transcript(s3);
+    auto restored = api::disk_cache::load_transcript("sess-c");
+    CHECK(restored.has_value());
+    CHECK(restored && restored->messages.size() == 1);
+    CHECK(restored && restored->messages[0].tool_status == "failed");
+
+    // wipe_all removes exactly our cache files (sessions.json + 3 transcripts).
     std::size_t removed = api::disk_cache::wipe_all();
-    CHECK(removed == 3);
+    CHECK(removed == 4);
     CHECK(api::disk_cache::total_bytes() == 0);
     // After a wipe the transcript is gone (forces a cold refetch).
     CHECK(!api::disk_cache::load_transcript("sess-a").has_value());

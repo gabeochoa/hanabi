@@ -926,7 +926,9 @@ Anything touching the sidebar must say how it behaves at 2000+ sessions.
 ## Search, settings, shortcuts — `search-settings-shortcuts.md`
 
 - [~] Find operators `[APP]` — `state:` and `has:tool` shipped; `is:thinking`
-      waits on a data-model change and shipping it now would break the tally rule
+      is blocked by there being no highlight path for a thinking row, not by
+      the data model (the subtitle distinguishes them fine — docs/SEARCH.md S11),
+      and shipping it now would break the tally rule
 - [x] Session search across threads, Cmd+Shift+F — a local index over the disk
       cache, which says out loud how much of the corpus it could see. Needed a corpus;
       say whether it is a local index over the disk cache or a server verb

@@ -1963,17 +1963,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // it: a click then lands on the item it is drawn over, and the jump uses
     // that item's OWN measured top instead of a fraction of the rail. Each
     // slot draws its own mark in on_draw_fg.
+    //
+    // Dragging along the rail is the other half of the same control and is
+    // deliberately NOT built out of the slots: see the gesture block below.
     void minimap_rail(UIContext<InputAction>& ctx, Entity& parent,
                       Entity& scrollEnt, const std::vector<Item>& items,
                       const std::vector<api::Message>& msgs, float subH,
                       float paneW, float railTopY, float listH, float totalH,
-                      float viewH, float scrollY, bool& follow) {
+                      float viewH, float scrollY, bool& follow,
+                      hanabi::minimap::DragState& drag) {
+        // A gesture outlives the frame that started it; a rail does not. When
+        // the rail stops being drawn under a held button — the thread shrank
+        // below worth_showing, the reader switched tabs, the pane got narrow —
+        // the state has to go with it, or the next press inherits a drag
+        // nobody started.
         if (items.empty() ||
             !hanabi::minimap::worth_showing(totalH, viewH) ||
-            !scrollEnt.has<afterhours::ui::HasScrollView>())
+            !scrollEnt.has<afterhours::ui::HasScrollView>()) {
+            drag = {};
             return;
+        }
         const float railH = listH - 12.0f;
-        if (railH < 40.0f) return;
+        if (railH < 40.0f) {
+            drag = {};
+            return;
+        }
         const float railX = paneW - hanabi::minimap::kRailW -
                             hanabi::minimap::kRailInset;
         const float railY = railTopY + 6.0f;
@@ -1995,10 +2009,73 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 })
                 .with_debug_name("minimap_rail"));
 
+        // ---- press, drag, release --------------------------------------
+        // The whole gesture is arithmetic on ONE rectangle and the pointer.
+        // Not a question asked of every mark: the rail is a strip of N buttons
+        // and rebuilding one costs ~4.6 heap allocations a frame
+        // (afterhours_gaps.md #138), so a per-mark drag would have made the
+        // frame more expensive in precisely the situation — a held button,
+        // scrolling — where there is least room. Nothing between here and the
+        // end of this block scales with the number of messages.
+        //
+        // The rectangle is the rail's LAID-OUT rect, read back off the entity,
+        // and not the railX/railY above. Those are what the config was given,
+        // and a config's translate is in the PARENT's space while the pointer
+        // is in the window's: hit-testing the pointer against them is off by
+        // the pane's origin — 280px here — and reads as a gesture that simply
+        // never starts (afterhours_gaps.md #286). The rect is one frame old,
+        // which for a rail that has not moved is the same rect.
+        const auto railRect = rail.ent().get<afterhours::ui::UIComponent>().rect();
+        auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
+        const bool onRail = ctx.mouse.pos.x >= railRect.x &&
+                            ctx.mouse.pos.x <= railRect.x + railRect.width &&
+                            ctx.mouse.pos.y >= railRect.y &&
+                            ctx.mouse.pos.y <= railRect.y + railRect.height;
+        // Where the press LANDED decides whether this button-hold is ours.
+        // Asked once, on the press frame, because the cursor leaves the rail
+        // constantly during a real drag and the answer must not change when it
+        // does.
+        if (ctx.mouse.just_pressed) drag.armed = onRail;
+        // Release ENDS it, wherever the pointer is — off the rail, over the
+        // composer, outside the window. The gesture belongs to the button, not
+        // to the rectangle it started in, so this is a plain "the button is
+        // up" test and not a hit test that a cursor 400px away would fail.
+        if (!ctx.mouse.left_down) drag = {};
+        if (drag.armed && !drag.live && ctx.mouse.press_moved) {
+            // afterhours' own 6px threshold (MousePointerState::
+            // press_drag_threshold_px), which is also the one that withholds a
+            // widget's click — so a press is a click or a drag and never both
+            // halves of one, and the two answers cannot disagree.
+            drag.live = true;
+            drag.anchorY = ctx.mouse.pos.y;
+            drag.anchorOffset = sv.scroll_offset.y;
+        }
+        if (drag.live) {
+            const float want = hanabi::minimap::scrub_offset(
+                drag.anchorOffset, ctx.mouse.pos.y - drag.anchorY, railH, viewH,
+                totalH);
+            sv.scroll_offset.y = want;
+            hanabi::set_scroll_target_y(sv, want);
+            sv.clamp_scroll();
+            // Scrubbing is leaving the bottom, exactly as clicking a mark or
+            // scrolling up by hand is: without this the follow-latch drags the
+            // view back to the newest message between frames and the drag
+            // fights it.
+            follow = false;
+            // Draw the band from THIS frame's offset rather than the one read
+            // before the transcript was built, so it sits under the cursor on
+            // the frame the cursor moved and not the frame after. The content
+            // still lands a frame late (the virtualizer reads last frame's
+            // scroll), which is what every wheel scroll here already does.
+            scrollY = sv.scroll_offset.y;
+        }
+
         // Wider marks while the pointer is on the rail: the strip is thin
         // enough to be easy to miss, and a rail that answers the cursor is how
-        // the reader learns it is a control at all.
-        const bool hot = ctx.mouse_was_in_subtree(rail.ent().id);
+        // the reader learns it is a control at all. A live drag keeps them
+        // wide wherever the cursor has wandered to — the control is plainly
+        // still engaged, and having it go thin mid-scrub reads as a drop.
+        const bool hot = drag.live || ctx.mouse_was_in_subtree(rail.ent().id);
 
         // The rail is the whole CONTENT, and the content starts with the
         // sub-agent rollup rather than with items[0]. Without its share of the
@@ -2056,7 +2133,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     })
                     .with_debug_name("minimap_mark_" + std::to_string(i)));
             if (slot) {
-                auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
                 const float want = std::max(0.0f, itemTop - 12.0f);
                 sv.scroll_offset.y = want;
                 hanabi::set_scroll_target_y(sv, want);
@@ -3721,11 +3797,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // The rail. Rendered after the pin above so a click on it wins the
-        // frame it happens in, exactly as the jump-to-bottom button does.
+        // frame it happens in, exactly as the jump-to-bottom button does — and
+        // so does a drag, which writes the scroll on every frame it is held.
         {
             hanabi::prof::Scope _pm("transcript.minimap");
             minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
-                         kHeaderH, listH, totalH, viewH, scrollY, s_follow);
+                         kHeaderH, listH, totalH, viewH, scrollY, s_follow,
+                         pane.minimapDrag);
         }
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to
