@@ -1,8 +1,13 @@
 # An operator we do not have says so, instead of quietly widening the search.
 #
-# `is:thinking` reads like it should work — puffin has it — but hanabi has no
-# thinking row to filter on: the http adapter folds a thinking block's text
-# into the assistant text run, so nothing distinguishes it once it is stored.
+# `is:thinking` reads like it should work — puffin has it — but a thinking row
+# has no highlight path: find skips it in collect_matches and paint_query_for
+# together, so the operator could only ever answer "no matches", which is the
+# lying tally the counting rule exists to prevent. (This note used to say the
+# adapter folds a thinking block into the assistant text run so nothing
+# distinguishes it once stored. That has not been true since reasoning became
+# its own folded row — http_client.cpp sets `subtitle` from the block type and
+# agentcloud_client.cpp sets "thinking" outright. See docs/SEARCH.md S11.)
 # Treating an unknown operator as plain text would search for the literal
 # "is:thinking" and report a tally for a question nobody asked. The bar names
 # the operators that do exist instead, and finds nothing until the query is
