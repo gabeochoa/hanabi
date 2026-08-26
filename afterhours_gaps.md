@@ -103,6 +103,12 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #263 `text_area` draws no focus ring; `text_input` sets a 2px accent border when focused
 - #264 `default_keymap()` is not macOS-correct: every editing chord is bound to Cmd and Ctrl alike, Option is bound to nothing, so Cmd+Left is "previous word" and Cmd+Backspace is "delete word"
 
+**Added 2026-08-26** (the glyph atlas; full entries at the end of the file)
+- #350 nothing can be asked of the font atlas — not its occupancy, not whether a measurement dropped a glyph — so a PARTIAL drop (622 px where the truth is ~5000) is undetectable from outside *(the residue #211's detector cannot cover)*
+- #351 `fonsSetErrorCallback` is exactly the hook needed, is never called, and the `FONScontext` is a backend-private static — so `FONS_ATLAS_FULL` is raised, checked against a null pointer and discarded, twice per dropped glyph
+- #352 the atlas is a hardcoded 2048×2048 with no `graphics::Config` field, so the ceiling belongs to the library *(same request as #210's pool sizes)*
+- #353 a dropped glyph is not DRAWN either, so an unmeasurable string is also invisible — the failure looks like missing data, not like a font problem
+
 **Resolved / corrected**
 - #115 (a widget that stops being built is never retired) is **worked around
   app-side**, and the entry was wrong about why it could not be:
@@ -7782,6 +7788,31 @@ textures of silent wrongness into an honest failure every consumer already
 handles. (b) Put the pool sizes on `graphics::Config`, defaulted to sokol's,
 so an app that wants a hundred thumbnails can ask for them.
 
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the workaround covered the
+texture cache and missed two other consumers in the same app.** The entry says
+hanabi "treats `sampler_id == 0` as a failed load at the single seam every
+texture in the app comes through". That was true of every texture the CACHE
+loads and not true of the app. `src/ui/icons.h` does not go through that seam:
+it calls `afterhours::load_texture` directly for `icons.png` and accepted the
+result on `tex.width > 0.0f && tex.height > 0.0f` — which is verbatim the test
+this entry says cannot be trusted. The same file also called
+`sgl_make_pipeline` for its alpha-blend pipeline and set `ready = true`
+whatever came back, and the pipeline pool is 64 under the same defaults.
+
+Neither could plausibly fire: both happen once per process, at pre-warm, when
+three sampler slots are gone and nothing else has run. "Could not plausibly" is
+precisely the assumption this gap is about — the texture cap was 512 for months
+on reasoning of the same shape — so both now check. The icon atlas routes
+through `decode_to_fit::detail::reject_if_unsamplable`, and the pipeline is
+accepted only on `id != SG_INVALID_ID`, falling back to sgl's default (icons
+blit unblended, which is visibly wrong rather than a per-draw validation
+storm).
+
+Audited at the same time and clear: `src/util/prewarm.h` creates no GPU object
+of its own — it forces those two to happen earlier, which is its whole point —
+and no other file under `src/` reaches `sg_make_*`, `sgl_make_pipeline` or
+`load_texture`.
+
 ---
 
 ### #230 — `UIContext::mouse.pos` is NaN until the first mouse event, and every hit test is run against it
@@ -7889,6 +7920,60 @@ nothing in the app or the library will say why.
 `FONS_ATLAS_FULL` once — that alone turns silent corruption into a message with
 a name. Then put the atlas dimensions on `graphics::Config` beside the pool
 sizes #210 asks for.
+
+**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the workaround is no longer
+"none", and the condition has now been REACHED and watched rather than
+reasoned about.** Two corrections to the entry above, both in the direction of
+it being worse than it says.
+
+*The escape it rules out is the one that works, in a narrower form.* The entry
+says detecting this from outside "is guesswork: a consumer would have to
+measure a canary string every frame and compare it against a value it recorded
+earlier". A canary cannot work at all, and for a reason the entry does not
+give: fontstash caches a glyph on `(codepoint, isize, blur)`, so a canary's
+glyphs are already resident and stay CORRECT for the whole life of a full
+atlas. The canary never moves. What does work is the opposite question — ask
+for a glyph the atlas has never held, at a size it has never held, and see
+whether it comes back with an advance. That is one measurement, it is exact
+rather than heuristic, and it answers one step BEFORE the app's own text is
+affected. `hanabi::atlas::probe()` in `src/util/atlas_guard.h`.
+
+*Measured on this machine, driving hanabi's own `theme::text_px` over the
+94-glyph printable-ASCII set at climbing sizes (`hanabi.exe --atlas-stress`):*
+
+```
+  pt          width   detector
+  64         2644.0   ok
+  120        4836.0   FULL   <- the probe says the atlas can take no new rect
+  124         622.0   fault  <- the app's own measurement is now WRONG
+  136         231.0   fault
+  168          40.0   fault
+  172+          0.0   fault  <- terminal: every glyph dropped
+  13pt reference: 538.0 -> 538.0, unchanged throughout
+```
+
+The 622.0 at 124 pt is the shape that matters, and it is worse than a zero: it
+is a plausible number. Nothing about it says "wrong", it is about an eighth of
+the truth, and a wrap computed from it puts eight lines' worth of words on one
+line. The entry's three-row table (5933 / 230 / 0.0) is reproduced exactly in
+character — a decay, not a cliff — and the reference measurement holding at
+538.0 the whole way confirms why: already-resident glyphs are fine, so the
+corruption arrives only for text the app has not drawn before, which is the
+text a user just typed.
+
+*What hanabi does now, and what it still cannot do.* Every measurement seam in
+the app (`theme::text_px`, and the four `measure_text` callers in
+`text_select.h` / `link_detect.h` / `find_highlight.h`) runs its result through
+`hanabi::atlas::check`, which faults on a non-blank string measuring zero or
+non-finite; a soak column probes the atlas once a bucket;
+`HANABI_ATLAS_STRICT=1` aborts on the first fault; and `scripts/atlas_gate.sh`
+fills the atlas on purpose inside `make test`, because a detector for a
+condition nobody has ever reached is a detector nobody has ever seen work. What
+it cannot do is recognise an individual PARTIAL drop inside an ordinary
+measurement — 622.0 is knowably wrong only to somebody who already knows the
+answer is ~5000. The probe bounds how long the condition goes unnoticed; it
+does not make each poisoned number identifiable. That residue is why #350 is
+filed rather than this being closed.
 
 ---
 
@@ -9709,5 +9794,213 @@ still does something.
 offer `default_keymap_macos<InputAction>()` beside it. The values are already
 platform-independent (`afterhours::keys` are GLFW codes); it is only the
 modifier choice that is not.
+
+CLASS: FOOTGUN
+
+---
+
+### #350 — There is no way to ask the font atlas anything: not how full it is, not whether a measurement was complete, not whether a glyph was dropped
+
+**What was wanted.** After #211 established that a full atlas makes
+`measure_text` return a wrong number silently, a way for the consumer to tell a
+correct measurement from a corrupt one — at the moment of the measurement, not
+by inference.
+
+**What happens.** Nothing is exposed. Not the atlas dimensions, not its
+occupancy, not the glyph count, not the atlas image id, and — the one that
+would cost the library a single `bool` — not whether the call that just
+returned dropped a glyph. `fonsTextBounds` already knows: it walks
+`fons__getGlyph` per codepoint and gets back NULL for the ones the atlas
+refused, and then adds nothing to the advance for them and returns as if
+nothing happened. The information exists inside the function and is discarded
+on the way out.
+
+The consequence is that the only detectable case is the terminal one. A width
+of 0.0 for a non-blank string is unambiguous and can be caught. A width of
+622.0 where the truth is ~5000 — measured, `--atlas-stress`, 124 pt — is
+indistinguishable from a correct measurement of a shorter string, and it is the
+case that actually corrupts a layout while looking normal.
+
+**Why the obvious escapes do not work.**
+
+- **Sanity-check the width against a per-glyph estimate.** The estimate would
+  have to be looser than the widest real font variation and tighter than a
+  partial drop, and those ranges overlap: dropping two glyphs from a
+  forty-glyph string is a 5% error, and 5% is inside the honest variation
+  between a lowercase run and an uppercase one.
+- **Compare against a recorded measurement of the same string.** Only if the
+  same string was measured before the atlas filled, which is exactly the string
+  that is still correct — see the #211 postscript on why a canary cannot fire.
+- **Count the glyphs and multiply.** `fonsVertMetrics` gives line height; there
+  is no per-glyph advance accessor, so a consumer cannot sum one.
+- **Ask before measuring.** No occupancy query, so a consumer cannot even
+  refuse to measure into a full atlas.
+
+**The workaround, and its cost.** `src/util/atlas_guard.h`: catch the terminal
+case exactly (a non-blank string measuring zero, or non-finite) at every
+measurement seam, and detect the CONDITION separately by asking for a glyph the
+atlas has never held at a size it has never held — a fresh `(codepoint, size)`
+pair, whose zero advance means the atlas can take no more rects. That probe is
+run once per soak bucket and by `scripts/atlas_gate.sh`; it cannot be run per
+frame, because each probe consumes a rect of the very resource it is measuring.
+
+The cost is that the partial-drop window is bounded rather than closed: between
+two probes, a measurement can be short and nothing will say so. That window is
+the residue of a one-`bool` return value the library already has and does not
+give back.
+
+**Minimal upstream fix.** Either of two, both small. (a) An out-parameter or a
+sibling entry point: `measure_text_checked(..., bool* complete)`, set false
+when any `fons__getGlyph` returned NULL. Three lines inside the existing loop.
+(b) `atlas_usage()` returning used/total, so a consumer can watch a slope and
+act before the ceiling instead of after.
+
+CLASS: FOOTGUN
+
+---
+
+### #351 — `fonsSetErrorCallback` exists, is exactly the hook a consumer needs, and is unreachable
+
+**What was wanted.** To register a handler for `FONS_ATLAS_FULL` — the error
+fontstash already raises, at the exact moment the atlas refuses a glyph.
+
+**What happens.** The API is there and the call site is there:
+
+```c
+// fontstash.h:1131
+added = fons__atlasAddRect(stash->atlas, gw, gh, &gx, &gy);
+if (added == 0 && stash->handleError != NULL) {
+    stash->handleError(stash->errorUptr, FONS_ATLAS_FULL, 0);
+    added = fons__atlasAddRect(stash->atlas, gw, gh, &gx, &gy);
+}
+```
+
+`stash->handleError` is null because nothing calls `fonsSetErrorCallback`, and
+a consumer cannot call it either: it needs the `FONScontext*`, which lives in
+`graphics::metal_detail::g_fons_ctx` — a backend-private static with no
+accessor, no getter and no forwarding call. So the notification a consumer
+wants is generated, checked against a null pointer, and thrown away, twice per
+dropped glyph.
+
+This is a strictly smaller ask than #350 and it is worth filing separately
+because it needs no design at all: the mechanism is written, tested upstream,
+and used by every other fontstash consumer. What is missing is one line in the
+backend's init, or one accessor.
+
+Note that the callback is also the only route to the OTHER half of what
+fontstash offers here. The retry after `handleError` exists so a handler can
+`fonsExpandAtlas` or `fonsResetAtlas` and have the glyph succeed on the second
+attempt — the library is structured to let the consumer GROW the atlas at the
+moment it fills, and afterhours' null handler forecloses that too. A consumer
+that could register a handler would not merely be told; it could fix it.
+
+**Why the obvious escapes do not work.**
+
+- **Include fontstash and reach the context.** `g_fons_ctx` is in an anonymous
+  translation-unit-local sense private to the backend header, and hanabi does
+  not patch vendored code.
+- **Create a second FONScontext.** It would not be the one `measure_text` and
+  `draw_text` use, so its atlas is not the atlas that fills.
+
+**The workaround.** `src/util/atlas_guard.h` — outside-in detection, with the
+partial-drop hole #350 describes. `fonsSetErrorCallback` would close that hole
+completely and cost one line.
+
+**Minimal upstream fix.**
+
+```cpp
+// backends/sokol/backend.h, beside the sfons_create call
+fonsSetErrorCallback(g_fons_ctx, [](void*, int err, int) {
+    if (err == FONS_ATLAS_FULL) log_error("font atlas full: glyphs and their "
+                                          "advances are being dropped");
+}, nullptr);
+```
+
+Better still, expose `graphics::Config::font_error_callback` so the consumer
+can decide between logging it, growing the atlas and asserting.
+
+CLASS: BLOCKER
+
+---
+
+### #352 — The atlas is 2048×2048 and there is no configuration for it, so the ceiling is a build-time constant of the library
+
+**What was wanted.** A larger atlas, on a consumer that knows it will need one
+— a font-size slider, a CJK script, a document view.
+
+**What happens.** `backends/sokol/backend.h:104` creates one `sfons` atlas of
+2048×2048 R8 and the two dimensions are literals two lines above the
+`sfons_create` call. `graphics::Config` has no field for them, `graphics::init`
+takes no other route, and `sfons_create` is called before the consumer's first
+line of code runs. It is the same shape as #210's complaint about sokol's
+object pools and it has the same answer: the one place the number could be
+chosen is inside the library.
+
+4 MB is a good default and this entry is not asking for a bigger one. It is
+asking for the number to be reachable. The measured ceiling on this machine is
+about 26 glyphs at 400 pt, or the printable-ASCII set somewhere past 120 pt
+(`--atlas-stress`); a consumer offering a font-size control has no way to know
+that, and no way to move it.
+
+**Why the obvious escapes do not work.**
+
+- **`fonsExpandAtlas` / `fonsResetAtlas`.** Both need the `FONScontext` (#351).
+- **Load fewer faces.** hanabi loads four and could load three; that buys 25%
+  of a limit whose consumption is quadratic in point size.
+- **Cap the font size in the app.** Which is a product decision made by a
+  library constant, and the app cannot even discover what cap would be safe.
+
+**The workaround.** None, and none needed yet: hanabi's four faces at fourteen
+sizes, again at 2×/3×/4×/6×, fit with the reference measurement unchanged. The
+cost is that this remains true only by luck, and the app now needs a gate
+(`scripts/atlas_gate.sh`) to notice when it stops being true.
+
+**Minimal upstream fix.** `graphics::Config::font_atlas_width/height`,
+defaulted to 2048, passed to `sfons_create`. Beside the pool sizes #210 asks
+for, since they are the same request about the same struct.
+
+CLASS: MISSING
+
+---
+
+### #353 — A dropped glyph is not drawn either, so an unmeasurable string is also invisible, and the two failures are reported the same way: not at all
+
+**What was wanted.** Having found #211's measurement corruption, to know what
+the user actually SEES when the atlas is full — the assumption being that the
+text draws and only the layout is wrong.
+
+**What happens.** It is the other way round. `fonsDrawText` walks the same
+`fons__getGlyph` and skips the quad entirely when it returns NULL
+(`fontstash.h:1346-1360`), so a glyph the atlas refused is not rendered at all.
+A string measured at 0.0 is also drawn as nothing. The two symptoms arrive
+together and neither is reported, which is worth writing down because it
+changes what the failure looks like from the outside: not "text laid out
+wrongly" but "text absent, and the space where it should be laid out wrongly
+too". A blank label reads as a data problem — an empty string, a failed fetch —
+and nobody looks at the font stack.
+
+It also removes the one diagnostic a consumer might have hoped for. If the
+glyphs still drew, a capture would show text overlapping its neighbours and
+somebody would file a rendering bug. They do not draw, so the capture shows a
+clean, plausible, empty region.
+
+**Why the obvious escapes do not work.**
+
+- **Draw a fallback box for a missing glyph.** That is a decision inside
+  `fonsDrawText`, and the consumer never learns a glyph was missing (#350).
+- **Diff the capture against a reference.** hanabi does exactly this
+  (`scripts/compare.py`) and it would catch this — but only for a screen that
+  already has a frozen reference, and the condition arrives on user-authored
+  text, which no reference covers.
+
+**The workaround.** Detection only: `src/util/atlas_guard.h` faults on the
+measurement, which at least names the cause on stderr before the labels start
+disappearing. Nothing hanabi can do makes the glyph draw.
+
+**Minimal upstream fix.** Whatever #350 or #351 provides covers this too — one
+notification serves both halves. Failing that, rendering the substitute glyph
+(codepoint 0, which fontstash already caches and which most fonts draw as a
+box) instead of skipping the quad would turn an invisible failure into the
+oldest visible one in typography.
 
 CLASS: FOOTGUN

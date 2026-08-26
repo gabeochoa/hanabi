@@ -25,6 +25,7 @@
 
 #include "icons_atlas.h"
 #include "../util/autorelease.h"
+#include "decode_to_fit.h"
 #include "theme.h"
 #include "viewport.h"
 
@@ -59,6 +60,7 @@ struct AtlasTexture {
     int state = 0;
     sgl_pipeline blend_pip{};
     bool blend_pip_ready = false;
+    bool blend_pip_tried = false;
 
     static AtlasTexture& get() {
         static AtlasTexture inst;
@@ -67,7 +69,8 @@ struct AtlasTexture {
 
     // A pipeline with standard src-alpha over blending, created once.
     sgl_pipeline blend_pipeline() {
-        if (!blend_pip_ready) {
+        if (!blend_pip_tried) {
+            blend_pip_tried = true;
             sg_pipeline_desc pd{};
             pd.colors[0].blend.enabled = true;
             pd.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
@@ -77,7 +80,17 @@ struct AtlasTexture {
             pd.colors[0].blend.dst_factor_alpha =
                 SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
             blend_pip = sgl_make_pipeline(&pd);
-            blend_pip_ready = true;
+            // sokol's pipeline pool is 64 and the consumer cannot size it
+            // (#210). An exhausted pool returns SG_INVALID_ID, and binding
+            // that is not a no-op -- sgl validates and complains, per draw.
+            // Marking the pipeline "ready" whatever came back is the same
+            // unbounded-pool assumption reject_if_unsamplable exists to
+            // remove, one object type over. An invalid id leaves ready false
+            // and the caller falls back to sgl's default pipeline: icons blit
+            // without the blend, which is visibly wrong rather than a
+            // validation storm.
+            blend_pip_ready = (blend_pip.id != SG_INVALID_ID);
+            if (!blend_pip_ready) blend_pip = sgl_pipeline{};
         }
         return blend_pip;
     }
@@ -99,6 +112,19 @@ struct AtlasTexture {
         const std::string path =
             afterhours::files::get_resource_path("icons", "icons.png").string();
         tex = afterhours::load_texture(path.c_str());
+        // `width > 0 && height > 0` is exactly the test afterhours_gaps.md
+        // #210 says cannot be trusted: load_texture_from_pixels checks
+        // sg_make_image and sg_make_view and NOT sg_make_sampler, so past
+        // sokol's 64th sampler a texture comes back with the FILE's
+        // dimensions, a valid image, a valid view and sampler_id 0 -- and
+        // every "did this load?" test in the app reads that as yes. The
+        // texture cache routes every image through
+        // decode_to_fit::detail::reject_if_unsamplable for that reason; the
+        // icon atlas did not, because it is one texture loaded once at
+        // pre-warm and could not plausibly be the 61st. "Could not plausibly"
+        // is the assumption the gap is about, so it goes through the same
+        // seam. (The other one here is blend_pipeline(), below.)
+        hanabi::decode_to_fit::detail::reject_if_unsamplable(tex);
         if (tex.width > 0.0f && tex.height > 0.0f) {
             state = 1;
             return &tex;

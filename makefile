@@ -426,6 +426,13 @@ $(TEST_DIR)/test_text_cache: tests/unit/test_text_cache.cpp src/util/text_cache.
 	@echo "Compiling test_text_cache..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_text_cache.cpp -o $@
 
+# The glyph-atlas measurement guard, as pure logic: what counts as a width
+# that cannot be true, and why the whole of launch does not. The condition
+# itself needs a GPU and a full atlas — scripts/atlas_gate.sh reaches it.
+$(TEST_DIR)/test_atlas_guard: tests/unit/test_atlas_guard.cpp src/util/atlas_guard.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_atlas_guard..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_atlas_guard.cpp -o $@
+
 # The local-first outbox: the durable store across a REAL process boundary
 # (the test re-execs itself) plus the retry policy that reads it back. Pure
 # logic + a temp dir — no network, no graphics. disk_cache.cpp for the store.
@@ -585,7 +592,7 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_outbox $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_focus_ring
+UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_focus_ring
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -643,6 +650,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) retire-gate
 	@$(MAKE) digest-gate
 	@$(MAKE) bounds-gate
+	@$(MAKE) atlas-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -787,6 +795,12 @@ stress-break: $(MAIN_EXE) copy-resources
 # frame time can: a silent no-op renders plausibly and asserts nothing.
 # check_autorelease.py is the one that guards the four lines whose deletion
 # caused all of this — see docs/perf/GATES.md.
+# The glyph atlas measured, and the detector for it PROVED by filling the
+# atlas on purpose. Counts and exit codes only — no milliseconds, so a busy
+# box cannot move the verdict. See scripts/atlas_gate.sh and gap #211/#350.
+atlas-gate: $(MAIN_EXE)
+	@bash scripts/atlas_gate.sh
+
 source-checks:
 	@echo "Running source checks..."
 	@rc=0; \
@@ -798,7 +812,7 @@ source-checks:
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate scroll-gate \
-	retire-gate alloc-gate source-checks soak-report soak-baseline stress stress-break gate-audit
+	retire-gate alloc-gate atlas-gate source-checks soak-report soak-baseline stress stress-break gate-audit
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

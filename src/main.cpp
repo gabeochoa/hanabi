@@ -36,6 +36,7 @@
 #include "util/prewarm.h"
 #include "util/mem_ladder.h"
 #include "util/breaker.h"
+#include "util/atlas_guard.h"
 #include "util/bounds_audit.h"
 #include "util/soak.h"
 #include "util/stress.h"
@@ -45,6 +46,7 @@
 #include "ui_context.h"
 #include "ui/inline_image.h"
 #include "ui/link_detect.h"
+#include "ui/theme.h"
 
 #include "../vendor/afterhours/src/ecs.h"
 
@@ -1247,6 +1249,134 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
     return 0;
 }
 
+// --atlas-stress: FILL the glyph atlas on purpose and check that the detector
+// says so.
+//
+// A detector for a condition nobody has ever reached is a detector nobody has
+// ever seen work. afterhours_gaps.md #211 recorded the condition (a 2048x2048
+// fontstash atlas with no error callback, whose overflow shows up as
+// measure_text returning a WRONG number and then 0.0) and recorded that hanabi
+// was nowhere near it -- which is exactly the state in which a guard is
+// written, shipped, and never once exercised.
+//
+// So this mode drives the app's own measurement seam (theme::text_px, the same
+// function every label in the app is laid out through) over the printable
+// ASCII set at escalating point sizes until the atlas cannot take another
+// glyph, and reports:
+//
+//   * the size at which measurement first went wrong, and what it returned;
+//   * whether hanabi::atlas noticed, and with which fault;
+//   * whether a DIRECT probe for a fresh glyph agrees.
+//
+// Exit 0 means the atlas overflowed AND the detector fired. Exit 1 means the
+// detector stayed quiet through an overflow, which is the regression this mode
+// exists to catch. Exit 2 means the atlas never overflowed at all (the run
+// proves nothing; the ceiling moved).
+//
+// Nothing here is part of a normal run: it is reachable only from the flag.
+static int run_atlas_stress() {
+    using namespace afterhours;
+
+    graphics::Config gcfg{};
+    gcfg.display = graphics::DisplayMode::Headless;
+    gcfg.width = 320;
+    gcfg.height = 240;
+    gcfg.target_fps = 60;
+    if (!graphics::init(gcfg)) {
+        fprintf(stderr, "[atlas-stress] headless graphics init failed\n");
+        return 2;
+    }
+    Preload::get().init("hanabi").make_singleton();
+
+    std::string ascii;
+    for (char c = 33; c < 127; ++c) ascii.push_back(c);
+
+    // A reference the atlas is guaranteed to already hold, re-measured every
+    // step. It must never move: fontstash caches a glyph per (codepoint,
+    // size), so a size already rasterised stays correct even after the atlas
+    // fills. If THIS ever changes, the failure is something other than #211.
+    const float refPx = 13.0f;
+    const float refW = theme::text_px(ascii.c_str(), refPx);
+
+    printf("[atlas-stress] atlas is 2048x2048 R8, allocated once at init and "
+           "never grown (afterhours backends/sokol/backend.h:104).\n");
+    printf("[atlas-stress] reference: %zu glyphs at %.0fpt measure %.1f px\n",
+           ascii.size(), static_cast<double>(refPx),
+           static_cast<double>(refW));
+    printf("[atlas-stress] %-6s %12s %10s %8s\n", "pt", "width", "faults",
+           "probe");
+    fflush(stdout);
+
+    float firstBadPx = 0.0f;
+    float firstBadW = -1.0f;
+    unsigned long long faultsAtFirstBad = 0;
+    bool probeSaidFull = false;
+
+    // Sizes climb rather than repeat: fontstash keys a glyph on (codepoint,
+    // size*10, blur), so each new size is 94 genuinely new rects. 2048x2048 is
+    // ~4.2M pixels; the run is bounded by the size sweep, not by a timer.
+    for (float px = 16.0f; px <= 512.0f; px += 4.0f) {
+        const unsigned long long before = hanabi::atlas::fault_count();
+        const float w = theme::text_px(ascii.c_str(), px);
+        const unsigned long long after = hanabi::atlas::fault_count();
+        const bool probeOk =
+            hanabi::atlas::probe(px, [](const char* t, float p) {
+                return afterhours::measure_text_internal(t, p);
+            });
+        if (!probeOk) probeSaidFull = true;
+
+        const bool interesting =
+            (after != before) || !probeOk || (px <= 32.0f) ||
+            (static_cast<int>(px) % 64 == 0);
+        if (interesting) {
+            printf("[atlas-stress] %-6.0f %12.1f %10llu %8s\n",
+                   static_cast<double>(px), static_cast<double>(w), after,
+                   probeOk ? "ok" : "FULL");
+            fflush(stdout);
+        }
+        if (firstBadW < 0.0f && (after != before || !probeOk)) {
+            firstBadPx = px;
+            firstBadW = w;
+            faultsAtFirstBad = after;
+        }
+        if (firstBadW >= 0.0f && px > firstBadPx + 64.0f) break;
+    }
+
+    const float refAgain = theme::text_px(ascii.c_str(), refPx);
+    const bool overflowed = probeSaidFull || firstBadW >= 0.0f;
+    const unsigned long long faults = hanabi::atlas::fault_count();
+
+    printf("\n[atlas-stress] RESULT\n");
+    printf("  atlas overflowed:        %s\n", overflowed ? "yes" : "no");
+    if (firstBadW >= 0.0f)
+        printf("  first bad measurement:   %.0fpt -> %.1f px (faults %llu)\n",
+               static_cast<double>(firstBadPx),
+               static_cast<double>(firstBadW), faultsAtFirstBad);
+    printf("  detector fired:          %s (%llu fault%s, first %s)\n",
+           faults ? "YES" : "no", faults, faults == 1 ? "" : "s",
+           hanabi::atlas::fault_name(hanabi::atlas::first_fault()));
+    printf("  cached reference held:   %.1f -> %.1f px at %.0fpt\n",
+           static_cast<double>(refW), static_cast<double>(refAgain),
+           static_cast<double>(refPx));
+    fflush(stdout);
+
+    graphics::close_window();
+    if (!overflowed) {
+        fprintf(stderr,
+                "[atlas-stress] the atlas never overflowed; this run proves "
+                "nothing about the detector.\n");
+        return 2;
+    }
+    if (faults == 0) {
+        fprintf(stderr,
+                "[atlas-stress] THE ATLAS OVERFLOWED AND NOTHING SAID SO. "
+                "That is the exact failure src/util/atlas_guard.h exists to "
+                "prevent.\n");
+        return 1;
+    }
+    return 0;
+}
+
 // Headless one-shot: render the real UI to an offscreen texture and write a
 // PNG, with no window and no screen-recording permission. Used for docs and
 // smoke tests. Returns process exit code.
@@ -2130,6 +2260,9 @@ int main(int argc, char* argv[]) {
         return run_e2e(script, sw, sh);
     }
 #endif
+
+    // --atlas-stress: fill the glyph atlas and prove the detector notices.
+    if (cmdl["--atlas-stress"]) return run_atlas_stress();
 
     // --screenshot <path>: headless one-shot render + capture (docs/smoke).
     // Accepts both "--screenshot <path>" and "--screenshot=<path>".

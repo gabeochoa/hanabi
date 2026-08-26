@@ -42,6 +42,7 @@
 #include <mach/mach.h>
 #include <malloc/malloc.h>
 
+#include "atlas_guard.h"
 #include "gpu_mem.h"
 #include "heap_walk.h"
 #include "prof.h"
@@ -290,11 +291,28 @@ inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
                  : 0.0;
     out.push_back(Sample{frame, ms, cpuMs, rss, ents, h, gpu, allocs,
                          perFrame});
+    // Ask the glyph atlas, once a bucket, whether it can still take a new
+    // rect. Every other column here is memory; this one is CORRECTNESS. A
+    // full atlas does not leak a byte -- the atlas is allocated once at init
+    // and never grows, which is why no memory column can see it -- it makes
+    // measure_text return a wrong number and lays the UI out from it
+    // (afterhours_gaps.md #211/#350). A soak is exactly where a slow fill
+    // would show up, and until this column existed there was nowhere it
+    // could.
+    // 48pt, deliberately larger than any size the app asks for (the biggest
+    // is theme::type::XL at a high HANABI_UI_SCALE). fontstash's allocator is
+    // a skyline: a small rect still fits long after a large one cannot, so a
+    // probe at body size would answer a question nobody is asking. Erring
+    // large means the column warns BEFORE the app's own text is affected,
+    // which is the side to err on for a fault whose whole problem is silence.
+    hanabi::atlas::probe(48.0f, [](const char* t, float px) {
+        return afterhours::measure_text_internal(t, px);
+    });
     std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
                 "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB  "
-                "(zone tally %u)  GPU %7ld KB",
+                "(zone tally %u)  GPU %7ld KB  text-faults %4llu",
                 frame, cpuMs, ms, rss, ents, h.count, h.bytes / 1024,
-                h.approx, gpu);
+                h.approx, gpu, hanabi::atlas::fault_count());
     if (prof::enabled()) std::printf("  allocs %9.1f /f", perFrame);
     std::printf("\n");
     std::fflush(stdout);
