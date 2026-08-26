@@ -641,6 +641,7 @@ class MockClient : public Client {
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
+        "HANABI_BIG_EVENTS",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
@@ -1640,6 +1641,47 @@ class MockClient : public Client {
                 const int parsed = std::atoi(t);
                 if (parsed > 0) turns = parsed;
             }
+            // HANABI_BIG_EVENTS=1 gives every turn the EVENT rows a real
+            // thread carries. Off by default, and the default is the whole
+            // reason it is a knob: this fixture is what
+            // scripts/perf_transcript_slope.sh and the alloc gate's
+            // thread480 arm measure, and their ceilings were set against the
+            // four-row turn below. Flipping the shape under them would move
+            // every one of those numbers in the same commit that claims to
+            // measure a regression, and nobody could tell the two apart.
+            //
+            // WHY IT HAD TO EXIST. feat/event-model added six row kinds --
+            // thinking, tool call, sub-agent, delivery, node, skill -- and
+            // NOTHING in this repo could render one of them at scale. The
+            // synthetic catalog (stress_turn) leaves Message::kind at its
+            // Text default; this fixture emits User / Assistant / Tool / Tool
+            // and no thinking row at all. So the per-message gate ran over a
+            // transcript with zero of the new kinds in it, and read exactly
+            // the same number before and after the merge. That is
+            // docs/perf/STRESS.md's own finding -- "the synthetic stress
+            // catalog rendered the cheapest path this app has" -- arriving a
+            // second time, at a different fixture, for a different reason.
+            //
+            // THE MIX IS OBSERVED, NOT INVENTED. One real agentcloud session
+            // read 32 Text, 13 Thinking, 68 ToolCall, 6 SubAgent, 2 Delivery
+            // over 121 rows. Taking the two Text rows a turn as the unit,
+            // that is 16 turns' worth: 0.8 thinking, 4.25 tool, 0.4
+            // sub-agent and 0.125 delivery per turn. Below: a thinking row
+            // and four tool rows every turn, a sub-agent every third and a
+            // delivery every eighth, which lands within a few percent of
+            // each of those and stays a whole number per turn.
+            //
+            // NODE / SKILL / STATUS are the exception and are deliberately
+            // rarer than the rest -- one of each per sixteen turns. The
+            // observed session had none, so no ratio argues for them; they
+            // are here because all three go through render_event_row, that
+            // is the one-line-event path feat/event-model added, and a path
+            // no fixture reaches is a path no gate can see. Which is the
+            // sentence this whole block exists to stop being true again.
+            const bool bigEvents = [] {
+                const char* e = std::getenv("HANABI_BIG_EVENTS");
+                return e != nullptr && *e != '\0' && std::string(e) != "0";
+            }();
             for (int k = 0; k < turns; ++k) {
                 Message u;
                 u.id = "b_u" + std::to_string(k);
@@ -1650,6 +1692,25 @@ class MockClient : public Client {
                          " regression and report what you find?";
                 u.created_at = base + k * 4000;
                 s.messages.push_back(std::move(u));
+
+                // The model's reasoning, folded. Its own Item kind and its
+                // own renderer, and until this line no long-thread fixture
+                // produced one.
+                if (bigEvents) {
+                    Message th;
+                    th.id = "b_k" + std::to_string(k);
+                    th.role = Role::Assistant;
+                    th.kind = EventKind::Thinking;
+                    th.subtitle = "thinking";
+                    th.text =
+                        "Two readings of #" + std::to_string(k) +
+                        ". The cheap one is that the cache is stale. The "
+                        "honest one is that the derivation runs per frame and "
+                        "the same walk happens twice, which is the shape "
+                        "every finding on this thread has taken.";
+                    th.created_at = base + k * 4000 + 500;
+                    s.messages.push_back(std::move(th));
+                }
 
                 Message a;
                 a.id = "b_a" + std::to_string(k);
@@ -1688,6 +1749,83 @@ class MockClient : public Client {
                           std::to_string(40000 + k * 137);
                 t2.created_at = base + k * 4000 + 2000;
                 s.messages.push_back(std::move(t2));
+
+                if (!bigEvents) continue;
+
+                // Two more tool rows. The observed session ran 4.25 tool
+                // calls to every two lines of prose and this fixture ran two;
+                // a tool pile's cost is per row inside it, so the count is
+                // the thing rather than the pile.
+                for (int j = 0; j < 2; ++j) {
+                    Message tx;
+                    tx.id = "b_t" + std::to_string(k) +
+                            std::string(1, static_cast<char>('c' + j));
+                    tx.role = Role::Tool;
+                    tx.kind = EventKind::ToolCall;
+                    tx.subtitle = j ? "python" : "read_file";
+                    tx.text = j ? "python -c 'print(sum(rows))'"
+                                : "worker/queue.rs:" + std::to_string(40 + k);
+                    tx.tool_status = (k % 7 == 6 && j == 1) ? "failed"
+                                                            : "completed";
+                    tx.tool_duration_ms = 40 + (k * 17 + j * 53) % 900;
+                    tx.created_at = base + k * 4000 + 2500 + j * 100;
+                    s.messages.push_back(std::move(tx));
+                }
+
+                // A sub-agent every third turn: its own inline card, and the
+                // kind the reader asked for by name ("you are missing
+                // subagents").
+                if (k % 3 == 0) {
+                    Message sa = event_row(
+                        EventKind::SubAgent, "shadow #" + std::to_string(k),
+                        "Shadow the new path for an hour and report the "
+                        "divergences",
+                        base + k * 4000 + 2700);
+                    sa.id = "b_s" + std::to_string(k);
+                    sa.tool_status = (k % 6 == 0) ? "completed" : "running";
+                    s.messages.push_back(std::move(sa));
+                }
+
+                // A delivery every eighth. COLLAPSED, which is the state a
+                // reader scrolling past sees and therefore the one worth
+                // measuring: an expanded delivery costs a rich body and is
+                // the same cost as the assistant bubble above it.
+                if (k % 8 == 7) {
+                    Message d = event_row(
+                        EventKind::Delivery, "child",
+                        "child session settled: completed\n\nNo divergences "
+                        "over 61 minutes and 1.2M requests.",
+                        base + k * 4000 + 2800);
+                    d.id = "b_d" + std::to_string(k);
+                    d.tool_status = "completed";
+                    s.messages.push_back(std::move(d));
+                }
+
+                // The one-line events, one of each per sixteen turns. See the
+                // block comment above for why these are here at a rate no
+                // observation set.
+                if (k % 16 == 4) {
+                    Message nd = event_row(EventKind::Node,
+                                           "od-" + std::to_string(4400 + k),
+                                           "attached",
+                                           base + k * 4000 + 2900);
+                    nd.id = "b_n" + std::to_string(k);
+                    s.messages.push_back(std::move(nd));
+                }
+                if (k % 16 == 9) {
+                    Message sk = event_row(EventKind::Skill, "presto-query",
+                                           "platform",
+                                           base + k * 4000 + 2950);
+                    sk.id = "b_l" + std::to_string(k);
+                    s.messages.push_back(std::move(sk));
+                }
+                if (k % 16 == 13) {
+                    Message st = event_row(EventKind::Status, "working",
+                                           "shadowing class 3",
+                                           base + k * 4000 + 3000);
+                    st.id = "b_w" + std::to_string(k);
+                    s.messages.push_back(std::move(st));
+                }
             }
             s.sub_agents = {
                 {"bs1", "Heap analysis", SubAgentState::Done, "leak found"},
