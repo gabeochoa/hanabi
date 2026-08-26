@@ -139,6 +139,22 @@ class Index {
 
     std::size_t size() const { return docs_.size(); }
 
+    // Read-back and replacement, for a corpus that is assembled over several
+    // frames instead of all at once (session_corpus.h). set_body re-lowers the
+    // one document it touches; nothing else in the index moves, so a query
+    // running against a half-deepened corpus is answering over exactly the
+    // documents that have arrived.
+    const std::string& id_at(std::size_t i) const { return docs_[i].id; }
+    Depth depth_at(std::size_t i) const { return docs_[i].depth; }
+    std::size_t body_size_at(std::size_t i) const {
+        return docs_[i].body.size();
+    }
+    void set_body(std::size_t i, std::string body, Depth d) {
+        lowered_[i].body = fmtutil::to_lower(body);
+        docs_[i].body = std::move(body);
+        docs_[i].depth = d;
+    }
+
     Coverage coverage() const {
         Coverage c;
         c.threads = docs_.size();

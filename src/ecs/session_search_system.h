@@ -26,6 +26,7 @@
 
 #include "../api/disk_cache.h"
 #include "../keys.h"
+#include "../search/session_corpus.h"
 #include "../search/session_index.h"
 #include "components.h"
 #include "keyboard_focus.h"
@@ -76,16 +77,28 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // Built once per opening: reading the disk cache is file I/O, and the
-        // corpus cannot change while a modal is up (nothing behind it can open
-        // a thread). Typing re-queries the built index, which is in memory.
+        // Seeded once per opening, then DEEPENED a few transcripts a frame.
+        //
+        // This used to be one line that parsed the entire on-disk cache,
+        // synchronously, on the frame the panel opened — a full nlohmann parse
+        // per thread not already in memory, with no cap and no budget, growing
+        // with the user's history forever (docs/SEARCH.md S5). Seeding is now
+        // free of disk I/O entirely, and each frame reads kDeepenPerFrame more
+        // transcripts, so the reads are spread over the frames somebody spends
+        // typing rather than stacked on the one that opens the panel. Coverage
+        // climbs as they type, and coverage_note is already the sentence that
+        // says how far it has got.
         if (!indexed_) {
-            index_ = build_index(*app);
+            corpus_.begin(collect_rows(*app));
             indexed_ = true;
         }
+        corpus_.deepen(hanabi::search::kDeepenPerFrame,
+                       [](const std::string& id) {
+                           return load_flattened(id);
+                       });
 
         const std::vector<hanabi::search::Hit> hits =
-            index_.query(app->sessionSearchQuery, kMaxRows);
+            corpus_.index().query(app->sessionSearchQuery, kMaxRows);
 
         if (app->arrow == ArrowIntent::SessionSearch && !hits.empty()) {
             app->sessionSearchIndex += app->arrowDelta;
@@ -240,7 +253,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         // "no results" is the case where it matters most.
         div(ctx, mk(panel.ent(), 3),
             ComponentConfig{}
-                .with_label(note_for(*app, index_, hits))
+                .with_label(note_for(*app, corpus_, hits))
                 .with_size(ComponentSize{pixels(kRowW), pixels(kNoteH)})
                 .with_margin(Margin{.top = pixels(8), .left = pixels(10)})
                 .with_transparent_bg()
@@ -253,7 +266,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
-    hanabi::search::Index index_;
+    hanabi::search::CorpusBuilder corpus_;
     bool indexed_ = false;
     bool wasOpen_ = false;
     int focusFrames_ = 0;
@@ -269,7 +282,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         // holding the app's whole transcript history, doubled, for the life of
         // the process. It is rebuilt on the next open regardless (indexed_ is
         // false above), so nothing is lost by letting it go.
-        index_ = hanabi::search::Index{};
+        corpus_ = hanabi::search::CorpusBuilder{};
     }
 
     // Open the thread and hand the query to find-in-conversation, so the match
@@ -289,17 +302,23 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static std::string note_for(const AppComponent& app,
-                                const hanabi::search::Index& ix,
+                                const hanabi::search::CorpusBuilder& c,
                                 const std::vector<hanabi::search::Hit>& hits) {
         // The rows are their own count; what the line is FOR is the part the
         // rows cannot say — how much of your history was actually read.
-        const std::string cov = hanabi::search::coverage_note(ix.coverage());
+        std::string cov = hanabi::search::coverage_note(c.index().coverage());
+        // ...and while the corpus is still arriving, that it is still
+        // arriving. A "no matches" over a corpus that is 40% read is a
+        // different claim from one over a corpus that is finished, and the
+        // ellipsis is the whole of the difference a reader needs.
+        if (!c.complete()) cov += "\xe2\x80\xa6";
         if (!app.sessionSearchQuery.empty() && hits.empty())
             return "No matches. " + cov;
         return cov;
     }
 
-    // Everything readable about one thread, and how deep the reading went.
+    // Everything readable about one thread WITHOUT touching the disk: the list
+    // row, plus the in-memory copy when there is one.
     //
     // The in-memory LRU used to be preferred over the disk copy unconditionally
     // — "it is the newer of the two whenever they differ" — and the result was
@@ -309,42 +328,38 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
     // the corpus, and the sentence under the results called them full text
     // (docs/SEARCH.md S2). Newer is not fuller.
     //
-    // So: prefer the LRU only while it holds the whole thread. When it was cut
-    // down, the disk copy is read and whichever holds more messages wins — and
-    // if the winner is itself a window (cut on the way into the cache, or
-    // fetched with has_more_older), it is indexed as Windowed and the note says
-    // so instead of claiming a depth nobody has.
-    static hanabi::search::Index build_index(AppComponent& app) {
-        hanabi::search::Index ix;
+    // So a cut copy is marked as one, and the thread stays in the deepening
+    // queue: what is on disk may hold more of it, and whichever holds more
+    // wins.
+    static std::vector<hanabi::search::Row> collect_rows(AppComponent& app) {
+        std::vector<hanabi::search::Row> rows;
+        rows.reserve(app.sessions.size());
         for (const auto& s : app.sessions) {
-            hanabi::search::Doc d;
-            d.id = s.id;
-            d.title = s.title;
-            d.preview = s.preview;
-            const api::Session* held = app.transcriptCache.peek(s.id);
-            const bool heldCut =
-                held != nullptr && app.transcriptCache.truncated(s.id);
-            std::optional<api::Session> disk;
-            if (held == nullptr || heldCut)
-                disk = api::disk_cache::load_transcript(s.id);
-            const bool takeDisk =
-                disk.has_value() &&
-                (held == nullptr ||
-                 disk->messages.size() > held->messages.size());
-            if (takeDisk) {
-                d.body = flatten(*disk);
-                d.depth = disk->has_more_older
-                              ? hanabi::search::Depth::Windowed
-                              : hanabi::search::Depth::Full;
-            } else if (held != nullptr) {
-                d.body = flatten(*held);
-                d.depth = (heldCut || held->has_more_older)
-                              ? hanabi::search::Depth::Windowed
-                              : hanabi::search::Depth::Full;
+            hanabi::search::Row r;
+            r.id = s.id;
+            r.title = s.title;
+            r.preview = s.preview;
+            r.updated_at = s.updated_at;
+            if (const api::Session* held = app.transcriptCache.peek(s.id)) {
+                r.held = flatten(*held);
+                r.has_held = true;
+                r.held_is_tail = app.transcriptCache.truncated(s.id) ||
+                                 held->has_more_older;
             }
-            ix.add(std::move(d));
+            rows.push_back(std::move(r));
         }
-        return ix;
+        return rows;
+    }
+
+    // The disk half, called at most kDeepenPerFrame times a frame.
+    static std::optional<hanabi::search::Loaded> load_flattened(
+        const std::string& id) {
+        auto disk = api::disk_cache::load_transcript(id);
+        if (!disk) return std::nullopt;
+        hanabi::search::Loaded out;
+        out.body = flatten(*disk);
+        out.windowed = disk->has_more_older;
+        return out;
     }
 
     // The same rows find-in-conversation can paint: user and assistant text.

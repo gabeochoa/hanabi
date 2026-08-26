@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <string>
 
+#include "../../src/search/session_corpus.h"
 #include "../../src/search/session_index.h"
 
 static int g_failures = 0;
@@ -189,6 +190,138 @@ static void test_a_thread_read_only_to_its_tail_is_its_own_depth() {
     CHECK(!allWindowed.coverage().complete());
 }
 
+// Opening Cmd+Shift+F must not read the disk cache.
+//
+// build_index used to call load_transcript -- a full nlohmann parse -- once
+// per thread not already in memory, synchronously, on the frame the panel
+// opened. tools/bench_search_index.cpp measures that at 370 ms for a 2000
+// thread cache: a third of a second of frozen UI, growing with the user's
+// history forever. docs/SEARCH.md S5.
+//
+// The gate is a COUNT of loader calls, not a clock. A time budget reads a
+// different number of files on a loaded machine than on a quiet one, and this
+// box is shared; a count is the same number every run.
+static void test_opening_the_panel_reads_nothing_from_disk() {
+    std::printf("test_opening_the_panel_reads_nothing_from_disk\n");
+    using hanabi::search::CorpusBuilder;
+    using hanabi::search::kDeepenPerFrame;
+    using hanabi::search::Loaded;
+    using hanabi::search::Row;
+
+    constexpr std::size_t kThreads = 500;
+    std::vector<Row> rows;
+    for (std::size_t i = 0; i < kThreads; ++i) {
+        Row r;
+        r.id = "t" + std::to_string(i);
+        r.title = "thread " + std::to_string(i);
+        r.preview = "preview";
+        r.updated_at = static_cast<std::int64_t>(i);
+        rows.push_back(std::move(r));
+    }
+    // Two threads are already in memory: one whole, one only its tail.
+    rows[10].held = "the retry queue is draining";
+    rows[10].has_held = true;
+    rows[11].held = "the tail of a much longer thread";
+    rows[11].has_held = true;
+    rows[11].held_is_tail = true;
+
+    int loads = 0;
+    std::vector<std::string> asked;
+    const auto load = [&](const std::string& id) -> std::optional<Loaded> {
+        ++loads;
+        asked.push_back(id);
+        Loaded l;
+        l.body = "disk body for " + id + " mentioning quota";
+        return l;
+    };
+
+    CorpusBuilder b;
+    b.begin(std::move(rows));
+    // THE LEVEL. Opening the panel is free of disk I/O -- this is the number
+    // that was 499 before.
+    CHECK(loads == 0);
+    CHECK(b.index().size() == kThreads);
+    // The whole in-memory copy counts as read; the tail does not.
+    CHECK(b.index().coverage().full == 1);
+    CHECK(b.index().coverage().windowed == 1);
+    CHECK(b.pending() == kThreads - 1);  // everything but the whole copy
+
+    // And a frame reads a fixed few, whatever the catalog size is.
+    CHECK(b.deepen(kDeepenPerFrame, load) == kDeepenPerFrame);
+    CHECK(loads == static_cast<int>(kDeepenPerFrame));
+    CHECK(!b.complete());
+
+    // Newest first: the rows were seeded oldest-to-newest, so the first thread
+    // asked for is the last one added. A user looking for a conversation is
+    // usually looking for a recent one, and the order must be total or the
+    // corpus would reshuffle under an arrow key between frames.
+    CHECK(asked[0] == "t499");
+    CHECK(asked[1] == "t498");
+
+    // It converges, and no thread is read twice.
+    int frames = 1;
+    while (!b.complete()) {
+        b.deepen(kDeepenPerFrame, load);
+        ++frames;
+    }
+    CHECK(loads == static_cast<int>(kThreads) - 1);
+    CHECK(frames == static_cast<int>((kThreads - 1 + kDeepenPerFrame - 1) /
+                                     kDeepenPerFrame));
+    CHECK(b.index().coverage().complete());
+    CHECK(b.deepen(kDeepenPerFrame, load) == 0);
+    CHECK(loads == static_cast<int>(kThreads) - 1);
+
+    // The thread whose in-memory copy was whole was never asked for.
+    for (const auto& id : asked) CHECK(id != "t10");
+    // The one whose copy was a tail was, and the longer disk copy replaced it.
+    CHECK(b.index().query("quota", 600).size() == kThreads - 1);
+}
+
+// Deepening only ever deepens: a disk copy that is missing, or is no longer
+// than the tail already indexed, leaves the thread with what it had. Without
+// this a thread whose cache file is older than the live tail would get WORSE
+// under a search that was supposed to improve it.
+static void test_deepening_never_makes_a_thread_shallower() {
+    std::printf("test_deepening_never_makes_a_thread_shallower\n");
+    using hanabi::search::CorpusBuilder;
+    using hanabi::search::Loaded;
+    using hanabi::search::Row;
+
+    std::vector<Row> rows;
+    Row a;
+    a.id = "a";
+    a.title = "has a tail in memory";
+    a.held = "the newest twenty messages, mentioning kestrel";
+    a.has_held = true;
+    a.held_is_tail = true;
+    a.updated_at = 2;
+    rows.push_back(std::move(a));
+    Row b2;
+    b2.id = "b";
+    b2.title = "nothing in memory";
+    b2.updated_at = 1;
+    rows.push_back(std::move(b2));
+
+    CorpusBuilder b;
+    b.begin(std::move(rows));
+    b.deepen(8, [](const std::string& id) -> std::optional<Loaded> {
+        if (id == "a") {
+            Loaded l;
+            l.body = "stale short copy";  // shorter than the tail we hold
+            return l;
+        }
+        return std::nullopt;  // no copy of b on this machine at all
+    });
+    CHECK(b.complete());
+    // The tail survived...
+    CHECK(b.index().query("kestrel", 10).size() == 1);
+    CHECK(b.index().query("stale", 10).empty());
+    // ...and the thread with no copy anywhere is title-and-preview only.
+    CHECK(b.index().coverage().windowed == 1);
+    CHECK(b.index().coverage().shallow() == 1);
+    CHECK(b.index().coverage().full == 0);
+}
+
 static void test_a_snippet_is_one_readable_line() {
     std::printf("test_a_snippet_is_one_readable_line\n");
     const std::string body =
@@ -220,6 +353,8 @@ int main() {
     test_coverage_counts_what_was_actually_read();
     test_the_note_says_how_partial_the_answer_is();
     test_a_thread_read_only_to_its_tail_is_its_own_depth();
+    test_opening_the_panel_reads_nothing_from_disk();
+    test_deepening_never_makes_a_thread_shallower();
     test_a_snippet_is_one_readable_line();
     if (g_failures == 0) {
         std::printf("OK\n");

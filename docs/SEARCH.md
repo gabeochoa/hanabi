@@ -21,8 +21,8 @@ This is the map, and then the honest part.
 | Tool OUTPUT | never (not persisted) | never | never |
 | Markdown markers | present | present | stripped |
 | Code fences / tables | present | present | skipped |
-| Index | none | rebuilt on every open | none |
-| Cost | file read per session, first frame of a query | **full JSON parse of the whole disk cache, on the UI thread** | full re-scan **every frame** |
+| Index | none | rebuilt on every open, a few threads a frame | none |
+| Cost | file read per session, first frame of a query | 0 disk reads to open; 8 transcripts a frame after | full re-scan **every frame** |
 | Cap | ~2 viewports of rows | 6 results | none |
 | Says when it truncated | no | no | n/a |
 
@@ -310,18 +310,42 @@ Fixed: `tool_status` is now written and read back
 restore today; `tool_result` is the one that would matter, because it is the
 reason S3's comment claims tool output is searchable.
 
-### S5 — opening Cmd+Shift+F parses the entire disk cache on the UI thread
+### S5 — opening Cmd+Shift+F parses the entire disk cache on the UI thread — FIXED HERE
 
-`build_index` (`:295`) runs `load_transcript` — a full JSON parse — for every
-session not in the LRU, synchronously, on the frame the panel opens. No cap, no
-budget, no async, no progress. The repo's own figure for a merely *stat*-based
-walk of 2000 cache files is 5.9 ms (`disk_cache.cpp:222`); this is a parse per
-file. And "once per opening" is undercut by both `close()` and the chord
-resetting `indexed_`, so it is once per open, every open.
+`build_index` ran `load_transcript` — a full JSON parse — for every session not
+in the LRU, synchronously, on the frame the panel opened. No cap, no budget, no
+async, no progress. And "once per opening" is undercut by both `close()` and
+the chord resetting `indexed_`, so it was once per open, every open.
 
-**What it would take: medium.** Cap the number of transcripts read, or build
-off-thread. The coverage note is already the right place to admit a partial
-index, which makes this cheaper than it looks.
+**Measured** (`tools/bench_search_index.cpp`, 2000 threads × 40 messages =
+19 MB of cache, `CLOCK_THREAD_CPUTIME_ID`, gabeochoa-mac):
+
+| | before | after |
+|---|---|---|
+| opening the panel | **370.5 ms**, 2000 disk reads | **0.2 ms**, 0 disk reads |
+| one frame after that | — | 1.1 ms, 8 disk reads |
+| to full coverage | 370.5 ms, all in one frame | 324.3 ms over 250 frames |
+
+The total work is the same; what changed is that no single frame pays it. The
+reads are **spread**, not capped: `src/search/session_corpus.h` seeds the index
+from the list rows alone (plus the in-memory bodies, which are free), and each
+frame the panel is open reads `kDeepenPerFrame = 8` more transcripts,
+newest-thread first. Coverage climbs while the query is still being typed, and
+`coverage_note` — already the sentence that says how much was read — carries an
+ellipsis until it is finished.
+
+Rejected: a **cap** (Cmd+Shift+F would go permanently blind to old threads, and
+a search that silently cannot see half your history is the exact failure
+`session_index.h` opens by naming) and a **thread** (`api::disk_cache` has no
+ownership story for a reader racing a save, and the whole corpus can be
+invalidated under one — `save_transcript` bumps a generation the reader would
+have to re-check per file).
+
+The gate is a COUNT, in `tests/unit/test_session_index.cpp`: opening a
+500-thread corpus performs zero loader calls, a frame performs exactly eight
+whatever the catalog size, no thread is read twice, and it converges. A time
+budget would read a different number of files on a loaded box than a quiet one
+and could not be gated on a shared machine.
 
 ### S6 — the index is never freed — FIXED HERE
 
