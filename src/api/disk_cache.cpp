@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "../../vendor/nlohmann/json.hpp"
+#include "../search/json_field_scan.h"
 
 namespace api::disk_cache {
 
@@ -493,14 +494,25 @@ bool scan_transcript(const std::string& id, const std::string& lowerQuery) {
     if (path.empty()) return false;
     std::ifstream in(path);
     if (!in.good()) return false;
-    // Lowercase substring scan over the raw file text — cheaper than parsing
-    // JSON, and message bodies/tool output are all in there. Good enough for a
-    // sidebar filter (an exact index is idea #3's future upgrade).
-    std::string blob((std::istreambuf_iterator<char>(in)),
-                     std::istreambuf_iterator<char>());
-    for (char& c : blob)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return blob.find(lowerQuery) != std::string::npos;
+    // Search the message TEXT, not the document.
+    //
+    // This used to lowercase the whole file and call find() on it, with the
+    // comment "message bodies and tool output are all in there". Half of that
+    // was wrong and the other half was the bug. Tool output is not in there —
+    // to_json(const Message&) writes {id, role, kind, text, created_at,
+    // subtitle, tool_status} and nothing else. And the field names ARE in
+    // there, so `state`, `tag`, `preview`, `folder`, `subtitle`, `version`,
+    // `messages`, `has_more_older` and every session id matched every thread
+    // that had ever been cached. Title matching runs first, so the false hit
+    // only fired once the title had missed — which is precisely when it reads
+    // as a legitimate deep hit (docs/SEARCH.md S3).
+    //
+    // json_field_contains looks inside the values of `text` and nowhere else,
+    // in one pass over the same bytes this was already reading, so the memo
+    // above absorbs the same cost it always did.
+    const std::string blob((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    return hanabi::search::json_field_contains(blob, "text", lowerQuery);
 }
 }  // namespace
 

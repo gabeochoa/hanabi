@@ -15,7 +15,7 @@ This is the map, and then the honest part.
 | Unit of result | a session row | a session row | a highlighted span |
 | Empty query | **everything** | **nothing** | nothing |
 | Operators | none (literal) | none (literal) | `is:` `has:` `state:` |
-| Corpus | title + **the raw JSON file** | title + preview + user/assistant text | the **painted** text of the open thread |
+| Corpus | title + the cached transcript's message text | title + preview + user/assistant text | the **painted** text of the open thread |
 | Thinking blocks | searched | searched | skipped |
 | Tool rows | searched (their `text`) | skipped | skipped |
 | Tool OUTPUT | never (not persisted) | never | never |
@@ -253,20 +253,31 @@ results' is the failure mode this file exists to avoid"* (`session_index.h:22`).
 **What it would take: small.** Prefer disk when the cached copy is at the cap,
 or add a third `Depth::Windowed` and say so in the note.
 
-### S3 — the sidebar's "content" search greps JSON structure
+### S3 — the sidebar's "content" search greps JSON structure — FIXED HERE
 
-`disk_cache.cpp:472` lowercases the whole file and calls `find`. So `state`,
+`disk_cache.cpp` lowercased the whole file and called `find`. So `state`,
 `tag`, `preview`, `subtitle`, `version`, `folder`, `starred`, `created`,
-`messages`, `has_more_older` and every session id match every thread with a
-cached transcript. Title matching runs first, so this only fires once the title
-misses — which makes it look like a legitimate deep hit.
+`messages`, `has_more_older` and every session id matched every thread with a
+cached transcript. Title matching runs first, so it only fired once the title
+missed — which is what made it look like a legitimate deep hit.
 
-The same function's comment is also wrong about its corpus: *"message bodies
-and tool output are all in there"*. `to_json(const Message&)` writes
-`{id, role, text, created_at, subtitle}` (`:168`). Tool output is not in there.
+Fixed with `src/search/json_field_scan.h`: one pass over the same bytes that
+knows just enough JSON to tell a key from a value, and looks inside the values
+of `text` and nowhere else. Not a parser — no tree, no validation — so it costs
+what the lowercase-and-find cost, and the memo absorbs it exactly as before.
+String values are decoded as they are read, so a query with a quote or a
+newline in it matches the body rather than the escape sequence, and the fold is
+the ASCII one the other three matchers use instead of the locale-dependent
+`std::tolower` this had (part of **S13**).
 
-**What it would take: small.** Scan the `"messages"` slice, or parse and
-concatenate the text fields. The memo already absorbs the cost.
+The comment was also wrong about the corpus: *"message bodies and tool output
+are all in there"*. `to_json(const Message&)` writes
+`{id, role, kind, text, created_at, subtitle, tool_status}`. Tool output is not
+in there and now the comment says so.
+
+`test_content_search_matches_values_not_the_document` in
+`tests/unit/test_data.cpp` pins it: seventeen assertions, every one of them
+failing against the old scan.
 
 ### S4 — `state:` silently answers "no matches" on any restored thread — FIXED HERE
 
@@ -395,9 +406,9 @@ width where it happens not to wrap.
   same flat directory an http backend with an empty base URL writes to, so the
   mock's sidebar can match files another backend left behind.
 - **No Unicode anywhere.** All four matchers fold `A-Z` only; nothing
-  normalizes. `Café` does not match `café`, and `disk_cache.cpp:483` uses
-  locale-dependent `std::tolower` while the other three do not — latent, since
-  nothing calls `setlocale`.
+  normalizes. `Café` does not match `café`. The locale-dependent
+  `std::tolower` in `disk_cache.cpp` is gone with **S3**; the remaining three
+  were already ASCII.
 - **`find_nav::advance(i, n, Step::None)` returns 0, not `i`** — asserted as
   intended in `test_find_nav.cpp:62`, harmless because the only caller
   short-circuits first, and a footgun for the second one.
@@ -412,7 +423,8 @@ true one and the culled case is tested (**S1**). The
 cross-session panel has the right instinct — it tells you what it could not
 see — and then lies in the sentence that does it (**S2**), while parsing your
 whole cache on the UI thread to get there (**S5**). The sidebar's deep search
-is a `grep` over JSON that matches its own field names (**S3**). None of the
+searched the JSON document rather than the conversation (**S3**, fixed). None
+of the
 three tells you when it truncated (**S9**), and the two tests that would have
 caught the two most embarrassing of these pass without the code they name
 (**S10**).

@@ -197,6 +197,104 @@ static void test_content_search_memo_is_not_stale() {
     unsetenv("HANABI_CACHE_DIR");
 }
 
+// --- (1c) the sidebar's deep search matches the CONVERSATION --------------
+//
+// It used to lowercase the whole cache file and call find() on it. The file is
+// a JSON document, so its own field names were in the corpus: `state`, `tag`,
+// `preview`, `subtitle`, `folder`, `messages`, `has_more_older` and every
+// session id matched every thread that had ever been cached. Title matching
+// runs first, so it only fired once the title had missed -- which is exactly
+// when a false hit reads as a real deep hit. docs/SEARCH.md S3.
+//
+// Every assertion below that a STRUCTURE word misses was true in reverse
+// before the fix.
+static void test_content_search_matches_values_not_the_document() {
+    std::printf("test_content_search_matches_values_not_the_document\n");
+    std::string dir = "/tmp/hanabi_test_json_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    api::Session s;
+    s.summary.id = "quota-42";
+    s.summary.title = "quota migration";
+    s.summary.preview = "week three";
+    s.summary.folder = "billing";
+    api::Message m;
+    m.id = "m1";
+    m.role = api::Role::Assistant;
+    m.subtitle = "thinking";
+    m.text = "the quota ledger reconciled cleanly";
+    m.tool_status = "completed";
+    s.messages.push_back(m);
+    api::Message t;
+    t.id = "m2";
+    t.role = api::Role::Tool;
+    t.text = "make test";
+    t.tool_result = "214 passed, 0 failed, xylophone";
+    s.messages.push_back(t);
+    api::disk_cache::save_transcript(s);
+
+    // What the user said is still found.
+    CHECK(api::disk_cache::content_matches("quota-42", "ledger"));
+    CHECK(api::disk_cache::content_matches("quota-42", "reconciled cleanly"));
+    // Including a tool row's own text, which is a message like any other.
+    CHECK(api::disk_cache::content_matches("quota-42", "make test"));
+
+    // The document's structure is not the conversation. Every one of these
+    // matched before, on any thread with a cached transcript.
+    CHECK(!api::disk_cache::content_matches("quota-42", "state"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "tag"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "preview"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "subtitle"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "folder"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "starred"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "messages"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "has_more_older"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "version"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "created_at"));
+    // The session id is written into the file twice and is not a word anybody
+    // said.
+    CHECK(!api::disk_cache::content_matches("quota-42", "quota-42"));
+    // Neither are the values of the fields that are not the body: the folder
+    // name, the tool status, the reasoning subtitle.
+    CHECK(!api::disk_cache::content_matches("quota-42", "billing"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "completed"));
+    CHECK(!api::disk_cache::content_matches("quota-42", "thinking"));
+    // And tool OUTPUT is not searchable, because it is not persisted at all --
+    // the comment that used to sit on this function said it was.
+    CHECK(!api::disk_cache::content_matches("quota-42", "xylophone"));
+
+    // Not a blocklist: the same words match when somebody actually said them.
+    api::Session s2;
+    s2.summary.id = "words";
+    api::Message m2;
+    m2.id = "m1";
+    m2.text = "the state machine stalled; check the folder and the preview";
+    s2.messages.push_back(m2);
+    api::disk_cache::save_transcript(s2);
+    CHECK(api::disk_cache::content_matches("words", "state"));
+    CHECK(api::disk_cache::content_matches("words", "folder"));
+    CHECK(api::disk_cache::content_matches("words", "preview"));
+
+    // The value is DECODED, not read as it sits on disk: a body with a quote
+    // and a newline in it is stored escaped, and a query has neither.
+    api::Session s3;
+    s3.summary.id = "escapes";
+    api::Message m3;
+    m3.id = "m1";
+    m3.text = "he said \"deploy it\"\nand left";
+    s3.messages.push_back(m3);
+    api::disk_cache::save_transcript(s3);
+    CHECK(api::disk_cache::content_matches("escapes", "said \"deploy it\""));
+    CHECK(api::disk_cache::content_matches("escapes", "deploy it\"\nand left"));
+    // ...and the escape sequence itself is not text anybody typed.
+    CHECK(!api::disk_cache::content_matches("escapes", "\\n"));
+
+    api::disk_cache::wipe_all();
+    unsetenv("HANABI_CACHE_DIR");
+}
+
 // --- (2) message-send queue: ordering + per-session draining --------------
 // The loader's rule: enqueue when a session is busy; dispatch the FIFO head of
 // a FREE session, one per turn. We model "busy" with sendPending/sendSessionId
@@ -522,6 +620,7 @@ int main() {
     test_sending_for_covers_stream();
     test_newest_n_window();
     test_content_search_memo_is_not_stale();
+    test_content_search_matches_values_not_the_document();
     test_settings_read_mock();
     test_settings_config_gate();
     test_compact_count();

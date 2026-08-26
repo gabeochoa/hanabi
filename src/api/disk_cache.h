@@ -70,7 +70,13 @@ int export_all_markdown(const std::string& dst);
 // contains `lowerQuery` (case-insensitive) in any message body. Lets the
 // sidebar search match on conversation CONTENT (not just titles) using only
 // the local cache — instant, offline, no server round-trip. Cheap: reads the
-// one tx_*.json and substring-scans. Returns false if not cached / no match.
+// one tx_*.json and scans the VALUES of its `text` fields — not the document,
+// which is why typing `state` or a session id no longer matches every cached
+// thread (docs/SEARCH.md S3). Returns false if not cached / no match.
+//
+// Message BODIES only. Tool output is not in the corpus because it is not in
+// the file: to_json(const Message&) never writes tool_result.
+//
 // The answer is MEMOIZED per (id, query) -- the sidebar asks it for every
 // non-title-matching session on every frame a query is live, which at a
 // realistic catalog was two thousand file opens a frame. See the long note at
