@@ -98,6 +98,25 @@ inline afterhours::input::ProvidesInputMapping::GameMapping key_mapping() {
     bind(InputAction::WidgetPress, {keys::ENTER});
     bind(InputAction::MenuBack, {keys::ESCAPE});
 
+    // Tab. Without this the focus ring is a lie: context.h's process_tabbing
+    // is the only thing that moves focus_id, it moves it only on
+    // InputAction::WidgetNext, and nothing bound that action -- so four Tab
+    // presses in a row produced byte-identical frames and the ring sat forever
+    // on whatever try_to_grab parked focus on at startup.
+    //
+    // WidgetBack is deliberately left unbound. afterhours' own default_keymap
+    // puts it on BACKSPACE, which in an app with text fields means deleting a
+    // character walks focus backwards; Shift+Tab already reverses through the
+    // WidgetMod branch of the WidgetNext path, which is the chord a Mac user
+    // actually presses.
+    //
+    // These two arrived on main (fix/focus-rings) as rows in preload.cpp's
+    // inline map while this branch was moving that map here. Carried across
+    // verbatim so the merge cannot drop them: resolve src/preload.cpp in
+    // favour of this branch and both features survive.
+    bind(InputAction::WidgetNext, {keys::TAB});
+    bind(InputAction::WidgetMod, {keys::LEFT_SHIFT, keys::RIGHT_SHIFT});
+
     // Line ends. HOME/END keep working for anyone on a full keyboard; Cmd+
     // Arrow is what a Mac laptop actually has. TextHome/TextEnd run through
     // the widget's navigate() helper, so holding Shift extends the selection

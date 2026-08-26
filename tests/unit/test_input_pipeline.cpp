@@ -178,6 +178,20 @@ static void test_line_chords_are_bound_to_command() {
 
 // Cmd+A. The enumerator existed from the start; the BINDING is what was
 // missing, and an enumerator with no row is silent.
+// Tab moves focus and Shift reverses it. Rows that arrived on main while this
+// table was moving out of preload.cpp; asserted here so the merge cannot drop
+// them silently, which is the one way a keymap regression hides.
+static void test_tab_focus_bindings_survive() {
+    std::printf("test_tab_focus_bindings_survive\n");
+    auto m = hanabi::input::key_mapping();
+    CHECK(has_bare_key(binding_for(m, InputAction::WidgetNext), keys::TAB));
+    CHECK(has_bare_key(binding_for(m, InputAction::WidgetMod), keys::LEFT_SHIFT));
+    CHECK(has_bare_key(binding_for(m, InputAction::WidgetMod), keys::RIGHT_SHIFT));
+    // WidgetBack stays unbound: on BACKSPACE it would walk focus backwards
+    // every time a character is deleted.
+    CHECK(binding_for(m, InputAction::WidgetBack).empty());
+}
+
 static void test_select_all_is_bound() {
     std::printf("test_select_all_is_bound\n");
     auto m = hanabi::input::key_mapping();
@@ -216,6 +230,7 @@ int main() {
     test_word_chords_need_their_modifier();
     test_line_chords_are_bound_to_command();
     test_select_all_is_bound();
+    test_tab_focus_bindings_survive();
     test_enum_carries_the_names_afterhours_gates_on();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
