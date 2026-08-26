@@ -52,6 +52,9 @@ inline constexpr int kEnd = ah::END;
 inline constexpr int kUp = ah::UP;
 inline constexpr int kDown = ah::DOWN;
 
+// Text editing chords hanabi has to drive itself (text_edit_chords_system.h).
+inline constexpr int kBackspace = ah::BACKSPACE;
+
 // Opens the row a list's keyboard cursor is on.
 inline constexpr int kEnter = ah::ENTER;
 
@@ -60,6 +63,20 @@ inline bool down(int key) { return afterhours::input::is_key_down(key); }
 
 // The Cmd modifier, either side.
 inline bool cmd_down() { return down(kLeftSuper) || down(kRightSuper); }
+
+// The Ctrl modifier, either side. Reached for only as an ALIAS of Cmd: on
+// macOS Ctrl+Backspace and Ctrl+Arrow mean nothing, and the scripted-UI harness
+// cannot hold Super at all -- its CMD+ prefix turns into Ctrl and its SUPER+
+// prefix is dropped (afterhours_gaps.md #49, #256). So a chord that reads
+// cmd_down() alone is unreachable from every test we can write. The same
+// bargain the key table strikes with its Ctrl twins, made here for the chords
+// that are read off the key state instead of through an action.
+inline bool ctrl_down() {
+    return down(ah::LEFT_CONTROL) || down(ah::RIGHT_CONTROL);
+}
+
+// Cmd, or the Ctrl that stands in for it. See ctrl_down.
+inline bool cmd_or_ctrl_down() { return cmd_down() || ctrl_down(); }
 
 // The Shift modifier, either side. Shift both turns a chord around (Cmd+Shift+G
 // is Cmd+G backwards) and tells two chords on the same key apart (Cmd+F finds

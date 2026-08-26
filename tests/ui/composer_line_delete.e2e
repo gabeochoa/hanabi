@@ -1,0 +1,68 @@
+# Cmd+Backspace deletes from the caret back to the start of the line.
+#
+# The one macOS editing chord afterhours has no InputAction for, so hanabi
+# drives it (src/ecs/text_edit_chords_system.h, afterhours_gaps.md #257). It
+# does it by SETTING A SELECTION and letting the field's own Backspace delete
+# it, which is why the caret assertions below matter as much as the text ones:
+# a version that erased the state directly would be undone by the widget's
+# re-seed from the bound string on the very next frame.
+#
+# `key CMD+BACKSPACE` reaches it because the chord reads Ctrl as well as Cmd,
+# and the harness turns the CMD+ prefix into Ctrl (afterhours_gaps.md #49,
+# #256).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+expect_text "needs a decision"
+
+click_ui composer_reply_input
+wait_frames 4
+type "one two three"
+wait_frames 6
+expect_input_text composer_reply_input "one two three"
+
+# Caret to just before "three", so this proves it deletes to the line START
+# and not simply everything in the field.
+key ALT+LEFT
+wait_frames 6
+key CMD+BACKSPACE
+wait_frames 8
+expect_input_text composer_reply_input "three"
+
+# The caret is left at the start of the line: typing lands before the survivor.
+type "0"
+wait_frames 6
+expect_input_text composer_reply_input "0three"
+
+# It survives the frame. The widget re-seeds its state from the string it is
+# bound to whenever the two disagree, so an edit made the wrong way reappears a
+# frame later -- this is the assertion that catches that.
+wait_frames 30
+expect_input_text composer_reply_input "0three"
+
+# At the start of the line it is a no-op, not a delete of the character before
+# (there isn't one) and not a clear of the field.
+key CMD+LEFT
+wait_frames 6
+key CMD+BACKSPACE
+wait_frames 8
+expect_input_text composer_reply_input "0three"
+
+# From the end it takes the whole line.
+key CMD+RIGHT
+wait_frames 6
+key CMD+BACKSPACE
+wait_frames 8
+expect_input_text composer_reply_input ""
+
+# Plain Backspace is still one character: the chord must not have swallowed the
+# bare key. (It is not in the key table for exactly this reason -- an explicit
+# chord on BACKSPACE would suppress the plain TextBackspace binding the delete
+# above depends on.)
+type "abc"
+wait_frames 6
+key BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input "ab"
+
+wait_frames 10
