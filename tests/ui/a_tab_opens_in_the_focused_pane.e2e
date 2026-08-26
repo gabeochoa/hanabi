@@ -1,0 +1,69 @@
+# A tab click opens that thread in the FOCUSED pane, and leaves the other one
+# alone.
+#
+# This is the load-bearing half of "one global tab strip". A per-pane strip
+# would double the chrome and halve the horizontal room the split exists to
+# create, and this app's sidebar already carries the thread list -- so there is
+# one strip, and what a click on it MEANS is "open this here", where here is
+# wherever the keyboard is. If that turns out to be wrong it is wrong in a way
+# somebody will report, and this is the script that will change.
+#
+# HOW IT IS ASSERTED, since this is the awkward part. Both threads are on
+# screen at once while split, so "t9 is visible" cannot say WHICH pane got it.
+# Closing the split can: closing leaves pane 0, so if the tab opened in the
+# focused (right) pane, the surviving pane is still on t2 -- and if it had
+# opened in the left pane instead, the survivor would be t9. One assertion,
+# and it fails in the exact way the wrong behaviour would produce.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+
+# One pane on t2.
+assert_ui transcript_scroll hidden=false
+expect_text "Reconcile this cycle's Stars payouts against the ledger"
+expect_no_text "Recurring: kick the pending queue every ten minutes."
+
+# Split. Both panes show t2 -- the cheapest useful default, and the reason the
+# text below is still t2's.
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_right hidden=false
+assert_ui split_focus_edge x=280
+
+# Put the keyboard in the right pane.
+click 900 400
+wait_frames 10
+assert_ui split_focus_edge x=693
+
+# Click the t9 tab. Tabs are 224 wide from x=285 and 33 tall from y=33, so
+# (600, 48) is the middle of the second one -- clear of the first tab's close
+# button at x=480, which is where a first guess at this landed and which
+# closed t2 instead. By coordinate rather than by name because the harness
+# cannot name one tab of a strip (afterhours_gaps.md #55).
+click 600 48
+wait_frames 30
+
+# Both threads are on screen: the click opened one WITHOUT closing the other.
+expect_text "Recurring: kick the pending queue every ten minutes."
+expect_text "Reconcile this cycle's Stars payouts against the ledger"
+
+# And it went into the pane that had the keyboard. Close the split -- pane 0
+# is what survives -- and t2 is what is left, which is only true if t9 never
+# touched the left pane.
+key CTRL+BACKSLASH
+wait_frames 30
+assert_ui transcript_scroll w=820
+expect_text "Reconcile this cycle's Stars payouts against the ledger"
+expect_no_text "Recurring: kick the pending queue every ten minutes."
+
+# The other direction, so this is a rule and not an accident of which pane is
+# which: split again, leave the keyboard in the LEFT pane, click t9's tab, and
+# now it is the left pane that changed.
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_focus_edge x=280
+click 600 48
+wait_frames 30
+key CTRL+BACKSLASH
+wait_frames 30
+expect_text "Recurring: kick the pending queue every ten minutes."
+expect_no_text "Reconcile this cycle's Stars payouts against the ledger"

@@ -281,6 +281,15 @@ static void setup_app_state() {
     app.restoreTabIds = Settings::get().get_open_tabs();
     app.restorePinnedIds = Settings::get().get_pinned_tabs();
     app.restoreActiveId = Settings::get().get_active_tab();
+    // The split is restored here, but the PANES' threads are restored by the
+    // same pass that restores the tabs (tab_bar_system.h): a pane's thread has
+    // to exist in the session list before it can be opened, exactly like a
+    // tab's, and asking for it earlier is asking for a fetch of an id the
+    // backend may no longer know.
+    app.splitOpen = Settings::get().get_split_open();
+    app.splitRatio = hanabi::clamp_split_ratio(Settings::get().get_split_ratio());
+    app.restoreSplitIds[0] = Settings::get().get_split_pane(0);
+    app.restoreSplitIds[1] = Settings::get().get_split_pane(1);
     // Back-compat: if no tab set persisted, fall back to last_session.
     if (app.restoreTabIds.empty()) {
         const std::string& last = Settings::get().get_last_session();
@@ -821,6 +830,14 @@ static void app_cleanup() {
         auto& app = q[0].get().get<ecs::AppComponent>();
         if (!app.pane().selectedId.empty())
             Settings::get().set_last_session(app.pane().selectedId);
+        // The split, the divider and what each pane held. Written HERE rather
+        // than from the drag, for the same reason the tab set is: a divider
+        // drag is sixty writes a second and this file is fully re-serialised
+        // on every one of them. Settings::set_split also refuses a write that
+        // changes nothing, so a launch that never splits never touches it.
+        Settings::get().set_split(app.splitOpen, app.splitRatio,
+                                  app.panes[0].selectedId,
+                                  app.panes[1].selectedId);
     }
     Settings::get().set_theme(theme::mode() == theme::Mode::Light ? "light"
                                                                   : "dark");

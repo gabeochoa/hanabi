@@ -95,6 +95,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Shift excluded: Cmd+Shift+F is search-across-threads
         // (session_search_system.h), and without this it would open the find
         // bar on the way past.
+        // Cmd+\ splits the main pane, and closes the split again. It sets
+        // the SAME request flag the palette row and the tab menu set, so the
+        // three cannot drift onto different meanings of "toggle"; the loader
+        // decides what a toggle is, once (loader_system.h).
+        //
+        // cmd_or_ctrl_down rather than cmd_down: the scripted harness cannot
+        // hold Super at all and turns its CMD+ prefix into Ctrl
+        // (afterhours_gaps.md #49, #256), so a chord that reads cmd_down alone
+        // is a chord no test in this repo can press. Same bargain the key
+        // table strikes with its Ctrl twins.
+        if (hanabi::keys::cmd_or_ctrl_down() &&
+            hanabi::keys::pressed(hanabi::keys::kBackslash))
+            app->requestSplitToggle = true;
+
         if (hanabi::keys::cmd_down() && !hanabi::keys::shift_down() &&
             hanabi::keys::pressed(hanabi::keys::kF)) {
             app->pane().findOpen = !app->pane().findOpen;
@@ -318,11 +332,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // so every existing driver, gate and assertion addresses exactly what it
     // addressed before; pane 1 gets its own.
     //
-    // A static table returned BY REFERENCE, not a string built per call:
-    // with_debug_name takes a const std::string&, so a literal at the call
-    // site constructs one every frame (and "transcript_scroll" is 17
-    // characters, past SSO, so that is a malloc per widget per frame). These
-    // are constructed once for the life of the process.
+    // A static table returned BY REFERENCE rather than two literals at the
+    // call site. Both names are inside libc++'s 22-character small-string
+    // buffer (measured: capacity 22, heap allocation starts at 23), so this
+    // saves no allocation and is not claimed to -- it is here so the two
+    // spellings sit next to each other, one line apart, instead of at two
+    // ends of an 8,800-line file where they can drift.
     static const std::string& scroll_name(int paneIndex) {
         static const std::string kNames[2] = {"transcript_scroll",
                                               "transcript_scroll_2"};
@@ -2364,12 +2379,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // draws (a 1px target is not a target), and the drag lives on the app
     // rather than in a local static for the reason every gesture in this app
     // does: the widget is rebuilt every frame, so the gesture cannot be.
-    static constexpr float kDividerLine = 1.0f;
-    static constexpr float kDividerGrab = 9.0f;
+    // The divider's WIDTH is its hit target; the line it paints is 1px.
+    static constexpr float kDividerW = 5.0f;
 
     void render_split(UIContext<InputAction>& ctx, Entity& parent,
                       AppComponent& app, float paneW, float paneH) {
-        const float usable = paneW - kDividerLine;
+        const float usable = paneW - kDividerW;
         const float leftW = split_left_width(app, paneW);
         const float rightW = usable - leftW;
 
@@ -2383,7 +2398,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("split_row"));
 
         pane_column(ctx, rowWrap.ent(), app, 0, leftW, paneH);
-        divider(ctx, rowWrap.ent(), app, paneH, leftW);
+        divider_bar(ctx, rowWrap.ent(), app, paneW);
         pane_column(ctx, rowWrap.ent(), app, 1, rightW, paneH);
         close_split_button(ctx, parent, app, paneW);
     }
@@ -2418,10 +2433,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // The left pane's width in pixels, from the persisted ratio, clamped so a
     // drag can never reduce either side to nothing.
     static float split_left_width(const AppComponent& app, float paneW) {
-        const float usable = paneW - kDividerLine;
-        float w = usable * std::clamp(app.splitRatio,
-                                      AppComponent::kSplitMinRatio,
-                                      AppComponent::kSplitMaxRatio);
+        const float usable = paneW - kDividerW;
+        float w = usable * hanabi::clamp_split_ratio(app.splitRatio);
         return std::round(w);
     }
 
@@ -2487,44 +2500,50 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const auto& r = layout->main;
         const float leftW = split_left_width(app, r.width);
         if (index == 0) return RectangleType{r.x, r.y, leftW, r.height};
-        return RectangleType{r.x + leftW + kDividerLine, r.y,
-                             r.width - leftW - kDividerLine, r.height};
+        return RectangleType{r.x + leftW + kDividerW, r.y,
+                             r.width - leftW - kDividerW, r.height};
     }
 
     // The divider, and the drag along it.
-    void divider(UIContext<InputAction>& ctx, Entity& parent,
-                 AppComponent& app, float h, float leftW) {
-        auto* layout = find_singleton<LayoutComponent>();
-        const float originX = layout ? layout->main.x : 0.0f;
-        const float paneW = layout ? layout->main.width : 0.0f;
-
-        auto line = div(ctx, mk(parent, 2),
+    //
+    // imm::divider is the LIBRARY's separator, not a hand-rolled one, and the
+    // first version of this was hand-rolled before that was checked. What it
+    // gets right and the hand-rolled one did not: the movement it reports is a
+    // DELTA, so grabbing the bar 3px off centre moves it by what the mouse
+    // moved rather than snapping the bar to the cursor. The hand-rolled one
+    // set the ratio from the absolute mouse x and jumped on every grab.
+    //
+    // The 5px width is the hit target -- a 1px bar is not something a person
+    // can reliably grab -- and the line the reader sees is 1px, painted down
+    // the middle. Puffin has no 5px rules anywhere and the parity captures
+    // would have caught it; the widget being wider than its ink is the way to
+    // have both.
+    void divider_bar(UIContext<InputAction>& ctx, Entity& parent,
+                     AppComponent& app, float paneW) {
+        const bool dragging = app.splitDragging;
+        auto d = divider(ctx, mk(parent, 2), Axis::X,
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(kDividerLine), pixels(h)})
-                .with_custom_background(app.splitDragging ? theme::accent()
-                                                          : theme::border())
-                .with_cursor(afterhours::ui::CursorType::ResizeH)
+                .with_size(ComponentSize{pixels(kDividerW), percent(1.0f)})
+                .with_transparent_bg()
                 .with_roundness(0.0f)
+                .with_on_draw_fg([dragging](RectangleType r) {
+                    const float x = std::round(r.x + (r.width - 1.0f) * 0.5f);
+                    afterhours::draw_rectangle(
+                        RectangleType{x, r.y, 1.0f, r.height},
+                        dragging ? theme::accent() : theme::border());
+                })
                 .with_debug_name("split_divider"));
-        (void)line;
-
-        // The grab strip is wider than the line and sits OVER it, absolutely
-        // positioned so it costs the row no width -- a divider that stole 9px
-        // of pane to be grabbable would move the panes every time it was made
-        // easier to hit.
-        const RectangleType grab{originX + leftW - kDividerGrab * 0.5f,
-                                 layout ? layout->main.y : 0.0f,
-                                 kDividerGrab, h};
-        const bool over = afterhours::ui::is_mouse_inside(ctx.mouse.pos, grab);
-        if (over && ctx.mouse.just_pressed) app.splitDragging = true;
-        if (!ctx.mouse.left_down) app.splitDragging = false;
-        if (app.splitDragging && paneW > 1.0f) {
-            const float local = ctx.mouse.pos.x - originX;
-            app.splitRatio =
-                std::clamp(local / (paneW - kDividerLine),
-                           AppComponent::kSplitMinRatio,
-                           AppComponent::kSplitMaxRatio);
-        }
+        // `down` on the element is the gesture; the app keeps the flag only so
+        // the line can say it is being dragged. The library owns the gesture's
+        // lifetime, which is what the old bool on the app was standing in for.
+        app.splitDragging =
+            d.ent().template has<afterhours::ui::HasDragListener>() &&
+            d.ent().template get<afterhours::ui::HasDragListener>().down;
+        if (!d) return;
+        const float usable = paneW - kDividerW;
+        if (usable <= 1.0f) return;
+        app.splitRatio = hanabi::clamp_split_ratio(
+            app.splitRatio + d.template as<float>() / usable);
     }
 
     // ---------------- "New since you last looked" --------------------------

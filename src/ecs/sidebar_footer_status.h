@@ -49,7 +49,10 @@ inline bool network_active(const AppComponent& app) {
     if (liveDemo) return true;
     for (const auto& kv : app.liveSubs)
         if (kv.second.pending) return true;
-    return app.listPending || app.pane().transcriptPending || app.pane().loadingOlder ||
+    // Either pane: the footer says whether the APP is busy, and a fetch
+    // for the pane you are not focused on is still a fetch.
+    return app.listPending || app.panes[0].transcriptPending ||
+           app.panes[1].transcriptPending || app.pane().loadingOlder ||
            app.livePending || app.sendPending || app.streamCollecting ||
            app.kickoffPending || app.settingsPending || app.authBeginPending;
 }

@@ -16,6 +16,7 @@
 #include "../../vendor/afterhours/src/core/base_component.h"
 #include "../api/auth.h"
 #include "../api/client.h"
+#include "../settings.h"
 #include "transcript_cache.h"
 
 namespace ecs {
@@ -270,8 +271,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // all set this rather than each deciding for itself what a toggle means.
     bool requestSplitToggle = false;
 
-    static constexpr float kSplitMinRatio = 0.2f;
-    static constexpr float kSplitMaxRatio = 0.8f;
+    // The divider's limits live in settings.h next to clamp_split_ratio: the
+    // drag clamps as it writes and the restore clamps as it reads, and two
+    // copies of a limit drift.
 
     Pane& pane() { return panes[static_cast<size_t>(focusedPane)]; }
     const Pane& pane() const {
@@ -341,6 +343,10 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // Tab set to restore once the session list has loaded (from Settings).
     std::vector<std::string> restoreTabIds;
+    // What each pane was showing at quit. Serviced by the same restore pass as
+    // the tabs, and for the same reason: a thread has to be in the session
+    // list before a pane can be told to open it.
+    std::array<std::string, 2> restoreSplitIds;
     std::vector<std::string> restorePinnedIds;
     std::string restoreActiveId;
     bool restoreDone = false;

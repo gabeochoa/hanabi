@@ -820,8 +820,59 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
                     }
                 }
             }
+            // The panes' own threads. A remembered id that the backend no
+            // longer knows is skipped rather than opened -- the same rule the
+            // tab restore above follows, and it keeps a stale settings.json
+            // from producing a pane stuck on "Could not load transcript".
+            for (int i = 0; i < 2; ++i) {
+                const std::string& id = app.restoreSplitIds[i];
+                if (id.empty() || !app.find_summary(id)) continue;
+                Pane& p = app.panes[i];
+                if (p.selectedId == id) continue;  // pane 0: the active tab
+                p.selectedId = id;
+                p.requestOpenId = id;
+                p.scrollBottomPending = id;
+            }
+            // A split with nothing in its second pane is not a split.
+            if (app.splitOpen && app.panes[1].selectedId.empty())
+                app.splitOpen = false;
+            app.restoreSplitIds[0].clear();
+            app.restoreSplitIds[1].clear();
             app.restoreTabIds.clear();
             app.restorePinnedIds.clear();
+        }
+
+        // ---- The strip follows the focused pane -----------------------
+        // The tab strip is GLOBAL: one strip, and clicking a tab opens that
+        // thread in the focused pane. The other half of that decision is this
+        // -- the strip's highlight has to say which thread the focused pane is
+        // showing, or a split leaves it pointing at the pane you are not
+        // typing into.
+        //
+        // Only when the focus lands somewhere the strip can represent: a pane
+        // showing a thread with no tab (nothing does that today, but the
+        // digest views can) leaves the marker where it was rather than
+        // clearing it, because a strip with no active tab reads as broken.
+        if (app.splitOpen && !app.pane().selectedId.empty()) {
+            auto* activeE = model::active_tab_entity();
+            const bool matches =
+                activeE != nullptr &&
+                activeE->get<Tab>().sessionId == app.pane().selectedId;
+            if (!matches) {
+                auto* strip2 = find_singleton<TabStripComponent>();
+                if (strip2 != nullptr) {
+                    for (auto tabId : strip2->tabOrder) {
+                        auto o = EntityHelper::getEntityForID(tabId);
+                        if (!o.valid() || !o->has<Tab>()) continue;
+                        if (o->get<Tab>().sessionId != app.pane().selectedId)
+                            continue;
+                        if (activeE != nullptr)
+                            activeE->removeComponent<ActiveTab>();
+                        o->addComponentIfMissing<ActiveTab>();
+                        break;
+                    }
+                }
+            }
         }
 
         if (app.requestOpenTab.empty()) return;

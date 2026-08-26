@@ -39,6 +39,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         OpenShortcuts,
         FindInThread,
         SearchThreads,
+        ToggleSplit,
         OpenThread,
     };
 
@@ -248,6 +249,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         const Row actions[] = {
             {"New task", "Cmd N", Act::NewTask, ""},
             {"Show or hide the sidebar", "Cmd B", Act::ToggleSidebar, ""},
+            {"Split the pane", "Cmd \\", Act::ToggleSplit, ""},
             {"Settings", "Cmd ,", Act::OpenSettings, ""},
             {"Keyboard shortcuts", "Cmd /", Act::OpenShortcuts, ""},
             {"Find in this conversation", "Cmd F", Act::FindInThread, ""},
@@ -279,6 +281,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
             case Act::OpenShortcuts: app.showShortcuts = true; break;
             case Act::FindInThread: app.pane().findOpen = true; break;
             case Act::SearchThreads: app.sessionSearchOpen = true; break;
+            case Act::ToggleSplit: app.requestSplitToggle = true; break;
             case Act::OpenThread: app.requestOpenTab = row.arg; break;
         }
         close(app);

@@ -20,6 +20,7 @@ using afterhours::ui::UIContext;
 using afterhours::ui::imm::ComponentConfig;
 using afterhours::ui::imm::div;
 using afterhours::ui::imm::button;
+using afterhours::ui::imm::divider;
 // hanabi's `mk`, not afterhours', and this line is the whole seam. It forwards
 // to `imm::mk` (same call-site hash, same entity, same reuse) and stamps the
 // frame that built it, which is the one fact the library has and does not

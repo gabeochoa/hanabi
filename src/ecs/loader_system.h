@@ -403,13 +403,43 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.requestSplitClose = false;
             app.splitOpen = false;
             app.focusedPane = 0;
+            // Let go of the closed pane's transcript. Its ID is kept -- that
+            // is what gets persisted and what makes reopening the split
+            // instant off the LRU -- but the messages are the largest thing
+            // this app holds, and a pane nobody can see holding a 690-message
+            // transcript for the rest of the session is a leak with a
+            // plausible excuse. Anything in flight for it is dropped the same
+            // way a tab switch drops a slow fetch.
+            Pane& closed = app.panes[1];
+            closed.openSession.reset();
+            closed.transcriptState = LoadState::Idle;
+            closed.transcriptError.clear();
+            closed.transcriptLoadingId.clear();
+            closed.transcriptPending = false;
+            closed.diskReadPending = false;
+            closed.requestOpenId.clear();
+            closed.findOpen = false;
+            closed.findQuery.clear();
+            // ...and reopening must actually re-open it, so the pane asks for
+            // its thread again rather than sitting empty.
+            if (!closed.selectedId.empty())
+                closed.scrollBottomPending = closed.selectedId;
         }
         if (!app.requestSplitOpen.empty()) {
             const std::string id = app.requestSplitOpen;
             app.requestSplitOpen.clear();
             app.splitOpen = true;
             Pane& target = app.other_pane();
-            if (target.selectedId != id) target.requestOpenId = id;
+            // `|| !target.openSession` is not belt and braces: closing a split
+            // drops the pane's transcript and keeps its id, so a pane that is
+            // already "on" this thread has nothing to show until it asks
+            // again. Without it, splitting -> closing -> splitting left the
+            // second pane permanently blank.
+            if (target.selectedId != id || !target.openSession) {
+                target.selectedId = id;
+                target.requestOpenId = id;
+                target.scrollBottomPending = id;
+            }
             app.view = SmartView::Chat;
         }
 
