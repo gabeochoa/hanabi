@@ -27,6 +27,33 @@ EXE="$ROOT/output/hanabi_uitest.exe"
 DIR="${HANABI_UI_TESTS:-$ROOT/tests/ui}"
 TIMEOUT="${HANABI_UI_TIMEOUT:-60}"
 
+# ---------------------------------------------------------------------------
+# THE FIXTURE'S CLOCK, PINNED.
+#
+# The mock seeds every message time relative to std::time(nullptr)
+# (api/mock_client.h:59-67), so the transcript's LAYOUT depends on the wall
+# clock: whether two adjacent messages fall on the same local date decides
+# whether a 26px date divider sits between them, and everything below it moves
+# by 26px when that flips. Any script that addresses the transcript by
+# coordinate is therefore red for part of every day, on a tree nobody touched.
+#
+# Measured, same tree, same fixture, 67 minutes apart: at 08:01 a "Today"
+# divider was above the assistant turn in t2 and at 09:08 it was not. Three
+# different people re-measured the same two selection scripts in one day,
+# to 218/234/250, then 244/260/276, then back, and each was correct when it
+# was taken.
+#
+# scripts/screens.sh already solved this for the screenshot path and says why
+# in full ("rotted by the clock ... 28 of 30 baselines could fail on a tree
+# that had not touched rendering"). Same instant, same zone, for the same
+# reason: a fixed point in the PAST, so no message is ever "today" and no date
+# boundary ever falls between two of them.
+#
+# A script that is ABOUT time overrides it in its own `# env:` line, which
+# wins because the per-script assignments are applied after these.
+PIN_NOW="${HANABI_UI_MOCK_NOW:-1781524800}"   # 2026-06-15 12:00:00Z
+PIN_TZ="${HANABI_UI_TZ:-UTC}"
+
 if [ ! -x "$EXE" ]; then
     echo "ERROR: $EXE not found. Build it with 'make uitest'." >&2
     exit 2
@@ -144,7 +171,8 @@ for s in "${SCRIPTS[@]}"; do
     # 4.4 fixed that, so the plain form works for anyone on a newer bash and
     # fails every script without an "# env:" line on a stock Mac.
     ( env HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
-        HANABI_CACHE_DIR="$script_cache" \
+        HANABI_CACHE_DIR="$script_cache" TZ="$PIN_TZ" \
+        HANABI_MOCK_NOW="$PIN_NOW" \
         HANABI_TOKEN_FILE="$ISO_HOME/token.json" HANABI_BACKEND=mock \
         ${extra_env[@]+"${extra_env[@]}"} "$EXE" --e2e "$s" >"$log" 2>&1 ) &
     pid=$!

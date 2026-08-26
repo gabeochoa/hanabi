@@ -13,7 +13,14 @@
 # are always "Yesterday" and "Today" whatever time this runs at.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
-# env: HANABI_DATES_DEMO=1 HANABI_OPEN=rdates
+# env: HANABI_DATES_DEMO=1 HANABI_OPEN=rdates HANABI_MOCK_NOW=0
+#
+# HANABI_MOCK_NOW=0 opts OUT of the runner's pinned fixture clock and back to
+# the real one. This script is ABOUT "Yesterday" and "Today", which only exist
+# relative to now: the pin puts the whole fixture at a fixed instant in the
+# past so that no coordinate test is moved by a divider appearing (see
+# scripts/run_ui_tests.sh), and that is exactly the state this script needs
+# NOT to be in. mock_client.h treats 0 as unset.
 
 require_thread rdates
 
