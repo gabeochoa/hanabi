@@ -9711,3 +9711,108 @@ platform-independent (`afterhours::keys` are GLFW codes); it is only the
 modifier choice that is not.
 
 CLASS: FOOTGUN
+
+---
+
+# The rail, the transcript, and three gaps under both (2026-08-26, perf/post-merge)
+
+Found while bounding the transcript minimap's cost after `feat/event-model`
+landed. All three are the same shape from different sides: **the library's unit
+of "a thing on screen" is an Entity, and there is no cheaper unit** — so an app
+drawing a 2px dot pays what an app drawing a button pays, and the only defence
+is to draw fewer of them. Measured on `gabeochoa-mac-GRQ7Y259H4`, 1180x949,
+against a 3,672-message transcript.
+
+## #325 `with_debug_name` takes a `std::string`, so an INDEXED element costs a heap allocation per frame
+
+```cpp
+ComponentConfig &with_debug_name(const std::string &name) {   // component_config.h:478
+```
+
+Every element in a list needs a name of its own to be addressable — by the
+scripted runner (`click_ui`, `assert_ui`), by the entity census, by anything
+that has to tell row 6 from row 7. The only spelling the API allows is
+
+```cpp
+.with_debug_name("minimap_mark_" + std::to_string(i))
+```
+
+which is a `std::string` constructed, copied into the config, and destroyed,
+**once per element per frame**. On the rail before this branch that was 2,263
+of them a frame; it is 241 now, and the count went down only because the app
+stopped drawing the other 2,022 elements. The names themselves are unchanged
+work.
+
+There is no `string_view` overload, no `(const char* prefix, int index)`
+overload, no interning, and no way to compile the names out (this app cannot
+anyway — its census and its whole scripted suite resolve them).
+
+**What the library does about it for itself is the tell.** `imm::vlist`
+(`imm_components.h:207`) names every row `"vlist_row"` — one static string,
+no allocation, and therefore no way to address an individual row. The library
+avoided the cost by giving up the property; an app cannot.
+
+**The workaround.** Bound the number of named elements
+(`hanabi::minimap::group_marks`). That is the right fix for the rail on its own
+merits and it does nothing for the general case.
+
+**Minimal upstream fix.** `with_debug_name(std::string_view)` storing into an
+interned table, or an `(const char*, int)` overload that formats into a small
+fixed buffer. Either removes the allocation without removing the property.
+
+CLASS: PERF
+
+## #326 `imm::vlist` virtualizes UNIFORM-height rows only, which is not what a real list is
+
+`imm::vlist` takes one `row_height` and derives the window from it
+(`imm_components.h:180-219`). Every list in this app has rows whose heights are
+MEASURED and different: a transcript's items are bubbles, tool piles, thinking
+folds, event rows and dividers; a digest's cards wrap their titles to two lines
+or one; the minimap's slots are proportional to the items they stand for, so no
+two are alike by construction.
+
+So hanabi has hand-rolled the same window three times — the sidebar
+(`docs/perf/SCROLL.md`), the digest cards (`docs/perf/DIGEST.md`), the
+transcript (`main_pane_system.h` pass 1) — and each one re-derives the same
+prefix-sum-of-measured-heights that the library would need in order to offer
+this. Three copies of one algorithm is where the fourth one gets it wrong.
+
+**Minimal upstream fix.** A second entry point taking a
+`std::function<float(size_t)>` height accessor (or a span of precomputed
+heights) and doing a binary search over the prefix sum, instead of a division.
+The uniform case stays exactly as it is and remains the fast path.
+
+CLASS: MISSING
+
+## #327 There is no draw-only element, so a decorative mark costs a full Entity
+
+A minimap mark is a rounded rectangle in a colour. It has no children, no
+label, no text to measure, no layout of its own — and the only way to put one
+on screen is `div()`/`button()`, which mints an Entity, a `UIComponent`, a
+`UIComponentDebug`, a `ComponentConfig` and (for `button`) a click listener and
+a `std::function` for `on_draw_fg`, then lays it out, every frame.
+
+Measured, on the rail alone at 3,672 messages: **2,263 entities and 1.33 ms of
+a 8.14 ms frame** to draw 2,263 dots that between them carry two facts each, a
+rect and a colour. `afterhours_gaps.md` #138 records the per-widget allocation
+cost that makes up most of it (~4.6 heap allocations per widget per frame);
+this is the sentence above it — that the app had no choice but to pay it.
+
+The parent already exposes `on_draw_fg`, so the *drawing* is reachable without
+a child; what is not reachable is drawing N things at N positions the parent
+does not know, and hit-testing a click to which of them. (Doing it inside one
+parent's `on_draw_fg` means hand-rolling the hit test against the parent's rect
+— which is exactly what the drag half of this rail already does, and
+`afterhours_gaps.md` #286 is the coordinate-space trap that cost.)
+
+**The workaround.** Draw fewer: group the marks until the count is bounded by
+the rail rather than by the thread. Real win (2,263 → 241 entities, 8.14 →
+3.52 ms), and it is a workaround — the remaining 241 still cost a full entity
+each.
+
+**Minimal upstream fix.** A "strip" primitive: one entity, a vector of
+(offset, extent, payload), one `on_draw_fg` per item and a hit test the library
+does against the same offsets. A scrollbar, a minimap, a sparkline, a timeline
+and a tab underline are all this shape.
+
+CLASS: MISSING

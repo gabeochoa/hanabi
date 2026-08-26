@@ -34,6 +34,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | long soak | `make soak` | **no** — before a release | ~53 s |
 | soak report | `make soak-report` | **no** | ~60 s |
 | widget retirement | `make retire-gate` | yes | ~3 s |
+| event transcript | `make events-gate` | yes | ~8 s |
 | transcript slope | `scripts/perf_transcript_slope.sh` | yes | ~10 s |
 | text measurement | `scripts/perf_text_gate.sh` | yes | ~14 s |
 | launch / RSS | `scripts/measure_launch.sh` | yes | ~4 s |
@@ -76,6 +77,23 @@ screen had existed.** Not because any of them was wrong — because
 different pane, and `soak-gate` measures a slope where this was a plateau.
 Every gate is blind to whatever it does not open, and the blindness is
 invisible from a green board. `docs/perf/DIGEST.md`.
+
+`make events-gate` was added later still, by `perf/post-merge`, and its reason
+is the sharpest version of the one above: **six feature branches landed a whole
+new event model on the transcript and every count in this file read IDENTICAL
+to the unit across the merge** — 810.0 / 1162.0 / 2740.0 allocations a frame
+before and after, 327/453 entities before and after, 13/506 digest cards before
+and after. Not because the event model is free. Because **no fixture in this
+repo could produce one of its row kinds**: the synthetic catalog leaves
+`Message::kind` at its `Text` default and the long-transcript fixture emits
+User / Assistant / Tool / Tool. The gates were reading a transcript with none
+of the new rows in it and correctly reporting no change.
+
+Its FIRST arm is therefore not a cost at all — it asks the app, through
+`HANABI_PROF=1` gauges, how many event / delivery / spawn / thinking items the
+transcript actually built, and fails at zero before printing anything else. A
+gate whose fixture produces none of the thing it measures cannot fail, and all
+four such gates section 0 found were found by luck. `docs/perf/EVENTS.md`.
 
 They sit alongside `scripts/perf_transcript_slope.sh`, the transcript agent's
 gate on per-message allocation slope, which `make test` also runs. That one
