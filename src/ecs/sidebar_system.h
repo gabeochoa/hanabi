@@ -1475,16 +1475,52 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // band. An eleventh palette token to buy a tenth of a point is still not a
     // trade; two existing tokens for two different kinds of ink is.
 
+    // Test-only (HANABI_FOCUS_AUDIT=1): name the widget wearing the ring.
+    //
+    // "Does the ring appear" and "does the ring MOVE" are different questions,
+    // and the second is the one Tab exists for — process_tabbing was
+    // unreachable for want of a WidgetNext binding, so the ring used to sit on
+    // whatever try_to_grab parked focus on at startup and never leave.
+    //
+    // The focusable thing is the row CONTAINER and the container holds no text
+    // of its own; the label is a child. So this reports the first labelled
+    // descendant, which is also the only answer with a meaning outside the
+    // widget tree — it is what a screen reader would announce. Not the entity
+    // id, which is allocation order, and not the debug name, which is
+    // "smart_item" for every row in the list.
+    static std::string focus_target_text(afterhours::EntityID id) {
+        const auto opt = afterhours::ui::UICollectionHolder::getEntityForID(id);
+        if (!opt.valid()) return "";
+        const Entity& e = opt.asE();
+        if (e.has<afterhours::ui::HasLabel>()) {
+            const std::string& text =
+                e.get<afterhours::ui::HasLabel>().label;
+            // Non-BLANK, not non-empty: a row's first labelled child is its
+            // glyph slot, whose label is a single space, and taking that as
+            // the answer reported every row as " ".
+            if (text.find_first_not_of(" \t") != std::string::npos)
+                return " " + text;
+        }
+        if (!e.has<afterhours::ui::UIComponent>()) return "";
+        for (afterhours::EntityID child :
+             e.get<afterhours::ui::UIComponent>().children) {
+            const std::string found = focus_target_text(child);
+            if (!found.empty()) return found;
+        }
+        return "";
+    }
+
     void render_footer(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const LayoutComponent::Rect& r) {
         const float top = r.height - kSbFooterH;
         // Test-only (HANABI_FOCUS_AUDIT=1): whether afterhours will paint a
         // focus ring this frame, read off the thickness the renderer itself
-        // uses. See test_hooks.h.
+        // uses, and which widget wears it. See test_hooks.h.
         std::string version = std::string("v") + hanabi::kVersion;
         if (hanabi::test_hooks::focus_audit()) {
             version += ctx.theme.focus_ring_thickness > 0.0f ? "  ring on"
                                                              : "  ring off";
+            version += focus_target_text(ctx.visual_focus_id);
         }
         div(ctx, mk(parent, 11),
             ComponentConfig{}

@@ -1,0 +1,43 @@
+# Tab walks the focus ring.
+#
+# The ring has always come out on the first Tab — but until WidgetNext was
+# bound to a key it could not go anywhere afterwards. context.h's
+# process_tabbing is the only thing that moves focus_id, it moves it only on
+# InputAction::WidgetNext, and hanabi's input map (preload.cpp) bound
+# WidgetLeft, WidgetRight and WidgetPress and stopped. So the app painted a
+# ring around whichever widget UIContext::try_to_grab happened to park focus on
+# at startup and left it there: four Tab presses produced four byte-identical
+# frames.
+#
+# That is the worse half of "the focus rings are really bad". A ring that
+# cannot move is not a focus indicator, it is a sticker.
+#
+# HANABI_FOCUS_AUDIT=1 prints the ring's state and the focused widget next to
+# the version in the sidebar footer. The widget is named by its first labelled
+# descendant, because the focusable thing is the row CONTAINER and it holds no
+# text of its own — the same name a screen reader would announce.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FOCUS_AUDIT=1
+
+# At rest the ring is away, and focus is parked on the first view row.
+expect_text "ring off Home"
+
+# Each Tab is one step down the list, and the ring goes with it.
+key TAB
+wait_frames 6
+expect_text "ring on Settings"
+
+key TAB
+wait_frames 6
+expect_text "ring on Blocked"
+
+key TAB
+wait_frames 6
+expect_text "ring on Review"
+
+# A pointer press puts the ring away — but focus itself follows the click, so
+# the next Tab starts from where the pointer left it rather than from the top.
+click_ui sb_settings
+wait_frames 6
+expect_text "ring off"
