@@ -475,6 +475,12 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
     // later -- sometimes much later. Remember where each intent's row landed so
     // the result can be folded back into it instead of appended as a stray row.
     std::unordered_map<int64_t, size_t> row_for_intent_seq;
+    // Same trick for anything whose OUTCOME lands later and names the seq of
+    // the intent that started it: a spawn settling, a peer message being
+    // delivered. Seqs are unique across the journal, so one map serves both.
+    // child_spawned carries the title and keys by child id instead.
+    std::unordered_map<std::string, size_t> row_for_child_id;
+    std::unordered_map<int64_t, size_t> row_for_outcome_seq;
 
     for (const json& f : msg["frames"]) {
         if (!f.is_object()) continue;
@@ -493,6 +499,15 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             m.created_at = created;
             out.push_back(std::move(m));
             return out.back();
+        };
+        // An event row: not speech, so it carries a KIND and a short label
+        // rather than an author and a paragraph.
+        const auto push_event = [&](EventKind kind, std::string label,
+                                    std::string body) -> Message& {
+            Message& m = push(Role::System, std::move(body));
+            m.kind = kind;
+            m.subtitle = std::move(label);
+            return m;
         };
 
         if (type == "user_input") {
@@ -513,11 +528,15 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 // so the renderer can fold or dim it rather than presenting it
                 // as something the assistant said to you.
                 std::string text = str_or(b, "text", "");
-                if (!text.empty()) push(Role::Assistant, std::move(text)).subtitle =
-                    "thinking";
+                if (!text.empty()) {
+                    Message& m = push(Role::Assistant, std::move(text));
+                    m.kind = EventKind::Thinking;
+                    m.subtitle = "thinking";
+                }
             }
         } else if (type == "tool_intent") {
             Message& m = push(Role::Tool, readable_tool_input(str_or(e, "input", "")));
+            m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             row_for_intent_seq[seq] = out.size() - 1;
         } else if (type == "tool_node_selected") {
@@ -541,10 +560,70 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             // the call was made, not where the answer landed.
             if (created > 0 && m.created_at > 0)
                 m.tool_duration_ms = (created - m.created_at) * 1000;
+        } else if (type == "skill_invoked") {
+            // The skill's own body is the whole SKILL.md and is prompt
+            // material, not transcript material -- the row says which skill
+            // loaded and where it came from.
+            push_event(EventKind::Skill, str_or(e, "name", ""),
+                       str_or(e, "source", ""));
+        } else if (type == "child_spawn_intended") {
+            const std::string child = str_or(e, "child", "");
+            Message& m = push_event(EventKind::SubAgent, child,
+                                    str_or(e, "prompt", ""));
+            m.tool_status = "running";
+            row_for_outcome_seq[seq] = out.size() - 1;
+            if (!child.empty()) row_for_child_id[child] = out.size() - 1;
+        } else if (type == "child_spawned") {
+            // The title the child was actually given, which is the only
+            // human-readable name a spawn ever gets. It arrives AFTER the
+            // intent, so it replaces the id the row was holding.
+            auto it = row_for_child_id.find(str_or(e, "child", ""));
+            const std::string title = str_or(e, "title", "");
+            if (it != row_for_child_id.end() && !title.empty())
+                out[it->second].subtitle = title;
+            else if (it == row_for_child_id.end())
+                push_event(EventKind::SubAgent,
+                           title.empty() ? str_or(e, "child", "") : title, "")
+                    .tool_status = "running";
+        } else if (type == "child_spawn_settled") {
+            auto it = row_for_outcome_seq.find(int_or(e, "intent", 0));
+            if (it == row_for_outcome_seq.end()) continue;  // intent off-page
+            out[it->second].tool_status =
+                str_or(obj_at(e, "outcome"), "outcome", "");
+        } else if (type == "node_attached" || type == "node_detached" ||
+                   type == "node_granted" || type == "node_released" ||
+                   type == "node_reserved") {
+            // The verb, stripped of its prefix: "attached", "detached", …
+            push_event(EventKind::Node, str_or(e, "node_id", ""),
+                       type.substr(std::string("node_").size()));
+        } else if (type == "subscription_delivered") {
+            // How everything the platform puts INTO a session arrives: a
+            // child settling, a timer firing, a peer session speaking. The
+            // key says which; the body is what was delivered.
+            push_event(EventKind::Delivery,
+                       str_or(obj_at(e, "key"), "kind", "subscription"),
+                       str_or(e, "body", ""));
+        } else if (type == "message_enqueued") {
+            Message& m = push_event(EventKind::Delivery,
+                                    "to " + str_or(e, "to", ""),
+                                    str_or(e, "body", ""));
+            m.tool_status = "running";
+            row_for_outcome_seq[seq] = out.size() - 1;
+        } else if (type == "message_delivered") {
+            auto it = row_for_outcome_seq.find(int_or(e, "intent", 0));
+            if (it == row_for_outcome_seq.end()) continue;  // intent off-page
+            out[it->second].tool_status =
+                str_or(obj_at(e, "outcome"), "outcome", "");
+        } else if (type == "notice") {
+            push_event(EventKind::Notice, str_or(e, "kind", ""),
+                       str_or(e, "message", ""));
+        } else if (type == "status_reported") {
+            push_event(EventKind::Status, str_or(e, "state", ""),
+                       str_or(e, "headline", ""));
         }
-        // Everything else -- run_started, model_call_*, epoch_change_*, noop,
-        // status_reported and the rest of a vocabulary the server says will
-        // grow -- folds as nothing on purpose.
+        // Everything else -- run_started, model_call_*, epoch_change_*, noop
+        // and the rest of a vocabulary the server says will grow -- folds as
+        // nothing on purpose.
     }
     return out;
 }

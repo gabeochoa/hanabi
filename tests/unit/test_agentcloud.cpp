@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
@@ -493,6 +494,110 @@ static void test_block_delta_append_is_a_true_increment() {
     CHECK(classify_live_frame(weird).kind == LF::Kind::Ignore);
 }
 
+// The five event classes the transcript could not represent, in the shapes a
+// real session emits them (captured from be9a28d7 and 144601bb, 2026-08-26).
+static const char* const kEventClassPage = R"({"type":"page","frames":[
+  {"seq":3,"created_at_unix_ms":1787710982169,
+   "event":{"type":"node_granted","grant_id":"g-1","node_id":"mac-GRQ7Y259H4",
+            "granted_by":"be9a28d7"}},
+  {"seq":9,"created_at_unix_ms":1787710985000,
+   "event":{"type":"node_attached","node_id":"mac-GRQ7Y259H4"}},
+  {"seq":14,"created_at_unix_ms":1787710990000,
+   "event":{"type":"skill_invoked","name":"meta-cli","source":"platform",
+            "content":"# Meta CLI Quick Reference\n…"}},
+  {"seq":21,"created_at_unix_ms":1787711000000,
+   "event":{"type":"child_spawn_intended","child":"ff0c19ed",
+            "prompt":"You are working on hanabi…"}},
+  {"seq":22,"created_at_unix_ms":1787711000500,
+   "event":{"type":"child_spawned","child":"ff0c19ed",
+            "title":"vis: tab strip, reopened","harness":"native"}},
+  {"seq":40,"created_at_unix_ms":1787711400000,
+   "event":{"type":"child_spawn_settled","intent":21,
+            "outcome":{"outcome":"completed"}}},
+  {"seq":41,"created_at_unix_ms":1787711401000,
+   "event":{"type":"subscription_delivered","subscription":3916,
+            "key":{"kind":"child","child":"ff0c19ed","run_seq":80511},
+            "body":"child session ff0c19ed settled: completed"}},
+  {"seq":50,"created_at_unix_ms":1787711500000,
+   "event":{"type":"message_enqueued","message_id":"m-1","to":"96b16ae2",
+            "body":"git stash is per-REPOSITORY, not per-worktree."}},
+  {"seq":51,"created_at_unix_ms":1787711500500,
+   "event":{"type":"message_delivered","intent":50,
+            "outcome":{"outcome":"delivered"}}},
+  {"seq":60,"created_at_unix_ms":1787711600000,
+   "event":{"type":"notice","kind":"refusal","message":"the model declined"}},
+  {"seq":61,"created_at_unix_ms":1787711601000,
+   "event":{"type":"status_reported","state":"working",
+            "headline":"reading the transcript renderer"}},
+  {"seq":70,"created_at_unix_ms":1787711700000,
+   "event":{"type":"node_detached","node_id":"mac-GRQ7Y259H4"}}
+]})";
+
+static const api::Message* row_of(const std::vector<api::Message>& rows,
+                                  api::EventKind kind, const std::string& label) {
+    for (const auto& m : rows)
+        if (m.kind == kind && m.subtitle == label) return &m;
+    return nullptr;
+}
+
+static void test_every_event_class_gets_a_row() {
+    // "you are missing thinking and deliveries" / "you are missing subagents"
+    // / "you are missing nodes" / "you are missing skills". All one cause:
+    // an event that was not one of four ROLES had nowhere to land, so the
+    // fold dropped it and the reader saw a gap.
+    const auto rows = parse_page_frames(kEventClassPage);
+
+    CHECK(row_of(rows, api::EventKind::Node, "mac-GRQ7Y259H4") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Skill, "meta-cli") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Notice, "refusal") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Status, "working") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Delivery, "child") != nullptr);
+
+    // A node row says WHICH node and WHAT happened to it -- three node events
+    // that all read "node" would be no better than dropping two of them.
+    int node_rows = 0;
+    std::string verbs;
+    for (const auto& m : rows)
+        if (m.kind == api::EventKind::Node) { ++node_rows; verbs += m.text + " "; }
+    CHECK(node_rows == 3);
+    CHECK(verbs == "granted attached detached ");
+
+    // An event row is not authored by anybody, and must never render as one.
+    for (const auto& m : rows)
+        if (m.kind != api::EventKind::Text && m.kind != api::EventKind::Thinking &&
+            m.kind != api::EventKind::ToolCall)
+            CHECK(m.role == Role::System);
+}
+
+static void test_a_spawn_row_learns_its_title_and_its_outcome() {
+    // Three events, one row: the intent carries the prompt, `child_spawned`
+    // the title (the only human-readable name a spawn gets), and the
+    // settlement the outcome -- each arriving later than the last.
+    const auto rows = parse_page_frames(kEventClassPage);
+    const api::Message* spawn =
+        row_of(rows, api::EventKind::SubAgent, "vis: tab strip, reopened");
+    CHECK(spawn != nullptr);
+    if (spawn == nullptr) return;
+    CHECK(spawn->tool_status == "completed");
+    CHECK(spawn->text == "You are working on hanabi…");
+    // One row, not three.
+    int spawn_rows = 0;
+    for (const auto& m : rows)
+        if (m.kind == api::EventKind::SubAgent) ++spawn_rows;
+    CHECK(spawn_rows == 1);
+}
+
+static void test_an_outbound_message_carries_its_receipt() {
+    // message_enqueued is this session speaking to another; the delivery
+    // receipt lands later and names the enqueue's seq, exactly as a tool
+    // result names its intent.
+    const auto rows = parse_page_frames(kEventClassPage);
+    const api::Message* sent =
+        row_of(rows, api::EventKind::Delivery, "to 96b16ae2");
+    CHECK(sent != nullptr);
+    if (sent != nullptr) CHECK(sent->tool_status == "delivered");
+}
+
 // Every frame below is the shape a real turn puts on the wire, taken from a
 // capture of one (session 69167c25, 2026-08-26): a thinking block and a
 // tool_use block stream through the SAME `block_delta{append}` frames the
@@ -778,6 +883,9 @@ int main() {
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();
+    test_every_event_class_gets_a_row();
+    test_a_spawn_row_learns_its_title_and_its_outcome();
+    test_an_outbound_message_carries_its_receipt();
     test_a_live_turn_is_only_what_the_agent_said();
     test_an_unattributed_increment_is_still_shown();
     test_block_indices_restart_with_each_model_call();

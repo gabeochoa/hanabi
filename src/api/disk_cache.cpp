@@ -166,11 +166,17 @@ SessionSummary summary_from_json(const json& j) {
 }
 
 json to_json(const Message& m) {
+    // `kind` rides alongside `role`, not instead of it: a cached row that
+    // loses its kind comes back as somebody speaking, which is exactly the
+    // failure EventKind exists to end. Absent on read = Text, so a file
+    // written before this field still loads as what it was.
     return json{{"id", m.id},
                 {"role", static_cast<int>(m.role)},
+                {"kind", static_cast<int>(m.kind)},
                 {"text", m.text},
                 {"created_at", m.created_at},
-                {"subtitle", m.subtitle}};
+                {"subtitle", m.subtitle},
+                {"tool_status", m.tool_status}};
 }
 
 Message message_from_json(const json& j) {
@@ -180,6 +186,9 @@ Message message_from_json(const json& j) {
     m.text = j.value("text", "");
     m.created_at = j.value("created_at", (int64_t)0);
     m.subtitle = j.value("subtitle", "");
+    m.tool_status = j.value("tool_status", "");
+    m.kind = static_cast<EventKind>(
+        j.value("kind", static_cast<int>(EventKind::Text)));
     return m;
 }
 
