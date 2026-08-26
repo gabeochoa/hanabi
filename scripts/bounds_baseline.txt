@@ -18,7 +18,6 @@
 # in this file at the moment it was created (composer_send, composer_status,
 # subrollup_chips) are being fixed, not forgiven, and their lines come out as
 # each one lands.
-composer_status in composer_leftmeta right
 sb_search_text in sb_search bottom top
 subrollup_chips in subrollup right
 sv_icon in smart_item bottom top

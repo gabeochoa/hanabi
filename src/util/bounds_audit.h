@@ -28,6 +28,13 @@
 //     (afterhours_gaps.md #110: nothing rounds a widget's origin), not a
 //     design defect, and it fires on almost every percent()-sized element.
 //   * a hidden element, or one autolayout never sized (computed < 0).
+//   * an element that did not RENDER on the last frame. This one is not an
+//     optimisation, it is correctness, and it cost this audit its first
+//     finding: a widget built on an earlier frame and never rebuilt keeps its
+//     parent id, its computed rect and its last position, so it looks exactly
+//     like a live overflow and is not one (afterhours_gaps.md #115 and
+//     src/ui/widget_epoch.h are what that staleness is). afterhours' own
+//     assert_no_overflow tests the same flag first, for the same reason.
 //   * a child of a scroll view. Content taller than the viewport IS a scroll
 //     view, so every list in the app would report its whole overhang and the
 //     real overflows would be under it.
@@ -94,6 +101,7 @@ inline std::vector<Overflow> collect(int* absoluteSkipped = nullptr) {
         if (!e.has<UIComponent>()) continue;
         const UIComponent& c = e.get<UIComponent>();
         if (c.should_hide) continue;
+        if (!c.was_rendered_to_screen) continue;
         if (c.parent < 0) continue;
         if (c.computed[afterhours::ui::Axis::X] < 0.0f ||
             c.computed[afterhours::ui::Axis::Y] < 0.0f)
@@ -109,6 +117,7 @@ inline std::vector<Overflow> collect(int* absoluteSkipped = nullptr) {
         if (pe.has<afterhours::ui::HasScrollView>()) continue;
         const UIComponent& p = pe.get<UIComponent>();
         if (p.should_hide) continue;
+        if (!p.was_rendered_to_screen) continue;
         if (p.computed[afterhours::ui::Axis::X] < 0.0f ||
             p.computed[afterhours::ui::Axis::Y] < 0.0f)
             continue;
