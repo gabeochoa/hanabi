@@ -11,7 +11,9 @@
 # retype it, which passed only while the machine was loaded and failed on an
 # idle one. So the draft is grown by typing onto what is already there, and the
 # one place it has to be emptied uses the app's own Esc-to-clear. (select_all
-# is no help: the harness cannot hold Super, gap #49.)
+# WOULD do it now -- the harness spells it CTRL+A and TextSelectAll is bound to
+# Ctrl as well as Cmd, gap #256 -- but Esc-to-clear is the app's own path and
+# the one worth exercising here.)
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 

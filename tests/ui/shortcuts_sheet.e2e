@@ -13,6 +13,12 @@ expect_text "Show or hide the sidebar"
 expect_text "Bring hanabi forward and start a task"
 expect_text "Copy it, and see when it was sent"
 expect_text "Jump to the start or the newest"
+# The editing chords. A binding that is not on this sheet is a binding nobody
+# can find, so each one added to the key table is added here too.
+expect_text "Delete the word before"
+expect_text "Start or end of the line"
+expect_text "Delete back to the line start"
+expect_text "Select everything in the field"
 
 key ESCAPE
 wait_frames 8

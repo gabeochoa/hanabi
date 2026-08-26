@@ -89,6 +89,20 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #223 the e2e runner's retry budget is named in seconds and fed by the host's `dt`, so reproducibility is the host's undocumented decision
 - #224 nothing can measure a child without building it, so a variable-height window re-implements the box model
 
+---
+
+**Added 2026-08-26** (text editing in the composer; full entries at the end)
+- #255 an editing feature is opted into by ENUMERATOR NAME, and opting out is silent — no error, no warning, nothing to grep *(cost hanabi word editing for its whole life)*
+- #256 correction to #49: `CMD+` in a script means Ctrl, and `SUPER+` is parsed and dropped — so a Cmd chord IS scriptable if the app binds the Ctrl twin
+- #257 no InputAction for delete-to-line-start, and an outside system cannot erase text: `init_state` re-seeds the field from the string it is bound to
+- #258 `expect_input_text` is the only field assertion never taught about `HasTextAreaState`, and the only one that reads a field's TEXT *(a multiline field cannot be asserted at all)*
+- #259 the script parser is line-based with no newline escape, so a multi-line expectation cannot be written down
+- #260 `text_area`'s word motion does not collapse a selection to its near edge; `text_input`'s does, and `text_area`'s own char motion does
+- #261 `text_area` has no placeholder — the word does not occur in the file
+- #262 `text_area` hardcodes its field background and ignores `with_transparent_bg`
+- #263 `text_area` draws no focus ring; `text_input` sets a 2px accent border when focused
+- #264 `default_keymap()` is not macOS-correct: every editing chord is bound to Cmd and Ctrl alike, Option is bound to nothing, so Cmd+Left is "previous word" and Cmd+Backspace is "delete word"
+
 **Resolved / corrected**
 - #115 (a widget that stops being built is never retired) is **worked around
   app-side**, and the entry was wrong about why it could not be:
@@ -8567,6 +8581,76 @@ smaller and more useful — make `mouse_was_in_subtree`'s geometry available as
 say in its doc comment that "absolute" means the parent's frame and not the
 window's, so that the mistake is at least documented where it is made.
 
+---
+
+# Session 2026-08-26 — text editing in the composer
+
+Gabe, testing the build: no Shift+Enter for a newline, Alt+Backspace does
+nothing ("i thought we added these already?"), no Cmd+A. The first and third
+were true. The second had never landed, and #255 is why nobody noticed.
+
+### #255 — a text-editing feature is opted into by ENUMERATOR NAME, and opting out is silent
+
+**What was wanted.** Word motion and word delete in a text field. The library
+has both, and has had them the whole time: `move_cursor_word_left`,
+`delete_word_before_cursor` and friends in `text_input/utils.h`, driven from
+`text_input/component.h`.
+
+**What happens.** Each one is wrapped in a compile-time test on the consuming
+app's own enum:
+
+```cpp
+if constexpr (magic_enum::enum_contains<InputAction>("TextDeleteWordBack")) {
+  if (ctx.pressed_or_repeat(InputAction::TextDeleteWordBack)) { ... }
+}
+```
+
+The app's `InputAction` enum is the feature switch, and the switch is a
+STRING that has to match an enumerator. hanabi's enum stopped at
+`TextSelectAll`, so every word path was deleted from the binary at compile
+time. There is no error. There is no warning. There is no runtime log. There
+is no symbol to grep for, because the code that would have named the missing
+feature is the code that got compiled out — `git log -S TextDeleteWordBack`
+over the whole history returns nothing, which reads identically to "we never
+wrote it" and to "the library never had it".
+
+The failure mode this produces is the expensive one: the app looks finished.
+A field that takes text, moves a caret, deletes a character and selects with
+Shift is obviously a working text field, and the four things it cannot do
+have no visible edge. hanabi shipped like that from its first commit
+(91d26bf); until this session `src/input_mapping.h` had exactly one commit in
+its history, that one. The bug
+was found by a person pressing Alt+Backspace, which is the only way it could
+have been found.
+
+There is a second, quieter half. An enumerator with no BINDING is equally
+silent: `TextSelectAll` was in hanabi's enum from the start and had no row in
+the key table, so `ctx.pressed(TextSelectAll)` could never fire and Cmd+A did
+nothing. Same symptom, opposite cause, and neither one is observable from the
+app's side.
+
+**The workaround.** Add the names, add the bindings, and defend both with
+tests, because nothing else can: `tests/unit/test_input_pipeline.cpp` asserts
+that the enumerators the library gates on are PRESENT
+(`magic_enum::enum_contains<InputAction>(name)` for each), and that each one
+has a chord of the right shape in the shipping table. The first of those
+assertions is the one that matters — it is the only thing standing between a
+tidy-up of the enum and the silent removal of the feature.
+
+**Minimal upstream fix.** Any of three, cheapest first:
+
+1. Name the required enumerators in ONE place a reader will find — the
+   `text_input` doc comment lists the features but not the names that turn
+   them on, and `default_keymap()` lists the names but reads as a convenience
+   rather than as the contract.
+2. A `constexpr` audit the app can assert on:
+   `text_input::missing_actions<InputAction>()` returning the names it looked
+   for and did not find, so an app can `static_assert` it is empty or log it
+   once at startup.
+3. Log it once, at runtime, the first time a field is built: "text_input:
+   TextWordLeft not in InputAction; word motion disabled". One line, and the
+   whole class of bug becomes a grep.
+
 CLASS: FOOTGUN
 
 ---
@@ -8735,6 +8819,126 @@ the question people mean. Second, extend the existing layout warning past the
 main axis — it already has the child and parent rects in hand at the point it
 decides not to warn.
 
+---
+
+### #256 — correction to #49: `CMD+` in a script means Ctrl, and `SUPER+` is dropped
+
+**What #49 says.** That `HandleKeyCommand` parses a Super modifier and never
+holds it, so "there is no spelling of a Cmd chord that works, and the whole
+shortcut surface of a macOS app is unreachable from a script". The first half
+is right. The conclusion is too strong, and acting on it costs test coverage —
+`tests/ui/composer_slash_commands.e2e` and `src/settings.h` both cite #49 as a
+reason an assertion cannot be written, and one of those two is now wrong.
+
+**What actually happens.** `parse_key_combo` (core/key_codes.h) has SIX
+modifier prefixes and they do not do what their names suggest:
+
+```cpp
+{"CTRL+", &KeyCombo::ctrl},
+{"CMD+",  &KeyCombo::ctrl},   // "Mac convention: Cmd = Ctrl for shortcuts"
+{"ALT+",  &KeyCombo::alt},  {"OPTION+", &KeyCombo::alt},
+{"SUPER+", &KeyCombo::super}, {"WIN+", ...}, {"META+", ...},
+```
+
+So `CMD+A` sets `ctrl`, and `HandleKeyCommand` holds `LEFT_CONTROL` for it.
+`SUPER+A` sets `super`, which is the flag nothing ever reads. `ALT+` is held
+properly.
+
+The consequence is therefore conditional, not absolute:
+
+- A chord read straight off the key state — `is_key_down(LEFT_SUPER)`, which
+  is what `hanabi::keys::cmd_down()` does and what every app-level shortcut in
+  hanabi uses — is unreachable from a script. #49 stands for these.
+- A chord routed through the ACTION MAPPING is reachable, if the app binds the
+  Ctrl twin alongside the Super one, exactly as `default_keymap()`'s own
+  `bind_chord` does. The script writes `CMD+A`, the harness holds Ctrl, the
+  Ctrl chord matches, and the same action fires that a real Cmd+A fires.
+
+hanabi now tests Cmd+A, Cmd+Left, Cmd+Right and Cmd+Backspace from `.e2e`
+files on the strength of that (`tests/ui/composer_word_editing.e2e`,
+`composer_line_delete.e2e`). Cmd+Backspace is the interesting one: it is read
+off the key state, so it is reachable only because `hanabi::keys::ctrl_down()`
+was added as an explicit alias for the harness's benefit.
+
+**The workaround.** Bind the Ctrl twin for anything that must be tested, and
+for anything read off the key state, read Ctrl as well as Super. Both are in
+`src/input_mapping.h` and `src/keys.h` with the reason written down.
+
+**Minimal upstream fix.** Hold the modifier that was parsed. Three lines next
+to the three that are already there:
+
+```cpp
+if (combo.super) input_injector::set_key_held(keys::LEFT_SUPER);
+```
+
+plus the matching release in `HandleKeyReleaseSystem`. Then `SUPER+A` means
+Cmd on a Mac, `CMD+` can keep its Ctrl-flavoured meaning for cross-platform
+scripts, and no app has to bind a modifier it does not want in order to be
+testable.
+
+CLASS: FOOTGUN
+
+---
+
+### #257 — no action for delete-to-line-start, and an outside system cannot erase text
+
+**What was wanted.** Cmd+Backspace: delete from the caret back to the start of
+the line. Standard on macOS, in every text field on the platform.
+
+**What happens.** There is no `InputAction` for it. The enum covers
+`TextBackspace`, `TextDelete`, `TextDeleteWordBack`, `TextDeleteWordForward`,
+`TextHome`, `TextEnd` — every other deletion granularity, and not this one. So
+the key table cannot express it and the app has to drive it.
+
+Driving it is where the second half of the gap is. The obvious implementation
+is the one the library uses internally — erase from the field's state:
+
+```cpp
+st.storage.erase(line_start, caret - line_start);
+```
+
+That does not survive the frame. `text_input` is immediate-mode and re-seeds
+itself from the `std::string` the caller binds, every call:
+
+```cpp
+if (s.text() != text) { s.storage.clear(); s.storage.insert(0, text); 
+                        s.cursor_position = text.size(); }
+```
+
+An outside system that erases from the state and not from the bound string
+leaves the two disagreeing, and the next build puts the deleted text straight
+back — with the caret thrown to the END of the field for good measure, which
+is the part that makes the bug look like something else. Only code that holds
+the bound string can safely edit the state, which means "one text field at a
+time, by name" rather than "the focused field, whichever it is".
+
+**The workaround.** Set the SELECTION instead of erasing, and let the field's
+own Backspace do the deleting (`src/ecs/text_edit_chords_system.h`). A
+selection is not text, so the re-seed never fires on it; the widget sees a
+selection under `TextBackspace`, deletes it, pushes the undo snapshot, and
+writes back to the bound string itself. It costs an ordering constraint — the
+system has to run before the UI is built, since the widget consumes the same
+keypress later in the same frame — and it buys a chord that works in EVERY
+field in the app rather than only the composer.
+
+One further constraint, worth stating because it looks like a free choice:
+Cmd+Backspace must NOT be bound as an explicit chord in the key table.
+`suppress_permissive_duplicates` would then claim the BACKSPACE key and
+suppress the plain `TextBackspace` binding — the very one the workaround
+relies on to perform the delete.
+
+**Minimal upstream fix.** `TextDeleteToLineStart` (and its mirror
+`TextDeleteToLineEnd`, which is Ctrl+K on macOS), guarded the same
+`if constexpr` way as the word actions, deleting `[line_start, caret)`. Ten
+lines beside `delete_word_before_cursor`, which already does the harder
+version of the same thing.
+
+Separately, and more valuable: a supported way for an app to edit a field's
+state from outside it. `set_text(entity, str)` that writes BOTH the state and
+the bound string would remove the re-seed trap for every consumer, not just
+this chord — hanabi's escape-to-clear has to clear both by hand for the same
+reason, and its comment says so.
+
 CLASS: MISSING
 
 ---
@@ -8822,6 +9026,65 @@ the backdrop rather than the ring: `focus_ring_for` already has the entity, so
 `HasColor` is one lookup away, and "contrast with what is behind me" is the
 question the edge was written to answer.
 
+---
+
+### #258 — `expect_input_text` is the only field assertion that cannot see a multiline field
+
+**What was wanted.** Move the composer to `text_area` for Shift+Enter, and
+keep the scripted tests that assert what is in it.
+
+**What happens.** `HasTextAreaState` DERIVES from `HasTextInputState`, and the
+ECS keys components by exact type id:
+
+```cpp
+template <typename T> bool has() const {
+  return componentSet[components::get_type_id<T>()];
+}
+```
+
+so a query for the base never matches the derived one. The harness knows this.
+Two of its three field assertions test for either component, and
+`expect_input_selection` carries a comment saying exactly why:
+
+```cpp
+// HasTextAreaState is a distinct component, not a HasTextInputState, so a
+// query for the latter alone never matches a multiline field -- which made
+// this assert unusable on exactly the widget most likely to need it.
+```
+
+`expect_input_text` was left behind. It still queries
+`whereHasComponent<text_input::HasTextInputState>()` alone — and it is the
+only assertion in the harness that reads a field's TEXT. Its two siblings read
+the SELECTION.
+
+Measured: with the composer switched to `text_area` and nothing else changed,
+six composer scripts failed, and every single failure in all six was the same
+line —
+
+```
+[E2E ERROR] expect_input_text: Text input not found: composer_reply_input
+```
+
+Nothing else broke. Not the send key, not the slash menu, not the history
+walk, not focus, not the layout. One missing `||` in one query is the entire
+cost of a multiline field to a test suite.
+
+**The workaround.** A shadow `HasTextInputState` on the field entity, carrying
+a copy of the text, whose only purpose is to be visible to the harness
+(`src/ecs/main_pane_system.h` on the spike branch). Its `is_focused` is
+deliberately left alone so it cannot answer "is a field focused" with a stale
+yes, and hanabi's own lookups ask for the area state first.
+
+**Minimal upstream fix.** The `||` its two siblings already have.
+
+```cpp
+.whereLambda([&](const Entity &e) {
+  return e.get<ui::UIComponentDebug>().name() == name &&
+         (e.has<text_input::HasTextInputState>() ||
+          e.has<text_input::HasTextAreaState>());
+})
+```
+
 CLASS: WORKAROUND
 
 ---
@@ -8877,6 +9140,109 @@ override `HasRoundedCorners` already gives the ring for corner radius, which
 `focus_ring_for` reads two lines above where it reads the global offset. A
 `HasFocusRing{offset, thickness, enabled}` component would cover the offset,
 the per-widget opt-out #83 asked for, and #265's edge control in one place.
+
+---
+
+### #259 — the script parser is line-based, so a multi-line expectation cannot be written
+
+**What was wanted.** `expect_input_text composer_reply_input "first line\nsecond line"`
+— assert that Shift+Enter actually put a break in the draft.
+
+**What happens.** `parse_script` reads the file with `std::getline` and parses
+one command per line; `parse_quoted` takes the rest of the line and strips a
+leading and trailing quote. There is no escape processing anywhere in it, so
+`\n` in a script is a backslash and an n, and a literal line break ends the
+command. There is no spelling of a newline in any argument to any command —
+which also means `type` cannot type one.
+
+So the content of a multiline field cannot be stated in this DSL at all. The
+one exception is the empty string, which is why `expect_input_text <name> ""`
+still works and is the only text assertion a `text_area` can carry.
+
+**The workaround.** Assert the LENGTH instead of the text: select all, and
+assert the range with `expect_input_selection`, which is a three-argument
+command taking integers and so unaffected. "first line" + "second line" is 21
+bytes joined and 22 with a break between them, so `0 22` is the whole claim,
+and `0` would mean it sent instead. `tests/ui/composer_shift_enter.e2e` on the
+spike branch is written this way throughout. It is exact, and it reads
+terribly — every assertion is a number the reader has to recompute by hand.
+
+**Minimal upstream fix.** Process `\n` (and `\\`) in `parse_quoted`. Four
+lines, and it makes `type` able to enter a newline as a bonus, which no
+command can currently do either.
+
+CLASS: TEDIOUS
+
+---
+
+### #260 — `text_area`'s word motion does not collapse a selection; `text_input`'s does
+
+**What happens.** With text selected, an UNSHIFTED motion should collapse the
+selection to its near edge and stop there — that is what macOS does, and what
+`text_input` does:
+
+```cpp
+navigate([&] {
+  if (!shift_held && state.has_selection())
+    state.cursor_position = state.selection_end();
+  else
+    move_cursor_word_right(state);
+});
+```
+
+`text_area`'s word motion skips that branch and always steps a word:
+
+```cpp
+navigate([&] { move_cursor_word_right(state); reset_preferred_column(state); });
+```
+
+The inconsistency is not only between the two widgets. `text_area`'s own
+plain Left/Right DOES collapse, under a comment that says so ("Unshifted with
+a selection, they collapse to its near edge rather than stepping one character
+from the caret") — so within a single widget, arrow collapses and Option+arrow
+does not.
+
+Observed: select "alpha" with Shift+Option+Left, press Option+Right, type. In
+`text_input` the marker lands at the end of "alpha"; in `text_area` it lands
+past the following word.
+
+**The workaround.** None available. An app cannot intervene: clearing the
+selection before the widget runs does not stop the extra word of movement, and
+the movement happens inside the same call that reads the key.
+`tests/ui/composer_shift_selection.e2e` asserts the behaviour AS IT IS with
+this gap named beside it, so that a library fix shows up as a failing test
+rather than as nothing.
+
+**Minimal upstream fix.** The four lines `text_input` already has, in the two
+word-motion branches of `text_area`.
+
+CLASS: SHARP EDGE
+
+---
+
+### #261 — `text_area` has no placeholder
+
+**What happens.** The word "placeholder" does not occur in `text_area.h`.
+`text_input` has had one since #29 was closed (`component.h`: `show_placeholder
+= display_text.empty() && !config.placeholder.empty()`), and
+`ComponentConfig::with_placeholder` is shared by both, so the call compiles,
+does nothing, and the hint silently disappears.
+
+That is a regression for any app moving a field from single-line to multiline,
+and the direction of travel is always that way — the field that needs a
+placeholder most is the chat composer, and the chat composer is the field that
+needs to be multiline.
+
+**The workaround.** hanabi already had one, in `git show 982376a`: an
+absolutely-positioned child over the empty field with an `on_draw_fg` that
+draws the hint. It was DELETED when `text_input` grew a real placeholder, and
+the spike branch brings it back for the widget that still needs it. Measured
+against the single-line field it replaces, the overlay lands on the same pixel
+the typed text does (x=329, y=706), so the two agree — but that is a
+hand-alignment that holds only until either side's padding changes.
+
+**Minimal upstream fix.** The four lines from `component.h`, in `text_area`'s
+line loop when the text is empty.
 
 CLASS: MISSING
 
@@ -9222,3 +9588,126 @@ open/closed state is keyed by MESSAGE ID in app state
 it has to live in app state at all.
 
 CLASS: NOT A GAP
+
+---
+
+### #262 — `text_area` hardcodes its field background and ignores `with_transparent_bg`
+
+**What happens.** The field div is built with a fixed background:
+
+```cpp
+div(ctx, mk(entity, 0),
+    ComponentConfig::inherit_from(config, "text_area_field")
+        .with_size(config.size)
+        .with_background(Theme::Usage::Secondary)   // not from config
+        ...
+```
+
+so a caller's `with_transparent_bg()` is overwritten. `text_input` honours it.
+
+Measured on hanabi's composer: the field interior went from the window colour
+(23,23,35) to a (57,57,68) fill inside an outlined wrap whose own comment
+spends a paragraph on getting Puffin's look right — "Puffin's input interior is
+the window colour and only the 1px border says where the field is". The change
+is not subtle and it is not configurable.
+
+**The workaround.** None used. In principle the app can save `ctx.theme`'s
+secondary colour, set it to the surrounding panel colour for the duration of
+the call and restore it — the same save/restore this composer already does for
+`font_muted` two lines above (#90) — but that is defeating a hardcode with a
+global, and it would recolour anything else in the call that reads Secondary.
+This is one of the two reasons hanabi's multiline composer is a spike branch
+rather than a shipped change.
+
+**Minimal upstream fix.** Read the background from the config the way the rest
+of the widget reads everything else, defaulting to Secondary when unset.
+
+CLASS: MISSING
+
+---
+
+### #263 — `text_area` draws no focus ring
+
+**What happens.** `text_input` puts a 2px accent border on the field while it
+is focused:
+
+```cpp
+if (state.is_focused) {
+  auto focus_color = ctx.theme.accent;
+  field_config.border = Border::all(focus_color, pixels(2.0f));
+}
+```
+
+`text_area` has no equivalent. It tracks `state.is_focused` (it needs it for
+the caret and for input) and never draws anything with it, so a focused
+multiline field is indistinguishable from an unfocused one except for a
+blinking caret.
+
+Measured on hanabi's composer: the blue (0,122,204) edge at y=724 is simply
+gone after the switch.
+
+This one is worse than it sounds for an app with a focus policy. hanabi has a
+whole system for deciding when a focus ring is EARNED (`ui/focus_visible.h`,
+"nothing renders a ring the keyboard has not earned") and its composer is
+where that decision is most visible.
+
+**The workaround.** None used. The app can put the ring on its own wrapper div
+from `state.is_focused`, at the cost of one frame of lag (the wrapper is built
+before the field it contains) and a ring around the 45px box rather than the
+29px field. Not obviously wrong, but it is a visual change to the most
+measured widget in the app, so it is on the spike branch and not shipped.
+
+**Minimal upstream fix.** The four lines from `component.h`.
+
+CLASS: MISSING
+
+---
+
+### #264 — `default_keymap()` is not macOS-correct
+
+**What was wanted.** Take the library's conventional bindings and add the
+app's own on top, which is exactly what the function's doc comment offers:
+
+```cpp
+auto m = ui::default_keymap<MyAction>();
+m[(int)MyAction::Jump] = {keys::SPACE};   // add your own on top
+```
+
+**What happens.** Every editing chord is bound to Cmd and Ctrl identically:
+
+```cpp
+auto bind_chord = [&bind](std::string_view name, int key) {
+    bind(name, {KeyChord{key, CMD}, KeyChord{key, CTRL}});
+};
+bind_chord("TextDeleteWordBack", keys::BACKSPACE);
+bind_chord("TextWordLeft", keys::LEFT);
+```
+
+and `MOD_ALT` appears nowhere in the function. On macOS that is wrong twice
+over, in the two places a user notices first:
+
+| chord | `default_keymap` | macOS |
+|---|---|---|
+| Cmd+Left | previous word | start of line |
+| Cmd+Backspace | delete word back | delete to line start |
+| Option+Left | *unbound* | previous word |
+| Option+Backspace | *unbound* | delete word back |
+
+Option is the WORD modifier on this platform and Command is the LINE
+modifier; the table collapses them into one. So the keymap a macOS app is
+invited to start from binds the word chords to the line keys and leaves the
+word keys dead — and because the bindings that ARE there work, the app looks
+configured rather than mis-configured.
+
+**The workaround.** Write the table out by hand (`src/input_mapping.h`), which
+also means re-deriving which enumerator names exist (#255). A unit test
+asserts the split explicitly — that Cmd is NOT on the word actions — because
+the failure mode of drifting back toward the library's default is a chord that
+still does something.
+
+**Minimal upstream fix.** Split the modifier by platform in `bind_chord`, or
+offer `default_keymap_macos<InputAction>()` beside it. The values are already
+platform-independent (`afterhours::keys` are GLFW codes); it is only the
+modifier choice that is not.
+
+CLASS: FOOTGUN

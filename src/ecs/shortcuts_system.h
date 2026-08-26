@@ -33,12 +33,20 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
 
     // The shortcuts this app actually binds. Each entry names the file that
     // owns the binding, so a shortcut that moves cannot quietly go stale here.
-    static constexpr std::array<Row, 24> kRows{{
+    static constexpr std::array<Row, 32> kRows{{
         {"", "Conversations"},
         {"Cmd N", "Start a new task"},              // composer_system.h
         {"Cmd W", "Close the current tab"},         // tab_bar_system.h
         {"Enter", "Send the message"},              // main_pane_system.h
         {"Esc", "Clear the composer"},              // main_pane_system.h
+        {"", "Editing text"},
+        {"Opt Left/Right", "Move a word"},            // input_mapping.h
+        {"Opt Backspace", "Delete the word before"},  // input_mapping.h
+        {"Opt Delete", "Delete the word after"},      // input_mapping.h
+        {"Cmd Left/Right", "Start or end of the line"},  // input_mapping.h
+        {"Cmd Backspace", "Delete back to the line start"},  // text_edit_chords_system.h
+        {"Cmd A", "Select everything in the field"},  // input_mapping.h
+        {"Shift + a move", "Select as you go"},       // afterhours navigate()
         {"", "Reading a thread"},
         {"Home  End", "Jump to the start or the newest"},   // main_pane_system.h
         {"Page Up/Dn", "Move a screenful"},

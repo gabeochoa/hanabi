@@ -75,52 +75,10 @@ Preload& Preload::make_singleton() {
     auto& sophie = EntityHelper::createEntity();
     {
         {
-            // Input mappings for text input
-            std::map<int, afterhours::input::ValidInputs> mapping;
-            mapping[static_cast<int>(InputAction::TextBackspace)] = {
-                afterhours::keys::BACKSPACE,
-            };
-            mapping[static_cast<int>(InputAction::TextDelete)] = {
-                afterhours::keys::DELETE_KEY,
-            };
-            mapping[static_cast<int>(InputAction::TextHome)] = {
-                afterhours::keys::HOME,
-            };
-            mapping[static_cast<int>(InputAction::TextEnd)] = {
-                afterhours::keys::END,
-            };
-            mapping[static_cast<int>(InputAction::WidgetLeft)] = {
-                afterhours::keys::LEFT,
-            };
-            mapping[static_cast<int>(InputAction::WidgetRight)] = {
-                afterhours::keys::RIGHT,
-            };
-            mapping[static_cast<int>(InputAction::WidgetPress)] = {
-                afterhours::keys::ENTER,
-            };
-            // Tab. Without this the focus ring is a lie: context.h's
-            // process_tabbing is the only thing that moves focus_id, it moves
-            // it only on InputAction::WidgetNext, and nothing bound that
-            // action — so four Tab presses in a row produced byte-identical
-            // frames and the ring sat forever on whatever try_to_grab parked
-            // focus on at startup.
-            //
-            // WidgetBack is deliberately left unbound. afterhours' own
-            // default_keymap puts it on BACKSPACE, which in an app with text
-            // fields means deleting a character walks focus backwards;
-            // Shift+Tab already reverses through the WidgetMod branch of the
-            // WidgetNext path, which is the chord a Mac user actually presses.
-            mapping[static_cast<int>(InputAction::WidgetNext)] = {
-                afterhours::keys::TAB,
-            };
-            mapping[static_cast<int>(InputAction::WidgetMod)] = {
-                afterhours::keys::LEFT_SHIFT,
-                afterhours::keys::RIGHT_SHIFT,
-            };
-            mapping[static_cast<int>(InputAction::MenuBack)] = {
-                afterhours::keys::ESCAPE,
-            };
-            input::add_singleton_components(sophie, mapping);
+            // The chords themselves live in input_mapping.h, next to the
+            // enum they are keyed by: the two only work as a pair, and a unit
+            // test asserts the same table this line installs.
+            input::add_singleton_components(sophie, hanabi::input::key_mapping());
         }
         {
             window_manager::add_singleton_components(sophie, 200);

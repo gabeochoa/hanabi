@@ -61,6 +61,7 @@
 #include "ecs/attachment_intake_system.h"
 #include "ecs/escape_system.h"
 #include "ecs/focus_visible_system.h"
+#include "ecs/text_edit_chords_system.h"
 #include "ecs/rename_modal_system.h"
 #include "ecs/toast_system.h"
 #include "ecs/layout_system.h"
@@ -367,6 +368,10 @@ static void build_systems(afterhours::SystemManager& sm) {
     // And for the focus ring: decided once, ahead of every widget, so nothing
     // renders a ring the keyboard has not earned (ui/focus_visible.h).
     sm.register_update_system(std::make_unique<ecs::FocusVisibleSystem>());
+    // Cmd+Backspace turns into a selection here, and the focused field's own
+    // Backspace deletes it later this frame -- so this has to be ahead of the
+    // UI systems that build the fields (text_edit_chords_system.h).
+    sm.register_update_system(std::make_unique<ecs::TextEditChordsSystem>());
     // Pasted / dropped images become composer attachments here, before the UI
     // systems: MainPaneSystem reserves the composer strip from that list.
     sm.register_update_system(std::make_unique<ecs::AttachmentIntakeSystem>());

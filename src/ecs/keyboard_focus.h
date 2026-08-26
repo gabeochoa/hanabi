@@ -12,6 +12,19 @@
 
 namespace ecs {
 
+// The focused field's own state, for the editing chords afterhours has no
+// action for (text_edit_chords_system.h). Null when nothing is focused.
+inline afterhours::text_input::HasTextInputState* focused_text_field() {
+    for (const auto& e :
+         afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+        if (!e) continue;
+        if (!e->has<afterhours::text_input::HasTextInputState>()) continue;
+        auto& st = e->get<afterhours::text_input::HasTextInputState>();
+        if (st.is_focused) return &st;
+    }
+    return nullptr;
+}
+
 inline bool any_text_field_focused() {
     for (const auto& e :
          afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
