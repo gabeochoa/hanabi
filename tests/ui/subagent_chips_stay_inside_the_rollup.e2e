@@ -1,0 +1,43 @@
+# The sub-agent chip row is indented by PADDING, not by a left margin.
+#
+# One of the three horizontal escapes the containment audit found under "many
+# buttons are going outside the bounds", and the one that is purely a library
+# rule nobody has to know until it bites.
+#
+# The chip row wanted a 16px indent under the rollup's header, and asked for it
+# with `percent(1.0f)` width and `Margin{.left = 16}`. Those two are a
+# contradiction, and autolayout resolves it by overflowing: Dim::Percent
+# resolves against the parent's CONTENT box and the child's own margin is never
+# taken off it -- afterhours' own comment says so in as many words, "margins
+# are external spacing and not included in computed" -- and the margin is then
+# applied as a pure translation. So the row came out exactly as wide as its
+# parent and 16px to the right of it: 16px of chips outside the rollup, and the
+# last chip on a line wrapping 16px late, because FlexWrap::Wrap wraps against
+# the row's own width and the row's width was a lie.
+#
+# Padding is the same indent and the right box: it insets the CHILDREN and
+# leaves the element the size its parent gave it. (Padding is inert on a
+# label-only element -- gap #85 -- but these are child divs, so it applies.)
+#
+# The rollup is expanded by CLICKING it rather than by HANABI_EXPAND, because
+# that knob is only read on the --screenshot path and the scripted runner is
+# --e2e. Clicking is the better test anyway: it is what a person does.
+#
+# Verified to fail without the fix: restoring
+# `Margin{.top = 6, .left = 16}` and dropping the padding gives
+#
+#   assert_ui 'subrollup_chips': x=322 but got 338        (line 43)
+#
+# and the row's width stays 736, which is the bug: same width, moved right.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
+# env: HANABI_WIN_W=1100 HANABI_WIN_H=760
+
+wait_frames 12
+click_ui subrollup_head
+wait_frames 8
+
+# The chip row is the rollup: same left edge, same width. The indent the chips
+# get is inside it.
+assert_ui subrollup x=322 w=736
+assert_ui subrollup_chips x=322 w=736

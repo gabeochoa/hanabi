@@ -1869,7 +1869,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{percent(1.0f), children()})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::Wrap)
-                    .with_margin(Margin{.top = pixels(6), .left = pixels(16)})
+                    // The 16px indent is PADDING, not a left margin. A
+                    // percent()-sized child resolves against its parent's
+                    // content box and its own margin is never subtracted from
+                    // that (autolayout.h, Dim::Percent: "margins are external
+                    // spacing and not included in computed"), so `percent(1)`
+                    // plus `margin.left = 16` is a row exactly as wide as the
+                    // parent, shifted 16px right -- 16px of chips outside the
+                    // rollup, and the last chip on a line wrapping 16px late.
+                    // Padding indents the CHILDREN and leaves the row the size
+                    // the parent gave it, which is the same indent and the
+                    // right box. (Padding is inert on a label-only element,
+                    // gap #85 -- these are child divs, so it applies.)
+                    .with_margin(Margin{.top = pixels(6)})
+                    .with_padding(Padding{.left = pixels(16)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("subrollup_chips"));
