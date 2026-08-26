@@ -1,5 +1,15 @@
 # afterhours gaps (from building hanabi)
 
+> **Start with [`afterhours_gaps_index.md`](afterhours_gaps_index.md).** This
+> file is the record — 189 entries, ~10,000 lines, appended by many hands. The
+> index is the work queue: a ranked top ten with the argument for each, every
+> entry weighed for impact and upstream size, the thirteen families that are one
+> mechanism seen from thirteen angles, the nine entries the vendored source shows
+> are wrong or already fixed, the deliberate NOT-A-GAP results that must not be
+> promoted, and the map of the nine gap numbers that are used twice.
+> **Numbers here are never reused or renumbered** — source code and eight commit
+> messages cite them.
+
 Running log of capabilities the vendored `afterhours` immediate-mode UI does
 not (readily) provide, discovered while building hanabi's app code. These are
 NOT implemented in `vendor/afterhours/` (that submodule is owned by external
@@ -659,6 +669,18 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   height accounting + spacer divs. Related: a cheaper "skip layout for a subtree
   flagged off-screen" flag would help even non-list cases.
 
+**POSTSCRIPT 2026-08-26 (gap index) — OVERTAKEN.** The primitive this entry
+asks for exists in the pinned submodule (428047e):
+`afterhours::ui::imm::virtual_list(ctx, mk(parent), count, row_height,
+render_row)` (`src/plugins/ui/imm_components.h:159`) builds a leading spacer,
+the window, and a trailing spacer, sizing the window from
+`HasScrollView::scroll_offset`/`viewport_size` with a 4-row overscan. So "no
+list virtualization primitive" is no longer true. What it does NOT do is the
+half hanabi actually needs — it divides by ONE `row_height`, so a list of
+mixed-height rows cannot use it. The live entry is **#326**; #31 (the stale
+offset) is also partly answered by the overscan. Verified by reading the
+vendored source, not by running it.
+
 ### #24 — wrapped text ignores hard line breaks (`\n` is treated as a word char)
 - **Gap:** `detail::wrap_text_to_width` (rendering.h) does greedy word-wrap by
   splitting on SPACES only; a `\n` in the label is treated as an ordinary
@@ -685,6 +707,17 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   measure API #A to advance a line), so a single wrapping label honors hard
   breaks. Pairs naturally with #22 (per-run color) and #A (a real measure/wrap
   API that reports line count).
+
+**POSTSCRIPT 2026-08-26 (gap index) — RESOLVED UPSTREAM.** The pinned submodule
+(428047e) breaks on `\n`. `rendering.h:629` computes
+`const bool has_hard_break = text.find('\n') != std::string::npos;` and the
+branch below it is commented "Only soft-wrap when asked; otherwise break on
+'\n' alone" — so a hard newline always breaks, with or without
+`TextOverflow::Wrap`. `ui::wrap_text`'s own doc comment
+(`plugins/ui/text_measure.h`) now reads "Honors hard '\n'". The app-side
+per-segment split described above is no longer needed for correctness, though
+it is still what gives the paragraph spacing. Verified by reading the vendored
+source, not by running it.
 
 ---
 
@@ -893,6 +926,18 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   the component already owns all three metrics, this is a pure render + one
   input-handler addition — no new state.
 
+**POSTSCRIPT 2026-08-26 (gap index) — RESOLVED UPSTREAM.** All of it landed.
+`HasScrollView` (`plugins/ui/components.h:588`) carries `show_scrollbar`
+(default **true**), `scrollbar_thickness` and `scrollbar_min_thumb`;
+`scrollbar_geometry()` (`components.h:630`) returns the track and thumb rects
+and returns nothing when `!show_scrollbar || !needed`, i.e. it auto-hides when
+the content fits; and `HandleScrollbarDrag` (`plugins/ui/systems.h:1903-1952`)
+maps a drag on the thumb back into `scroll_offset`. The draggable bar this
+entry asks for is the shipped behaviour. What is left is the *macOS overlay*
+behaviour — nothing at rest, a bar while scrolling — which is **#94**, written
+against these fields. Verified by reading the vendored source, not by running
+it.
+
 ### #27 — immediate-mode UI clears + rebuilds the whole tree every frame; no retained-layout / dirty-skip primitive (the T7 idle-frame floor)
 - **Gap:** the UI is fully immediate-mode. Every frame `BeginUIContextManager`
   runs `ClearVisibity` + `ClearUIComponentChildren` over all `UIComponent`s,
@@ -1094,6 +1139,20 @@ hanabi renders **bold**/_italic_ as a brighter COLOR and `code` in an accent tin
 or oblique glyphs. Fine for now (color conveys emphasis + it word-wraps), but true bold/italic
 would need a per-run font field on TextSpan (e.g. {text,color,font_name}) + the styled draw path
 picking the run's font. Logged as a wishlist item; NOT patched (vendored afterhours is read-only).
+
+**POSTSCRIPT 2026-08-26 (gap index) — WRONG at the pinned submodule (428047e).**
+`TextSpan` is not `{text, color}`. It is
+`{std::string text; Color color; colors::FontWeight weight = Regular;}`
+(`plugins/ui/ui_core_components.h:457-461`), and the struct's own comment says
+"`weight` resolves against the FontManager as base + \"@bold\" etc., falling
+back to the base face when that variant was never loaded — so a run asking for
+Bold in an app that registered no bold font renders regular rather than
+nothing." So per-run WEIGHT is first-class and has been for some time; what is
+still absent is per-run FONT/slant. The reason hanabi's bold renders as a
+brighter colour is not the library — it is that hanabi bundles no bold face
+(**#77**), which is a resource decision, and the fallback above makes asking for
+one harmless. An app that loads `DEFAULT_FONT@bold` gets real bold runs today.
+Verified by reading the vendored source, not by running it.
 
 ## gap #28 RESOLVED (2026-08-03): nested custom-bg child + on_draw_fg now fires
 After the afterhours bump (edfe234 -> f24508a), a 2nd child of the custom-bg user bubble WITH
@@ -3910,6 +3969,34 @@ bounded here only because the list renders viewport-many rows.
 resolved inside the renderer where the font, the size and the final rect are all
 already in hand. Failing that, expose the measurement the layout already does so
 callers stop guessing at advances.
+
+**POSTSCRIPT 2026-08-26 (gap index) — THE ASK HAS LANDED; the entry is stale.**
+`TextOverflow::Ellipsis` exists on `ComponentConfig` in the pinned submodule
+(428047e) and does exactly what this entry asks for, in exactly the place it
+asks for it. `with_text_overflow(TextOverflow overflow)`
+(`plugins/ui/component_config.h:428`), enum at `ui_core_components.h:445`, and
+the implementation is inside the renderer at `rendering.h:737-782`: it measures
+the whole string, returns it untouched if it fits, and otherwise binary-searches
+the longest prefix that fits alongside `"..."`, using the active font, the
+resolved font size and the final rect. hanabi already uses it —
+`src/ecs/settings_system.h:825` and `src/ecs/main_pane_system.h:4173`. The
+sidebar's 18-line `fit_to_width` is a workaround for a gap that is closed, and
+deleting it is an app-side change, not an upstream one.
+
+Two caveats before anyone deletes anything, because they are the reason the
+sidebar may still want its own:
+
+  * the renderer's ellipsis measures with `measure_text` — the INK BOX, not the
+    advance (**#103**, **#137**) — so it disagrees with `theme::text_px` by the
+    same ~2px, on the same strings;
+  * it hardcodes `max_width = rect.width - 10.f` "to account for margins (5px
+    each side)" (`rendering.h:743`), which is the same unqueryable literal as
+    **#75** / **#100** / **#277**, so an element whose text inset is not 5px
+    ellipsizes at the wrong width.
+
+The class drops from WORKAROUND to a live but much smaller ask: make the
+ellipsis path use the same measure and the same inset as everything else.
+Verified by reading the vendored source, not by running it.
 
 ### #82 — Text cannot be measured at a weight, so every weighted string is ellipsized against the wrong metrics
 
@@ -6984,6 +7071,36 @@ laid-out rects for text runs -- plus a `click_text "ledger"` command that
 resolves a rect by content and clicks its centre. Then the script says what it
 means, cannot go stale, and fails with the name of the thing it could not find.
 
+**POSTSCRIPT 2026-08-26 (gap index) — the evidence is stale for the third time,
+and half the fix already exists.** Two corrections, neither of which kills the
+entry:
+
+  * **The coordinates quoted above are not the ones in the tree.**
+    `tests/ui/select_word_and_line.e2e` at `2fd9e84` reads `double_click 415
+    252` and `triple_click 415 252`, not `415 225`. Master moved them in
+    `7f15b253444b` while this entry was being written on a branch that never
+    picked the fix up (`docs/COMMIT_AUDIT.md` M12 has the chain). So the
+    entry's "it fails on unmodified master" is a claim about a coordinate the
+    entry no longer has. The class-level point — that a pinned coordinate rots
+    and cannot check itself — is made *better* by this, not worse: the number
+    in the write-up went stale before the write-up was a week old.
+  * **`click_text` is already a runner command.** The fix this entry proposes
+    ("a `click_text \"ledger\"` command that resolves a rect by content and
+    clicks its centre") is in the pinned submodule:
+    `HandleClickTextCommand` (`plugins/e2e_testing/ui_commands.h`) resolves via
+    `find_component_with_text` and calls `test_input::simulate_click` at the
+    centre. Three hanabi scripts already use it
+    (`session_archive.e2e`, `session_archive_persists.e2e`,
+    `tool_diff_is_coloured.e2e`).
+
+What is actually missing is narrower and worth stating as the real ask: there
+is no `double_click_text` / `triple_click_text`, and `click_text` resolves a
+whole ELEMENT, so it cannot address a word inside a wrapped label — which is
+precisely what a word-selection test needs. The general request stands
+(**#51** / **#86**: report where a text RUN landed); the specific one shrinks to
+two more entries in the parse switch beside `double_click_ui`. Verified by
+reading the vendored source, not by running it.
+
 CLASS: TEDIOUS
 
 **POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the coordinates above are the
@@ -9247,6 +9364,33 @@ the backdrop rather than the ring: `focus_ring_for` already has the entity, so
 `HasColor` is one lookup away, and "contrast with what is behind me" is the
 question the edge was written to answer.
 
+**POSTSCRIPT 2026-08-26 (gap index) — PARTLY OVERTAKEN: there is now a total
+off switch, but not the one this entry asks for.** `focus_ring_for`
+(`plugins/ui/rendering.h:212-226`) at the pinned submodule (428047e) opens with
+
+```cpp
+  FocusRing ring;
+  ring.thickness = context.theme.focus_ring_thickness;
+  if (ring.thickness <= 0.f)
+    return {};
+```
+
+and the comment above it names exactly this entry's finding as the reason:
+"thickness 0 means 'no ring'. It has to be checked before anything is emitted:
+the contrast edges are not gated on it, so an app that set 0 to opt out still
+got lines painted into its widgets." So the statement "nothing in the theme
+turns them off" is no longer accurate — `focus_ring_thickness = 0` now turns off
+all three outlines together, and that is what makes hanabi's own
+`src/ui/focus_visible.h` workaround for **#83** possible at all.
+
+What is still not possible is the thing this entry actually wants: keep the
+coloured ring and drop the two contrast edges. They remain ungated
+individually, and their colour is still derived from the ring's own luminance
+(`rendering.h:243-245`, `lum > 0.5f ? black@180 : white@180`) rather than from
+the backdrop. The measured three-pixel white-blue-white band on a dark theme is
+unchanged. The ask stands as written; only the "no escape at all" framing is
+out of date. Verified by reading the vendored source, not by running it.
+
 ---
 
 ### #258 — `expect_input_text` is the only field assertion that cannot see a multiline field
@@ -10002,6 +10146,28 @@ this. Three copies of one algorithm is where the fourth one gets it wrong.
 `std::function<float(size_t)>` height accessor (or a span of precomputed
 heights) and doing a binary search over the prefix sum, instead of a division.
 The uniform case stays exactly as it is and remains the fast path.
+
+**POSTSCRIPT 2026-08-26 (gap index) — the symbol is `imm::virtual_list`, not
+`imm::vlist`.** Nothing in the pinned submodule (428047e) is named `vlist`;
+`grep -rn vlist src/` returns three debug-name string literals
+(`"vlist_top_spacer"`, `"vlist_row"`, `"vlist_bottom_spacer"`) and nothing else.
+The function is
+`afterhours::ui::imm::virtual_list(ctx, ep, count, row_height, render_row,
+config)` at `plugins/ui/imm_components.h:159`. Recording it because the entry as
+written is not greppable, and this is the entry a reader lands on when they go
+looking for the primitive. Everything else in the entry checks out: the window
+IS `offset / row_height` with a 4-row overscan (`:181-190`), so it is a division
+and mixed heights cannot use it. Two details worth having beside the ask:
+
+  * on frame one, when `viewport_size` has not been measured yet, it renders a
+    fixed initial window of 61 rows (`:189-191`) rather than the whole list —
+    so **#220**'s "build the WHOLE list once" is not true of `virtual_list`
+    itself, only of a consumer windowing by hand;
+  * the rows are keyed `mk(entity, i + 1)` — the SLOT, not the item — which is
+    **#171** exactly, shipped. A per-row `text_input` in a `virtual_list` today
+    silently re-points its state when the list scrolls.
+
+Verified by reading the vendored source, not by running it.
 
 CLASS: MISSING
 
