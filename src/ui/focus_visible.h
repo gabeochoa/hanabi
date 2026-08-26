@@ -33,6 +33,29 @@ namespace hanabi::ui::focus_visible {
 // preload.cpp installs as the app default (one flush hairline, gap #46).
 inline constexpr float kRingThickness = 1.0f;
 
+// The corner roundness the ring inherits when a widget does not state one.
+//
+// afterhours defaults theme.roundness to 0.5 — half the short side, near a
+// pill. hanabi is a square app: 220 of its widgets pass with_roundness(0.0f)
+// and the handful that round anything ask for 0.2-0.4. A widget that draws no
+// background of its own therefore never states a roundness, and got a
+// pill-shaped ring around a rectangular run of text — the composer's effort
+// chip is 18px tall with a transparent background, and its ring came out an
+// oval overlapping the label beside it.
+//
+// Zero is also what stops the corners splaying. The backend's
+// draw_rectangle_rounded_lines short-circuits to a plain rectangle outline at
+// roundness <= 0; above it, each corner is an arc approximated with
+// theme.segments (8) line segments, and the ring draws THREE concentric rects
+// whose radii are (shorter * 0.5 * roundness) apart. Three coarse polygons at
+// three radii put their vertices in three places, and the corner reads as a
+// scatter of pixels rather than a curve. At zero there is no arc to
+// approximate and the three outlines are exactly concentric.
+//
+// A widget with a rounded background still overrides this: HasRoundedCorners
+// carries the widget's own roundness and focus_ring_for prefers it.
+inline constexpr float kRingRoundness = 0.0f;
+
 // Whether the keyboard has been used to navigate since the last pointer press.
 inline bool& armed() {
     static bool value = false;

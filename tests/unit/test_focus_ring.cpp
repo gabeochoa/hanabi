@@ -21,6 +21,7 @@
 // luminance function itself rather than a copy of the formula, because the
 // question is not "what do we think this colour is" but "which branch will the
 // renderer take".
+#include <algorithm>
 #include <cstdio>
 
 #include <afterhours/src/plugins/color.h>
@@ -141,12 +142,50 @@ static void test_the_ring_is_still_visible_and_still_the_accent() {
     theme::set_mode(theme::Mode::Dark);
 }
 
+// The ring's SHAPE. focus_ring_for emits three concentric outlines — the
+// coloured ring, one contrast edge a pixel out, one a pixel in — and the
+// backend turns each corner into an arc of theme.segments (8) line segments
+// with radius (min(w,h) * 0.5 * roundness). Three coarse polygons at three
+// different radii put their vertices in three different places, which is what
+// made every corner a scatter of pixels instead of a curve.
+//
+// Spelled with the backend's own arithmetic (drawing_helpers.h) rather than a
+// claim about the constant, because the property is "the three outlines cannot
+// disagree", not "the number is zero".
+static float backend_corner_radius(float w, float h, float roundness) {
+    if (roundness <= 0.0f) return 0.0f;
+    return std::min(w, h) * 0.5f * roundness;
+}
+
+static void test_the_rings_three_outlines_cannot_fan_apart() {
+    std::printf("test_the_rings_three_outlines_cannot_fan_apart\n");
+    // The composer's effort chip: 18px tall, transparent background, states no
+    // roundness of its own, so it is the widget the default reaches.
+    const float w = 62.0f, h = 18.0f;
+    const float t = fv::kRingThickness;
+    const float inner =
+        backend_corner_radius(w - 2.0f, h - 2.0f, fv::kRingRoundness);
+    const float mid = backend_corner_radius(w, h, fv::kRingRoundness);
+    const float outer =
+        backend_corner_radius(w + 2.0f * t, h + 2.0f * t, fv::kRingRoundness);
+    if (inner != mid || mid != outer)
+        std::printf(
+            "  roundness %.2f gives the ring three radii: inner %.3f, ring "
+            "%.3f, outer %.3f — 8 segments each, so the corners fan\n",
+            static_cast<double>(fv::kRingRoundness),
+            static_cast<double>(inner), static_cast<double>(mid),
+            static_cast<double>(outer));
+    CHECK(inner == mid);
+    CHECK(mid == outer);
+}
+
 int main() {
     std::printf("== focus ring ==\n");
     test_the_dark_theme_does_not_get_white_edges();
     test_the_light_theme_keeps_its_own_answer();
     test_every_accent_swatch_lands_on_the_right_side();
     test_the_ring_is_still_visible_and_still_the_accent();
+    test_the_rings_three_outlines_cannot_fan_apart();
     if (g_failures != 0) {
         std::printf("FAILED (%d)\n", g_failures);
         return 1;

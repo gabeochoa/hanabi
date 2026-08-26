@@ -16,6 +16,7 @@
 #endif
 
 #include "input_mapping.h"
+#include "ui/focus_visible.h"
 #include "rl.h"
 
 #include <afterhours/src/core/key_codes.h>
@@ -191,6 +192,16 @@ Preload& Preload::make_singleton() {
         // from, and it is the desktop convention anyway.
         theme.focus_ring_thickness = 1.0f;
         theme.focus_ring_offset = 0.0f;
+
+        // Square by default, which is what this app is: 220 widgets pass
+        // with_roundness(0.0f) and afterhours defaults to 0.5, half the short
+        // side. The default only ever reached a widget that states no
+        // roundness of its own — a transparent chip, a bare label — and those
+        // are exactly the widgets with no visible shape for a rounded ring to
+        // agree with. See ui/focus_visible.h kRingRoundness for why zero also
+        // stops the ring's three concentric outlines fanning at the corners.
+        // Both frozen parity captures are byte-identical across this change.
+        theme.roundness = hanabi::ui::focus_visible::kRingRoundness;
 
         // Arrows stay hanabi's. theme.arrows_tab defaults true, which makes
         // process_tabbing treat Up/Down as Tab/Shift+Tab — and hanabi already
