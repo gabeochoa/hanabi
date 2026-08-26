@@ -1,0 +1,35 @@
+# The tally counts the thread. The bands count the screen.
+#
+# `findCount` is every paintable match in the loaded transcript; a band is
+# painted only for the part of it the virtualization window actually built
+# (main_pane_system.h render_rich_body, `cull`). So the two are equal only when
+# the whole thread fits — and every fixture that asserted them equal was short
+# enough that nothing was culled, which is to say the rule was confirmed
+# exactly where virtualization is a no-op.
+#
+# This is the other case. One 57-line reply with folding turned off, in a 760px
+# window: "migration" is in 56 paintable lines of it and about two thirds of
+# them are on screen at any moment. What must hold is that the TALLY does not
+# move when the screen does — a reader wants to know how many matches are in
+# the thread, the way every editor's "3 of 47" does — while the bands do.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","fold_long_messages":false}
+# env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong HANABI_FIND_DEMO=migration HANABI_FIND_AUDIT=1
+
+# 55 checklist lines plus the sign-off. The thread opens at its end.
+expect_text "1 of 56"
+
+# Twenty of those 56 are above the viewport and are not built, so they are not
+# painted. This is the number that used to be asserted equal to the tally.
+expect_text "bands 36"
+
+# Home jumps to the top of the thread. A different set of lines is built, so a
+# different set of bands is painted...
+key HOME
+wait_frames 20
+expect_text "Step 1 of the migration"
+expect_text "bands 31"
+
+# ...and the tally is the number it always was, because it was never a
+# statement about the screen.
+expect_text "1 of 56"

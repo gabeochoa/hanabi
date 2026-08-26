@@ -1,0 +1,14 @@
+# The control for find_says_the_thread_is_windowed.e2e.
+#
+# A thread that arrived whole has nothing to admit, so the line under the bar
+# must not appear — otherwise the warning is decoration and stops meaning
+# anything on the thread that needs it. t2 is four messages; the fetch window
+# is forty.
+#
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_FIND_DEMO=kestrel
+
+expect_text "no matches"
+expect_no_text Older

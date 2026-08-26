@@ -282,8 +282,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // snippets actually painted. A script can read a label and never a
         // band, so without this "the matched words are lit" is a claim no test
         // can hold — and this number sitting next to find's own audit is what
-        // shows the two counts are separate (find_counts_only_what_it_paints
-        // .e2e is the rule those bands must not disturb). Absolutely
+        // shows the two counts are separate (find_counts_only_what_it_could
+        // _paint.e2e is the rule those bands must not disturb). Absolutely
         // positioned so the test build's extra label cannot push the sidebar's
         // column past its own height, which is a layout warning every frame
         // (gap #53) and a different render than the one being tested.

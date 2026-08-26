@@ -6,11 +6,18 @@
 //
 // An operator narrows WHICH ROWS the plain text is searched in; it never
 // changes what a match is. That split matters because find's counting rule is
-// load-bearing: the tally must equal the number of highlight bands actually
-// painted (tests/ui/find_counts_only_what_it_paints.e2e). Keeping the operator
-// on the row side and the text on the match side means the filter can only
-// ever remove a row from BOTH sides at once — the same predicate decides
-// whether a row is counted and whether it is painted, so the two cannot drift.
+// load-bearing: every match in the tally must be one find would paint if that
+// message were on screen (tests/ui/find_counts_only_what_it_could_paint.e2e).
+// Keeping the operator on the row side and the text on the match side means
+// the filter can only ever remove a row from BOTH sides at once — the same
+// predicate decides whether a row is counted and whether it is painted, so the
+// two cannot drift.
+//
+// The tally is NOT a count of bands on screen, and never was: bands are
+// painted only inside the virtualization window, so a thread longer than the
+// screen paints a subset of what it counts. "3 of 47" means 47 in the thread,
+// which is what it means in every other editor
+// (tests/ui/find_counts_the_thread_not_the_window.e2e).
 //
 // Only rows the transcript can actually highlight are worth filtering, which
 // is why the vocabulary looks the way it does. `is:tool` and `is:thinking` are
@@ -30,6 +37,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -40,6 +48,13 @@ namespace hanabi::find_ops {
 // Shown under the find bar when a query names an operator we do not have.
 inline constexpr const char* kHint =
     "Try: is:user, is:assistant, has:tool, state:failed";
+
+// Shown under the find bar when the thread on screen is only the newest slice
+// of itself. Opening a thread fetches its last 40 messages
+// (LoaderSystem::kMessagesWindow) and older ones arrive when you scroll back,
+// so "no matches" over a 480-message thread meant "not in the 40 we have" and
+// read as "you never said that" (docs/SEARCH.md S9).
+inline constexpr const char* kWindowedNote = "Older messages not loaded";
 
 enum class Filter {
     Role,       // the row's own role
@@ -189,6 +204,25 @@ inline bool row_matches(const api::Session& s, size_t i, const Query& q) {
         }
     }
     return true;
+}
+
+// Which of the two lives in the one slot under the bar, or nothing.
+//
+// They compete: the bar is 332px wide and there is room for one line. The
+// malformed-operator hint wins, because a query the parser could not read
+// makes the tally meaningless — "no matches" from a bad operator is a
+// different kind of wrong from "no matches so far", and the reader has to fix
+// the query before the other caveat is even worth reading.
+//
+// Pure, and tested as such (tests/e2e/test_e2e.cpp), because the positive case
+// cannot be scripted: the transcript's own load-older PREFETCH fires while the
+// UI harness settles and pulls the whole fixture in, so by the time a script
+// can assert anything there is nothing left unloaded to warn about.
+inline std::string_view bar_note(const Query& q, bool queryTyped,
+                                 bool hasMoreOlder) {
+    if (q.invalid) return kHint;
+    if (queryTyped && hasMoreOlder) return kWindowedNote;
+    return std::string_view();
 }
 
 }  // namespace hanabi::find_ops

@@ -1,0 +1,29 @@
+# "Full text" has to be true of the threads you were just reading.
+#
+# The cross-session index preferred the in-memory LRU over the disk copy, on
+# the argument that it is the newer of the two. It is, and it is also only the
+# last 20 messages of the thread (ecs::model::kCacheMaxMessagesPerThread) — so
+# the threads you had most recently read were the SHALLOWEST entries in the
+# corpus, and the sentence whose entire job is admitting what could not be read
+# called them full text. docs/SEARCH.md S2.
+#
+# rbig is 480 messages. The loader fetches the newest 40 and the cache keeps 20
+# of those, so what this search can see of it is the last 20 messages of 480.
+# Before, that was "Full text for 1 of 21 threads" with no mark on the row.
+#
+# The chord is Cmd+Shift+F, which no script can press (afterhours_gaps.md #49),
+# so the panel is opened through HANABI_XSEARCH_DEMO like every other Cmd-only
+# surface.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_XSEARCH_DEMO=question
+
+# The hit is real — "question" is in the tail we hold — and the row says which
+# kind of reading found it, because an ABSENT match in a thread read this way
+# is not evidence of anything.
+expect_text "PERF: long transcript for frame timing  (recent messages only)"
+
+# And the count in the note stops claiming a depth nobody has: zero threads
+# read in full, one read to its newest messages, the other twenty by title and
+# preview.
+expect_text "Full text for 0 of 21 threads; 1 to their newest messages only; the rest by title and preview only"

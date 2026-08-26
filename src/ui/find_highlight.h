@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../../vendor/afterhours/src/plugins/ui/text_selection.h"
+#include "../util/prof.h"
 #include "../util/textscan.h"
 #include "theme.h"
 
@@ -43,12 +44,22 @@ inline constexpr float kVPad = 1.0f;  // trims the band off the line box
 
 using textscan::occurrences;
 
-// How many bands were painted since the last read. The tally the find bar
-// shows is only true if it equals this (see
-// tests/ui/find_counts_only_what_it_paints.e2e), and the scripted harness
-// cannot see pixels — a band is drawn, never registered as text. Counting
-// them here is the only way a test can hold the count and the painting to
-// each other rather than to two independent readings of the same code.
+// How many bands were painted since the last read.
+//
+// This is NOT the find bar's tally and must not be read as it. The tally is
+// every paintable match in the thread; a band is painted only for a message
+// the virtualization window actually built, so `bands <= tally`, with equality
+// only when the whole thread fits the window. The rule that does hold is the
+// one on the other side: nothing is counted that this could not paint if the
+// message were on screen — same rows, same normalization, same exclusions
+// (tests/ui/find_counts_only_what_it_could_paint.e2e), and the tally holds
+// still while the bands come and go under a scroll
+// (tests/ui/find_counts_the_thread_not_the_window.e2e).
+//
+// The scripted harness cannot see pixels — a band is drawn, never registered
+// as text. Counting them here is the only way a test can hold the painting and
+// the count against each other rather than against two readings of the same
+// code.
 inline int& band_count() {
     static int n = 0;
     return n;
@@ -65,16 +76,28 @@ inline int take_band_count() {
 //
 // The geometry lives here ONCE and takes its tally as a parameter, because a
 // second caller appeared (the sidebar's search snippets) and the two must not
-// share a counter: find's tally is asserted against the bands find painted
-// (tests/ui/find_counts_only_what_it_paints.e2e), and a band painted somewhere
-// else entirely landing in that count would break the one rule that makes the
-// tally worth reading. Copying the arithmetic instead would have been worse —
-// it is a transcription of the renderer's private constants (gap #51), and two
-// transcriptions rot independently.
+// share a counter: find's band count is asserted against find's own painting
+// (tests/ui/find_counts_only_what_it_could_paint.e2e), and a band painted
+// somewhere else entirely landing in that count would break the one reading
+// that can corroborate the tally at all. Copying the arithmetic instead would
+// have been worse — it is a transcription of the renderer's private constants
+// (gap #51), and two transcriptions rot independently.
 inline void paint_bands(RectangleType rect, const std::string& text,
                         const std::string& query, float fontPx,
                         theme::Color band, int& tally) {
     if (query.empty() || text.empty() || rect.width <= 0.0f) return;
+    // Does this label contain the query AT ALL? Asked first, and that is the
+    // whole of it: this runs for every painted label while the bar is open,
+    // and everything below — the wrap, a measure per candidate line, a vector
+    // of strings the width of the paragraph — used to happen for labels with
+    // no match in them, which is nearly all of them. On the 480-message
+    // fixture the find bar cost +2.77 ms a frame (2.81 -> 5.58, CPU time,
+    // HANABI_PROF at 1180x949) and +13k to +19k allocations a frame; most of
+    // that was this. A byte scan of the label is the cheapest thing in the
+    // function and it answers for all of it.
+    const std::vector<size_t> found = occurrences(text, query);
+    if (found.empty()) return;
+    hanabi::prof::Scope _ppaint("find.paint");
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::FontManager>();
     if (fm == nullptr) return;
@@ -96,13 +119,58 @@ inline void paint_bands(RectangleType rect, const std::string& text,
     const float blockH = lineH * static_cast<float>(lines.size());
     const float y0 = rect.y + std::max(0.0f, (rect.height - blockH) * 0.5f);
 
-    for (size_t i = 0; i < lines.size(); ++i) {
-        const std::string& ln = lines[i];
-        for (size_t off : occurrences(ln, query)) {
-            const float x0 = rect.x + kTextMarginX + measure(ln.substr(0, off));
-            const float w = measure(ln.substr(off, query.size()));
+    // Match over the WHOLE line, then place the hit on the wrapped ones.
+    //
+    // Searching each wrapped line separately is what a straddling multi-word
+    // query falls through: the wrapper consumes the whitespace at a break, so
+    // "6 failures" broken across two rendered lines is in neither of them,
+    // while collect_matches — which scans the logical line — counts it. That
+    // is a match no scroll can ever bring under a band, and it breaks the one
+    // rule the tally rests on (docs/SEARCH.md S12).
+    //
+    // The mapping is reconstructed rather than asked for, because the wrapper
+    // returns only the lines. It is exact rather than a guess, and the reason
+    // is a property of the wrapper worth naming: it breaks ONLY between
+    // whitespace-separated chunks, never inside a word (a word wider than the
+    // line gets a line to itself, uncut), and it never rewrites a byte —
+    // "hard-broken text round-trips byte for byte", text_selection.h. So each
+    // wrapped line is a contiguous substring of the original, in order, and
+    // find() from the previous line's end locates it. See afterhours_gaps.md
+    // #366 for the API that would make this stop being a reconstruction.
+    std::vector<size_t> lineAt(lines.size(), 0);
+    for (size_t i = 0, from = 0; i < lines.size(); ++i) {
+        if (lines[i].empty()) {
+            lineAt[i] = from;
+            continue;
+        }
+        const size_t at = text.find(lines[i], from);
+        if (at == std::string::npos) return;  // not our text; paint nothing
+        lineAt[i] = at;
+        from = at + lines[i].size();
+    }
+
+    for (size_t off : found) {
+        const size_t end = off + query.size();
+        // One tally per MATCH, one rectangle per line it lands on. A hit
+        // across a break is one match the reader can see, drawn in two
+        // pieces — counting it twice would make the audit disagree with the
+        // find bar for a reason that is not a defect.
+        bool counted = false;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const size_t lo = lineAt[i];
+            const size_t hi = lo + lines[i].size();
+            if (hi <= off || lo >= end) continue;
+            const size_t a = off > lo ? off - lo : 0;
+            const size_t b = (end < hi ? end : hi) - lo;
+            if (b <= a) continue;
+            const float x0 =
+                rect.x + kTextMarginX + measure(lines[i].substr(0, a));
+            const float w = measure(lines[i].substr(a, b - a));
             if (w <= 0.0f) continue;
-            ++tally;
+            if (!counted) {
+                ++tally;
+                counted = true;
+            }
             afterhours::draw_rectangle_rounded(
                 RectangleType{x0, y0 + lineH * static_cast<float>(i) + kVPad,
                               w, lineH - kVPad * 2.0f},

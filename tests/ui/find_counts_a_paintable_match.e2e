@@ -1,0 +1,21 @@
+# The control side of find_counts_only_what_it_could_paint.e2e.
+#
+# That script asserts a zero — "prorate" lives only inside a fenced code block,
+# which has no highlight path, so it is not counted and not painted. A zero is
+# satisfied by any bug that returns zero, which is how it managed to pass for
+# years without ever turning on the band audit it was named after. This is the
+# same thread, the same fence, and a word that IS paintable: "proration" is in
+# the assistant's opening line and again in its closing one, both outside the
+# fence.
+#
+# Together they say the fence is skipped rather than the thread being empty.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t4"],"active_tab":"t4","theme":"dark"}
+# env: HANABI_FIND_DEMO=proration HANABI_FIND_AUDIT=1
+
+# The System caption at the top of the thread also says "proration" and is not
+# counted — it has no highlight path either. Two assistant lines, two matches.
+require_thread t4
+
+expect_text "1 of 2"
+expect_text "bands 2"

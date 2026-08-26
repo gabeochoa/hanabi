@@ -125,9 +125,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Only while the bar is open: with it closed there is no tally for a
         // step to mean anything against.
         //
-        // findCount is the count the LAST rendered frame painted. That is the
-        // only count that exists at the top of a frame, and it is the honest
-        // one to step over: it is the number of bands currently on screen.
+        // findCount is the count the LAST rendered frame computed: every
+        // paintable match in the loaded thread, not the subset the
+        // virtualization window happened to paint. That is the only count
+        // that exists at the top of a frame, and it is the right one to step
+        // over — stepping is how you reach a match that is NOT on screen.
         if (app->pane().findOpen) {
             const hanabi::find_nav::Step step = hanabi::find_nav::chord(
                 hanabi::keys::cmd_down(), hanabi::keys::shift_down(),
@@ -3094,6 +3096,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // One match: which message, and where in it.
+    //
+    // WHAT THE TALLY IS. Every paintable match in the loaded thread — not the
+    // ones currently on screen. Bands are painted only for the messages the
+    // virtualization window built, so `bands <= findCount`, and equality holds
+    // only when the whole thread fits the window. That gap is the feature:
+    // "3 of 47" answers "how many are in this thread", which is what it
+    // answers in every other editor, and the chevrons are how you walk to the
+    // 44 that are not in front of you.
+    //
+    // The rule that IS load-bearing runs the other way — nothing is counted
+    // that find could not paint. Same rows (user and assistant, no tool rows,
+    // no system captions, no thinking blocks), same normalization
+    // (paintable_lines), same operator predicate on both sides, and the same
+    // LOGICAL line on both sides: find_highlight::paint_bands matches over the
+    // whole line and then places the hit on the wrapped ones, so a multi-word
+    // query broken across a soft wrap is painted rather than counted-only
+    // (docs/SEARCH.md S12). A match that survives all of that is one a scroll
+    // can bring under a band.
+    //
+    // The remaining exception is a match in the folded tail of a long message,
+    // which is at least reachable by a click on the fold rather than by
+    // nothing at all.
     struct Match {
         int msg = 0;
         size_t off = 0;
@@ -3113,8 +3137,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // model talking to itself on the way to the answer, it arrives
             // folded, and its body is drawn by a path that carries no
             // highlight — so a match in it could be counted and never shown.
-            // Skipped here AND in paint_query_for, which is what keeps the
-            // tally equal to the bands painted.
+            // Skipped here AND in paint_query_for, which is what keeps every
+            // counted match a match find would paint if it were on screen.
             if (is_thinking(m)) continue;
             // An operator excludes the row from the tally and from the
             // painting through this one test, so the two cannot disagree.
@@ -3306,10 +3330,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // text and quietly widen the search — the query would say one thing
         // and the tally another. Say so instead, under the bar so the row's
         // fixed width is untouched.
-        if (q.invalid)
+        //
+        // The same slot carries the other thing the bar cannot say in 74px:
+        // that the thread is WINDOWED. Opening a thread fetches its newest 40
+        // messages (LoaderSystem::kMessagesWindow) and older ones arrive on
+        // demand, so "no matches" over a 480-message thread meant "not in the
+        // 40 we have" and read as "not in this conversation" (docs/SEARCH.md
+        // S9). The tally is honest about the thread it can see; this says how
+        // much of the thread that is. The hint wins the slot when both apply —
+        // a malformed operator makes the count meaningless, so it is the more
+        // urgent of the two.
+        const std::string_view note =
+            find_ops::bar_note(q, !app.pane().findQuery.empty(), app.pane().hasMoreOlder);
+        if (!note.empty())
             div(ctx, mk(parent, 7501),
                 ComponentConfig{}
-                    .with_label(find_ops::kHint)
+                    .with_label(std::string(note))
                     .with_size(ComponentSize{pixels(kBarW), pixels(16)})
                     .with_absolute_position()
                     .with_translate(bx, 52.0f + kBarH + 4.0f)
@@ -3711,6 +3747,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
         std::vector<Match> matches;
         if (pane.findOpen && !findQ.text.empty()) {
+            hanabi::prof::Scope _pfind("find.collect");
             matches = collect_matches(*pane.openSession, findQ);
             if (pane.findIndex >= static_cast<int>(matches.size()))
                 pane.findIndex = 0;

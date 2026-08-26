@@ -1,6 +1,19 @@
 # A search result shows the line it matched on, with the words lit — and that
 # highlighting stays out of find's count.
 #
+# THIS SCRIPT USED TO PROVE NEITHER. It typed "workers" and asserted the
+# snippet "1 of 3 workers has reported", which is session r6's PREVIEW; the row
+# matched on its TITLE, which also says "workers", and r6 is not in the
+# in-memory LRU — so snippet_for's transcript branch, the feature the commit
+# sells, never ran. Deleting that branch left the test green. docs/SEARCH.md
+# S10.
+#
+# The query is "before" now. It is in exactly one title in the catalog (t2's
+# "needs a decision before it can go on") and t2 is the restored tab, so its
+# transcript IS held — and the word is in the first message, not in the
+# preview. So the line asserted below can only come from the transcript, and
+# falling back to the preview ("two accounts do not reconcile") fails.
+#
 # [APP-WORKAROUND] Painting behind a run of text means knowing where that run
 # landed on screen, and nothing in the library will say (afterhours_gaps.md
 # #51). The band positions are re-derived by redoing the renderer's own layout,
@@ -8,21 +21,19 @@
 # code, so there is one transcription of the renderer's constants rather than
 # two that rot apart.
 #
-# The counters, though, are two, and this script is why. The find tally is only
-# worth reading because it equals the bands find painted
-# (find_counts_only_what_it_paints.e2e). A band painted in the SIDEBAR is not
-# one of those, so it is counted separately: here both audits are on at once,
-# the sidebar paints one band and find still reports exactly its two.
+# The counters, though, are two, and this script is why. find's band count is
+# what corroborates find's tally (find_counts_only_what_it_could_paint.e2e). A
+# band painted in the SIDEBAR is not one of those, so it is counted separately:
+# here both audits are on at once, the sidebar paints one band and find still
+# reports exactly its two.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_FIND_DEMO=delta HANABI_FIND_AUDIT=1 HANABI_SNIPPET_AUDIT=1
 
-# The find query is "delta" and not "ledger" for one reason: this script
-# searches the sidebar for "workers", and the row that matches renders the
-# snippet "1 of 3 workers has reported". expect_text is a substring match over
-# every visible label, so with three "ledger" matches the tally "1 of 3" would
-# also be satisfied by that row — the assertion below would pass with find
-# broken. "delta" matches the two account lines and nothing else.
+# The find query is "delta" and not "ledger" for one reason: expect_text is a
+# substring match over every visible label, and with three "ledger" matches the
+# tally "1 of 3" would also be satisfied by a sidebar row. "delta" matches the
+# two account lines and nothing else.
 #
 # Before the sidebar is searched at all: find's tally and find's bands agree.
 require_thread t2
@@ -30,13 +41,18 @@ require_thread t2
 expect_text "1 of 2"
 expect_text "bands 2"
 
-# Search the list. The row that matches now carries the line it matched on.
+# Search the list. The row that matches now carries the line it matched on —
+# out of the conversation, not out of the preview.
 click 140 58
 wait_frames 4
-type "workers"
+type "before"
 wait_frames 10
-expect_text "two workers still out"
-expect_text "1 of 3 workers has reported"
+# The row's own title, cut short: a sidebar row ellipsizes what does not fit,
+# so the assertion stops before the end of it.
+expect_text "needs a decision before it"
+# The preview, which is what the row falls back to when the transcript branch
+# does not run, is "two accounts do not reconcile" — a different line.
+expect_text "…against the ledger before the batch runs."
 
 # One occurrence in that snippet, one band painted behind it.
 expect_text "snippet bands 1"

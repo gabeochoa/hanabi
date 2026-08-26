@@ -39,9 +39,18 @@
 namespace hanabi::search {
 
 // How much of a thread the index could actually read.
+//
+// Windowed exists because "or as much as the cache kept" used to be a
+// parenthetical on Full, and a parenthetical is not an admission. The
+// in-memory LRU holds the last 20 messages of a thread; build_index preferred
+// it over the disk copy because it is the NEWER of the two, which is true and
+// irrelevant — newer is not fuller. So the threads you had just been reading
+// were the least deeply indexed ones in the corpus, and coverage_note called
+// them Full (docs/SEARCH.md S2).
 enum class Depth {
     TitleOnly,  // the list row: title + preview. Never the conversation.
-    Full,       // a transcript we hold, in full (or as much as the cache kept)
+    Windowed,   // the tail of the conversation: what a windowed copy held
+    Full,       // the whole conversation, as this machine has it
 };
 
 struct Doc {
@@ -58,6 +67,7 @@ struct Hit {
     std::string snippet;   // context around the match; empty for a title hit
     bool in_body = false;  // matched inside the conversation, not the title
     bool partial = false;  // this thread was searched title-and-preview only
+    bool windowed = false; // only the tail of this thread was searched
 };
 
 // What the answer is worth: how many threads were searched, and how many of
@@ -65,7 +75,8 @@ struct Hit {
 struct Coverage {
     std::size_t threads = 0;
     std::size_t full = 0;
-    std::size_t shallow() const { return threads - full; }
+    std::size_t windowed = 0;
+    std::size_t shallow() const { return threads - full - windowed; }
     bool complete() const { return threads > 0 && full == threads; }
 };
 
@@ -128,18 +139,44 @@ class Index {
 
     std::size_t size() const { return docs_.size(); }
 
+    // Read-back and replacement, for a corpus that is assembled over several
+    // frames instead of all at once (session_corpus.h). set_body re-lowers the
+    // one document it touches; nothing else in the index moves, so a query
+    // running against a half-deepened corpus is answering over exactly the
+    // documents that have arrived.
+    const std::string& id_at(std::size_t i) const { return docs_[i].id; }
+    Depth depth_at(std::size_t i) const { return docs_[i].depth; }
+    std::size_t body_size_at(std::size_t i) const {
+        return docs_[i].body.size();
+    }
+    void set_body(std::size_t i, std::string body, Depth d) {
+        lowered_[i].body = fmtutil::to_lower(body);
+        docs_[i].body = std::move(body);
+        docs_[i].depth = d;
+    }
+
     Coverage coverage() const {
         Coverage c;
         c.threads = docs_.size();
-        for (const auto& d : docs_)
+        for (const auto& d : docs_) {
             if (d.depth == Depth::Full) ++c.full;
+            else if (d.depth == Depth::Windowed) ++c.windowed;
+        }
         return c;
     }
 
-    // Threads matching `q`, in the order they were added (the caller adds them
-    // newest-first, and a relevance score over two fields would be a ranking
-    // nobody can predict). At most `max_hits`; an empty query matches nothing,
-    // because "everything" is not a search result.
+    // Threads matching `q`, in the order they were added. A relevance score
+    // over two fields would be a ranking nobody can predict, so the order is
+    // recency — and that is now a fact rather than a hope. This comment used
+    // to say "the caller adds them newest-first", and the caller iterated
+    // app.sessions unmodified: MockClient::list_sessions sorts, HttpClient and
+    // AgentcloudClient push rows in WIRE order, and the sidebar sorts its own
+    // copy precisely because it cannot trust the incoming order
+    // (docs/SEARCH.md S7). CorpusBuilder::begin sorts by updated_at
+    // descending, ties broken by id, before anything is added.
+    //
+    // At most `max_hits`; an empty query matches nothing, because "everything"
+    // is not a search result.
     std::vector<Hit> query(const std::string& q, std::size_t max_hits) const {
         std::vector<Hit> out;
         const std::string needle = fmtutil::to_lower(q);
@@ -151,7 +188,8 @@ class Index {
             Hit h;
             h.id = d.id;
             h.title = d.title;
-            h.partial = d.depth != Depth::Full;
+            h.partial = d.depth == Depth::TitleOnly;
+            h.windowed = d.depth == Depth::Windowed;
 
             const std::size_t inBody = lo.body.find(needle);
             if (inBody != std::string::npos) {
@@ -188,10 +226,15 @@ inline std::string coverage_note(const Coverage& c) {
     if (c.complete())
         return "Full text for all " + std::to_string(c.threads) + " threads";
     // Short on purpose: a line nobody can read across the panel is the same
-    // as not admitting anything.
-    return "Full text for " + std::to_string(c.full) + " of " +
-           std::to_string(c.threads) +
-           " threads; the rest by title and preview only";
+    // as not admitting anything. Three clauses at the very worst, and the two
+    // optional ones only appear when the number in front of them is not zero.
+    std::string note = "Full text for " + std::to_string(c.full) + " of " +
+                       std::to_string(c.threads) + " threads";
+    if (c.windowed > 0)
+        note += "; " + std::to_string(c.windowed) +
+                " to their newest messages only";
+    if (c.shallow() > 0) note += "; the rest by title and preview only";
+    return note;
 }
 
 }  // namespace hanabi::search

@@ -17,9 +17,10 @@ require_thread t2
 
 expect_text "2 of 3"
 
-# And the rule that makes the tally mean anything: it equals the number of
-# bands actually painted. Stepping moves WHICH match is current; it must not
-# add or drop a highlight (find_counts_only_what_it_paints.e2e).
+# And the rule that makes the tally mean anything: every match it counts is one
+# find would paint. This thread fits the window, so here the two numbers are
+# equal outright. Stepping moves WHICH match is current; it must not add or
+# drop a highlight (find_counts_only_what_it_could_paint.e2e).
 expect_text "bands 3"
 
 # The chevrons go through the same step, so they still agree with the chord:

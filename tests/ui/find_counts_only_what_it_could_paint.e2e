@@ -1,0 +1,31 @@
+# Nothing is counted that find could not paint.
+#
+# The highlight is drawn per RENDERED line — after markdown normalization and
+# inline-marker parsing — while the obvious thing to count is the stored text.
+# Those differ: "**6 failures**" stores ten characters around the phrase and
+# paints six, and a fenced code block is rendered by a different path that
+# carries no highlight at all. Counting the stored text therefore promised
+# matches that could never be shown.
+#
+# This test used to be one line — `expect_text "no matches"` — which any bug
+# that made find return zero satisfies, and which never turned on the band
+# audit the file is named after. Both numbers are asserted now.
+#
+# The OTHER direction is not a rule and never was: bands are painted only
+# inside the virtualization window, so a thread longer than the screen paints a
+# subset of what it counts. This thread is four messages long and fits, which
+# is why the two numbers meet here.
+# See find_counts_the_thread_not_the_window.e2e for the case where they do not.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t4"],"active_tab":"t4","theme":"dark"}
+# env: HANABI_FIND_DEMO=prorate HANABI_FIND_AUDIT=1
+
+# "prorate" appears in this thread — but only inside a fenced code block, which
+# has no highlight path. Not paintable, so not counted...
+require_thread t4
+
+expect_text "no matches"
+
+# ...and the audit says the painting agrees: zero counted, zero drawn. Without
+# this line the assertion above is satisfied by any bug that returns zero.
+expect_text "bands 0"
