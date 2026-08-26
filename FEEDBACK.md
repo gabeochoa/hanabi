@@ -124,18 +124,41 @@ rebuilds marks per frame is the expensive shape — build the interaction so it
 does not.
 
 
-## C7. Mouse wheel must scroll a thread — IN PROGRESS
+## C7. Mouse wheel must scroll a thread — DONE (`feat/transcript-wheel`)
 
 His words, 2026-08-26: *"can you make sure that scrolling with the scroll wheel
 works in threads, i would love that feature"*.
 
-Something is already there — `src/main.cpp:401` documents an eased wheel glide,
-and `main_pane_system.h` twice refers to "what every wheel scroll here already
-does". So this is a debugging task, not a new feature. Prime suspect: the
-transcript's follow-latch re-pinning to the end on the frame after a wheel
-event, which would make the wheel look dead while working perfectly.
+It did not half-work. Over a transcript the wheel moved the view **exactly zero
+pixels** — eight notches, `transcript_bottom_pad` at y=646 before and y=646
+after — and it was not a dead event or a missed hit-test, because the same eight
+notches after one PAGE_UP moved the pad 646 → 1209 → 1689. The notch arrived
+every time and the pane erased it on the next frame.
 
-On `feat/transcript-wheel`.
+Two lines of the follow-latch, in this order:
+
+```
+if (prevOffset >= 0 && offset < prevOffset - 2) follow = false;
+if (nearEnd) follow = true;              // undoes the line above
+```
+
+afterhours writes a notch to `scroll_target` and eases `scroll_offset` toward it
+at 0.28 of the distance a frame, so one frame after a notch the offset has moved
+5.6 px — inside the 24 px `nearEnd` band. The latch broke and re-armed on
+consecutive lines, the pane re-pinned to the end writing BOTH fields, and the
+offset could never leave the band. Every thread opens pinned to the end, so the
+wheel was dead everywhere a reader actually is.
+
+Fixed by reading the reader's intent off `scroll_target` — the field the WHEEL
+writes — instead of `scroll_offset`, the field the EASING writes
+(`src/ecs/follow_latch.h`, `tests/unit/test_follow_latch.cpp`). Scrolling up
+lets go of the bottom, scrolling back to the end pins again, and both panes of
+a split work.
+
+STILL NOT RIGHT, and it needs his hardware to settle: a trackpad or Magic Mouse
+scrolls twice as far as the finger, and a wheel detent moves one line where the
+Mac convention is three. One multiplier, two conventions —
+`afterhours_gaps.md #405`. `HANABI_SCROLL_SPEED` is the knob until then.
 
 ---
 
