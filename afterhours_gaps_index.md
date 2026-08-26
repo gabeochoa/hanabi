@@ -1,9 +1,14 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is ~10,000 lines and 189 entries, written by dozens of
+`afterhours_gaps.md` is ~10,500 lines and 196 entries, written by dozens of
 agents over several days. As a record it is good. As a work queue it is
 unusable: you cannot see what matters, what is one change, what is the same
 finding filed four times, and what has already been fixed under it.
+
+Built against `afterhours_gaps.md` at this branch's head. The file grows while
+you read it — it gained eleven entries from two other branches during the two
+hours this took — so the counts below are a snapshot and the *shape* is the
+durable part.
 
 This file is the front matter. It changes no entry's number — **source code and
 eight commit messages cite these numbers, so nothing is renumbered here** — it
@@ -13,15 +18,15 @@ only sorts, weighs, groups and corrects them.
 
 | | |
 |---|---|
-| Numbered headings in the file | **184** |
-| Distinct gap numbers | **174** (nine numbers are used twice, one three times — §5) |
+| Numbered headings in the file | **191** |
+| Distinct gap numbers | **181** (nine numbers are used twice, one three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **189** — one per heading, nothing dropped |
-| Standalone live asks | **120** |
-| Live but subsumed into a family canonical | **41** (§3) |
+| **Rows in the triage table (§6)** | **196** — one per heading, nothing dropped |
+| Standalone live asks | **123** |
+| Live but subsumed into a family canonical | **42** (§3) |
 | Already fixed upstream | **9** |
-| Deliberate NEGATIVE results — do not promote | **8** (§4) |
-| hanabi's own, not afterhours' | **6** |
+| Deliberate NEGATIVE results — do not promote | **10** (§4) |
+| hanabi's own, not afterhours' | **7** |
 | **Entries WRONG or overtaken by events** | **9 found here, 4 already known** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
@@ -116,7 +121,7 @@ returns a struct with a real width, a real height, valid ids and
 as success. **Sixty textures of silent wrongness.** Check the sampler, and put
 the pool sizes on `graphics::Config`.
 
-### 4. #137 + #136 + #116 + #135 — text measurement: the cache answers a different question than the app can ask, and nothing hugs its own text
+### 4. #137 + #136 + #340 + #116 + #135 — text: the cache answers a different question than the app can ask, nothing hugs its own text, and the draw path re-wraps every frame
 
 Text metrics have been called the number-one papercut in this file since day
 one, and three weeks later they still are. Four entries, one subsystem, and the
@@ -135,6 +140,18 @@ fix splits into a decision and a feature:
   measure per line in app code, and forces every memo of it to hold two widths.
   AutoLayout already has the text, the font and the width, and is already
   wrapping. One sizing mode deletes both memos and a whole class of bug.
+* **The render-path re-wrap (#340), newly measured and the biggest single
+  allocation site in the app.** `draw_runs_in_rect` calls
+  `detail::wrap_runs_to_width` on the DRAW pass, per frame, for text that has
+  not changed at a width that has not changed — building a fresh
+  `vector<vector<TextSpan>>` and a fresh `std::string` per span each time. On a
+  480-message transcript that one library call site is **~10% of every
+  allocation the app makes**, and it doubles with a second pane. The app cannot
+  reach it: it is a free function on the draw side with no state parameter, and
+  hanabi's own memo is on the measure path. Cache the wrap on `HasLabel` keyed
+  by (rect width, font size, spacing) — the same shape as the `TextMeasureCache`
+  that already exists, invalidated by the same edits that rewrite `spans`.
+  (#42 is the same finding for plain labels, without the current numbers.)
 * **The cheap overloads (#116, #135, #191).** "How much of this string fits in W"
   and "how many lines is this" — the two questions a list UI and a transcript ask
   constantly — can only be answered today by materialising every wrapped line
@@ -312,7 +329,7 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Thirteen families cover 104 of the 189 entries.** Fix the canonical one and the
+**Thirteen families cover 108 of the 196 entries.** Fix the canonical one and the
 rest either close or shrink to a footnote — 41 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
@@ -322,13 +339,13 @@ to fix.
 | Family | Canonical | Also filed as | The one mechanism |
 |---|---|---|---|
 | **Widget lifetime** | **#115** | #171, #162, #163, #220, #146, #160, AN-9 | Nothing retires an entity, so identity is the slot, the library's own entities are invisible, a scroll view clamps against children that are not there, and an exit animation has nothing to animate. #160 is the *cost* of the fix; #146 is how you would gate it. |
-| **Text measurement** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79 | No content sizing and no prefix/count query, so every consumer re-derives metrics the layout already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Ten entries; **filed independently by at least five agents.** |
+| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42 | No content sizing and no prefix/count query, so every consumer re-derives metrics the layout already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Twelve entries; **filed independently by at least six agents**, the latest (#340) three weeks after the first. |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
 | **Virtualization** | **#326** | #23, #170, #31a, #224, #220, #147 | `virtual_list` divides by one row height. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. |
 | **Alpha and antialiasing** | **#92** | #13, #15, #106, #96 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4). |
 | **Text input vs text area** | **#67** | #17, #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
-| **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. |
+| **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #337 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. |
 | **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. |
 | **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
@@ -363,6 +380,8 @@ reader. They must never be quietly folded into the ask list.
 | **#241** | **A collision the library makes unrepresentable.** `imm::mk` hashes the SOURCE LOCATION, so two row kinds built at two call sites cannot collide however the app numbers them — and hanabi's hand-allocated id bases in the transcript protect against nothing. The entry is careful to say what it does *not* retire: **#171 stands untouched**, because identity keyed on the SLOT is a different problem from identity keyed on the call site. |
 | **#89** | Right-aligning a child needs no spacer sibling. `JustifyContent::FlexEnd` does it, with no phantom child. Written down because the reference client uses a real `Spacer` view and copying that shape would have added an entity per row. |
 | **#96** | A translucent **shape** blends correctly inside `on_draw_fg`; only the **texture** path needs its own pipeline. This one is load-bearing: it bounds family #92 above, and the evidence in front of you points the other way, so acting on the wrong reading costs every call site a manual pipeline dance. |
+| **#338** | **Two subtrees built from the same call sites get DISJOINT widget identities**, and the text measure cache is width-independent — so a split pane needed neither an id-namespacing scheme nor a per-pane cache. The natural fear about splitting a view is the one thing the library already handles. |
+| **#339** | **`imm::divider` and `hsplit` already exist**, and the hand-rolled version had exactly the bug the library's own doc comment warns about. The cost of not looking was a defect the library had already written down. |
 | **#4** | The status-glyph primitives are real and reachable — `draw_triangle`, etc. — so a shape-per-status glyph needed no gap at all. |
 | **#8** | Windowed launch cost is dominated by OS/graphics init, not by anything hanabi or afterhours does. **Log-only, deliberately.** Do not turn this into a performance ask. |
 | **#7** | RAM knobs: a *watch* item, recorded so that IF a ceiling is hit the exact knob is already written down. Not a request. |
@@ -392,35 +411,43 @@ predates the current work and is not fixable by renumbering, because source code
 and commit messages cite these numbers. The map below is the fix: it says which
 entry each ambiguous citation means.
 
-Line numbers are as of this branch's head; the titles beside them are the
-durable handle, since the file only ever grows at the end and in postscripts.
+Line numbers are deliberately **not** given: several agents append to this file
+concurrently and every number here went stale twice while the index was being
+written. The entry's title is the durable handle. To list all nineteen colliding
+headings with their current lines:
 
-| # | Entry A | Entry B | Entry C |
+```sh
+grep -nE '^#{2,4} #(2[789]|3[0-5])\b' afterhours_gaps.md
+```
+
+| # | Entry A (the first one in the file) | Entry B | Entry C |
 |---|---|---|---|
-| **27** | **L932** immediate-mode rebuild / idle-frame floor | L1225 `spawn_status` overflows `spawn_card` (app-side) | |
-| **28** | L975 no OS window-focus / frontmost query | **L1062** 2nd child of a custom-bg div (RESOLVED 2026-08-03) | |
-| **29** | L994 single `hot_id` steals the parent's hover (FIXED) | **L1068** `text_input` has no placeholder (RESOLVED) | |
-| **30** | L1020 no scroll-anchor on prepend | L1073 raw wheel-delta, no smoothing | |
-| **31** | L1041 virtualization window from a stale offset | L1094 no macOS `.app` bundle packaging | **L1156** sokol pushes U+007F into the CHAR queue (FIXED) |
-| **32** | L1098 `get_resource_path` resolves from CWD | L1181 caret draws inside the last glyph (FIXED) | |
-| **33** | L1103 no menu bar / notifications / hotkey / Spotlight | L1192 no Shift+Enter newline | |
-| **34** | L1106 no URL-scheme handling | L1201 `text_input` does not wrap or clip | |
-| **35** | L1109 no system-font enumeration | L1216 no Escape-to-clear | |
+| **27** | immediate-mode rebuild / idle-frame floor | `spawn_status` overflows `spawn_card` (app-side) | |
+| **28** | no OS window-focus / frontmost query | **2nd child of a custom-bg div** (RESOLVED 2026-08-03) | |
+| **29** | single `hot_id` steals the parent's hover (FIXED) | **`text_input` has no placeholder** (RESOLVED) | |
+| **30** | no scroll-anchor on prepend | raw wheel-delta, no smoothing | |
+| **31** | virtualization window from a stale offset | no macOS `.app` bundle packaging | **sokol pushes U+007F into the CHAR queue** (FIXED) |
+| **32** | `get_resource_path` resolves from CWD | caret draws inside the last glyph (FIXED) | |
+| **33** | no menu bar / notifications / hotkey / Spotlight | no Shift+Enter newline | |
+| **34** | no URL-scheme handling | `text_input` does not wrap or clip | |
+| **35** | no system-font enumeration | no Escape-to-clear | |
 
 **Which one does a live citation mean?** Every citation in the working tree
 resolves, and they resolve to the *second* entry in three of the four cases —
 which is the opposite of what a reader assumes:
 
+Find them all with `grep -rn 'gaps\? #[0-9]' src/ tests/ scripts/`.
+
 | Citation | Means |
 |---|---|
-| `src/ecs/main_pane_system.h:6152,7317,7405,7539` — "gap #28 now fixed" | **#28 at L1062** (nested custom-bg child + `on_draw_fg`) |
-| `tests/ui/sidebar_collapses_to_a_rail.e2e:5` — "no native placeholder, gap #29" | **#29 at L1068** (`text_input` placeholder) |
-| `tests/unit/test_textinput.cpp:13` — "FIXED UPSTREAM (afterhours gap #31)" | **#31 at L1156** (control codes in the CHAR queue) |
-| `tests/e2e/test_perf.cpp:223` — "Reported for afterhours (gap #43)" | #43 — not ambiguous; the second `#43` heading is its measurement section |
+| `src/ecs/main_pane_system.h` ×4 — "gap #28 now fixed" | **#28 = entry B** (nested custom-bg child + `on_draw_fg`) |
+| `tests/ui/sidebar_collapses_to_a_rail.e2e` — "no native placeholder, gap #29" | **#29 = entry B** (`text_input` placeholder) |
+| `tests/unit/test_textinput.cpp` — "FIXED UPSTREAM (afterhours gap #31)" | **#31 = entry C** (control codes in the CHAR queue) |
+| `tests/e2e/test_perf.cpp` — "Reported for afterhours (gap #43)" | #43 — not ambiguous; the second `#43` heading is its measurement section |
 
 No source file cites #27, #30, #32, #33, #34 or #35 bare, so those collisions
 are dormant. Commit messages citing #27 (`61c1700c6551`, `e391f61aa35d`, and 16
-earlier) mean **L932**, the perf entry, from context.
+earlier) mean **entry A**, the perf entry, from context.
 
 **Separately, eight commits cite gap numbers that renumbering has since broken**
 — a branch picked a provisional number and the merge renumbered the entry. The
@@ -647,6 +674,13 @@ correction narrows them rather than closing them.
 | 325 | `with_debug_name` takes a `std::string` | PERF | MED | XS | dup→#180 |
 | 326 | `virtual_list` handles UNIFORM row heights only | MISSING | HIGH | S | **live — top 10** |
 | 327 | No draw-only element; a decorative mark costs an Entity | MISSING | HIGH | M | live |
+| 335 | Two view trees in one window is not a notion the library has | MISSING | HIGH | L | live |
+| 336 | Tab order cannot be scoped, so Tab walks out of a split pane | MISSING | HIGH | S | live |
+| 337 | With two panes a debug name stops naming ONE widget | FOOTGUN | HIGH | S | dup→#51 |
+| 338 | Two subtrees from the same call sites get disjoint identities | NOT A GAP | — | — | neg |
+| 339 | `imm::divider` and `hsplit` already exist | NOT A GAP | — | — | neg |
+| 340 | Styled text re-wraps and re-allocates on the RENDER path, per frame | MISSING | HIGH | M | **live — top 10** |
+| 341 | What a second pane costs (hanabi's own accounting) | PERF | — | — | app |
 
 ---
 
