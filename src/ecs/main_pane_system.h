@@ -2104,13 +2104,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("minimap_lead"));
 
         float top = subH;  // content-y of the first item, as pass 2 walks it
+        // Group first: a rail cannot show more marks than it has pixels, and
+        // an ungrouped rail on a long thread is 2,263 overlapping dots and a
+        // widget for each (hanabi::minimap::group_marks, docs/perf/EVENTS.md).
+        // Below the density where marks would overlap this is one group per
+        // item and changes nothing at all.
+        std::vector<float> markH;
+        std::vector<hanabi::minimap::Mark> markKind;
+        markH.reserve(items.size());
+        markKind.reserve(items.size());
         for (size_t i = 0; i < items.size(); ++i) {
             const Item& it = items[i];
-            const float itemTop = top;
-            top += it.height;
-            const float h =
-                hanabi::minimap::slot_h(it.height, totalH, railH);
-            if (h <= 0.0f) continue;
             hanabi::minimap::Mark mark = hanabi::minimap::Mark::Note;
             switch (it.kind) {
                 case Item::ToolPile:
@@ -2129,6 +2133,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 default: mark = hanabi::minimap::Mark::Note; break;
             }
+            markH.push_back(it.height);
+            markKind.push_back(mark);
+        }
+        const std::vector<hanabi::minimap::Slot> slots =
+            hanabi::minimap::group_marks(markH, markKind, top, totalH, railH);
+        // The bound, as a number a gate can read. `items` is what the rail
+        // WOULD have drawn one-for-one and `marks` is what it does draw; the
+        // pair is the whole claim of group_marks, and scripts/events_gate.sh
+        // gates the second against the rail rather than against the thread.
+        hanabi::prof::gauge("minimap.items", items.size());
+        hanabi::prof::gauge("minimap.marks", slots.size());
+
+        for (size_t i = 0; i < slots.size(); ++i) {
+            const auto& sl = slots[i];
+            const float h =
+                hanabi::minimap::slot_h(sl.height, totalH, railH);
+            if (h <= 0.0f) continue;
+            const hanabi::minimap::Mark mark = sl.mark;
             auto slot = button(ctx, mk(rail.ent(), static_cast<int>(i) + 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), pixels(h)})
@@ -2148,7 +2170,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     })
                     .with_debug_name("minimap_mark_" + std::to_string(i)));
             if (slot) {
-                const float want = std::max(0.0f, itemTop - 12.0f);
+                const float want = std::max(0.0f, sl.topY - 12.0f);
                 sv.scroll_offset.y = want;
                 hanabi::set_scroll_target_y(sv, want);
                 sv.clamp_scroll();
@@ -3488,6 +3510,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // WHAT THE ITEM LIST ACTUALLY CONTAINS, as gauges. Not a perf number:
+        // a gate's first job is to prove the scenario DROVE the thing it
+        // claims to measure, and the whole reason scripts/events_gate.sh
+        // exists is that every existing gate ran over a transcript with none
+        // of feat/event-model's row kinds in it and read the same number
+        // before and after the merge. The gate fails when these are zero,
+        // which is the difference between "the event rows cost nothing" and
+        // "no event row was drawn".
+        if (hanabi::prof::enabled()) {
+            unsigned long long nEvent = 0, nDeliv = 0, nSpawn = 0, nThink = 0;
+            for (const Item& it : items) {
+                switch (it.kind) {
+                    case Item::Event: ++nEvent; break;
+                    case Item::Delivery: ++nDeliv; break;
+                    case Item::Spawn: ++nSpawn; break;
+                    case Item::Thinking: ++nThink; break;
+                    default: break;
+                }
+            }
+            hanabi::prof::gauge("items.total", items.size());
+            hanabi::prof::gauge("items.event", nEvent);
+            hanabi::prof::gauge("items.delivery", nDeliv);
+            hanabi::prof::gauge("items.spawn", nSpawn);
+            hanabi::prof::gauge("items.thinking", nThink);
+        }
         // ---- Find in conversation: matches + scroll-to-match ---------------
         // Recomputed each frame from the query. Cheap (a substring scan of the
         // loaded window) and it keeps the count honest as a stream appends.
