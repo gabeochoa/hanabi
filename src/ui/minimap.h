@@ -18,6 +18,7 @@
 
 #include <algorithm>
 
+#include "minimap_scrub.h"
 #include "theme.h"
 
 namespace hanabi::minimap {
@@ -87,15 +88,16 @@ inline void draw_mark(RectangleType slot, Mark m, bool wide) {
 // solid, and a translucent fill behind them would say nothing (the UI fill
 // pipeline does not alpha-blend — afterhours_gaps.md #13). Two rules and two
 // edges read clearly against a dense rail.
+//
+// The band's height and position come from minimap_scrub.h rather than from
+// arithmetic spelled out here, because dragging along the rail has to be the
+// exact inverse of this drawing. Two copies of the mapping would agree at the
+// top of a drag and disagree by the height of the band at the bottom.
 inline void draw_scrubber(RectangleType rail, float scrollY, float viewH,
                           float contentH) {
     if (contentH <= 0.0f) return;
-    const float frac = std::clamp(viewH / contentH, 0.04f, 1.0f);
-    const float h = rail.height * frac;
-    const float maxTop = rail.height - h;
-    const float denom = std::max(1.0f, contentH - viewH);
-    const float t = std::clamp(scrollY / denom, 0.0f, 1.0f);
-    const float y = rail.y + maxTop * t;
+    const float h = scrubber_h(rail.height, viewH, contentH);
+    const float y = rail.y + scrubber_top(rail.height, scrollY, viewH, contentH);
     const theme::Color c = theme::text_secondary();
     const auto line = [&](float x0, float y0, float x1, float y1) {
         afterhours::draw_line_ex(afterhours::vec2{x0, y0},
