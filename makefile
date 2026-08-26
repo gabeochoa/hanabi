@@ -642,6 +642,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running unit + e2e tests..."
 	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES))
 	@$(MAKE) uitest
+	@$(MAKE) harness-gate
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
@@ -894,11 +895,32 @@ $(UITEST_EXE): $(UITEST_OBJS) | $(OUTPUT_DIR)/.stamp
 uitest: $(UITEST_EXE) copy-resources
 	@bash scripts/run_ui_tests.sh
 
+# The suite in a RANDOM ORDER. A scripted test that passes only after some
+# other test has run is a test that proves nothing, and this project has spent
+# three investigations on symptoms of that class. The seed is printed and
+# accepted (`make uitest-shuffle SEED=1234`), so an order that fails is an
+# order that can be re-run.
+SEED ?= $(shell awk 'BEGIN{srand();print int(rand()*100000)}')
+uitest-shuffle: $(UITEST_EXE) copy-resources
+	@HANABI_UI_SEED=$(SEED) bash scripts/run_ui_tests.sh
+
+# Every script ALONE, one suite invocation each: the census that says how many
+# tests pass only in suite order. Slow on purpose (it is the same 105 runs plus
+# 105 harness startups) and not part of `make test`; `make uitest-shuffle` is
+# the cheap standing defence.
+uitest-alone: $(UITEST_EXE) copy-resources
+	@bash scripts/run_ui_tests_alone.sh
+
+# The harness's own tests: per-script homes, and a script that states a
+# precondition the harness enforces.
+harness-gate: $(UITEST_EXE) copy-resources
+	@bash scripts/harness_gate.sh
+
 # Build the scripted-UI binary without running the suite (used by
 # scripts/review_shots.sh, which drives it directly).
 uitest-build: $(UITEST_EXE) copy-resources
 
-.PHONY: uitest uitest-build
+.PHONY: uitest uitest-shuffle uitest-alone harness-gate uitest-build
 
 # ==============================================================================
 # SCREENSHOT BASELINES  (docs/breakdown/screenshot-testing.md, chunks 1-3)

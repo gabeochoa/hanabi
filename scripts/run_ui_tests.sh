@@ -7,9 +7,13 @@
 # that actually rendered. One process per script so a hang or a crash is
 # attributed to the script that caused it and cannot poison the next one.
 #
-# ISOLATION: same contract as scripts/screens.sh — an isolated HOME so the
-# user's real settings.json is never read or written, the mock backend forced,
-# and the runtime backend config pointed at a path that does not exist.
+# ISOLATION: every script gets its OWN home directory, its own cache dir and
+# its own token file, all inside one temp root that is removed at the end.
+# The user's real settings.json is never read or written, the mock backend is
+# forced, and no script can see a file another script wrote. One process per
+# script, one directory per script: order cannot change a verdict.
+# HANABI_UI_KEEP_HOMES=1 keeps the directories for inspection
+# (scripts/harness_gate.sh reads them back).
 #
 # EXIT: non-zero if any script failed or timed out.
 # ===========================================================================
@@ -28,13 +32,30 @@ if [ ! -x "$EXE" ]; then
     exit 2
 fi
 
-ISO_HOME="$(mktemp -d /tmp/hanabi_uitest_home.XXXXXX)"
-mkdir -p "$ISO_HOME/Library/Application Support/hanabi"
+# One temp ROOT for the whole run, one SUBDIRECTORY per script inside it. The
+# per-script dir is what makes a script hermetic; the shared root is what
+# keeps it cheap (a mkdir each, not a fresh anything -- the suite's runtime is
+# unchanged to the second).
+#
+# It used to be one home for all 105 scripts. Nothing leaked through it today,
+# because the mock backend disables the disk cache (loader_system.h:
+# disk_cache_enabled) and the settings file is rewritten whole before every
+# script -- but "nothing leaks" was a property of which backend the suite
+# happens to run, not of the harness. A script with `# env: HANABI_BACKEND=http`
+# would have written a session list and every transcript it opened into the
+# next 104 scripts' home, and the failure that produced would have looked like
+# a flake.
+SUITE_TMP="$(mktemp -d /tmp/hanabi_uitest_home.XXXXXX)"
+KEEP_HOMES="${HANABI_UI_KEEP_HOMES:-0}"
 cleanup() {
     # scoped to THIS worktree's binary: other checkouts run their suites on the
     # same machine and a bare `pkill -f hanabi_uitest.exe` kills theirs
     pkill -9 -f "^$EXE" >/dev/null 2>&1
-    rm -rf "$ISO_HOME"
+    if [ "$KEEP_HOMES" = "1" ]; then
+        echo "kept per-test homes under $SUITE_TMP"
+    else
+        rm -rf "$SUITE_TMP"
+    fi
 }
 trap cleanup EXIT
 
@@ -49,10 +70,44 @@ if [ ${#SCRIPTS[@]} -eq 0 ]; then
     exit 0
 fi
 
+# ORDER IS NOT A PRECONDITION. A suite that only passes in one order is one
+# edit away from lying about it, so HANABI_UI_SEED=<n> runs the same scripts
+# in a shuffled order and the seed is printed with the result -- a failure is
+# reproducible by re-running with the seed it names. `make uitest-shuffle`
+# picks a seed for you.
+SEED="${HANABI_UI_SEED:-}"
+if [ -n "$SEED" ]; then
+    ORDERED=()
+    while IFS= read -r line; do
+        ORDERED+=("${line#* }")
+    done < <(
+        i=0
+        for s in "${SCRIPTS[@]}"; do
+            # awk rather than $RANDOM: bash 3.2 cannot seed $RANDOM, and a
+            # shuffle nobody can reproduce is worse than no shuffle at all.
+            printf '%s %s\n' \
+                "$(awk -v s="$SEED" -v i="$i" 'BEGIN{srand(s+i);printf "%.9f", rand()}')" \
+                "$s"
+            i=$((i+1))
+        done | sort
+    )
+    SCRIPTS=("${ORDERED[@]}")
+fi
+
 echo "=== scripted UI tests ($DIR) ==="
+[ -n "$SEED" ] && echo "=== shuffled order, seed $SEED ==="
 for s in "${SCRIPTS[@]}"; do
     name="$(basename "$s" .e2e)"
     log="/tmp/hanabi_uitest_${name}.log"
+
+    # THIS SCRIPT'S OWN HOME. Everything the app can persist -- the settings
+    # file, the disk cache, the token store -- is addressed relative to HOME
+    # or to an explicit env override, so pointing all three inside a
+    # per-script directory is the whole of the isolation. A script cannot
+    # read what another one wrote, and it cannot be made to pass by what ran
+    # before it.
+    ISO_HOME="$SUITE_TMP/$name"
+    mkdir -p "$ISO_HOME/Library/Application Support/hanabi"
 
     # Per-script settings: a leading "# settings: {...}" line lets a script say
     # which tabs/theme it wants to start from. Default = Home, no tabs, dark.
@@ -73,12 +128,13 @@ for s in "${SCRIPTS[@]}"; do
         done < <(printf '%s' "$env_line" | xargs -n1 2>/dev/null)
     fi
 
-    # A FRESH on-disk cache per script. The isolated HOME is created once for
-    # the whole suite, so anything a script leaves in the cache dir -- notably
-    # an unconfirmed local-first OUTBOX entry, which the next launch restores
-    # and retries by design -- would otherwise arrive in the NEXT script as an
-    # extra bubble it never sent. One dir per script keeps each run's durable
-    # state its own.
+    # A FRESH on-disk cache per script, INSIDE this script's own home. The
+    # cache is where an unconfirmed local-first OUTBOX entry lives, and the
+    # next launch restores and retries it by design -- so with one cache dir
+    # for the suite it arrived in the NEXT script as a bubble that script
+    # never sent. That is the one leak this harness was measured to have, and
+    # it is why the boundary is drawn around everything durable rather than
+    # around the cache alone.
     script_cache="$ISO_HOME/cache/$name"
     rm -rf "$script_cache"
     mkdir -p "$script_cache"
@@ -87,8 +143,9 @@ for s in "${SCRIPTS[@]}"; do
     # expanding an EMPTY array under `set -u` is an unbound-variable error. Bash
     # 4.4 fixed that, so the plain form works for anyone on a newer bash and
     # fails every script without an "# env:" line on a stock Mac.
-    ( env HOME="$ISO_HOME" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock \
+    ( env HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
         HANABI_CACHE_DIR="$script_cache" \
+        HANABI_TOKEN_FILE="$ISO_HOME/token.json" HANABI_BACKEND=mock \
         ${extra_env[@]+"${extra_env[@]}"} "$EXE" --e2e "$s" >"$log" 2>&1 ) &
     pid=$!
     for ((i=0; i<TIMEOUT; i++)); do
@@ -117,6 +174,7 @@ echo "----------------------------------------"
 echo "  $PASS passed, $FAIL failed"
 if [ "$FAIL" -ne 0 ]; then
     echo "  failed:$FAILED_NAMES" >&2
+    [ -n "$SEED" ] && echo "  reproduce this order with HANABI_UI_SEED=$SEED" >&2
     exit 1
 fi
 exit 0

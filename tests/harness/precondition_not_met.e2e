@@ -1,0 +1,13 @@
+# The harness must refuse to assert against a screen that lacks the
+# precondition. Nothing here is a feature test: this script exists to be RUN
+# BY scripts/harness_gate.sh and to FAIL, and the gate checks the failure says
+# why.
+#
+# No "# settings:" line, so this starts on Home with no thread open. t1 is a
+# real thread that nothing has opened. Before require_thread existed, the
+# expect_text below is what a script in this position ran into, and it failed
+# with "Text not found: 'Built the config diff'" plus a dump of the sidebar --
+# a failure that reads as a broken transcript and cost three investigations.
+
+require_thread t1
+expect_text "Built the config diff"

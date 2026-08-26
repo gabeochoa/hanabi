@@ -1,0 +1,9 @@
+# The other half of the pair scripts/harness_gate.sh reads back. Same shape as
+# state_a.e2e, a different declared theme, and it runs SECOND in sorted order:
+# with one home for the whole suite the file on disk at the end is this one's,
+# and state_a's declaration is gone.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light"}
+
+wait_frames 2
+expect_text Home

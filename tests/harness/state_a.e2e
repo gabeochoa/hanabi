@@ -1,0 +1,9 @@
+# A fixture for scripts/harness_gate.sh: one of two scripts whose only job is
+# to declare DIFFERENT start states and pass. The gate reads back the
+# settings.json each of them was given and fails if they came from the same
+# file -- which is what a suite-wide home directory means.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 2
+expect_text Home
