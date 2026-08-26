@@ -134,11 +134,106 @@ static void test_render_cache_is_still_bounded() {
           2 * ecs::model::TranscriptRenderCache::kMaxThreads);
 }
 
+// --- two panes on ONE thread do not share what is typed into them ----------
+//
+// This is the case splitting produces by default: the same thread in both
+// panes. Keyed by session id alone -- which is how the store was keyed until
+// the pane became a value -- both panes touch() the SAME entry, so the draft
+// typed on the left appears on the right, is sent once, and is lost from both;
+// the follow-the-bottom latch is shared, so scrolling one pane up makes the
+// other jump; and one minimap drag scrubs both rails.
+//
+// Written against the old key first: with `touch(id)` in place of
+// `touch(pane_key(i, id))` the first CHECK below fails on the line it is on,
+//
+//   FAIL: left->replyDraft == "typed on the left" (line 152)
+//   FAIL: right->replyDraft.empty() (line 153)
+//
+// because there is one entry and both names point at it.
+static void test_two_panes_on_one_thread_keep_their_own() {
+    std::printf("test_two_panes_on_one_thread_keep_their_own\n");
+    ecs::model::PaneStateStore store;
+    const std::string id = "the-same-thread";
+
+    ecs::model::PaneState& left = store.touch(ecs::model::pane_key(0, id));
+    ecs::model::PaneState& right = store.touch(ecs::model::pane_key(1, id));
+
+    left.replyDraft = "typed on the left";
+    left.follow = false;          // the reader scrolled the left pane up
+    left.lastScrollY = 900.0f;
+    left.haveLastScrollY = true;
+
+    CHECK(left.replyDraft == "typed on the left");
+    CHECK(right.replyDraft.empty());
+    CHECK(right.follow);          // the right pane is still pinned to the end
+    CHECK(!right.haveLastScrollY);
+    CHECK(store.size() == 2);
+
+    // And the two keys are stable: coming back to either pane finds its own
+    // entry rather than making a third.
+    CHECK(&store.touch(ecs::model::pane_key(0, id)) == &left);
+    CHECK(&store.touch(ecs::model::pane_key(1, id)) == &right);
+    CHECK(store.size() == 2);
+    CHECK(store.drafts() == 1);
+}
+
+// --- two panes, one thread, two WIDTHS ---------------------------------------
+//
+// The measurements are keyed by width, and a user bubble is measured at two
+// widths (see WidthPair: the maximum text width, then the hugged width that
+// falls out of it). Two panes on one thread at two different pane widths --
+// which is any split whose divider is not exactly centred -- is therefore FOUR
+// widths, and the pair holds two.
+//
+// Keyed by thread alone, the two panes share one pair: each pane's first ask
+// evicts what the other just wrote, every frame, for the life of the split.
+// Written against that key first, the loop below reported
+//
+//   FAIL: cache.absent() + cache.stale() == cold (line 205)
+//         (40 misses over 10 frames, against the 4 cold ones)
+//
+// which is the negative hit rate the WidthPair was introduced to kill, one
+// level up. Keyed by pane AND thread it is four cold misses and nothing after.
+static void test_two_panes_at_two_widths_do_not_thrash() {
+    std::printf("test_two_panes_at_two_widths_do_not_thrash\n");
+    ecs::model::TranscriptRenderCache cache;
+    const std::string id = "one-long-thread";
+    // The left pane is wider than the right: the divider is off centre.
+    const float leftMax = 630.0f, leftHug = 458.0f;
+    const float rightMax = 420.0f, rightHug = 305.0f;
+
+    const auto measure = [&](const std::string& key, float w) {
+        if (cache.get(key, w) != nullptr) return;
+        ecs::model::MsgRender r;
+        r.wrap_w = w;
+        r.height = w * 0.1f;
+        cache.put(key, r);
+    };
+
+    for (int frame = 0; frame < 10; ++frame) {
+        // The left pane's two passes over the one user bubble...
+        cache.reset_for_thread(ecs::model::pane_key(0, id));
+        measure("m1", leftMax);
+        measure("m1", leftHug);
+        // ...then the right pane's two, in the same frame.
+        cache.reset_for_thread(ecs::model::pane_key(1, id));
+        measure("m1", rightMax);
+        measure("m1", rightHug);
+    }
+
+    // Four cold misses -- one per (pane, width) -- and not one more.
+    const std::size_t cold = 4;
+    CHECK(cache.absent() + cache.stale() == cold);
+    CHECK(cache.threads() == 2);
+}
+
 int main() {
     std::printf("=== test_pane_memory ===\n");
     test_pane_state_is_bounded();
     test_a_draft_is_never_evicted();
+    test_two_panes_on_one_thread_keep_their_own();
     test_render_cache_holds_both_panes();
+    test_two_panes_at_two_widths_do_not_thrash();
     test_render_cache_is_still_bounded();
     if (g_failures == 0) {
         std::printf("OK\n");

@@ -53,7 +53,7 @@ struct ArrowSystem : afterhours::System<UIContext<InputAction>> {
         else if (app->renameOpen || app->composerOpen || app->showShortcuts ||
                  app->showSettings || app->showAuth)
             app->arrow = ArrowIntent::None;
-        else if (app->view == SmartView::Chat && app->openSession)
+        else if (app->view == SmartView::Chat && app->pane().openSession)
             app->arrow = ArrowIntent::Transcript;
         else
             app->arrow = ArrowIntent::List;

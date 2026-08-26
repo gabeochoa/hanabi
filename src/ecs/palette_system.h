@@ -277,7 +277,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
                 break;
             case Act::OpenSettings: app.showSettings = true; break;
             case Act::OpenShortcuts: app.showShortcuts = true; break;
-            case Act::FindInThread: app.findOpen = true; break;
+            case Act::FindInThread: app.pane().findOpen = true; break;
             case Act::SearchThreads: app.sessionSearchOpen = true; break;
             case Act::OpenThread: app.requestOpenTab = row.arg; break;
         }

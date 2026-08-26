@@ -89,7 +89,22 @@ inline long rss_kb() {
 // By debug name, because that is the one handle an out-of-tree driver has on
 // an immediate-mode widget: the entity is rebuilt every frame but `mk()` keeps
 // its id stable, so the component and its offset survive.
+//
+// A NAME MUST NAME ONE WIDGET, and until split view there was no way for it
+// not to. Two panes means two transcripts, and the scroll view inside each is
+// built by the same line of the same function -- so the name that used to
+// identify one widget would identify two, and this loop would drive whichever
+// the entity walk reached first. Which one that is depends on entity id
+// recycling, which depends on what the retire sweep took last, which is to say
+// it is not a thing a driver may rely on.
+//
+// So the panes give their scroll views DIFFERENT names (pane 0 keeps the one
+// it has always had), and this counts the matches and complains rather than
+// picking one: a gate that silently drives the wrong widget is the failure
+// mode #147 warns about, and a soak arm that scrolls nothing passes forever.
 inline bool scroll_named(const char* debugName, float dy) {
+    afterhours::ui::HasScrollView* found = nullptr;
+    int matches = 0;
     for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod()) {
         if (!ptr) continue;
         afterhours::Entity& e = *ptr;
@@ -97,7 +112,17 @@ inline bool scroll_named(const char* debugName, float dy) {
         if (e.get<afterhours::ui::UIComponentDebug>().name_value != debugName)
             continue;
         if (!e.has<afterhours::ui::HasScrollView>()) continue;
-        auto& sv = e.get<afterhours::ui::HasScrollView>();
+        ++matches;
+        if (found == nullptr) found = &e.get<afterhours::ui::HasScrollView>();
+    }
+    if (matches > 1)
+        fprintf(stderr,
+                "[soak] AMBIGUOUS scroll target '%s': %d scroll views carry "
+                "that debug name, so which one this drove is undefined "
+                "(afterhours_gaps.md #147, #335).\n",
+                debugName, matches);
+    if (found != nullptr) {
+        auto& sv = *found;
         // Move the OFFSET as well as the eased target, which is exactly what
         // the pane's own jump-to-bottom and minimap-click paths do
         // (`scroll_offset.y = want; set_scroll_target_y(sv, want)`).

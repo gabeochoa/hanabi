@@ -49,7 +49,7 @@ inline bool network_active(const AppComponent& app) {
     if (liveDemo) return true;
     for (const auto& kv : app.liveSubs)
         if (kv.second.pending) return true;
-    return app.listPending || app.transcriptPending || app.loadingOlder ||
+    return app.listPending || app.pane().transcriptPending || app.pane().loadingOlder ||
            app.livePending || app.sendPending || app.streamCollecting ||
            app.kickoffPending || app.settingsPending || app.authBeginPending;
 }

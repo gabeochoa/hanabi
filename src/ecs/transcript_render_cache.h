@@ -21,16 +21,25 @@
 // whenever the id it was handed differed from the id it was handed last. That
 // is a fine bound and it was a correct one for a single pane.
 //
-// Split view renders TWO transcripts in one frame. It does it by swapping
-// app.openSession and app.splitSession around a second render_transcript call
-// (main_pane_system.h, "Left = the primary open thread"), so the one cache is
-// handed thread A, then thread B, then A again next frame — and clears itself
-// every single time. In split view the memoization did not merely degrade, it
-// was off, in exactly the mode that has twice as much to measure.
+// Split view renders TWO transcripts in one frame, so the one cache was handed
+// thread A, then thread B, then A again next frame — and cleared itself every
+// single time. In split view the memoization did not merely degrade, it was
+// off, in exactly the mode that has twice as much to measure.
 //
-// So the store is a small LRU over per-thread maps. Two panes is the case that
-// exists; three is one spare, and it is the reason the cap is not two — a
-// tab switch while split should not evict the pane you did not touch.
+// So the store is a small LRU over per-slot maps.
+//
+// A SLOT IS A PANE AND A THREAD, not a thread. That looks like waste when both
+// panes show one thread -- which is what splitting does by default -- and it
+// is not, because the KEY the measurements hang on is a WIDTH. Each pane asks
+// for two widths per user bubble (see WidthPair below: the max text width and
+// the hugged width that comes out of it), the pair holds exactly two, and the
+// two panes have different widths the moment the divider is dragged off
+// centre. Shared, that is four widths through two slots: every ask evicts the
+// answer the other pane just wrote, every frame, forever -- the same negative
+// hit rate the WidthPair was introduced to kill, one level up.
+//
+// Four slots: two panes, each with the thread it is showing and the one it
+// just came from, so a tab switch while split evicts neither pane's work.
 //
 // The bound is now: kMaxThreads maps, each holding one entry per MESSAGE of
 // that thread. That is proportional to the content those threads already have
@@ -77,12 +86,12 @@ struct MsgRender {
 
 class TranscriptRenderCache {
   public:
-    // Threads whose measurements are kept. Two panes plus one spare.
+    // Slots (pane x thread) whose measurements are kept.
     //
     // It used to keep ONE, clearing on every thread change -- and in split
     // view that means it clears twice a frame and memoizes nothing at all.
     // Two 60-turn threads side by side: 10.90 ms -> 8.77 ms median.
-    static constexpr std::size_t kMaxThreads = 3;
+    static constexpr std::size_t kMaxThreads = 4;
 
     // Select the thread the following get/put calls belong to. Replaces
     // reset_for_thread: same call site, same argument, and it no longer

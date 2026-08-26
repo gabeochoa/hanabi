@@ -97,12 +97,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // bar on the way past.
         if (hanabi::keys::cmd_down() && !hanabi::keys::shift_down() &&
             hanabi::keys::pressed(hanabi::keys::kF)) {
-            app->findOpen = !app->findOpen;
-            if (!app->findOpen) app->findQuery.clear();
+            app->pane().findOpen = !app->pane().findOpen;
+            if (!app->pane().findOpen) app->pane().findQuery.clear();
         }
-        if (app->findOpen && app->escape == EscapeIntent::CloseFind) {
-            app->findOpen = false;
-            app->findQuery.clear();
+        if (app->pane().findOpen && app->escape == EscapeIntent::CloseFind) {
+            app->pane().findOpen = false;
+            app->pane().findQuery.clear();
             app->refocusComposer = true;
         }
         // Cmd+G steps to the next match, Cmd+Shift+G to the previous — the
@@ -114,24 +114,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // findCount is the count the LAST rendered frame painted. That is the
         // only count that exists at the top of a frame, and it is the honest
         // one to step over: it is the number of bands currently on screen.
-        if (app->findOpen) {
+        if (app->pane().findOpen) {
             const hanabi::find_nav::Step step = hanabi::find_nav::chord(
                 hanabi::keys::cmd_down(), hanabi::keys::shift_down(),
                 hanabi::keys::pressed(hanabi::keys::kG));
-            apply_find_step(*app, step);
+            apply_find_step(app->pane(), step);
         }
         // Test-only (HANABI_FIND_STEP=<±n>): the harness cannot press a Cmd
         // chord (afterhours_gaps.md #49), so this feeds the same step the
         // chord feeds, |n| times, on the first frame that has a tally to move
         // over. Everything below the two key reads is then under test.
-        if (app->findOpen && !findStepApplied_) {
+        if (app->pane().findOpen && !findStepApplied_) {
             const int n = hanabi::test_hooks::find_step();
-            if (n != 0 && app->findCount > 0) {
+            if (n != 0 && app->pane().findCount > 0) {
                 const hanabi::find_nav::Step s =
                     n < 0 ? hanabi::find_nav::Step::Prev
                           : hanabi::find_nav::Step::Next;
                 for (int i = 0; i < (n < 0 ? -n : n); ++i)
-                    apply_find_step(*app, s);
+                    apply_find_step(app->pane(), s);
                 findStepApplied_ = true;
             }
         }
@@ -147,7 +147,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
-            !(app->view == SmartView::Chat && app->openSession);
+            !(app->view == SmartView::Chat && app->pane().openSession);
 
         // Content fills the pane (layout->main already excludes the composer).
         auto content = div(ctx, mk(panel.ent(), 1),
@@ -190,11 +190,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         switch (app->view) {
             case SmartView::Chat:
-                if (!app->splitSessionId.empty()) {
+                if (app->splitOpen) {
                     render_split(ctx, content.ent(), *app, r.width, contentH);
                 } else {
-                    render_transcript(ctx, content.ent(), *app, r.width,
-                                      contentH);
+                    render_transcript(ctx, content.ent(), *app,
+                                      app->panes[0], r.width, contentH);
                 }
                 break;
             case SmartView::Home:
@@ -236,14 +236,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // when the backend can't send, rather than the pane hiding it.
         {
             const auto& cr = layout->composer;
-            // In split view the composer replies to the LEFT (primary) thread
-            // only, so it takes the left pane's width. Full-width under two
-            // panes gave no clue which conversation you were typing into.
-            const bool split = app->view == SmartView::Chat &&
-                               !app->splitSessionId.empty();
-            const float cw = split ? (cr.width - 1.0f) * 0.5f : cr.width;
+            // In split view the composer belongs to the FOCUSED pane, and it
+            // sits UNDER that pane: full-width under two panes gave no clue
+            // which conversation you were typing into, and a composer nailed
+            // to the left pane meant the right one could never be replied to.
+            const bool split = app->view == SmartView::Chat && app->splitOpen;
+            float cw = cr.width;
+            float cx = cr.x;
+            if (split) {
+                const RectangleType pr =
+                    pane_screen_rect(*app, app->focusedPane);
+                cw = pr.width;
+                cx = pr.x;
+            }
             render_composer(ctx, uiRoot, *app, cw, cr.height, composerKickoff,
-                            cr.x, cr.y);
+                            cx, cr.y);
         }
     }
 
@@ -262,6 +269,70 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      .gen();
         cached = q.empty() ? nullptr : &q[0].get().get<AppComponent>();
         return cached;
+    }
+
+    // ---- Which pane is being built right now -------------------------------
+    // Everything down to the per-message painters takes `Pane&` explicitly.
+    // The five leaves below the message loop (live_query, paint_query_for,
+    // fold_mode and the two that call them) do not: they are reached fifteen
+    // signatures deep, and every one of them ALREADY reached for a global --
+    // app_singleton() -- to answer the same question. So the global they reach
+    // for is narrowed rather than added to: not "the app", but "the pane whose
+    // transcript this build pass is painting".
+    //
+    // It is a CURSOR over the build, not state. It is set by a scoped guard at
+    // the top of render_transcript and restored when that pane's build
+    // returns, nothing written through it outlives the frame, and -- unlike
+    // the openSession swap it replaces -- an early return in the middle of a
+    // pane cannot leave one pane's session parked in the other pane's field.
+    //
+    // Null outside a transcript build (the composer strip, the popovers), and
+    // there "the pane" means the focused one, which is what painting_pane
+    // falls back to.
+    static Pane*& building_pane() {
+        static Pane* p = nullptr;
+        return p;
+    }
+    struct PaneBuildScope {
+        Pane* prev;
+        explicit PaneBuildScope(Pane& p) : prev(building_pane()) {
+            building_pane() = &p;
+        }
+        ~PaneBuildScope() { building_pane() = prev; }
+        PaneBuildScope(const PaneBuildScope&) = delete;
+        void operator=(const PaneBuildScope&) = delete;
+    };
+    // Which of the app's panes this is. The Pane is handed around by
+    // reference, and the ONE thing a reference cannot answer is "which one of
+    // the two are you" -- which the per-pane widget names and the per-pane
+    // memory keys both have to know.
+    static int pane_index(const AppComponent& app, const Pane& pane) {
+        return &pane == &app.panes[1] ? 1 : 0;
+    }
+
+    // ---- Per-pane widget names (afterhours_gaps.md #147) -------------------
+    // A scroll view is reachable from outside this app ONLY by its debug name
+    // (src/util/soak.h, scroll_named), so with two panes on screen a name that
+    // used to identify one widget identifies two and the driver gets whichever
+    // the entity walk reaches first. Pane 0 keeps the name it has always had,
+    // so every existing driver, gate and assertion addresses exactly what it
+    // addressed before; pane 1 gets its own.
+    //
+    // A static table returned BY REFERENCE, not a string built per call:
+    // with_debug_name takes a const std::string&, so a literal at the call
+    // site constructs one every frame (and "transcript_scroll" is 17
+    // characters, past SSO, so that is a malloc per widget per frame). These
+    // are constructed once for the life of the process.
+    static const std::string& scroll_name(int paneIndex) {
+        static const std::string kNames[2] = {"transcript_scroll",
+                                              "transcript_scroll_2"};
+        return kNames[paneIndex & 1];
+    }
+
+    static Pane* painting_pane() {
+        if (Pane* p = building_pane()) return p;
+        AppComponent* app = app_singleton();
+        return app == nullptr ? nullptr : &app->pane();
     }
 
     static void header(UIContext<InputAction>& ctx, Entity& parent,
@@ -1758,8 +1829,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Height of the sub-agent rollup, WITHOUT rendering it — the transcript
     // needs the number during its measure pass, before it knows where in the
     // column the rollup will actually sit.
-    static float sub_agent_panel_height(AppComponent& app) {
-        const auto& subs = app.openSession->sub_agents;
+    static float sub_agent_panel_height(AppComponent& app, const Pane& pane) {
+        const auto& subs = pane.openSession->sub_agents;
         if (subs.empty()) return 0.0f;
         float total = kSubAgentMargin + kSubAgentRowH + kSubAgentMargin;
         if (app.expandedPiles.count("__subagents__") != 0) {
@@ -1791,8 +1862,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
-                          AppComponent& app) {
-        const auto& subs = app.openSession->sub_agents;
+                          AppComponent& app, const Pane& pane) {
+        const auto& subs = pane.openSession->sub_agents;
         if (subs.empty()) return 0.0f;
 
         const size_t count = subs.size();
@@ -1809,7 +1880,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         constexpr float kRowH = kSubAgentRowH;
         constexpr float kMargin = kSubAgentMargin;
-        const float total = sub_agent_panel_height(app);
+        const float total = sub_agent_panel_height(app, pane);
 
         auto wrap = div(ctx, mk(col, 8000),
             ComponentConfig{}
@@ -2280,20 +2351,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ---- SPLIT VIEW (I2): two transcripts side by side ----------------------
-    // Left = the primary open thread (app.openSession); right = app.splitSession.
-    // render_transcript reads app.openSession throughout (20 call sites), so
-    // rather than thread a session param through all of it, we render the LEFT
-    // pane normally, then SWAP app.openSession<->app.splitSession around the
-    // RIGHT pane's render and restore after. Rendering is synchronous within the
-    // frame and every per-thread static in render_transcript is keyed by the
-    // session id (not a single "current"), so the swap is safe and each pane
-    // keeps its own scroll/follow state. A thin divider + a close (×) affordance
-    // sit between/above the panes.
+    // ---- SPLIT VIEW: two transcripts side by side ---------------------------
+    // Left is panes[0], right is panes[1], and both go through the SAME
+    // render_transcript with their own Pane. There is no swap: what used to
+    // happen here was to move panes[0]'s session out to a local, move the
+    // right-hand thread in, render, and move both back -- so for the duration
+    // of the right pane's build every global that said "the open thread" was
+    // lying, and an early return anywhere inside would have left one pane's
+    // transcript parked in the other pane's field.
+    //
+    // The divider is draggable. Its own hit strip is wider than the line it
+    // draws (a 1px target is not a target), and the drag lives on the app
+    // rather than in a local static for the reason every gesture in this app
+    // does: the widget is rebuilt every frame, so the gesture cannot be.
+    static constexpr float kDividerLine = 1.0f;
+    static constexpr float kDividerGrab = 9.0f;
+
     void render_split(UIContext<InputAction>& ctx, Entity& parent,
                       AppComponent& app, float paneW, float paneH) {
-        const float kDivider = 1.0f;
-        const float halfW = (paneW - kDivider) * 0.5f;
+        const float usable = paneW - kDividerLine;
+        const float leftW = split_left_width(app, paneW);
+        const float rightW = usable - leftW;
 
         auto rowWrap = div(ctx, mk(parent, 4100),
             ComponentConfig{}
@@ -2304,60 +2382,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("split_row"));
 
-        // LEFT pane (primary thread).
-        auto leftPane = div(ctx, mk(rowWrap.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(halfW), pixels(paneH)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("split_left"));
-        render_transcript(ctx, leftPane.ent(), app, halfW, paneH);
+        pane_column(ctx, rowWrap.ent(), app, 0, leftW, paneH);
+        divider(ctx, rowWrap.ent(), app, paneH, leftW);
+        pane_column(ctx, rowWrap.ent(), app, 1, rightW, paneH);
+        close_split_button(ctx, parent, app, paneW);
+    }
 
-        // Vertical divider.
-        div(ctx, mk(rowWrap.ent(), 2),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(kDivider), pixels(paneH)})
-                .with_custom_background(theme::border())
-                .with_roundness(0.0f)
-                .with_debug_name("split_divider"));
-
-        // RIGHT pane (split thread) — swap openSession in for the render.
-        auto rightPane = div(ctx, mk(rowWrap.ent(), 3),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(halfW), pixels(paneH)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("split_right"));
-        if (app.splitSession) {
-            std::optional<api::Session> savedOpen = std::move(app.openSession);
-            std::string savedSel = app.selectedId;
-            app.openSession = std::move(app.splitSession);
-            app.selectedId = app.openSession->summary.id;
-            render_transcript(ctx, rightPane.ent(), app, halfW, paneH);
-            // Restore: move the (possibly mutated) session back to splitSession.
-            app.splitSession = std::move(app.openSession);
-            app.openSession = std::move(savedOpen);
-            app.selectedId = savedSel;
-        } else {
-            // Right pane still loading its transcript.
-            div(ctx, mk(rightPane.ent(), 1),
-                ComponentConfig{}
-                    .with_label("Loading\xe2\x80\xa6")
-                    .with_size(ComponentSize{percent(1.0f), pixels(40)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::BODY)
-                    .with_alignment(TextAlignment::Center)
-                    .with_roundness(0.0f)
-                    .with_debug_name("split_right_loading"));
-        }
-
-        // Close-split affordance: a small × pinned to the top-right of the
-        // whole main pane. Clicking clears the split (back to single pane).
+    // Close-split affordance: a small x pinned to the top-right of the whole
+    // main pane. Clicking it goes back to one pane.
+    void close_split_button(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app, float paneW) {
         auto closeBtn = div(ctx, mk(parent, 4150),
             ComponentConfig{}
                 .with_label("\xc3\x97")
@@ -2379,6 +2413,118 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             [](Entity&) {});
         if (closeBtn.ent().get<afterhours::ui::HasClickListener>().down)
             app.requestSplitClose = true;
+    }
+
+    // The left pane's width in pixels, from the persisted ratio, clamped so a
+    // drag can never reduce either side to nothing.
+    static float split_left_width(const AppComponent& app, float paneW) {
+        const float usable = paneW - kDividerLine;
+        float w = usable * std::clamp(app.splitRatio,
+                                      AppComponent::kSplitMinRatio,
+                                      AppComponent::kSplitMaxRatio);
+        return std::round(w);
+    }
+
+    // ONE pane of the split. The debug name carries the pane index, and that
+    // is not cosmetic: a scroll view is reachable from outside this app only
+    // by its debug name (afterhours_gaps.md #147), so with two of them on
+    // screen a name that used to identify one widget now identifies two --
+    // whichever the entity walk happens to reach first. Every named widget
+    // inside a pane gets the same treatment (see pane_suffix).
+    //
+    // Pane 0 keeps the UNSUFFIXED names it has always had, so every scripted
+    // assertion, every soak arm and every screenshot of the single-pane app
+    // still addresses exactly what it addressed before.
+    void pane_column(UIContext<InputAction>& ctx, Entity& parent,
+                     AppComponent& app, int index, float w, float h) {
+        Pane& pane = app.panes[static_cast<size_t>(index)];
+        const bool focused = app.focusedPane == index;
+        auto col = div(ctx, mk(parent, 10 + index),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(w), pixels(h)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(index == 0 ? "split_left" : "split_right"));
+
+        // Clicking anywhere in a pane focuses it. A press rather than a
+        // release, and read BEFORE the pane builds, so the click that focuses
+        // a pane also lands on whatever it was aimed at inside it.
+        if (ctx.mouse.just_pressed && !focused &&
+            afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos, pane_screen_rect(app, index)))
+            app.focusedPane = index;
+
+        render_transcript(ctx, col.ent(), app, pane, w, h);
+
+        // Which pane the keyboard is in. A hairline down the pane's inside
+        // edge rather than a full border: two boxed panes read as two windows,
+        // and the reference has no boxes anywhere in the main pane.
+        if (focused) focus_edge(ctx, col.ent(), h);
+    }
+
+    // The focused pane's marker: an accent hairline along the top of the pane.
+    void focus_edge(UIContext<InputAction>& ctx, Entity& parent, float h) {
+        (void)h;
+        div(ctx, mk(parent, 4180),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(2.0f)})
+                .with_absolute_position()
+                .with_translate(0.0f, 0.0f)
+                .with_custom_background(theme::accent())
+                .with_roundness(0.0f)
+                .with_render_layer(5)
+                .with_debug_name("split_focus_edge"));
+    }
+
+    // Where a pane sits on SCREEN, for the hit tests that cannot ask the
+    // widget tree (the click-to-focus above runs before the pane is built, and
+    // afterhours hands out no rect until layout has run).
+    static RectangleType pane_screen_rect(const AppComponent& app, int index) {
+        auto* layout = find_singleton<LayoutComponent>();
+        if (layout == nullptr) return RectangleType{0, 0, 0, 0};
+        const auto& r = layout->main;
+        const float leftW = split_left_width(app, r.width);
+        if (index == 0) return RectangleType{r.x, r.y, leftW, r.height};
+        return RectangleType{r.x + leftW + kDividerLine, r.y,
+                             r.width - leftW - kDividerLine, r.height};
+    }
+
+    // The divider, and the drag along it.
+    void divider(UIContext<InputAction>& ctx, Entity& parent,
+                 AppComponent& app, float h, float leftW) {
+        auto* layout = find_singleton<LayoutComponent>();
+        const float originX = layout ? layout->main.x : 0.0f;
+        const float paneW = layout ? layout->main.width : 0.0f;
+
+        auto line = div(ctx, mk(parent, 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kDividerLine), pixels(h)})
+                .with_custom_background(app.splitDragging ? theme::accent()
+                                                          : theme::border())
+                .with_cursor(afterhours::ui::CursorType::ResizeH)
+                .with_roundness(0.0f)
+                .with_debug_name("split_divider"));
+        (void)line;
+
+        // The grab strip is wider than the line and sits OVER it, absolutely
+        // positioned so it costs the row no width -- a divider that stole 9px
+        // of pane to be grabbable would move the panes every time it was made
+        // easier to hit.
+        const RectangleType grab{originX + leftW - kDividerGrab * 0.5f,
+                                 layout ? layout->main.y : 0.0f,
+                                 kDividerGrab, h};
+        const bool over = afterhours::ui::is_mouse_inside(ctx.mouse.pos, grab);
+        if (over && ctx.mouse.just_pressed) app.splitDragging = true;
+        if (!ctx.mouse.left_down) app.splitDragging = false;
+        if (app.splitDragging && paneW > 1.0f) {
+            const float local = ctx.mouse.pos.x - originX;
+            app.splitRatio =
+                std::clamp(local / (paneW - kDividerLine),
+                           AppComponent::kSplitMinRatio,
+                           AppComponent::kSplitMaxRatio);
+        }
     }
 
     // ---------------- "New since you last looked" --------------------------
@@ -2944,20 +3090,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // (a handful of tokens) and that keeps the parse next to its use instead
     // of in a cache that can go stale mid-frame.
     static find_ops::Query live_query() {
-        AppComponent* app = app_singleton();
-        if (app == nullptr || !app->findOpen) return find_ops::Query{};
-        return find_ops::parse(app->findQuery);
+        const Pane* p = painting_pane();
+        if (p == nullptr || !p->findOpen) return find_ops::Query{};
+        return find_ops::parse(p->findQuery);
     }
 
     // What find should paint inside message `index` — the query's text, or
     // nothing at all when an operator has excluded that row.
     static std::string paint_query_for(int index) {
-        AppComponent* app = app_singleton();
-        if (app == nullptr || !app->findOpen || !app->openSession)
+        const Pane* p = painting_pane();
+        if (p == nullptr || !p->findOpen || !p->openSession)
             return std::string();
         const find_ops::Query q = live_query();
         if (q.invalid || q.text.empty()) return std::string();
-        const auto& msgs = app->openSession->messages;
+        const auto& msgs = p->openSession->messages;
         // The other half of the rule above. A thinking block normally draws
         // through render_thinking_block, which paints no bands at all — but a
         // reasoning message that is still STREAMING renders as an ordinary
@@ -2966,7 +3112,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (static_cast<size_t>(index) < msgs.size() &&
             is_thinking(msgs[static_cast<size_t>(index)]))
             return std::string();
-        if (!find_ops::row_matches(*app->openSession,
+        if (!find_ops::row_matches(*p->openSession,
                                    static_cast<size_t>(index), q))
             return std::string();
         return q.text;
@@ -2975,17 +3121,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Move the current match one step and ask the transcript to scroll it into
     // view. The Cmd+G chord and the find bar's chevrons both come through
     // here, so they cannot drift onto different matches.
-    static void apply_find_step(AppComponent& app, hanabi::find_nav::Step s) {
-        if (s == hanabi::find_nav::Step::None || app.findCount <= 0) return;
-        app.findIndex =
-            hanabi::find_nav::advance(app.findIndex, app.findCount, s);
-        app.findScrollPending = true;
+    static void apply_find_step(Pane& pane, hanabi::find_nav::Step s) {
+        if (s == hanabi::find_nav::Step::None || pane.findCount <= 0) return;
+        pane.findIndex =
+            hanabi::find_nav::advance(pane.findIndex, pane.findCount, s);
+        pane.findScrollPending = true;
     }
 
     // The find bar: an overlay pinned to the transcript's top-right, so it
     // never displaces the conversation under it.
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
-                  AppComponent& app, float paneW, int matchCount,
+                  AppComponent& app, Pane& pane, float paneW, int matchCount,
                   const find_ops::Query& q) {
         // Content must FIT: afterhours has no flex-grow and warns (loudly, every
         // frame) when a NoWrap row's children exceed it. Sized from the parts:
@@ -3025,7 +3171,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (and warns is the good case — it also re-solves the layout). The
         // inset comes from the bar's padding instead.
         afterhours::ui::imm::text_input(
-            ctx, mk(bar.ent(), 1), app.findQuery,
+            ctx, mk(bar.ent(), 1), pane.findQuery,
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(168), pixels(26)})
                 .with_transparent_bg()
@@ -3037,10 +3183,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // "3 of 12", or "no matches" once something has been typed.
         std::string tally;
-        if (!app.findQuery.empty())
+        if (!pane.findQuery.empty())
             tally = matchCount == 0
                         ? std::string("no matches")
-                        : (std::to_string(app.findIndex + 1) + " of " +
+                        : (std::to_string(pane.findIndex + 1) + " of " +
                            std::to_string(matchCount));
         div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
@@ -3088,8 +3234,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     })
                     .with_debug_name(up ? "find_prev" : "find_next"));
             if (b && navigable) {
-                apply_find_step(app, up ? hanabi::find_nav::Step::Prev
-                                        : hanabi::find_nav::Step::Next);
+                apply_find_step(pane, up ? hanabi::find_nav::Step::Prev
+                                         : hanabi::find_nav::Step::Next);
             }
         };
         step(3, true);
@@ -3110,8 +3256,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     "close", "\xc3\x97", theme::text_secondary(), 12.0f))
                 .with_debug_name("find_close"));
         if (close) {
-            app.findOpen = false;
-            app.findQuery.clear();
+            pane.findOpen = false;
+            pane.findQuery.clear();
             app.refocusComposer = true;
         }
 
@@ -3153,25 +3299,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
-                           AppComponent& app, float paneW, float paneH) {
+                           AppComponent& app, Pane& pane, float paneW,
+                           float paneH) {
+        const PaneBuildScope building(pane);
         // No transcript header. Puffin's pane begins at the first message: the
         // tab strip is the only thing above the transcript, and the thread's
         // identity lives in the tab caption. hanabi used to derive a display
         // title here and draw it over a muted age; both are gone for visual
         // parity (the commit message says what that costs a reader).
 
-        if (app.transcriptState == LoadState::Error) {
+        if (pane.transcriptState == LoadState::Error) {
             note(ctx, parent,
-                 "Could not load transcript: " + app.transcriptError);
+                 "Could not load transcript: " + pane.transcriptError);
             return;
         }
-        if (!app.openSession) {
+        if (!pane.openSession) {
             // Still fetching: the welcome hero here reads as "nothing here"
             // rather than "not yet". selectedId covers the frames before the
             // loader flips transcriptState; Error already returned above.
-            const bool opening = !app.selectedId.empty() ||
-                                 app.transcriptState == LoadState::Loading ||
-                                 !app.transcriptLoadingId.empty();
+            const bool opening = !pane.selectedId.empty() ||
+                                 pane.transcriptState == LoadState::Loading ||
+                                 !pane.transcriptLoadingId.empty();
             if (opening) {
                 loading_spinner(ctx, parent, "Loading conversation\xe2\x80\xa6");
                 return;
@@ -3185,9 +3333,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // data for the SAME id is present, keep showing it (stale-while-
         // revalidate) rather than flashing a spinner. (Data layer guarantees
         // the fetch/parse is off the UI thread — no beachball.)
-        if (app.transcriptState == LoadState::Loading &&
-            !app.transcriptLoadingId.empty() &&
-            app.openSession->summary.id != app.transcriptLoadingId) {
+        if (pane.transcriptState == LoadState::Loading &&
+            !pane.transcriptLoadingId.empty() &&
+            pane.openSession->summary.id != pane.transcriptLoadingId) {
             loading_spinner(ctx, parent, "Loading conversation\xe2\x80\xa6");
             return;
         }
@@ -3234,7 +3382,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(gutter),
                                       .bottom = pixels(10),
                                       .left = pixels(gutter)})
-                .with_debug_name("transcript_scroll"));
+                .with_debug_name(scroll_name(pane_index(app, pane))));
         // TEMPORARY scroll indicator (afterhours gap #26): afterhours has no
         // built-in scrollbar, so paint a thin overlay bar from the panel's live
         // HasScrollView metrics. The 14px right padding above already keeps the
@@ -3242,7 +3390,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
 
-        if (app.openSession->messages.empty()) {
+        if (pane.openSession->messages.empty()) {
             div(ctx, mk(scroll.ent(), 1),
                 preset::EmptyStateText(
                     canReply ? "No messages yet \xe2\x80\x94 start the "
@@ -3276,20 +3424,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         probe_drawn_turns();
         hanabi::text_select::begin_frame();
-        render_cache().reset_for_thread(app.openSession->summary.id);
+        render_cache().reset_for_thread(
+            model::pane_key(pane_index(app, pane), pane.openSession->summary.id));
 
         // Measured here, RENDERED further down: the rollup is the first thing
         // in the column, but a short thread gets a leading spacer in front of
         // it, and the spacer's size isn't known until every item is measured.
-        const float subH = sub_agent_panel_height(app);
+        const float subH = sub_agent_panel_height(app, pane);
 
         const bool streamingHere =
             app.streamActive &&
-            app.streamSessionId == app.openSession->summary.id &&
+            app.streamSessionId == pane.openSession->summary.id &&
             app.streamPhase != AppComponent::StreamPhase::Done;
         const size_t liveIdx = app.streamMsgIndex;
 
-        const auto& msgs = app.openSession->messages;
+        const auto& msgs = pane.openSession->messages;
         const int n = static_cast<int>(msgs.size());
 
         // ---- Where the reader left off -------------------------------------
@@ -3302,7 +3451,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // recomputing every frame deleted the line while they were looking at
         // it. Reaching the end advances the persisted stamp for NEXT time; the
         // line on screen stays until the thread is closed and reopened.
-        const std::string& openId0 = app.openSession->summary.id;
+        const std::string& openId0 = pane.openSession->summary.id;
         // The mark lives in the ONE bounded per-thread store (ecs/pane_state.h)
         // rather than in a function-local map keyed by session id, which grew
         // an entry per thread ever opened, was never pruned, and could not be
@@ -3310,7 +3459,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // rest of the frame: unordered_map does not move its elements, and the
         // entry we just touched is the most-recently-used one, so the two
         // touch() calls further down cannot evict it.
-        model::PaneState& mark = model::pane_states().touch(openId0);
+        model::PaneState& mark =
+            model::pane_states().touch(model::pane_key(pane_index(app, pane), openId0));
         const int64_t lastRead = Settings::get().get_last_read(openId0);
         // Recomputed when the thread is first seen, and again if messages were
         // PREPENDED (load-older shifts every index, so a held index would
@@ -3492,14 +3642,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Recomputed each frame from the query. Cheap (a substring scan of the
         // loaded window) and it keeps the count honest as a stream appends.
         const find_ops::Query findQ =
-            app.findOpen ? find_ops::parse(app.findQuery) : find_ops::Query{};
+            pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
         std::vector<Match> matches;
-        if (app.findOpen && !findQ.text.empty()) {
-            matches = collect_matches(*app.openSession, findQ);
-            if (app.findIndex >= static_cast<int>(matches.size()))
-                app.findIndex = 0;
+        if (pane.findOpen && !findQ.text.empty()) {
+            matches = collect_matches(*pane.openSession, findQ);
+            if (pane.findIndex >= static_cast<int>(matches.size()))
+                pane.findIndex = 0;
         }
-        app.findCount = static_cast<int>(matches.size());
+        pane.findCount = static_cast<int>(matches.size());
 
         // ---- Virtualization: read last frame's scroll to skip off-screen. --
         float scrollY = 0.0f;
@@ -3516,11 +3666,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //     height of the newly-prepended items and bump scroll_offset by it,
         //     so the user's view stays on the same message instead of snapping
         //     to the newly-loaded oldest. Cleared after one application.
-        const std::string openId = app.openSession->summary.id;
-        if (app.anchorPending == openId &&
-            msgs.size() > app.anchorPrevMsgCount &&
+        const std::string openId = pane.openSession->summary.id;
+        if (pane.anchorPending == openId &&
+            msgs.size() > pane.anchorPrevMsgCount &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const size_t added = msgs.size() - app.anchorPrevMsgCount;
+            const size_t added = msgs.size() - pane.anchorPrevMsgCount;
             float prependedH = 0.0f;
             for (const auto& it : items) {
                 if (static_cast<size_t>(it.lo) < added)
@@ -3532,7 +3682,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             sv.scroll_offset.y += prependedH;  // hold the viewport steady
             sv.clamp_scroll();
             scrollY = sv.scroll_offset.y;
-            app.anchorPending.clear();
+            pane.anchorPending.clear();
         }
         // (b) TRIGGER + PREFETCH: when the user is near the TOP and there are
         //     older messages, request a load. A generous threshold (2 viewports)
@@ -3540,17 +3690,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //     usually already there by the time they reach it — and reaching
         //     the top faster (fast scroll-up) just triggers sooner. Guarded by
         //     loadingOlder (loader clears it) so it fires once per page.
-        if (app.hasMoreOlder && !app.loadingOlder && !app.requestLoadOlder &&
-            app.anchorPending.empty() && scrollY <= viewH * 2.0f) {
-            app.requestLoadOlder = true;
+        if (pane.hasMoreOlder && !pane.loadingOlder && !pane.requestLoadOlder &&
+            pane.anchorPending.empty() && scrollY <= viewH * 2.0f) {
+            pane.requestLoadOlder = true;
         }
         // Jump the current match into view. The item list carries every
         // message's measured height, so the y of the message holding the match
         // is the sum of the heights before it; a third of a viewport of lead-in
         // puts it comfortably inside the pane rather than flush at the top.
-        if (app.findScrollPending && !matches.empty() &&
+        if (pane.findScrollPending && !matches.empty() &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const int target = matches[static_cast<size_t>(app.findIndex)].msg;
+            const int target = matches[static_cast<size_t>(pane.findIndex)].msg;
             float y = subH;
             for (const auto& it : items) {
                 if (it.lo == target ||
@@ -3564,7 +3714,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::set_scroll_target_y(sv, sv.scroll_offset.y);
             sv.clamp_scroll();
             scrollY = sv.scroll_offset.y;
-            app.findScrollPending = false;
+            pane.findScrollPending = false;
         }
 
         // ---- Open-at-bottom + stay-pinned model -----------------------
@@ -3577,7 +3727,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // metrics (content_size/viewport/offset) captured below.
         // Open-at-bottom + stay-pinned model:
         //   * A thread opened for the FIRST time (new tab) lands at the bottom
-        //     (newest message). This is driven by app.scrollBottomPending, set
+        //     (newest message). This is driven by pane.scrollBottomPending, set
         //     ONLY in the new-tab open path (switching to an already-open tab
         //     does NOT set it, so that tab keeps its scroll position).
         //   * While a thread is streaming here, or the user is already AT the
@@ -3588,8 +3738,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // frame after an open has no content_size yet, so clearing on frame 0
         // would clamp 1e9 against a stale height and never reach the true
         // bottom (the old s_bottomedId bug).
-        const std::string curId = app.openSession->summary.id;
-        const bool wantOpenBottom = (app.scrollBottomPending == curId);
+        const std::string curId = pane.openSession->summary.id;
+        const bool wantOpenBottom = (pane.scrollBottomPending == curId);
 
         // ---- Persistent FOLLOW-LATCH (fixes "page doesn't stay at bottom") ---
         // The old model recomputed `atBottom` from geometry EVERY frame:
@@ -3613,9 +3763,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // each other. Each pane's curId indexes its own latch.
         // PaneState's defaults ARE the first-sight values the two maps used to
         // be seeded with on a miss: follow armed, no previous offset yet.
-        model::PaneState& pane = model::pane_states().touch(curId);
-        bool& s_follow = pane.follow;
-        float& s_prevOffset = pane.prevOffset;
+        model::PaneState& mem =
+            model::pane_states().touch(model::pane_key(pane_index(app, pane), curId));
+        bool& s_follow = mem.follow;
+        float& s_prevOffset = mem.prevOffset;
         float curOffset = 0.0f;
         float contentH = totalH;
         bool contentLaidOut = false;
@@ -3684,7 +3835,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool atBottom = s_follow || nearEnd;
         // Find owns the scroll while it is open with a query: the bottom-pin
         // would drag the view back off the match the moment it landed.
-        const bool findDriving = app.findOpen && !findQ.text.empty();
+        const bool findDriving = pane.findOpen && !findQ.text.empty();
         const bool pinBottom =
             !findDriving && (wantOpenBottom || streamingHere || s_follow);
         if (pinBottom) scrollY = totalH;
@@ -3700,9 +3851,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // doesn't inherit a stale velocity from the other thread.
         // A first sight has velocity 0, not -scrollY: the flag is what the
         // map's find()-vs-end() used to say.
-        float vel = pane.haveLastScrollY ? scrollY - pane.lastScrollY : 0.0f;
-        pane.lastScrollY = scrollY;
-        pane.haveLastScrollY = true;
+        float vel = mem.haveLastScrollY ? scrollY - mem.lastScrollY : 0.0f;
+        mem.lastScrollY = scrollY;
+        mem.haveLastScrollY = true;
         // Base margin ~1 viewport each side (covers normal wheel steps), plus
         // an extension of several frames of the current velocity in the travel
         // direction (clamped so a huge jump doesn't build the whole doc).
@@ -3733,7 +3884,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // starts directly under the tab strip with the dead space BELOW. The
         // spacer is gone so a short thread top-anchors the way the reference
         // does. (Long threads are unaffected — they never had one.)
-        sub_agent_panel(ctx, col, app);
+        sub_agent_panel(ctx, col, app, pane);
         {
         hanabi::prof::Scope _p2("transcript.pass2_build");
         for (const auto& it : items) {
@@ -3830,8 +3981,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the real jump-to-bottom. Guard on curId so a fast switch to another
         // new thread doesn't clear the wrong pending id.
         if (wantOpenBottom && contentLaidOut &&
-            app.scrollBottomPending == curId) {
-            app.scrollBottomPending.clear();
+            pane.scrollBottomPending == curId) {
+            pane.scrollBottomPending.clear();
         }
 
         // The rail. Rendered after the pin above so a click on it wins the
@@ -3841,7 +3992,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::Scope _pm("transcript.minimap");
             minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
                          kHeaderH, listH, totalH, viewH, scrollY, s_follow,
-                         pane.minimapDrag);
+                         mem.minimapDrag);
         }
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to
@@ -3860,11 +4011,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // freeze/snap. Overlay (absolute on the parent pane) so it doesn't
         // shift the scroll content / fight the anchor math. kHeaderH offsets it
         // below the title header.
-        if (app.loadingOlder) {
+        if (pane.loadingOlder) {
             loading_older_pill(ctx, parent, paneW, kHeaderH + 6.0f);
         }
-        if (app.findOpen)
-            find_bar(ctx, parent, app, paneW, app.findCount, findQ);
+        if (pane.findOpen)
+            find_bar(ctx, parent, app, pane, paneW, pane.findCount, findQ);
         hanabi::text_select::end_frame(ctx.mouse.just_pressed);
         // (Composer is rendered once at the pane level — not here.)
         (void)canReply;
@@ -3879,7 +4030,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // does), the Send button is ENABLED whenever the draft is non-empty: on
     // click it sets app.requestSendPrompt (serviced by LoaderSystem, which runs
     // send_message async and appends the user prompt + assistant reply to
-    // app.openSession->messages) and clears the local draft. When the backend
+    // app.pane().openSession->messages) and clears the local draft. When the backend
     // can't reply (an unconfigured http backend), the button stays disabled-
     // styled with an honest caption instead of faking it.
     // The model picker: a popover over the composer strip listing the models
@@ -3955,7 +4106,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // does), the Send button is ENABLED whenever the draft is non-empty: on
     // click it sets app.requestSendPrompt (serviced by LoaderSystem, which runs
     // send_message async and appends the user prompt + assistant reply to
-    // app.openSession->messages) and clears the local draft. When the backend
+    // app.pane().openSession->messages) and clears the local draft. When the backend
     // can't reply (an unconfigured http backend), the button stays disabled-
     // styled with an honest caption instead of faking it.
     // The effort picker: a popover over the composer strip with the server's
@@ -4218,8 +4369,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             selected ? theme::accent() : theme::text_faint());
                     })
                     .with_debug_name("fold_row_" + std::to_string(i)));
-            if (row && app.openSession) {
-                Settings::get().set_tool_fold(app.openSession->summary.id,
+            if (row && app.pane().openSession) {
+                Settings::get().set_tool_fold(app.pane().openSession->summary.id,
                                               hanabi::fold::to_int(c.mode));
                 // The sub-agent rollup shares this set but is not a tool row,
                 // so its own disclosure is left exactly as the reader left it.
@@ -4250,7 +4401,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // AppComponent; the map is small — one short string per opened thread).
         const std::string draftKey =
             kickoff ? std::string("__kickoff__")
-                    : (app.openSession ? app.openSession->summary.id
+                    : (app.pane().openSession ? app.pane().openSession->summary.id
                                        : std::string());
         // Draft and sent-history are ONE entry in the bounded per-thread store
         // (ecs/pane_state.h), keyed the same way they always were, so the two
@@ -4258,7 +4409,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // pair is bounded instead of growing forever, one entry per thread the
         // composer ever rendered. Eviction refuses any entry holding an unsent
         // draft, so the bound costs typing nothing.
-        model::PaneState& composerState = model::pane_states().touch(draftKey);
+        model::PaneState& composerState = model::pane_states().touch(
+            model::pane_key(app.focusedPane, draftKey));
         std::string& replyDraft = composerState.replyDraft;
         model::PaneState& history = composerState;
         const auto remember_sent = [&history](const std::string& text) {
@@ -4297,7 +4449,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // frame or two later — well within the capture's 45-frame budget.
         // Ignored when unset; no network (the mock generates the reply).
         static bool sendDemoFired = false;
-        if (!sendDemoFired && app.openSession) {
+        if (!sendDemoFired && app.pane().openSession) {
             if (const char* d = std::getenv("HANABI_SEND_DEMO"); d && *d) {
                 sendDemoFired = true;
                 app.requestSendPrompt = d;
@@ -4311,7 +4463,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // drain after K tokens for the mid-stream shot; leave it unset for the
         // completed shot. Ignored when unset; no network (the mock streams).
         static bool streamDemoFired = false;
-        if (!streamDemoFired && app.openSession && app.client &&
+        if (!streamDemoFired && app.pane().openSession && app.client &&
             app.client->supports_stream()) {
             if (const char* d = std::getenv("HANABI_STREAM_DEMO"); d && *d) {
                 streamDemoFired = true;
@@ -4610,12 +4762,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // exposes no setter for, so it is written after the widget exists. The
         // renderer adds its own 5px on top of the offset, which is why the
         // offset is the inset MINUS that. afterhours_gaps.md #91.
-        if (app.openSession) {
+        if (app.pane().openSession) {
             constexpr float kPillPad = 6.0f;
             constexpr float kPillIcon = 10.0f;
             constexpr float kPillIconGap = 3.0f;
             constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
-            const hanabi::fold::Mode currentFold = fold_mode(app);
+            const hanabi::fold::Mode currentFold = fold_mode();
             const std::string foldText =
                 "Tools: " + hanabi::fold::chip_label(currentFold);
             auto foldChip = button(ctx, mk(rightMeta.ent(), 3),
@@ -4684,11 +4836,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The denominator is the session's compaction budget, or the declared
         // one for a backend that reports none; with neither, the bar is absent
         // rather than filled to something invented.
-        if (canSend && app.openSession) {
-            const api::ContextUsage& usage = app.openSession->context;
+        if (canSend && app.pane().openSession) {
+            const api::ContextUsage& usage = app.pane().openSession->context;
             const bool counted = usage.counted();
             const int64_t tok =
-                counted ? usage.used_tokens : estimated_tokens(*app.openSession);
+                counted ? usage.used_tokens : estimated_tokens(*app.pane().openSession);
             const int64_t budget = usage.has_denominator()
                                        ? usage.budget_tokens
                                        : app.configuredContextBudget;
@@ -6038,7 +6190,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // message that contains one.
         // An operator that excludes this row excludes it here too: unfolding
         // a message find will not highlight would open it for nothing.
-        if (app && app->findOpen &&
+        if (app && app->pane().findOpen &&
             message_has_match(m, paint_query_for(index)))
             return false;
         const std::string mkey =
@@ -7748,12 +7900,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- Tool fold defaults (src/ui/fold_menu.h) --------------------------
-    // The mode belongs to the thread being rendered, and split view swaps
-    // openSession per pane, so reading it off openSession answers per pane.
-    static hanabi::fold::Mode fold_mode(AppComponent& app) {
-        if (!app.openSession) return hanabi::fold::kDefault;
+    // The mode belongs to the THREAD being rendered, so it is read off the
+    // pane that is being painted rather than off the app: two panes on two
+    // threads have two answers, and the composer strip's own popover (built
+    // outside any pane) means the focused one.
+    static hanabi::fold::Mode fold_mode() {
+        const Pane* p = painting_pane();
+        if (p == nullptr || !p->openSession) return hanabi::fold::kDefault;
         return hanabi::fold::from_int(
-            Settings::get().get_tool_fold(app.openSession->summary.id));
+            Settings::get().get_tool_fold(p->openSession->summary.id));
     }
     // Auto's rule: a short captured result is worth the space, a long one is a
     // log. No result at all means there is nothing to open.
@@ -7779,7 +7934,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                              const api::Message& resultRow) {
         if (!key.empty() && app.collapsedPiles.count(key) != 0) return false;
         if (!key.empty() && app.expandedPiles.count(key) != 0) return true;
-        switch (fold_mode(app)) {
+        switch (fold_mode()) {
             case hanabi::fold::Mode::Expand: return true;
             case hanabi::fold::Mode::Auto: return auto_opens(resultRow);
             case hanabi::fold::Mode::Fold: break;

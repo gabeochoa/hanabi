@@ -277,10 +277,10 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         app.requestOpenTab = hit.id;
         app.view = SmartView::Chat;
         if (!app.sessionSearchQuery.empty()) {
-            app.findOpen = true;
-            app.findQuery = app.sessionSearchQuery;
-            app.findIndex = 0;
-            app.findScrollPending = true;
+            app.pane().findOpen = true;
+            app.pane().findQuery = app.sessionSearchQuery;
+            app.pane().findIndex = 0;
+            app.pane().findScrollPending = true;
         }
         close(app);
     }

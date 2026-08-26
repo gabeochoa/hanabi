@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -92,57 +93,85 @@ inline const std::string& more_key(std::string_view key, std::string& scratch) {
     return scratch;
 }
 
-// Singleton: owns the API client and the whole app's data + view state.
-struct AppComponent : public afterhours::BaseComponent {
-    std::unique_ptr<api::Client> client;
-    std::string backend_label;
-    // Web/session URL base for the "Copy URL" tab action (from config
-    // web_base_url / env HANABI_WEB_BASE_URL). Empty => host-neutral
-    // navi://session/<id>. Never used as an API endpoint.
-    std::string webBaseUrl;
-    // Where a work-tracker id in a message points (from config
-    // tracker_base_url / env HANABI_TRACKER_BASE_URL). Empty => ids in the
-    // transcript are prose, not links.
-    std::string trackerBaseUrl;
-
-    // Session list.
-    std::vector<api::SessionSummary> sessions;
-    LoadState listState = LoadState::Idle;
-    std::string listError;
-
-    // Selected session + transcript (the active tab's thread).
+// One transcript view: everything a pane knows about the thread it is showing.
+//
+// WHAT THIS REPLACES. Every field below used to sit directly on AppComponent,
+// written as if there could only ever be one of it -- because for most of this
+// app's life there could. Split view then arrived as a SECOND transcript
+// rendered from the SAME fields, by moving `openSession` out to a local,
+// moving `splitSession` in, rendering, and moving both back
+// (main_pane_system.h, "SWAP app.openSession<->app.splitSession"). That worked
+// only for as long as the second pane wanted nothing of its own: one find bar,
+// one scroll-to-bottom latch, one load-older anchor, one in-flight fetch,
+// shared between two panes looking at two different places.
+//
+// So the state is a VALUE, and a pane owns one. The single-pane app is
+// `panes[0]` and nothing about it changed; the second pane is a second value,
+// not a second code path. The swap is gone, and with it the class of bug where
+// the pane you were not looking at wrote into the pane you were.
+//
+// WHAT IS NOT HERE, AND WHY. Three kinds of state stayed on AppComponent:
+//
+//   * The session LIST, the tab strip, the sidebar, the overlays. One of each
+//     exists, and the tab strip is deliberately global -- one strip, and it
+//     opens into the focused pane.
+//   * Fold state (`expandedPiles`, `expandedMsgs`, `expandedThinking`). Keyed
+//     by MESSAGE id, not by pane: "I opened this tool call" is a fact about
+//     the message, and two panes showing one thread agreeing about it is the
+//     behaviour you want rather than a bug.
+//   * The composer's draft, its history and the scroll/follow latches. Already
+//     per THREAD, in the bounded LRU at ecs/pane_state.h -- which is keyed by
+//     pane AND thread, so two panes on one thread keep their own.
+struct Pane {
+    // The thread this pane is showing, and its transcript.
     std::string selectedId;
     std::optional<api::Session> openSession;
     LoadState transcriptState = LoadState::Idle;
     std::string transcriptError;
 
-    // --- Split view (I2): an optional SECOND transcript shown to the RIGHT of
-    // the primary one. splitSessionId is the right pane's thread; splitSession
-    // is its transcript (served from the LRU cache on open, async-filled on a
-    // miss via requestSplitOpen). Empty splitSessionId == not split (single
-    // pane). Snapping a tab to the right edge sets splitSessionId; closing the
-    // split clears it. The primary pane keeps using openSession as before, so
-    // single-pane behavior is unchanged when splitSessionId is empty.
-    std::string splitSessionId;
-    std::optional<api::Session> splitSession;
-    // One-shot: sidebar/tab asks to open a thread in the RIGHT split pane.
-    std::string requestSplitOpen;
-    // One-shot: close the split (back to single pane).
-    bool requestSplitClose = false;
-    std::future<api::Result<api::Session>> splitFuture;
-    bool splitPending = false;
-    std::string splitPendingId;
+    // Set by the tab system (or a split-open request) when a transcript
+    // needs fetching; consumed by the loader.
+    std::string requestOpenId;
 
-    // Which main-pane view is showing.
-    SmartView view = SmartView::Home;
-
-    // Async fetches in flight (polled by the loader system).
-    std::future<api::Result<std::vector<api::SessionSummary>>> listFuture;
-    bool listPending = false;
+    // Set to a session id ONLY when a thread is opened for the FIRST time (a
+    // new tab) — NOT when switching to an already-open tab. The transcript
+    // render pins the scroll to the bottom (newest message) while this matches
+    // the open thread, then clears it once the content is laid out and pinned,
+    // so a freshly-opened thread lands at the bottom exactly once. Switching
+    // back to an existing tab leaves this empty, so the user's scroll position
+    // in that tab is preserved.
+    std::string scrollBottomPending;
 
     std::future<api::Result<api::Session>> transcriptFuture;
     bool transcriptPending = false;
     std::string transcriptPendingId;
+
+    // ==== Feature #1: never-beachball thread switch ======================
+    // Per pane: two panes can each be mid-switch, and one spinner flag
+    // between them showed the wrong pane's spinner.
+    // The id of the thread whose transcript is CURRENTLY loading (async fetch
+    // and/or async disk-cache read in flight), or empty when nothing is
+    // loading. The RENDER side reads this to show a per-thread spinner: show
+    // the spinner when transcriptState == Loading (already the signal) AND/OR
+    // when transcriptLoadingId == the tab's session id. It is set IMMEDIATELY
+    // (synchronously, ~0 cost) the instant a switch is requested, BEFORE any
+    // heavy work, so the pane can paint a spinner on the very next frame while
+    // the worker thread does the disk read + JSON parse + windowing off the UI
+    // thread. Cleared when the fetch/disk result is applied (or dropped because
+    // the user switched away again).
+    std::string transcriptLoadingId;
+
+    // A worker-thread disk-cache read of a transcript, polled like
+    // transcriptFuture. On a MISS the loader USED to call
+    // disk_cache::load_transcript() synchronously on the UI thread — opening +
+    // JSON-parsing an up-to-690-message file, the exact beachball Gabe hit.
+    // Now that read runs on this future's worker thread; the loader polls it
+    // (non-blocking wait_for(0)) and paints the stale copy when it lands, still
+    // ahead of (or alongside) the network revalidate. std::optional inside the
+    // Result: nullopt == cache miss (no stale copy to paint).
+    std::future<std::optional<api::Session>> diskReadFuture;
+    bool diskReadPending = false;
+    std::string diskReadId;  // the thread the disk read targets
 
     // --- Memory-light transcript window (newest-N) ------------------------
     // Opening a thread fetches only the NEWEST N messages (see LoaderSystem's
@@ -170,6 +199,94 @@ struct AppComponent : public afterhours::BaseComponent {
     // anchorPending is the session id awaiting the offset bump (empty = none).
     std::string anchorPending;
     size_t anchorPrevMsgCount = 0;   // message count before the older load
+
+    // ==== Find in conversation (Cmd+F) ===================================
+    // A long thread is unsearchable without this: the sidebar's search finds
+    // THREADS, and nothing finds a line inside the one you are reading.
+    bool findOpen = false;
+    //
+    // Per pane, not per app: the two panes are two places in (possibly) two
+    // conversations, and one tally counting both would name a match the reader
+    // cannot see.
+    std::string findQuery;
+    int findIndex = 0;    // which match is current, 0-based
+    int findCount = 0;    // matches on the last rendered frame (for "3 of 12")
+    // Set when the current match changes; the transcript scrolls it into view
+    // on the next frame it lays out, then clears this.
+    bool findScrollPending = false;
+
+    // Is this pane showing a thread at all?
+    bool has_thread() const { return openSession.has_value(); }
+};
+
+// Singleton: owns the API client and the whole app's data + view state.
+struct AppComponent : public afterhours::BaseComponent {
+    std::unique_ptr<api::Client> client;
+    std::string backend_label;
+    // Web/session URL base for the "Copy URL" tab action (from config
+    // web_base_url / env HANABI_WEB_BASE_URL). Empty => host-neutral
+    // navi://session/<id>. Never used as an API endpoint.
+    std::string webBaseUrl;
+    // Where a work-tracker id in a message points (from config
+    // tracker_base_url / env HANABI_TRACKER_BASE_URL). Empty => ids in the
+    // transcript are prose, not links.
+    std::string trackerBaseUrl;
+
+    // Session list.
+    std::vector<api::SessionSummary> sessions;
+    LoadState listState = LoadState::Idle;
+    std::string listError;
+
+    // ==== The panes ========================================================
+    // Two transcript views. `panes[0]` is the one that has always existed;
+    // `panes[1]` is the right-hand pane and is live only while `splitOpen`.
+    // `focusedPane` is the one the keyboard, the composer and the tab strip act
+    // on -- exactly one, always a valid index.
+    //
+    // An ARRAY rather than two named members, so every site that services a
+    // pane is a loop and cannot service one and forget the other. That
+    // asymmetry is exactly what the old split block was: a second, simpler,
+    // subtly different copy of the first pane's plumbing.
+    std::array<Pane, 2> panes;
+    int focusedPane = 0;
+    // Is the second pane showing? Closed == single pane, and `panes[1]` is left
+    // alone -- its thread is remembered, so reopening the split is free and it
+    // is what gets persisted.
+    bool splitOpen = false;
+    // Where the divider sits, as the LEFT pane's share of the pane width.
+    // Clamped to [kSplitMinRatio, kSplitMaxRatio] wherever it is written.
+    float splitRatio = 0.5f;
+    // A divider drag in flight. On the app rather than in a render-local static
+    // for the reason every gesture in this app is: the widget is rebuilt every
+    // frame, so the gesture cannot live in it.
+    bool splitDragging = false;
+
+    // One-shot: open this thread in the pane that is NOT focused, splitting if
+    // it is not already split. Empty = nothing asked.
+    std::string requestSplitOpen;
+    // One-shot: close the split (back to single pane).
+    bool requestSplitClose = false;
+    // One-shot: toggle the split. The chord, the palette row and the menu item
+    // all set this rather than each deciding for itself what a toggle means.
+    bool requestSplitToggle = false;
+
+    static constexpr float kSplitMinRatio = 0.2f;
+    static constexpr float kSplitMaxRatio = 0.8f;
+
+    Pane& pane() { return panes[static_cast<size_t>(focusedPane)]; }
+    const Pane& pane() const {
+        return panes[static_cast<size_t>(focusedPane)];
+    }
+    Pane& other_pane() { return panes[focusedPane == 0 ? 1 : 0]; }
+    // How many panes are actually showing: one, or two when split.
+    size_t active_pane_count() const { return splitOpen ? 2u : 1u; }
+
+    // Which main-pane view is showing.
+    SmartView view = SmartView::Home;
+
+    // Async fetches in flight (polled by the loader system).
+    std::future<api::Result<std::vector<api::SessionSummary>>> listFuture;
+    bool listPending = false;
 
     // --- Live events (SSE) — MULTI-thread background subscriptions --------
     // When the backend supports_events(), the loader keeps a POOL of live
@@ -215,19 +332,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set by the sidebar when a row is clicked (a thread to open in a tab);
     // consumed by TabFlowSystem which opens/focuses the tab.
     std::string requestOpenTab;
-    // Set by the tab system when a transcript needs fetching; consumed by
-    // the loader.
-    std::string requestOpenId;
-
-    // Set to a session id ONLY when a thread is opened for the FIRST time (a
-    // new tab) — NOT when switching to an already-open tab. The transcript
-    // render pins the scroll to the bottom (newest message) while this matches
-    // the open thread, then clears it once the content is laid out and pinned,
-    // so a freshly-opened thread lands at the bottom exactly once. Switching
-    // back to an existing tab leaves this empty, so the user's scroll position
-    // in that tab is preserved.
-    std::string scrollBottomPending;
-
     // Look up a summary by id (for tab labels, row rendering).
     const api::SessionSummary* find_summary(const std::string& id) const {
         for (const auto& s : sessions)
@@ -349,10 +453,6 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string sessionSearchQuery;
     int sessionSearchIndex = 0;
 
-    // ==== Find in conversation (Cmd+F) ===================================
-    // A long thread is unsearchable without this: the sidebar's search finds
-    // THREADS, and nothing finds a line inside the one you are reading.
-    bool findOpen = false;
     // One-shot: put the caret back in the composer next frame. The find bar
     // owns a text field of its own, so closing it left focus on an element
     // that no longer exists and the composer's own keys (Esc to clear, the
@@ -368,13 +468,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // Home and the smart views. Empty = no cursor; the first arrow press puts
     // one on the nearest end of the list.
     std::string listCursorId;
-    std::string findQuery;
-    int findIndex = 0;    // which match is current, 0-based
-    int findCount = 0;    // matches on the last rendered frame (for "3 of 12")
-    // Set when the current match changes; the transcript scrolls it into view
-    // on the next frame it lays out, then clears this.
-    bool findScrollPending = false;
-
     // Test/screenshot only: a run of text to pre-select in the transcript, so
     // the selection band can be captured without a live drag. Empty normally.
     std::string selectDemo;
@@ -479,8 +572,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // live client + open-session state with no staleness.
     bool should_steer_open() const {
         if (!client || !client->supports_steer()) return false;
-        if (!openSession) return false;
-        return openSession->summary.state == api::ThreadState::Running;
+        const Pane& p = pane();
+        if (!p.openSession) return false;
+        return p.openSession->summary.state == api::ThreadState::Running;
     }
 
     // Steer async state (steer() into selectedId). Parallels the reply
@@ -576,31 +670,6 @@ struct AppComponent : public afterhours::BaseComponent {
     bool authNeedsBegin = false;
     std::future<void> authBeginFuture;
     bool authBeginPending = false;
-
-    // ==== Feature #1: never-beachball thread switch ======================
-    // The id of the thread whose transcript is CURRENTLY loading (async fetch
-    // and/or async disk-cache read in flight), or empty when nothing is
-    // loading. The RENDER side reads this to show a per-thread spinner: show
-    // the spinner when transcriptState == Loading (already the signal) AND/OR
-    // when transcriptLoadingId == the tab's session id. It is set IMMEDIATELY
-    // (synchronously, ~0 cost) the instant a switch is requested, BEFORE any
-    // heavy work, so the pane can paint a spinner on the very next frame while
-    // the worker thread does the disk read + JSON parse + windowing off the UI
-    // thread. Cleared when the fetch/disk result is applied (or dropped because
-    // the user switched away again).
-    std::string transcriptLoadingId;
-
-    // A worker-thread disk-cache read of a transcript, polled like
-    // transcriptFuture. On a MISS the loader USED to call
-    // disk_cache::load_transcript() synchronously on the UI thread — opening +
-    // JSON-parsing an up-to-690-message file, the exact beachball Gabe hit.
-    // Now that read runs on this future's worker thread; the loader polls it
-    // (non-blocking wait_for(0)) and paints the stale copy when it lands, still
-    // ahead of (or alongside) the network revalidate. std::optional inside the
-    // Result: nullopt == cache miss (no stale copy to paint).
-    std::future<std::optional<api::Session>> diskReadFuture;
-    bool diskReadPending = false;
-    std::string diskReadId;  // the thread the disk read targets
 
     // ==== Feature #3: composer message queue =============================
     // When the user sends a message into a session that ALREADY has a reply /
@@ -716,10 +785,9 @@ struct AppComponent : public afterhours::BaseComponent {
     void apply_renamed_title(const std::string& id, const std::string& title) {
         for (auto& s : sessions)
             if (s.id == id) s.title = title;
-        if (openSession && openSession->summary.id == id)
-            openSession->summary.title = title;
-        if (splitSession && splitSession->summary.id == id)
-            splitSession->summary.title = title;
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                p.openSession->summary.title = title;
     }
 
     // ==== Feature #4: settings read from the API =========================

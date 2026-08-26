@@ -39,8 +39,8 @@ inline void switch_to_tab(AppComponent& app, afterhours::Entity& newTab) {
     if (auto* old = active_tab_entity()) old->removeComponent<ActiveTab>();
     newTab.addComponent<ActiveTab>();
     auto& tab = newTab.get<Tab>();
-    app.selectedId = tab.sessionId;
-    app.requestOpenId = tab.sessionId;
+    app.pane().selectedId = tab.sessionId;
+    app.pane().requestOpenId = tab.sessionId;
     app.view = SmartView::Chat;
 }
 
@@ -53,9 +53,9 @@ inline std::string tab_label_for(const AppComponent& app,
                                  const std::string& id) {
     const auto* sum = app.find_summary(id);
     if (sum && !sum->title.empty()) return fmtutil::display_title(sum->title);
-    if (app.openSession && app.openSession->summary.id == id &&
-        !app.openSession->summary.title.empty())
-        return fmtutil::display_title(app.openSession->summary.title);
+    if (app.pane().openSession && app.pane().openSession->summary.id == id &&
+        !app.pane().openSession->summary.title.empty())
+        return fmtutil::display_title(app.pane().openSession->summary.title);
     return id;
 }
 
@@ -128,12 +128,12 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     tab.pinned = pinned;
     e->addComponentIfMissing<ActiveTab>();
 
-    app.selectedId = id;
-    app.requestOpenId = id;  // loader fetches the transcript
+    app.pane().selectedId = id;
+    app.pane().requestOpenId = id;  // loader fetches the transcript
     // First time this thread is opened (a NEW tab) -> land at the bottom
     // (newest message). Switching to an already-open tab returns above and
     // never sets this, so its scroll position is preserved.
-    app.scrollBottomPending = id;
+    app.pane().scrollBottomPending = id;
     app.view = SmartView::Chat;
 }
 
@@ -264,8 +264,8 @@ inline void close_tab(TabStripComponent& strip, AppComponent& app,
             if (no.valid() && no->has<Tab>()) switch_to_tab(app, no.asE());
         } else {
             // No tabs left -> back to Home digest, clear open transcript.
-            app.selectedId.clear();
-            app.openSession.reset();
+            app.pane().selectedId.clear();
+            app.pane().openSession.reset();
             app.view = SmartView::Home;
         }
     }
