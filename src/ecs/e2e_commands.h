@@ -68,9 +68,18 @@ struct HandleRequireThreadCommand
         }
         const std::string& want = cmd.arg(0);
         const ecs::AppComponent* app = app_component();
-        const bool ok = app != nullptr && app->openSession &&
-                        app->openSession->summary.id == want &&
-                        !app->openSession->messages.empty();
+        // Any pane will do. The precondition this states is "the thread is
+        // on screen with content", and with a split open it is on screen if
+        // either pane holds it -- the assertions below read the frame, not
+        // the focus.
+        const auto holds = [&want](const ecs::Pane& p) {
+            return p.openSession && p.openSession->summary.id == want &&
+                   !p.openSession->messages.empty();
+        };
+        bool ok = false;
+        if (app != nullptr)
+            for (const auto& p : app->panes)
+                if (holds(p)) ok = true;
         if (ok) {
             cmd.consume();
             return;
@@ -81,9 +90,9 @@ struct HandleRequireThreadCommand
         }
         std::string open = "nothing";
         size_t msgs = 0;
-        if (app != nullptr && app->openSession) {
-            open = app->openSession->summary.id;
-            msgs = app->openSession->messages.size();
+        if (app != nullptr && app->pane().openSession) {
+            open = app->pane().openSession->summary.id;
+            msgs = app->pane().openSession->messages.size();
         }
         cmd.fail(std::format(
             "precondition not met: thread '{}' is not open with content "
