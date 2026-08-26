@@ -26,7 +26,11 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=t2 HANABI_SPLIT=rbig
 
-# Both panes open pinned to their newest message.
+# Both panes open pinned to their newest message. Both preconditions are
+# stated: require_thread asks every pane, so this holds that the split really
+# is t2 on the left and rbig on the right before a single wheel event.
+require_thread t2
+require_thread rbig
 wait_frames 20
 expect_text "Follow-up question #39:"
 

@@ -684,6 +684,12 @@ correction narrows them rather than closing them.
 | 341 | What a second pane costs (hanabi's own accounting) | PERF | — | — | app |
 | 380 | A custom command cannot own its timeout message | TEDIOUS | MED | XS | dup→#223 |
 | 381 | The directory mode runs a suite in one process with no reset | MISSING | HIGH | S | dup→#223 |
+| 405 | Trackpad and wheel arrive as the same float; one `scroll_speed` cannot serve both conventions | MISSING | HIGH | S | **live** |
+| 406 | `HandleScrollInput` skips the ancestor-scroll correction its sibling `HandleScrollbarDrag` applies | TEDIOUS | LOW | XS | neg (latent) |
+| 407 | An injected wheel event is delivered on TWO frames, so a script cannot spell one notch | MISSING | MED | XS | **live** |
+| 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
+| 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
+| 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
 
 ---
 

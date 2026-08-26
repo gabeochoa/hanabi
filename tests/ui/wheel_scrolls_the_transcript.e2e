@@ -44,7 +44,10 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
 
-# 1. A thread opens pinned to its newest message.
+# 1. A thread opens pinned to its newest message. require_thread states the
+#    precondition in the script rather than leaving it to the `# env:` line, so
+#    a run that inherited someone else's thread fails saying so.
+require_thread rbig
 mouse_move 650 400
 wait_frames 10
 assert_ui transcript_bottom_pad y=646
