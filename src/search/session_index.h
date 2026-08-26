@@ -165,10 +165,18 @@ class Index {
         return c;
     }
 
-    // Threads matching `q`, in the order they were added (the caller adds them
-    // newest-first, and a relevance score over two fields would be a ranking
-    // nobody can predict). At most `max_hits`; an empty query matches nothing,
-    // because "everything" is not a search result.
+    // Threads matching `q`, in the order they were added. A relevance score
+    // over two fields would be a ranking nobody can predict, so the order is
+    // recency — and that is now a fact rather than a hope. This comment used
+    // to say "the caller adds them newest-first", and the caller iterated
+    // app.sessions unmodified: MockClient::list_sessions sorts, HttpClient and
+    // AgentcloudClient push rows in WIRE order, and the sidebar sorts its own
+    // copy precisely because it cannot trust the incoming order
+    // (docs/SEARCH.md S7). CorpusBuilder::begin sorts by updated_at
+    // descending, ties broken by id, before anything is added.
+    //
+    // At most `max_hits`; an empty query matches nothing, because "everything"
+    // is not a search result.
     std::vector<Hit> query(const std::string& q, std::size_t max_hits) const {
         std::vector<Hit> out;
         const std::string needle = fmtutil::to_lower(q);

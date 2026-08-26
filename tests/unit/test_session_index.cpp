@@ -281,6 +281,58 @@ static void test_opening_the_panel_reads_nothing_from_disk() {
 // than the tail already indexed, leaves the thread with what it had. Without
 // this a thread whose cache file is older than the live tail would get WORSE
 // under a search that was supposed to improve it.
+// Results come out newest-thread first, whatever order the adapter sent the
+// list in. session_index.h's header said the caller added them newest-first;
+// the caller iterated app.sessions unmodified, and only the MOCK adapter sorts
+// -- HttpClient and AgentcloudClient push rows in wire order. docs/SEARCH.md
+// S7.
+static void test_results_come_out_newest_first() {
+    std::printf("test_results_come_out_newest_first\n");
+    using hanabi::search::CorpusBuilder;
+    using hanabi::search::Row;
+
+    const auto row = [](const char* id, std::int64_t at, const char* body) {
+        Row r;
+        r.id = id;
+        r.title = id;
+        r.held = body;
+        r.has_held = true;
+        r.updated_at = at;
+        return r;
+    };
+    // Wire order: neither sorted nor reversed, which is what "whatever the
+    // server sent" looks like.
+    std::vector<Row> rows;
+    rows.push_back(row("middle", 200, "the retry budget"));
+    rows.push_back(row("oldest", 100, "the retry budget"));
+    rows.push_back(row("newest", 300, "the retry budget"));
+
+    CorpusBuilder b;
+    b.begin(std::move(rows));
+    const auto hits = b.index().query("retry", 10);
+    CHECK(hits.size() == 3);
+    if (hits.size() != 3) return;
+    CHECK(hits[0].id == "newest");
+    CHECK(hits[1].id == "middle");
+    CHECK(hits[2].id == "oldest");
+
+    // Ties break by id, so the order is total: two threads sharing a second --
+    // and updated_at is a whole number of seconds, so a real catalog has
+    // plenty -- cannot swap places between frames while the corpus deepens.
+    std::vector<Row> tied;
+    tied.push_back(row("b", 500, "quota"));
+    tied.push_back(row("a", 500, "quota"));
+    tied.push_back(row("c", 500, "quota"));
+    CorpusBuilder t;
+    t.begin(std::move(tied));
+    const auto tiedHits = t.index().query("quota", 10);
+    CHECK(tiedHits.size() == 3);
+    if (tiedHits.size() != 3) return;
+    CHECK(tiedHits[0].id == "a");
+    CHECK(tiedHits[1].id == "b");
+    CHECK(tiedHits[2].id == "c");
+}
+
 static void test_deepening_never_makes_a_thread_shallower() {
     std::printf("test_deepening_never_makes_a_thread_shallower\n");
     using hanabi::search::CorpusBuilder;
@@ -355,6 +407,7 @@ int main() {
     test_a_thread_read_only_to_its_tail_is_its_own_depth();
     test_opening_the_panel_reads_nothing_from_disk();
     test_deepening_never_makes_a_thread_shallower();
+    test_results_come_out_newest_first();
     test_a_snippet_is_one_readable_line();
     if (g_failures == 0) {
         std::printf("OK\n");

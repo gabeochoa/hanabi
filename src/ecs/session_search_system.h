@@ -97,8 +97,22 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
                            return load_flattened(id);
                        });
 
-        const std::vector<hanabi::search::Hit> hits =
-            corpus_.index().query(app->sessionSearchQuery, kMaxRows);
+        // One more than fits, on purpose. kMaxRows was both the query limit
+        // and the row limit, so a query hitting two hundred threads showed six
+        // rows and said nothing at all about the other 194 — the note under
+        // the results reports DEPTH and has never reported breadth
+        // (docs/SEARCH.md S9). Asking for seven costs one more document's
+        // scan and is the difference between "six results" and "the first
+        // six". A true total is not worth it: it would mean scanning every
+        // body to the end, every frame, over a corpus that can be tens of
+        // megabytes.
+        const std::vector<hanabi::search::Hit> found =
+            corpus_.index().query(app->sessionSearchQuery, kMaxRows + 1);
+        const bool overflowed = found.size() > kMaxRows;
+        const std::vector<hanabi::search::Hit> hits(
+            found.begin(),
+            found.begin() + static_cast<std::ptrdiff_t>(
+                                std::min(found.size(), kMaxRows)));
 
         if (app->arrow == ArrowIntent::SessionSearch && !hits.empty()) {
             app->sessionSearchIndex += app->arrowDelta;
@@ -140,7 +154,8 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         const float rowsH =
-            kRowH * static_cast<float>(std::min(hits.size(), kMaxRows));
+            kRowH * static_cast<float>(hits.size()) +
+            (overflowed ? kNoteH : 0.0f);
         // Slack on purpose: afterhours has no flex-grow, and a column whose
         // children add up to exactly its height gets silently re-solved (and
         // warned about every frame — gap #53).
@@ -248,6 +263,25 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
                 return;
             }
         }
+
+        // The other admission: there were more, and these are the first of
+        // them. It sits with the rows rather than in the coverage note,
+        // because it is a fact about the RESULTS and the note is a fact about
+        // the corpus — and because the note is already three clauses long.
+        if (overflowed)
+            div(ctx, mk(panel.ent(), 4),
+                ComponentConfig{}
+                    .with_label("More matches \xe2\x80\x94 keep typing to "
+                                "narrow")
+                    .with_size(ComponentSize{pixels(kRowW), pixels(kNoteH)})
+                    .with_margin(Margin{.top = pixels(2), .left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(11)
+                    .with_debug_name("xsearch_more"));
 
         // The admission. It renders whether or not anything matched, because
         // "no results" is the case where it matters most.

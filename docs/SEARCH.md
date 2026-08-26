@@ -118,13 +118,13 @@ opposite of the sidebar box eight files away.
 
 The query runs **every frame the panel is open** (`:86`), not per keystroke.
 
-**Order** is `app.sessions` order. The header comment says the caller adds them
-newest-first (`session_index.h:139`); see **S7**.
+**Order** is newest-thread first, ties broken by id (`session_corpus.h`,
+`begin`). It used to be `app.sessions` order — see **S7**.
 
-**Presentation.** Six rows, a 32-byte-context snippet, and a coverage sentence
-— *"Full text for 4 of 61 threads; the rest by title and preview only"* — which
-is the best idea in the whole search story and is also wrong twice (**S2**,
-**S4**).
+**Presentation.** Six rows, a 32-byte-context snippet, a line saying there were
+more when there were (**S9**), and a coverage sentence — *"Full text for 4 of
+61 threads; the rest by title and preview only"* — which is the best idea in
+the whole search story and used to be wrong twice (**S2**, **S4**).
 
 ---
 
@@ -354,16 +354,21 @@ lowercased copy, `session_index.h:122`). `close()` cleared the query and the
 flag and not the index, so one Cmd+Shift+F on a large cache permanently doubled
 the app's transcript footprint. Fixed: `close()` releases it.
 
-### S7 — result order is "whatever the server sent", documented as newest-first
+### S7 — result order is "whatever the server sent", documented as newest-first — FIXED HERE
 
-`session_index.h:139` says the caller adds them newest-first. `build_index`
-iterates `app.sessions` unmodified; `app.sessions` comes straight from the
-adapter (`loader_system.h:200`); `MockClient::list_sessions` sorts, but
-`HttpClient::list_sessions` and `AgentcloudClient::list_sessions` push rows in
-wire order. The sidebar sorts its own copy precisely because it cannot trust
-the incoming order — the codebase disproving its own comment.
+`session_index.h` said the caller adds them newest-first. `build_index`
+iterated `app.sessions` unmodified; `app.sessions` comes straight from the
+adapter; `MockClient::list_sessions` sorts, but `HttpClient::list_sessions` and
+`AgentcloudClient::list_sessions` push rows in wire order. The sidebar sorts
+its own copy precisely because it cannot trust the incoming order — the
+codebase disproving its own comment.
 
-**What it would take: one line.** Sort the hits by `updated_at`.
+Fixed in `CorpusBuilder::begin`, which sorts by `updated_at` descending with
+`id` as the tie-break before anything is added. The tie-break is not cosmetic
+here either: `updated_at` is a whole number of seconds, and the corpus is now
+deepened over several frames (**S5**), so an unstable order would move results
+under an arrow key between frames. `test_results_come_out_newest_first` feeds
+it a wire-ordered list and a three-way tie.
 
 ### S8 — "Show N more…" on a search result list un-virtualizes it
 
@@ -379,28 +384,44 @@ expander. The combination is untested.
 **What it would take: small.** Window with the taller search-row pitch instead
 of skipping, or refuse to uncap while a query is live.
 
-### S9 — three things nobody is told
+### S9 — three things nobody is told — TWO OF THREE FIXED HERE
 
-- **The sidebar truncates silently.** `visible_limit`'s justification is *"the
-  count in the header is still the true number of matches"* (`:2300`) — but the
-  catch-all group is headerless (`:2663`), so there is no header and no count.
-  `Show N more…` exists, two viewports below the fold.
-- **Cmd+Shift+F caps at six and says nothing about it.** `kMaxRows = 6` is both
-  the query limit and the row limit; the note reports depth, never breadth. A
-  query hitting two hundred threads shows six rows and a sentence about
-  something else. **One-line-ish fix:** query for seven, render six, append
-  "showing 6 of 200+".
-- **Cmd+F never says the transcript is windowed.** `app.hasMoreOlder` is right
-  there and drives a load-older trigger; the bar still just says "no matches".
+- **Cmd+Shift+F caps at six and says nothing about it** — FIXED. `kMaxRows = 6`
+  was both the query limit and the row limit, so the note (which reports depth,
+  never breadth) was the only thing under a list that could hit two hundred
+  threads and look like six. It queries for seven now, renders six, and adds
+  *"More matches — keep typing to narrow"* when the seventh came back. A true
+  total was rejected: it means scanning every body to the end, every frame,
+  over a corpus that can be tens of megabytes.
+- **Cmd+F never says the transcript is windowed** — FIXED. Opening a thread
+  fetches its newest 40 messages (`LoaderSystem::kMessagesWindow`), so "no
+  matches" on a 480-message thread meant "not in the 40 we have" and read as
+  "you never said that". `find_ops::bar_note` puts *"Older messages not
+  loaded"* in the slot the operator hint uses; the hint wins when both apply,
+  because a query the parser could not read makes the tally meaningless.
+  Tested as a pure function, not a script: the transcript's own load-older
+  PREFETCH fires while the UI harness settles and pulls the whole fixture in,
+  so by the time a script can assert anything there is nothing left unloaded.
+  The negative case — a whole thread stays quiet —
+  is `find_is_quiet_on_a_whole_thread.e2e`.
+- **The sidebar truncates silently** — STILL OPEN. `visible_limit`'s
+  justification is *"the count in the header is still the true number of
+  matches"* — but the catch-all group is headerless, so there is no header and
+  no count. `Show N more…` exists, two viewports below the fold. See
+  `afterhours_gaps.md` #372 for the shape of the fix and why it is not a
+  one-liner.
 
 ### S10 — two tests that pass for the wrong reason
 
-- **`sidebar_search_snippet.e2e`** types `workers` and asserts the snippet
+- **`sidebar_search_snippet.e2e`** typed `workers` and asserted the snippet
   `1 of 3 workers has reported`. That string is session `r6`'s **preview**, and
   the row matched on its **title**, which also contains "workers". `r6` is not
   in the LRU, so `snippet_for`'s transcript branch — the feature the commit
-  sells, *"a matching row now carries the line the match is on"* — never runs.
-  Delete that branch and the test stays green.
+  sells, *"a matching row now carries the line the match is on"* — never ran.
+  Deleting that branch left the test green. FIXED: the query is `before`, which
+  is in exactly one title in the catalog (`t2`'s) and in `t2`'s first message
+  but **not** in its preview — and `t2` is the restored tab, so its transcript
+  is held. The asserted line can only come from the transcript.
 - **`find_counts_only_what_it_paints.e2e`** was one line: `expect_text "no
   matches"`. Any bug that makes find return zero satisfied it, and it never set
   `HANABI_FIND_AUDIT=1`, so it never read the band count the file it is named

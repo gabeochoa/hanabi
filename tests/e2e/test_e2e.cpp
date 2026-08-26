@@ -1209,6 +1209,47 @@ static size_t rows_kept(const api::Session& s, const std::string& query) {
     return kept;
 }
 
+// The one line under the find bar, and which of the two things it says.
+//
+// Two competing facts, one 332px slot: a malformed operator, and a transcript
+// that is only its newest 40 messages. "No matches" means something different
+// under each. Pure, and tested here rather than in the scripted suite because
+// the positive case cannot be scripted -- the transcript's load-older PREFETCH
+// fires while the UI harness settles and pulls the whole 480-message fixture
+// in, so by the time a script can assert anything there is nothing left
+// unloaded to warn about. docs/SEARCH.md S9.
+static void test_the_find_bar_says_when_the_thread_is_windowed() {
+    std::printf("test_the_find_bar_says_when_the_thread_is_windowed\n");
+    using hanabi::find_ops::bar_note;
+    using hanabi::find_ops::kHint;
+    using hanabi::find_ops::kWindowedNote;
+    const auto q = [](const char* text) {
+        return hanabi::find_ops::parse(text);
+    };
+
+    // Nothing typed: nothing to caveat, however windowed the thread is.
+    CHECK(bar_note(q(""), false, true).empty());
+    CHECK(bar_note(q(""), false, false).empty());
+
+    // A whole thread says nothing. This is the control that keeps the warning
+    // from becoming decoration.
+    CHECK(bar_note(q("kestrel"), true, false).empty());
+
+    // A windowed one says so.
+    CHECK(bar_note(q("kestrel"), true, true) == kWindowedNote);
+
+    // A malformed operator wins the slot: a query the parser could not read
+    // makes the tally meaningless, so it has to be fixed before the other
+    // caveat is worth reading.
+    CHECK(bar_note(q("is:penguin"), true, true) == kHint);
+    CHECK(bar_note(q("is:penguin"), true, false) == kHint);
+    CHECK(bar_note(q("is:"), true, true) == kHint);
+
+    // A WELL-FORMED operator over a windowed thread is the case that reported
+    // a bare zero from two directions at once.
+    CHECK(bar_note(q("is:user retry"), true, true) == kWindowedNote);
+}
+
 static void test_find_operators() {
     std::printf("test_find_operators\n");
     api::MockClient m;
@@ -1276,6 +1317,7 @@ int main() {
     test_sidebar_row_manual_order();
     test_sidebar_pinned_rows_head_the_list();
     test_find_operators();
+    test_the_find_bar_says_when_the_thread_is_windowed();
 
     std::printf("----------------------------------------\n");
     if (g_failures == 0) {

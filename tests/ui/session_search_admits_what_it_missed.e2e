@@ -24,6 +24,12 @@ expect_text "acct 8842 - ledger"
 # The admission, with real numbers in it.
 expect_text "Full text for 2 of 20 threads; the rest by title and preview only"
 
+# And the OTHER admission stays quiet when there is nothing to admit: "ledger"
+# hits two threads, which is fewer than the six rows fit, so the panel must not
+# claim there are more (session_search_says_there_were_more.e2e is the case
+# where it must). NOTE: expect_no_text takes a BARE single word -- gap #47.
+expect_no_text narrow
+
 # Escape puts the panel away.
 key ESCAPE
 wait_frames 10

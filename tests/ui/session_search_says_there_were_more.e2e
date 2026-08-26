@@ -1,0 +1,21 @@
+# Six results, and no word about the other hundred and ninety-four.
+#
+# kMaxRows was both the query limit and the row limit, so the panel asked for
+# six, got six, and drew six. The note under the results reports DEPTH — how
+# much of each thread was read — and has never reported BREADTH, so a query
+# hitting every thread in the catalog looked exactly like a query hitting six.
+# docs/SEARCH.md S9.
+#
+# It asks for seven now: one document's extra scan, and the difference between
+# "six results" and "the first six". A true total is not worth its cost — it
+# would mean scanning every body to the end, every frame, over a corpus that
+# can be tens of megabytes.
+#
+# The chord is Cmd+Shift+F, which no script can press (afterhours_gaps.md #49).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_XSEARCH_DEMO=s
+
+# "s" is in every title in the catalog, so this is the case the panel used to
+# report as six results.
+expect_text "More matches — keep typing to narrow"

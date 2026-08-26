@@ -3135,10 +3135,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // text and quietly widen the search — the query would say one thing
         // and the tally another. Say so instead, under the bar so the row's
         // fixed width is untouched.
-        if (q.invalid)
+        //
+        // The same slot carries the other thing the bar cannot say in 74px:
+        // that the thread is WINDOWED. Opening a thread fetches its newest 40
+        // messages (LoaderSystem::kMessagesWindow) and older ones arrive on
+        // demand, so "no matches" over a 480-message thread meant "not in the
+        // 40 we have" and read as "not in this conversation" (docs/SEARCH.md
+        // S9). The tally is honest about the thread it can see; this says how
+        // much of the thread that is. The hint wins the slot when both apply —
+        // a malformed operator makes the count meaningless, so it is the more
+        // urgent of the two.
+        const std::string_view note =
+            find_ops::bar_note(q, !app.findQuery.empty(), app.hasMoreOlder);
+        if (!note.empty())
             div(ctx, mk(parent, 7501),
                 ComponentConfig{}
-                    .with_label(find_ops::kHint)
+                    .with_label(std::string(note))
                     .with_size(ComponentSize{pixels(kBarW), pixels(16)})
                     .with_absolute_position()
                     .with_translate(bx, 52.0f + kBarH + 4.0f)
