@@ -49,6 +49,7 @@ SB = "src/ecs/sidebar_system.h"
 MP = "src/ecs/main_pane_system.h"
 WR = "src/ecs/widget_retire_system.h"
 TH = "src/ui/theme.h"
+FV = "src/ecs/focus_visible_system.h"
 
 LEAK_ANCHOR = """    void once(float) override {
         hanabi::widget_epoch::begin_epoch();"""
@@ -176,6 +177,22 @@ DEFECTS = {
         static std::vector<std::string> g_big;
         if (g_big.empty())
             for (int i = 0; i < 400; ++i) g_big.emplace_back(1 << 20, 'x');""")]),
+    # ---- the screenshot baselines ---------------------------------------
+    # The two halves of the regression that motivated re-cutting this net: a
+    # composer whose interior turned grey and lost its focus ring, on a tree
+    # where 32 unit tests, 105 scripted UI tests and 9 perf gates were all
+    # green. Both are afterhours_gaps.md #262/#263 reproduced in hanabi,
+    # because vendor/afterhours is read-only.
+    "shots.composer_grey": dict(
+        gate="shots", build="app",
+        patches=[(MP, """                .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
+                .with_transparent_bg()""",
+                  """                .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
+                .with_custom_background(theme::Color{57, 57, 68, 255})""")]),
+    "shots.focus_ring": dict(
+        gate="shots", build="app",
+        patches=[(FV, "        ctx.theme.focus_ring_thickness = fv::ring_thickness();",
+                  "        ctx.theme.focus_ring_thickness = 0.0f;")]),
 }
 
 GATE_CMD = {
@@ -186,6 +203,9 @@ GATE_CMD = {
     "text": ["bash", "scripts/perf_text_gate.sh"],
     "slope": ["bash", "scripts/perf_transcript_slope.sh"],
     "launch": ["bash", "scripts/measure_launch.sh"],
+    # The screenshot subset `make test` runs. It captures and compares, so it
+    # needs the built app and the machine to itself, like the UI suite.
+    "shots": ["make", "validate-screenshots-fast"],
 }
 
 

@@ -31,6 +31,8 @@ apology for the numbers; it is the reason several of them are ratios.
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
 | scroll | `make scroll-gate` | yes | ~6 s |
 | source checks | `make source-checks` | yes | <1 s |
+| screenshot subset | `make validate-screenshots-fast` | yes | ~11 s |
+| screenshot baselines | `make validate-screenshots` | **no** — `make gate` | ~50 s |
 | long soak | `make soak` | **no** — before a release | ~53 s |
 | soak report | `make soak-report` | **no** | ~60 s |
 | widget retirement | `make retire-gate` | yes | ~3 s |
@@ -140,6 +142,8 @@ told the gate.
 | **perf_transcript_slope** · wrap calls, level | the line-count memo's `find` forced to miss | **added by this branch** — `wrap calls/frame 81.4  limit 5.0  FAIL` |
 | **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, so the set SATURATES, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL`, with every slope row above it reading `ok` |
 | **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |
+| **validate-screenshots-fast** · composer fill | the composer field given a `(57,57,68)` background (gap #262 in hanabi; vendor is read-only) | `6 of 8 FAIL, 1.1551%-2.4837% differs` — every screen with a composer in frame; `15_settings_dark` and `18_auth_dark` stay green |
+| **validate-screenshots-fast** · focus ring | `theme.focus_ring_thickness` forced to 0 in `FocusVisibleSystem` (gap #263) | `28_composer_focus_dark FAIL 0.5289% differs`, and only it |
 | **check_autorelease** | one `AutoreleaseFrame` use deleted from `src/main.cpp` | *(see below)* |
 | **check_label_padding** | a label given a padding the baseline does not allow | *(see below)* |
 | **check_watchdogs** | an unredirected backgrounded `sleep` added to a script | *(see below)* |
@@ -155,6 +159,22 @@ run out is invisible to every arm the run never reached. That is why the row
 above uses `epoch / 25`: a defect has to be small enough for the gate to
 survive measuring it, and "the gate went red" is only evidence when you check
 WHICH row went red.
+
+### The screenshot net, which was dark when this audit was written
+
+The two `validate-screenshots-fast` rows are newer than the rest of the table
+and they are here for the reason section 0 exists at all. When they were added,
+`make validate-screenshots` was failing **30 of 30** and had been for 285
+commits: the baselines were stale, and — separately — 17 of the harness's 35
+states changed with the local hour, so the set stopped reproducing an hour or
+two after it was cut. Meanwhile 32 unit tests, 105 scripted UI tests and every
+gate above passed on a build with a visibly wrong composer.
+
+Both halves of that composer regression are now defects in this harness. The
+fix for *why nobody noticed* is not in this file: the eight-screen subset runs
+inside `make test` now, because the full compare was a separate target and a
+gate nobody runs is worth exactly as much as a gate that cannot fail.
+`docs/screenshots/baselines/README.md`.
 
 ### The four gates that did NOT go red, and what was done about each
 
