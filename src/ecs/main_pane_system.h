@@ -4946,7 +4946,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Screenshot affordance: HANABI_TEST_FOCUS_COMPOSER=1 force-focuses the
         // composer field so a capture can photograph the caret WITH text in it
         // (verifying caret position). Test-only; ignored when unset.
-        if (std::getenv("HANABI_TEST_FOCUS_COMPOSER"))
+        if (hanabi::test_hooks::focus_composer())
             ctx.set_focus(inputRes.ent().id);
 
         // Opt-in field diagnostics: dump the live text_input state so we can

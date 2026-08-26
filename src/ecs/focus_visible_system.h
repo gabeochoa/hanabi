@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 #include "../keys.h"
+#include "../test_hooks.h"
 #include "../ui/focus_visible.h"
 #include "../ui/theme.h"
 #include "ui_imports.h"
@@ -20,6 +21,10 @@ struct FocusVisibleSystem : afterhours::System<UIContext<InputAction>> {
         namespace fv = hanabi::ui::focus_visible;
         namespace k = hanabi::keys;
         fv::observe(k::pressed(k::kTab), ctx.mouse.just_pressed);
+        // A capture that force-focuses the composer arms the ring too: the
+        // rule is "no ring until the keyboard was used", and the hook stands
+        // in for the keystroke that is not being typed (src/test_hooks.h).
+        if (hanabi::test_hooks::focus_composer()) fv::armed() = true;
         ctx.theme.focus_ring_thickness = fv::ring_thickness();
         // The single writer of the ring's colour. It used to be re-asserted
         // as theme::accent() by each of the three systems that build a
