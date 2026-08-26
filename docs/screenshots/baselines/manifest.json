@@ -1,5 +1,7 @@
 {
   "resolution": "1100x760",
+  "capture_epoch": 1781524800,
+  "capture_tz": "UTC",
   "default_threshold_pct": 0.0,
   "screens": {
     "01_home_dark": {
@@ -12,7 +14,7 @@
     },
     "03_transcript_dark": {
       "threshold_pct": 0.0,
-      "note": "Transcript with three tabs open, dark. The mock's ages are now-relative so the rendered '3h' stays '3h'."
+      "note": "Transcript with three tabs open, dark."
     },
     "04_transcript_light": {
       "threshold_pct": 0.0,
@@ -22,9 +24,17 @@
       "threshold_pct": 0.0,
       "note": "Transcript with t6 (a running thread, 3 sub-agents) active."
     },
+    "06_hover_row_star_dark": {
+      "threshold_pct": 0.0,
+      "note": "A hovered unstarred chat row revealing its hollow star. Was unbaselined as a duplicate of 01_home_dark; the row is rendered now and the two differ over the star's 12x11 box."
+    },
     "07_hover_tab_dark": {
       "threshold_pct": 0.0,
       "note": "A non-active content tab in its hover state."
+    },
+    "07b_hover_msg_copy_dark": {
+      "threshold_pct": 0.0,
+      "note": "A hovered message with its Copy bar. Baselineable only because the capture epoch is pinned: the bar prints an absolute clock time, which used to move every minute."
     },
     "08_view_blocked_dark": {
       "threshold_pct": 0.0,
@@ -82,6 +92,10 @@
       "threshold_pct": 0.0,
       "note": "Ten open tabs: the strip shrinks to fit."
     },
+    "20_big_transcript_dark": {
+      "threshold_pct": 0.0,
+      "note": "The rbig perf fixture. Baselineable only because the capture epoch is pinned: a date divider used to sweep into the visible tail as local midnight passed through the fixture."
+    },
     "21_tools_expanded_dark": {
       "threshold_pct": 0.0,
       "note": "Every tool pile and the sub-agent rollup pre-expanded."
@@ -94,13 +108,17 @@
       "threshold_pct": 0.0,
       "note": "The list skeleton, before any session arrives."
     },
+    "24_thread_loading_dark": {
+      "threshold_pct": 0.0,
+      "note": "A thread's loading state. Was unbaselined as a duplicate of 03_transcript_dark; the loading state survives to the settle frames now and the two differ over the transcript body."
+    },
     "25_load_older_dark": {
       "threshold_pct": 0.0,
       "note": "The load-older affordance at the top of a transcript."
     },
     "26_thinking_dark": {
       "threshold_pct": 0.0,
-      "note": "The live thinking indicator. The timer reads 32s exactly because the capture clock is frozen (src/util/capture_clock.h); without that freeze the reading flips to 33s whenever a run crosses a second boundary."
+      "note": "The live thinking indicator. The timer reads a fixed number because the capture clock is frozen (src/util/capture_clock.h)."
     },
     "27_streaming_dark": {
       "threshold_pct": 0.0,
@@ -108,7 +126,7 @@
     },
     "28_composer_focus_dark": {
       "threshold_pct": 0.0,
-      "note": "Composer focused: caret and focus ring."
+      "note": "Composer focused: caret and focus ring. Was byte-identical to 03_transcript_dark until the capture hook learned to arm :focus-visible (src/ui/focus_visible.h keeps the ring off until Tab is pressed, and a headless capture presses nothing)."
     },
     "29_find_dark": {
       "threshold_pct": 0.0,
@@ -121,13 +139,11 @@
     "31_selection_dark": {
       "threshold_pct": 0.0,
       "note": "A run of transcript text selected."
+    },
+    "32_new_messages_dark": {
+      "threshold_pct": 0.0,
+      "note": "Reopening a thread that gained messages while you were away. Same pinned-epoch dependency as 20_big_transcript_dark."
     }
   },
-  "unbaselined": {
-    "06_hover_row_star_dark": "the capture is byte-identical to 01_home_dark: t2 lives in the collapsed 'Stars' folder, so the row the hover hook targets is not rendered and the hollow-star affordance never appears. A baseline here would claim coverage of a state it does not show. Fix the state (open the folder, or hover a row that is visible), then baseline it.",
-    "07b_hover_msg_copy_dark": "the hover action bar renders an ABSOLUTE clock time (fmtutil::clock_time of a mock stamp seeded at now-N), so the image changes every minute — two runs four minutes apart differ by 32 pixels, 06:08 vs 06:09. Freezing the capture clock does not help: the datum moves with the wall clock too. Baselining this needs the mock seeded from a fixed epoch during capture.",
-    "20_big_transcript_dark": "the rbig perf fixture is seeded at now-80h..now-36h, so local midnight sweeps through it as the day passes: for ~7% of the day (20 of 288 five-minute samples) a calendar-day boundary falls inside the last eight messages and a date divider enters the visible tail, shifting the layout. Deterministic within a run, unstable across the day.",
-    "24_thread_loading_dark": "the capture is byte-identical to 03_transcript_dark: the mock resolves the transcript fetch synchronously, so HANABI_LOADING_DEMO's per-thread loading state is already gone by the settle frames. Same class of bug the thinking demo had (the loader replaces openSession during the settle). Fix the knob, then baseline it.",
-    "32_new_messages_dark": "same rbig fixture and same sweeping date divider as 20_big_transcript_dark."
-  }
+  "unbaselined": {}
 }
