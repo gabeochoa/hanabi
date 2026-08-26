@@ -617,6 +617,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) scroll-gate
 	@$(MAKE) retire-gate
 	@$(MAKE) digest-gate
+	@$(MAKE) bounds-gate
 	@$(MAKE) source-checks
 
 # ==============================================================================
@@ -690,6 +691,9 @@ alloc-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/alloc_gate.sh
 digest-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/digest_gate.sh
+
+bounds-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/bounds_gate.sh
 
 soak: $(MAIN_EXE) copy-resources
 	@HANABI_SOAK_LONG_FRAMES="$(if $(FRAMES),$(FRAMES),$(HANABI_SOAK_LONG_FRAMES))" \
