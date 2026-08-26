@@ -61,9 +61,16 @@ expect_text "Cmd+Return to send"
 key ENTER
 wait_frames 40
 
-# The draft is still sitting in the field, untouched — nothing was sent and
-# nothing was thrown away.
-expect_input_text composer_reply_input "return must not send this"
+# Nothing was sent and nothing was thrown away. Return now BREAKS THE LINE
+# here rather than doing nothing at all, which is the point of choosing
+# "Cmd+Return sends": the composer is a text_area, and its Enter behaviour is
+# recomputed every frame from hanabi::enter_sends, so under this setting Enter
+# is a newline and only Cmd+Return submits. The field held 25 characters and
+# now holds 26 — the draft plus the break. (Byte counts, not text: the script
+# parser has no way to spell a newline inside an argument, gap #259.)
+key CMD+A
+wait_frames 6
+expect_input_selection composer_reply_input 0 26
 
 # ---- And switching back restores Return ----------------------------------
 click_ui sb_settings

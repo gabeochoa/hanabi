@@ -18,6 +18,11 @@ inline afterhours::text_input::HasTextInputState* focused_text_field() {
     for (const auto& e :
          afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
         if (!e) continue;
+        if (e->has<afterhours::text_input::HasTextAreaState>()) {
+            auto& a = e->get<afterhours::text_input::HasTextAreaState>();
+            if (a.is_focused) return &a;
+            continue;
+        }
         if (!e->has<afterhours::text_input::HasTextInputState>()) continue;
         auto& st = e->get<afterhours::text_input::HasTextInputState>();
         if (st.is_focused) return &st;
@@ -29,6 +34,11 @@ inline bool any_text_field_focused() {
     for (const auto& e :
          afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
         if (!e) continue;
+        if (e->has<afterhours::text_input::HasTextAreaState>()) {
+            if (e->get<afterhours::text_input::HasTextAreaState>().is_focused)
+                return true;
+            continue;
+        }
         if (!e->has<afterhours::text_input::HasTextInputState>()) continue;
         if (e->get<afterhours::text_input::HasTextInputState>().is_focused)
             return true;
