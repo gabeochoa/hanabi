@@ -87,6 +87,7 @@ class TranscriptItemIndex {
 
         if (!full && restart == no_restart() &&
             mutation.revision == slot.revision &&
+            message_count == slot.message_count &&
             data_identity == slot.data_identity && facts_equal(facts, slot.facts)) {
             return View{&slot.items, slot.height, 0, false, false};
         }
