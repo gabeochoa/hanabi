@@ -11920,3 +11920,342 @@ than a walk. Both the e2e handlers and every out-of-tree driver would stop
 walking.
 
 CLASS: MISSING
+
+---
+
+### #475 — NOT A GAP: a real archive icon is an app-owned atlas entry, not a missing afterhours primitive
+
+**Afterhours mechanism.** `imm::sprite` accepts an arbitrary texture and source
+rectangle (`vendor/afterhours/src/plugins/ui/imm_components.h:654-686`), and the
+Sokol backend draws that sub-rectangle with tint through
+`draw_texture_pro` (`vendor/afterhours/src/backends/sokol/drawing_helpers.h:1222-1257`).
+The library deliberately supplies a sprite mechanism, not an icon catalogue.
+
+**Measured result.** Removing the U+25A4 fallback from Archived changed **0
+pixels** in the 1100x760 archived-view capture while the atlas was present. The
+real Lucide archive sprite was already live; only the failure path was stale.
+
+**Workaround.** Generate and ship the app's Lucide atlas, then call the existing
+source-rectangle draw path with no text fallback.
+
+**Minimal upstream change.** None. An afterhours-owned icon vocabulary would be
+the wrong layer.
+
+**Rejected ideas.** Keeping the box fallback was rejected because it is a
+different symbol, and using a system-font glyph was rejected because the
+bundled UI font does not guarantee that codepoint.
+
+**Remaining slow Hanabi work.** None for this item.
+
+**Hanabi reference.** `scripts/gen_icons.py::ICONS`,
+`src/ui/icons_atlas.h::kIcons`, `src/ui/icons.h::draw_at`, and
+`src/ecs/sidebar_system.h::render_smart_views` demonstrate the generated sprite
+and no-fallback call. `docs/screenshots/baselines/11_view_archived_dark.png` is
+the targeted capture.
+
+CLASS: NOT A GAP (app-side)
+
+### #476 — A scroll-to-end action must know all three fields in the smoothing state machine
+
+**Afterhours mechanism.** `HasScrollView` exposes `scroll_offset`,
+`scroll_target`, and `last_eased_offset` independently
+(`vendor/afterhours/src/plugins/ui/components.h:511-580`). `clamp_scroll()` clamps
+both positions and then records only the offset as the last eased value. There
+is no `scroll_to_end()` operation.
+
+**Measured failure.** A jump control needs the sequence `offset = 1e9`, `target =
+1e9`, `clamp_scroll()`, plus an application follow-latch update. Writing only
+the offset is not stable: after `clamp_scroll()` makes `last_eased_offset` equal
+to it, the next `ease_scroll()` sees no caller edit and eases toward the old
+target.
+
+**Workaround.** Hanabi writes both fields, clamps, then calls
+`note_follow_pinned` for the pane-local latch.
+
+**Minimal upstream change.** Add `HasScrollView::scroll_to_end(Axis)` and
+`scroll_to_start(Axis)` methods that update offset, target, and
+`last_eased_offset` atomically.
+
+**Rejected ideas.** Offset-only snaps back; target-only animates rather than
+jumps; retaining `1e9f` without a named operation keeps the state-machine
+coupling at every call site.
+
+**Remaining slow Hanabi work.** Input-device normalization remains gap #405;
+this helper would not distinguish wheel from trackpad.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::jump_to_bottom_button` and
+`src/ecs/follow_latch.h::note_follow_pinned` show the workaround.
+`tests/ui/jump_to_bottom_tracks_pane.e2e` and
+`tests/unit/test_follow_latch.cpp` cover the click and latch behavior.
+
+CLASS: MISSING
+
+### #477 — NOT A GAP: a clicked child cannot choose an application-defined pane focus policy
+
+**Afterhours mechanism.** `HandleClicks` focuses the clicked entity before
+invoking its listener (`vendor/afterhours/src/plugins/ui/systems.h:750-760`).
+`UIContext::set_focus` and `focus_in_subtree` operate on UI entities
+(`vendor/afterhours/src/plugins/ui/context.h:244-299`); they cannot know that a
+host also has a separate `AppComponent::focusedPane` selection.
+
+**Measured failure.** The new split-pane regression initially left the focus
+edge at **x=280** after clicking the right pane's jump button; the required
+right-pane edge was **x=693**. Scrolling moved the right transcript correctly,
+but application pane focus stayed left.
+
+**Workaround.** The jump handler explicitly assigns the pane index after the
+button fires. The generic click system continues to focus the button itself.
+
+**Minimal upstream change.** None. Pane ownership is application state, and
+silently focusing arbitrary ancestors would break controls whose parent is not a
+pane.
+
+**Rejected ideas.** Changing `HandleClicks` to focus a parent or cluster was
+rejected because the library has no semantic pane boundary. Inferring pane from
+the debug name was rejected as test-only naming leaking into product behavior.
+
+**Remaining slow Hanabi work.** None; the assignment is one integer store on a
+click, not per-frame work.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::pane_column` owns pane focus
+and `jump_to_bottom_button` now applies the same policy.
+`tests/ui/jump_to_bottom_tracks_pane.e2e` reproduces the x=280 failure and holds
+the x=693 result.
+
+CLASS: NOT A GAP (app policy)
+
+### #478 — NOT A GAP: smart-view row consistency is one application renderer with one boolean removed
+
+**Afterhours mechanism.** The generic `button` accepts one
+`ComponentConfig` and returns the same `ElementResult` regardless of the data
+model (`vendor/afterhours/src/plugins/ui/imm_components.h:726-786`). Flex,
+labels, colors, and sizes are all caller-supplied; afterhours does not define a
+"smart view" or card variant.
+
+**Measured failure.** Blocked and Review passed grouped mode, selecting the
+**34px** sparse card, while Pinned and Archived selected the **52px** rich card
+(`src/ecs/digest_layout.h::kCardSparseH/kCardRichH`). The scripted contract now
+observes a 52px card with title, status pill, and metadata in all four populated
+views.
+
+**Workaround.** Route every smart view through `digest_card` with the same
+non-grouped card shape. Home remains grouped because its section header carries
+the grouping context.
+
+**Minimal upstream change.** None.
+
+**Rejected ideas.** Four separate row components were rejected because they
+would recreate the inconsistency. Forcing Home's grouped rows into the same
+shape was rejected because it would repeat one section status on every card.
+
+**Remaining slow Hanabi work.** Digest virtualization still builds 13 of
+506/303/200/200 matched cards in the stress fixture; this change leaves that
+window and its 0.99x widget ratio intact.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::render_digest` and
+`digest_card`, plus `src/ecs/digest_layout.h::sub_line`, are the shared path.
+`tests/ui/smart_view_rows_are_consistent.e2e` and the populated
+`10b_view_pinned_row_dark` / `11b_view_archived_row_dark` baselines cover it.
+
+CLASS: NOT A GAP (app policy)
+
+### #479 — NOT A GAP: status meaning belongs in the app; custom foreground drawing already supports it
+
+**Afterhours mechanism.** `ComponentConfig::with_on_draw_fg` stores a custom
+draw callback (`vendor/afterhours/src/plugins/ui/component_config.h:486-492`).
+The library does not impose a status enum or require one entity per glyph.
+
+**Measured result.** Hanabi reduced five shapes and three tones to four meanings
+— running, blocked, done, idle — inside the existing row glyph callback.
+Steady-state allocations stayed exactly **811 / 1163 / 2750 / 1025 per frame**
+for home20 / home2000 / thread480 / draft6, and scaling stayed **322 / 428
+widgets** at 20 / 2000 sessions.
+
+**Workaround.** A small app-side classifier selects one of four draw branches in
+the existing entity.
+
+**Minimal upstream change.** None.
+
+**Rejected ideas.** Separate status widgets or sprite children were rejected:
+they add entities to every visible row and make a policy enum part of the UI
+library. Keeping failure, attention, subagent, and idle as separate shapes was
+rejected as the vocabulary the task was removing.
+
+**Remaining slow Hanabi work.** The unchanged home2000 floor is 1163
+allocations/frame and 428 widgets; this change neither adds to nor fixes it.
+
+**Hanabi reference.** `src/ecs/sidebar_system.h::SidebarGlyph`,
+`sidebar_glyph`, and `draw_mark` are the app policy. `scripts/alloc_gate.sh` and
+`scripts/scaling_gate.sh` produced the unchanged counts; the 01/02/03 screenshot
+baselines hold the pixels.
+
+CLASS: NOT A GAP (app policy, performance proof)
+
+### #480 — NOT A GAP: a section glyph and its label can carry independent colors
+
+**Afterhours mechanism.** A component can set its text color through
+`with_custom_text_color` and draw different foreground ink through
+`with_on_draw_fg` (`vendor/afterhours/src/plugins/ui/component_config.h:360-367,
+486-492`). No extra wrapper or styled-label split is required.
+
+**Measured result.** Changing Home's label ink to the neutral secondary token
+while leaving state color on the chevron changed **1,364 pixels (0.163%)** in
+dark and **1,366 pixels (0.163%)** in light, bounded to
+**x=323..451, y=129..528**. Shelf folding still passes.
+
+**Workaround.** Keep the disclosure glyph in the custom foreground callback and
+give the adjacent label the neutral token.
+
+**Minimal upstream change.** None. This is also consistent with the existing
+negative result #240: multi-color rows are supported.
+
+**Rejected ideas.** Coloring the full label was the defect. Removing state color
+entirely loses the fast scan. Rebuilding the row as a styled label is unnecessary
+because the glyph is geometry, not text.
+
+**Remaining slow Hanabi work.** None; this changes constants read by two existing
+draw paths and creates no entity.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::section_label` demonstrates
+the two independent colors. `tests/ui/home_shelf_folds.e2e` holds interaction;
+`01_home_dark` and `02_home_light` hold rendering.
+
+CLASS: NOT A GAP
+
+### #481 — Status-pill alpha still has to be pre-composited by the application
+
+**Afterhours mechanism.** `with_custom_background` preserves an RGBA token
+(`vendor/afterhours/src/plugins/ui/component_config.h:334-345`), but the ordinary
+UI fill path uses a non-blended pipeline, the mechanism already filed as #15.
+A low-alpha pill otherwise paints as an opaque slab.
+
+**Measured result.** Hanabi's current pre-composited pill pairs measure
+**4.97 / 6.21 / 4.92:1** for Blocked / Ready / Done in dark and
+**6.01 / 5.24 / 4.71:1** in light. All six clear the 4.5:1 small-text threshold.
+The original raw-alpha path made same-hue text effectively disappear, as #15
+records.
+
+**Workaround.** `theme::over(tag_*_bg(), panel_bg_2())` computes the opaque
+surface before `with_custom_background` sees it.
+
+**Minimal upstream change.** The #15 fix: enable source-over blending for UI
+fills, or expose a fill primitive whose documented contract composites alpha.
+
+**Rejected ideas.** Passing the low-alpha token directly repeats #15. Using one
+opaque pill color in both themes fails contrast in one palette. Making every
+pill plain grey throws away status meaning instead of making it readable.
+
+**Remaining slow Hanabi work.** None for contrast. The workaround is fixed
+arithmetic per pill and is below the allocation gate's resolution.
+
+**Hanabi reference.** `src/ui/theme.h::over`, `tag_*_fg`, and `tag_*_bg`, plus
+`src/ecs/main_pane_system.h::tag_bg`, demonstrate the workaround. The Blocked
+light/dark and populated Pinned/Archived baselines cover all pill families.
+
+CLASS: DUPLICATE → #15 (live)
+
+### #482 — NOT A GAP: bottom-anchoring an empty state is ordinary column justification
+
+**Afterhours mechanism.** AutoLayout computes remaining main-axis space and
+implements `JustifyContent::FlexEnd` by assigning it to `start_offset`
+(`vendor/afterhours/src/plugins/autolayout.h:1273-1317`). A fixed-height column
+therefore anchors its children without absolute coordinates.
+
+**Measured result.** In the 1100x760 empty-transcript fixture the title lands at
+**y=572**, directly above the composer rather than near the top of a blank pane.
+The scripted behavior test completes in **0.13s**.
+
+**Workaround.** None in the library sense; Hanabi uses a normal full-height
+column with `FlexEnd` and a 28px bottom inset.
+
+**Minimal upstream change.** None.
+
+**Rejected ideas.** Absolute y translation was rejected because it would stale
+on resize and split width. Vertical centering was the void being removed. A lone
+"Task:" label was rejected because it names a field rather than inviting the
+next action.
+
+**Remaining slow Hanabi work.** None; the state builds three entities only when
+the transcript is empty.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::render_transcript` contains
+`transcript_empty_anchor`; `tests/ui/empty_transcript_is_anchored.e2e` pins the
+y-coordinate and copy; `13b_empty_transcript_dark` is the targeted baseline.
+
+CLASS: NOT A GAP
+
+### #483 — A scripted UI test still cannot assert the color that defines a status pill
+
+**Afterhours mechanism.** `check_ui_property` accepts exactly `x`, `y`, `w`,
+`h`, `hidden`, and `text`
+(`vendor/afterhours/src/plugins/e2e_testing/ui_commands.h:1012-1050`). It already
+has the entity and UI component but exposes no foreground, background, border,
+or rendered-pixel assertion. This is the current concrete instance of #308.
+
+**Measured cost.** The empty-state scripted assertion ran in **0.13s**. One
+single-state screenshot capture took **1.58s** on the same Mac, about **12x** as
+long, before image comparison. Pill legibility is color-only, so the slower path
+is mandatory.
+
+**Workaround.** Commit exact screenshot baselines for dark and light palettes;
+use a deterministic capture clock and isolated settings.
+
+**Minimal upstream change.** The #308 fix: add parsed RGBA properties for text,
+background, and border to `check_ui_property`.
+
+**Rejected ideas.** Asserting the label text proves the pill exists but not that
+it is legible. Reading token constants proves intent but not the color that the
+renderer put on screen.
+
+**Remaining slow Hanabi work.** Every new color state adds another process and
+PNG to the screenshot suite. This batch adds three targeted states because the
+scripted harness cannot replace them.
+
+**Hanabi reference.** `scripts/screens.sh`,
+`docs/screenshots/baselines/manifest.json`, and the Blocked light/dark plus
+populated Pinned/Archived baselines are the workaround. `src/ui/theme.h` carries
+the measured token pairs.
+
+CLASS: DUPLICATE → #308 (live)
+
+### #484 — PERF PROOF: changing a glyph inside one draw callback costs no entities or allocations
+
+**Afterhours mechanism.** `with_on_draw_fg` stores one `std::function` on the
+existing component (`vendor/afterhours/src/plugins/ui/component_config.h:486-492`),
+and `button`/`div` entity creation is independent of which branch that callback
+draws (`vendor/afterhours/src/plugins/ui/imm_components.h:726-786`).
+
+**Measured result.** Before and after the four-state sidebar change:
+
+```
+                         before   after
+home20 allocations/f       811     811
+home2000 allocations/f    1163    1163
+thread480 allocations/f   2750    2750
+draft6 allocations/f      1025    1025
+widgets at 20 sessions      322     322
+widgets at 2000 sessions    428     428
+```
+
+The 2000/20 widget ratio stayed **1.33x**. The minimum frame ratio moved
+**1.27x → 1.28x**, normal timing noise; the count-based invariants did not move.
+
+**Workaround.** Keep all four shapes inside the existing row glyph callback and
+classify with a branch over existing session fields.
+
+**Minimal upstream change.** None.
+
+**Rejected ideas.** Four child widgets or four sprite entities were rejected
+because they would turn a vocabulary cleanup into per-row entity/allocation
+cost. A new generic status component was rejected because afterhours cannot own
+Hanabi's product states.
+
+**Remaining slow Hanabi work.** The unchanged levels — 1163 allocations/frame
+and 428 widgets at 2000 sessions — remain worth profiling, but the glyph change
+adds zero to either.
+
+**Hanabi reference.** `src/ecs/sidebar_system.h::draw_mark` keeps one callback
+and one glyph slot. `scripts/alloc_gate.sh` and `scripts/scaling_gate.sh` are the
+measurement harnesses; 01/02/03 baselines cover the visible result.
+
+CLASS: PERF PROOF (app-side)
