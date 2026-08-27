@@ -152,12 +152,7 @@ class Memo {
 
   private:
     struct Entry {
-        std::string id;
-        std::string text;
-        std::string subtitle;
-        std::string tool_status;
-        api::Role role = api::Role::Assistant;
-        api::EventKind kind = api::EventKind::Text;
+        std::uint64_t content_signature = 0;
         std::vector<std::string> lines;
         std::vector<std::vector<std::size_t>> hits;
         std::uint64_t query_generation = 0;
@@ -170,27 +165,24 @@ class Memo {
         return std::string("index\x1f") + std::to_string(index);
     }
 
-    static bool same_message(const Entry& e, const api::Message& m) {
-        return e.id == m.id && e.text == m.text && e.subtitle == m.subtitle &&
-               e.tool_status == m.tool_status && e.role == m.role &&
-               e.kind == m.kind;
-    }
-
-    static void assign_message(Entry& e, const api::Message& m) {
-        e.id = m.id;
-        e.text = m.text;
-        e.subtitle = m.subtitle;
-        e.tool_status = m.tool_status;
-        e.role = m.role;
-        e.kind = m.kind;
-    }
-
     static std::uint64_t mix(std::uint64_t h, std::string_view value) {
         for (unsigned char c : value) {
             h ^= c;
             h *= 1099511628211ULL;
         }
         h ^= value.size();
+        h *= 1099511628211ULL;
+        return h;
+    }
+
+    static std::uint64_t content_signature(const api::Message& m) {
+        std::uint64_t h = 1469598103934665603ULL;
+        h = mix(h, m.text);
+        h = mix(h, m.subtitle);
+        h = mix(h, m.tool_status);
+        h ^= static_cast<std::uint64_t>(m.role);
+        h *= 1099511628211ULL;
+        h ^= static_cast<std::uint64_t>(m.kind);
         h *= 1099511628211ULL;
         return h;
     }
@@ -229,8 +221,9 @@ class Memo {
             const std::string key = identity(m, i);
             auto [it, inserted] = entries_.try_emplace(key);
             Entry& e = it->second;
-            if (inserted || !same_message(e, m)) {
-                assign_message(e, m);
+            const std::uint64_t content = content_signature(m);
+            if (inserted || e.content_signature != content) {
+                e.content_signature = content;
                 e.lines = std::invoke(normalize, m,
                                       m.role == api::Role::Assistant);
                 e.query_generation = 0;
@@ -267,7 +260,7 @@ class Memo {
             Entry* e = cacheable ? sequence_[i] : &transient;
             if (e == nullptr) continue;
             if (!cacheable) {
-                assign_message(*e, m);
+                e->content_signature = content_signature(m);
                 e->lines = std::invoke(normalize, m,
                                        m.role == api::Role::Assistant);
                 ++stats_.normalized;
