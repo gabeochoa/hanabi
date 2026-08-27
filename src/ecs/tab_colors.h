@@ -37,11 +37,13 @@ namespace tab_colors {
 // and its text: on the reference there is no recessed well behind it. On hover
 // an inactive tab gets a faint additive wash over its own fill (theme::over,
 // gap #13 — a subtle tint, never a solid block).
-inline afterhours::Color strip_bg() { return theme::window_bg(); }
-inline afterhours::Color tab_active() { return theme::selected_bg(); }
-inline afterhours::Color tab_inactive() { return theme::window_bg(); }
+inline afterhours::Color strip_bg() { return theme::chrome::titlebar(); }
+inline afterhours::Color tab_active() {
+    return theme::chrome::selected_on(theme::chrome::titlebar());
+}
+inline afterhours::Color tab_inactive() { return theme::chrome::titlebar(); }
 inline afterhours::Color tab_hover() {
-    return theme::over(theme::hover_bg(), theme::window_bg());
+    return theme::over(theme::hover_bg(), theme::chrome::titlebar());
 }
 inline afterhours::Color tab_text() { return theme::text_secondary(); }
 // The pin's ink, before it is composited over whichever tab carries it.
@@ -89,18 +91,14 @@ inline afterhours::Color close_ink() { return theme::text_secondary(); }
 // string, and a string's colour is not what the metric is measuring here; the
 // rule from REFERENCE.md is move a BLIT to the source's token and leave TEXT
 // wherever it measures. Left at white, deliberately, with the number.
-inline afterhours::Color tab_text_act() {
-    return theme::g_mode == theme::Mode::Dark
-               ? afterhours::Color{255, 255, 255, 255}
-               : theme::text_primary();
-}
-inline afterhours::Color close_hover() {
-    return theme::over(theme::hover_bg(), theme::panel_bg());
+inline afterhours::Color tab_text_act() { return theme::text_primary(); }
+inline afterhours::Color close_hover(afterhours::Color backdrop) {
+    return theme::hover_over(backdrop);
 }
 inline afterhours::Color border() { return theme::border(); }
-inline afterhours::Color tab_outline() { return theme::divider(); }
+inline afterhours::Color tab_outline() { return theme::chrome::divider(); }
 inline afterhours::Color accent() { return theme::accent(); }
-inline constexpr float kTabCorner = 4.0f;
+inline constexpr float kTabCorner = theme::chrome::RADIUS;
 inline constexpr float kTabBorderPx = 1.0f;
 // The chip's own horizontal padding, and the close mark's box, both read out
 // of `TabStrip.swift`: `TabChip.body` is `.padding(.horizontal, 10)` and its

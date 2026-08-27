@@ -228,6 +228,16 @@ capture() {
     SUMMARY+=("$(printf '%-22s %-14s %s' "$name" "$status" "$png")")
 }
 
+capture_sized() {
+    local name="$1"
+    local dim="$2"
+    shift 2
+    local previous="$EXPECT_DIM"
+    EXPECT_DIM="$dim"
+    capture "$name" "$@"
+    EXPECT_DIM="$previous"
+}
+
 listing || echo "=== capturing into $OUTDIR (timeout ${SHOT_TIMEOUT}s/shot) ==="
 
 # ---------------------------------------------------------------------------
@@ -244,6 +254,8 @@ TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"]
 TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"light"}'
 TABS_T6='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t6","theme":"dark"}'
 MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","r1","r2","r4","r5","r6","r7","r8","r9","r10","r11"],"active_tab":"r11","pinned_tabs":["r10","r11"],"theme":"dark"}'
+NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
+NARROW_MANY='{"window_width":760,"window_height":620,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
 FOLDED='{"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}'
 
 # --- Home digest ------------------------------------------------------------
@@ -350,6 +362,9 @@ capture 31_selection_dark "$TABS_DARK" 'HANABI_SELECT_DEMO=4,810 match to the ce
 # --- Reopening a thread that gained messages while you were away.
 capture 32_new_messages_dark "$NOTABS_DARK" HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_UNREAD_DEMO=4
 
+capture_sized 33_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620
+capture_sized 34_narrow_many_tabs_dark "760 x 620" "$NARROW_MANY" HANABI_WIN_W=760 HANABI_WIN_H=620
+
 listing && exit 0
 
 echo
@@ -366,5 +381,5 @@ if [ "$FAILED" -ne 0 ]; then
     exit 1
 fi
 echo
-echo "RESULT: OK -- all captures present and $EXPECT_DIM."
+echo "RESULT: OK -- all captures present at their declared dimensions."
 exit 0

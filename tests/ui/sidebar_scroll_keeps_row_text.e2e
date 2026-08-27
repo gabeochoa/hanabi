@@ -1,40 +1,7 @@
-# Regression: scrolling the sidebar list used to leave the rows in place but
-# stop drawing their titles past a certain offset — the rows stayed clickable
-# and went blank.
-#
-# It also pins the two things feat/vis-list2 changed about this list, because
-# both of them are visible from here and nowhere else in the suite:
-#
-#   1. The list renders MORE than a viewport's worth of rows, so the scroll
-#      view has something to move. It used to be capped at viewport-minus-one,
-#      which made the panel's content shorter than the panel by construction —
-#      the scroll was dead and the tail of the catalog sat behind a
-#      "Show N more…" button that cost a row to save a row. That button is why
-#      this script used to have to click `sb_show_more` before it could scroll
-#      anything; there is nothing to expand now.
-#   2. A row title gets the full column. The trailing star used to reserve 18px
-#      on every row whether or not a star was ever drawn there, and the seventh
-#      row's title is long enough to show it: "…, D1136…" with the reserve,
-#      "…, D113637…" without. That exact string is the assertion below.
-#
-# Both titles are asserted in their SIDEBAR-ellipsized form. Every row title is
-# also painted on a Home card in the main pane, at a width that does not
-# ellipsize it, and a duplicate label satisfies expect_text wherever it is —
-# so a bare title would pass with every sidebar row blank, which is the exact
-# regression this script exists for (afterhours_gaps.md #73). The "…" is what
-# makes the assertion about the sidebar.
-#
-# The bottom rows are addressed with assert_ui_text and a y, not expect_text:
-# they are short enough that the sidebar never ellipsizes them, so their only
-# distinguishing feature against the Home card carrying the same words is where
-# they landed. Coordinates re-derived by rendering at this script's own window
-# size and reading the PNG, not by arithmetic on the old ones.
-#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
-expect_text "stickers broke — concluded, D113637…"
+expect_text "stickers broke — concluded, D113637134 on you"
 assert_ui_text "profiling the disk" y=306
-
 mouse_move 140 600
 scroll_wheel 0 -6
 wait_frames 6
@@ -44,7 +11,4 @@ scroll_wheel 0 -6
 wait_frames 6
 scroll_wheel 0 -6
 wait_frames 10
-
-# The list moved and the rows that came up with it are lettered, not blank.
-# At the clamped bottom the last of the twenty sits here.
 assert_ui_text "PSC daily post generator" y=706

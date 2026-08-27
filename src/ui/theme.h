@@ -582,7 +582,7 @@ constexpr float LG = 14.0f;          // transcript h2 / large labels
 constexpr float TITLE = 13.5f;       // digest card title
 constexpr float BODY = 13.0f;        // smart-view row label
 constexpr float ROW = 12.5f;         // thread-row title, tab label
-constexpr float LIST_ROW = 16.5f;   // session-list row title (Puffin-measured)
+constexpr float LIST_ROW = 13.0f;   // navigation/session row title
 constexpr float MD = 12.0f;          // folder name, section body
 constexpr float SUBROW = 11.5f;      // sub-agent sub-row title
 constexpr float SM = 11.0f;          // counts, status bar, sub-labels
@@ -591,6 +591,55 @@ constexpr float XS = 10.0f;          // smallest body
 constexpr float CHIP = 9.5f;         // tag chip text
 constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
 }  // namespace type
+
+namespace chrome {
+constexpr float SPACE_1 = 4.0f;
+constexpr float SPACE_2 = 8.0f;
+constexpr float SPACE_3 = 12.0f;
+constexpr float SPACE_4 = 16.0f;
+constexpr float SPACE_6 = 24.0f;
+constexpr float HIT = 28.0f;
+constexpr float ROW = 32.0f;
+constexpr float RADIUS = 6.0f;
+constexpr float HAIRLINE = 1.0f;
+
+inline Color titlebar() {
+    return mode() == Mode::Dark ? Color{18, 20, 25, 255}
+                                : Color{233, 235, 239, 255};
+}
+
+inline Color sidebar() {
+    return mode() == Mode::Dark ? Color{24, 27, 34, 255}
+                                : Color{243, 244, 247, 255};
+}
+
+inline Color content() {
+    return mode() == Mode::Dark ? Color{29, 32, 40, 255}
+                                : Color{250, 251, 252, 255};
+}
+
+inline Color raised() {
+    return mode() == Mode::Dark ? Color{37, 41, 51, 255}
+                                : Color{255, 255, 255, 255};
+}
+
+inline Color divider() {
+    return mode() == Mode::Dark ? Color{48, 52, 63, 255}
+                                : Color{214, 217, 224, 255};
+}
+
+inline Color selected_on(Color backdrop) {
+    Color tint = accent();
+    tint.a = mode() == Mode::Dark ? 42 : 30;
+    return over(tint, backdrop);
+}
+
+inline Color attention_fill(Color backdrop) {
+    Color tint = destructive();
+    tint.a = mode() == Mode::Dark ? 28 : 20;
+    return over(tint, backdrop);
+}
+}
 
 // Real rendered width (logical px) of `s` at font size `px`, measured against
 // the SAME active font draw_text uses (fontstash bounds). Replaces the

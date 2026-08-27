@@ -454,8 +454,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_corner_radius(tab_colors::kTabCorner)
                     .with_rounded_corners(
                         tab_colors::tab_corners_top_round_bottom_square())
-                    .with_border(isActive ? bg : tab_colors::tab_outline(),
-                                 pixels(tab_colors::kTabBorderPx))
+                    .with_border(bg, pixels(tab_colors::kTabBorderPx))
                     .with_render_layer(baseLayer)
                     // The ACTIVE tab carries a fixed name: "which tab is
                     // current" is a thing tests need to assert, and the accent
@@ -586,7 +585,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             .with_absolute_position()
                             .with_translate(closeX, closeY)
                             .with_custom_background(
-                                closeHovered ? tab_colors::close_hover() : bg)
+                                closeHovered ? tab_colors::close_hover(bg) : bg)
                             .with_custom_text_color(
                                 closeHovered ? tab_colors::tab_text_act()
                                              : tab_colors::close_ink())

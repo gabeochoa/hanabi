@@ -61,7 +61,7 @@ static bool apart(Color got, int r, int g, int b, int tol = kTol) {
 // y45..50 and the second's at x520..525, and the outer column of either is a
 // third of a covered pixel, which is what makes a peak sample lie.
 static const int kRefPinOnInactive[3] = {107, 107, 127};
-static const int kRefPinOnActive[3] = {114, 117, 143};
+static const int kRefPinOnActive[3] = {109, 111, 127};
 
 static void test_the_pin_matches_the_reference_on_an_inactive_tab() {
     std::printf("test_the_pin_matches_the_reference_on_an_inactive_tab\n");
@@ -155,6 +155,28 @@ static void test_the_rule_survives_a_light_theme() {
     theme::set_mode(theme::Mode::Dark);
 }
 
+static bool same(Color a, Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+static void test_the_chrome_state_hierarchy_survives_both_themes() {
+    std::printf("test_the_chrome_state_hierarchy_survives_both_themes\n");
+    for (theme::Mode mode : {theme::Mode::Dark, theme::Mode::Light}) {
+        theme::set_mode(mode);
+        const Color inactive = ecs::tab_colors::tab_inactive();
+        const Color active = ecs::tab_colors::tab_active();
+        const Color hovered = ecs::tab_colors::tab_hover();
+        CHECK(same(ecs::tab_colors::strip_bg(), theme::chrome::titlebar()));
+        CHECK(same(inactive, ecs::tab_colors::strip_bg()));
+        CHECK(!same(active, inactive));
+        CHECK(!same(hovered, inactive));
+        CHECK(!same(ecs::tab_colors::close_hover(active), active));
+        CHECK(same(ecs::tab_colors::tab_text_act(), theme::text_primary()));
+        CHECK(ecs::tab_colors::kTabCorner == theme::chrome::RADIUS);
+    }
+    theme::set_mode(theme::Mode::Dark);
+}
+
 int main() {
     std::printf("== tab colors ==\n");
     test_the_pin_matches_the_reference_on_an_inactive_tab();
@@ -163,6 +185,7 @@ int main() {
     test_the_close_mark_lands_where_the_reference_puts_it();
     test_the_close_mark_does_not_follow_the_title_colour();
     test_the_rule_survives_a_light_theme();
+    test_the_chrome_state_hierarchy_survives_both_themes();
     if (g_failures != 0) {
         std::printf("FAILED (%d)\n", g_failures);
         return 1;
