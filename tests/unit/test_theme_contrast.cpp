@@ -56,9 +56,9 @@ static void check_mode(theme::Mode mode, const char* name) {
     const auto sidebar = theme::chrome::sidebar();
     const auto content = theme::chrome::content();
     const auto raised = theme::chrome::raised();
-    CHECK(luminance(titlebar) < luminance(sidebar));
-    CHECK(luminance(sidebar) < luminance(content));
-    CHECK(luminance(content) < luminance(raised));
+    if (!(luminance(titlebar) < luminance(sidebar))) ++failures;
+    if (!(luminance(sidebar) < luminance(content))) ++failures;
+    if (!(luminance(content) < luminance(raised))) ++failures;
     const auto selected = theme::chrome::selected_on(sidebar);
     if (selected.r == sidebar.r && selected.g == sidebar.g &&
         selected.b == sidebar.b)
