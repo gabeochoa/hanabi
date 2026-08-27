@@ -13977,3 +13977,104 @@ search plus Show More returns to **6,645 entities / 17.2 ms/frame**; #340 styled
 text wrapping is about **10% of allocations** and doubles with two panes. The
 rejected approaches and minimal app fixes remain in those entries. None is
 renumbered into this range.
+
+---
+
+### #525 — A closed popover still resolves and retains a UI entity
+
+**Exact afterhours mechanism.** `popover` calls `deref(ep_pair)` and adds
+`HasMenuState` before it checks `open` in
+`vendor/afterhours/src/plugins/ui/menu.h:263-271`. The closed path avoids the
+panel, but it is not construction-free and requires a closed call to reset
+`was_open_last_frame`.
+
+**Measured result.** Hanabi's steady closed-overlay allocation gate remains
+**811 / 1163 / 2735 / 1025 allocations per frame** for home20 / home2000 /
+thread480 / draft6 after the guard. The values do not grow from the picker
+refactor.
+
+**Workaround.** Hanabi does not call `popover` while a picker has stayed closed.
+It allows one transition call after close to reset vendor state, then returns
+before `mk` on subsequent closed frames.
+
+**Minimal upstream change.** Accept caller-owned open history, or move the
+closed-state reset outside entity lookup so `open == false` can return before
+`deref`.
+
+**Rejected approaches.** Skipping every closed call without resetting state
+breaks the next open: stale `was_open_last_frame` makes focus-within dismiss the
+new panel immediately. Calling unconditionally preserves behavior but retains
+work for an invisible surface.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::render_model_popover` and
+`render_effort_popover` carry the transition guard. `scripts/alloc_gate.sh`
+records the unchanged closed-state levels above.
+
+CLASS: PERFORMANCE / WORKAROUND
+
+---
+
+### #526 — Synthetic right-click does not reach direct mouse-button polling
+
+**Exact afterhours mechanism.** `simulate_right_click` sets the injector's
+`right_down` flag in `vendor/afterhours/src/plugins/e2e_testing/test_input.h`,
+but `platform_test_input::is_mouse_button_pressed` only consults the injector
+for button 0 at `platform_test_input.h:98-103`. Other buttons fall through to
+the real graphics backend.
+
+**Measured failure.** The same scripted secondary click opens Hanabi's row menu
+through `UIContext::is_right_click`, but cannot open the tab menu, which polls
+`graphics::is_mouse_button_pressed(1)` directly. The click instead leaves no
+`TAB ACTIONS` node for the harness to inspect.
+
+**Workaround.** Row-menu Escape ownership is covered through the UIContext path.
+The tab-menu invocation remains without deterministic input coverage; its
+layout is exercised only by the manual capture path.
+
+**Minimal upstream change.** Make the test-aware platform wrapper map the
+secondary-button id to `right_down`, and route application polling through that
+wrapper.
+
+**Rejected approaches.** Treating a synthetic right click as button 0 would
+make ordinary click handlers fire too. Hard-coding a second product-only menu
+entry path would test a branch users never take.
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h::render_tab_menu` is the direct
+polling path. `src/ecs/sidebar_system.h::render_row_menu` and
+`tests/ui/context_menus_escape.e2e` demonstrate the working UIContext path and
+single-owner Escape behavior.
+
+CLASS: MISSING
+
+---
+
+### #527 — Secondary controls still have no native accessibility semantics
+
+**Exact afterhours mechanism.** `ComponentConfig` exposes visual labels, debug
+names, focus flags, and button variants, but no accessibility name,
+description, role, or platform adapter in
+`vendor/afterhours/src/plugins/ui/component_config.h:44-191`. This is another
+concrete surface of #112/#458 rather than a separate API family.
+
+**Measured result.** Keyboard focus and activation are scriptable for visible
+controls, but the tests can only address debug names and rendered text. They
+cannot inspect a macOS accessibility tree or prove a control's semantic role.
+
+**Workaround.** Every icon-only close control is paired with an explicit title
+or nearby visible action text, and every actionable element has a stable debug
+name. This improves discoverability and testability but does not supply native
+assistive metadata.
+
+**Minimal upstream change.** Add semantic role/name/value fields to
+`ComponentConfig`, bridge them to the host accessibility tree, and expose them
+to `assert_ui`.
+
+**Rejected approaches.** Debug names are test instrumentation, not user-facing
+labels. Tooltips do not provide keyboard or screen-reader semantics.
+
+**Hanabi reference.** `src/ui/secondary_surface.h` centralizes visible control
+roles; `tests/ui/new_task_focus_escape.e2e`,
+`palette_focus_escape.e2e`, and `search_focus_escape.e2e` prove keyboard focus
+and dismissal. Native accessibility remains unresolved.
+
+CLASS: DUPLICATE → #112 / #458
