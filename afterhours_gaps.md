@@ -13651,3 +13651,68 @@ CLASS: MISSING
 **Hanabi reference.** `src/ecs/main_pane_system.h`, `MainPaneSystem::message_actions`, returns before `msg_actions` construction; `tests/ui/message_copy_on_hover.e2e` proves absent-at-rest and visible-on-hover; `tests/ui/message_actions_split_focus.e2e` proves focused state is pane-local; `scripts/events_gate.sh` records the allocation level and slope. Proof-only negative result.
 
 CLASS: NOT A GAP
+
+---
+
+### #420 — `virtual_list` cannot index variable-height rows, so a transcript must rebuild or own its geometry tree
+
+**What was wanted.** A list of mixed transcript rows whose layout cost is paid
+when message geometry changes, not once per loaded message per frame. Rows are
+bubbles, tool piles, date and unread dividers, thinking blocks, deliveries and
+run outcomes; their heights depend on content, pane width, fold state and
+settings.
+
+**What happens.** afterhours' only list virtualizer is
+`ui::imm::virtual_list` in
+`vendor/afterhours/src/plugins/ui/imm_components.h:141-219`. Its contract says
+every row is exactly one `row_height` (`:147-160`), derives the visible range by
+dividing scroll offset by that constant (`:174-191`), and sizes both spacers as
+`row count × row_height` (`:194-217`). It has no per-item height accessor,
+prefix-height index, stable item key, revision, or invalidation range.
+
+Hanabi therefore built every transcript `Item` and summed every height before it
+could virtualize the draw. The operation counter measured 3,672.3 / 7,344.3 /
+14,688.3 source-message visits per frame at 3,672 / 7,344 / 14,688 messages.
+`transcript.pass1_measure` was 1.896 / 3.857 / 9.329 ms per frame in matched
+300-frame runs and was the dominant cost.
+
+**Rejected ideas.** Hashing every message every frame is the same O(messages)
+walk with cheaper work inside it. Sharing one item list between split panes is
+wrong once the panes have different widths. A map keyed by every observed width
+is unbounded during a resize drag. Calling `virtual_list` after building a full
+prefix-height vector saves widget construction but not the measured walk; that
+is already the old path. Rebuilding only visible rows cannot place them because
+the scroll offset is in cumulative-height space.
+
+**Hanabi workaround.** A four-slot LRU retains one item vector and total height
+per `(pane, thread)`. It rebuilds only the affected suffix for appends, content
+updates, and fold toggles; width and global-setting changes replace one slot.
+
+**Hanabi reference.** `src/ecs/transcript_item_index.h` —
+`TranscriptItemIndex::update` implements the bounded index and explicit
+invalidation. `src/ecs/components.h` — `Pane::note_transcript_mutation` carries
+the source revision. `src/ecs/main_pane_system.h` — `render_transcript` builds a
+changed suffix and consumes the retained list; the old full-pass path is gone.
+Tests: `tests/unit/test_transcript_item_index.cpp` runs a 3,000-change
+randomized differential against a from-scratch reference and covers the bound
+and different-width panes; `tests/unit/test_pane_memory.cpp` covers same-ID
+content and unread changes. Measurement/gate:
+`scripts/perf_transcript_slope.sh` gates the visited-message ratio at 0.02; the
+old path is 1.0 and the new 480-message run is 0.0026.
+
+**Result and remaining cost.** The matched CPU ratios are 0.064x / 0.063x /
+0.078x at 3,672 / 7,344 / 14,688 messages. Allocation calls rose 0.4–1.0%
+while bytes allocated per frame fell 15–30%; the retained index is a deliberate
+small-allocation trade. Pass 2 and minimap preparation still iterate the item
+list. They are not fixed here: pass 2 is the virtualized widget build, and the
+minimap represents the whole transcript. Their remaining costs are already
+tracked by #138 and #341.
+
+**Minimal upstream change.** Add a variable-height `virtual_list` overload with
+a stable item key, caller-supplied height measurement, a retained prefix-sum
+index, and `invalidate(first, count)` plus reset semantics. Its storage must be
+bounded per list instance and width changes must replace one geometry version,
+not accumulate a width-keyed history. Keep the current constant-height overload
+as the zero-index fast path.
+
+CLASS: MISSING / PERFORMANCE (extends #326)
