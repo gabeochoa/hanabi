@@ -1,0 +1,11 @@
+# The explicitly persisted focused pane regains keyboard focus on relaunch.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t9","pinned_tabs":["t9"],"split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":1,"theme":"dark"}
+
+require_thread t2
+require_thread t9
+
+assert_ui split_divider hidden=false
+assert_ui split_focus_edge x=693
+expect_text "Tab: kicker-tick, pinned, active"
+expect_text "Reconcile this cycle's Stars payouts against the ledger"
+expect_text "Recurring: kick the pending queue every ten minutes."

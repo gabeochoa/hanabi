@@ -1,0 +1,11 @@
+# A stale split-pane id from an older settings file cannot reopen a closed tab.
+# stale_thread: t9
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","pinned_tabs":[],"split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"theme":"dark"}
+
+require_thread t2
+
+assert_ui transcript_scroll x=280
+assert_ui transcript_scroll w=820
+expect_text "Tab: needs a decision before it can go on, active"
+expect_no_text "Tab: kicker-tick"
+expect_no_text "Recurring: kick the pending queue every ten minutes."

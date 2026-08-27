@@ -43,7 +43,15 @@ bool Settings::load_save_file() {
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
         split_open_ = j.value("split_open", split_open_);
-        split_ratio_ = hanabi::clamp_split_ratio(j.value("split_ratio", split_ratio_));
+        split_ratio_ =
+            hanabi::clamp_split_ratio(j.value("split_ratio", split_ratio_));
+        const bool hasExplicitSplitFocus =
+            j.contains("split_focused_pane") &&
+            j["split_focused_pane"].is_number_integer();
+        split_focused_pane_ =
+            hasExplicitSplitFocus
+                ? std::clamp(j["split_focused_pane"].get<int>(), 0, 1)
+                : 0;
         split_panes_[0].clear();
         split_panes_[1].clear();
         if (j.contains("split_panes") && j["split_panes"].is_array()) {
@@ -52,16 +60,24 @@ bool Settings::load_save_file() {
                 if (arr[i].is_string())
                     split_panes_[i] = arr[i].get<std::string>();
         }
+        if (!hasExplicitSplitFocus) {
+            const bool leftMatches =
+                !active_tab_.empty() && split_panes_[0] == active_tab_;
+            const bool rightMatches =
+                !active_tab_.empty() && split_panes_[1] == active_tab_;
+            if (leftMatches != rightMatches)
+                split_focused_pane_ = rightMatches ? 1 : 0;
+        }
         font_choice_ = j.value("font", font_choice_);
         accent_choice_ = j.value("theme_accent", accent_choice_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
         export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
-        cache_cap_bytes_ =
-            j.value("cache_cap_bytes", cache_cap_bytes_);
+        cache_cap_bytes_ = j.value("cache_cap_bytes", cache_cap_bytes_);
         yap_level_ = j.value("yap_level", yap_level_);
         auto_archive_days_ = j.value("auto_archive_days", auto_archive_days_);
-        notification_sound_ = j.value("notification_sound", notification_sound_);
+        notification_sound_ =
+            j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
         theme_rotate_secs_ = j.value("theme_rotate_secs", theme_rotate_secs_);
         show_finished_subagents_ =
@@ -91,8 +107,7 @@ bool Settings::load_save_file() {
         last_read_.clear();
         if (j.contains("last_read") && j["last_read"].is_object()) {
             for (const auto& [k, v] : j["last_read"].items())
-                if (v.is_number_integer())
-                    last_read_[k] = v.get<int64_t>();
+                if (v.is_number_integer()) last_read_[k] = v.get<int64_t>();
         }
         prune_last_read();
         tool_fold_.clear();
@@ -177,6 +192,7 @@ void Settings::write_save_file() {
     j["send_key"] = send_key_;
     j["split_open"] = split_open_;
     j["split_ratio"] = split_ratio_;
+    j["split_focused_pane"] = split_focused_pane_;
     j["split_panes"] = {split_panes_[0], split_panes_[1]};
     j["starred"] = starred_ids_;
     j["archived"] = archived_;
@@ -195,21 +211,25 @@ void Settings::write_save_file() {
 // the clamp is the one place that cannot be skipped.
 bool Settings::get_split_open() const { return split_open_; }
 float Settings::get_split_ratio() const { return split_ratio_; }
+int Settings::get_split_focused_pane() const { return split_focused_pane_; }
 const std::string& Settings::get_split_pane(int index) const {
     static const std::string kEmpty;
     if (index < 0 || index > 1) return kEmpty;
     return split_panes_[index];
 }
 void Settings::set_split(bool open, float ratio, const std::string& left,
-                         const std::string& right) {
+                         const std::string& right, int focusedPane) {
     const float clamped = hanabi::clamp_split_ratio(ratio);
+    const int focused = std::clamp(focusedPane, 0, 1);
     if (split_open_ == open && split_ratio_ == clamped &&
-        split_panes_[0] == left && split_panes_[1] == right)
+        split_panes_[0] == left && split_panes_[1] == right &&
+        split_focused_pane_ == focused)
         return;  // no churn: this is written from a drag, sixty times a second
     split_open_ = open;
     split_ratio_ = clamped;
     split_panes_[0] = left;
     split_panes_[1] = right;
+    split_focused_pane_ = focused;
     if (auto_save_enabled) write_save_file();
 }
 
@@ -229,8 +249,7 @@ const std::string& Settings::get_active_tab() const { return active_tab_; }
 const std::vector<std::string>& Settings::get_pinned_tabs() const {
     return pinned_tabs_;
 }
-void Settings::set_open_tabs(std::vector<std::string> ids,
-                             std::string activeId,
+void Settings::set_open_tabs(std::vector<std::string> ids, std::string activeId,
                              std::vector<std::string> pinnedIds) {
     open_tabs_ = std::move(ids);
     active_tab_ = std::move(activeId);
@@ -379,8 +398,8 @@ bool Settings::is_shelf_collapsed(const std::string& key) const {
     return false;
 }
 void Settings::set_shelf_collapsed(const std::string& key, bool collapsed) {
-    auto it = std::find(collapsed_shelves_.begin(), collapsed_shelves_.end(),
-                        key);
+    auto it =
+        std::find(collapsed_shelves_.begin(), collapsed_shelves_.end(), key);
     const bool present = (it != collapsed_shelves_.end());
     if (collapsed && !present) {
         collapsed_shelves_.push_back(key);
@@ -418,10 +437,10 @@ void Settings::prune_last_read() {
     for (const auto& kv : last_read_)
         byStamp.emplace_back(kv.second, &kv.first);
     const std::size_t drop = last_read_.size() - kMaxLastRead;
-    std::nth_element(
-        byStamp.begin(), byStamp.begin() + static_cast<long>(drop),
-        byStamp.end(),
-        [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::nth_element(byStamp.begin(), byStamp.begin() + static_cast<long>(drop),
+                     byStamp.end(), [](const auto& a, const auto& b) {
+                         return a.first < b.first;
+                     });
     // Copy the ids out before erasing: the pointers are into the map's own
     // keys and erasing invalidates the one being erased.
     std::vector<std::string> doomed;
@@ -535,7 +554,9 @@ void Settings::set_memory_backend(const std::string& backend) {
     if (auto_save_enabled) write_save_file();
 }
 
-const std::string& Settings::get_default_model() const { return default_model_; }
+const std::string& Settings::get_default_model() const {
+    return default_model_;
+}
 void Settings::set_default_model(const std::string& model) {
     if (model == default_model_) return;
     default_model_ = model;
@@ -548,9 +569,9 @@ void Settings::set_send_key(const std::string& key) {
     // Only the two tokens the app knows. A settings.json hand-edited to
     // something else would otherwise leave the composer with no send key at
     // all, which reads as a dead Return key with nothing to point at.
-    const std::string next =
-        (key == hanabi::kSendKeyCmdReturn) ? hanabi::kSendKeyCmdReturn
-                                           : hanabi::kSendKeyReturn;
+    const std::string next = (key == hanabi::kSendKeyCmdReturn)
+                                 ? hanabi::kSendKeyCmdReturn
+                                 : hanabi::kSendKeyReturn;
     if (next == send_key_) return;
     send_key_ = next;
     if (auto_save_enabled) write_save_file();

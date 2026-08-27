@@ -12,6 +12,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 
+require_thread t2
+
 # One pane. The transcript's scroll view spans the whole main pane.
 assert_ui transcript_scroll hidden=false
 assert_ui transcript_scroll x=280

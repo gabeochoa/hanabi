@@ -9,9 +9,9 @@
 // Style mirrors tests/unit/test_api.cpp: a tiny assert-based runner, hermetic
 // (no network, no env deps).
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cmath>
 #include <string>
 
 // afterhours ECS core only (headless-safe: no graphics backend linked).
@@ -27,6 +27,7 @@
 
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
+#include "../../src/ecs/load_older_model.h"
 #include "../../src/ecs/tab_model.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../src/ecs/transcript_cache.h"
@@ -43,12 +44,12 @@
 
 static int g_failures = 0;
 static int g_skipped = 0;
-#define CHECK(cond)                                                    \
-    do {                                                               \
-        if (!(cond)) {                                                 \
-            std::printf("  FAIL: %s (line %d)\n", #cond, __LINE__);    \
-            ++g_failures;                                              \
-        }                                                              \
+#define CHECK(cond)                                                 \
+    do {                                                            \
+        if (!(cond)) {                                              \
+            std::printf("  FAIL: %s (line %d)\n", #cond, __LINE__); \
+            ++g_failures;                                           \
+        }                                                           \
     } while (0)
 
 // Fresh entity world per test so tab/entity state does not leak between tests.
@@ -74,8 +75,8 @@ static void test_list_loads_sorted_and_has_samples() {
     // Expected sample threads present (from the mock seed).
     bool has_t1 = false, has_t4 = false, has_t10 = false;
     for (const auto& s : r.value) {
-        if (s.id == "t1") has_t1 = true;   // stickers broke (attention)
-        if (s.id == "t4") has_t4 = true;   // finished, wants a read (review)
+        if (s.id == "t1") has_t1 = true;    // stickers broke (attention)
+        if (s.id == "t4") has_t4 = true;    // finished, wants a read (review)
         if (s.id == "t10") has_t10 = true;  // parent, nothing to report (calm)
     }
     CHECK(has_t1);
@@ -121,47 +122,47 @@ static void test_state_model_and_glyphs() {
     // A testified failure is a cross; the same failure with nothing testified
     // is the weaker shape, and both are alert-toned.
     CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Failed)) ==
-          Mark{Glyph::Cross, Tone::Alert}));
+           Mark{Glyph::Cross, Tone::Alert}));
     CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::Failed)) ==
-          Mark{Glyph::Dot, Tone::Alert}));
+           Mark{Glyph::Dot, Tone::Alert}));
     // Failure outranks every other reading of the row.
     CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::Failed)) ==
-          Mark{Glyph::Dot, Tone::Alert}));
+           Mark{Glyph::Dot, Tone::Alert}));
 
     // Wants-you is ONE mark, whether it is blocked on a decision or waiting to
     // be read: the reference draws all six of its waiting rows the same bang.
     CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Blocked)) ==
-          Mark{Glyph::Bang, Tone::Live}));
+           Mark{Glyph::Bang, Tone::Live}));
     CHECK((mark_for(mk_sum(ThreadState::Ready, ThreadTag::Review)) ==
-          Mark{Glyph::Bang, Tone::Live}));
+           Mark{Glyph::Bang, Tone::Live}));
     // Done-but-unlooked-at ("finished since you looked") is still an ask.
     CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Done)) ==
-          Mark{Glyph::Bang, Tone::Live}));
+           Mark{Glyph::Bang, Tone::Live}));
     // Bare attention / bare ready, the shapes the http adapter produces.
     CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::None)) ==
-          Mark{Glyph::Bang, Tone::Live}));
+           Mark{Glyph::Bang, Tone::Live}));
     CHECK((mark_for(mk_sum(ThreadState::Ready, ThreadTag::None)) ==
-          Mark{Glyph::Bang, Tone::Live}));
+           Mark{Glyph::Bang, Tone::Live}));
     // A blocked tag wins over a live run: the run does not stop the ask.
     CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::Blocked)) ==
-          Mark{Glyph::Bang, Tone::Live}));
+           Mark{Glyph::Bang, Tone::Live}));
 
     // A live run spins. Testimony that merely SAYS working does not: the run
     // has ended, and a spinner on it would be a lie about the present tense.
     CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::None)) ==
-          Mark{Glyph::Arc, Tone::Live}));
+           Mark{Glyph::Arc, Tone::Live}));
     CHECK((mark_for(mk_sum(ThreadState::Working, ThreadTag::None)) ==
-          Mark{Glyph::Dot, Tone::Live}));
+           Mark{Glyph::Dot, Tone::Live}));
 
     // Settled: a calm dot, and a calm CHEVRON when there is a subtree to open.
     CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::None)) ==
-          Mark{Glyph::Dot, Tone::Calm}));
+           Mark{Glyph::Dot, Tone::Calm}));
     CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::Done)) ==
-          Mark{Glyph::Dot, Tone::Calm}));
+           Mark{Glyph::Dot, Tone::Calm}));
     CHECK((mark_for(mk_sum(ThreadState::Parked, ThreadTag::None)) ==
-          Mark{Glyph::Dot, Tone::Calm}));
+           Mark{Glyph::Dot, Tone::Calm}));
     CHECK((mark_for(mk_sum(ThreadState::Archived, ThreadTag::None)) ==
-          Mark{Glyph::Dot, Tone::Calm}));
+           Mark{Glyph::Dot, Tone::Calm}));
     {
         auto parent = mk_sum(ThreadState::Unknown, ThreadTag::None);
         parent.sub_agent_count = 1;
@@ -314,7 +315,7 @@ static void test_tab_preview_keeps_one_slot() {
         // Force the pending-entity merge the app gets for free every frame:
         // a tab created by the call just above is not in the entity map until
         // some query merges it, and active_tab_entity's does.
-        (void)ecs::model::active_tab_entity();
+        (void) ecs::model::active_tab_entity();
         auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
         return o.asE().get<ecs::Tab>();
     };
@@ -324,6 +325,10 @@ static void test_tab_preview_keeps_one_slot() {
     CHECK(strip.tabOrder.size() == 1);
     CHECK(!tab_at(0).keptOpen);
     CHECK(app.pane().selectedId == "t1");
+    CHECK(ecs::model::tab_accessible_label(tab_at(0), true)
+              .find("stickers broke") != std::string::npos);
+    CHECK(ecs::model::tab_close_accessible_label(tab_at(0)).find(
+              "stickers broke") != std::string::npos);
 
     // Clicking down a list does not leave a trail: the second glance REUSES the
     // preview tab — same slot, same entity, new thread.
@@ -334,6 +339,12 @@ static void test_tab_preview_keeps_one_slot() {
     CHECK(tab_at(0).sessionId == "t4");
     CHECK(!tab_at(0).keptOpen);
     CHECK(tab_at(0).label == "finished, and wants you to read it");
+    CHECK(tab_at(0).accessibleLabel.empty());
+    CHECK(tab_at(0).closeAccessibleLabel.empty());
+    CHECK(ecs::model::tab_accessible_label(tab_at(0), true) ==
+          "Tab: finished, and wants you to read it, active");
+    CHECK(ecs::model::tab_close_accessible_label(tab_at(0)) ==
+          "Close tab: finished, and wants you to read it");
 
     // Asking for the thread you are already looking at is the second look, and
     // the second look keeps it.
@@ -386,8 +397,9 @@ static void test_kickoff_opens_new_tab_without_summary() {
     ecs::model::open_session_in_tab(strip, app, freshId);
     CHECK(strip.tabOrder.size() == 1);
     CHECK(app.pane().selectedId == freshId);
-    CHECK(app.view == ecs::SmartView::Chat);     // Home -> Chat transition
-    CHECK(app.pane().requestOpenId == freshId);         // loader fetches the transcript
+    CHECK(app.view == ecs::SmartView::Chat);  // Home -> Chat transition
+    CHECK(app.pane().requestOpenId ==
+          freshId);  // loader fetches the transcript
     // With no summary, the label falls back to the id (no crash / empty label).
     {
         auto* e = ecs::model::active_tab_entity();
@@ -407,7 +419,8 @@ static void test_tab_close_fallback() {
     CHECK(strip.tabOrder.size() == 3);
     CHECK(app.pane().selectedId == "t5");  // last opened is active
 
-    // Close the active (last) tab -> fall back to the neighbor (min(idx,size-1)).
+    // Close the active (last) tab -> fall back to the neighbor
+    // (min(idx,size-1)).
     auto activeId = ecs::model::active_tab_entity()->id;
     // find its index
     size_t idx = 0;
@@ -437,11 +450,216 @@ static void test_tab_close_fallback() {
     CHECK(!app.pane().openSession.has_value());
 }
 
-// Explicit tab SWITCHING (Gabe: "make sure switching tabs works"): with several
-// tabs open, switching to any one must (a) keep EXACTLY one ActiveTab marker,
-// (b) set selectedId to that tab, (c) set requestOpenId so the loader reloads
-// the transcript, and (d) set the Chat view — across repeated back-and-forth
-// switches with no leak/duplicate.
+static void test_tab_close_reconciles_both_panes() {
+    std::printf("test_tab_close_reconciles_both_panes\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t5");
+    (void) ecs::model::active_tab_entity();
+    app.splitOpen = true;
+    app.focusedPane = 0;
+    app.panes[0].selectedId = "t5";
+    app.panes[1].selectedId = "t1";
+    app.panes[1].requestOpenId = "t1";
+    api::MockClient mock;
+    app.panes[1].openSession = mock.get_session("t1").value;
+
+    auto closed = afterhours::EntityHelper::getEntityForID(strip.tabOrder[0]);
+    CHECK(closed.valid());
+    ecs::model::close_tab(strip, app, strip.tabOrder[0], 0, false);
+    CHECK(strip.tabOrder.size() == 2);
+    CHECK(app.panes[0].selectedId == "t5");
+    CHECK(app.panes[1].selectedId == "t4");
+    CHECK(app.panes[1].requestOpenId == "t4");
+    CHECK(!app.panes[1].openSession.has_value());
+    CHECK(closed->cleanup);
+
+    auto* active = ecs::model::active_tab_entity();
+    CHECK(active != nullptr);
+    ecs::model::close_tab(strip, app, active->id, 1, true);
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(app.panes[0].selectedId == "t4");
+    CHECK(app.panes[1].selectedId == "t4");
+
+    ecs::model::close_tab(strip, app, strip.tabOrder[0], 0, true);
+    CHECK(strip.tabOrder.empty());
+    CHECK(app.panes[0].selectedId.empty());
+    CHECK(app.panes[1].selectedId.empty());
+    CHECK(!app.splitOpen);
+    CHECK(app.view == ecs::SmartView::Home);
+}
+
+static void test_tab_switch_and_close_fallback_supersede_inflight_loads() {
+    std::printf(
+        "test_tab_switch_and_close_fallback_supersede_inflight_loads\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+    api::MockClient mock;
+
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    (void) ecs::model::active_tab_entity();
+    auto t1 = afterhours::EntityHelper::getEntityForID(strip.tabOrder[0]);
+    auto t4 = afterhours::EntityHelper::getEntityForID(strip.tabOrder[1]);
+    CHECK(t1.valid());
+    CHECK(t4.valid());
+
+    ecs::model::switch_to_tab(app, t1.asE());
+    auto& pane = app.pane();
+    std::promise<api::Result<api::Session>> t1Network;
+    std::promise<std::optional<api::Session>> t1Disk;
+    std::promise<api::Result<api::Session>> t1Older;
+    pane.transcriptPending = true;
+    pane.transcriptPendingId = "t1";
+    pane.transcriptFuture = t1Network.get_future();
+    pane.diskReadPending = true;
+    pane.diskReadId = "t1";
+    pane.diskReadFuture = t1Disk.get_future();
+    pane.loadingOlder = true;
+    pane.loadOlderPendingId = "t1";
+    pane.loadOlderFuture = t1Older.get_future();
+    pane.anchorPending = "t1";
+    pane.anchorPrevMsgCount = 17;
+
+    ecs::model::switch_to_tab(app, t4.asE());
+    CHECK(pane.selectedId == "t4");
+    CHECK(pane.requestOpenId == "t4");
+    CHECK(!pane.transcriptPending);
+    CHECK(!pane.diskReadPending);
+    CHECK(pane.supersededTranscriptFutures.size() == 1);
+    CHECK(pane.supersededDiskReadFutures.size() == 1);
+    CHECK(pane.supersededLoadOlderFutures.size() == 1);
+    CHECK(pane.anchorPending.empty());
+    CHECK(pane.anchorPrevMsgCount == 0);
+
+    pane.openSession = mock.get_session("t4").value;
+    t1Network.set_value(mock.get_session("t1"));
+    t1Disk.set_value(mock.get_session("t1").value);
+    t1Older.set_value(mock.get_session("t1"));
+    pane.reap_superseded_loads();
+    CHECK(pane.openSession->summary.id == "t4");
+
+    std::promise<api::Result<api::Session>> t4Network;
+    std::promise<std::optional<api::Session>> t4Disk;
+    std::promise<api::Result<api::Session>> t4Older;
+    pane.transcriptPending = true;
+    pane.transcriptPendingId = "t4";
+    pane.transcriptFuture = t4Network.get_future();
+    pane.diskReadPending = true;
+    pane.diskReadId = "t4";
+    pane.diskReadFuture = t4Disk.get_future();
+    pane.loadingOlder = true;
+    pane.loadOlderPendingId = "t4";
+    pane.loadOlderFuture = t4Older.get_future();
+
+    ecs::model::close_tab(strip, app, t4->id, 1, true);
+    CHECK(pane.selectedId == "t1");
+    CHECK(pane.requestOpenId == "t1");
+    CHECK(!pane.transcriptPending);
+    CHECK(!pane.diskReadPending);
+    CHECK(pane.supersededTranscriptFutures.size() == 1);
+    CHECK(pane.supersededDiskReadFutures.size() == 1);
+    CHECK(pane.supersededLoadOlderFutures.size() == 1);
+
+    pane.openSession = mock.get_session("t1").value;
+    t4Network.set_value(mock.get_session("t4"));
+    t4Disk.set_value(mock.get_session("t4").value);
+    t4Older.set_value(mock.get_session("t4"));
+    pane.reap_superseded_loads();
+    CHECK(pane.openSession->summary.id == "t1");
+}
+
+static void test_split_retarget_supersedes_inflight_work() {
+    std::printf("test_split_retarget_supersedes_inflight_work\n");
+    auto& app = setup_app_with_sessions();
+    auto& target = app.panes[1];
+    api::MockClient mock;
+
+    std::promise<api::Result<api::Session>> network;
+    std::promise<std::optional<api::Session>> disk;
+    std::promise<api::Result<api::Session>> older;
+    target.selectedId = "t1";
+    target.openSession = mock.get_session("t1").value;
+    target.transcriptPending = true;
+    target.transcriptPendingId = "t1";
+    target.transcriptFuture = network.get_future();
+    target.diskReadPending = true;
+    target.diskReadId = "t1";
+    target.diskReadFuture = disk.get_future();
+    target.loadingOlder = true;
+    target.loadOlderPendingId = "t1";
+    target.loadOlderFuture = older.get_future();
+
+    ecs::model::retarget_split_pane(target, "t4");
+    CHECK(target.selectedId == "t4");
+    CHECK(target.requestOpenId == "t4");
+    CHECK(target.scrollBottomPending == "t4");
+    CHECK(!target.transcriptPending);
+    CHECK(!target.diskReadPending);
+    CHECK(!target.loadingOlder);
+    CHECK(target.supersededTranscriptFutures.size() == 1);
+    CHECK(target.supersededDiskReadFutures.size() == 1);
+    CHECK(target.supersededLoadOlderFutures.size() == 1);
+
+    target.openSession = mock.get_session("t4").value;
+    network.set_value(mock.get_session("t1"));
+    disk.set_value(mock.get_session("t1").value);
+    older.set_value(mock.get_session("t1"));
+    target.reap_superseded_loads();
+    CHECK(target.openSession->summary.id == "t4");
+    CHECK(target.requestOpenId == "t4");
+}
+
+static void test_load_older_completion_stays_with_origin_pane() {
+    std::printf("test_load_older_completion_stays_with_origin_pane\n");
+    auto& app = setup_app_with_sessions();
+    api::MockClient mock;
+    app.splitOpen = true;
+    app.panes[0].selectedId = "t1";
+    app.panes[0].openSession = mock.get_session("t1").value;
+    app.panes[1].selectedId = "t4";
+    app.panes[1].openSession = mock.get_session("t4").value;
+
+    std::promise<api::Result<api::Session>> leftPromise;
+    std::promise<api::Result<api::Session>> rightPromise;
+    app.panes[0].loadingOlder = true;
+    app.panes[0].loadOlderPendingId = "t1";
+    app.panes[0].loadOlderFuture = leftPromise.get_future();
+    app.panes[1].loadingOlder = true;
+    app.panes[1].loadOlderPendingId = "t4";
+    app.panes[1].loadOlderFuture = rightPromise.get_future();
+
+    app.focusedPane = 1;
+    leftPromise.set_value(mock.get_session("t1"));
+    rightPromise.set_value(mock.get_session("t4"));
+    auto left = ecs::model::take_load_older_completion(app.panes[0]);
+    auto right = ecs::model::take_load_older_completion(app.panes[1]);
+    CHECK(left.has_value());
+    CHECK(right.has_value());
+    CHECK(ecs::model::apply_load_older_completion(app.panes[0], *left));
+    CHECK(ecs::model::apply_load_older_completion(app.panes[1], *right));
+    CHECK(app.focusedPane == 1);
+    CHECK(app.panes[0].openSession->summary.id == "t1");
+    CHECK(app.panes[1].openSession->summary.id == "t4");
+
+    std::promise<api::Result<api::Session>> stalePromise;
+    app.panes[0].loadingOlder = true;
+    app.panes[0].loadOlderPendingId = "t1";
+    app.panes[0].loadOlderFuture = stalePromise.get_future();
+    app.panes[0].selectedId = "t4";
+    app.panes[0].openSession = mock.get_session("t4").value;
+    stalePromise.set_value(mock.get_session("t1"));
+    auto stale = ecs::model::take_load_older_completion(app.panes[0]);
+    CHECK(stale.has_value());
+    CHECK(!ecs::model::apply_load_older_completion(app.panes[0], *stale));
+    CHECK(app.panes[0].openSession->summary.id == "t4");
+}
+
+// (c) set requestOpenId so the loader reloads the transcript, and (d) set the
+// Chat view — across repeated back-and-forth switches with no leak/duplicate.
 static void test_tab_switch_between_open_tabs() {
     std::printf("test_tab_switch_between_open_tabs\n");
     auto& app = setup_app_with_sessions();
@@ -478,9 +696,10 @@ static void test_tab_switch_between_open_tabs() {
         app.pane().requestOpenId.clear();  // prove the switch sets it fresh
         ecs::model::switch_to_tab(app, *e);
         CHECK(app.pane().selectedId == target);
-        CHECK(app.pane().requestOpenId == target);  // triggers transcript reload
+        CHECK(app.pane().requestOpenId ==
+              target);  // triggers transcript reload
         CHECK(app.view == ecs::SmartView::Chat);
-        CHECK(active_count() == 1);  // exactly one active, no leak/dup
+        CHECK(active_count() == 1);         // exactly one active, no leak/dup
         CHECK(strip.tabOrder.size() == 3);  // switching never adds/removes tabs
     }
 }
@@ -593,11 +812,11 @@ static void test_tab_reorder_edge_cases() {
     ecs::model::open_session_in_tab(strip, app, "t5");
     auto snapshot = strip.tabOrder;  // [t1, t4, t5]
 
-    ecs::model::reorder_tab(strip, 1, 1);          // equal -> no-op
+    ecs::model::reorder_tab(strip, 1, 1);  // equal -> no-op
     CHECK(strip.tabOrder == snapshot);
-    ecs::model::reorder_tab(strip, 99, 0);         // from OOR -> no-op
+    ecs::model::reorder_tab(strip, 99, 0);  // from OOR -> no-op
     CHECK(strip.tabOrder == snapshot);
-    ecs::model::reorder_tab(strip, 0, 99);         // to OOR -> no-op
+    ecs::model::reorder_tab(strip, 0, 99);  // to OOR -> no-op
     CHECK(strip.tabOrder == snapshot);
 }
 
@@ -608,13 +827,15 @@ static void test_tab_reorder_edge_cases() {
 // ---------------------------------------------------------------------------
 static void test_tab_overflow_width() {
     std::printf("test_tab_overflow_width\n");
-    const float minW = 40.0f;
-    const float maxW = 240.0f;
-    const float gap = 3.0f;
+    const float minW = ecs::model::kTabMinWidth;
+    const float maxW = ecs::model::kTabMaxWidth;
+    const float gap = ecs::model::kTabGap;
+
+    CHECK(maxW == 220.0f);
 
     // A single tab in a wide strip is capped at maxW (doesn't stretch huge).
     CHECK(ecs::model::compute_tab_width(1200.0f, 1, minW, maxW, gap) == maxW);
-    // Two tabs still capped (2*240 + gap < 1200).
+    // Two tabs still capped (2*220 + gap < 1200).
     CHECK(ecs::model::compute_tab_width(1200.0f, 2, minW, maxW, gap) == maxW);
 
     // Enough tabs that the uniform share drops below maxW but stays above minW:
@@ -657,8 +878,8 @@ static void test_tab_scroll_to_show_active() {
     std::printf("test_tab_scroll_to_show_active\n");
     const float gap = 3.0f;
     const float tabW = 40.0f;
-    const float stripW = 200.0f;   // fits ~4-5 tabs
-    const size_t n = 20;           // overflows
+    const float stripW = 200.0f;  // fits ~4-5 tabs
+    const size_t n = 20;          // overflows
     const float stride = tabW + gap;
 
     // Tab already fully visible at offset 0 (index 0) -> offset unchanged (0).
@@ -680,35 +901,95 @@ static void test_tab_scroll_to_show_active() {
 
     // A tab already inside the viewport keeps the current offset. At offset
     // 100, index 3 sits at [129,169] within [100,300] -> unchanged.
-    (void)stride;
+    (void) stride;
     CHECK(ecs::model::scroll_to_show(3, 100.0f, stripW, tabW, gap, n) ==
           100.0f);
 }
 
-// close_others: closes every tab except the right-clicked one, keeps it active,
-// and its content stays open. Mirrors the tab context-menu action.
+static void test_tab_wheel_semantics() {
+    std::printf("test_tab_wheel_semantics\n");
+    CHECK(ecs::model::horizontal_scroll_delta(2.0f, 7.0f, true, false) == 2.0f);
+    CHECK(ecs::model::horizontal_scroll_delta(0.0f, 3.0f, true, false) == 3.0f);
+    CHECK(ecs::model::horizontal_scroll_delta(0.0f, -4.0f, false, true) ==
+          -4.0f);
+    CHECK(ecs::model::horizontal_scroll_delta(5.0f, 2.0f, false, false) ==
+          0.0f);
+    CHECK(ecs::model::horizontal_scroll_delta(0.0f, 2.0f, false, false) ==
+          0.0f);
+
+    const float maxScroll = 557.0f;
+    const float stride = 43.0f;
+    CHECK(ecs::model::clamp_scroll(100.0f - 2.0f * stride, maxScroll) == 14.0f);
+    CHECK(ecs::model::clamp_scroll(100.0f - (-2.0f) * stride, maxScroll) ==
+          186.0f);
+}
+
+static void test_tab_drag_across_scrolled_overflow() {
+    std::printf("test_tab_drag_across_scrolled_overflow\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+    for (const char* id : {"t1", "t2", "t3", "t4", "t5", "t6"})
+        ecs::model::open_session_in_tab(strip, app, id);
+    (void) ecs::model::active_tab_entity();
+
+    const float baseX = 284.0f - 86.0f;
+    const float stride = 44.0f;
+    const size_t to = ecs::model::compute_drop_index(388.0f, baseX, stride,
+                                                     strip.tabOrder.size());
+    CHECK(to == 4);
+    ecs::model::reorder_tab(strip, 1, to);
+    auto sid_at = [&](size_t i) {
+        auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        return o->get<ecs::Tab>().sessionId;
+    };
+    CHECK(sid_at(0) == "t1");
+    CHECK(sid_at(1) == "t3");
+    CHECK(sid_at(2) == "t4");
+    CHECK(sid_at(3) == "t5");
+    CHECK(sid_at(4) == "t2");
+    CHECK(sid_at(5) == "t6");
+}
+
+// Close others preserves pinned tabs and retargets panes whose tab closed.
 static void test_tab_close_others() {
     std::printf("test_tab_close_others\n");
     auto& app = setup_app_with_sessions();
     auto& strip = the_strip();
 
-    ecs::model::open_session_in_tab(strip, app, "t1");  // idx 0
-    ecs::model::open_session_in_tab(strip, app, "t4");  // idx 1
-    ecs::model::open_session_in_tab(strip, app, "t5");  // idx 2 (active)
-    CHECK(strip.tabOrder.size() == 3);
+    ecs::model::open_session_in_tab(strip, app, "t1", true, true);
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t5");
+    ecs::model::open_session_in_tab(strip, app, "t6", true, true);
+    (void) ecs::model::active_tab_entity();
+    app.splitOpen = true;
+    app.focusedPane = 0;
+    app.panes[0].selectedId = "t6";
+    app.panes[1].selectedId = "t5";
+    app.panes[1].requestOpenId = "t5";
 
-    // Keep the MIDDLE (non-active) tab t4; the others (t1, t5) close.
     ecs::model::close_others(strip, app, "t4");
-    CHECK(strip.tabOrder.size() == 1);
-    auto keptOpt =
-        afterhours::EntityHelper::getEntityForID(strip.tabOrder[0]);
-    CHECK(keptOpt.valid());
-    CHECK(keptOpt->get<ecs::Tab>().sessionId == "t4");
-    // The kept tab becomes active and its content is open.
-    CHECK(keptOpt->has<ecs::ActiveTab>());
-    CHECK(app.pane().selectedId == "t4");
-    CHECK(app.view == ecs::SmartView::Chat);
-    // Exactly one active tab.
+    CHECK(strip.tabOrder.size() == 3);
+    auto sid_at = [&](size_t i) {
+        auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        return o->get<ecs::Tab>().sessionId;
+    };
+    CHECK(sid_at(0) == "t1");
+    CHECK(sid_at(1) == "t4");
+    CHECK(sid_at(2) == "t6");
+    CHECK(afterhours::EntityHelper::getEntityForID(strip.tabOrder[0])
+              ->get<ecs::Tab>()
+              .pinned);
+    CHECK(afterhours::EntityHelper::getEntityForID(strip.tabOrder[2])
+              ->get<ecs::Tab>()
+              .pinned);
+    CHECK(app.panes[0].selectedId == "t4");
+    CHECK(app.panes[1].selectedId == "t4");
+    CHECK(app.panes[1].requestOpenId == "t4");
+    auto kept = afterhours::EntityHelper::getEntityForID(strip.tabOrder[1]);
+    CHECK(kept.valid());
+    CHECK(kept->get<ecs::Tab>().sessionId == "t4");
+    CHECK(kept->has<ecs::ActiveTab>());
+
     int active = 0;
     for (auto id : strip.tabOrder) {
         auto o = afterhours::EntityHelper::getEntityForID(id);
@@ -716,19 +997,47 @@ static void test_tab_close_others() {
     }
     CHECK(active == 1);
 
-    // Closing others when only the kept tab remains is a stable no-op.
+    const auto snapshot = strip.tabOrder;
     ecs::model::close_others(strip, app, "t4");
-    CHECK(strip.tabOrder.size() == 1);
-    CHECK(app.pane().selectedId == "t4");
-
-    // Keeping a tab that isn't open is a no-op (order unchanged).
+    CHECK(strip.tabOrder == snapshot);
     ecs::model::close_others(strip, app, "does-not-exist");
-    CHECK(strip.tabOrder.size() == 1);
-    CHECK(strip.tabOrder[0] == keptOpt->id);
+    CHECK(strip.tabOrder == snapshot);
 }
 
-// The web URL shape the "Copy URL" action copies. Default is host-neutral
-// (no hardcoded web host); a configured web base is joined without doubling '/'.
+static void test_pinning_keeps_and_restores_tabs() {
+    std::printf("test_pinning_keeps_and_restores_tabs\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+
+    ecs::model::open_session_in_tab(strip, app, "t1", false);
+    auto* tab = ecs::model::active_tab_entity();
+    CHECK(tab != nullptr);
+    CHECK(!tab->get<ecs::Tab>().keptOpen);
+    ecs::model::set_tab_pinned(tab->get<ecs::Tab>(), true);
+    CHECK(tab->get<ecs::Tab>().pinned);
+    CHECK(tab->get<ecs::Tab>().keptOpen);
+    ecs::model::set_tab_pinned(tab->get<ecs::Tab>(), false);
+    CHECK(!tab->get<ecs::Tab>().pinned);
+    CHECK(tab->get<ecs::Tab>().keptOpen);
+
+    ecs::model::open_session_in_tab(strip, app, "t4", true, true);
+    tab = ecs::model::active_tab_entity();
+    CHECK(tab != nullptr);
+    CHECK(tab->get<ecs::Tab>().pinned);
+    CHECK(tab->get<ecs::Tab>().keptOpen);
+
+    auto& restored = tab->get<ecs::Tab>();
+    const std::string& first = ecs::model::tab_accessible_label(restored, true);
+    const char* firstData = first.data();
+    const std::string& second =
+        ecs::model::tab_accessible_label(restored, true);
+    CHECK(second.data() == firstData);
+    CHECK(second == "Tab: finished, and wants you to read it, pinned, active");
+}
+
+// The web URL shape the "Copy Navi URL" action copies. Default is host-neutral
+// (no hardcoded web host); a configured web base is joined without doubling
+// '/'.
 static void test_navi_url_shape() {
     std::printf("test_navi_url_shape\n");
     // Unconfigured => host-neutral scheme, no company/host baked in.
@@ -782,7 +1091,7 @@ static void test_backend_agnostic_defaults() {
     // And it draws the settled leaf's calm dot — every row has a mark, so
     // "nothing to report" is a mark too, never a blank slot.
     CHECK((ecs::model::mark_for(def) ==
-          ecs::model::Mark{ecs::model::Glyph::Dot, ecs::model::Tone::Calm}));
+           ecs::model::Mark{ecs::model::Glyph::Dot, ecs::model::Tone::Calm}));
 }
 
 // ---------------------------------------------------------------------------
@@ -866,12 +1175,15 @@ static void test_transcript_cache() {
     {
         auto cached = app.transcriptCache.get("t1");
         CHECK(cached.has_value());
-        CHECK(cached->messages.size() <= ecs::model::kCacheMaxMessagesPerThread);
+        CHECK(cached->messages.size() <=
+              ecs::model::kCacheMaxMessagesPerThread);
         // And the cap is over the LAST 20: verify the tail matches the source.
         auto full = client.inner.get_session("t1");
         CHECK(full.ok);
-        if (full.value.messages.size() > ecs::model::kCacheMaxMessagesPerThread) {
-            CHECK(cached->messages.size() == ecs::model::kCacheMaxMessagesPerThread);
+        if (full.value.messages.size() >
+            ecs::model::kCacheMaxMessagesPerThread) {
+            CHECK(cached->messages.size() ==
+                  ecs::model::kCacheMaxMessagesPerThread);
             CHECK(cached->messages.back().id == full.value.messages.back().id);
         }
     }
@@ -956,7 +1268,10 @@ static void test_sidebar_row_manual_order() {
     // Four threads in activity order, newest first — what the sidebar shows
     // with nobody having arranged anything.
     api::SessionSummary a, b, c, d;
-    a.id = "a"; b.id = "b"; c.id = "c"; d.id = "d";
+    a.id = "a";
+    b.id = "b";
+    c.id = "c";
+    d.id = "d";
     std::vector<const api::SessionSummary*> rows{&a, &b, &c, &d};
 
     // No manual order: activity order is left exactly as it was.
@@ -999,8 +1314,7 @@ static void test_sidebar_row_manual_order() {
     auto mid = ecs::model::reorder_rows(vis, "a", 2);
     CHECK(mid[0] == "b" && mid[1] == "c" && mid[2] == "a" && mid[3] == "d");
     auto same = ecs::model::reorder_rows(vis, "b", 1);
-    CHECK(same[0] == "a" && same[1] == "b" && same[2] == "c" &&
-          same[3] == "d");
+    CHECK(same[0] == "a" && same[1] == "b" && same[2] == "c" && same[3] == "d");
     // A row that is not one of these leaves the order alone.
     auto untouched = ecs::model::reorder_rows(vis, "zzz", 0);
     CHECK(untouched == vis);
@@ -1027,10 +1341,14 @@ static void test_sidebar_pinned_rows_head_the_list() {
     // PINNED PREFIX above, which is the drag order -- and the one that had a
     // sort was not the one the user pins.
     api::SessionSummary a, b, c, d;
-    a.id = "a"; a.updated_at = 400;
-    b.id = "b"; b.updated_at = 300;
-    c.id = "c"; c.updated_at = 200;
-    d.id = "d"; d.updated_at = 100;
+    a.id = "a";
+    a.updated_at = 400;
+    b.id = "b";
+    b.updated_at = 300;
+    c.id = "c";
+    c.updated_at = 200;
+    d.id = "d";
+    d.updated_at = 100;
 
     std::vector<const api::SessionSummary*> rows{&a, &b, &c, &d};
     std::sort(rows.begin(), rows.end(), ecs::model::sidebar_before);
@@ -1071,7 +1389,8 @@ static void test_sidebar_pinned_rows_head_the_list() {
     // Equal age and equal pin still has ONE answer, because the list must not
     // reshuffle for a reason nobody can see.
     api::SessionSummary e, f;
-    e.id = "e"; f.id = "f";
+    e.id = "e";
+    f.id = "f";
     e.updated_at = f.updated_at = 500;
     CHECK(ecs::model::sidebar_before(&e, &f));
     CHECK(!ecs::model::sidebar_before(&f, &e));
@@ -1160,8 +1479,8 @@ static void test_sidebar_scroll_list_single_column() {
         if (rc.computed_rel[Axis::Y] <= prevY) yMonotonic = false;
         prevY = rc.computed_rel[Axis::Y];
     }
-    CHECK(allSameX);     // no wrapped-off-to-the-right column
-    CHECK(yMonotonic);   // rows stack straight down, newest math preserved
+    CHECK(allSameX);    // no wrapped-off-to-the-right column
+    CHECK(yMonotonic);  // rows stack straight down, newest math preserved
 
     // The last row's Y must extend WELL past the viewport (content overflows),
     // proving the rows past the fold are laid out in-column (not piled at the
@@ -1169,8 +1488,9 @@ static void test_sidebar_scroll_list_single_column() {
     const float lastY = mapping[static_cast<size_t>(rowIds[kRows - 1])]
                             ->get<UIComponent>()
                             .computed_rel[Axis::Y];
-    CHECK(lastY > kViewportH);           // content really overflows
-    CHECK(lastY > kViewportH * 2.0f);    // and the tail rows sit far down, in-column
+    CHECK(lastY > kViewportH);  // content really overflows
+    CHECK(lastY >
+          kViewportH * 2.0f);  // and the tail rows sit far down, in-column
 
     // (2) RENDERS WHEN SCROLLED: at a non-zero scroll offset, a row whose
     //     content-Y falls within [offset, offset+viewport] has a scroll-
@@ -1302,6 +1622,10 @@ int main() {
     test_tab_preview_keeps_one_slot();
     test_kickoff_opens_new_tab_without_summary();
     test_tab_close_fallback();
+    test_tab_close_reconciles_both_panes();
+    test_tab_switch_and_close_fallback_supersede_inflight_loads();
+    test_split_retarget_supersedes_inflight_work();
+    test_load_older_completion_stays_with_origin_pane();
     test_tab_switch_between_open_tabs();
     test_tab_reorder_drop_index();
     test_tab_reorder_moves_and_preserves_active();
@@ -1309,7 +1633,10 @@ int main() {
     test_tab_overflow_width();
     test_tab_scroll_clamp_and_max();
     test_tab_scroll_to_show_active();
+    test_tab_wheel_semantics();
+    test_tab_drag_across_scrolled_overflow();
     test_tab_close_others();
+    test_pinning_keeps_and_restores_tabs();
     test_navi_url_shape();
     test_backend_agnostic_defaults();
     test_transcript_cache();

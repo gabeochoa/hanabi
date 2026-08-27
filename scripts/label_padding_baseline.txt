@@ -7,4 +7,3 @@ sb_no_results
 sb_show_more
 shortcuts_keys
 slash_item_
-tab_menu_item

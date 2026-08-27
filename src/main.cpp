@@ -291,9 +291,11 @@ static void setup_app_state() {
     // tab's, and asking for it earlier is asking for a fetch of an id the
     // backend may no longer know.
     app.splitOpen = Settings::get().get_split_open();
-    app.splitRatio = hanabi::clamp_split_ratio(Settings::get().get_split_ratio());
+    app.splitRatio =
+        hanabi::clamp_split_ratio(Settings::get().get_split_ratio());
     app.restoreSplitIds[0] = Settings::get().get_split_pane(0);
     app.restoreSplitIds[1] = Settings::get().get_split_pane(1);
+    app.restoreFocusedPane = Settings::get().get_split_focused_pane();
     // Back-compat: if no tab set persisted, fall back to last_session.
     if (app.restoreTabIds.empty()) {
         const std::string& last = Settings::get().get_last_session();
@@ -303,14 +305,15 @@ static void setup_app_state() {
         }
     }
 
-    // WARM-OPEN the restored active thread from the disk cache RIGHT NOW, before
-    // the first frame, so a relaunch paints the cached conversation instead of
-    // flashing the Home screen until the network list/transcript arrive (Gabe:
-    // "it defaults to the last thread but shows Home until it loads — looks like
-    // a bug"). We're already on that thread (selectedId), so show its content.
-    // Only when the http cache has a stored transcript for it; otherwise leave
-    // the normal async open path (TabFlowSystem restores the tab once the list
-    // loads). Guarded to the http backend (the mock doesn't cache).
+    // WARM-OPEN the restored active thread from the disk cache RIGHT NOW,
+    // before the first frame, so a relaunch paints the cached conversation
+    // instead of flashing the Home screen until the network list/transcript
+    // arrive (Gabe: "it defaults to the last thread but shows Home until it
+    // loads — looks like a bug"). We're already on that thread (selectedId), so
+    // show its content. Only when the http cache has a stored transcript for
+    // it; otherwise leave the normal async open path (TabFlowSystem restores
+    // the tab once the list loads). Guarded to the http backend (the mock
+    // doesn't cache).
     if (!app.restoreActiveId.empty() && app.backend_label == "http") {
         if (auto cached = api::disk_cache::load_transcript(app.restoreActiveId)) {
             app.pane().openSession = std::move(*cached);
@@ -418,6 +421,10 @@ static void build_systems(afterhours::SystemManager& sm) {
     // HANABI_SCROLL_SMOOTH=1. Safe with the transcript follow-latch (a pin to
     // the end is detected as a snap, not eased).
     ui_imm::registerUIRenderSystems(sm);
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    sm.register_render_system(
+        std::make_unique<hanabi::a11y::RegisterAccessibleNames>());
+#endif
 }
 
 static void app_init() {
@@ -818,7 +825,7 @@ static void app_frame() {
     }
 }
 
-static void app_cleanup() {
+static void persist_app_state() {
     using namespace afterhours;
     // Persist the open tab set + active tab for next launch.
     auto stripQ = EntityQuery({.force_merge = true})
@@ -860,11 +867,15 @@ static void app_cleanup() {
         // changes nothing, so a launch that never splits never touches it.
         Settings::get().set_split(app.splitOpen, app.splitRatio,
                                   app.panes[0].selectedId,
-                                  app.panes[1].selectedId);
+                                  app.panes[1].selectedId, app.focusedPane);
     }
     Settings::get().set_theme(theme::mode() == theme::Mode::Light ? "light"
                                                                   : "dark");
     Settings::get().write_save_file();
+}
+
+static void app_cleanup() {
+    persist_app_state();
 
     // FAST, non-hanging quit. AppComponent holds ~9 std::future<>s from
     // std::async (transcript/list/send/stream/steer/split/settings-sync). A
@@ -948,6 +959,15 @@ static void apply_stream_demo(ecs::AppComponent* app) {
     // this stamp from ITS reading of now, and both are the same frozen instant.
     app->streamStartedAt = capture_clock::now() - 32;
     app->view = ecs::SmartView::Chat;
+}
+
+static void apply_loading_demo(ecs::AppComponent* app) {
+    if (app == nullptr) return;
+    const char* d = std::getenv("HANABI_LOADING_DEMO");
+    if (!(d && *d && std::string(d) != "0")) return;
+    app->view = ecs::SmartView::Chat;
+    app->pane().transcriptState = ecs::LoadState::Loading;
+    app->pane().transcriptLoadingId = "__loading_demo__";
 }
 
 static void apply_test_knobs(ecs::AppComponent* app) {
@@ -1067,12 +1087,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // transcript switch spinner (transcriptState=Loading + a mismatched
     // transcriptLoadingId, so the pane shows the "Loading conversation…"
     // ring instead of stale/blank content). Render-only; no network.
-    if (const char* d = std::getenv("HANABI_LOADING_DEMO"); d && *d &&
-        std::string(d) != "0") {
-        app->view = ecs::SmartView::Chat;
-        app->pane().transcriptState = ecs::LoadState::Loading;
-        app->pane().transcriptLoadingId = "__loading_demo__";
-    }
+    apply_loading_demo(app);
     // Screenshot affordance: HANABI_OLDER_DEMO=1 forces the top
     // "loading older messages…" pill (loadingOlder=true) over the open
     // transcript, so a headless capture can photograph it. Render-only.
@@ -1914,6 +1929,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     constexpr int kFrames = 45;
     hmark("pre-capture pumps done");
     for (int i = 0; i < kFrames; ++i) {
+        apply_loading_demo(appForWait);
         {
             const hanabi::launch_curve::Frame curveFrame{"capture"};
             const hanabi::AutoreleaseFrame framePool;
@@ -2269,6 +2285,7 @@ static int run_e2e(const std::string& path, int w, int h) {
     // else.
     hanabi::prof::dump();
     const bool failed = runner.has_failed() || ranOut;
+    persist_app_state();
     graphics::shutdown();
     std::fflush(nullptr);
     return failed ? 1 : 0;

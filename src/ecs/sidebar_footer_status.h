@@ -53,8 +53,7 @@ inline bool network_active(const AppComponent& app) {
     // for the pane you are not focused on is still a fetch.
     return app.listPending || app.panes[0].transcriptPending ||
            app.panes[1].transcriptPending || app.panes[0].loadingOlder ||
-           app.panes[1].loadingOlder || app.panes[0].olderPending ||
-           app.panes[1].olderPending || app.sendPending ||
+           app.panes[1].loadingOlder || app.sendPending ||
            app.streamCollecting || app.kickoffPending || app.settingsPending ||
            app.authBeginPending;
 }

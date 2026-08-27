@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -178,6 +179,8 @@ struct Pane {
     std::future<api::Result<api::Session>> transcriptFuture;
     bool transcriptPending = false;
     std::string transcriptPendingId;
+    std::vector<std::future<api::Result<api::Session>>>
+        supersededTranscriptFutures;
 
     // ==== Feature #1: never-beachball thread switch ======================
     // Per pane: two panes can each be mid-switch, and one spinner flag
@@ -205,6 +208,47 @@ struct Pane {
     std::future<std::optional<api::Session>> diskReadFuture;
     bool diskReadPending = false;
     std::string diskReadId;  // the thread the disk read targets
+    std::vector<std::future<std::optional<api::Session>>>
+        supersededDiskReadFutures;
+
+    void supersede_transcript_loads() {
+        if (transcriptFuture.valid())
+            supersededTranscriptFutures.push_back(std::move(transcriptFuture));
+        if (diskReadFuture.valid())
+            supersededDiskReadFutures.push_back(std::move(diskReadFuture));
+        if (loadOlderFuture.valid())
+            supersededLoadOlderFutures.push_back(std::move(loadOlderFuture));
+        transcriptPending = false;
+        transcriptPendingId.clear();
+        diskReadPending = false;
+        diskReadId.clear();
+        requestLoadOlder = false;
+        loadingOlder = false;
+        loadOlderPendingId.clear();
+        anchorPending.clear();
+        anchorPrevMsgCount = 0;
+    }
+
+    template<typename T>
+    static void reap_ready(std::vector<std::future<T>>& futures) {
+        futures.erase(
+            std::remove_if(futures.begin(), futures.end(),
+                           [](auto& future) {
+                               if (!future.valid()) return true;
+                               if (future.wait_for(std::chrono::seconds(0)) !=
+                                   std::future_status::ready)
+                                   return false;
+                               (void) future.get();
+                               return true;
+                           }),
+            futures.end());
+    }
+
+    void reap_superseded_loads() {
+        reap_ready(supersededTranscriptFutures);
+        reap_ready(supersededDiskReadFutures);
+        reap_ready(supersededLoadOlderFutures);
+    }
 
     // --- Memory-light transcript window (newest-N) ------------------------
     // Opening a thread fetches only the NEWEST N messages (see LoaderSystem's
@@ -222,9 +266,10 @@ struct Pane {
     // True while a full-transcript ("load older") fetch is in flight, so the
     // render side can show a spinner and the loader doesn't double-fire.
     bool loadingOlder = false;
-    std::future<api::Result<api::Session>> olderFuture;
-    bool olderPending = false;
-    std::string olderPendingId;
+    std::string loadOlderPendingId;
+    std::future<api::Result<api::Session>> loadOlderFuture;
+    std::vector<std::future<api::Result<api::Session>>>
+        supersededLoadOlderFutures;
     // Scroll-anchor preservation for load-older: when older messages are
     // prepended, the content grows ABOVE the viewport, so the scroll offset
     // must be bumped by the added-above height to keep the user's view on the
@@ -234,7 +279,7 @@ struct Pane {
     // height delta to scroll_offset.y once, then clears the pending anchor.
     // anchorPending is the session id awaiting the offset bump (empty = none).
     std::string anchorPending;
-    size_t anchorPrevMsgCount = 0;   // message count before the older load
+    size_t anchorPrevMsgCount = 0;  // message count before the older load
 
     // ==== Find in conversation (Cmd+F) ===================================
     // A long thread is unsearchable without this: the sidebar's search finds
@@ -381,6 +426,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // the tabs, and for the same reason: a thread has to be in the session
     // list before a pane can be told to open it.
     std::array<std::string, 2> restoreSplitIds;
+    int restoreFocusedPane = 0;
     std::vector<std::string> restorePinnedIds;
     std::string restoreActiveId;
     bool restoreDone = false;
@@ -394,8 +440,8 @@ struct AppComponent : public afterhours::BaseComponent {
     std::set<std::string> collapsedFolders;
     // One-time guard: folders start COLLAPSED by default (Gabe — subthreads
     // hidden until you expand a folder). The first render that sees folders
-    // seeds every folder key into collapsedFolders, then sets this so the user's
-    // subsequent expand/collapse choices are respected for the session.
+    // seeds every folder key into collapsedFolders, then sets this so the
+    // user's subsequent expand/collapse choices are respected for the session.
     bool foldersDefaultCollapsedSeeded = false;
     bool foldAllFolders = false;
     std::string searchQuery;
@@ -871,11 +917,13 @@ struct AppComponent : public afterhours::BaseComponent {
 
 // Layout rectangles recomputed each frame from the window size.
 struct LayoutComponent : public afterhours::BaseComponent {
-    struct Rect { float x = 0, y = 0, width = 0, height = 0; };
+    struct Rect {
+        float x = 0, y = 0, width = 0, height = 0;
+    };
     Rect sidebar;
-    Rect tabStrip;    // tab strip across the top of the main pane
-    Rect main;        // transcript / smart-view content (below the tab strip)
-    Rect composer;    // chat input strip, pinned at the main pane's floor
+    Rect tabStrip;  // tab strip across the top of the main pane
+    Rect main;      // transcript / smart-view content (below the tab strip)
+    Rect composer;  // chat input strip, pinned at the main pane's floor
 
     // Sidebar collapse model. `collapsed` picks the thin rail width; the
     // animated width is `sidebarAnimWidth`, tweened toward the target each
@@ -901,8 +949,8 @@ struct LayoutComponent : public afterhours::BaseComponent {
 // ---- Tab components (VS Code-style closable content tabs) ----
 // Each open thread is a Tab entity; the focused one has an ActiveTab marker.
 struct Tab : public afterhours::BaseComponent {
-    std::string sessionId;   // which thread this tab shows
-    std::string label;       // display title
+    std::string sessionId;  // which thread this tab shows
+    std::string label;      // display title
     // A KEPT tab is one the user committed to; a PREVIEW tab is a look. There
     // is at most one preview tab at a time — clicking another sidebar row
     // reuses it rather than piling a tab up per glance — and only a second
@@ -915,6 +963,10 @@ struct Tab : public afterhours::BaseComponent {
     // pin glyph before its title. Pinning is a deliberate act from the tab's
     // context menu; nothing pins a tab implicitly.
     bool pinned = false;
+    std::string accessibleLabel;
+    std::string closeAccessibleLabel;
+    bool accessiblePinned = false;
+    bool accessibleActive = false;
 };
 
 struct ActiveTab : public afterhours::BaseComponent {};
@@ -957,6 +1009,11 @@ struct TabStripComponent : public afterhours::BaseComponent {
     // wheel / shift+wheel over the strip adjusts it; selecting an off-screen
     // tab scrolls it into view (model::scroll_to_show).
     float scrollX = 0.0f;
+    afterhours::EntityID visibleActive =
+        std::numeric_limits<afterhours::EntityID>::max();
+    size_t visibleActiveIndex = std::numeric_limits<size_t>::max();
+    size_t visibleTabCount = 0;
+    float visibleRunWidth = -1.0f;
 
     // ---- Right-click context menu state (set/read only by TabBarSystem) ---
     // A right-click on a tab opens a small overlay menu anchored at the cursor

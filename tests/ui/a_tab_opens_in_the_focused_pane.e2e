@@ -17,6 +17,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
 
+require_thread t2
+
 # One pane on t2.
 assert_ui transcript_scroll hidden=false
 expect_text "Reconcile this cycle's Stars payouts against the ledger"
@@ -41,6 +43,7 @@ assert_ui split_focus_edge x=693
 # cannot name one tab of a strip (afterhours_gaps.md #55).
 click 600 48
 wait_frames 30
+require_thread t9
 
 # Both threads are on screen: the click opened one WITHOUT closing the other.
 expect_text "Recurring: kick the pending queue every ten minutes."

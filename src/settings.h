@@ -1,9 +1,8 @@
 #pragma once
 
-#include <cstddef>
-
 #include <afterhours/src/singleton.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -49,8 +48,8 @@ inline constexpr float kSplitMaxRatio = 0.8f;
 inline float clamp_split_ratio(float r) {
     // NaN fails both comparisons and falls through to the midpoint, which is
     // the answer that cannot produce a zero-width pane.
-    if (!(r >= kSplitMinRatio)) return r > kSplitMaxRatio ? kSplitMaxRatio
-                                                          : kSplitMinRatio;
+    if (!(r >= kSplitMinRatio))
+        return r > kSplitMaxRatio ? kSplitMaxRatio : kSplitMinRatio;
     if (r > kSplitMaxRatio) return kSplitMaxRatio;
     return r;
 }
@@ -98,15 +97,18 @@ struct Settings {
     // fails its fetch and the pane shows the error, which is the behaviour
     // that already exists for tabs.
     //
-    // Bounded by construction: two ids and two numbers, whatever the user
-    // does. Unlike last_read (kMaxLastRead), there is nothing here to prune.
+    // Bounded by construction: two ids, a ratio, a focus index and a boolean,
+    // whatever the user does. Unlike last_read (kMaxLastRead), there is nothing
+    // here to prune.
     bool get_split_open() const;
     float get_split_ratio() const;
+    int get_split_focused_pane() const;
     // Which thread each pane held, index 0 (left) and 1 (right). Empty means
     // that pane had nothing open.
     const std::string& get_split_pane(int index) const;
     void set_split(bool open, float ratio, const std::string& left,
-                   const std::string& right);  // auto-persists
+                   const std::string& right,
+                   int focusedPane = 0);  // auto-persists
 
     // Theme mode: "dark" (default) or "light".
     const std::string& get_theme() const;
@@ -140,7 +142,8 @@ struct Settings {
 
     // Sidebar collapsed (thin icon rail) vs expanded (full 280px). Persisted so
     // a user who folds the sidebar and quits gets it folded on relaunch (the
-    // toggle otherwise lived only in the in-memory LayoutComponent). Auto-persists.
+    // toggle otherwise lived only in the in-memory LayoutComponent).
+    // Auto-persists.
     bool get_sidebar_collapsed() const;
     void set_sidebar_collapsed(bool collapsed);  // auto-persists
 
@@ -177,9 +180,10 @@ struct Settings {
 
     // Per-session archive overlay. An id is present only once the user has
     // said something about that thread here, so an absent id means "defer to
-    // whatever the backend reported" — see api::SessionSummary::archive_override
-    // for why this has to be able to say false as well as true. Machine-local:
-    // the per-viewer route that would sync it is not reachable from here.
+    // whatever the backend reported" — see
+    // api::SessionSummary::archive_override for why this has to be able to say
+    // false as well as true. Machine-local: the per-viewer route that would
+    // sync it is not reachable from here.
     std::optional<bool> get_archived(const std::string& id) const;
     void set_archived(const std::string& id, bool archived);  // auto-persists
     // Muted session ids. Machine-local by design (see SessionSummary::muted),
@@ -314,7 +318,8 @@ struct Settings {
 
     // Memory backend: "traditional" (default) or "hindsight".
     const std::string& get_memory_backend() const;
-    void set_memory_backend(const std::string& backend);  // auto-persists + dirty
+    void set_memory_backend(
+        const std::string& backend);  // auto-persists + dirty
 
     // Default model id, e.g. "default" (server default) / a named model.
     const std::string& get_default_model() const;
@@ -347,7 +352,7 @@ struct Settings {
 
     bool auto_save_enabled = true;
 
-  private:
+   private:
     int window_width_ = 1100;
     int window_height_ = 760;
     std::string last_session_;
@@ -357,6 +362,7 @@ struct Settings {
     std::string theme_ = "dark";
     bool split_open_ = false;
     float split_ratio_ = 0.5f;
+    int split_focused_pane_ = 0;
     std::string split_panes_[2];
     std::string font_choice_ = "default";
     std::string accent_choice_ = "default";

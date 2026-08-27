@@ -16,6 +16,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","fold_long_messages":false}
 # env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong HANABI_FIND_DEMO=migration HANABI_FIND_AUDIT=1
 
+require_thread rlong
+
 # 55 checklist lines plus the sign-off. The thread opens at its end.
 expect_text "1 of 56"
 

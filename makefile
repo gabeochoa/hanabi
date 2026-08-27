@@ -665,6 +665,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES))
 	@$(MAKE) uitest
 	@$(MAKE) harness-gate
+	@$(MAKE) tab-persistence-gate
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."
@@ -950,11 +951,14 @@ uitest-alone: $(UITEST_EXE) copy-resources
 harness-gate: $(UITEST_EXE) copy-resources
 	@bash scripts/harness_gate.sh
 
+tab-persistence-gate: $(UITEST_EXE) copy-resources
+	@bash scripts/tab_persistence_gate.sh
+
 # Build the scripted-UI binary without running the suite (used by
 # scripts/review_shots.sh, which drives it directly).
 uitest-build: $(UITEST_EXE) copy-resources
 
-.PHONY: uitest uitest-shuffle uitest-alone harness-gate uitest-build
+.PHONY: uitest uitest-shuffle uitest-alone harness-gate tab-persistence-gate uitest-build
 
 # ==============================================================================
 # SCREENSHOT BASELINES  (docs/breakdown/screenshot-testing.md, chunks 1-3)

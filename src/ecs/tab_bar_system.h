@@ -9,26 +9,22 @@
 // Mirrors floatinghotel/src/ecs/tab_bar_system.h.
 
 #include <algorithm>
+#include <array>
 #include <bitset>
 #include <cmath>
+#include <limits>
 #include <string>
-#include <vector>
 
 #include "../test_hooks.h"
+#include "../util/clipboard.h"
 #include "../util/format.h"
 #include "tab_colors.h"
 #include "tab_model.h"
 #include "../keys.h"
 #include "ui_imports.h"
 
+#include "../ui/accessibility.h"
 #include "../ui/icons.h"
-
-// Clipboard seam (afterhours plugin, sokol-backed under AFTER_HOURS_USE_METAL
-// which the app build defines). Used by the tab context menu's "Copy Navi
-// URL". graphics.h (already transitively included via ui_imports->rl->ah) pulls
-// in sokol_app.h, so sapp_set_clipboard_string is declared here. This header is
-// app-only (tests include tab_model.h, never this), so no headless-test impact.
-#include "../../vendor/afterhours/src/plugins/clipboard.h"
 
 namespace ecs {
 
@@ -83,9 +79,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // Reference geometry: a tab is a fixed 220 wide with a 4px gap, and the
         // run starts 4px in from the pane's left edge. Tabs only shrink from
         // there when too many are open to fit.
-        const float minW = 40.0f;
-        const float maxWCap = 220.0f;
-        const float gap = 4.0f;
+        const float minW = model::kTabMinWidth;
+        const float maxWCap = model::kTabMaxWidth;
+        const float gap = model::kTabGap;
         // The strip's own left inset: the first tab does not touch the divider.
         const float stripPadL = 4.0f;
         // Room reserved at the right end for the new-tab (+) button, so a full
@@ -121,24 +117,20 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             model::compute_max_scroll(runW, nTabs, uniformW, gap);
 
         // ---- Horizontal scroll input --------------------------------------
-        // Chrome hscrolls the strip on horizontal wheel / shift+wheel when the
-        // tabs overflow. afterhours' facade only exposes the (vertical) wheel
-        // float, so we treat a wheel event while the cursor is over the strip
-        // as a horizontal scroll (Chrome also does plain-wheel-over-tabstrip),
-        // and shift+wheel works anywhere. A positive wheel scrolls left.
+        // Chrome hscrolls the strip on native horizontal wheel input and on
+        // vertical wheel input over the strip or while Shift is held. A
+        // positive wheel scrolls left.
         {
-            bool shiftDown = afterhours::graphics::is_key_down(340) ||
-                             afterhours::graphics::is_key_down(344);
+            bool shiftDown = hanabi::keys::shift_down();
             bool overStrip = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{r.x, tabY, r.width, tabH});
-            if ((overStrip || shiftDown) && maxScroll > 0.0f) {
-                float wheel = afterhours::graphics::get_mouse_wheel_move();
-                if (wheel != 0.0f) {
-                    // ~1 slot per wheel notch feels right; wheel sign is
-                    // "up/away == positive", which we map to scroll-left.
+            if (maxScroll > 0.0f) {
+                auto wheel = afterhours::input::get_mouse_wheel_move_v();
+                float delta = model::horizontal_scroll_delta(
+                    wheel.x, wheel.y, overStrip, shiftDown);
+                if (delta != 0.0f)
                     strip.scrollX = model::clamp_scroll(
-                        strip.scrollX - wheel * slotStride, maxScroll);
-                }
+                        strip.scrollX - delta * slotStride, maxScroll);
             }
         }
         // Keep the ACTIVE tab visible: if selecting a tab pushed it off-screen,
@@ -146,14 +138,28 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // or tab count may have changed since last frame).
         {
             size_t activeIdx = strip.tabOrder.size();
+            afterhours::EntityID activeId =
+                std::numeric_limits<afterhours::EntityID>::max();
             for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
                 auto o = EntityHelper::getEntityForID(strip.tabOrder[i]);
-                if (o.valid() && o->has<ActiveTab>()) { activeIdx = i; break; }
+                if (o.valid() && o->has<ActiveTab>()) {
+                    activeIdx = i;
+                    activeId = strip.tabOrder[i];
+                    break;
+                }
             }
             strip.scrollX = model::clamp_scroll(strip.scrollX, maxScroll);
-            if (activeIdx < strip.tabOrder.size())
+            const bool visibilityChanged =
+                activeId != strip.visibleActive ||
+                activeIdx != strip.visibleActiveIndex ||
+                nTabs != strip.visibleTabCount || runW != strip.visibleRunWidth;
+            if (visibilityChanged && activeIdx < strip.tabOrder.size())
                 strip.scrollX = model::scroll_to_show(
                     activeIdx, strip.scrollX, runW, uniformW, gap, nTabs);
+            strip.visibleActive = activeId;
+            strip.visibleActiveIndex = activeIdx;
+            strip.visibleTabCount = nTabs;
+            strip.visibleRunWidth = runW;
         }
         // Every tab's non-drag left edge is shifted left by the scroll offset.
         const float scrollOff = strip.scrollX;
@@ -253,7 +259,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // A right-press over a tab opens the per-tab context menu anchored at
         // the cursor. sokol maps mouse button 1 == right. (Rendered + acted on
         // below; dismissed on any left-click that isn't on a menu item.)
-        if (afterhours::graphics::is_mouse_button_pressed(1) && nTabs > 0) {
+        if (ctx.mouse.right_just_pressed && nTabs > 0) {
             for (size_t i = 0; i < nTabs; ++i) {
                 float px = baseX + slotStride * static_cast<float>(i);
                 float w = uniformW;
@@ -277,7 +283,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // ---- Middle-click closes a tab (browser convention) ---------------
         // sokol/raylib maps mouse button 2 == middle. A middle-press over any
         // tab closes THAT tab (not just the active one), like every browser.
-        if (afterhours::graphics::is_mouse_button_pressed(2) && nTabs > 0) {
+        if (afterhours::input::is_mouse_button_pressed(2) && nTabs > 0) {
             for (size_t i = 0; i < nTabs; ++i) {
                 float px = baseX + slotStride * static_cast<float>(i);
                 float w = uniformW;
@@ -319,31 +325,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                                   strip.tabOrder.size());
         }
 
-        // Precompute each tab's render left-edge X. Non-dragging: the natural
-        // left-to-right slots (shifted by the scroll offset via baseX).
-        // Dragging: the OTHER tabs reflow to open a gap at dropIndex (so you
-        // can see where the dragged tab will land), and the dragged tab itself
-        // is positioned at draggedLeft (drawn last, raised).
-        std::vector<float> renderX(strip.tabOrder.size(), 0.0f);
-        {
-            float x = baseX;
-            for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
-                if (dragging && i == dragFrom) {
-                    renderX[i] = draggedLeft;  // follows cursor (raised layer)
-                    continue;
-                }
-                if (dragging) {
-                    // Slot index among the NON-dragged tabs: skip the dragged
-                    // slot, and leave dropIndex's slot empty for the drop.
-                    size_t slot = i < dragFrom ? i : i - 1;  // compacted index
-                    if (slot >= dropIndex) slot += 1;         // open the gap
-                    renderX[i] = baseX + slotStride * static_cast<float>(slot);
-                } else {
-                    renderX[i] = x;
-                }
-                x += uniformW + gap;
-            }
-        }
+        auto render_x = [&](size_t i) {
+            if (!dragging) return baseX + slotStride * static_cast<float>(i);
+            if (i == dragFrom) return draggedLeft;
+            size_t slot = i < dragFrom ? i : i - 1;
+            if (slot >= dropIndex) ++slot;
+            return baseX + slotStride * static_cast<float>(slot);
+        };
 
         for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
             auto tabId = strip.tabOrder[i];
@@ -361,7 +349,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const bool isPreview = !tab.keptOpen;
 
             float tabW = uniformW;
-            tabX = renderX[i];
+            tabX = render_x(i);
 
             // Overflow / scroll clipping: skip tabs that are ENTIRELY outside
             // the visible strip (scrolled off either edge). For a tab that
@@ -430,26 +418,27 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // measured rather than conceded -- see FRICTION_LOG.md,
             // `## The tab strip, round four`. Moving both to Puffin's own
             // constants took 01 2.81% -> 2.82% and 02 1.91% -> 1.97%.
-            const float padL =
-                (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx;
+            const float padL = (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx;
             // Ellipsize the title to the room the tab actually has: ~7px/char
             // at ROW size, minus left pad + (× reserve when shown).
-            float rightReserve = showClose
-                                     ? tab_colors::kChipPadPx +
-                                           tab_colors::kCloseBoxPx
-                                     : 8.0f;
+            float rightReserve =
+                showClose ? tab_colors::kChipPadPx + tab_colors::kCloseBoxPx
+                          : 8.0f;
             float textRoom = tabW - padL - rightReserve;
-            size_t labelBudget = textRoom <= 0.0f
-                                     ? 1
-                                     : static_cast<size_t>(textRoom / 7.0f);
+            size_t labelBudget =
+                textRoom <= 0.0f ? 1 : static_cast<size_t>(textRoom / 7.0f);
             if (labelBudget < 1) labelBudget = 1;
+            const std::string& fullLabel = model::refresh_tab_label(app, tab);
+            const std::string& tabAccessible =
+                model::tab_accessible_label(tab, isActive);
 
-            auto tabBtn = button(ctx, mk(uiRoot, 910 + static_cast<int>(i)),
+            auto tabBtn = button(
+                ctx, mk(uiRoot, 910 + static_cast<int>(i)),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{
-                        pixels(tabW - tab_colors::kRasterGrow),
-                        pixels(tabH - tab_colors::kRasterGrow)})
+                    .with_size(
+                        ComponentSize{pixels(tabW - tab_colors::kRasterGrow),
+                                      pixels(tabH - tab_colors::kRasterGrow)})
                     .with_absolute_position()
                     .with_translate(tabX + tab_colors::kRasterGrow,
                                     tabY + tab_colors::kRasterGrow)
@@ -471,17 +460,16 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     // bar they used to assert on is gone.
                     .with_debug_name(isActive ? std::string("tab_active")
                                               : ("tab_" + tab.sessionId)));
+            hanabi::a11y::set_name(tabBtn.ent(), tabAccessible);
             // Label as a centered child whose height EQUALS the strip content
             // box (tabH), so the label's own vertical-centering lands the text
             // on the tab's true center instead of fontstash ascent/descent
             // pushing the glyphs low (same recipe as the sidebar chat rows).
             div(ctx, mk(tabBtn.ent(), 1),
                 ComponentConfig{}
-                    .with_label(fmtutil::ellipsize(
-                        model::tab_label_for(app, tab.sessionId), labelBudget))
+                    .with_label(fmtutil::ellipsize(fullLabel, labelBudget))
                     .with_size(ComponentSize{
-                        percent(1.0f),
-                        pixels(tabH - tab_colors::kRasterGrow)})
+                        percent(1.0f), pixels(tabH - tab_colors::kRasterGrow)})
                     .with_transparent_bg()
                     // An unpadded child is NOT unpadded: afterhours applies
                     // Spacing::sm (a fraction of the SCREEN) when every side is
@@ -505,10 +493,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // `.opacity(0.7)`, overriding the chip's foreground, so the mark is
             // the same colour whether or not the tab is current -- and the
             // reference agrees to two units on both tabs at once: mutedText
-            // (140,140,166) at 0.7 over the inactive fill predicts (105,105,127)
-            // and measures (107,107,127); over the active fill it predicts
-            // (112,115,143) and measures (114,117,143). A rule out of the source
-            // and a constant out of the pixels, landing on each other.
+            // (140,140,166) at 0.7 over the inactive fill predicts
+            // (105,105,127) and measures (107,107,127); over the active fill it
+            // predicts (112,115,143) and measures (114,117,143). A rule out of
+            // the source and a constant out of the pixels, landing on each
+            // other.
             //
             // What was here passed `txt`, so the active tab's pin came out pure
             // white -- 209 above its own background where the reference is 71.
@@ -522,23 +511,26 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // mark both ways and diffing the two captures: pre-composited with
             // `theme::over` and handed straight through, the pixels are
             // identical, because the UI render pass has the blend pipeline
-            // loaded (`backends/sokol/backend.h:403`). Straight through, then --
-            // one less thing that has to know what it is sitting on.
-            if (tab.pinned)
-                div(ctx, mk(uiRoot, 960 + static_cast<int>(i)),
-                    ComponentConfig{}
-                        .with_label(" ")
-                        .with_size(ComponentSize{pixels(10), pixels(12)})
-                        .with_absolute_position()
-                        .with_translate(tabX + 11.0f,
-                                        tabY + (tabH - 12.0f) * 0.5f)
-                        .with_transparent_bg()
-                        .with_roundness(0.0f)
-                        .with_render_layer(baseLayer + 1)
-                        .with_on_draw_fg([](RectangleType rc) {
-                            hanabi::glyph::pin(rc, tab_colors::pin_ink());
-                        })
-                        .with_debug_name("tab_pin"));
+            // loaded (`backends/sokol/backend.h:403`). Straight through, then
+            // -- one less thing that has to know what it is sitting on.
+            if (tab.pinned) {
+                auto pin =
+                    div(ctx, mk(uiRoot, 960 + static_cast<int>(i)),
+                        ComponentConfig{}
+                            .with_label(" ")
+                            .with_size(ComponentSize{pixels(10), pixels(12)})
+                            .with_absolute_position()
+                            .with_translate(tabX + 11.0f,
+                                            tabY + (tabH - 12.0f) * 0.5f)
+                            .with_transparent_bg()
+                            .with_roundness(0.0f)
+                            .with_render_layer(baseLayer + 1)
+                            .with_on_draw_fg([](RectangleType rc) {
+                                hanabi::glyph::pin(rc, tab_colors::pin_ink());
+                            })
+                            .with_debug_name("tab_pin"));
+                hanabi::a11y::set_name(pin.ent(), "Pinned tab");
+            }
 
             // No accent bar and no bridge: the fill delta IS the
             // active-tab cue (the reference has neither), and the strip's
@@ -550,8 +542,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             if (isPreview)
                 div(ctx, mk(uiRoot, 940 + static_cast<int>(i)),
                     ComponentConfig{}
-                        .with_size(ComponentSize{pixels(3),
-                                                 pixels(tabH - 14.0f)})
+                        .with_size(
+                            ComponentSize{pixels(3), pixels(tabH - 14.0f)})
                         .with_absolute_position()
                         .with_translate(tabX + 4.0f, tabY + 7.0f)
                         .with_custom_background(tab_colors::tab_text())
@@ -567,55 +559,62 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // showClose above; clamped to the visible strip so the × of a
             // right-edge partial tab never bleeds off the window frame).
             if (showClose) {
-            // 14px box, 10px from the chip's trailing edge -- `TabChip`'s
-            // `closeButton` frame and its `.padding(.horizontal, 10)`. hanabi
-            // had a 16px box 5px in, which centres 4.5px right of where the
-            // reference's xmark actually lands.
-            float closeW = tab_colors::kCloseBoxPx;
-            float closeX = tabX + tabW - tab_colors::kChipPadPx - closeW;
-            float closeY = tabY + (tabH - closeW) * 0.5f;
-            // Don't draw the × past the visible strip right edge.
-            if (closeX + closeW <= stripRight) {
-            bool closeHovered =
-                !dragging &&
-                afterhours::ui::is_mouse_inside(
-                    ctx.mouse.pos,
-                    RectangleType{closeX, closeY, closeW, closeW});
-            button(ctx, mk(uiRoot, 950 + static_cast<int>(i)),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{pixels(closeW), pixels(closeW)})
-                    .with_absolute_position()
-                    .with_translate(closeX, closeY)
-                    .with_custom_background(closeHovered
-                                                ? tab_colors::close_hover()
-                                                : bg)
-                    .with_custom_text_color(closeHovered
-                                                ? tab_colors::tab_text_act()
-                                                : tab_colors::close_ink())
-                    .with_font_size(FontSize::Small)
-                    .with_alignment(TextAlignment::Center)
-                    .with_justify_content(JustifyContent::Center)
-                    .with_align_items(AlignItems::Center)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.2f)
-                    .with_render_layer(baseLayer + 1)
-                    // Lucide "close" sprite (atlas); \xc3\x97 unicode fallback.
-                    // Tint tracks hover the same as the text color did.
-                    .with_on_draw_fg(hanabi::icons::draw_fg(
-                        "close", "\xc3\x97",
-                        closeHovered ? tab_colors::tab_text_act()
-                                     : tab_colors::close_ink(),
-                        tab_colors::kCloseGlyphPx, tab_colors::kCloseYBias))
-                    .with_debug_name("tab_close"));
-            if (closeHovered && ctx.mouse.just_pressed) {
-                // A press on × is a close, not a drag — drop any candidate.
-                strip.clear_drag();
-                close_tab(strip, app, tabId, i, isActive);
-                ctx.mouse.just_pressed = false;
-                return;
-            }
-            }  // closeX in-bounds
+                // 14px box, 10px from the chip's trailing edge -- `TabChip`'s
+                // `closeButton` frame and its `.padding(.horizontal, 10)`.
+                // hanabi had a 16px box 5px in, which centres 4.5px right of
+                // where the reference's xmark actually lands.
+                float closeW = tab_colors::kCloseBoxPx;
+                float closeX = tabX + tabW - tab_colors::kChipPadPx - closeW;
+                float closeY = tabY + (tabH - closeW) * 0.5f;
+                // Don't draw the × past the visible strip right edge.
+                if (closeX + closeW <= stripRight) {
+                    bool closeHovered =
+                        !dragging &&
+                        afterhours::ui::is_mouse_inside(
+                            ctx.mouse.pos,
+                            RectangleType{closeX, closeY, closeW, closeW});
+                    const std::string& closeAccessible =
+                        model::tab_close_accessible_label(tab);
+                    auto closeBtn = button(
+                        ctx, mk(uiRoot, 950 + static_cast<int>(i)),
+                        ComponentConfig{}
+                            .with_label(" ")
+                            .with_size(
+                                ComponentSize{pixels(closeW), pixels(closeW)})
+                            .with_absolute_position()
+                            .with_translate(closeX, closeY)
+                            .with_custom_background(
+                                closeHovered ? tab_colors::close_hover() : bg)
+                            .with_custom_text_color(
+                                closeHovered ? tab_colors::tab_text_act()
+                                             : tab_colors::close_ink())
+                            .with_font_size(FontSize::Small)
+                            .with_alignment(TextAlignment::Center)
+                            .with_justify_content(JustifyContent::Center)
+                            .with_align_items(AlignItems::Center)
+                            .with_click_activation(ClickActivationMode::Press)
+                            .with_roundness(0.2f)
+                            .with_render_layer(baseLayer + 1)
+                            // Lucide "close" sprite (atlas); \xc3\x97 unicode
+                            // fallback. Tint tracks hover the same as the text
+                            // color did.
+                            .with_on_draw_fg(hanabi::icons::draw_fg(
+                                "close", "\xc3\x97",
+                                closeHovered ? tab_colors::tab_text_act()
+                                             : tab_colors::close_ink(),
+                                tab_colors::kCloseGlyphPx,
+                                tab_colors::kCloseYBias))
+                            .with_debug_name("tab_close"));
+                    hanabi::a11y::set_name(closeBtn.ent(), closeAccessible);
+                    if (closeHovered && ctx.mouse.just_pressed) {
+                        // A press on × is a close, not a drag — drop any
+                        // candidate.
+                        strip.clear_drag();
+                        close_tab(strip, app, tabId, i, isActive);
+                        ctx.mouse.just_pressed = false;
+                        return;
+                    }
+                }  // closeX in-bounds
             }  // showClose
         }
 
@@ -629,7 +628,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const float plusY = tabY + (tabH - plusD) * 0.5f;
             bool plusHovered = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{plusX, plusY, plusD, plusD});
-            auto plusBtn = button(ctx, mk(uiRoot, 968),
+            auto plusBtn = button(
+                ctx, mk(uiRoot, 968),
                 ComponentConfig{}
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(plusD), pixels(plusD)})
@@ -647,6 +647,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                     : tab_colors::tab_text(),
                         15.0f, tab_colors::kPlusYBias))
                     .with_debug_name("tab_new"));
+            hanabi::a11y::set_name(plusBtn.ent(), "New tab");
             if (plusBtn) app.composerOpen = true;
         }
 
@@ -673,18 +674,19 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         const auto& tab = tabEntity.get<Tab>();
         struct Item {
             const char* label;
-            int action;  // 0 = copy url, 1 = close others, 2 = open in split,
-                         // 3 = rename, 4 = pin/unpin
+            int action;
+            const char* debugName;
         };
-        std::vector<Item> items;
-        if (app.client && app.client->supports_rename())
-            items.push_back({"Rename\xe2\x80\xa6", 3});
-        items.push_back({tab.pinned ? "Unpin tab" : "Pin tab", 4});
-        items.push_back({"Copy URL", 0});
-        items.push_back({"Open in split", 2});
-        items.push_back({"Close others", 1});
-        const Item* kItems = items.data();
-        const int nItems = static_cast<int>(items.size());
+        static constexpr std::array<Item, 5> kItems{{
+            {"Rename\xe2\x80\xa6", 3, "tab_menu_rename"},
+            {nullptr, 4, "tab_menu_pin"},
+            {"Copy Navi URL", 0, "tab_menu_copy"},
+            {"Open in split", 2, "tab_menu_split"},
+            {"Close others", 1, "tab_menu_close_others"},
+        }};
+        const int firstItem =
+            app.client && app.client->supports_rename() ? 0 : 1;
+        const int nItems = static_cast<int>(kItems.size()) - firstItem;
 
         const float menuW = 160.0f;
         const float itemH = 26.0f;
@@ -713,12 +715,16 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
         bool clickedItem = false;
         for (int k = 0; k < nItems; ++k) {
+            const Item& item = kItems[static_cast<size_t>(firstItem + k)];
+            const char* itemLabel = item.action == 4
+                                        ? (tab.pinned ? "Unpin tab" : "Pin tab")
+                                        : item.label;
             float iy = my + itemH * static_cast<float>(k);
             bool itemHovered = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{mx, iy, menuW, itemH});
             div(ctx, mk(uiRoot, 971 + k),
                 ComponentConfig{}
-                    .with_label(kItems[k].label)
+                    .with_label(itemLabel)
                     .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
                     .with_absolute_position()
                     .with_translate(mx, iy)
@@ -731,23 +737,23 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_padding(Padding{.left = pixels(10)})
                     .with_roundness(0.0f)
                     .with_render_layer(kMenuLayer + 1)
-                    .with_debug_name("tab_menu_item"));
+                    .with_debug_name(item.debugName));
             if (itemHovered && ctx.mouse.just_pressed) {
                 std::string keepId = tab.sessionId;
-                if (kItems[k].action == 0) {
-                    // Copy URL — real clipboard write via the afterhours
+                if (item.action == 0) {
+                    // Copy Navi URL — real clipboard write via the afterhours
                     // sokol-backed clipboard seam. Base is config-driven
                     // (host-neutral navi://session/<id> when unconfigured).
-                    afterhours::clipboard::set_text(
+                    hanabi::clipboard::set_text(
                         model::navi_url_for(app.webBaseUrl, keepId));
-                } else if (kItems[k].action == 2) {
+                } else if (item.action == 2) {
                     // Open in split (I2): show this thread in the RIGHT pane
                     // beside the active one. No-op if it's the active thread.
                     app.requestSplitOpen = keepId;
                     app.view = SmartView::Chat;
-                } else if (kItems[k].action == 4) {
-                    tabEntity.get<Tab>().pinned = !tab.pinned;
-                } else if (kItems[k].action == 3) {
+                } else if (item.action == 4) {
+                    model::set_tab_pinned(tabEntity.get<Tab>(), !tab.pinned);
+                } else if (item.action == 3) {
                     app.renameOpen = true;
                     app.renameSessionId = keepId;
                     const auto* sum = app.find_summary(keepId);
@@ -803,10 +809,11 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
                     if (app.find_summary(id))
                         TabBarSystem::open_session_in_tab(
                             *strip, app, id, /*keep=*/true,
-                            /*pinned=*/std::find(app.restorePinnedIds.begin(),
-                                                 app.restorePinnedIds.end(),
-                                                 id) !=
-                                app.restorePinnedIds.end());
+                            /*pinned=*/
+                            std::find(app.restorePinnedIds.begin(),
+                                      app.restorePinnedIds.end(),
+                                      id) != app.restorePinnedIds.end());
+                (void) model::active_tab_entity();
                 // Focus the persisted active tab (falls back to last opened).
                 if (!app.restoreActiveId.empty() &&
                     app.find_summary(app.restoreActiveId)) {
@@ -826,7 +833,9 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             // from producing a pane stuck on "Could not load transcript".
             for (int i = 0; i < 2; ++i) {
                 const std::string& id = app.restoreSplitIds[i];
-                if (id.empty() || !app.find_summary(id)) continue;
+                if (id.empty() || !app.find_summary(id) || strip == nullptr ||
+                    !model::session_is_open(*strip, id))
+                    continue;
                 Pane& p = app.panes[i];
                 if (p.selectedId == id) continue;  // pane 0: the active tab
                 p.selectedId = id;
@@ -836,10 +845,14 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             // A split with nothing in its second pane is not a split.
             if (app.splitOpen && app.panes[1].selectedId.empty())
                 app.splitOpen = false;
+            app.focusedPane =
+                app.splitOpen ? std::clamp(app.restoreFocusedPane, 0, 1) : 0;
             app.restoreSplitIds[0].clear();
             app.restoreSplitIds[1].clear();
             app.restoreTabIds.clear();
             app.restorePinnedIds.clear();
+            app.restoreActiveId.clear();
+            app.restoreFocusedPane = 0;
         }
 
         // ---- The strip follows the focused pane -----------------------

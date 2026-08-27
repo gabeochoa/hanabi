@@ -1,0 +1,66 @@
+# The tab strip remains operable with more tabs than a narrow window can show.
+# settings: {"window_width":600,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","r1","r2","r4","r5","r6","r7","r8","r9","r10","r11"],"active_tab":"r11","pinned_tabs":["t1"],"split_open":true,"split_ratio":0.5,"split_panes":["r11","r10"],"theme":"dark"}
+# env: HANABI_WIN_W=600 HANABI_WEB_BASE_URL=https://navi.test/session
+
+require_thread r11
+require_thread r10
+
+assert_ui tab_active x=527
+expect_text "Tab: PSC daily post generator, active"
+expect_text "New tab"
+
+mouse_move 400 48
+scroll_wheel 1 0
+wait_frames 3
+assert_ui tab_r4 x=307
+
+scroll_wheel 0 1
+wait_frames 3
+assert_ui tab_r1 x=307
+
+scroll_wheel 0 -0.5
+wait_frames 3
+assert_ui tab_r2 x=307
+
+mouse_down 310 48
+mouse_move 530 48
+assert_ui tab_r2 x=527
+screenshot /tmp/hanabi_tab_drag_inflight.png
+mouse_up
+wait_frames 4
+assert_ui tab_r4 x=307
+
+right_click 310 48
+wait_frames 3
+expect_text "Copy Navi URL"
+reset_clipboard_probe
+click_ui tab_menu_copy
+expect_clipboard "https://navi.test/session/r4"
+
+right_click 310 48
+wait_frames 3
+expect_text "Pin tab"
+click_ui tab_menu_pin
+wait_frames 3
+expect_text "Pinned tab"
+
+right_click 310 48
+wait_frames 3
+expect_text "Unpin tab"
+expect_text "Close others"
+click_ui tab_menu_close_others
+wait_frames 12
+require_thread r4
+
+assert_ui tab_t1 hidden=false
+assert_ui tab_active hidden=false
+expect_text "Tab: stickers broke — concluded, D113637134 on you, pinned"
+expect_text "Tab: oncall sweep finished — 3 rows need a look, pinned, active"
+expect_no_text "Tab: PSC daily post generator"
+
+mouse_move 406 49
+wait_frames 2
+expect_text "Close tab: stickers broke — concluded, D113637134 on you"
+click 406 49
+wait_frames 8
+expect_no_text "Tab: stickers broke — concluded, D113637134 on you"

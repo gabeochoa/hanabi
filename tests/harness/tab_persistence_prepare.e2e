@@ -1,0 +1,28 @@
+# Close others preserves both pinned pane threads, and closing an unrelated tab leaves them distinct.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t4","t5"],"active_tab":"t4","pinned_tabs":["t1","t2"],"split_open":true,"split_ratio":0.5,"split_panes":["t1","t2"],"split_focused_pane":1,"theme":"dark"}
+
+require_thread t1
+require_thread t2
+
+right_click 770 48
+wait_frames 3
+click_ui tab_menu_close_others
+wait_frames 20
+require_thread t1
+require_thread t4
+expect_panes t1 t4 1
+
+assert_ui split_divider hidden=false
+assert_ui split_focus_edge x=693
+
+mouse_move 711 49
+wait_frames 2
+expect_text "Close tab: needs a decision before it can go on"
+click 711 49
+wait_frames 8
+
+assert_ui tab_t1 hidden=false
+assert_ui tab_active hidden=false
+expect_text "Tab: stickers broke — concluded, D113637134 on you, pinned"
+expect_text "Tab: finished, and wants you to read it, active"
+expect_no_text "Tab: needs a decision before it can go on"

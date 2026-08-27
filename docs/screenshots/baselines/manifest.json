@@ -36,6 +36,10 @@
       "threshold_pct": 0.0,
       "note": "A hovered message with its Copy bar. Baselineable only because the capture epoch is pinned: the bar prints an absolute clock time, which used to move every minute."
     },
+    "07c_hover_user_actions_dark": {
+      "threshold_pct": 0.0,
+      "note": "A hovered user message with the labeled Copy and Retry action bar."
+    },
     "08_view_blocked_dark": {
       "threshold_pct": 0.0,
       "note": "Blocked-on-you smart view."
@@ -102,7 +106,7 @@
     },
     "19_many_tabs_dark": {
       "threshold_pct": 0.0,
-      "note": "Ten open tabs: the strip shrinks to fit."
+      "note": "Twenty open tabs at the minimum width with two pinned tabs, including the active tab."
     },
     "20_big_transcript_dark": {
       "threshold_pct": 0.0,
@@ -111,6 +115,10 @@
     "21_tools_expanded_dark": {
       "threshold_pct": 0.0,
       "note": "Every tool pile and the sub-agent rollup pre-expanded."
+    },
+    "21b_tools_expanded_detail_dark": {
+      "threshold_pct": 0.0,
+      "note": "Expanded tool rows with real command, node, duration, status, and result details."
     },
     "22_split_view_dark": {
       "threshold_pct": 0.0,

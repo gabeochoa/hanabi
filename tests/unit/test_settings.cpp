@@ -11,25 +11,28 @@
 // Pure logic only — no network, no graphics. Settings persists to a JSON file;
 // we isolate it to a temp config dir so we never touch a real user settings
 // file, and disable auto-save churn where it isn't under test.
+#include <unistd.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <string>
-#include <unistd.h>
+#include <vector>
 
+#include "../../src/api/mock_client.h"  // pulls in client.h (Config + Client)
 #include "../../src/settings.h"
 #include "../../src/ui/effort_menu.h"
 #include "../../src/util/quiet_hours.h"
-#include "../../src/api/mock_client.h"  // pulls in client.h (Config + Client)
 
 static int g_failures = 0;
-#define CHECK(cond)                                                    \
-    do {                                                               \
-        if (!(cond)) {                                                 \
-            std::printf("  FAIL: %s (line %d)\n", #cond, __LINE__);    \
-            ++g_failures;                                              \
-        }                                                              \
+#define CHECK(cond)                                                 \
+    do {                                                            \
+        if (!(cond)) {                                              \
+            std::printf("  FAIL: %s (line %d)\n", #cond, __LINE__); \
+            ++g_failures;                                           \
+        }                                                           \
     } while (0)
 
 // Isolate Settings' on-disk file to a per-pid temp dir so the real user
@@ -113,8 +116,8 @@ static void test_mock_settings_write() {
 // --- (4) http write-gate is opt-in + OFF by default -------------------------
 static void test_settings_write_config_gate() {
     std::printf("test_settings_write_config_gate\n");
-    api::Config c;                       // no base_url, no update path
-    CHECK(!c.settings_write_ready());    // nothing configured => off
+    api::Config c;                     // no base_url, no update path
+    CHECK(!c.settings_write_ready());  // nothing configured => off
     c.base_url = "https://example.invalid/api";
     // Base URL alone is NOT enough: settings_update_path is EMPTY by default so
     // the write stays off (the mock is the zero-config default; a real endpoint
@@ -393,13 +396,14 @@ static void test_star_and_mute_index_agrees_with_the_stored_list() {
         const auto& v = s.get_starred();
         for (const auto& id : v)
             if (!s.is_starred(id))
-                std::printf("  FAIL: %s: '%s' is in the list but is_starred "
-                            "says no\n", where, id.c_str()),
+                std::printf(
+                    "  FAIL: %s: '%s' is in the list but is_starred "
+                    "says no\n",
+                    where, id.c_str()),
                     ++g_failures;
         for (int i = 0; i < 40; ++i) {
             const std::string id = "t" + std::to_string(i);
-            const bool inList =
-                std::find(v.begin(), v.end(), id) != v.end();
+            const bool inList = std::find(v.begin(), v.end(), id) != v.end();
             if (inList != s.is_starred(id))
                 std::printf("  FAIL: %s: '%s' list=%d is_starred=%d\n", where,
                             id.c_str(), inList ? 1 : 0,
@@ -408,13 +412,15 @@ static void test_star_and_mute_index_agrees_with_the_stored_list() {
         }
     };
 
-    for (int i = 0; i < 40; i += 2) s.set_starred("t" + std::to_string(i), true);
+    for (int i = 0; i < 40; i += 2)
+        s.set_starred("t" + std::to_string(i), true);
     agree("after starring");
 
     // Unstarring is where a set-backed index goes wrong: the vector erase and
     // the set erase are two statements, and dropping either one is invisible
     // until someone reads the other structure.
-    for (int i = 0; i < 40; i += 4) s.set_starred("t" + std::to_string(i), false);
+    for (int i = 0; i < 40; i += 4)
+        s.set_starred("t" + std::to_string(i), false);
     agree("after unstarring");
 
     // Re-star something previously unstarred: catches an index that was left
@@ -436,10 +442,52 @@ static void test_star_and_mute_index_agrees_with_the_stored_list() {
     s.load_save_file();
     CHECK(!s.is_muted("m1"));
     CHECK(s.is_muted("m2"));
-
 }
 
-// --- Split view: the arrangement survives a relaunch, and a bad file cannot
+static void test_tabs_and_pins_round_trip() {
+    std::printf("test_tabs_and_pins_round_trip\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    s.set_open_tabs({"t1", "t4", "t5"}, "t4", {"t1", "t4"});
+    s.write_save_file();
+    s.set_open_tabs({}, "", {});
+    s.load_save_file();
+
+    CHECK((s.get_open_tabs() == std::vector<std::string>{"t1", "t4", "t5"}));
+    CHECK(s.get_active_tab() == "t4");
+    CHECK((s.get_pinned_tabs() == std::vector<std::string>{"t1", "t4"}));
+}
+
+static void test_legacy_split_focus_inference() {
+    std::printf("test_legacy_split_focus_inference\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    const auto load = [&](const std::string& body) {
+        std::ofstream out(s.get_settings_path());
+        out << body;
+        out.close();
+        CHECK(s.load_save_file());
+    };
+
+    load(R"({"active_tab":"t9","split_open":true,"split_panes":["t2","t9"]})");
+    CHECK(s.get_split_focused_pane() == 1);
+
+    load(R"({"active_tab":"t2","split_open":true,"split_panes":["t2","t9"]})");
+    CHECK(s.get_split_focused_pane() == 0);
+
+    load(R"({"active_tab":"t2","split_open":true,"split_panes":["t2","t2"]})");
+    CHECK(s.get_split_focused_pane() == 0);
+
+    load(
+        R"({"active_tab":"missing","split_open":true,"split_panes":["t2","t9"]})");
+    CHECK(s.get_split_focused_pane() == 0);
+
+    load(
+        R"({"active_tab":"t9","split_open":true,"split_panes":["t2","t9"],"split_focused_pane":0})");
+    CHECK(s.get_split_focused_pane() == 0);
+}
+
 // --- produce a pane of zero width -----------------------------------------
 //
 // The persistence half is the same round-trip every preference above gets. The
@@ -458,12 +506,14 @@ static void test_split_round_trips_and_clamps() {
     CHECK(s.get_split_ratio() == 0.5f);
     CHECK(s.get_split_pane(0).empty());
     CHECK(s.get_split_pane(1).empty());
+    CHECK(s.get_split_focused_pane() == 0);
 
-    s.set_split(true, 0.62f, "t2", "t9");
+    s.set_split(true, 0.62f, "t2", "t9", 1);
     CHECK(s.get_split_open());
     CHECK(s.get_split_ratio() == 0.62f);
     CHECK(s.get_split_pane(0) == "t2");
     CHECK(s.get_split_pane(1) == "t9");
+    CHECK(s.get_split_focused_pane() == 1);
     // Reading the file back is the whole point: an arrangement that lives only
     // in memory is gone on the next launch.
     s.load_save_file();
@@ -471,6 +521,7 @@ static void test_split_round_trips_and_clamps() {
     CHECK(s.get_split_ratio() == 0.62f);
     CHECK(s.get_split_pane(0) == "t2");
     CHECK(s.get_split_pane(1) == "t9");
+    CHECK(s.get_split_focused_pane() == 1);
 
     // An out-of-range index is a question with no answer, not a crash.
     CHECK(s.get_split_pane(2).empty());
@@ -489,10 +540,12 @@ static void test_split_round_trips_and_clamps() {
     CHECK(clamped >= hanabi::kSplitMinRatio);
     CHECK(clamped <= hanabi::kSplitMaxRatio);
 
-    s.set_split(true, 5.0f, "t2", "t9");
+    s.set_split(true, 5.0f, "t2", "t9", 99);
     CHECK(s.get_split_ratio() == hanabi::kSplitMaxRatio);
-    s.set_split(true, 0.01f, "t2", "t9");
+    CHECK(s.get_split_focused_pane() == 1);
+    s.set_split(true, 0.01f, "t2", "t9", -5);
     CHECK(s.get_split_ratio() == hanabi::kSplitMinRatio);
+    CHECK(s.get_split_focused_pane() == 0);
 
     // A write that changes nothing does not rewrite the file. This one is not
     // hygiene: the ratio is written from a DRAG, and the drag runs sixty times
@@ -514,10 +567,12 @@ int main() {
     test_archive_overlay_round_trips();
     test_mute_round_trips();
     test_finished_subagents_round_trips();
+    test_tabs_and_pins_round_trip();
     // Last: it writes five thousand entries and reloads the file, so anything
     // after it would be asserting against a settings file this test authored.
     test_last_read_is_bounded();
     test_split_round_trips_and_clamps();
+    test_legacy_split_focus_inference();
 
     test_star_and_mute_index_agrees_with_the_stored_list();
 

@@ -42,10 +42,11 @@ current instructions.
 
 ---
 ## OPEN ASKS — batch 4 (2026-08-02, live testing — NOT STARTED)
-- [ ] TABS: allow REARRANGING tabs (drag to reorder).
-- [ ] TABS: right-click context menu on tab titles — "Copy Navi URL" + "Close others".
-- [ ] TABS: overflow handling when many tabs open — look at how Chrome does it (shrink-to-fit,
-      scroll/overflow chevron, min width, active tab stays visible). Current many-tabs state is bad.
+- [x] TABS: drag reorder was already implemented in `tab_bar_system.h` + `model::reorder_tab`.
+- [x] TABS: the right-click menu already existed; this pass corrected the label to "Copy Navi URL",
+      preserves pinned tabs in Close others, and exercises the real clipboard action.
+- [x] TABS: Chrome-style shrink/overflow and active visibility already existed; this pass added native
+      horizontal trackpad deltas, retained vertical-wheel/Shift behavior, and covered narrow overflow.
 - [ ] FONT SIZING: something wrong with font sizing (see screenshot) — investigate + fix.
 - [ ] SEARCH: the search-input highlight/focus ring should cover the WHOLE search input (likely an
       afterhours gap — if so log it + temp fix).
@@ -140,7 +141,8 @@ current instructions.
 - [ ] THREAD SWITCH super slow / BEACHBALL: switching threads blocks the UI thread. Make the switch
       async (spinner while loading), keep UI interactive. ALL API calls on the API/worker thread, never
       UI thread. (Overlaps loader async + the jank/idle-cost work.)
-- [ ] TABS: horizontal scroll along the tab strip (hscroll) when many tabs.
+- [x] TABS: horizontal tab-strip scrolling was already built; this pass added native horizontal
+      trackpad deltas and kept vertical-wheel-over-strip plus Shift+wheel semantics.
 - [ ] SETTINGS: button to WIPE the on-disk cache + show current cache storage size used.
 - [ ] MEMORY: lazy-load transcript text from disk when needed (/tmp file cache), don't keep all in RAM.
 - [ ] SIDEBAR SCROLL BUG (re-confirmed via screenshot): scrolling down, row TEXT disappears but rows
@@ -902,16 +904,33 @@ multi-line bubble.
 - [x] Search snippet highlighting in rows `[APP-WORKAROUND]` — same no-text-rects problem as #8
 - [x] Tab drag-reorder (~90) `[APP]` — ALREADY BUILT: `model::reorder_tab`,
       driven from the drag in `tab_bar_system.h`. False gap
-- [x] Tab context menu: copy URL, close others (~50) `[APP]` — ALREADY BUILT:
-      the menu, the real clipboard write and `model::close_others` are all in
-      `tab_bar_system.h`. Only "close all" is genuinely missing. Mostly a false gap
+- [x] Tab context menu: Copy Navi URL, Close others (~50) `[APP]` — ALREADY BUILT:
+      the menu, the real clipboard write and `model::close_others` were present. Fixed now:
+      exact label, pinned-tab survival, two-pane reconciliation and scripted clipboard coverage.
+      Only "close all" is genuinely missing.
 - [x] Tab preview mode (~65) `[APP]` — and it is the feature that helps at 2000 rows
 - [ ] ~~Space grouping~~ **BLOCKED** — sessions carry no Space; evidence above
 - [ ] ~~Folder collapse-all~~ **BLOCKED** — depends on Space grouping
 - [x] Tab scrollbar / overflow `[APP]` — ALREADY BUILT (Chrome-style overflow
-      merged in `0ac0779`, per this file's own log). **NOT blocked after all.** I checked:
-      `HasScrollView` has `horizontal_enabled`, so the library already does
-      horizontal scrolling. Earlier note was wrong.
+      merged in `0ac0779`). Fixed now: native horizontal trackpad input reaches the
+      shipped vector-wheel seam, manual scrolling is not immediately undone by active-tab
+      visibility, and drag/vertical/horizontal behavior is covered under overflow.
+- [x] Pinned tabs `[APP]` — pinning commits previews, Close others preserves pins, and
+      pin state round-trips through a real two-process relaunch gate.
+- [x] Closing tabs reconciles both panes `[APP]` — focused and unfocused pane ids are
+      retargeted before persistence, superseded network/disk futures are retired without
+      blocking or applying stale results, and stale split ids are ignored on restore.
+- [x] Split restore focus `[APP]` — `focusedPane` is persisted explicitly instead of
+      inferred from `active_tab`, which is ambiguous when both panes show one thread. Legacy
+      settings without the field infer a unique active-pane match and otherwise fall back left.
+- [x] Load-older ownership `[APP]` — each pane owns its future and session id; focus changes,
+      tab switches and split close cannot redirect, block or apply another pane's completion.
+- [x] Tab render allocation `[APP]` — HEAD measured 774 allocations/frame with 20 tabs;
+      this branch measures 762, with a 920 runtime ceiling in `alloc-gate`.
+- [x] Tab affordance names `[APP-WORKAROUND]` — tabs, pin markers, close buttons and the
+      new-tab button carry cached app-owned `AccessibleName` metadata, exposed to scripted
+      tests without rebuilding hidden label strings each frame. afterhours still exposes no
+      OS accessibility-name or tooltip API; `vendor/` remains unchanged.
 - [ ] ~~Window restoration~~ **BLOCKED** — needs multi-window architecture
 
 Anything touching the sidebar must say how it behaves at 2000+ sessions.
@@ -1024,7 +1043,7 @@ against a build without it, because a test that cannot fail is not evidence.
 The parity doc warned a third of its claims were false. Verified against the
 source today: **message delivery status rows** (`api::SyncState` +
 `draw_sync_check`), **tab drag-reorder** (`model::reorder_tab`), **tab context
-menu** copy-URL and close-others (only "close all" is missing), **tab
+menu** Copy Navi URL and Close others (only "close all" is missing), **tab
 overflow** (merged in `0ac0779`, this file's own log says so), and the
 **typeface picker** (Settings → App font). The **streaming dots** entry was
 worse than a false gap: the doc had been *corrected* from "built" to "not

@@ -24,6 +24,10 @@
 
 namespace ecs::model {
 
+inline constexpr float kTabMinWidth = 40.0f;
+inline constexpr float kTabMaxWidth = 220.0f;
+inline constexpr float kTabGap = 4.0f;
+
 // Graphics-free equivalent of ui_imports.h's find_singleton_entity<Tab,
 // ActiveTab>() — the render header keeps its own; this one has no UI deps.
 inline afterhours::Entity* active_tab_entity() {
@@ -36,11 +40,13 @@ inline afterhours::Entity* active_tab_entity() {
 }
 
 inline void switch_to_tab(AppComponent& app, afterhours::Entity& newTab) {
+    auto& pane = app.pane();
+    pane.supersede_transcript_loads();
     if (auto* old = active_tab_entity()) old->removeComponent<ActiveTab>();
     newTab.addComponent<ActiveTab>();
     auto& tab = newTab.get<Tab>();
-    app.pane().selectedId = tab.sessionId;
-    app.pane().requestOpenId = tab.sessionId;
+    pane.selectedId = tab.sessionId;
+    pane.requestOpenId = tab.sessionId;
     app.view = SmartView::Chat;
 }
 
@@ -49,14 +55,54 @@ inline void switch_to_tab(AppComponent& app, afterhours::Entity& newTab) {
 // in the session list on the next refresh, so at open time there is no title
 // and the tab used to be stuck reading its id ("new1") for the rest of the
 // session. Resolved fresh on every render instead.
+inline std::string_view tab_label_view_for(const AppComponent& app,
+                                           const std::string& id) {
+    const auto* sum = app.find_summary(id);
+    if (sum && !sum->title.empty())
+        return fmtutil::display_title_view(sum->title);
+    for (const auto& pane : app.panes) {
+        if (pane.openSession && pane.openSession->summary.id == id &&
+            !pane.openSession->summary.title.empty())
+            return fmtutil::display_title_view(pane.openSession->summary.title);
+    }
+    return id;
+}
+
 inline std::string tab_label_for(const AppComponent& app,
                                  const std::string& id) {
-    const auto* sum = app.find_summary(id);
-    if (sum && !sum->title.empty()) return fmtutil::display_title(sum->title);
-    if (app.pane().openSession && app.pane().openSession->summary.id == id &&
-        !app.pane().openSession->summary.title.empty())
-        return fmtutil::display_title(app.pane().openSession->summary.title);
-    return id;
+    return std::string(tab_label_view_for(app, id));
+}
+
+inline const std::string& refresh_tab_label(const AppComponent& app, Tab& tab) {
+    const std::string_view title = tab_label_view_for(app, tab.sessionId);
+    if (tab.label != title) {
+        tab.label.assign(title);
+        tab.accessibleLabel.clear();
+        tab.closeAccessibleLabel.clear();
+    }
+    return tab.label;
+}
+
+inline const std::string& tab_close_accessible_label(Tab& tab) {
+    if (tab.closeAccessibleLabel.empty()) {
+        tab.closeAccessibleLabel.reserve(tab.label.size() + 11);
+        tab.closeAccessibleLabel.append("Close tab: ").append(tab.label);
+    }
+    return tab.closeAccessibleLabel;
+}
+
+inline const std::string& tab_accessible_label(Tab& tab, bool active) {
+    if (tab.accessibleLabel.empty() || tab.accessiblePinned != tab.pinned ||
+        tab.accessibleActive != active) {
+        tab.accessibleLabel.clear();
+        tab.accessibleLabel.reserve(tab.label.size() + 24);
+        tab.accessibleLabel.append("Tab: ").append(tab.label);
+        if (tab.pinned) tab.accessibleLabel.append(", pinned");
+        if (active) tab.accessibleLabel.append(", active");
+        tab.accessiblePinned = tab.pinned;
+        tab.accessibleActive = active;
+    }
+    return tab.accessibleLabel;
 }
 
 // The one tab currently showing a PREVIEW, or nullptr. There is never more than
@@ -84,6 +130,12 @@ inline void keep_tab(afterhours::Entity& tabEntity) {
     if (tabEntity.has<Tab>()) tabEntity.get<Tab>().keptOpen = true;
 }
 
+inline void set_tab_pinned(Tab& tab, bool pinned) {
+    tab.pinned = pinned;
+    tab.accessibleLabel.clear();
+    if (pinned) tab.keptOpen = true;
+}
+
 // Open `id` in a tab: focus if already open, else create a new tab.
 // `keep` false means this is a PREVIEW — a sidebar row clicked once. A preview
 // REUSES the existing preview tab rather than opening another, so browsing a
@@ -99,8 +151,7 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                 bool pinned = false) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-        if (opt.valid() && opt->has<Tab>() &&
-            opt->get<Tab>().sessionId == id) {
+        if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().sessionId == id) {
             keep_tab(opt.asE());
             switch_to_tab(app, opt.asE());
             return;
@@ -122,18 +173,26 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
         strip.tabOrder.push_back(e->id);
     }
     auto& tab = e->get<Tab>();
+    const std::string nextLabel = tab_label_for(app, id);
+    const bool identityChanged = tab.sessionId != id || tab.label != nextLabel;
     tab.sessionId = id;
-    tab.label = tab_label_for(app, id);
+    tab.label = nextLabel;
+    if (identityChanged) {
+        tab.accessibleLabel.clear();
+        tab.closeAccessibleLabel.clear();
+    }
     tab.keptOpen = keep;
     tab.pinned = pinned;
     e->addComponentIfMissing<ActiveTab>();
 
-    app.pane().selectedId = id;
-    app.pane().requestOpenId = id;  // loader fetches the transcript
+    auto& pane = app.pane();
+    pane.supersede_transcript_loads();
+    pane.selectedId = id;
+    pane.requestOpenId = id;  // loader fetches the transcript
     // First time this thread is opened (a NEW tab) -> land at the bottom
     // (newest message). Switching to an already-open tab returns above and
     // never sets this, so its scroll position is preserved.
-    app.pane().scrollBottomPending = id;
+    pane.scrollBottomPending = id;
     app.view = SmartView::Chat;
 }
 
@@ -195,6 +254,13 @@ inline float clamp_scroll(float offset, float maxScroll) {
     return std::clamp(offset, 0.0f, maxScroll);
 }
 
+inline float horizontal_scroll_delta(float wheelX, float wheelY, bool overStrip,
+                                     bool shiftDown) {
+    if (overStrip && wheelX != 0.0f) return wheelX;
+    if ((overStrip || shiftDown) && wheelY != 0.0f) return wheelY;
+    return 0.0f;
+}
+
 // Given the currently-active tab's index, return a scroll offset that makes
 // that tab FULLY visible (Chrome scrolls a freshly-selected off-screen tab
 // into view). If the tab's left edge is left of the viewport, scroll so its
@@ -210,9 +276,9 @@ inline float scroll_to_show(size_t activeIndex, float offset, float stripW,
     float maxScroll = compute_max_scroll(stripW, count, tabW, gap);
     float out = offset;
     if (tabLeft < offset) {
-        out = tabLeft;                    // scroll left to reveal
+        out = tabLeft;  // scroll left to reveal
     } else if (tabRight > offset + stripW) {
-        out = tabRight - stripW;          // scroll right to reveal
+        out = tabRight - stripW;  // scroll right to reveal
     }
     return clamp_scroll(out, maxScroll);
 }
@@ -248,36 +314,90 @@ inline void reorder_tab(TabStripComponent& strip, size_t from, size_t to) {
                           id);
 }
 
-inline void close_tab(TabStripComponent& strip, AppComponent& app,
-                      afterhours::EntityID tabId, size_t index,
-                      bool wasActive) {
-    if (index < strip.tabOrder.size())
-        strip.tabOrder.erase(strip.tabOrder.begin() +
-                             static_cast<long>(index));
-    auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-    if (opt.valid()) opt.asE().cleanup = true;
+inline bool session_is_open(const TabStripComponent& strip,
+                            const std::string& sessionId) {
+    if (sessionId.empty()) return false;
+    for (auto tabId : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (opt.valid() && opt->has<Tab>() &&
+            opt->get<Tab>().sessionId == sessionId)
+            return true;
+    }
+    return false;
+}
 
-    if (wasActive) {
-        if (!strip.tabOrder.empty()) {
-            size_t ni = std::min(index, strip.tabOrder.size() - 1);
-            auto no = afterhours::EntityHelper::getEntityForID(strip.tabOrder[ni]);
-            if (no.valid() && no->has<Tab>()) switch_to_tab(app, no.asE());
-        } else {
-            // No tabs left -> back to Home digest, clear open transcript.
-            app.pane().selectedId.clear();
-            app.pane().openSession.reset();
-            app.view = SmartView::Home;
-        }
+inline void retarget_split_pane(Pane& target, const std::string& id) {
+    target.supersede_transcript_loads();
+    target.selectedId = id;
+    target.requestOpenId = id;
+    target.scrollBottomPending = id;
+}
+
+inline void reset_pane_to(Pane& pane, const std::string& sessionId) {
+    pane.supersede_transcript_loads();
+    pane.selectedId = sessionId;
+    pane.requestOpenId = sessionId;
+    pane.openSession.reset();
+    pane.transcriptState = LoadState::Idle;
+    pane.transcriptError.clear();
+    pane.transcriptLoadingId.clear();
+    pane.scrollBottomPending.clear();
+    pane.hasMoreOlder = false;
+    pane.requestLoadOlder = false;
+    pane.loadingOlder = false;
+    pane.anchorPending.clear();
+    pane.findOpen = false;
+    pane.findQuery.clear();
+    pane.findIndex = 0;
+    pane.findCount = 0;
+    pane.findScrollPending = false;
+}
+
+inline void reconcile_panes_with_tabs(const TabStripComponent& strip,
+                                      AppComponent& app,
+                                      const std::string& fallbackId) {
+    for (auto& pane : app.panes) {
+        if (!pane.requestOpenId.empty() &&
+            !session_is_open(strip, pane.requestOpenId))
+            pane.requestOpenId.clear();
+        if (!pane.scrollBottomPending.empty() &&
+            !session_is_open(strip, pane.scrollBottomPending))
+            pane.scrollBottomPending.clear();
+        if (!pane.selectedId.empty() &&
+            !session_is_open(strip, pane.selectedId))
+            reset_pane_to(pane, fallbackId);
+    }
+    if (strip.tabOrder.empty()) {
+        app.splitOpen = false;
+        app.focusedPane = 0;
+        app.view = SmartView::Home;
     }
 }
 
-// Close every tab EXCEPT the one for `keepId` (context-menu "Close others").
-// The kept tab is made active and its content stays open; all other tab
-// entities are marked for cleanup and dropped from tabOrder. If keepId isn't
-// open, this is a no-op. Pure order/marker manipulation — mirrors close_tab.
+inline void close_tab(TabStripComponent& strip, AppComponent& app,
+                      afterhours::EntityID tabId, size_t index,
+                      bool wasActive) {
+    auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+    if (index < strip.tabOrder.size())
+        strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(index));
+    if (opt.valid()) opt.asE().cleanup = true;
+
+    std::string fallbackId;
+    afterhours::Entity* fallback = nullptr;
+    if (!strip.tabOrder.empty()) {
+        size_t ni = std::min(index, strip.tabOrder.size() - 1);
+        auto no = afterhours::EntityHelper::getEntityForID(strip.tabOrder[ni]);
+        if (no.valid() && no->has<Tab>()) {
+            fallback = &no.asE();
+            fallbackId = no->get<Tab>().sessionId;
+        }
+    }
+    if (wasActive && fallback != nullptr) switch_to_tab(app, *fallback);
+    reconcile_panes_with_tabs(strip, app, fallbackId);
+}
+
 inline void close_others(TabStripComponent& strip, AppComponent& app,
                          const std::string& keepId) {
-    // Find the entity we're keeping and confirm it's actually open.
     afterhours::Entity* keep = nullptr;
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
@@ -287,24 +407,28 @@ inline void close_others(TabStripComponent& strip, AppComponent& app,
             break;
         }
     }
-    if (!keep) return;  // not open -> nothing to do
+    if (!keep) return;
 
-    // Cleanup all the others.
+    size_t write = 0;
     for (auto tabId : strip.tabOrder) {
-        if (tabId == keep->id) continue;
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-        if (opt.valid()) opt.asE().cleanup = true;
+        const bool preserve =
+            tabId == keep->id ||
+            (opt.valid() && opt->has<Tab>() && opt->get<Tab>().pinned);
+        if (preserve) {
+            strip.tabOrder[write++] = tabId;
+        } else if (opt.valid()) {
+            opt.asE().cleanup = true;
+        }
     }
-    // tabOrder becomes just the kept tab.
-    strip.tabOrder.clear();
-    strip.tabOrder.push_back(keep->id);
-    // Keep it active (switch_to_tab is a no-op selection-wise if already so).
+    strip.tabOrder.resize(write);
     switch_to_tab(app, *keep);
+    reconcile_panes_with_tabs(strip, app, keepId);
 }
 
-// The web session URL for a thread — used by the tab context menu's "Copy URL"
-// action. Kept here (pure, testable) so the exact URL shape is asserted by a
-// unit test rather than only formed inline at the call site. The base comes
+// The web session URL for a thread — used by the tab context menu's "Copy Navi
+// URL" action. Kept here (pure, testable) so the exact URL shape is asserted by
+// a unit test rather than only formed inline at the call site. The base comes
 // from config (web_base_url / env HANABI_WEB_BASE_URL); when unset we emit a
 // host-neutral navi://session/<id> scheme so NO web host is hardcoded here.
 inline std::string navi_url_for(const std::string& webBase,
