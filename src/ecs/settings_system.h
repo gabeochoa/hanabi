@@ -65,7 +65,6 @@
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
 #include "../util/text_epoch.h"
-#include "../ui/model_menu.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
 
@@ -984,59 +983,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ── "Coming soon" treatment (Task 4) ────────────────────────────────────
-    // A clean, INTENTIONAL row for a setting that genuinely needs server work
-    // we can't do yet: the setting name on the left, a muted "Coming soon" pill
-    // (tag_done tokens) hugging the right. Reads as designed, not broken — no
-    // faint disabled control. `sub` is an optional dimmer descriptor under the
-    // name (e.g. the current server default) shown small + faint.
-    void coming_soon_row(UIContext<InputAction>& ctx, Entity& parent, int id,
-                         const std::string& label, const std::string& sub,
-                         const std::string& dbg) {
-        // A quiet, clearly-NON-interactive row: no filled surface, no pill that
-        // looks like a button (Gabe: "the coming soon buttons look weird").
-        // Just the dimmed setting name on the left and a small faint
-        // "Coming soon" note on the right — reads as "not available yet", not
-        // as a clickable control.
-        auto row = div(ctx, mk(parent, id),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kSoonRowH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_row"));
-
-        // Left: name (+ optional faint sub, appended inline) — dimmed.
-        std::string left = label;
-        if (!sub.empty()) left += "   \xc2\xb7   " + sub;
-        div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_label(left)
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_label"));
-
-        // Right: a small faint "Coming soon" note (plain text, right-aligned —
-        // NOT a pill/button).
-        div(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
-                .with_label("Coming soon")
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_note"));
-    }
-
     // ── Behavior group ─────────────────────────────────────────────────────
     // Yap level / verbosity (0 = No yapping, 1 = A little, 2 = Full). WIRED:
     // reads Settings::get_yap_level(), writes on click (auto-persists locally +
@@ -1231,68 +1177,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        });
     }
 
-    // ── Model group ────────────────────────────────────────────────────────
-    // Default model. Persisted as defaultModelId + synced, exactly as before;
-    // what changed is who chooses it. This row used to be three segments
-    // reading "Server default / Fast / Reasoning" — a vocabulary no server
-    // serves. The real menu is the deployment's own (src/ui/model_menu.h),
-    // which is nine entries and does not fit a segmented control, so the
-    // choosing moved to the composer's model chip and this row reports what
-    // is set. Same value, one owner.
-    void render_model_row(UIContext<InputAction>& ctx, Entity& parent,
-                          AppComponent& app) {
-        (void)app;
-        row_name(ctx, parent, 140, "Default model", "settings_model_label");
-        auto row = div(ctx, mk(parent, 141),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("settings_model_row"));
-        div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_label(hanabi::models::display_name(
-                    Settings::get().get_default_model()))
-                .with_size(ComponentSize{children(), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_model_value"));
-        div(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
-                .with_label("pick it from the composer's model chip")
-                .with_size(ComponentSize{children(), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_model_hint"));
-    }
-
-    // ── Advanced group ─────────────────────────────────────────────────────
-    // Power-user settings that GENUINELY need server work we can't do yet
-    // (branch override / experiments / compaction threshold / keyboard
-    // shortcuts / reset). Rather than a tall stack of dead controls, ONE tidy
-    // coming-soon row with the intentional treatment (Task 4): the group of
-    // features named on the left + a muted pill. Designed, not broken.
-    void render_advanced_section(UIContext<InputAction>& ctx, Entity& parent,
-                                 AppComponent& app) {
-        (void)app;
-        coming_soon_row(ctx, parent, 151, "Power-user options", "",
-                        "settings_advanced");
-    }
-
-    // Account row: shows the backend-reported identity + counts so the user can
-    // verify hanabi is talking to the right account / is set up correctly.
-    // Data comes from the async /whoami fetch (app.settings / settingsState),
-    // kicked when the overlay opens. Shows a loading/err/empty state honestly.
     void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app) {
         std::string line;
@@ -1332,7 +1216,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     }
 
-    // One segmented theme button. Selected = accent fill; others = secondary.
     void theme_choice(UIContext<InputAction>& ctx, Entity& parent, int id,
                       const std::string& label, const std::string& value,
                       AppComponent& app, float segW = 102.0f,
@@ -1359,7 +1242,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (btn) apply_theme(app, value);
     }
 
-    // Apply a theme choice: remember it, persist it, and re-tint live.
     static void apply_theme(AppComponent& app, const std::string& value) {
         app.themeChoice = value;
         // "System" now tracks the real macOS appearance (macos_is_dark_mode,
