@@ -139,12 +139,13 @@ and restores it byte-for-byte on exit (trap), asserting an md5 match. Backend
 is forced to the zero-config mock (`HANABI_BACKEND=mock`) and runtime backend
 config is isolated (`HANABI_CONFIG=/tmp/none_$$`).
 
-**States captured (29):** the Home digest and every smart view (Blocked /
+**States captured (31):** the Home digest and every smart view (Blocked /
 Review / Starred / Archived), light and dark; the transcript on two different
 threads; the chat welcome screen; the folded sidebar rail; the settings sheet,
 new-task sheet and device-code login overlay; ten open tabs; the long-transcript
 fixture; every tool row expanded; split view; the hover states (row star, tab,
-message actions); the focused composer; and the transient states nobody sees for
+message copy/retry actions); the focused composer; expanded real tool details;
+and the transient states nobody sees for
 long enough to review by hand — skeleton, thread-loading, load-older, thinking,
 streaming.
 
