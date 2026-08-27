@@ -804,7 +804,7 @@ atlas-gate: $(MAIN_EXE)
 source-checks:
 	@echo "Running source checks..."
 	@rc=0; \
-	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py; do \
+	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py; do \
 	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
 	done; \
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
