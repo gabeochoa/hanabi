@@ -7087,8 +7087,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (k + 1 < lines.size()) joined += "\n";
                 }
                 afterhours::clipboard::set_text(joined);
-                copied_key() = ckey;
-                copied_at() = std::chrono::steady_clock::now();
+                record_copied(ckey);
             }
         }
         }  // if (!lang.empty()) -- the whole bar
@@ -7612,20 +7611,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // see afterhours_gaps.md #97.
     static constexpr float kMsgActionsH = 22.0f;
 
-    // Which message last had Copy pressed, and when — so the button can read
-    // "Copied" for a beat instead of silently doing nothing visible.
-    static std::string& copied_key() {
-        static std::string k;
-        return k;
-    }
-    static std::chrono::steady_clock::time_point& copied_at() {
-        static std::chrono::steady_clock::time_point t{};
-        return t;
+    static model::PaneState* message_action_state() {
+        AppComponent* app = app_singleton();
+        Pane* pane = painting_pane();
+        if (app == nullptr || pane == nullptr || !pane->openSession) return nullptr;
+        return &model::pane_states().touch(model::pane_key(
+            pane_index(*app, *pane), pane->openSession->summary.id));
     }
     static bool recently_copied(const std::string& key) {
-        if (copied_key() != key) return false;
-        const auto age = std::chrono::steady_clock::now() - copied_at();
+        const model::PaneState* state = message_action_state();
+        if (state == nullptr || state->copiedMessageKey != key) return false;
+        const auto age = std::chrono::steady_clock::now() - state->copiedMessageAt;
         return age < std::chrono::milliseconds(1600);
+    }
+    static void record_copied(const std::string& key) {
+        model::PaneState* state = message_action_state();
+        if (state == nullptr) return;
+        state->copiedMessageKey = key;
+        state->copiedMessageAt = std::chrono::steady_clock::now();
     }
 
     void message_actions(UIContext<InputAction>& ctx, Entity& host,
@@ -7642,6 +7645,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool copied = recently_copied(key);
         const bool show = copied || ctx.mouse_was_in_subtree(turn.id) ||
                           hanabi::test_hooks::force_hover("msg:" + key);
+        if (!show) return;
 
         auto bar = div(ctx, mk(host, 8),
             ComponentConfig{}
@@ -7654,7 +7658,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("msg_actions"));
-        if (!show) return;
 
         // The time leads the button, so the pair reads left to right in the
         // corner it hangs in. Both carry the bubble's own fill: they sit ON
@@ -7699,8 +7702,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             [](Entity&) {});
         if (btn.ent().get<afterhours::ui::HasClickListener>().down) {
             afterhours::clipboard::set_text(rawText);
-            copied_key() = key;
-            copied_at() = std::chrono::steady_clock::now();
+            record_copied(key);
         }
         (void)index;
     }
