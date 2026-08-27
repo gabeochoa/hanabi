@@ -7715,15 +7715,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     bool retryIcon) -> Entity& {
             auto button = div(ctx, mk(bar.ent(), id),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(retryIcon ? 70.0f : 66.0f),
+                    .with_size(ComponentSize{pixels(retryIcon ? 56.0f : 52.0f),
                                              pixels(18)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.right = pixels(6), .left = pixels(5)})
-                    .with_margin(Margin{.right = pixels(4)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_padding(Padding{.right = pixels(4), .left = pixels(3)})
+                    .with_margin(Margin{.right = pixels(2)})
+                    .with_custom_background(hostFill)
+                    .with_custom_hover_bg(theme::hover_over(hostFill))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_roundness(0.35f)
                     .with_debug_name(debugName));
@@ -7732,9 +7732,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(button.ent(), 1),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(13), pixels(16)})
+                    .with_size(ComponentSize{pixels(11), pixels(16)})
                     .with_transparent_bg()
-                    .with_margin(Margin{.right = pixels(3)})
+                    .with_margin(Margin{.right = pixels(2)})
                     .with_on_draw_fg([retryIcon, color](RectangleType r) {
                         if (retryIcon) draw_retry_action(r, color);
                         else draw_copy_action(r, color);
