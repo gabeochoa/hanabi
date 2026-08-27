@@ -72,6 +72,7 @@ class TranscriptItemIndex {
     struct View {
         const std::vector<TranscriptItem>* items = nullptr;
         float height = 0.0f;
+        float previous_height = 0.0f;
         std::size_t messages_visited = 0;
         bool rebuilt = false;
         bool full_rebuild = false;
@@ -82,6 +83,7 @@ class TranscriptItemIndex {
                 std::size_t message_count, const TranscriptMutation& mutation,
                 const TranscriptGeometryFacts& facts, Build&& build) {
         Slot& slot = touch(key);
+        const float previousHeight = slot.height;
         std::size_t restart = slot.dirty_from;
         bool full = slot.force_full || (slot.items.empty() && !slot.initialized);
 
@@ -89,7 +91,8 @@ class TranscriptItemIndex {
             mutation.revision == slot.revision &&
             message_count == slot.message_count &&
             data_identity == slot.data_identity && facts_equal(facts, slot.facts)) {
-            return View{&slot.items, slot.height, 0, false, false};
+            return View{&slot.items, slot.height, slot.height, 0, false,
+                        false};
         }
 
         if (!full) {
@@ -98,8 +101,10 @@ class TranscriptItemIndex {
             } else {
                 if (facts.unread_first != slot.facts.unread_first ||
                     facts.unread_count != slot.facts.unread_count) {
-                    restart = earlier_boundary(facts.unread_first,
-                                               slot.facts.unread_first);
+                    restart = std::min(
+                        restart,
+                        earlier_boundary(facts.unread_first,
+                                         slot.facts.unread_first));
                 }
                 if (facts.fold_revision != slot.facts.fold_revision) {
                     if (facts.fold_dirty_index < 0) full = true;
@@ -167,8 +172,8 @@ class TranscriptItemIndex {
         slot.facts = facts;
         slot.dirty_from = no_restart();
         slot.force_full = false;
-        return View{&slot.items, slot.height, message_count - restart, true,
-                    restart == 0};
+        return View{&slot.items, slot.height, previousHeight,
+                    message_count - restart, true, restart == 0};
     }
 
     void invalidate(const std::string& key, std::size_t first) {

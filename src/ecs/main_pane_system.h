@@ -3590,6 +3590,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const auto& msgs = pane.openSession->messages;
         const int n = static_cast<int>(msgs.size());
+        hanabi::prof::gauge("transcript.messages", msgs.size());
         const find_ops::Query findQ =
             pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
         static const std::vector<Match> noMatches;
@@ -3824,14 +3825,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (pane.anchorPending == openId &&
             msgs.size() > pane.anchorPrevMsgCount &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const size_t added = msgs.size() - pane.anchorPrevMsgCount;
-            float prependedH = 0.0f;
-            for (const auto& it : items) {
-                if (static_cast<size_t>(it.lo) < added)
-                    prependedH += it.height;
-                else
-                    break;  // items are in message order; done past the prepend
-            }
+            const float prependedH =
+                std::max(0.0f, itemView.height - itemView.previous_height);
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
             sv.scroll_offset.y += prependedH;  // hold the viewport steady
             sv.clamp_scroll();
@@ -4533,7 +4528,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.expandedPiles.clear();
                 app.collapsedPiles.clear();
                 if (subs) app.expandedPiles.insert("__subagents__");
-                invalidate_item_geometry();
+                model::transcript_item_index().invalidate_all();
                 app.foldPopoverOpen = false;
             }
         }

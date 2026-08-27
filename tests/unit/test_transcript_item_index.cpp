@@ -158,6 +158,13 @@ static void test_explicit_invalidation_is_local() {
     TranscriptItemIndex index;
     Model model = seeded(100);
     check_reference(index, "0/thread", model);
+    index.invalidate("0/thread", 20);
+    model.facts.unread_first = 80;
+    const auto combined = update(index, "0/thread", model);
+    CHECK(combined.rebuilt);
+    CHECK(combined.messages_visited >= 80);
+    CHECK(same(*combined.items, reference(model)));
+
     index.invalidate("0/thread", 70);
     const auto suffix = update(index, "0/thread", model);
     CHECK(suffix.rebuilt);
@@ -187,6 +194,41 @@ static void test_bounded_and_pane_width_isolated() {
     CHECK(index.slots() == TranscriptItemIndex::kMaxSlots);
 }
 
+static void test_skipped_revision_and_source_replacement_fall_back_to_full() {
+    TranscriptItemIndex index;
+    Model model = seeded(20);
+    update(index, "0/fallback", model);
+
+    model.messages.push_back(Message{5000, 0, 10, 3});
+    bump(model, TranscriptMutationKind::Append, 20, 1);
+    model.messages.back().text += 5;
+    bump(model, TranscriptMutationKind::Update, 20, 1);
+    const auto skipped = update(index, "0/fallback", model);
+    CHECK(skipped.full_rebuild);
+    CHECK(same(*skipped.items, reference(model)));
+
+    std::vector<Message> replacement = model.messages;
+    replacement[4].text += 9;
+    model.messages.swap(replacement);
+    const auto replaced = update(index, "0/fallback", model);
+    CHECK(replaced.full_rebuild);
+    CHECK(same(*replaced.items, reference(model)));
+}
+
+static void test_prepend_reports_exact_height_delta() {
+    TranscriptItemIndex index;
+    Model model = seeded(30);
+    const auto before = update(index, "0/prepend", model);
+    const float previous = before.height;
+    model.messages.insert(model.messages.begin(), Message{9001, 0, 20, -1});
+    bump(model, TranscriptMutationKind::Prepend, 0, 1);
+    const auto after = update(index, "0/prepend", model);
+    CHECK(after.full_rebuild);
+    CHECK(std::fabs(after.previous_height - previous) < 0.001f);
+    CHECK(same(*after.items, reference(model)));
+    CHECK(after.height > after.previous_height);
+}
+
 static void test_randomized_differential() {
     std::mt19937 rng(0x51A7E);
     TranscriptItemIndex index;
@@ -195,7 +237,7 @@ static void test_randomized_differential() {
     int next_id = 1000;
 
     for (int step = 0; step < 3000; ++step) {
-        const int op = static_cast<int>(rng() % 8);
+        const int op = static_cast<int>(rng() % 10);
         if (op == 0) {
             const std::size_t first = model.messages.size();
             model.messages.push_back(Message{next_id++, static_cast<int>(rng() % 3 == 0),
@@ -232,10 +274,17 @@ static void test_randomized_differential() {
             model.facts.fold_dirty_index = static_cast<int>(at);
         } else if (op == 6) {
             model.facts.show_date_dividers = !model.facts.show_date_dividers;
-        } else if (!model.messages.empty()) {
+        } else if (op == 7 && !model.messages.empty()) {
             model.facts.unread_first = static_cast<int>(rng() % model.messages.size());
             model.facts.unread_count = static_cast<int>(model.messages.size()) -
                                        model.facts.unread_first;
+        } else if (op == 8 && !model.messages.empty()) {
+            model.facts.streaming = !model.facts.streaming;
+            model.facts.live_index = model.messages.size() - 1;
+            model.facts.stream_phase = static_cast<int>(rng() % 4);
+        } else {
+            model.facts.find_open = !model.facts.find_open;
+            model.facts.find_query = model.facts.find_open ? "needle" : "";
         }
         check_reference(index, "0/random", model);
         const auto hit = update(index, "0/random", model);
@@ -247,6 +296,8 @@ int main() {
     test_unchanged_is_constant_work();
     test_explicit_invalidation_is_local();
     test_bounded_and_pane_width_isolated();
+    test_skipped_revision_and_source_replacement_fall_back_to_full();
+    test_prepend_reports_exact_height_delta();
     test_randomized_differential();
     if (failures == 0) {
         std::puts("OK");
