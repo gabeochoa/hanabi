@@ -124,8 +124,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(app->renameError)
                 .with_size(ComponentSize{percent(1.0f), pixels(24)})
-                .with_margin(Margin{.top = pixels(6)})
-                .with_padding(Padding{.left = pixels(8)})
+                .with_margin(Margin{.top = pixels(6), .left = pixels(8)})
                 .with_custom_background(app->renameError.empty()
                                             ? theme::panel_bg()
                                             : hanabi::surface::destructive_surface())

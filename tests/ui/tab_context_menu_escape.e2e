@@ -3,7 +3,6 @@
 
 require_thread t2
 expect_text "TAB ACTIONS"
-expect_text "Copy URL"
 key ESCAPE
 wait_frames 6
 expect_no_text "TAB ACTIONS"

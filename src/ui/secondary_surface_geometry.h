@@ -14,7 +14,7 @@ inline constexpr float kSheetPadV = 20.0f;
 inline constexpr float kFieldH = 38.0f;
 inline constexpr float kMenuRowH = 36.0f;
 inline constexpr float kButtonH = 34.0f;
-inline constexpr float kTitleH = 24.0f;
+inline constexpr float kTitleH = 26.0f;
 inline constexpr float kSubtitleH = 20.0f;
 inline constexpr float kHeaderH = 52.0f;
 

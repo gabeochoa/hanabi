@@ -280,7 +280,9 @@ capture 12_view_blocked_light "$NOTABS_LIGHT" HANABI_VIEW=blocked
 
 # --- Chat with no thread open: the welcome / start-a-conversation screen.
 capture 13_chat_welcome_dark "$NOTABS_DARK" HANABI_VIEW=chat
+capture 13a_chat_welcome_light "$NOTABS_LIGHT" HANABI_VIEW=chat
 capture 13b_empty_transcript_dark "$TABS_DARK" HANABI_EMPTY_TRANSCRIPT_DEMO=1
+capture 13c_empty_transcript_light "$TABS_LIGHT" HANABI_EMPTY_TRANSCRIPT_DEMO=1
 
 # --- Sidebar folded to the icon rail (persisted setting, no Cmd+B needed).
 capture 14_sidebar_folded_dark "$FOLDED"
@@ -288,10 +290,36 @@ capture 14_sidebar_folded_dark "$FOLDED"
 # --- Overlays that are otherwise keypress-only.
 capture 15_settings_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=settings
 capture 16_settings_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=settings
-capture 17_newtask_dark   "$NOTABS_DARK"  HANABI_TEST_OVERLAY=composer
+capture 17_newtask_dark    "$NOTABS_DARK"  HANABI_TEST_OVERLAY=composer
+capture 17d_newtask_light  "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=composer
 capture 17b_shortcuts_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=shortcuts
 capture 17c_shortcuts_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=shortcuts
-capture 18_auth_dark      "$NOTABS_DARK"  HANABI_AUTH_DEMO=1
+capture 18_auth_dark       "$NOTABS_DARK"  HANABI_AUTH_DEMO=1
+capture 18a_auth_light     "$NOTABS_LIGHT" HANABI_AUTH_DEMO=1
+capture 18b_palette_dark   "$NOTABS_DARK"  HANABI_TEST_OVERLAY=palette
+capture 18c_palette_light  "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=palette
+capture 18d_palette_empty_dark "$NOTABS_DARK" HANABI_PALETTE_DEMO=zzzz-no-match
+capture 18e_palette_empty_light "$NOTABS_LIGHT" HANABI_PALETTE_DEMO=zzzz-no-match
+capture 18f_search_dark "$NOTABS_DARK" HANABI_XSEARCH_DEMO=decision
+capture 18g_search_light "$NOTABS_LIGHT" HANABI_XSEARCH_DEMO=decision
+capture 18h_search_empty_dark "$NOTABS_DARK" HANABI_XSEARCH_DEMO=zzzz-no-match
+capture 18i_search_empty_light "$NOTABS_LIGHT" HANABI_XSEARCH_DEMO=zzzz-no-match
+capture 18j_model_picker_dark "$TABS_DARK" HANABI_TEST_OVERLAY=model
+capture 18k_model_picker_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=model
+capture 18l_effort_picker_dark "$TABS_DARK" HANABI_TEST_OVERLAY=effort
+capture 18m_effort_picker_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=effort
+capture 18n_slash_menu_dark "$TABS_DARK" HANABI_TEST_OVERLAY=slash
+capture 18o_slash_menu_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=slash
+capture 18p_context_menu_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu
+capture 18q_context_menu_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu
+capture 18p2_tab_menu_dark "$TABS_DARK" HANABI_TEST_OVERLAY=tab-menu
+capture 18q2_tab_menu_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=tab-menu
+capture 18r_toast_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=toast
+capture 18s_toast_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=toast
+capture 18t_auth_failed_dark "$NOTABS_DARK" HANABI_AUTH_DEMO=failed
+capture 18u_auth_failed_light "$NOTABS_LIGHT" HANABI_AUTH_DEMO=failed
+capture 18v_transcript_error_dark "$TABS_DARK" 'HANABI_TRANSCRIPT_ERROR_DEMO=The conversation could not be refreshed.'
+capture 18w_transcript_error_light "$TABS_LIGHT" 'HANABI_TRANSCRIPT_ERROR_DEMO=The conversation could not be refreshed.'
 
 # --- Tab strip under pressure: ten open tabs (overflow / shrink-to-fit).
 capture 19_many_tabs_dark "$MANYTABS"

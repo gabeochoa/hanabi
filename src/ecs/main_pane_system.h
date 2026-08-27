@@ -4244,7 +4244,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::BODY)
                 .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(8)})
+                .with_margin(Margin{.left = pixels(8)})
                 .with_debug_name("model_popover_title"));
         div(ctx, mk(pop.ent(), 901),
             ComponentConfig{}
@@ -4254,7 +4254,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(8)})
+                .with_margin(Margin{.left = pixels(8)})
                 .with_debug_name("model_popover_subtitle"));
         for (size_t i = 0; i < models.size(); ++i) {
             const auto& m = models[i];
@@ -4335,7 +4335,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::BODY)
                 .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(8)})
+                .with_margin(Margin{.left = pixels(8)})
                 .with_debug_name("effort_popover_title"));
         div(ctx, mk(pop.ent(), 901),
             ComponentConfig{}
@@ -4345,7 +4345,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(8)})
+                .with_margin(Margin{.left = pixels(8)})
                 .with_debug_name("effort_popover_subtitle"));
         for (size_t i = 0; i < levels.size(); ++i) {
             const auto& lv = levels[i];

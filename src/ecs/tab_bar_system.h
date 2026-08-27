@@ -12,6 +12,7 @@
 #include <array>
 #include <bitset>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <string>
 
@@ -789,8 +790,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // Dismiss: an item click, or any left-press outside the menu rect.
+        const char* testOverlay = std::getenv("HANABI_TEST_OVERLAY");
+        const bool forcedForCapture =
+            testOverlay != nullptr && std::string_view(testOverlay) == "tab-menu";
         bool pressedOutside =
-            ctx.mouse.just_pressed &&
+            !forcedForCapture && ctx.mouse.just_pressed &&
             !afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{mx, my, menuW, menuH});
         if (clickedItem || pressedOutside) strip.close_menu();
