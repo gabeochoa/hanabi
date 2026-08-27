@@ -14027,21 +14027,23 @@ through `UIContext::is_right_click`, but cannot open the tab menu, which polls
 `graphics::is_mouse_button_pressed(1)` directly. The click instead leaves no
 `TAB ACTIONS` node for the harness to inspect.
 
-**Workaround.** Row-menu Escape ownership is covered through the UIContext path.
-The tab-menu invocation remains without deterministic input coverage; its
-layout is exercised only by the manual capture path.
+**Workaround.** Row menus use `UIContext::is_right_click`. The screenshot and
+Escape suites seed the tab menu through a render-only test hook, so its state is
+deterministic without pretending the synthetic secondary button reached the
+platform poll.
 
 **Minimal upstream change.** Make the test-aware platform wrapper map the
 secondary-button id to `right_down`, and route application polling through that
 wrapper.
 
 **Rejected approaches.** Treating a synthetic right click as button 0 would
-make ordinary click handlers fire too. Hard-coding a second product-only menu
-entry path would test a branch users never take.
+make ordinary click handlers fire too. Rewriting product input semantics solely
+for the harness would test a branch users never take.
 
 **Hanabi reference.** `src/ecs/tab_bar_system.h::render_tab_menu` is the direct
-polling path. `src/ecs/sidebar_system.h::render_row_menu` and
-`tests/ui/context_menus_escape.e2e` demonstrate the working UIContext path and
+polling path. `src/ecs/sidebar_system.h::render_row_menu` uses the working
+UIContext path. `src/main.cpp` exposes the render-only `tab-menu` state, and
+`tests/ui/context_menus_escape.e2e` plus `tab_context_menu_escape.e2e` verify
 single-owner Escape behavior.
 
 CLASS: MISSING

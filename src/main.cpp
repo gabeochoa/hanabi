@@ -1032,6 +1032,20 @@ static void apply_test_knobs(ecs::AppComponent* app) {
             app->rowMenuX = 320.0f;
             app->rowMenuY = 300.0f;
         }
+        else if (os == "tab-menu") {
+            auto tabs = afterhours::EntityQuery({.force_merge = true})
+                            .whereHasComponent<ecs::TabStripComponent>()
+                            .gen();
+            if (!tabs.empty()) {
+                auto& strip = tabs[0].get().get<ecs::TabStripComponent>();
+                if (!strip.tabOrder.empty()) {
+                    strip.menuOpen = true;
+                    strip.menuTabId = strip.tabOrder.front();
+                    strip.menuX = 360.0f;
+                    strip.menuY = 88.0f;
+                }
+            }
+        }
     }
     if (const char* d = std::getenv("HANABI_PALETTE_DEMO"); d && *d) {
         app->paletteOpen = true;
