@@ -1,0 +1,22 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t9"],"archived":{"t3":true}}
+
+click 60 151
+wait_frames 6
+assert_ui dc_tag hidden=false
+assert_ui dc_sub hidden=false
+assert_ui digest_card h=52
+click 58 183
+wait_frames 6
+assert_ui dc_tag hidden=false
+assert_ui dc_sub hidden=false
+assert_ui digest_card h=52
+click 59 215
+wait_frames 6
+assert_ui dc_tag hidden=false
+assert_ui dc_sub hidden=false
+assert_ui digest_card h=52
+click 60 247
+wait_frames 6
+assert_ui dc_tag hidden=false
+assert_ui dc_sub hidden=false
+assert_ui digest_card h=52

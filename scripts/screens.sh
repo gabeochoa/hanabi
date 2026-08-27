@@ -238,6 +238,8 @@ listing || echo "=== capturing into $OUTDIR (timeout ${SHOT_TIMEOUT}s/shot) ==="
 # NOTABS lands on the Home digest.
 NOTABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
 NOTABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light"}'
+PINNED_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t9"]}'
+ARCHIVED_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","archived":{"t3":true}}'
 TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
 TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"light"}'
 TABS_T6='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t6","theme":"dark"}'
@@ -270,11 +272,14 @@ capture 07b_hover_msg_copy_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m2
 capture 08_view_blocked_dark  "$NOTABS_DARK"  HANABI_VIEW=blocked
 capture 09_view_review_dark   "$NOTABS_DARK"  HANABI_VIEW=review
 capture 10_view_starred_dark  "$NOTABS_DARK"  HANABI_VIEW=starred
+capture 10b_view_pinned_row_dark "$PINNED_DARK" HANABI_VIEW=starred
 capture 11_view_archived_dark "$NOTABS_DARK"  HANABI_VIEW=archived
+capture 11b_view_archived_row_dark "$ARCHIVED_DARK" HANABI_VIEW=archived
 capture 12_view_blocked_light "$NOTABS_LIGHT" HANABI_VIEW=blocked
 
 # --- Chat with no thread open: the welcome / start-a-conversation screen.
 capture 13_chat_welcome_dark "$NOTABS_DARK" HANABI_VIEW=chat
+capture 13b_empty_transcript_dark "$TABS_DARK" HANABI_EMPTY_TRANSCRIPT_DEMO=1
 
 # --- Sidebar folded to the icon rail (persisted setting, no Cmd+B needed).
 capture 14_sidebar_folded_dark "$FOLDED"

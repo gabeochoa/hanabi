@@ -18,41 +18,22 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 
 ---
 
-## DONE + MERGED + PUSHED (this session, newest first)
-- [x] Live SSE + memory-light newest-N + tool-call block-splitting (wt/live-sse be636ed — PENDING MERGE).
-- [x] icons.h TODO(icon-atlas) convention for missing-sprite fallbacks (372c6e1).
-- [x] Archived moved from a folder into the Views section (160f481). Unarchive-on-send already worked.
-- [x] Real API folders (dynamic from session `workspace` field), no hardcoded folders, no day-grouping (30414a2).
-- [x] Dropped invented "Recent" folder — unfoldered sessions render headerless (552fcf1).
-- [x] Star/time swap in sidebar rows — star left of time (dfd33aa).
-- [x] Uniform tab widths + transcript text fills pane width (217819f).
-- [x] Clean user-bubble corners (roundness 0.5->0.12) + intra-message line culling (e12a97a).
-- [x] Scroll direction respects macOS natural-scroll pref; tab-corner triangle fix (gap #25); transcript text clip + bottom pad (9d351c3).
-- [x] Compile speed: parallel-default + ccache (d69b156). Chat overhaul: virtualize+memoize 145ms->16ms/frame + dense doc-feed (c088ebd).
-- [x] afterhours WISHLIST added (0122fdc). UI re-review done (44 defects, drove the overhaul).
+## HISTORICAL MERGE STATUS (reconciled 2026-08-27)
+- [x] Live SSE + memory-light newest-N + tool-call block-splitting (`be636ed`) merged.
+- [x] Scrollbar, fold-all, collapsed rail and archive sprite merged (`e997b33`, `0c99ec7`).
+- [x] Data-layer render wiring merged: newest-first bottom follow and jump control
+      (`3316179`, `5ae33ee`), load-older feedback, and real tool fields (`734b4c4`).
+- [x] Archived is a smart view with a real Lucide archive sprite; sending to an
+      archived thread still unarchives it.
+- [x] Real API folders, headerless unfoldered sessions, sidebar star/time order,
+      uniform tabs, transcript width, bubble corners, natural scrolling, build
+      caching and transcript virtualization all remain merged.
 
-## IN FLIGHT (subagents, isolated worktrees)
-- [~] SCROLLBAR — wt/scrollbar (agent). Temp overlay scrollbar on scroll views + gap #26; fold-all
-      right-aligned to full sidebar width; fold-all stale-keys fix (build from distinct_folders);
-      collapsed-rail icons left-aligned; archive-sprite TODO. Committing now; then MERGE.
-- [~] DATA LAYER done (wt/live-sse be636ed) — MERGE next: newest-40 on open + has_more_older +
-      requestLoadOlder; live SSE (/sessions/{id}/events, debounced refetch); tool-call blocks ->
-      Role::Tool msgs with real name/command/output/status/duration fields.
-
-## MERGE QUEUE (gated: build+tls+test+test-real, then push, refresh live pin)
-1. Merge wt/scrollbar (render files).
-2. Merge wt/live-sse (data files) — mostly disjoint; components.h field-append overlap, resolve.
-3. After both: wire the RENDER side of the data-layer features (see below).
+There is no active merge queue represented in this document. Old worktree names
+and merge ordering were removed because they were historical state presented as
+current instructions.
 
 ---
-
-## RENDER WIRING owed after data-layer merge (main_pane_system.h)
-- [ ] Open transcripts at the BOTTOM (newest) by default — loader now delivers newest-40.
-- [ ] Set app.requestLoadOlder=true when scrolled to TOP and app.hasMoreOlder — loader fetches full transcript (interim: no backward cursor yet).
-- [ ] "load older messages" affordance/spinner keyed off hasMoreOlder / loadingOlder.
-- [ ] Tool-row renderer: replace HASHED tool_duration/tool_count/status with REAL Message fields
-      (tool_duration_ms, tool_status, tool_result). subtitle+text already flow. Show real output + completed/error check in nested sub-rows.
-
 ## OPEN ASKS — batch 4 (2026-08-02, live testing — NOT STARTED)
 - [ ] TABS: allow REARRANGING tabs (drag to reorder).
 - [ ] TABS: right-click context menu on tab titles — "Copy Navi URL" + "Close others".
@@ -143,10 +124,11 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 - [ ] /tmp file cache for thread info (memory-footprint reduction; complements newest-N loading).
 
 ## OPEN ASKS — batch 6 (2026-08-02, live testing during provider hiccups — NOT STARTED)
-- [ ] TRANSCRIPT: "jump to bottom" button (down chevron) bottom-right of the thread. If AT bottom, stay
-      pinned when new msgs arrive; if NOT at bottom, don't move. (Ties into open-at-bottom + SSE.)
-- [ ] ARCHIVED needs a real ICON (currently U+25A4 box fallback) — cut a Lucide archive sprite into the
-      atlas (icons_atlas.h + icons.png via scripts/gen_icons.py) and drop the fallback. (gap TODO(icon-atlas))
+- [x] TRANSCRIPT: jump-to-bottom button and follow latch (`3316179`, `5ae33ee`, merge `cb47404`).
+      It appears only after leaving the bottom, a click returns to the newest message, and the latch
+      re-arms when the scroll reaches the end. Split-pane behavior is covered separately.
+- [x] ARCHIVED uses the real Lucide `archive` sprite (`0c99ec7`); the generated atlas, map and header
+      all carry it. The U+25A4 value remains only as the generic atlas-load fallback path.
 - [ ] TOOL CALL missing info (screenshot): the tool row shows only an icon + count(5) + 53s + check, but
       NO command/name text. Wire the REAL tool fields (name->subtitle, command->text) so the row shows
       what ran. (Overlaps the render-wiring owed after data-layer merge — the block-split emits these now.)
@@ -192,7 +174,7 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 ## KEY: composer SEND is fully wired but DISABLED unless HANABI_CHAT_PATH set. supports_send() needs
    base_url + chat_path. Stream via HANABI_STREAM_PATH (else sync /chat). Events default /sessions/{id}/events.
    -> Wire in-app send + test against mock server AFTER data-async (message-queue) merges.
-## IN FLIGHT: sidebar-fixes(baf89d58), tabs-overflow(b83d422a), data-async(6afbad89), startup-profile(2d834f91), visual-audit(68c5bd34)
+## HISTORICAL BRANCH SNAPSHOT: sidebar fixes, tab overflow, async data, startup profiling and the visual audit all merged by milestone `386259f`; this line is not an active ownership or merge queue.
 ## NOTE: pkill -9 -f hanabi.exe kills OTHER worktrees' captures — scope kills / coordinate when agents run concurrently.
 
 ## VISUAL AUDIT RESULTS (2026-08-02, subagent 68c5bd34) — 24 defects, verdict "halfway"
@@ -216,13 +198,14 @@ NOTE: audit screenshots predate the scrollbar merge (e997b33) + tool-row fix (0f
    thread), /tmp transcript cache (disk_cache::total_bytes()/wipe_all()), message queue
    (enqueue_send/sending_for/pending_send_count), settings via /whoami (get_settings). test 8/8, test-real
    88 sessions + live settings. Also merged: tabs Chrome-overflow (0ac0779), composer meter (67cf30a).
-## RENDER-WIRING OWED (from data layer) — main_pane/composer/settings (do after sidebar merges):
-   1. per-thread switch SPINNER: read app.transcriptLoadingId / transcriptState==Loading.
-   2. composer: route sends via app.enqueue_send(id,prompt); show sending_for(id) spinner + pending_send_count badge.
-   3. settings screen: set app.requestSettings=true; render app.settings/settingsState; disk-usage row +
-      wipe button -> disk_cache::total_bytes()/wipe_all().
-   4. (still owed from earlier) open transcript at BOTTOM + jump-to-bottom button + requestLoadOlder on scroll-top.
-   5. nested per-node tool SUB-ROWS on pile expand; unified smart-view row; sidebar glyph reduction; tri-color labels.
+## HISTORICAL RENDER WIRING — COMPLETE OR REASSIGNED
+   1. [x] Per-thread switch spinner reads pane-local loading state.
+   2. [x] Composer sends through the queue and exposes pending state.
+   3. [x] Settings reads server state and exposes cache size/wipe.
+   4. [x] Newest-first bottom follow, jump-to-bottom and load-older feedback are live (`3316179`, `5ae33ee`).
+   5. Tool-message sub-row/footer work belongs to the message-actions branch. This UI-polish branch
+      does not touch that rendering; its remaining owned work is smart rows, sidebar status vocabulary,
+      neutral Home labels and the empty transcript state.
 
 ## MILESTONE (386259f, 2026-08-02): ALL 9 dispatched subagents merged + pushed. Main HEAD 386259f.
 Merged this session: startup async-auth (5s->150ms), light theme, tool-row real info, composer meter,
@@ -232,13 +215,19 @@ Re-verified post-merge: many-tabs strip clean (headline defect fixed), light the
 
 ## AUDIT ITEMS RESOLVED: #1 many-tabs, #2 light theme, #3 tool row (real fields), #14 cost meter,
    star right-align/no-bg, scroll-text-disappear (+e2e), layout-warn spam (0), settings cache wipe+size.
-## STILL OPEN (render-wiring + remaining top-10, main worktree now free):
-  - per-thread switch spinner (transcriptLoadingId); composer enqueue_send routing + queued badge
-  - open-at-bottom + jump-to-bottom button + load-older-on-scroll-top; wire settings screen (requestSettings)
-  - nested per-node tool SUB-ROWS on pile expand; unified smart-view row; sidebar glyph reduction;
-    neutral tri-color section labels; archived real sprite (still U+25A4 box); empty-transcript void
-  - T7 idle 8.6ms/frame dirty-flag skip-rebuild (biggest perf lever)
-  - fold screens.sh supplements in (all ~14 states one-shot) + visual regression
+## UI POLISH STATUS (reconciled 2026-08-27)
+  - [x] Jump-to-bottom now focuses and explicitly re-arms its own pane (`ad82541`).
+  - [x] Archived uses the Lucide sprite with no box fallback (`e8212d9`).
+  - [x] All four smart views use the same title, status-pill and metadata row (`92278a6`).
+  - [x] Home section labels are neutral; state color remains on the disclosure glyph (`1cc1b51`).
+  - [x] Sidebar rows use running/blocked/done/idle only, with unchanged 811/1163 home
+        allocations per frame and 322/428 widgets at 20/2000 sessions (`c2b9286`).
+  - [x] Empty transcripts use a two-line state anchored above the composer (`e5b52a5`).
+  - [x] Status pills were already fixed (`8a0db3f`, `fe22503`): measured foreground/background
+        contrast is 4.92–6.21:1 dark and 4.71–6.01:1 light.
+  - Message-action/tool footer and nested tool sub-rows are owned by the message-actions branch;
+    this branch does not touch that rendering.
+  - T7 dirty/skip-rebuild work remains the largest unrelated performance lever.
 
 ## PHASE AUTH — COMPLETE (d80701d). Device-code flow was already live-proven (no client_id/secret —
    client mints its own deviceCode; endpoints /api/cli/auth/code+poll verified live). Startup async fix
@@ -301,9 +290,8 @@ Ranked by heat. Each must be VERIFIED (screenshot / e2e), not assumed.
 > coming-soon redesign, +test_settings 9/9) merged from wt/settings (7d4489d). #13 split-view
 > shipped (d91a503): right pane via HANABI_SPLIT + right-click tab 'Open in split'; per-session
 > scroll statics so panes don't clobber each other. #14 hanabi-side eased scrolling (837e82e).
-> STILL OPEN: #5 tool footer (count-centered/dur-right — current single-cluster right-align is
-> reasonable; needs Gabe confirm vs navi-web), #15 'you still didnt fix this' (need his repro),
-> F2 live latency (needs live measure), V3/inline-pills/T7 (vendor-patch-gated).
+> OWNED ELSEWHERE: #5 tool footer is assigned to the message-actions branch. This branch deliberately
+> does not touch tool-message rendering or resolve that layout choice.
 
 ## GABE FEEDBACK 2026-08-03 (batch 3) — all done
 - [x] Padding between star and time (star drawn 13px in from slot right edge) — 3c56657

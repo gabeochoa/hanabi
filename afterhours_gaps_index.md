@@ -1,6 +1,6 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is ~12,000 lines and 212 numbered entries, written by dozens of
+`afterhours_gaps.md` is ~13,400 lines and 221 numbered entries, written by dozens of
 agents over several days. As a record it is good. As a work queue it is
 unusable: you cannot see what matters, what is one change, what is the same
 finding filed four times, and what has already been fixed under it.
@@ -26,15 +26,15 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings in the file | **212** |
-| Distinct gap numbers | **202** (nine numbers are used twice, one three times — §5) |
+| Numbered headings parsed by the reference checker | **221** |
+| Distinct numeric gap numbers | **212** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **218** — one per indexed heading, nothing dropped |
-| Standalone live asks | **123** |
-| Live but subsumed into a family canonical | **44** (§3) |
+| **Rows in the triage table (§6)** | **228** — one per indexed heading, nothing dropped |
+| Standalone live asks | **131** |
+| Live but subsumed into a family canonical | **46** (§3) |
 | Already fixed upstream | **9** |
-| Deliberate NEGATIVE results — do not promote | **11** (§4) |
-| hanabi/platform-owned, not afterhours' | **17** |
+| Deliberate NEGATIVE results — do not promote | **17** (§4) |
+| hanabi/platform-owned, not afterhours' | **20** |
 | **Entries WRONG or overtaken by events** | **9 found here, 4 already known** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
@@ -354,8 +354,8 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Thirteen families cover 120 of the 217 entries.** Fix the canonical one and the
-rest either close or shrink to a footnote — 41 of them are subsumed outright
+**Thirteen families cover 128 of the 228 indexed headings.** Fix the canonical one and the
+rest either close or shrink to a footnote — 46 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
 strongest evidence that the underlying mechanism, not the symptom, is the thing
@@ -368,9 +368,9 @@ to fix.
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
 | **Virtualization** | **#326** | #23, #170, #31a, #224, #220, #147 | `virtual_list` divides by one row height. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. |
-| **Alpha and antialiasing** | **#92** | #13, #15, #106, #96 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4). |
+| **Alpha and antialiasing** | **#92** | #13, #15, #106, #96, #481 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4); #481 is the status-pill instance and current measured workaround. |
 | **Text input vs text area** | **#67** | #17, #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
-| **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #337 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. |
+| **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #308, #337, #483 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. #483 measures the screenshot tax of the missing colour properties. |
 | **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. |
 | **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60, #465–#474 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). #465–#474 are the verified bundle/LaunchServices/UserNotifications/CoreSpotlight follow-up, including its measured costs and platform-gated proof. |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
@@ -408,6 +408,11 @@ reader. They must never be quietly folded into the ask list.
 | **#338** | **Two subtrees built from the same call sites get DISJOINT widget identities**, and the text measure cache is width-independent — so a split pane needed neither an id-namespacing scheme nor a per-pane cache. The natural fear about splitting a view is the one thing the library already handles. |
 | **#307** | **A stale `LineIndex` in a text area is unobservable.** `HasTextAreaState` maintains a source-line index at six sites and rebuilds it only when told, so an outside write to `storage` leaves it describing the previous string — an obvious latent bug with a one-line fix. Nothing reads it: `text_area` navigates by VISUAL rows off `layout_cache` (`text_area.h:597-600`) and the `line_index` consumers in `utils.h` have no call site in `text_area.h` at all. The one-line fix was written, and a scripted test for it passed WITHOUT the fix, twice. |
 | **#339** | **`imm::divider` and `hsplit` already exist**, and the hand-rolled version had exactly the bug the library's own doc comment warns about. The cost of not looking was a defect the library had already written down. |
+| **#475** | Arbitrary source-rectangle sprites already support an app-owned Lucide archive icon; a library icon catalogue would be the wrong layer. |
+| **#477** | The generic click system correctly focuses the clicked widget; choosing an application pane is host policy. |
+| **#478** | Smart-view row consistency is one application renderer and one mode choice, not a missing primitive. |
+| **#480** | A custom foreground glyph and adjacent label can already carry independent colors. |
+| **#482** | `JustifyContent::FlexEnd` already anchors an empty-state column without absolute positioning. |
 | **#4** | The status-glyph primitives are real and reachable — `draw_triangle`, etc. — so a shape-per-status glyph needed no gap at all. |
 | **#8** | Windowed launch cost is dominated by OS/graphics init, not by anything hanabi or afterhours does. **Log-only, deliberately.** Do not turn this into a performance ask. |
 | **#7** | RAM knobs: a *watch* item, recorded so that IF a ceiling is hit the exact knob is already written down. Not a request. |
@@ -425,9 +430,11 @@ Two more that read as gaps and are not, and belong on the same shelf:
 And the entries that are **hanabi/platform-owned**, not afterhours': **#19**, **#20** (icon
 atlas resources), **#21** (the app's own screenshot harness), **#27b**
 (`spawn_status` overflows `spawn_card` — the app's width math), **#108** and
-**#114** (`gen_icons.py`), plus the bundle/LaunchServices/UserNotifications/
-CoreSpotlight findings **#465–#474**. They sit in the same numbered series as
-library gaps and read as asks; they are not.
+**#114** (`gen_icons.py`), the bundle/LaunchServices/UserNotifications/
+CoreSpotlight findings **#465–#474**, **#479** (the four-state sidebar vocabulary),
+and **#484** (proof that changing that callback moved no entity or allocation
+counts). They sit in the same numbered series as library gaps and read as asks;
+they are not.
 
 ---
 
@@ -730,6 +737,16 @@ correction narrows them rather than closing them.
 | 472 | Default CoreSpotlight cannot persist batch state or enumerate prior ids | FIXED | HIGH | M | app (fixed) |
 | 473 | CoreSpotlight accepted the item; three mdquery predicates still returned 0 | PLATFORM-GATED | LOW | — | platform |
 | 474 | A bundled headless executable still has the real bundle id | FIXED | CRIT | XS | app (fixed) |
+| 475 | App-owned atlas already supports the real archive icon | NOT A GAP | — | — | neg |
+| 476 | No atomic scroll-to-end operation for the smoothing state | MISSING | MED | XS | live |
+| 477 | Pane focus after a child click is application policy | NOT A GAP | — | — | neg |
+| 478 | Smart-view row consistency is one app renderer | NOT A GAP | — | — | neg |
+| 479 | Four-state sidebar glyph vocabulary is Hanabi policy | PERF PROOF | — | — | app |
+| 480 | Foreground glyph and label can have independent colors | NOT A GAP | — | — | neg |
+| 481 | Status-pill alpha needs app pre-compositing | WORKAROUND | HIGH | S | dup→#15 |
+| 482 | FlexEnd already anchors an empty-state column | NOT A GAP | — | — | neg |
+| 483 | Color assertions still require screenshot processes | MISSING | HIGH | S | dup→#308 |
+| 484 | One draw-callback branch adds zero entities/allocations | PERF PROOF | — | — | app |
 
 ---
 

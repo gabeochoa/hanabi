@@ -48,9 +48,17 @@
       "threshold_pct": 0.0,
       "note": "Starred smart view, with the state chips."
     },
+    "10b_view_pinned_row_dark": {
+      "threshold_pct": 0.0,
+      "note": "Pinned smart view populated with a running session; holds the shared smart-view card structure."
+    },
     "11_view_archived_dark": {
       "threshold_pct": 0.0,
       "note": "Archived smart view."
+    },
+    "11b_view_archived_row_dark": {
+      "threshold_pct": 0.0,
+      "note": "Archived smart view populated with a settled session; holds the shared smart-view card structure."
     },
     "12_view_blocked_light": {
       "threshold_pct": 0.0,
@@ -59,6 +67,10 @@
     "13_chat_welcome_dark": {
       "threshold_pct": 0.0,
       "note": "Chat with no thread open: the welcome prompts."
+    },
+    "13b_empty_transcript_dark": {
+      "threshold_pct": 0.0,
+      "note": "An open conversation with no messages; the empty state is anchored above the composer."
     },
     "14_sidebar_folded_dark": {
       "threshold_pct": 0.0,

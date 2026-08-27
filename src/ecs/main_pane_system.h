@@ -225,14 +225,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case SmartView::Blocked:
                 render_digest(ctx, content.ent(), *app, "Blocked on you",
                               r.width, contentH, ecs::model::in_blocked_view,
-                              "Nothing is waiting on you. \xf0\x9f\x8e\x89",
-                              /*singleState=*/true);
+                              "Nothing is waiting on you. \xf0\x9f\x8e\x89");
                 break;
             case SmartView::Review:
                 render_digest(ctx, content.ent(), *app, "Ready for review",
                               r.width, contentH, ecs::model::in_review_view,
-                              "No threads are ready for review yet.",
-                              /*singleState=*/true);
+                              "No threads are ready for review yet.");
                 break;
             case SmartView::Starred:
                 render_digest(ctx, content.ent(), *app, "Pinned", r.width,
@@ -461,6 +459,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // content end). paneBottomY = the y of the transcript scroll's bottom edge.
     static void jump_to_bottom_button(UIContext<InputAction>& ctx,
                                       Entity& parent, Entity& scrollEnt,
+                                      AppComponent& app, Pane& pane,
                                       float paneW, float paneBottomY) {
         const float d = 30.0f;
         const float bx = paneW - d - 20.0f;   // right inset
@@ -498,6 +497,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             sv.scroll_offset.y = 1e9f;
             hanabi::set_scroll_target_y(sv, 1e9f);  // sync (smooth-scroll patch)
             sv.clamp_scroll();
+            model::FollowMemory& latch = model::pane_states().touch(
+                model::pane_key(pane_index(app, pane), pane.openSession->summary.id))
+                                             .latch;
+            model::note_follow_pinned(latch, sv.scroll_offset.y,
+                                      sv.scroll_target.y);
+            app.focusedPane = pane_index(app, pane);
         }
     }
 
@@ -739,18 +744,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---------------- Digest views (Blocked / Review / Starred) ------------
-    // `singleState`: this view contains exactly ONE state (Blocked / Review), so
-    // the header already names it and a per-card chip + "waiting on you" sub-line
-    // on every row is the same fact three times (same redundancy Wave 6 killed
-    // for Home's grouped sections). When true, cards render in grouped mode:
-    // no chip, just the discriminating age, collapsed to a dense single row.
-    // Starred is genuinely MIXED (any state can be starred) so it stays false.
     template <typename Pred>
     void render_digest(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const std::string& title,
                        float paneW, float paneH, Pred pred,
-                       const std::string& emptyMsg = "Nothing here right now.",
-                       bool singleState = false) {
+                       const std::string& emptyMsg = "Nothing here right now.") {
         // Reused across frames so the collection costs no allocation once the
         // catalog has been seen at its largest. clear() keeps the capacity;
         // the old local vector malloc'd a pointer per matching session on
@@ -806,7 +804,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::AllocScope _a("digest.pitch.allocs");
             for (const auto* s : rows)
                 pitches_.push_back(
-                    digest::card_pitch(*s, singleState, subScratch_));
+                    digest::card_pitch(*s, false, subScratch_));
         }
 
         float viewH = 0.0f, offsetY = 0.0f, targetY = 0.0f;
@@ -862,7 +860,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // measured that at +180 live blocks per 1000 frames on the sidebar.
         for (int k = win.first; k < win.last; ++k)
             digest_card(ctx, wrap, ++i, *rows[static_cast<size_t>(k)], app,
-                        false, cardW, singleState, /*trackCursor=*/false);
+                        false, cardW, false, false);
         card_spacer(ctx, wrap, 91, win.below);
 
         cardsBuilt_ = i;
@@ -1770,7 +1768,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // no triangles (gap #48) and a missing codepoint paints nothing at all.
     bool section_label(UIContext<InputAction>& ctx, Entity& parent,
                               int id, const std::string& text, bool first,
-                              theme::Color color, AppComponent& app,
+                              theme::Color glyphColor, AppComponent& app,
                               const std::string& shelfKey) {
         const bool collapsed = app.collapsedShelves.count(shelfKey) != 0;
         list_extent((first ? 4.0f : 20.0f) + 20.0f + 6.0f);
@@ -1802,8 +1800,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(18)})
                 .with_transparent_bg()
-                .with_on_draw_fg([collapsed, color](RectangleType r) {
-                    hanabi::glyph::chevron(r, collapsed, color, 3.2f);
+                .with_on_draw_fg([collapsed, glyphColor](RectangleType r) {
+                    hanabi::glyph::chevron(r, collapsed, glyphColor, 3.2f);
                 })
                 .with_debug_name("home_section_chev"));
 
@@ -1817,7 +1815,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(upper(text))
                 .with_size(ComponentSize{children(), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_text_color(color)
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::LABEL)
                 .with_letter_spacing(1.0f)
                 .with_alignment(TextAlignment::Left)
@@ -3544,18 +3542,48 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
 
-        if (pane.openSession->messages.empty()) {
-            div(ctx, mk(scroll.ent(), 1),
-                preset::EmptyStateText(
-                    canReply ? "No messages yet \xe2\x80\x94 start the "
-                               "conversation below."
-                             : "No messages in this thread.")
-                    .with_size(ComponentSize{percent(1.0f), pixels(40)})
-                    .with_padding(Padding{.top = pixels(28), .right = pixels(18),
-                                          .bottom = pixels(8),
+        static const bool emptyTranscriptDemo = [] {
+            const char* v = std::getenv("HANABI_EMPTY_TRANSCRIPT_DEMO");
+            return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+        }();
+        if (pane.openSession->messages.empty() || emptyTranscriptDemo) {
+            float emptyH = listH - 22.0f;
+            if (emptyH < 96.0f) emptyH = 96.0f;
+            auto empty = div(ctx, mk(scroll.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(emptyH)})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_padding(Padding{.right = pixels(18),
+                                          .bottom = pixels(28),
                                           .left = pixels(18)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_empty_anchor"));
+            div(ctx, mk(empty.ent(), 1),
+                ComponentConfig{}
+                    .with_label(canReply ? "Start this conversation"
+                                        : "No messages yet")
+                    .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::LG)
                     .with_alignment(TextAlignment::Center)
-                    .with_debug_name("transcript_empty"));
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_empty_title"));
+            div(ctx, mk(empty.ent(), 2),
+                ComponentConfig{}
+                    .with_label(canReply ? "Send a message below to begin."
+                                        : "Replies are unavailable for this backend.")
+                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::BODY)
+                    .with_alignment(TextAlignment::Center)
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_empty_body"));
             return;
         }
 
@@ -4181,7 +4209,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Clicking snaps to the newest message. (Rendered on the parent pane,
         // absolutely positioned, above the scroll content.)
         if (!pinBottom && !atBottom && contentH > viewH + 40.0f) {
-            jump_to_bottom_button(ctx, parent, scroll.ent(), paneW,
+            jump_to_bottom_button(ctx, parent, scroll.ent(), app, pane, paneW,
                                   46.0f + listH);
         }
 
