@@ -6500,9 +6500,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // message that contains one.
         // An operator that excludes this row excludes it here too: unfolding
         // a message find will not highlight would open it for nothing.
-        if (app && app->pane().findOpen &&
-            app->pane().findMemo.message_has_match(
-                static_cast<std::size_t>(index)))
+        Pane* pane = painting_pane();
+        if (pane && pane->findOpen &&
+            pane->findMemo.message_has_match(static_cast<std::size_t>(index)))
             return false;
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
