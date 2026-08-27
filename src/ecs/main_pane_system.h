@@ -2110,25 +2110,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---------------- Chat transcript --------------------------------------
 
-    // One renderable unit: a single message OR a collapsed run of >=2
-    // consecutive tool messages (a "pile"). Pre-computed once per frame with
-    // its measured height so we can (a) sum total content height and (b)
-    // VIRTUALIZE — only emit UI entities for items in the visible scroll range.
-    struct Item {
-        enum Kind { Bubble, ToolPile, ToolBlock, Spawn, NewDivider,
-                    DateDivider, Thinking, RunOutcome, Event, Delivery } kind;
-        int lo = 0;
-        int hi = 0;
-        float height = 0.0f;
-        bool isLive = false;
-        // Assistant author label grouping (V2): the "hanabi" author row shows
-        // only on the FIRST assistant message of a turn (i.e. when the previous
-        // message was the user, or this is the first message). One real
-        // assistant turn splits into several Assistant text messages interleaved
-        // with Tool messages, so without grouping the name repeats on every
-        // fragment. Continuation fragments (prev = Assistant/Tool) suppress it.
-        bool showAuthor = true;
-    };
+    using Item = model::TranscriptItem;
 
     // ---- Minimap rail -----------------------------------------------------
     // One slot per ITEM — the list the transcript measured and virtualized
@@ -3608,6 +3590,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const auto& msgs = pane.openSession->messages;
         const int n = static_cast<int>(msgs.size());
+        hanabi::prof::gauge("transcript.messages", msgs.size());
         const find_ops::Query findQ =
             pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
         static const std::vector<Match> noMatches;
@@ -3650,173 +3633,153 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // does not look like an external change and does not delete the line
         // the reader is looking at. Anything else — another window, a test
         // placing the boundary — is a real re-mark and is honoured.
-        if (!mark.unreadComputed || msgs.size() < mark.unreadSeen ||
-            lastRead != mark.unreadStamp) {
-            mark.unreadComputed = true;
-            mark.unreadStamp = lastRead;
-            mark.unreadSeen = msgs.size();
-            mark.unreadFirst = -1;
-            mark.unreadCount = 0;
-            if (lastRead > 0) {
-                for (int i = 0; i < n; ++i) {
-                    if (msgs[static_cast<size_t>(i)].created_at > lastRead) {
-                        if (mark.unreadFirst < 0) mark.unreadFirst = i;
-                        ++mark.unreadCount;
-                    }
-                }
-            }
-            // Everything new, on a thread that has been read before, means the
-            // stamp is stale rather than the whole thread being unread.
-            if (mark.unreadFirst == 0 && mark.unreadCount == n)
-                mark.unreadFirst = -1;
-        } else if (msgs.size() > mark.unreadSeen && mark.unreadFirst >= 0) {
-            // Messages arrived while it was open — they are new too, and they
-            // are appended, so the boundary index is unaffected.
-            mark.unreadCount += static_cast<int>(msgs.size() - mark.unreadSeen);
-            mark.unreadSeen = msgs.size();
-        }
+        model::update_unread(mark, msgs, lastRead, pane.transcriptMutation);
         const int firstUnread = mark.unreadFirst;
         const int unreadCount = mark.unreadCount;
 
-        // ---- Pass 1: item list + measured heights (memoized). --------------
-        std::vector<Item> items;
-        items.reserve(n);
-        float totalH = subH;
+        model::TranscriptGeometryFacts geometry;
+        geometry.pane_width = colW;
+        geometry.show_date_dividers = show_date_dividers();
+        geometry.show_reasoning = show_reasoning();
+        geometry.fold_long_messages = fold_long_messages();
+        geometry.tool_fold_mode = hanabi::fold::to_int(fold_mode());
+        geometry.unread_first = firstUnread;
+        geometry.unread_count = unreadCount;
+        geometry.find_open = pane.findOpen;
+        geometry.find_query = pane.findQuery;
+        geometry.streaming = streamingHere;
+        geometry.live_index = liveIdx;
+        geometry.stream_phase = static_cast<int>(app.streamPhase);
+        geometry.font_epoch = hanabi::text::font_epoch();
+
+        model::TranscriptItemIndex::View itemView;
         {
             hanabi::prof::Scope _p("transcript.pass1_measure");
-            int i = 0;
-            while (i < n) {
-                // The day row goes above whatever item starts this day —
-                // measured here, drawn from the same height below. A boundary
-                // INSIDE a tool pile is not marked: the pile is one visual
-                // unit, and splitting it to date it would be a worse read
-                // than a pile whose first tool carries the day.
-                if (show_date_dividers() && i > 0 &&
-                    starts_new_day(msgs[i - 1], msgs[i])) {
-                    Item d;
-                    d.kind = Item::DateDivider;
-                    d.lo = i;
-                    d.height = kDateDividerH;
-                    totalH += d.height;
-                    items.push_back(d);
-                }
-                if (i == firstUnread) {
-                    Item d;
-                    d.kind = Item::NewDivider;
-                    d.lo = i;
-                    d.hi = unreadCount;
-                    d.height = kNewDividerH;
-                    totalH += d.height;
-                    items.push_back(d);
-                }
-                const auto& m = msgs[i];
-                if (is_spawn_tool(m)) {
-                    Item it;
-                    it.kind = Item::Spawn;
-                    it.lo = i;
-                    it.height = spawn_card_height();
-                    totalH += it.height;
-                    items.push_back(it);
-                    ++i;
-                    continue;
-                }
-                if (is_delivery(m)) {
-                    Item it;
-                    it.kind = Item::Delivery;
-                    it.lo = i;
-                    it.height = delivery_height(app, m, i, colW);
-                    totalH += it.height;
-                    items.push_back(it);
-                    ++i;
-                    continue;
-                }
-                if (is_one_line_event(m)) {
-                    Item it;
-                    it.kind = Item::Event;
-                    it.lo = i;
-                    it.height = event_row_height();
-                    totalH += it.height;
-                    items.push_back(it);
-                    ++i;
-                    continue;
-                }
-                if (m.role == api::Role::Tool) {
-                    int j = i;
-                    while (j < n && msgs[j].role == api::Role::Tool &&
-                           !is_spawn_tool(msgs[j]))
-                        ++j;
-                    if (j - i >= 2) {
+            itemView = model::transcript_item_index().update(
+                model::pane_key(pane_index(app, pane),
+                                pane.openSession->summary.id),
+                msgs.data(), msgs.size(), pane.transcriptMutation, geometry,
+                [&](std::size_t start, std::vector<Item>& built) {
+                    int i = static_cast<int>(start);
+                    while (i < n) {
+                        if (geometry.show_date_dividers && i > 0 &&
+                            starts_new_day(msgs[i - 1], msgs[i])) {
+                            Item d;
+                            d.kind = Item::DateDivider;
+                            d.lo = i;
+                            d.height = kDateDividerH;
+                            built.push_back(d);
+                        }
+                        if (i == firstUnread) {
+                            Item d;
+                            d.kind = Item::NewDivider;
+                            d.lo = i;
+                            d.hi = unreadCount;
+                            d.height = kNewDividerH;
+                            built.push_back(d);
+                        }
+                        const auto& m = msgs[i];
+                        if (is_spawn_tool(m)) {
+                            Item it;
+                            it.kind = Item::Spawn;
+                            it.lo = i;
+                            it.height = spawn_card_height();
+                            built.push_back(it);
+                            ++i;
+                            continue;
+                        }
+                        if (is_delivery(m)) {
+                            Item it;
+                            it.kind = Item::Delivery;
+                            it.lo = i;
+                            it.height = delivery_height(app, m, i, colW);
+                            built.push_back(it);
+                            ++i;
+                            continue;
+                        }
+                        if (is_one_line_event(m)) {
+                            Item it;
+                            it.kind = Item::Event;
+                            it.lo = i;
+                            it.height = event_row_height();
+                            built.push_back(it);
+                            ++i;
+                            continue;
+                        }
+                        if (m.role == api::Role::Tool) {
+                            int j = i;
+                            while (j < n && msgs[j].role == api::Role::Tool &&
+                                   !is_spawn_tool(msgs[j]))
+                                ++j;
+                            if (j - i >= 2) {
+                                Item it;
+                                it.kind = Item::ToolPile;
+                                it.lo = i;
+                                it.hi = j;
+                                it.height = tool_pile_height(app, msgs, i, j);
+                                built.push_back(it);
+                                i = j;
+                                continue;
+                            }
+                            Item it;
+                            it.kind = Item::ToolBlock;
+                            it.lo = i;
+                            it.height = tool_block_height(app, msgs[i]);
+                            built.push_back(it);
+                            ++i;
+                            continue;
+                        }
+                        if (is_thinking(m) &&
+                            !(streamingHere && static_cast<size_t>(i) == liveIdx)) {
+                            if (!geometry.show_reasoning) {
+                                ++i;
+                                continue;
+                            }
+                            Item it;
+                            it.kind = Item::Thinking;
+                            it.lo = i;
+                            it.height = thinking_height(app, m, i, colW);
+                            built.push_back(it);
+                            ++i;
+                            continue;
+                        }
                         Item it;
-                        it.kind = Item::ToolPile;
+                        it.kind = Item::Bubble;
                         it.lo = i;
-                        it.hi = j;
-                        it.height = tool_pile_height(app, msgs, i, j);
-                        totalH += it.height;
-                        items.push_back(it);
-                        i = j;
-                        continue;
-                    }
-                    Item it;
-                    it.kind = Item::ToolBlock;
-                    it.lo = i;
-                    it.height = tool_block_height(app, msgs[i]);
-                    totalH += it.height;
-                    items.push_back(it);
-                    ++i;
-                    continue;
-                }
-                if (is_thinking(m) &&
-                    !(streamingHere && static_cast<size_t>(i) == liveIdx)) {
-                    // Reasoning off: the block is not measured and not built,
-                    // so it costs no height either — one skip keeps the item
-                    // list and the render in step.
-                    if (!show_reasoning()) {
+                        it.isLive = streamingHere && static_cast<size_t>(i) == liveIdx;
+                        it.showAuthor =
+                            (i == 0) ||
+                            (msgs[i - 1].role != api::Role::Assistant &&
+                             msgs[i - 1].role != api::Role::Tool);
+                        it.height = bubble_height(m, colW, it.isLive, i,
+                                                  it.showAuthor);
+                        built.push_back(it);
+                        if (draws_outcome(m.run_outcome, i == n - 1)) {
+                            Item ro;
+                            ro.kind = Item::RunOutcome;
+                            ro.lo = i;
+                            ro.height = kRunOutcomeH + kRunOutcomeGapTop;
+                            built.push_back(ro);
+                        }
                         ++i;
-                        continue;
                     }
-                    Item it;
-                    it.kind = Item::Thinking;
-                    it.lo = i;
-                    it.height = thinking_height(app, m, i, colW);
-                    totalH += it.height;
-                    items.push_back(it);
-                    ++i;
-                    continue;
-                }
-                Item it;
-                it.kind = Item::Bubble;
-                it.lo = i;
-                it.isLive = streamingHere && static_cast<size_t>(i) == liveIdx;
-                // Show the assistant author label only when this assistant
-                // message STARTS an assistant run — i.e. the previous message
-                // is NOT assistant-side (Assistant or Tool are both the same
-                // turn). A User or System message before it (or being first)
-                // begins a new run, so the "hanabi" name shows once at the top
-                // and continuation fragments (prev = Assistant/Tool) suppress
-                // the repeat. (User messages never show it.)
-                it.showAuthor =
-                    (i == 0) || (msgs[i - 1].role != api::Role::Assistant &&
-                                 msgs[i - 1].role != api::Role::Tool);
-                it.height = bubble_height(m, colW, it.isLive, i, it.showAuthor);
-                hanabi::mprobe::expect("turn#" + std::to_string(i),
-                                       it.height);
-                totalH += it.height;
-                items.push_back(it);
-                // The run this message closed, announced under it. Its own
-                // item rather than height folded into the bubble, so the
-                // virtualizer can skip it and the minimap counts it as the
-                // separate thing it is.
-                if (draws_outcome(m.run_outcome, i == n - 1)) {
-                    Item ro;
-                    ro.kind = Item::RunOutcome;
-                    ro.lo = i;
-                    ro.height = kRunOutcomeH + kRunOutcomeGapTop;
-                    totalH += ro.height;
-                    items.push_back(ro);
-                }
-                ++i;
-            }
+                });
         }
+        const std::vector<Item>& items = *itemView.items;
+        float totalH = subH + itemView.height;
+        hanabi::prof::tick("transcript.item_messages_visited",
+                           itemView.messages_visited);
+        hanabi::prof::tick(itemView.rebuilt ? "transcript.item_index_rebuild"
+                                            : "transcript.item_index_hit");
+        hanabi::prof::gauge("transcript.item_index_slots",
+                            model::transcript_item_index().slots());
+        hanabi::prof::gauge("transcript.item_index_items",
+                            model::transcript_item_index().total_items());
+        if (hanabi::mprobe::on())
+            for (const Item& item : items)
+                if (item.kind == Item::Bubble)
+                    hanabi::mprobe::expect("turn#" + std::to_string(item.lo),
+                                           item.height);
 
         // WHAT THE ITEM LIST ACTUALLY CONTAINS, as gauges. Not a perf number:
         // a gate's first job is to prove the scenario DROVE the thing it
@@ -3862,14 +3825,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (pane.anchorPending == openId &&
             msgs.size() > pane.anchorPrevMsgCount &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const size_t added = msgs.size() - pane.anchorPrevMsgCount;
-            float prependedH = 0.0f;
-            for (const auto& it : items) {
-                if (static_cast<size_t>(it.lo) < added)
-                    prependedH += it.height;
-                else
-                    break;  // items are in message order; done past the prepend
-            }
+            const float prependedH =
+                std::max(0.0f, itemView.height - itemView.previous_height);
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
             sv.scroll_offset.y += prependedH;  // hold the viewport steady
             sv.clamp_scroll();
@@ -4571,6 +4528,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.expandedPiles.clear();
                 app.collapsedPiles.clear();
                 if (subs) app.expandedPiles.insert("__subagents__");
+                model::transcript_item_index().invalidate_all();
                 app.foldPopoverOpen = false;
             }
         }
@@ -6480,7 +6438,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::size_t staleWas =
             hanabi::prof::enabled() ? render_cache().stale() : 0;
         if (!isLive) {
-            if (const auto* hit = render_cache().get(key, textW)) {
+            if (const auto* hit = render_cache().get(key, textW, m.text)) {
                 hanabi::prof::tick("cache.msgrender_hit");
                 return *hit;
             }
@@ -6512,11 +6470,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             liveSlot = std::move(r);
             return liveSlot;
         }
-        const ecs::model::MsgRender& out = render_cache().put(key, std::move(r));
+        const ecs::model::MsgRender& out = render_cache().put(key, m.text, std::move(r));
         hanabi::prof::gauge("cache.msgrender_entries",
                             render_cache().total_size());
         hanabi::prof::gauge("cache.msgrender_threads", render_cache().threads());
         return out;
+    }
+
+    static void invalidate_item_geometry(int messageIndex = -1) {
+        const Pane* pane = painting_pane();
+        if (pane == nullptr || !pane->openSession) return;
+        const std::string& id = pane->openSession->summary.id;
+        for (int paneIndex = 0; paneIndex < 2; ++paneIndex) {
+            const std::string key = model::pane_key(paneIndex, id);
+            if (messageIndex < 0)
+                model::transcript_item_index().invalidate(key);
+            else
+                model::transcript_item_index().invalidate(
+                    key, static_cast<std::size_t>(messageIndex));
+        }
     }
 
     bool is_folded(const api::Message& m, int index, int lineCount,
@@ -6724,7 +6696,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string hugKey =
             (m.id.empty() ? ("i" + std::to_string(index)) : m.id) + "|hug";
         if (!isLive) {
-            if (const float* w = render_cache().hug(hugKey, maxTextW)) {
+            if (const float* w = render_cache().hug(hugKey, maxTextW, m.text)) {
                 hanabi::prof::tick("cache.hug_hit");
                 return box_from_text_w(*w);
             }
@@ -6763,7 +6735,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               theme::text_px(lineBuf, theme::type::BODY));
         }
         const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
-        if (!isLive) render_cache().put_hug(hugKey, maxTextW, textW);
+        if (!isLive) render_cache().put_hug(hugKey, m.text, maxTextW, textW);
         return box_from_text_w(textW);
     }
 
@@ -8149,6 +8121,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (expanded) app->expandedMsgs.erase(mkey);
                 else app->expandedMsgs.insert(mkey);
                 ++app->findFoldVersion;
+                invalidate_item_geometry(index);
             }
         }
         message_actions(ctx, asstBubble.ent(), turn.ent(),
@@ -8437,12 +8410,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // the mode — so closing one row under "Expand all" does not silently
     // demote the whole thread back to folded.
     static void tool_toggle(AppComponent& app, const std::string& key,
-                            bool wasOpen) {
+                            bool wasOpen, int messageIndex) {
         if (key.empty()) return;
         app.expandedPiles.erase(key);
         app.collapsedPiles.erase(key);
         if (wasOpen) app.collapsedPiles.insert(key);
         else app.expandedPiles.insert(key);
+        invalidate_item_geometry(messageIndex);
     }
 
     // Max output lines shown when a single tool block is expanded (keeps a huge
@@ -8737,7 +8711,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         head.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (app && head.get<afterhours::ui::HasClickListener>().down) {
-            tool_toggle(*app, key, open);
+            tool_toggle(*app, key, open, keyIndex);
         }
 
         if (open) {
@@ -9113,6 +9087,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (head.ent().get<afterhours::ui::HasClickListener>().down) {
             if (open) app.expandedThinking.erase(key);
             else app.expandedThinking.insert(key);
+            invalidate_item_geometry(index);
         }
 
         div(ctx, mk(head.ent(), 1),
@@ -9220,6 +9195,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (head.ent().get<afterhours::ui::HasClickListener>().down) {
             if (open) app.expandedThinking.erase(key);
             else app.expandedThinking.insert(key);
+            invalidate_item_geometry(index);
         }
 
         div(ctx, mk(head.ent(), 1),
@@ -9407,7 +9383,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             head.addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             if (head.get<afterhours::ui::HasClickListener>().down) {
-                tool_toggle(*app, key, open);
+                tool_toggle(*app, key, open, index);
             }
         }
         if (open) {

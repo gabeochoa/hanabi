@@ -314,7 +314,7 @@ static void setup_app_state() {
     if (!app.restoreActiveId.empty() && app.backend_label == "http") {
         if (auto cached = api::disk_cache::load_transcript(app.restoreActiveId)) {
             app.pane().openSession = std::move(*cached);
-            app.pane().note_transcript_change();
+            app.pane().note_transcript_reset();
             app.pane().selectedId = app.restoreActiveId;
             app.pane().transcriptState = ecs::LoadState::Loaded;
             app.view = ecs::SmartView::Chat;  // paint the transcript, not Home
@@ -929,11 +929,13 @@ static void apply_stream_demo(ecs::AppComponent* app) {
         live.role = api::Role::Assistant;
         live.id = "__thinking_demo__";
         live.text = "";
+        const std::size_t first = msgs.size();
         msgs.push_back(live);
-        app->pane().note_transcript_change();
+        app->pane().note_transcript_append(first, 1);
     }
     app->streamActive = true;
     app->streamSessionId = app->pane().openSession->summary.id;
+    app->streamPaneIndex = app->focusedPane;
     app->streamMsgIndex = msgs.size() - 1;
     app->pane().selectedId = app->pane().openSession->summary.id;
     app->streamPhase = ecs::AppComponent::StreamPhase::Thinking;

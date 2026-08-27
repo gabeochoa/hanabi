@@ -52,9 +52,11 @@ inline bool network_active(const AppComponent& app) {
     // Either pane: the footer says whether the APP is busy, and a fetch
     // for the pane you are not focused on is still a fetch.
     return app.listPending || app.panes[0].transcriptPending ||
-           app.panes[1].transcriptPending || app.pane().loadingOlder ||
-           app.livePending || app.sendPending || app.streamCollecting ||
-           app.kickoffPending || app.settingsPending || app.authBeginPending;
+           app.panes[1].transcriptPending || app.panes[0].loadingOlder ||
+           app.panes[1].loadingOlder || app.panes[0].olderPending ||
+           app.panes[1].olderPending || app.sendPending ||
+           app.streamCollecting || app.kickoffPending || app.settingsPending ||
+           app.authBeginPending;
 }
 
 // The band's geometry constants and its two snapped placements live in

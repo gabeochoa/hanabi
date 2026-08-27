@@ -20,6 +20,7 @@
 #include "../settings.h"
 #include "../search/find_memo.h"
 #include "transcript_cache.h"
+#include "transcript_item_index.h"
 
 namespace ecs {
 
@@ -129,6 +130,35 @@ struct Pane {
     // The thread this pane is showing, and its transcript.
     std::string selectedId;
     std::optional<api::Session> openSession;
+    model::TranscriptMutation transcriptMutation;
+
+    void note_transcript_mutation(model::TranscriptMutationKind kind,
+                                  std::size_t first, std::size_t count) {
+        const std::uint64_t base = transcriptMutation.revision;
+        transcriptMutation = {base, base + 1, kind, first, count};
+        ++transcriptVersion;
+        if (transcriptVersion == 0) transcriptVersion = 1;
+    }
+
+    void note_transcript_reset() {
+        note_transcript_mutation(model::TranscriptMutationKind::Reset, 0,
+                                 openSession ? openSession->messages.size() : 0);
+    }
+
+    void note_transcript_append(std::size_t first, std::size_t count) {
+        note_transcript_mutation(model::TranscriptMutationKind::Append, first,
+                                 count);
+    }
+
+    void note_transcript_prepend(std::size_t count) {
+        note_transcript_mutation(model::TranscriptMutationKind::Prepend, 0,
+                                 count);
+    }
+
+    void note_transcript_update(std::size_t first, std::size_t count = 1) {
+        note_transcript_mutation(model::TranscriptMutationKind::Update, first,
+                                 count);
+    }
     LoadState transcriptState = LoadState::Idle;
     std::string transcriptError;
 
@@ -192,6 +222,9 @@ struct Pane {
     // True while a full-transcript ("load older") fetch is in flight, so the
     // render side can show a spinner and the loader doesn't double-fire.
     bool loadingOlder = false;
+    std::future<api::Result<api::Session>> olderFuture;
+    bool olderPending = false;
+    std::string olderPendingId;
     // Scroll-anchor preservation for load-older: when older messages are
     // prepended, the content grows ABOVE the viewport, so the scroll offset
     // must be bumped by the added-above height to keep the user's view on the
@@ -220,10 +253,7 @@ struct Pane {
     std::uint64_t transcriptVersion = 1;
     hanabi::find_memo::Memo findMemo;
 
-    void note_transcript_change() {
-        ++transcriptVersion;
-        if (transcriptVersion == 0) transcriptVersion = 1;
-    }
+    void note_transcript_change() { note_transcript_reset(); }
 
     // Is this pane showing a thread at all?
     bool has_thread() const { return openSession.has_value(); }
@@ -326,11 +356,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // Whether the OPEN thread currently has a live subscription (drives the
     // "live" status indicator's connected state). Recomputed each frame.
     bool openThreadLive = false;
-    // Legacy single-sub fields kept for the load-older / live refetch of the
-    // FOCUSED thread (the immediate-swap path). liveFuture/livePending drive a
-    // fetch whose result swaps into openSession.
-    std::future<api::Result<api::Session>> liveFuture;
-    bool livePending = false;
 
     // Phase X: LRU transcript cache (last 20 msgs x last 5 threads). On a
     // cache HIT the loader sets openSession synchronously (no fetch, no Loading
@@ -640,6 +665,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string requestStreamPrompt;   // reply into the OPEN session, streamed.
     bool streamActive = false;         // a stream is in flight.
     std::string streamSessionId;       // which session the stream targets.
+    int streamPaneIndex = 0;
     StreamPhase streamPhase = StreamPhase::Idle;
     // Wall-clock (seconds) when the current stream/thinking turn began, so the
     // live "thinking" indicator can show an elapsed timer ("Thinking… · 32s").

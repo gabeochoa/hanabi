@@ -92,27 +92,27 @@ static void test_render_cache_holds_both_panes() {
 
     // Frame 1: left pane measures, then the right pane measures.
     cache.reset_for_thread("left-thread");
-    cache.put("m1", a);
+    cache.put("m1", a.body, a);
     cache.reset_for_thread("right-thread");
-    cache.put("m1", b);
+    cache.put("m1", b.body, b);
 
     // Frame 2: the left pane comes round again and must NOT have to re-measure.
     cache.reset_for_thread("left-thread");
-    const ecs::model::MsgRender* hit = cache.get("m1", 500.0f);
+    const ecs::model::MsgRender* hit = cache.get("m1", 500.0f, "left pane message");
     CHECK(hit != nullptr);
     CHECK(hit != nullptr && hit->body == "left pane message");
     CHECK(hit != nullptr && hit->height == 42.0f);
 
     // And the right pane's own measurement is still its own.
     cache.reset_for_thread("right-thread");
-    const ecs::model::MsgRender* other = cache.get("m1", 500.0f);
+    const ecs::model::MsgRender* other = cache.get("m1", 500.0f, "right pane message");
     CHECK(other != nullptr && other->body == "right pane message");
 
     CHECK(cache.threads() == 2);
     CHECK(cache.total_size() == 2);
 
     // A width change is still a miss -- a resize has to re-measure.
-    CHECK(cache.get("m1", 501.0f) == nullptr);
+    CHECK(cache.get("m1", 501.0f, "right pane message") == nullptr);
 }
 
 static void test_render_cache_is_still_bounded() {
@@ -126,8 +126,8 @@ static void test_render_cache_is_still_bounded() {
     // to keep protecting against it.
     for (int i = 0; i < 200; ++i) {
         cache.reset_for_thread("t" + std::to_string(i));
-        cache.put("m1", r);
-        cache.put("m2", r);
+        cache.put("m1", "source-1", r);
+        cache.put("m2", "source-2", r);
     }
     CHECK(cache.threads() == ecs::model::TranscriptRenderCache::kMaxThreads);
     CHECK(cache.total_size() ==
@@ -215,11 +215,11 @@ static void test_two_panes_at_two_widths_do_not_thrash() {
     const float rightMax = 420.0f, rightHug = 305.0f;
 
     const auto measure = [&](const std::string& key, float w) {
-        if (cache.get(key, w) != nullptr) return;
+        if (cache.get(key, w, "same source") != nullptr) return;
         ecs::model::MsgRender r;
         r.wrap_w = w;
         r.height = w * 0.1f;
-        cache.put(key, r);
+        cache.put(key, "same source", r);
     };
 
     for (int frame = 0; frame < 10; ++frame) {
@@ -239,12 +239,84 @@ static void test_two_panes_at_two_widths_do_not_thrash() {
     CHECK(cache.threads() == 2);
 }
 
+static void test_same_id_content_change_invalidates_geometry() {
+    std::printf("test_same_id_content_change_invalidates_geometry\n");
+    ecs::model::TranscriptRenderCache cache;
+    cache.reset_for_thread("pane/thread");
+    ecs::model::MsgRender old;
+    old.body = "old";
+    old.wrap_w = 500.0f;
+    old.height = 20.0f;
+    cache.put("same-id|r", "old", old);
+    cache.put_hug("same-id|hug", "old", 600.0f, 300.0f);
+
+    CHECK(cache.get("same-id|r", 500.0f, "new content") == nullptr);
+    CHECK(cache.hug("same-id|hug", 600.0f, "new content") == nullptr);
+
+    ecs::model::MsgRender fresh = old;
+    fresh.body = "new content";
+    fresh.height = 40.0f;
+    cache.put("same-id|r", "new content", fresh);
+    const auto* hit = cache.get("same-id|r", 500.0f, "new content");
+    CHECK(hit != nullptr && hit->height == 40.0f);
+    CHECK(cache.changed() == 1);
+}
+
+static void test_unread_tracks_append_prepend_and_replace() {
+    std::printf("test_unread_tracks_append_prepend_and_replace\n");
+    struct M { std::int64_t created_at; };
+    std::vector<M> messages{{10}, {20}, {30}};
+    ecs::model::PaneState state;
+    ecs::model::TranscriptMutation mutation;
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == 1);
+    CHECK(state.unreadCount == 2);
+
+    messages.push_back({40});
+    mutation = {0, 1, ecs::model::TranscriptMutationKind::Append, 3, 1};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == 1);
+    CHECK(state.unreadCount == 3);
+
+    messages.insert(messages.begin(), M{5});
+    mutation = {1, 2, ecs::model::TranscriptMutationKind::Prepend, 0, 1};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == 2);
+    CHECK(state.unreadCount == 3);
+
+    messages = {{1}, {2}, {3}, {4}, {5}};
+    mutation = {2, 3, ecs::model::TranscriptMutationKind::Reset, 0, 5};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == -1);
+    CHECK(state.unreadCount == 0);
+
+    messages.push_back({30});
+    mutation = {3, 4, ecs::model::TranscriptMutationKind::Append, 5, 1};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == -1);
+    CHECK(state.unreadCount == 0);
+
+    ecs::model::PaneState liveState;
+    std::vector<M> live{{10}, {20}, {30}};
+    ecs::model::TranscriptMutation initial;
+    ecs::model::update_unread(liveState, live, 30, initial);
+    live.push_back({31});
+    live.push_back({32});
+    ecs::model::TranscriptMutation appendThenUpdate{
+        1, 2, ecs::model::TranscriptMutationKind::Update, 4, 1};
+    ecs::model::update_unread(liveState, live, 30, appendThenUpdate);
+    CHECK(liveState.unreadFirst == -1);
+    CHECK(liveState.unreadCount == 0);
+}
+
 int main() {
     std::printf("=== test_pane_memory ===\n");
     test_pane_state_is_bounded();
     test_a_draft_is_never_evicted();
     test_two_panes_on_one_thread_keep_their_own();
     test_render_cache_holds_both_panes();
+    test_same_id_content_change_invalidates_geometry();
+    test_unread_tracks_append_prepend_and_replace();
     test_two_panes_at_two_widths_do_not_thrash();
     test_render_cache_is_still_bounded();
     if (g_failures == 0) {

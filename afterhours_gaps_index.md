@@ -26,12 +26,12 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **230** |
-| Distinct numeric gap numbers | **221** (seven numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **231** |
+| Distinct numeric gap numbers | **222** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **238** — one per indexed heading, nothing dropped |
+| **Rows in the triage table (§6)** | **239** — one per indexed heading, nothing dropped |
 | Standalone live asks | **133** |
-| Live but subsumed into a family canonical | **51** (§3) |
+| Live but subsumed into a family canonical | **52** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **18** (§4) |
 | hanabi/platform-owned, not afterhours' | **22** |
@@ -367,7 +367,7 @@ to fix.
 | **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42, #435, #436, #437 | No content sizing and no reusable draw-layout artifact, so every consumer re-derives metrics and byte geometry the renderer already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Fifteen entries; filed independently by at least six agents. |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
-| **Virtualization** | **#326** | #23, #170, #31a, #224, #220, #147, #455 | `virtual_list` divides by one row height. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. #455 carries the current busy-event CPU and allocation measurements. |
+| **Virtualization** | **#326 / #420** | #23, #170, #31a, #224, #220, #147, #455 | `virtual_list` divides by one row height and has no retained prefix-height index or range invalidation. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. #455 carries the current busy-event CPU and allocation measurements; #420 carries the retained index workaround and range-invalidation ask. |
 | **Alpha and antialiasing** | **#92** | #13, #15, #106, #96, #481 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4); #481 is the status-pill instance and current measured workaround. |
 | **Text input vs text area** | **#67** | #17, #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
 | **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #308, #337, #437, #456, #457, #483 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. #483 measures the screenshot tax of the missing colour properties. |
@@ -730,6 +730,7 @@ correction narrows them rather than closing them.
 | 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
 | 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
+| 420 | `virtual_list` has no variable-height index or range invalidation | MISSING / PERF | HIGH | M | live · extends #326 |
 | 455 | Variable-height transcript virtualization still scans every item | PERFORMANCE | HIGH | M | dup→#326/#224; measured |
 | 456 | E2E has no clipboard assertion despite exposing clipboard reads | MISSING | MED | S | **live** |
 | 457 | Custom E2E commands lose quoted arguments | FOOTGUN | HIGH | S | **live** |

@@ -375,3 +375,47 @@ scripts/perf_transcript_slope.sh            # runs inside `make test`
 
 # HANABI_BIG_TURNS=<n> is n turns = 4n messages (default 40 = 160).
 ```
+
+---
+
+## 8. The item list no longer walks the transcript on unchanged frames
+
+The earlier cache made each message cheap to measure, but pass 1 still visited
+all loaded messages on every frame. The measured curve that triggered this work
+was 1.50 / 3.00 / 6.12 ms at 3,672 / 7,344 / 14,688 messages: linear, and 85%
+of the largest frame.
+
+`ecs::model::TranscriptItemIndex` now retains the item list and its total height
+per `(pane, thread)`. Four LRU slots bound it to the two visible panes plus each
+pane's previous thread. The cache key is the complete geometry contract: pane
+width, date-divider setting, reasoning setting, long-message fold setting, tool
+fold mode, unread boundary, find query, stream state and phase, font epoch, and
+the pane's explicit message revision. Appends and message updates rebuild only
+the affected suffix. Prepends and replacements rebuild the list because every
+stored message index changes. Fold toggles invalidate the affected suffix in
+both panes. Different-width panes never share a geometry slot.
+
+Matched 300-frame runs on the same binary configuration and machine:
+
+| loaded messages | pass 1 before | pass 1 after | CPU ratio | source visits/frame before | after | allocations/frame before | after | allocated bytes/frame before | after |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 3,672 | 1.896 ms | 0.122 ms | 0.064x | 3,672.3 | 12.4 | 3,074.4 | 3,087.2 | 467,951 | 397,212 |
+| 7,344 | 3.857 ms | 0.244 ms | 0.063x | 7,344.3 | 24.6 | 3,625.3 | 3,647.6 | 634,850 | 491,727 |
+| 14,688 | 9.329 ms | 0.730 ms | 0.078x | 14,688.3 | 49.1 | 4,517.6 | 4,560.9 | 940,055 | 657,208 |
+
+The time column includes two cold index builds amortized over 300 frames. The
+operation count is the stronger result: an unchanged frame visits zero source
+messages, and the whole run visits only the cold build plus a short startup
+suffix. Allocation call counts rise 0.4–1.0%; allocated bytes fall 15–30%.
+That negative result matters: retaining the item vectors trades a few small
+bookkeeping allocations for removing repeated large transient construction.
+
+`scripts/perf_transcript_slope.sh` gates the ratio
+`messages visited / (loaded messages × index calls)` at 0.02. The old path reads
+1.0; the indexed 480-message fixture reads 0.0026. The gate was sabotaged by
+forcing every lookup to rebuild and failed before the implementation was
+restored. `tests/unit/test_transcript_item_index.cpp` compares the incremental
+result with a from-scratch reference across 3,000 randomized appends, prepends,
+content/kind changes, width changes, fold toggles, date-divider toggles, and
+unread moves. `tests/unit/test_pane_memory.cpp` covers same-ID content changes,
+unread changes, and two panes at different widths.
