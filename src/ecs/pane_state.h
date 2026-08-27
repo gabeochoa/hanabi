@@ -106,6 +106,9 @@ struct PaneState {
 
     std::string copiedMessageKey;
     std::chrono::steady_clock::time_point copiedMessageAt{};
+    std::string retriedMessageKey;
+    std::chrono::steady_clock::time_point retriedMessageAt{};
+    std::string focusedMessageActionKey;
 
     bool worth_keeping() const { return !replyDraft.empty(); }
 };

@@ -7618,11 +7618,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return &model::pane_states().touch(model::pane_key(
             pane_index(*app, *pane), pane->openSession->summary.id));
     }
+    static bool recent_action(const std::string& key,
+                              const std::string& recordedKey,
+                              std::chrono::steady_clock::time_point at) {
+        if (recordedKey != key) return false;
+        return std::chrono::steady_clock::now() - at <
+               std::chrono::milliseconds(1600);
+    }
     static bool recently_copied(const std::string& key) {
         const model::PaneState* state = message_action_state();
-        if (state == nullptr || state->copiedMessageKey != key) return false;
-        const auto age = std::chrono::steady_clock::now() - state->copiedMessageAt;
-        return age < std::chrono::milliseconds(1600);
+        return state != nullptr &&
+               recent_action(key, state->copiedMessageKey,
+                             state->copiedMessageAt);
+    }
+    static bool recently_retried(const std::string& key) {
+        const model::PaneState* state = message_action_state();
+        return state != nullptr &&
+               recent_action(key, state->retriedMessageKey,
+                             state->retriedMessageAt);
     }
     static void record_copied(const std::string& key) {
         model::PaneState* state = message_action_state();
@@ -7630,22 +7643,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         state->copiedMessageKey = key;
         state->copiedMessageAt = std::chrono::steady_clock::now();
     }
+    static void record_retried(const std::string& key) {
+        model::PaneState* state = message_action_state();
+        if (state == nullptr) return;
+        state->retriedMessageKey = key;
+        state->retriedMessageAt = std::chrono::steady_clock::now();
+    }
+    static void draw_copy_action(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_rectangle_outline({cx - 4.0f, cy - 4.0f, 7.0f, 8.0f}, c);
+        afterhours::draw_rectangle_outline({cx - 2.0f, cy - 2.0f, 7.0f, 8.0f}, c);
+    }
+    static void draw_retry_action(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_ring(cx, cy, 3.2f, 4.4f, 18, c);
+        afterhours::draw_line_ex({cx + 2.0f, cy - 4.0f},
+                                 {cx + 5.0f, cy - 4.0f}, 1.4f, c);
+        afterhours::draw_line_ex({cx + 5.0f, cy - 4.0f},
+                                 {cx + 4.0f, cy - 1.0f}, 1.4f, c);
+    }
 
     void message_actions(UIContext<InputAction>& ctx, Entity& host,
                          Entity& turn, float hostW, theme::Color hostFill,
                          int index, const std::string& key,
-                         const std::string& rawText, int64_t sentAt = 0) {
-        // mouse_was_in_subtree answers "is the pointer on this turn or on
-        // anything inside it" from LAST frame's hit test — the tree being built
-        // right now hasn't been resolved yet. Without the subtree form, moving
-        // onto the Copy button would make the turn itself stop being hot and
-        // the button would vanish under the cursor. It is asked of the TURN,
-        // not of the bubble the bar hangs on, so the whole exchange is the
-        // hover target the way it was when the bar sat under it.
+                         const std::string& rawText, int64_t sentAt = 0,
+                         bool retryable = false) {
+        model::PaneState* state = message_action_state();
         const bool copied = recently_copied(key);
-        const bool show = copied || ctx.mouse_was_in_subtree(turn.id) ||
-                          hanabi::test_hooks::force_hover("msg:" + key);
-        if (!show) return;
+        const bool retried = recently_retried(key);
+        const bool hovering = ctx.mouse_was_in_subtree(turn.id) ||
+                              hanabi::test_hooks::force_hover("msg:" + key);
+        const bool focused =
+            state != nullptr && state->focusedMessageActionKey == key;
+        if (!copied && !retried && !hovering && !focused) return;
 
         auto bar = div(ctx, mk(host, 8),
             ComponentConfig{}
@@ -7659,15 +7691,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("msg_actions"));
 
-        // The time leads the button, so the pair reads left to right in the
-        // corner it hangs in. Both carry the bubble's own fill: they sit ON
-        // the message's first line, and Puffin's copy button backs itself the
-        // same way for the same reason.
         const std::string stamp =
             show_times() ? fmtutil::clock_time(sentAt) : std::string();
-        auto time_chip = [&](int id) {
-            if (stamp.empty()) return;
-            div(ctx, mk(bar.ent(), id),
+        if (!stamp.empty()) {
+            div(ctx, mk(bar.ent(), 2),
                 ComponentConfig{}
                     .with_label(stamp)
                     .with_size(ComponentSize{children(), pixels(16)})
@@ -7680,29 +7707,86 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.35f)
                     .with_debug_name("msg_time"));
-        };
-        time_chip(2);
+        }
 
-        auto btn = div(ctx, mk(bar.ent(), 1),
-            ComponentConfig{}
-                .with_label(copied ? "Copied" : "Copy")
-                .with_size(ComponentSize{pixels(56), pixels(18)})
-                .with_margin(Margin{.right = pixels(4)})
-                .with_padding(Padding{.right = pixels(6), .left = pixels(6)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_custom_text_color(copied ? theme::status_active()
-                                               : theme::text_faint())
-                .with_font_size(theme::type::MICRO)
-                .with_alignment(TextAlignment::Center)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(0.35f)
-                .with_debug_name("msg_copy_btn"));
-        btn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
-            [](Entity&) {});
-        if (btn.ent().get<afterhours::ui::HasClickListener>().down) {
+        const auto add_button = [&](int id, const char* debugName,
+                                    const std::string& label, bool active,
+                                    bool retryIcon) -> Entity& {
+            auto button = div(ctx, mk(bar.ent(), id),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(retryIcon ? 70.0f : 66.0f),
+                                             pixels(18)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_padding(Padding{.right = pixels(6), .left = pixels(5)})
+                    .with_margin(Margin{.right = pixels(4)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_roundness(0.35f)
+                    .with_debug_name(debugName));
+            const theme::Color color =
+                active ? theme::status_active() : theme::text_faint();
+            div(ctx, mk(button.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(13), pixels(16)})
+                    .with_transparent_bg()
+                    .with_margin(Margin{.right = pixels(3)})
+                    .with_on_draw_fg([retryIcon, color](RectangleType r) {
+                        if (retryIcon) draw_retry_action(r, color);
+                        else draw_copy_action(r, color);
+                    })
+                    .with_debug_name(retryIcon ? "msg_retry_icon"
+                                               : "msg_copy_icon"));
+            div(ctx, mk(button.ent(), 2),
+                ComponentConfig{}
+                    .with_label(label)
+                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(color)
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name(retryIcon ? "msg_retry_label"
+                                               : "msg_copy_label"));
+            button.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            return button.ent();
+        };
+
+        Entity& copyButton =
+            add_button(10, "msg_copy_btn", copied ? "Copied" : "Copy",
+                       copied, false);
+        if (copyButton.get<afterhours::ui::HasClickListener>().down) {
             afterhours::clipboard::set_text(rawText);
             record_copied(key);
+        }
+
+        Entity* retryButton = nullptr;
+        if (retryable) {
+            Entity& button = add_button(20, "msg_retry_btn",
+                                        retried ? "Queued" : "Retry",
+                                        retried, true);
+            retryButton = &button;
+            if (button.get<afterhours::ui::HasClickListener>().down) {
+                AppComponent* app = app_singleton();
+                Pane* pane = painting_pane();
+                if (app != nullptr && pane != nullptr && pane->openSession) {
+                    app->requestRetrySessionId = pane->openSession->summary.id;
+                    app->requestRetryPrompt = rawText;
+                    record_retried(key);
+                }
+            }
+        }
+
+        if (state != nullptr) {
+            const bool actionFocused = ctx.has_focus(copyButton.id) ||
+                (retryButton != nullptr && ctx.has_focus(retryButton->id));
+            if (actionFocused) state->focusedMessageActionKey = key;
+            else if (!hovering && state->focusedMessageActionKey == key)
+                state->focusedMessageActionKey.clear();
         }
         (void)index;
     }
@@ -7863,7 +7947,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             chat_colors::user_bubble(), index,
                             m.id.empty() ? ("msg" + std::to_string(index))
                                          : m.id,
-                            m.text, m.created_at);
+                            m.text, m.created_at,
+                            m.sync != api::SyncState::Persisting);
             return;
         }
 
