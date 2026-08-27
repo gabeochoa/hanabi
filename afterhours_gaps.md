@@ -13716,3 +13716,264 @@ not accumulate a width-keyed history. Keep the current constant-height overload
 as the zero-index fast path.
 
 CLASS: MISSING / PERFORMANCE (extends #326)
+
+---
+
+### #445 — Middle-click bypasses the UI input model, hit resolution, and scripted injector
+
+**What was wanted.** Browser-style middle-click-to-close on a tab, with the same
+hit target and scripted coverage as left and right clicks.
+
+**The afterhours mechanism.** `MousePointerState` carries only left and right
+button state (`vendor/afterhours/src/plugins/ui/context.h:99-121`), and
+`BeginUIContextManager` polls only buttons 0 and 1
+(`vendor/afterhours/src/plugins/ui/systems.h:269-279`). In test mode,
+`is_mouse_button_pressed` and `is_mouse_button_released` explicitly return false
+for every button except 0; button 2 can never be injected
+(`vendor/afterhours/src/plugins/e2e_testing/test_input.h:233-265`). The UI cannot
+resolve a middle click to `hot_id`, and the harness cannot produce one.
+
+**Correctness and cost.** A real button-2 press is visible only through the raw
+graphics facade; under `--e2e`, the same call is always false. The Hanabi path
+therefore has zero gesture-level scripted coverage. Its workaround scans the
+open tab rectangles only on the button-2 edge: O(open tabs) per middle click,
+zero scans on ordinary frames.
+
+**Workaround.** Hanabi polls button 2, applies the tab strip's scroll and clip
+math again, then calls the shared close model. This is proof-only at the gesture
+boundary: model close semantics are tested, but the injector cannot exercise
+the button that reaches them.
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h::TabBarSystem::for_each_with`
+contains the raw `is_mouse_button_pressed(2)` poll and bounded visible-tab scan;
+`tests/e2e/test_e2e.cpp::test_tab_close_fallback` and
+`test_tab_close_reconciles_both_panes` guard the resulting state transition.
+Gate: `make unit-e2e`; the missing gesture is why no `.e2e` claim is made.
+
+**Rejected.** Mapping middle click to right click would make one physical button
+open a menu and close a tab. Adding an invisible child button would still not
+receive button 2 because the state and injector discard it first.
+
+**Minimal upstream change.** Track middle down/pressed/released beside right,
+resolve it through the same hit-test path, expose `is_middle_click(id)`, and let
+the injector set button 2.
+
+CLASS: MISSING
+
+---
+
+### #446 — A horizontal-only scroll view ignores vertical wheel and Shift+wheel intent
+
+**What was wanted.** Chrome-like tab overflow: a native horizontal trackpad
+moves X directly, while a mouse wheel over the strip and Shift+wheel also move
+X, with macOS natural direction preserved.
+
+**The afterhours mechanism.** The facade already returns both axes
+(`vendor/afterhours/src/plugins/input_system.h:619-627`), but
+`HandleScrollInput` maps Y only to a vertically enabled view and X only to a
+horizontally enabled one (`vendor/afterhours/src/plugins/ui/systems.h:2088-2105`).
+There is no axis fallback and no modifier policy. On a horizontal-only view an
+ordinary wheel event with `(x=0,y=1)` moves exactly **0 px**; Shift changes
+nothing because the system never reads it.
+
+**Workaround.** Hanabi reads the vector once, prefers native X when present, and
+otherwise maps Y to X while the pointer is over the tab strip or Shift is held.
+The sign is passed through the same cached natural-scroll preference as every
+other panel. This is O(1) per frame and does not rebuild a menu or tab model.
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h::TabBarSystem::for_each_with`
+contains the tab-strip axis policy and calls `model::scroll_to_show` for active
+visibility. `tests/e2e/test_e2e.cpp::test_tab_wheel_semantics` and
+`test_tab_scroll_to_show_active` guard the policy; gates: `make uitest-shuffle
+SEED=1234` and `make unit-e2e`.
+
+**Rejected.** Raising `scroll_speed` cannot amplify a zero X delta. Using only Y
+fixes a mouse wheel but discards native horizontal trackpad motion. Enabling Y
+scroll on the strip creates a second offset the renderer never reads.
+
+**Minimal upstream change.** Add a horizontal fallback policy to
+`HasScrollView` (`None`, `WhenHorizontalOnly`, `WithShift`) and apply it before
+the existing axis updates. Keep the vector input and direction flag unchanged.
+
+CLASS: MISSING
+
+---
+
+### #447 — Drag groups start on press, with no click threshold or nested-control exclusion
+
+**What was wanted.** A tab should remain a click until the pointer moves, and a
+press on its close affordance must close rather than begin reordering.
+
+**The afterhours mechanism.** `MousePointerState` already computes a 6 px
+`press_moved` threshold (`vendor/afterhours/src/plugins/ui/context.h:118-121`,
+`vendor/afterhours/src/plugins/ui/systems.h:281-295`). Drag groups do not use it:
+`HandleDragGroupsPostLayout` starts dragging on `just_pressed` as soon as the
+pointer is inside the direct child rect
+(`vendor/afterhours/src/plugins/ui/systems.h:1714-1755`). It has no candidate
+phase and no way to exclude a nested control.
+
+**Correctness failure.** A stationary click is a drag for at least one frame.
+A close button inside a draggable tab is inside the same child rect, so the drag
+owner and close owner both qualify. This is a gesture arbitration failure, not
+a styling difference.
+
+**Workaround.** Hanabi carries four scalar drag fields, promotes the candidate
+only after 4 px, and tests the close rectangle before accepting the candidate.
+The scan is O(open tabs) only on press/release; movement is O(1).
+
+**Hanabi reference.** `src/ecs/components.h::TabStripComponent::{has_drag_candidate,
+clear_drag}` and `src/ecs/tab_bar_system.h::TabBarSystem::for_each_with`
+demonstrate the candidate threshold and close exclusion.
+`tests/e2e/test_e2e.cpp::test_tab_reorder_moves_and_preserves_active` plus the
+scripted close-hit coverage guard the behavior; gates: `make uitest-shuffle
+SEED=1234` and `make unit-e2e`.
+
+**Rejected.** Using the vendor drag group and suppressing tab clicks would make
+reordering work by deleting click-to-focus. Letting both handlers run makes a
+close or focus race the drag release.
+
+**Minimal upstream change.** Give drag groups a candidate phase keyed to
+`mouse.press_moved`, and accept a predicate or descendant tag that excludes
+nested interactive controls from drag start.
+
+CLASS: FOOTGUN
+
+---
+
+### #448 — Drag-group hit-testing ignores ancestor scroll offsets and viewport clipping
+
+**What was wanted.** Reorder tabs after the strip has overflowed, including a
+tab partially clipped at either edge.
+
+**The afterhours mechanism.** The library already has adjusted hit rectangles
+for ordinary UI input (`vendor/afterhours/src/plugins/ui/systems.h:151-169`),
+but drag start tests `child_cmp.rect()` directly
+(`vendor/afterhours/src/plugins/ui/systems.h:1732-1736`) and drop targeting tests
+`group_cmp.rect()` directly (`vendor/afterhours/src/plugins/ui/systems.h:1804-1809`).
+Neither subtracts ancestor scroll nor intersects the clip viewport.
+
+**Correctness failure.** After an ancestor scrolls 120 px, the drag source is
+still tested 120 px from where it is drawn. A child wholly behind the clip can
+still win because its raw rect remains inside the un-clipped group.
+
+**Workaround.** Hanabi derives every slot from `baseX = runLeft - scrollX`,
+intersects hit rectangles with `[runLeft, stripRight]`, and clamps the floating
+tab to the same viewport. Cost is one bounded O(open tabs) pass per press and
+release; off-screen tabs are skipped.
+
+**Hanabi reference.** `src/ecs/tab_model.h::compute_drop_index` is the
+scroll-aware drop decision used by `TabBarSystem::for_each_with`.
+`tests/e2e/test_e2e.cpp::test_tab_reorder_drop_index` and
+`test_tab_drag_across_scrolled_overflow` guard the model and overflow gesture.
+Gates: `make unit-e2e` and `make uitest-shuffle SEED=1234`.
+
+**Rejected.** Feeding the unadjusted vendor rects a fake mouse coordinate fixes
+one ancestor but breaks top-level groups and nested offsets. Disabling drag once
+there is overflow removes the feature exactly when the strip needs it.
+
+**Minimal upstream change.** Route drag source and target tests through the same
+ancestor-offset and clip-intersection helper used by ordinary hit testing.
+
+CLASS: FOOTGUN
+
+---
+
+### #449 — The drag overlay copies flat label/color only, so a composite tab loses its affordances
+
+**What was wanted.** A dragged tab should remain the same tab: title, pin,
+close affordance, active accent, and hover/focus visuals.
+
+**The afterhours mechanism.** `create_or_update_drag_overlay` constructs a new
+entity and copies only `HasLabel`, font, and `HasColor`
+(`vendor/afterhours/src/plugins/ui/systems.h:1533-1583`). Its own TODO says
+children, nested divs, and icons do not render and proposes deep cloning or
+reparenting at lines 1570-1573.
+
+**Correctness and cost.** A composite tab becomes a flat rectangle while it is
+being dragged; pin and close children disappear. Hanabi's workaround moves the
+original composite and reflows siblings. Before this pass it also allocated an
+N-float `renderX` vector every frame, even when no drag was active; that
+steady-state allocation is rejected and removed here. The 20-tab arm measured
+**774 allocations/frame on HEAD and 762 after**, while the existing arms held
+at 811 / 1163 / 1025 allocations/frame and the thread arm moved 2750 -> 2748.
+
+**Workaround.** Reposition the original tab entity at a raised layer during the
+gesture and compute sibling slots directly from `(from,to,index)`. No clone, no
+per-frame menu model, O(open tabs) draw work that the strip already pays.
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h::TabBarSystem::for_each_with`
+uses the grep-stable `auto render_x =` path to reposition the original composite.
+`tests/ui/tab_overflow_menu_and_pins.e2e` guards the in-flight drag position and
+final order; `make alloc-gate` guards steady-state churn. The captured
+`/tmp/hanabi_tab_drag_inflight.png` is **proof-only**, not a committed baseline:
+no automated pixel assertion yet distinguishes a complete composite tab from a
+flat overlay. The many-tabs baseline guards the non-dragged overflow state.
+
+**Rejected.** Deep-cloning copies transient entity identity and callbacks with
+no ownership contract. Reparenting the live subtree into an overlay perturbs
+the immediate-mode tree and focus order. A flat text overlay is visibly wrong.
+
+**Minimal upstream change.** Let a drag group render its original subtree at an
+overlay transform without changing parentage, or accept an app-provided overlay
+builder. Do not clone callbacks or state implicitly.
+
+CLASS: MISSING
+
+---
+
+### #450 — `tab_container` asks for ellipsis, then makes its text the minimum width
+
+**What was wanted.** Tabs should use available sibling slack, shrink to a
+readable floor, then scroll; long titles should ellipsize rather than forcing
+the whole strip wider.
+
+**The afterhours mechanism.** `tab_container` sets
+`TextOverflow::Ellipsis`, then sets `min_width` to `Dim::Text`
+(`vendor/afterhours/src/plugins/ui/imm_components.h:1977-1995`). The vendored
+test makes that policy explicit: a long tab must grow beyond its equal slice and
+never shrink below content (`vendor/afterhours/tests/tab_container_test.cpp:7-10`,
+`:19-37`). Ellipsis is unreachable at the point where a crowded strip needs it.
+
+**Correctness failure.** One long title can consume sibling slack without a
+floor or overflow viewport. Equal 1/N slices were previously rejected because
+they truncated a long label despite unused space in short siblings; the current
+opposite extreme prevents truncation at any pressure. Neither is Chrome's
+three-stage policy.
+
+**Workaround.** Hanabi does not use `tab_container`: it computes one uniform
+width capped at 220 px, shrinks to 40 px, then scrolls while keeping the active
+tab visible. The arithmetic is O(open tabs) and the draw loop skips wholly
+off-screen tabs.
+
+**Hanabi reference.** `src/ecs/tab_model.h::{kTabMinWidth,kTabMaxWidth,
+compute_tab_width,compute_max_scroll,scroll_to_show}` and
+`src/ecs/tab_bar_system.h::TabBarSystem::for_each_with` implement the
+max→shrink→scroll ladder. `tests/e2e/test_e2e.cpp::test_tab_overflow_width` pins
+the shipped 220 px cap; `test_tab_scroll_to_show_active` pins active visibility.
+The many-tabs and split screenshots guard the rendered state. Gates: `make
+unit-e2e`, `make validate-screenshots`, and `make alloc-gate`.
+
+**Rejected.** Equal 1/N width wastes slack and truncates early. `Dim::Text` as a
+minimum never truncates. Measuring every title every frame would add exactly the
+per-frame string work this app's allocation gate exists to reject.
+
+**Minimal upstream change.** Give `tab_container` caller-settable
+`max_width`, `min_width`, and overflow policy; distribute slack above the floor,
+then put the row in a horizontal scroll view when the sum reaches the floor.
+
+CLASS: FOOTGUN
+
+---
+
+**Range note.** #451-#454 are intentionally unassigned. The candidate claims
+were already #112 (tooltip/accessibility), #147 (scroll-view addressing), #171
+(slot identity), #79/#136 (ellipsis/measurement), or capabilities that exist
+(context menus and clipping). Padding the range would make the index worse.
+
+**Remaining measured Hanabi paths, not new afterhours gaps.** These stay under
+their existing numbers: #365 find-open is **5.452 ms/frame and 14,788
+allocations/frame**; #368 a cold 2,000-thread sidebar query is **~165 ms**; #369
+search plus Show More returns to **6,645 entities / 17.2 ms/frame**; #340 styled
+text wrapping is about **10% of allocations** and doubles with two panes. The
+rejected approaches and minimal app fixes remain in those entries. None is
+renumbered into this range.
