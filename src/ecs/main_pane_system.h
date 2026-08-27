@@ -57,6 +57,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // sections themselves; the value is Recent's original cap, shared so the
     // four sections cannot drift apart again.
     static constexpr size_t kMaxSection = 20;
+    static constexpr float kPageHeaderH = 48.0f;
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* layout = find_singleton<LayoutComponent>();
@@ -363,7 +364,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        float titlePx = theme::type::LG) {
         auto h = div(ctx, mk(parent, 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(46)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kPageHeaderH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -371,9 +372,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // with the section labels + cards in its scroll body (was 20 vs
                 // the body's 24 — a 4px title/content misalignment on every
                 // digest view). Right uses the same inset for symmetry.
-                .with_padding(Padding{.top = pixels(14),
+                .with_padding(Padding{.top = pixels(theme::chrome::SPACE_4),
                                       .right = pixels(kContentInset),
-                                      .bottom = pixels(8),
+                                      .bottom = pixels(theme::chrome::SPACE_2),
                                       .left = pixels(kContentInset)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -607,7 +608,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static void empty_state(UIContext<InputAction>& ctx, Entity& parent,
                             EmptyGlyph glyph, const std::string& msg,
                             float paneH) {
-        float colH = paneH - 46.0f;
+        float colH = paneH - kPageHeaderH;
         if (colH < 80.0f) colH = 80.0f;
         auto col = div(ctx, mk(parent, 80),
             ComponentConfig{}
@@ -796,7 +797,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        float listH = paneH - 46.0f;
+        float listH = paneH - kPageHeaderH;
         // The audit is a real row when it is on, so the list gives it the
         // height rather than overflowing the pane by it.
         if (hanabi::test_hooks::card_audit()) listH -= 16.0f;
@@ -1595,7 +1596,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // The composer is rendered ONCE at the pane level (always visible), so
         // Home just fills its content height with the digest list.
-        float listH = paneH - 46.0f;
+        float listH = paneH - kPageHeaderH;
         if (listH < 40.0f) listH = 40.0f;
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -1799,7 +1800,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               theme::Color glyphColor, AppComponent& app,
                               const std::string& shelfKey) {
         const bool collapsed = app.collapsedShelves.count(shelfKey) != 0;
-        list_extent((first ? 4.0f : 20.0f) + 20.0f + 6.0f);
+        list_extent((first ? theme::chrome::SPACE_2 : theme::chrome::SPACE_6) +
+                    20.0f + theme::chrome::SPACE_2);
 
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
@@ -1807,8 +1809,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_margin(Margin{.top = pixels(first ? 4 : 20),
-                                    .right = pixels(0), .bottom = pixels(6),
+                .with_margin(Margin{.top = pixels(first ? theme::chrome::SPACE_2
+                                                           : theme::chrome::SPACE_6),
+                                    .right = pixels(0),
+                                    .bottom = pixels(theme::chrome::SPACE_2),
                                     .left = pixels(0)})
                 .with_transparent_bg()
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
@@ -1843,7 +1847,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(upper(text))
                 .with_size(ComponentSize{children(), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::LABEL)
                 .with_letter_spacing(1.0f)
                 .with_alignment(TextAlignment::Left)
