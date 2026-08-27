@@ -4452,6 +4452,10 @@ inherit it.
 through the FontManager singleton, which means `theme.h` — a pure colour/size
 header — acquiring an ECS dependency.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** Give `measure_text_internal` a
 `colors::FontWeight w = Regular` parameter and resolve it the same way the
 renderer does. One signature, one lookup, and the whole class of "measured
@@ -4510,6 +4514,10 @@ UI framework ships now lives in the app, so every other afterhours app either
 reinvents it or ships the resting ring; and because the knob is global, an app
 that wants the ring suppressed on ONE widget still cannot have that.
 
+
+**Hanabi reference.** `src/ui/focus_visible.h` (`:focus-visible, by hand`) — implements the app-owned focus-visible heuristic and documents why FocusSource is insufficient. `src/ecs/focus_visible_system.h` (`ctx.theme.focus_ring_thickness = fv::ring_thickness()`) — applies the app-owned heuristic to afterhours' global focus-ring thickness each frame. Tests: `tests/ui/focus_ring_waits_for_the_keyboard.e2e` (`expect_text "ring off"`) — verifies the ring is absent at rest, appears after Tab, and disappears after pointer input.
+
+
 **Minimal upstream fix.** Keep a sticky `focus_visible` bool on the context —
 set when focus moves by keyboard, cleared on a pointer press — and gate the ring
 in `ComputeVisualFocusId` on it. Ten lines where the focus already lives, and
@@ -4566,6 +4574,10 @@ the slot's — which, for the row's last child, is the row's right edge. It is
 exact and it costs one measurement the layout will immediately redo, but it
 encodes the library's private constant (`kAhTextInset` in `sidebar_system.h`)
 in app code, so a change to `kInset` upstream silently moves hanabi's counts.
+
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`LEFT, not Right — see kAhTextInset`) — sub-agent counts are left-aligned in a text-plus-inset slot to make their right edge flush. `src/ecs/sidebar_footer_status.h` (`slot sized to the text PLUS afterhours' hardcoded 5px label inset`) — the footer count uses the same left-aligned slot workaround. Tests: `tests/unit/test_footer_geometry.cpp` (`label_box_x(fs::kFooterPadX) == 5.0f`) — pins the 5px label-box compensation used for flush footer text.
+
 
 **Minimal upstream fix.** Honour a per-component inset/margin on
 `ComponentConfig` and default it to the current 5px; or simply stop insetting
@@ -4665,6 +4677,10 @@ bubble's computed width is its text's (412) and not the cap (644) or the column
 (736) — because a hand-computed literal is exactly the kind of number that rots
 without a test.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`UserBox user_box`) — computes user bubble width from wrapped text and cap in app code. `src/ecs/transcript_render_cache.h` (`user_box() asks at the bubble's MAXIMUM text width`) — documents the two-width memoization shape caused by app-side hug measurement. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`assert_ui user_bubble x=646 w=412 h=35`) — pins a right-aligned shrink-to-fit user bubble rather than a cap-width or column-width bubble.
+
+
 **Minimal upstream fix.** Give `get_text_size_for_axis` the max constraint that
 is already on the widget: when `max_size[Axis::X]` resolves to a real value,
 wrap against *that* on the X pass instead of requiring `computed[Axis::X]`.
@@ -4729,6 +4745,12 @@ has no margin between column children"), now also horizontally (`spacer_x`).
 Two entities per row instead of one, and every measured gap in the design
 becomes a widget that exists only to be empty.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The mechanism is still true, but the entry's statement that with_margin is no escape is contradicted by current source and by #109.
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`spacer_x(ctx, row.ent(), 7, kViewLabelGap)`) — smart-view labels still use a spacer rather than label padding for the measured gap. `scripts/check_label_padding.py` (`with_padding() on an element that has a label and no child`) — current audit tooling detects new label-padding no-ops. Tests: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`Margin moves the`) — guards the later margin-based correction to the same family of bug.
+
+
 **Minimal upstream fix.** Either honour `Padding` in `position_text_ex` — the
 rect is right there — or, better, refuse it: make `with_padding` on an element
 that has a label and no children a warn-once, the way `resolve_weighted` now
@@ -4778,6 +4800,10 @@ correct for BODY at 13px with 9px of bubble padding and silently wrong for any
 other combination, and nothing will fail when someone changes one of them. It
 is pinned by `tests/ui/user_turn_hugs_the_right_edge.e2e` (`user_avatar y=137`
 against `user_bubble y=131`), which at least makes the rot loud.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`kAvatarTop = 6.0f`) — keeps the user avatar top offset as a measured app constant. `src/ecs/main_pane_system.h` (`with_margin(Margin{.top = pixels(kAvatarTop)`) — applies the offset to the user avatar beside the bubble. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`assert_ui user_avatar x=620 y=141 w=20 h=20`) — pins the avatar's top alignment relative to the bubble.
+
 
 **Minimal upstream fix.** `AlignItems::Baseline` / `SelfAlign::Baseline`, where
 a child with a label contributes its own first-line ascent and a child without
@@ -4850,6 +4876,10 @@ prints `<-- STALE? excludes nothing`. Those guards are real value — they are
 also thirty lines of scaffolding whose only job is to detect that a transcribed
 number has gone out of date, which is a problem a derived number does not have.
 
+
+**Hanabi reference.** `scripts/compare.py` (`DIVERGENCE_FRAME = (1180, 949)`) — declared divergence rectangles are pinned to the measured frame size. `scripts/compare.py` (`STALE? excludes nothing`) — the comparison script flags transcribed rectangles that no longer exclude any differences. Tests: `tests/unit/test_footer_geometry.cpp` (`assert_ui reads x/y/w/h/hidden/text (gap #86) and ROUNDS them`) — documents a case that had to be moved to an arithmetic unit test because screenshot/e2e geometry was insufficient. Measurement/gate: `scripts/compare.py` (`DECLARED DIVERGENCES`) — reports the measured cost of each hand-transcribed rectangle on the current pair.
+
+
 **Minimal upstream fix.** One flag on the capture path that dumps the frame's
 resolved geometry as it is written: for every entity with a `UIComponentDebug`
 name, its name and its `rect()`, as JSON, next to the PNG. The data is already
@@ -4865,6 +4895,10 @@ CLASS: TEDIOUS
 *(#85 is the same family, found independently one theme over and kept because
 it carries the proof — `pixels(12)` and `pixels(40)` render byte-identical
 frames. This entry is the fuller statement of the same thing.)*
+
+
+
+**Hanabi reference.** `scripts/check_label_padding.py` (`afterhours_gaps.md #85, #91 and #109`) — current audit tooling treats #91 as part of the active label-padding family. `src/ecs/sidebar_system.h` (`private 5px text margin and ignores the element's padding entirely`) — current row-title source documents the label-as-non-child mechanism. Tests: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`afterhours_gaps.md #85, #91`) — pins the corrected title placement for the same label-layout family.
 
 ---
 
@@ -4904,6 +4938,10 @@ a footgun, not a missing feature, and one line of documentation on
 `with_justify_content` would retire it.
 
 CLASS: TEDIOUS
+
+
+**Hanabi reference.** Negative result: `src/ecs/main_pane_system.h::with_justify_content(JustifyContent::FlexEnd)` — user rows use FlexEnd rather than a spacer sibling to right-align the bubble. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`JustifyContent::FlexEnd buys — there is no spacer sibling`) — asserts the bubble is flush right and documents the no-spacer negative result.
+
 ---
 
 ### #90 — `ctx.theme` is one global struct read at RENDER time, so a per-widget colour is a frame-wide edit
@@ -4943,6 +4981,10 @@ cares about, every frame, forever. hanabi now sets `font_muted` in
 `MainPaneSystem` too — a line in a file that has no interest in the search
 field, which exists solely because the sidebar had to shout its colour at the
 whole frame to reach one placeholder.
+
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`setting it here brightens every muted label in the frame unless the next system re-asserts its own`) — sidebar still writes global font_muted for its search placeholder. `src/ecs/main_pane_system.h` (`ctx.theme.font_muted = theme::text_faint()`) — main pane reasserts muted text color so it does not inherit sidebar state.
+
 
 **Minimal upstream fix.** Either honour the per-widget colours in `text_input`
 (gap #17's ask, which subsumes this), or give the context a scoped theme —
@@ -5092,6 +5134,10 @@ is worth more of the diff than the correctness is — fixing nine wrong glyphs
 moved the list region 14.32% -> 14.20%, and the whole glyph column can only
 ever be worth ~1.2 points of it.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** Take the sample count from `Config` (default 4, which
 is what the comment already claims) and thread it into both `sapp_desc` and the
 headless `sg_desc`, plus the `sgl_context_desc_t` for offscreen targets so a
@@ -5167,6 +5213,10 @@ cost — the row now has a rectangle of fill that must be kept in step with the
 row's hover state by hand, and it is wrong for exactly one frame after the
 pointer leaves.
 
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`with_absolute_position( pixels(panelW - kCountRightPad - countW - kStarW)`) — positions the row star from a caller-computed leading-edge formula for the trailing edge. `src/ecs/sidebar_system.h` (`It paints its own 18px of row fill before the glyph`) — repaints the row background under the overlaid star because it is not integrated with the row fill. Tests: `tests/ui/tab_close_shows_on_an_unpinned_tab.e2e` (`test_tab_colors.cpp instead`) — documents that geometry around overlaid tab marks is pinned indirectly through extracted constants.
+
+
 **Minimal upstream fix.** An anchor on `ComponentConfig`:
 `with_absolute_position(Anchor::TrailingTop, dx, dy)`, resolved against the
 parent's computed content box in the same pass that already reads
@@ -5227,6 +5277,10 @@ pointer has left the sidebar scrolls a list with no bar on it, and a keyboard
 `Page Down` never shows one at all. Reproducing that needs a timestamp and a
 fade the component has nowhere to keep, so hanabi would have to hold a
 per-scroll-view clock of its own beside every panel.
+
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`has no auto-hide mode, only a show_scrollbar bool`) — documents the overlay-scroller limitation at the current sidebar scroll panel. `src/ecs/sidebar_system.h` (`scroll.ent().get<afterhours::ui::HasScrollView>().show_scrollbar =`) — drives the afterhours scrollbar boolean from the app's current/previous subtree hover state. Tests: `tests/ui/sidebar_scroll_keeps_row_text.e2e` (`assert_ui_text "PSC daily post generator" y=706`) — pins row visibility after sidebar scrolling under the current scrollbar/list implementation.
+
 
 **Minimal upstream fix.** Replace the bool with a three-state enum —
 `Always | Never | WhileActive` — and one `float last_activity` on
@@ -5314,6 +5368,10 @@ limitation of a clipboard plugin, which is not a thing anyone reading
 `tab_colors.h` would guess. Anybody who moves a colour back into
 `tab_bar_system.h` for tidiness silently removes it from the test.
 
+
+**Hanabi reference.** `src/ecs/tab_colors.h` (`Split out of tab_bar_system.h so a headless unit test can reach it`) — the palette was moved to a graphics-free header because tab_bar_system includes the clipboard plugin. `src/ecs/tab_bar_system.h` (`include afterhours after sokol_impl.mm has pulled in sokol_app.h`) — current tab_bar_system still isolates clipboard usage in the graphics TU. Tests: `tests/unit/test_tab_colors.cpp` (`#include "../../src/ecs/tab_colors.h"`) — unit tests reach the extracted palette header without including clipboard.
+
+
 **Minimal upstream fix.** Include the backend header the arm actually uses —
 `sokol_app.h` under the Metal arm, raylib under the other — the way every other
 plugin in that directory does, and replace the silent `#else` with an
@@ -5370,6 +5428,10 @@ here for about an hour and shipped a `pinInk` local that existed for no reason.
 
 CLASS: NOT A GAP
 
+
+
+
+**Hanabi reference.** Negative result: `src/ecs/tab_colors.h::pin_ink` — pin ink remains a translucent color passed to shape drawing. `src/ecs/tab_bar_system.h` (`The alpha goes to the GPU rather than being resolved here`) — current source deliberately does not pre-compose the pushpin shape. Tests: `tests/unit/test_tab_colors.cpp::test_the_rule_survives_a_light_theme` — checks the translucent pin-ink rule survives theme changes.
 
 ---
 
@@ -5436,6 +5498,10 @@ if `user_box()` ever changes and one call site is missed, the Copy button
 detaches from the bubble's corner by exactly the drift, on hover only, in a
 state no screenshot test captures. The same fact — how wide is this bubble —
 is now written in three places and owned by none of them.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`message_actions(UIContext<InputAction>& ctx, Entity& host,`) — message action overlays take the host width as an explicit parameter. `src/ecs/main_pane_system.h` (`with_size(ComponentSize{pixels(hostW), pixels(kMsgActionsH)})`) — sizes the absolute Copy bar with a literal pixel width, not percent(). Tests: `tests/ui/message_copy_on_hover.e2e::Copy` — covers the shipped hover Copy affordance that uses the literal-width overlay.
+
 
 **Minimal upstream fix.** Let `Dim::Percent` on an absolute widget resolve
 against the PARENT's computed size instead of failing the validate. The parent
@@ -5516,6 +5582,10 @@ recovers all of the VIEWS regression — 6.02% back to 3.85%, against 1x's 3.66%
 — which is how we know the rest of the 2x result is not a registration
 artefact. For the app: hanabi's zoom is usable but every label is up to 2.5px
 off its designed inset, in a direction that depends on the zoom level.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Resolve the margin through the scaling cascade the
 same way the font size beside it already is. `position_text_ex`'s callers
@@ -5599,6 +5669,10 @@ concluding "the rest is the rasterizer" and reaching for it again. Cost: the
 parity harness has no like-for-like capture and, per the measurement above,
 cannot get one from this library.
 
+
+**Hanabi reference.** Proof patch or spike, not shipped: `scripts/shoot_hanabi.sh` (`2x CAPTURE (HANABI_SHOOT_2X=1)`) — retains the opt-in zoom-and-downsample experiment while leaving it off by default. `src/main.cpp` (`HANABI_SHOOT_2X=1 scripts/shoot_hanabi.sh`) — documents that HANABI_UI_SCALE is a zoomed capture path, not a true render-scale path. Tests: `tests/ui/ui_scale_is_a_zoom_not_a_bigger_canvas.e2e` (`ui_scale is a ZOOM, not a bigger canvas`) — guards the app's layout handling under ui_scale without claiming it is supersampling. Measurement/gate: `docs/visual-parity/PUFFIN_SPEC.md` (`HANABI_SHOOT_2X=1`) — records that zoom-and-reduce is available but scores worse overall and is not a supersample.
+
+
 **Minimal upstream fix.** A `render_scale` on `graphics::Config` (default 1.0)
 that multiplies the offscreen target's dimensions and the view transform,
 leaving the layout's logical size alone — the offscreen path already builds its
@@ -5663,6 +5737,10 @@ the app can no longer use per-widget `Proportional` overrides anywhere near a
 drawn glyph without the two disagreeing. Worth it: the marks are the one part
 of the frame a supersampled capture measurably improves, 6.92% → 5.67% against
 `ref/01_home.png`.
+
+
+**Hanabi reference.** `src/ui/viewport.h` (`inline float px(float v)`) — provides the app-side logical-to-device scale wrapper for draw callbacks. `src/ecs/sidebar_system.h::hanabi::viewport::px(kDotR)` — row status marks wrap radii/strokes in viewport::px. Tests: `tests/ui/ui_scale_is_a_zoom_not_a_bigger_canvas.e2e` (`sidebar's live footer cluster scales with everything else`) — covers scaled footer/sidebar geometry under HANABI_UI_SCALE=2.
+
 
 **Minimal upstream fix.** Pass the resolved scale to the callback —
 `std::function<void(RectangleType, float)>`, or a small `DrawContext{rect,
@@ -5755,6 +5833,12 @@ reference wants anyway — so the defect is confined to one chip per block and
 costs 5px there. Every other hug-to-text box in the app still carries it
 un-measured.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The broad renderer/API issue remains, but the claim that hanabi has no reachable advance-style helper is stale for current user_box code.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h::afterhours::ui::measure_text_line` — current user_box span measurement uses the advance-returning helper for wrapped line widths. `tests/ui/code_fence_only_its_last_line_hugs.e2e` (`assert_ui_text "exit 65" w=42`) — the code-fence test still documents the last-line chip width affected by text measurement choices. Tests: `tests/ui/code_fence_only_its_last_line_hugs.e2e` (`Every line before it does not`) — pins the current code-fence behavior after the earlier hug-to-text assumptions were corrected. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`measure_text returns the ink BOX, not the advance`) — records the original measurement and side-bearing diagnosis.
+
+
 **Minimal upstream fix.** In `backends/sokol/font_helper.h`, take the advance:
 
 ```cpp
@@ -5818,6 +5902,10 @@ and by a paragraph in the test file saying it is not held by the test. Cost:
 the one class of change this project makes constantly — deleting chrome the
 reference does not draw — is the one class it cannot regression-test, and this
 particular strip has now been removed twice.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Two small commands, both of which the runner already
 has the machinery for:
@@ -5900,6 +5988,10 @@ Cost: four lines and a paragraph of comment at every call site that wants a hint
 in its own colour, and a save/restore that is silently load-bearing — delete the
 restore and the rest of the pane's muted text changes colour, in a way no test
 in the harness can see (#61: `assert_ui` has no colour predicate).
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`const auto savedMuted = ctx.theme.font_muted`) — composer placeholder color is scoped with save/set/build/restore around the text_area call. `src/ecs/main_pane_system.h` (`text_area( ctx, mk(inputWrap.ent(), 1), replyDraft`) — the current widget is text_area, but it still relies on the global font_muted placeholder color path. Tests: `tests/ui/composer_hints_are_legible.e2e` (`expect_text "Enter to send"`) — covers the composer hint visibility/legibility behavior that depends on the placeholder-color workaround. Measurement/gate: `src/ecs/main_pane_system.h` (`Worth 68 of the hint row's 962 differing pixels`) — records the measured visual effect of the placeholder color change.
+
 
 **Minimal upstream fix.** One field and one line, symmetrical with the branch
 directly below it:
@@ -5994,6 +6086,10 @@ Three costs, and the third is the one that bites:
    widget's fill, or a translucent surface behind the glyph all break it
    silently. It works in the sidebar because the sidebar is one flat colour.
 
+
+**Hanabi reference.** `src/ui/icons.h` (`inline void rect_aa`) — implements the flat-background coverage precompositing helper. `src/ecs/sidebar_system.h::hanabi::glyph::rect_aa` — uses rect_aa for the bang and dot parts of sidebar marks, with caller-provided row background. Measurement/gate: `src/ecs/sidebar_system.h` (`0.44 / 0.97 / 0.50`) — the source comment records the measured reference coverage that rect_aa approximates.
+
+
 **Minimal upstream fix.** #92's — take the sample count from `Config`. With
 MSAA on, none of the above is needed and the arc gets soft edges too, which
 `rect_aa` can never give it. Failing that, an `afterhours::draw_rectangle_aa`
@@ -6058,6 +6154,12 @@ hand for six rows plus the folded rail, and the whole prize is 0.37 points on
 one region. Left measured and unspent, which is the cost: the fill is visibly
 squarer than the reference's at every corner and nothing in the app can say so.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's 'none taken' workaround claim is stale: current source implemented the measured fill-height/radius correction and tests it.
+
+**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`kSbViewRowH - kSbViewFillInset`) — current smart-view rows reduce fill height and give the missing pixels back as margin. `src/ecs/sidebar_system.h` (`kSbViewFillRadius /`) — current smart-view rows set measured rounded fill corners instead of leaving the squarer old fill. Tests: `tests/ui/selected_view_fill.e2e` (`assert_ui smart_item h=29`) — pins the corrected selected-row fill height. Measurement/gate: `tests/ui/selected_view_fill.e2e` (`corner radius of about 5`) — records the reference measurement used for the corrected source constants.
+
+
 **Minimal upstream fix.** A `with_background_inset(Padding)` on
 `ComponentConfig`, applied to the background rect only, before roundness is
 resolved. It is Puffin's `inset:` parameter, it changes nothing for anyone who
@@ -6116,6 +6218,10 @@ sidebar's views region keeps roughly a third of a point it cannot spend. The
 cost worth recording is that the residual is now ISOLATED: the size is swept,
 the colour is measured off the source's own token, the bboxes match, so
 anything still there is the atlas and nobody needs to re-derive that.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Not afterhours': it is `gen_icons.py`, and the fix is
 a `stroke-width` override per icon in the `ICONS` table so a caller can ask for
@@ -6224,6 +6330,10 @@ element's own label is the thing meant to move — `tab_label`, `md_table_cell`,
 (the tab bar, where `tab_label` lives, is AT FLOOR), so none is touched here.
 They are listed so the tenth round starts from the right hypothesis.
 
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`static constexpr float kRowTitleLead = 1.0f`) — current source encodes the one-pixel title lead that fixes the row-title position. `src/ecs/sidebar_system.h` (`with_margin(Margin{.left = pixels(kRowTitleLead)})`) — applies the margin-based correction that #85's escape list had ruled out. Tests: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`assert_ui row_title x=23`) — pins the source margin correction and row glyph column separation. Measurement/gate: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`list 13.56% -> 11.82% structural`) — records the measured impact of the one-pixel row-title correction.
+
+
 **Minimal upstream fix.** #85 offers two and prefers the warning; after a
 second instance the warning is clearly the right one, because the honouring
 fix would silently move nine live labels in this app alone. A label element
@@ -6323,6 +6433,10 @@ no graphics in it and tested as arithmetic
 (`tests/unit/test_footer_geometry.cpp`), which is a file that exists only
 because of this gap.
 
+
+**Hanabi reference.** `src/ecs/sidebar_footer_geometry.h` (`inline float dot_y`) — floors the activity-light y origin to whole pixels. `src/ecs/sidebar_footer_geometry.h` (`inline float dot_x`) — floors the activity-light x origin because it is derived from measured session-count text. Tests: `tests/unit/test_footer_geometry.cpp` (`the activity light's origin is on a whole pixel`) — unit-tests the snapping property that e2e geometry cannot observe. Measurement/gate: `tests/unit/test_footer_geometry.cpp` (`a 6x6 light at y=932.5 rendered rows 933..937`) — records the measured five-row failure before the workaround.
+
+
 **Minimal upstream fix.** Snap absolute translates to whole DEVICE pixels in
 `compute_relative_positions` — device, not logical, so it stays correct at
 `ui_scale 2` where #100 already shows the difference matters — with
@@ -6381,6 +6495,10 @@ frame anyone looks at and the missing 5px is in none, and no reference capture
 in this workstream shows a hover state at all, so the half that was chosen is
 the half that can be verified.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** An inset on the highlight —
 `with_hover_bg_inset(float h, float v)` — applied to the rect
 `RenderPrimitive` builds for the hover fill and to nothing else. It changes no
@@ -6433,6 +6551,10 @@ unlabelled, and so is every other icon-only control in the app — the tab
 strip's `+` and pin, the search row's filter, the collapse toggle. The cost is
 recorded here rather than paid: it is the same missing feature every time, and
 it wants building once, upstream, not five times in hanabi.
+
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`Sprite-icon button: a consistent 28x28 chrome button`) — sidebar icon buttons still use blank labels and drawn sprites. `src/ecs/main_pane_system.h` (`afterhours has no tooltip and no accessible name`) — composer send/steer source documents the missing accessible-name primitive. Tests: `tests/ui/steer_is_an_icon_with_a_name.e2e` (`expect_text "Enter to steer"`) — guards the product-level workaround that an icon-only steer button has a visible neighboring name.
+
 
 **Minimal upstream fix.** `with_tooltip(std::string)` on `ComponentConfig`,
 rendered by the existing overlay layer on a hover dwell, plus an
@@ -6498,6 +6620,10 @@ tells you a line number and not a fact, and the reflex it trains — open the
 script, count lines — is the reflex that made #104's missing assertion hard to
 notice in the first place.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** Widen the special case to a default: when a command
 times out and has args, append them. Three lines, and it makes every
 name-taking command self-describing:
@@ -6550,6 +6676,10 @@ comment at the constant recording what the first attempt measured so the next
 person does not repeat it. Multiplied by every glyph in the app: this is the
 same afternoon the footer's gear cost (13 -> 14, `37 diff pixels -> 22`) and
 the same one the filter rules cost, each rediscovered from scratch.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Have the atlas generator emit the inked bounding box
 beside the sprite rect — it already opens every PNG — and expose
@@ -6636,6 +6766,10 @@ The cost is that a cache is now load-bearing for correctness of the frame
 budget, with the failure mode caches have — it silently had a 34% hit rate and
 the only symptom was that long threads were slow.
 
+
+**Hanabi reference.** `src/util/wrap_count.h::wrapped_line_count_fast` — implements line counting without materialising every wrapped line. `src/ecs/main_pane_system.h` (`This used to be wrapped_lines(...).size()`) — transcript line count now calls the counter instead of building a vector just to count it. Tests: `tests/unit/test_wrap_count.cpp` (`wrapped line count vs afterhours' own wrapper`) — differential test checks the counter against the vendored wrapper. Measurement/gate: `docs/perf/TEXT.md` (`Fix — src/util/wrap_count.h`) — perf notes record the shipped counter and its safety test.
+
+
 **Minimal upstream fix.** A counting overload that does not materialise:
 `detail::wrapped_line_count(text, max_width, measure) -> int`, sharing the same
 break logic so it cannot disagree with `wrap_text`. Better still, have
@@ -6705,6 +6839,10 @@ frame 242.9 -> 61.8, allocations per frame 30,015 -> 9,565 at 120 messages.
 
 The cost is that both memos, and the reason the pair is two and not one, are
 now permanent load-bearing complexity in a chat app for want of a layout mode.
+
+
+**Hanabi reference.** `src/ecs/transcript_render_cache.h` (`TWO WIDTHS PER KEY`) — cache explicitly holds the max-width and hugged-width working set. `src/ecs/main_pane_system.h` (`if (const float* w = render_cache().hug(hugKey, maxTextW))`) — user-bubble hug width is memoized before recomputing wraps/measures. Tests: `tests/unit/test_text_cache.cpp::a_resize_drag_is_bounded` — generic text cache test covers bounded width-key behavior. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`hug memo (new)`) — transcript perf notes record the hit rate and miss reduction for the hug memo.
+
 
 **Minimal upstream fix.** `ComponentSize{fit_content(max), ...}` resolved
 inside AutoLayout, which already has the text, the font and the width and
@@ -6781,6 +6919,12 @@ outside the transcript). The cost is that the one shared cache the library
 provides for exactly this is unusable by the app that needs it most, and every
 app-side measurement needs its own memo instead.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The old “leave theme::text_px uncached” workaround is stale: current source memoizes the app’s advance semantics with TextKeyCache.
+
+**Hanabi reference.** Current code: `src/ui/theme.h` (`MEASURED, MEMOIZED, AND NOT THE LIBRARY'S CACHE`) — theme::text_px now has an app-owned memo over advance semantics. `src/ui/theme.h::afterhours::measure_text_internal` — the measurement still uses the advance-returning path, not TextMeasureCache's ink-box path. Tests: `tests/unit/test_text_cache.cpp::a_font_swap_drops_the_lot` — app-owned text cache invalidates when the face behind the font name changes. Measurement/gate: `docs/perf/TEXT.md` (`returns the pen ADVANCE and TextMeasureCache caches the INK BOX`) — perf notes record why the shared cache is not a drop-in.
+
+
 **Minimal upstream fix.** Make the two agree — pick advance or ink box, use it
 in both `measure_text_internal` and `measure_text`, and document which. Failing
 that, expose the cache over `measure_text_internal`'s semantics as a second
@@ -6848,6 +6992,12 @@ either changes what is drawn or re-implements hover by hand. hanabi's slope
 gate (`scripts/perf_transcript_slope.sh`) sets its allocation limit at 12 per
 message specifically to leave room for this, and says so.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The original “none applied / one mark per message by design” claim is stale; current source groups dense rails.
+
+**Hanabi reference.** Current code: `src/ui/minimap_marks.h` (`inline std::vector<Slot> group_marks`) — current minimap groups dense marks instead of requiring one widget per item. `src/ecs/main_pane_system.h` (`hanabi::minimap::group_marks(markH, markKind, top, totalH, railH)`) — transcript minimap uses grouped slots for mark widgets. Tests: `tests/unit/test_minimap_marks.cpp` (`minimap mark grouping`) — unit test covers mark grouping arithmetic. Measurement/gate: `docs/perf/EVENTS.md` (`The minimap rail was 2,263 widgets and a solid stripe — FIXED`) — perf notes record the fix and before/after mark count reduction.
+
+
 **Minimal upstream fix.** Let a `ComponentConfig` be built once and reused
 across frames, or give the immediate-mode API a batched primitive for "N
 uniform children of this parent" that resolves rects without a full config per
@@ -6906,6 +7056,12 @@ never evicts what it is about to draw and re-decode). It holds the total flat �
 180 images cost the same as 60 — and it does not reduce the per-image cost at
 all. About 70 lines, and the 28x saving that a decode-to-fit would give is
 still on the table.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The LRU workaround still exists, but the original “does not reduce per-image cost” claim is stale: current source also decodes oversized images to fit.
+
+**Hanabi reference.** `src/ui/inline_image.h` (`It now decodes to the size it draws at`) — inline image cache no longer keeps full-resolution pixels for oversized screenshots. `src/ui/decode_to_fit.h` (`Decode an image to the size it will be DRAWN at`) — Metal-only decode-to-fit workaround uses backend-private upload. Tests: `tests/unit/test_downscale.cpp::test_halving_a_retina_grab_is_a_four_fold_saving` — unit test pins the decode-to-fit reduction. Measurement/gate: `docs/perf/MEMORY.md` (`A Retina screen grab is 3024x1964: 31.6 MB resident`) — memory notes record the full-resolution cost and decode-to-fit result.
+
 
 **Minimal upstream fix.** One optional argument:
 `load_texture(path, max_dimension = 0)`, resampling during decode when the
@@ -6966,6 +7122,12 @@ and prints it on the ladder, and treats process RSS as the ground truth for
 anything GPU-shaped. Two instruments, one of which is trustworthy and blind and
 one of which is honest and vague, and a whole class of leak that only shows up
 as "the number is bigger and I do not know why".
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The original w*h*4-plus-RSS workaround is stale; current source budgets mip-chain bytes, tracks a ledger, and can read Metal device bytes.
+
+**Hanabi reference.** `src/util/gpu_mem.h` (`device_bytes() GROUND TRUTH`) — current source can read Metal device allocation when built with GPU accounting. `src/util/gpu_mem.h` (`ledger() ATTRIBUTION`) — current source keeps a Hanabi texture ledger beside the device total. Tests: `tests/unit/test_gpu_mem.cpp::test_the_ledger_tracks_live_bytes_and_churn` — unit test covers ledger bytes/live/churn behavior. Measurement/gate: `docs/perf/GATES.md` (`A leak that is not on the heap`) — gate notes record GPU memory accounting as the fix for the heap blind spot.
+
 
 **Minimal upstream fix.** Expose what sokol already counts:
 `graphics::gpu_bytes_in_use()` and `graphics::gpu_image_count()`, or simply
@@ -7031,6 +7193,10 @@ scripted-UI loop, the latter running 85 test scripts). Eleven call sites, one
 runtime gate and one source gate, for something a scoped type in the library
 would have made unforgettable.
 
+
+**Hanabi reference.** `src/util/autorelease.h` (`class AutoreleaseFrame`) — RAII pool that brackets frame/texture work on Apple platforms. `src/main.cpp` (`const hanabi::AutoreleaseFrame framePool;`) — main frame loops instantiate the pool around graphics work. Tests: `scripts/check_autorelease.py` (`check_autorelease: every graphics::begin_frame()`) — scripted source check is the regression gate for the workaround. Measurement/gate: `docs/perf/GATES.md` (`one const hanabi::AutoreleaseFrame framePool; line`) — gate notes show the check failing when one pool is deleted.
+
+
 **Minimal upstream fix.** Either (a) push and pop an autorelease pool inside
 `begin_frame`/`end_frame` on Apple platforms — two `objc_autoreleasePool*`
 calls, already in libobjc, no Objective-C++ translation unit needed — or (b)
@@ -7089,6 +7255,10 @@ five runs, with zero spread — it is at least perfectly repeatable). The cost i
 a gate that is one indirection away from the library's internals and blind to
 transient widgets.
 
+
+**Hanabi reference.** `src/main.cpp` (`widgets={} min={:.2f}ms median={:.2f}ms`) — frame-timing output reports a UI widget survivor count. `scripts/scaling_gate.sh` (`WIDGET ratio — how many UI widgets the frame builds`) — catalog-scaling gate consumes that count as its deterministic ratio. Measurement/gate: `docs/perf/GATES.md` (`UICollectionHolder's collection after the frame`) — perf gate docs record that the count is a post-frame collection count.
+
+
 **Minimal upstream fix.** A per-frame counter on the UI context — widgets
 created, widgets laid out, widgets drawn — readable after `end_frame`. It is
 three increments in code that already runs, and it turns "is this O(1) in the
@@ -7139,6 +7309,10 @@ explaining why it is a name and not a handle, plus the standing risk that a
 rename disables a gate without failing anything. It is the reason the scroll
 soak arm is the one arm in `make soak` that cannot prove it is still driving
 anything.
+
+
+**Hanabi reference.** `src/util/soak.h` (`scroll_named(const char* debugName, float dy)`) — The soak driver walks UI entities by debug name, counts ambiguous matches, then mutates HasScrollView scroll_target/scroll_offset. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`HANABI_STRESS=scroll drives sidebar_scroll, by debug`) — The perf docs record that the scroll soak is driven through the named scroll-view path.
+
 
 **Minimal upstream fix.** Have `imm::scroll_view` (and the other stateful
 widgets) return a stable, addressable handle the caller can keep — an id plus
