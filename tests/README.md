@@ -216,7 +216,8 @@ any state a click cannot reach — an overlay whose only binding is a Cmd chord,
 which the injector cannot produce (`afterhours_gaps.md` #49).
 
 A script is a plain list of commands — `click_ui <name>`, `click x y`, `mouse_move x y`,
-`scroll_wheel dx dy`, `type "…"`, `key ENTER`, `wait_frames n`,
+`scroll_wheel dx dy`, `type "…"`, `key ENTER`, `focus_ui <name>`,
+`expect_clipboard "…"`, `expect_outbox <session> "…"`, `wait_frames n`,
 `expect_text "…"`, `expect_no_text "…"`, `screenshot path`. A leading
 `# settings: {…}` line chooses the settings.json the app starts from (open
 tabs, theme, window size); the default is Home, no tabs, dark.

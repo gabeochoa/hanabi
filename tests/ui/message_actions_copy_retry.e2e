@@ -1,0 +1,21 @@
+# Pointer copy writes the exact source text; keyboard retry survives a failed send in the durable outbox.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_SEND_FAIL=1 HANABI_OUTBOX_BACKOFF=60
+
+require_thread t2
+
+mouse_move 900 160
+wait_frames 4
+expect_text "Copy"
+expect_text "Retry"
+click_ui msg_copy_btn
+wait_frames 4
+expect_text "Copied"
+expect_clipboard "Reconcile this cycle's Stars payouts against the ledger before the batch runs."
+
+focus_ui msg_retry_btn
+expect_focused msg_retry_btn
+enter
+wait_frames 40
+expect_text "Queued"
+expect_outbox t2 "Reconcile this cycle's Stars payouts against the ledger before the batch runs."

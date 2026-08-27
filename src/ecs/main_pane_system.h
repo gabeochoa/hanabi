@@ -7087,6 +7087,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (k + 1 < lines.size()) joined += "\n";
                 }
                 afterhours::clipboard::set_text(joined);
+                hanabi::test_hooks::record_clipboard_text(joined);
                 record_copied(ckey);
             }
         }
@@ -7671,6 +7672,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          const std::string& rawText, int64_t sentAt = 0,
                          bool retryable = false) {
         model::PaneState* state = message_action_state();
+        AppComponent* app = app_singleton();
+        Pane* pane = painting_pane();
+        const int paneIndex =
+            app != nullptr && pane != nullptr ? pane_index(*app, *pane) : 0;
+        const std::string paneSuffix = paneIndex == 0 ? "" : "_2";
         const bool copied = recently_copied(key);
         const bool retried = recently_retried(key);
         const bool hovering = ctx.mouse_was_in_subtree(turn.id) ||
@@ -7689,7 +7695,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::FlexEnd)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("msg_actions"));
+                .with_debug_name("msg_actions" + paneSuffix));
 
         const std::string stamp =
             show_times() ? fmtutil::clock_time(sentAt) : std::string();
@@ -7709,7 +7715,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("msg_time"));
         }
 
-        const auto add_button = [&](int id, const char* debugName,
+        const auto add_button = [&](int id, const std::string& debugName,
                                     const std::string& label, bool active,
                                     bool retryIcon) -> Entity& {
             auto button = div(ctx, mk(bar.ent(), id),
@@ -7738,8 +7744,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         if (retryIcon) draw_retry_action(r, color);
                         else draw_copy_action(r, color);
                     })
-                    .with_debug_name(retryIcon ? "msg_retry_icon"
-                                               : "msg_copy_icon"));
+                    .with_debug_name((retryIcon ? "msg_retry_icon"
+                                                    : "msg_copy_icon") +
+                                                   paneSuffix));
             div(ctx, mk(button.ent(), 2),
                 ComponentConfig{}
                     .with_label(label)
@@ -7749,30 +7756,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_font_size(theme::type::MICRO)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name(retryIcon ? "msg_retry_label"
-                                               : "msg_copy_label"));
+                    .with_debug_name((retryIcon ? "msg_retry_label"
+                                                    : "msg_copy_label") +
+                                                   paneSuffix));
             button.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             return button.ent();
         };
 
         Entity& copyButton =
-            add_button(10, "msg_copy_btn", copied ? "Copied" : "Copy",
+            add_button(10, "msg_copy_btn" + paneSuffix,
+                       copied ? "Copied" : "Copy",
                        copied, false);
         if (copyButton.get<afterhours::ui::HasClickListener>().down) {
             afterhours::clipboard::set_text(rawText);
+            hanabi::test_hooks::record_clipboard_text(rawText);
             record_copied(key);
         }
 
         Entity* retryButton = nullptr;
         if (retryable) {
-            Entity& button = add_button(20, "msg_retry_btn",
+            Entity& button = add_button(20, "msg_retry_btn" + paneSuffix,
                                         retried ? "Queued" : "Retry",
                                         retried, true);
             retryButton = &button;
             if (button.get<afterhours::ui::HasClickListener>().down) {
-                AppComponent* app = app_singleton();
-                Pane* pane = painting_pane();
                 if (app != nullptr && pane != nullptr && pane->openSession) {
                     app->requestRetrySessionId = pane->openSession->summary.id;
                     app->requestRetryPrompt = rawText;
