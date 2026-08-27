@@ -1,0 +1,16 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=t2 HANABI_SPLIT=rbig
+
+assert_ui split_focus_edge x=280
+mouse_move 900 400
+scroll_wheel 0 80
+wait_frames 30
+assert_ui jump_to_bottom hidden=false
+click_ui jump_to_bottom
+wait_frames 20
+assert_ui split_focus_edge x=693
+expect_text "Follow-up question #39:"
+mouse_move 900 400
+scroll_wheel 0 80
+wait_frames 30
+assert_ui jump_to_bottom hidden=false

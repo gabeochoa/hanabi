@@ -461,6 +461,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // content end). paneBottomY = the y of the transcript scroll's bottom edge.
     static void jump_to_bottom_button(UIContext<InputAction>& ctx,
                                       Entity& parent, Entity& scrollEnt,
+                                      AppComponent& app, Pane& pane,
                                       float paneW, float paneBottomY) {
         const float d = 30.0f;
         const float bx = paneW - d - 20.0f;   // right inset
@@ -498,6 +499,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             sv.scroll_offset.y = 1e9f;
             hanabi::set_scroll_target_y(sv, 1e9f);  // sync (smooth-scroll patch)
             sv.clamp_scroll();
+            model::FollowMemory& latch = model::pane_states().touch(
+                model::pane_key(pane_index(app, pane), pane.openSession->summary.id))
+                                             .latch;
+            model::note_follow_pinned(latch, sv.scroll_offset.y,
+                                      sv.scroll_target.y);
+            app.focusedPane = pane_index(app, pane);
         }
     }
 
@@ -4181,7 +4188,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Clicking snaps to the newest message. (Rendered on the parent pane,
         // absolutely positioned, above the scroll content.)
         if (!pinBottom && !atBottom && contentH > viewH + 40.0f) {
-            jump_to_bottom_button(ctx, parent, scroll.ent(), paneW,
+            jump_to_bottom_button(ctx, parent, scroll.ent(), app, pane, paneW,
                                   46.0f + listH);
         }
 
