@@ -115,7 +115,8 @@ class TranscriptRenderCache {
 
     // Fetch the cached render for `key` at wrap width `w`, or nullptr on a
     // miss (caller recomputes + put()s).
-    const MsgRender* get(const std::string& key, float w) const {
+    const MsgRender* get(const std::string& key, float w,
+                         const std::string& source) const {
         auto slot = threads_.find(active_);
         if (slot == threads_.end()) {
             ++absent_;
@@ -126,13 +127,20 @@ class TranscriptRenderCache {
             ++absent_;
             return nullptr;
         }
+        if (it->second.source != source) {
+            ++changed_;
+            return nullptr;
+        }
         if (const MsgRender* m = it->second.find(w)) return m;
         ++stale_;
         return nullptr;
     }
 
-    const MsgRender& put(const std::string& key, MsgRender r) {
-        return threads_[active_].map[key].insert(std::move(r));
+    const MsgRender& put(const std::string& key, const std::string& source,
+                         MsgRender r) {
+        auto& pair = threads_[active_].map[key];
+        pair.reset_for_source(source);
+        return pair.insert(std::move(r));
     }
 
     // ---- The hugged width of a user bubble, at a given pane width ---------
@@ -146,16 +154,20 @@ class TranscriptRenderCache {
     // width does. Memoized here rather than in its own container because it
     // is keyed the same way, invalidated the same way, and evicted with the
     // same thread -- one owner, one lifetime.
-    const float* hug(const std::string& key, float paneW) const {
+    const float* hug(const std::string& key, float paneW,
+                     const std::string& source) const {
         auto slot = threads_.find(active_);
         if (slot == threads_.end()) return nullptr;
         auto it = slot->second.map.find(key);
-        if (it == slot->second.map.end() || it->second.hugPaneW != paneW)
+        if (it == slot->second.map.end() || it->second.source != source ||
+            it->second.hugPaneW != paneW)
             return nullptr;
         return &it->second.hugTextW;
     }
-    void put_hug(const std::string& key, float paneW, float textW) {
+    void put_hug(const std::string& key, const std::string& source,
+                 float paneW, float textW) {
         auto& slot = threads_[active_].map[key];
+        slot.reset_for_source(source);
         slot.hugPaneW = paneW;
         slot.hugTextW = textW;
     }
@@ -168,6 +180,7 @@ class TranscriptRenderCache {
     // ping-pong survived as long as it did.
     std::size_t absent() const { return absent_; }
     std::size_t stale() const { return stale_; }
+    std::size_t changed() const { return changed_; }
 
     // Entries held for the ACTIVE thread (the number the old size() meant).
     std::size_t size() const {
@@ -196,8 +209,18 @@ class TranscriptRenderCache {
     struct WidthPair {
         MsgRender a;  // most recent
         MsgRender b;  // previous
+        std::string source;
         float hugPaneW = -1.0f;  // pane width the hug below was measured at
         float hugTextW = 0.0f;   // widest wrapped line + label inset
+
+        void reset_for_source(const std::string& next) {
+            if (source == next) return;
+            source = next;
+            a = {};
+            b = {};
+            hugPaneW = -1.0f;
+            hugTextW = 0.0f;
+        }
 
         const MsgRender* find(float w) const {
             if (a.wrap_w == w) return &a;
@@ -231,6 +254,7 @@ class TranscriptRenderCache {
     std::string active_;
     mutable std::size_t absent_ = 0;
     mutable std::size_t stale_ = 0;
+    mutable std::size_t changed_ = 0;
 };
 
 }  // namespace ecs::model

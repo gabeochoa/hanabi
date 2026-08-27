@@ -6466,7 +6466,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::size_t staleWas =
             hanabi::prof::enabled() ? render_cache().stale() : 0;
         if (!isLive) {
-            if (const auto* hit = render_cache().get(key, textW)) {
+            if (const auto* hit = render_cache().get(key, textW, m.text)) {
                 hanabi::prof::tick("cache.msgrender_hit");
                 return *hit;
             }
@@ -6498,7 +6498,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             liveSlot = std::move(r);
             return liveSlot;
         }
-        const ecs::model::MsgRender& out = render_cache().put(key, std::move(r));
+        const ecs::model::MsgRender& out = render_cache().put(key, m.text, std::move(r));
         hanabi::prof::gauge("cache.msgrender_entries",
                             render_cache().total_size());
         hanabi::prof::gauge("cache.msgrender_threads", render_cache().threads());
@@ -6710,7 +6710,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string hugKey =
             (m.id.empty() ? ("i" + std::to_string(index)) : m.id) + "|hug";
         if (!isLive) {
-            if (const float* w = render_cache().hug(hugKey, maxTextW)) {
+            if (const float* w = render_cache().hug(hugKey, maxTextW, m.text)) {
                 hanabi::prof::tick("cache.hug_hit");
                 return box_from_text_w(*w);
             }
@@ -6749,7 +6749,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               theme::text_px(lineBuf, theme::type::BODY));
         }
         const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
-        if (!isLive) render_cache().put_hug(hugKey, maxTextW, textW);
+        if (!isLive) render_cache().put_hug(hugKey, m.text, maxTextW, textW);
         return box_from_text_w(textW);
     }
 
