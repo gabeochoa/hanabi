@@ -68,8 +68,8 @@ The final frozen-Puffin comparison remains **3.90% structural on shared surfaces
 
 ## Performance verification
 
-- Transcript slope: 3,763.1 → 3,830.6 allocations/frame from 60 → 480 messages, or **0.161 allocations/message** against a limit of 12. The 480-message render cache remained **99.6%** hit. **Hanabi reference.** Gap index row `#455`, family `#326/#224`; `scripts/perf_transcript_slope.sh`.
+- Transcript slope: 3,769.0 → 3,837.4 allocations/frame from 60 → 480 messages, or **0.163 allocations/message** against a limit of 12. The 480-message render cache remained **85.5%** hit after rebasing onto the incremental transcript index. **Hanabi reference.** Gap index row `#455`, family `#326/#224`; `scripts/perf_transcript_slope.sh`.
 - Text measurement: 6.79 → 13.39 measures/frame, or **0.0157/message** against a limit of 0.05. The line-count cache remained **96.32%** hit and the advance cache **97.69%** hit at 480 messages. **Hanabi reference.** Gap index family `#340/#435/#436`; `scripts/perf_text_gate.sh`.
-- Allocation levels: **2,735/frame** for 480-message transcript and **1,025/frame** for a six-line draft, below ceilings of 3,300 and 1,250. **Hanabi reference.** Gap index rows `#305/#455`; `scripts/alloc_gate.sh`.
-- Busy-event scaling: 333 → 505 widgets and 2,371 → 2,351 allocations/frame from 15 → 240 turns; widget slope **0.76/turn** and allocation slope **−0.09/turn**. Minimap marks stayed at 241 under the 400 ceiling. **Hanabi reference.** Gap index rows `#455/#459`, family `#327`; `scripts/events_gate.sh`.
+- Allocation levels: **2,739/frame** for 480-message transcript and **1,025/frame** for a six-line draft, below ceilings of 3,300 and 1,250. **Hanabi reference.** Gap index rows `#305/#455`; `scripts/alloc_gate.sh`.
+- Busy-event scaling: 333 → 505 widgets and 2,375 → 2,355 allocations/frame from 15 → 240 turns; widget slope **0.76/turn** and allocation slope **−0.09/turn**. Minimap marks stayed at 241 under the 400 ceiling. **Hanabi reference.** Gap index rows `#455/#459`, family `#327`; `scripts/events_gate.sh`.
 - Visual determinism: **40/40** baselines reproduced at a 0.0% threshold; the fast screenshot subset also passed 8/8 inside `make test`.
