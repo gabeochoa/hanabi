@@ -4557,6 +4557,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.expandedPiles.clear();
                 app.collapsedPiles.clear();
                 if (subs) app.expandedPiles.insert("__subagents__");
+                invalidate_item_geometry();
                 app.foldPopoverOpen = false;
             }
         }
@@ -6505,6 +6506,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    static void invalidate_item_geometry(int messageIndex = -1) {
+        const Pane* pane = painting_pane();
+        if (pane == nullptr || !pane->openSession) return;
+        const std::string& id = pane->openSession->summary.id;
+        for (int paneIndex = 0; paneIndex < 2; ++paneIndex) {
+            const std::string key = model::pane_key(paneIndex, id);
+            if (messageIndex < 0)
+                model::transcript_item_index().invalidate(key);
+            else
+                model::transcript_item_index().invalidate(
+                    key, static_cast<std::size_t>(messageIndex));
+        }
+    }
+
     bool is_folded(const api::Message& m, int index, int lineCount,
                    bool isLive) {
         if (isLive || lineCount <= kFoldLines) return false;
@@ -8135,6 +8150,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (expanded) app->expandedMsgs.erase(mkey);
                 else app->expandedMsgs.insert(mkey);
                 ++app->findFoldVersion;
+                invalidate_item_geometry(index);
             }
         }
         message_actions(ctx, asstBubble.ent(), turn.ent(),
@@ -8423,12 +8439,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // the mode — so closing one row under "Expand all" does not silently
     // demote the whole thread back to folded.
     static void tool_toggle(AppComponent& app, const std::string& key,
-                            bool wasOpen) {
+                            bool wasOpen, int messageIndex) {
         if (key.empty()) return;
         app.expandedPiles.erase(key);
         app.collapsedPiles.erase(key);
         if (wasOpen) app.collapsedPiles.insert(key);
         else app.expandedPiles.insert(key);
+        invalidate_item_geometry(messageIndex);
     }
 
     // Max output lines shown when a single tool block is expanded (keeps a huge
@@ -8723,7 +8740,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         head.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (app && head.get<afterhours::ui::HasClickListener>().down) {
-            tool_toggle(*app, key, open);
+            tool_toggle(*app, key, open, keyIndex);
         }
 
         if (open) {
@@ -9099,6 +9116,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (head.ent().get<afterhours::ui::HasClickListener>().down) {
             if (open) app.expandedThinking.erase(key);
             else app.expandedThinking.insert(key);
+            invalidate_item_geometry(index);
         }
 
         div(ctx, mk(head.ent(), 1),
@@ -9206,6 +9224,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (head.ent().get<afterhours::ui::HasClickListener>().down) {
             if (open) app.expandedThinking.erase(key);
             else app.expandedThinking.insert(key);
+            invalidate_item_geometry(index);
         }
 
         div(ctx, mk(head.ent(), 1),
@@ -9393,7 +9412,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             head.addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             if (head.get<afterhours::ui::HasClickListener>().down) {
-                tool_toggle(*app, key, open);
+                tool_toggle(*app, key, open, index);
             }
         }
         if (open) {
