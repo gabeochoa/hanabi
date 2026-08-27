@@ -124,12 +124,18 @@ void update_unread(PaneState& state, const Messages& messages,
     bool recompute = !state.unreadComputed || lastRead != state.unreadStamp ||
                      size < state.unreadSeen;
     const bool mutationChanged = mutation.revision != state.unreadRevision;
+    const bool updatedAppendedTail =
+        mutationChanged && mutation.kind == TranscriptMutationKind::Update &&
+        size > state.unreadSeen && mutation.first < size &&
+        mutation.first + mutation.count >= size;
     if (mutationChanged && !recompute) {
-        if (mutation.base_revision != state.unreadRevision ||
+        if ((mutation.base_revision != state.unreadRevision &&
+             !updatedAppendedTail) ||
             mutation.kind == TranscriptMutationKind::Reset ||
             mutation.kind == TranscriptMutationKind::Prepend) {
             recompute = true;
-        } else if (mutation.kind == TranscriptMutationKind::Update) {
+        } else if (mutation.kind == TranscriptMutationKind::Update &&
+                   !updatedAppendedTail) {
             const bool onlyLast = mutation.count == 1 && size != 0 &&
                                   mutation.first + 1 == size;
             if (!onlyLast || messages.back().created_at !=
@@ -154,9 +160,12 @@ void update_unread(PaneState& state, const Messages& messages,
         if (state.unreadFirst == 0 &&
             state.unreadCount == static_cast<int>(size))
             state.unreadFirst = -1;
-    } else if (mutationChanged &&
-               mutation.kind == TranscriptMutationKind::Append) {
-        const std::size_t first = std::min(mutation.first, size);
+    } else if (mutationChanged && state.unreadFirst >= 0 &&
+               (mutation.kind == TranscriptMutationKind::Append ||
+                updatedAppendedTail)) {
+        const std::size_t first =
+            updatedAppendedTail ? state.unreadSeen
+                                : std::min(mutation.first, size);
         for (std::size_t i = first; i < size; ++i) {
             if (messages[i].created_at <= lastRead) continue;
             if (state.unreadFirst < 0)

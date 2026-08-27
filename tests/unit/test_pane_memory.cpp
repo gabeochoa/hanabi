@@ -289,6 +289,24 @@ static void test_unread_tracks_append_prepend_and_replace() {
     ecs::model::update_unread(state, messages, 15, mutation);
     CHECK(state.unreadFirst == -1);
     CHECK(state.unreadCount == 0);
+
+    messages.push_back({30});
+    mutation = {3, 4, ecs::model::TranscriptMutationKind::Append, 5, 1};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == -1);
+    CHECK(state.unreadCount == 0);
+
+    ecs::model::PaneState liveState;
+    std::vector<M> live{{10}, {20}, {30}};
+    ecs::model::TranscriptMutation initial;
+    ecs::model::update_unread(liveState, live, 30, initial);
+    live.push_back({31});
+    live.push_back({32});
+    ecs::model::TranscriptMutation appendThenUpdate{
+        1, 2, ecs::model::TranscriptMutationKind::Update, 4, 1};
+    ecs::model::update_unread(liveState, live, 30, appendThenUpdate);
+    CHECK(liveState.unreadFirst == -1);
+    CHECK(liveState.unreadCount == 0);
 }
 
 int main() {
