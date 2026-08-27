@@ -11981,7 +11981,7 @@ CLASS: FOOTGUN
 
 **Exact afterhours mechanism.** `ComponentConfig` exposes visual label, debug name, button variant, and icon texture fields at `vendor/afterhours/src/plugins/ui/component_config.h:122-191`, with setters such as `with_debug_name` at lines 478-480. There is no accessibility name, description, role, or platform accessibility adapter. This is the message/tool-specific proof of existing gap #112, not a second independent upstream ask.
 
-**Measured cost.** `focus_ui` and `expect_focused` can reach the new action containers by debug name, proving keyboard activation inside the toolkit. They cannot query a macOS accessibility tree. To avoid shipping unnamed icons, each visible action is a container plus an icon child plus a text child: a hovered user row builds seven action entities including the bar; the hidden path builds zero. The long busy-event arm remains under gate at **2381 allocations/frame** and **506 widgets**, versus **2369 / 501** before the richer action/tool presentation.
+**Measured cost.** `focus_ui` and `expect_focused` can reach the new action containers by debug name, proving keyboard activation inside the toolkit. They cannot query a macOS accessibility tree. To avoid shipping unnamed icons, each visible action is a container plus an icon child plus a text child: a hovered user row builds seven action entities including the bar; the hidden path builds zero. The long busy-event arm remains under gate at **2381 allocations/frame** and **507 widgets**, versus **2369 / 501** before the richer action/tool presentation.
 
 **Workaround.** Pair every icon with persistent visible text (`Copy`, `Retry`, `Copied`, `Queued`) and give the actionable container a stable debug name. This is readable and keyboard-focusable but does not create native assistive semantics.
 
@@ -11999,7 +11999,7 @@ CLASS: MISSING
 
 **Exact afterhours mechanism.** `imm::div` immediately dereferences the entity pair and calls `init_component` at `vendor/afterhours/src/plugins/ui/imm_components.h:126-138`. There is no hidden-widget optimization to wait for: if application code does not call `div`, no entity is created. Hover is available from `UIContext::mouse_was_in_subtree` at `vendor/afterhours/src/plugins/ui/context.h:266-295` once the host has a hit-test listener.
 
-**Measured cost.** Before this branch, `message_actions` built the absolute `msg_actions` bar and only then returned when not hovered, paying one hidden entity per visible conversational row. It now returns before the first `div`; static inspection proves **zero hidden action entities**. The post-change long busy-event gate is **2345 allocations/frame at 15 turns and 2381 at 240 turns**, slope **0.16/turn**. The +12 allocation/+5 widget level versus the pre-change 2333/2369 and 325/501 is the visible real-status/tool-detail UI, not a hidden-action slope.
+**Measured cost.** Before this branch, `message_actions` built the absolute `msg_actions` bar and only then returned when not hovered, paying one hidden entity per visible conversational row. It now returns before the first `div`; static inspection proves **zero hidden action entities**. The post-change long busy-event gate is **2345 allocations/frame at 15 turns and 2381 at 240 turns**, slope **0.16/turn**. The +12 allocation and +4/+6 widget levels versus the pre-change 2333/2369 and 325/501 are the visible real-status/tool-detail UI, not a hidden-action slope.
 
 **Workaround.** Plain application-side conditional construction. None needed upstream.
 

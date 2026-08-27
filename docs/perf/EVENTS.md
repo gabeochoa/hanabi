@@ -473,9 +473,9 @@ The message-action/tool-detail branch was measured with the same `scripts/events
 | 15 / 240 turns | before | after | delta |
 | --- | ---: | ---: | ---: |
 | allocations/frame | 2333 / 2369 | 2345 / 2381 | +12 / +12 |
-| widgets | 325 / 501 | 330 / 506 | +5 / +5 |
+| widgets | 325 / 501 | 329 / 507 | +4 / +6 |
 | allocation slope/turn | 0.16 | 0.16 | 0 |
 
-The fixed +12 allocations and +5 widgets are the visible tool name/status/footer detail. Hidden message actions add no entity: `MainPaneSystem::message_actions` returns before its first `div` unless that pane's message is hovered, focused, or showing recent feedback. The 240-turn arm remains below the 2900 allocation and 700-widget ceilings.
+The fixed +12 allocations and +4/+6 widgets are the visible tool name/status/footer detail. Hidden message actions add no entity: `MainPaneSystem::message_actions` returns before its first `div` unless that pane's message is hovered, focused, or showing recent feedback. The 240-turn arm remains below the 2900 allocation and 700-widget ceilings.
 
 The remaining cost is unchanged: variable-height transcript pass 1 still walks the complete item list. The 14,688-message measurement above is 6.12 ms in `transcript.pass1_measure`, 85% of the frame. That vendor-bound mechanism and the current Hanabi workaround are filed as afterhours gap #455.
