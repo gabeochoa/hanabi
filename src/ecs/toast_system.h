@@ -13,6 +13,8 @@
 
 #include <string>
 
+#include "../ui/secondary_surface.h"
+#include "../ui/icons.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -35,32 +37,29 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::viewport::height();
 
         const bool undoable = !app->toastUndoSessionId.empty();
-        const float barW = undoable ? 300.0f : 220.0f;
-        const float barH = 38.0f;
-        // Clear of the status bar, so the toast never covers the one strip
-        // that is supposed to be readable at all times.
-        const float y = sh - barH - 44.0f;
+        const float barW = hanabi::surface::toast_width(
+            sw, app->toastMessage.size(), undoable);
+        const float barH = 50.0f;
+        const float y = std::max(12.0f, sh - barH - 44.0f);
+        const float actionW = undoable ? 76.0f : 0.0f;
+        const float closeW = 28.0f;
+        const float messageW =
+            std::max(72.0f, barW - actionW - closeW - 28.0f);
 
-        auto bar = div(ctx, mk(uiRoot, 8300),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(barW), pixels(barH)})
-                .with_absolute_position()
-                .with_translate((sw - barW) * 0.5f, y)
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(6), .right = pixels(10),
-                                      .bottom = pixels(6), .left = pixels(14)})
-                .with_roundness(0.35f)
-                .with_render_layer(20)
-                .with_debug_name("toast"));
+        auto barConfig = hanabi::surface::menu(barW, barH, 20);
+        barConfig.with_absolute_position()
+            .with_translate((sw - barW) * 0.5f, y)
+            .with_flex_direction(FlexDirection::Row)
+            .with_align_items(AlignItems::Center)
+            .with_padding(Padding{.top = pixels(8), .left = pixels(12),
+                                  .bottom = pixels(8), .right = pixels(8)})
+            .with_debug_name("toast");
+        auto bar = div(ctx, mk(uiRoot, 8300), barConfig);
 
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_label(app->toastMessage)
-                .with_size(ComponentSize{pixels(barW - 130.0f), pixels(24)})
+                .with_size(ComponentSize{pixels(messageW), pixels(28)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::ROW)
@@ -70,20 +69,12 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
 
         if (undoable) {
             auto undo = button(ctx, mk(bar.ent(), 2),
-                ComponentConfig{}
+                hanabi::surface::action_button(68.0f, false, 21)
                     .with_label("Undo")
-                    .with_size(ComponentSize{pixels(64), pixels(26)})
-                    .with_custom_background(theme::button_secondary())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::button_secondary()))
-                    .with_custom_text_color(theme::text_primary())
+                    .with_margin(Margin{.left = pixels(8)})
                     .with_font_size(theme::type::ROW)
-                    .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
-                    .with_align_items(AlignItems::Center)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.3f)
                     .with_debug_name("toast_undo"));
             if (undo) {
                 // Re-run the SAME toggle the action ran, chosen by the kind the
@@ -114,18 +105,17 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
 
         auto close = button(ctx, mk(bar.ent(), 3),
             ComponentConfig{}
-                .with_label("\xc3\x97")
-                .with_size(ComponentSize{pixels(24), pixels(26)})
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(closeW), pixels(34)})
                 .with_margin(Margin{.left = pixels(4)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::ROW)
-                .with_alignment(TextAlignment::Center)
-                .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_render_layer(21)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "close", "\xc3\x97", theme::text_faint(), 12.0f))
                 .with_debug_name("toast_close"));
         if (close) app->dismiss_toast();
     }

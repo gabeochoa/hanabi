@@ -69,9 +69,9 @@ inline ComponentConfig menu(float width, float height, int layer) {
     return out;
 }
 
-inline ComponentConfig field(float width, int layer) {
+inline ComponentConfig field(float width, int layer, float height = kFieldH) {
     ComponentConfig out;
-    out.with_size(ComponentSize{pixels(width), pixels(kFieldH)})
+    out.with_size(ComponentSize{pixels(width), pixels(height)})
         .with_custom_background(theme::panel_bg_2())
         .with_border(theme::border(), pixels(1.0f))
         .with_custom_text_color(theme::text_primary())

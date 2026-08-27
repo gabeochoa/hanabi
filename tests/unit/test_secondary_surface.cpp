@@ -25,6 +25,10 @@ int main() {
     assert(top.width == 520.0f);
     assert(top.height == 252.0f);
 
+    assert(hanabi::surface::toast_width(1100.0f, 12, false) == 280.0f);
+    assert(hanabi::surface::toast_width(1100.0f, 40, true) == 436.0f);
+    assert(hanabi::surface::toast_width(320.0f, 80, true) == 272.0f);
+
     std::cout << "secondary surface geometry: ok\n";
     return 0;
 }

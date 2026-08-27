@@ -3240,14 +3240,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
                   AppComponent& app, Pane& pane, float paneW, int matchCount,
                   const find_ops::Query& q) {
-        // Content must FIT: afterhours has no flex-grow and warns (loudly, every
-        // frame) when a NoWrap row's children exceed it. Sized from the parts:
-        // pad 8+6, input 168, gap 6, tally 74, two 22px steppers, a 4px gap and
-        // a 22px close.
-        constexpr float kBarW = 8.0f + 168.0f + 6.0f + 74.0f + 22.0f + 22.0f +
-                                4.0f + 22.0f + 6.0f;
-        constexpr float kBarH = 34.0f;
-        const float bx = paneW - kBarW - 18.0f;
+        constexpr float kInputW = 176.0f;
+        constexpr float kTallyW = 76.0f;
+        constexpr float kButtonW = 26.0f;
+        constexpr float kBarW = 8.0f + kInputW + 6.0f + kTallyW +
+                                kButtonW * 2.0f + 4.0f + kButtonW + 6.0f;
+        constexpr float kBarH = 38.0f;
+        const float bx = std::max(12.0f, paneW - kBarW - 18.0f);
         auto bar = div(ctx, mk(parent, 7500),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(kBarW), pixels(kBarH)})
@@ -3257,10 +3256,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.right = pixels(6), .left = pixels(8)})
-                .with_custom_background(theme::over(theme::panel_bg_2(),
-                                                    theme::panel_bg()))
+                .with_custom_background(theme::panel_bg())
                 .with_border(theme::border(), pixels(1.0f))
-                .with_roundness(0.25f)
+                .with_corner_radius(hanabi::surface::kMenuCorner)
                 .with_render_layer(9)
                 .with_debug_name("find_bar"));
 
@@ -3279,13 +3277,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // inset comes from the bar's padding instead.
         afterhours::ui::imm::text_input(
             ctx, mk(bar.ent(), 1), pane.findQuery,
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(168), pixels(26)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.2f)
-                .with_render_layer(9)
+            hanabi::surface::field(kInputW, 9, 28.0f)
                 .with_debug_name("find_input"));
 
         // "3 of 12", or "no matches" once something has been typed.
@@ -3298,7 +3290,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
                 .with_label(tally)
-                .with_size(ComponentSize{pixels(74), pixels(16)})
+                .with_size(ComponentSize{pixels(kTallyW), pixels(16)})
                 .with_margin(Margin{.left = pixels(6)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -3312,12 +3304,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto b = button(ctx, mk(bar.ent(), id),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(22), pixels(22)})
-                    .with_custom_background(theme::panel_bg())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_size(ComponentSize{pixels(kButtonW), pixels(kButtonW)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.3f)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
                     .with_render_layer(9)
                     .with_on_draw_fg([up, navigable](RectangleType r) {
                         // A chevron, drawn rather than typed: the font has no
@@ -3351,13 +3343,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto close = button(ctx, mk(bar.ent(), 5),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(22), pixels(22)})
+                .with_size(ComponentSize{pixels(kButtonW), pixels(kButtonW)})
                 .with_margin(Margin{.left = pixels(4)})
-                .with_custom_background(theme::panel_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_render_layer(9)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_secondary(), 12.0f))

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 
 namespace hanabi::surface {
 
@@ -38,6 +39,15 @@ inline Rect top_centered(float screenW, float screenH, float wantedW,
     Rect out = centered(screenW, screenH, wantedW, wantedH, margin);
     out.y = std::clamp(top, margin, std::max(margin, screenH - margin - out.height));
     return out;
+}
+
+inline float toast_width(float screenW, std::size_t textLength,
+                         bool hasAction) {
+    const float desired = std::clamp(120.0f + static_cast<float>(textLength) * 6.0f +
+                                         (hasAction ? 76.0f : 0.0f),
+                                     280.0f, 460.0f);
+    return std::max(0.0f,
+                    std::min(desired, screenW - kWindowMargin * 2.0f));
 }
 
 }  // namespace hanabi::surface
