@@ -249,17 +249,18 @@ Re-verified post-merge: many-tabs strip clean (headline defect fixed), light the
    global hotkey (Cmd+Shift+N), native notifications on blocked-count increase, Spotlight (best-effort;
    likely needs .app bundle — honest verdict expected). Follows the extern "C" + poll-take-flag seam.
 
-## PHASE G — COMPLETE (merge fa56957). Native extras shipped:
-   - Global hotkey Cmd+Shift+N (Carbon RegisterEventHotKey, no Accessibility perm) -> activate + new task.
-   - Native notification on blocked-count INCREASE (NSUserNotification — no bundle/perm; UN needs .app),
-     debounced <=1/30s, primes silently, body=newly-blocked thread title. Guarded to windowed path.
-   - Spotlight: SEAM-ONLY no-op — CSSearchableIndex needs a .app bundle + LaunchServices reg (bare
-     output/hanabi.exe has no bundle id). Honest verdict + feasibility note in native_extras.mm. A .app
-     bundle would unlock BOTH Spotlight AND UN notifications — logged as the next native step.
-   New: src/native_extras.{h,mm}; makefile +Carbon. Headless --screenshot verified: no hotkey/notif side
-   effects. Gates: DEV+TLS 0/0, test 8/8, perf 155ms PASS.
-## NATIVE FOLLOW-UP (parked, needs decision): package hanabi as a .app bundle (Info.plist + bundle id +
-   LaunchServices) -> unlocks Spotlight indexing + modern UNUserNotificationCenter. Bigger packaging task.
+## PHASE G — COMPLETE (merge fa56957; packaging completed on `feat/native-bundle`). Native extras:
+   - Focus-gated Carbon hotkeys for New Task and the command palette.
+   - Per-thread blocked/finished notifications with mute, quiet-hours, 30-second debounce,
+     configurable sound, and click-to-open; delivery now uses `UNUserNotificationCenter`.
+   - CoreSpotlight catalog sync is real in the bundle and remains a safe no-op in the bare
+     developer executable. URL-scheme deep links share the notification click route.
+   Headless screenshot/script paths install none of these process or system integrations.
+## NATIVE FOLLOW-UP — COMPLETE (`feat/native-bundle`): `make app` now produces a self-contained,
+   ad-hoc-signed `Hanabi.app` with stable bundle id `io.github.gabeochoa.hanabi`; explicit reversible
+   install/register targets; `UNUserNotificationCenter` authorization/delivery; and a bounded
+   CoreSpotlight catalog with title, preview, deep-link URL, update, and deletion. Bare `make run`
+   and every headless path keep zero native side effects. See `docs/macos-bundle.md`.
 
 ---
 
@@ -290,11 +291,10 @@ Ranked by heat. Each must be VERIFIED (screenshot / e2e), not assumed.
 15. [ ] **"you still didnt fix this"** (screenshot) — RE-IDENTIFY exact item on next relaunch; likely
         one of the above resurfacing. Ask/confirm which.
 
-> NOTIFY-VERIFIED (2026-08-03): notifications + sound ARE real. src/native_extras.mm native_notify()
-> uses NSUserNotificationCenter deliverNotification with soundName=NSUserNotificationDefaultSoundName
-> (sound ON). Trigger: main.cpp fires it when the 'threads need you' count INCREASES (debounced 30s,
-> click-to-open the thread). Works ONLY from the bundled Hanabi.app (windowed path), never on --screenshot.
-> Answer to Gabe: YES, both work — relaunch the .app to receive them.
+> NOTIFY-VERIFIED (`feat/native-bundle`): notifications + sound use
+> `UNUserNotificationCenter`. The bundled app requests permission on its first windowed launch;
+> a queued first event is delivered after authorization. The caller preserves per-thread transitions,
+> mute/quiet-hours gates, 30-second debounce, sound choice, and click-to-open. Bare/headless runs are no-ops.
 
 > BATCH-2-STATUS (2026-08-03): #4 tool header now shows '[node] cmd' left-aligned (9304ef9).
 > #7-11 settings reworked (wider 2-col, all controls wired+persisted, periodic server sync,
