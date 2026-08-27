@@ -518,12 +518,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 const std::string& caption) {
         auto wrap = div(ctx, mk(parent, 81),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(120)})
+                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::Center)
-                .with_padding(Padding{.top = pixels(48)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_loading"));
@@ -557,11 +556,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      const std::string& text) {
         div(ctx, mk(parent, 80),
             preset::EmptyStateText(text)
-                .with_size(ComponentSize{percent(1.0f), pixels(60)})
-                .with_padding(Padding{.top = pixels(20), .right = pixels(18),
-                                      .bottom = pixels(8), .left = pixels(18)})
+                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
+                .with_padding(Padding{.right = pixels(28),
+                                      .left = pixels(28)})
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
-                .with_alignment(TextAlignment::Left)
+                .with_alignment(TextAlignment::Center)
                 .with_debug_name("main_note"));
     }
 
@@ -2162,10 +2162,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_render_layer(8)
-                .with_on_draw_bg([](RectangleType r) {
-                    afterhours::draw_rectangle_rounded(r, 0.5f, 6,
-                                                       theme::panel_bg_2());
-                })
                 .with_debug_name("minimap_rail"));
 
         // ---- press, drag, release --------------------------------------
@@ -2765,8 +2761,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("date_divider"));
         // Explicit widths, never percent(1.0): a percent child in a NoWrap row
         // resolves against the whole row and shoves its siblings out (gap #53).
-        // The label is centred, so each rule takes half of what it leaves.
-        float ruleW = (rowW - lw - 2.0f * kGap) * 0.5f;
+        // The label is centred, and each rule is capped so date metadata does
+        // not visually divide the conversation as strongly as a run outcome.
+        float ruleW = std::min(72.0f,
+                               (rowW - lw - 2.0f * kGap) * 0.5f);
         if (ruleW < 8.0f) ruleW = 8.0f;
         const auto rule = [&](int childId) {
             div(ctx, mk(row.ent(), childId),
@@ -3523,9 +3521,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_justify_content(JustifyContent::Center)
                     .with_padding(Padding{.right = pixels(18),
-                                          .bottom = pixels(28),
                                           .left = pixels(18)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
@@ -4769,6 +4766,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // `StripMetrics.horizontalPadding`, which insets the strip inside the
         // composer's 12 and is what puts the last pill's edge at 1099 instead
         // of at the content edge.
+        const bool compactComposer = paneW < 560.0f;
+        if (compactComposer) {
+            app.modelPopoverOpen = false;
+            app.effortPopoverOpen = false;
+        }
         auto meta = div(ctx, mk(bar.ent(), 3),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(18)})
@@ -4842,57 +4844,59 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //
         // No trailing room in the box: the effort run butts straight onto it,
         // and its own 5px inset is the word space between them.
-        const std::string currentModel = Settings::get().get_default_model();
-        const std::string modelText = hanabi::models::display_name(currentModel);
-        auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
-            ComponentConfig{}
-                .with_label(modelText)
-                .with_size(ComponentSize{pixels(run_box(modelText, 0.0f)),
-                                         pixels(18)})
-                .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_alignment(TextAlignment::Left)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_debug_name("composer_model"));
-        if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
-        if (app.escape == EscapeIntent::CloseModelPicker)
-            app.modelPopoverOpen = false;
-        render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
+        if (!compactComposer) {
+            const std::string currentModel = Settings::get().get_default_model();
+            const std::string modelText = hanabi::models::display_name(currentModel);
+            auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
+                ComponentConfig{}
+                    .with_label(modelText)
+                    .with_size(ComponentSize{pixels(run_box(modelText, 0.0f)),
+                                             pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("composer_model"));
+            if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
+            if (app.escape == EscapeIntent::CloseModelPicker)
+                app.modelPopoverOpen = false;
+            render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
 
-        // The effort, parenthesised directly onto the model the way Puffin
-        // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
-        // `Text(name)` then `Text(" (\(effort))").opacity(0.7)`, which is why
-        // the reference reads "Opus 5 (high)" as a single run of words.
-        //
-        // Two widgets rather than one, because hanabi's model and effort are
-        // two SEPARATE pickers where Puffin's are one popover. Butted together
-        // and drawn a shade fainter, they are the same run of text on screen;
-        // each half still opens its own list, and `composer_effort` stays the
-        // name the effort test clicks.
-        const std::string currentEffort = Settings::get().get_default_effort();
-        const std::string effortText =
-            "(" + hanabi::effort::display_name(currentEffort) + ")";
-        auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
-            ComponentConfig{}
-                .with_label(effortText)
-                .with_size(ComponentSize{
-                    pixels(run_box(effortText, kLabelInset)), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_alignment(TextAlignment::Left)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_debug_name("composer_effort"));
-        if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
-        if (app.escape == EscapeIntent::CloseEffortPicker)
-            app.effortPopoverOpen = false;
-        render_effort_popover(ctx, parent, app, effortChip.ent(),
-                              currentEffort);
+            // The effort, parenthesised directly onto the model the way Puffin
+            // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
+            // `Text(name)` then `Text(" (\(effort))").opacity(0.7)`, which is why
+            // the reference reads "Opus 5 (high)" as a single run of words.
+            //
+            // Two widgets rather than one, because hanabi's model and effort are
+            // two SEPARATE pickers where Puffin's are one popover. Butted together
+            // and drawn a shade fainter, they are the same run of text on screen;
+            // each half still opens its own list, and `composer_effort` stays the
+            // name the effort test clicks.
+            const std::string currentEffort = Settings::get().get_default_effort();
+            const std::string effortText =
+                "(" + hanabi::effort::display_name(currentEffort) + ")";
+            auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
+                ComponentConfig{}
+                    .with_label(effortText)
+                    .with_size(ComponentSize{
+                        pixels(run_box(effortText, kLabelInset)), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("composer_effort"));
+            if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
+            if (app.escape == EscapeIntent::CloseEffortPicker)
+                app.effortPopoverOpen = false;
+            render_effort_popover(ctx, parent, app, effortChip.ent(),
+                                  currentEffort);
+        }
 
         // The tool-fold chip, at the right: how much of a tool call this
         // thread shows by default. Only where there is a thread to set it on —
@@ -4987,7 +4991,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The denominator is the session's compaction budget, or the declared
         // one for a backend that reports none; with neither, the bar is absent
         // rather than filled to something invented.
-        if (canSend && app.pane().openSession) {
+        if (!compactComposer && canSend && app.pane().openSession) {
             const api::ContextUsage& usage = app.pane().openSession->context;
             const bool counted = usage.counted();
             const int64_t tok =
@@ -5107,24 +5111,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // padding is what the widget decides.
         constexpr float kSendDia = 19.0f;
         constexpr float kSendGap = 9.0f;
-        // THE SEND BUTTON'S SHAPE IS DECIDED HERE, ABOVE THE ROW, because the
-        // input's width is carved out of what is left after it -- and for a
-        // long time it was decided 400 lines further down instead, after the
-        // input had already been sized for a 19px circle. A pill-shaped state
-        // (in-flight) is 78 wide, so the button ran 78 - 19 = 59px past the
-        // row's content box, out over the pane's right gutter. That is the
-        // report's "buttons going outside the bounds" at its most visible:
-        // measured on the parity window, composer_send drew x=1083..1161
-        // inside a row whose content ends at 1102.
-        //
-        // Two facts, one place, in the order the layout needs them. A future
-        // state with a fourth width costs the input those pixels instead of
-        // spending them outside the row.
-        constexpr float kSendPillW = 78.0f;
-        constexpr float kSendPillH = 32.0f;
-        const bool sendIsCircle = !sending;
-        const float sendW = sendIsCircle ? kSendDia : kSendPillW;
-        const float sendH = sendIsCircle ? kSendDia : kSendPillH;
+        const float sendW = kSendDia;
+        const float sendH = kSendDia;
         // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
         // 46 rows and the reference's paints 47 (y=884 through y=930).
         //
@@ -5714,7 +5702,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // In-flight keeps the pill. Its label is an ellipsis, which is not a
         // verb and not a name -- it is "wait" -- and a 78px box of nothing-
         // to-press reads as disabled in a way a small circle does not.
-        const char* sendLabel = sending ? "\xe2\x80\xa6" : "";
+        const char* sendLabel = "";
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
@@ -5732,18 +5720,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_corner_radius(sendIsCircle ? kSendDia * 0.5f : 8.0f)
-                .with_on_draw_fg([sendIsCircle, steerMode,
+                .with_corner_radius(kSendDia * 0.5f)
+                .with_on_draw_fg([steerMode, sending,
                                   sendEnabled](RectangleType rr) {
-                    if (!sendIsCircle) return;
                     const theme::Color ink = sendEnabled
                                                  ? theme::window_bg()
                                                  : theme::disabled_text();
-                    // Same box, same centre, same extent: the two marks differ
-                    // by the bend and by nothing else, so the button does not
-                    // move when the verb changes.
-                    if (steerMode) hanabi::glyph::steer(rr, ink);
-                    else hanabi::glyph::arrow_up(rr, ink);
+                    if (sending && !sendEnabled) {
+                        afterhours::draw_ring(
+                            rr.x + rr.width * 0.5f, rr.y + rr.height * 0.5f,
+                            2.5f, 4.5f, 18, ink);
+                    } else if (steerMode) {
+                        hanabi::glyph::steer(rr, ink);
+                    } else {
+                        hanabi::glyph::arrow_up(rr, ink);
+                    }
                 })
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
@@ -7715,15 +7706,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     bool retryIcon) -> Entity& {
             auto button = div(ctx, mk(bar.ent(), id),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(retryIcon ? 70.0f : 66.0f),
+                    .with_size(ComponentSize{pixels(retryIcon ? 56.0f : 52.0f),
                                              pixels(18)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.right = pixels(6), .left = pixels(5)})
-                    .with_margin(Margin{.right = pixels(4)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_padding(Padding{.right = pixels(4), .left = pixels(3)})
+                    .with_margin(Margin{.right = pixels(2)})
+                    .with_custom_background(hostFill)
+                    .with_custom_hover_bg(theme::hover_over(hostFill))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_roundness(0.35f)
                     .with_debug_name(debugName));
@@ -7732,9 +7723,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(button.ent(), 1),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(13), pixels(16)})
+                    .with_size(ComponentSize{pixels(11), pixels(16)})
                     .with_transparent_bg()
-                    .with_margin(Margin{.right = pixels(3)})
+                    .with_margin(Margin{.right = pixels(2)})
                     .with_on_draw_fg([retryIcon, color](RectangleType r) {
                         if (retryIcon) draw_retry_action(r, color);
                         else draw_copy_action(r, color);
@@ -8331,7 +8322,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::diff::LineKind kind) {
         const auto wash = [](theme::Color c) {
             return theme::over(theme::Color{c.r, c.g, c.b, 28},
-                               theme::window_bg());
+                               theme::code_bg());
         };
         switch (kind) {
             case hanabi::diff::LineKind::Added:
@@ -8627,11 +8618,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(0), .left = pixels(10)})
                 .with_margin(Margin{.top = pixels(kToolRowGap),
                                     .bottom = pixels(kToolRowGap)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_cursor(expandable ? afterhours::ui::CursorType::Pointer
                                         : afterhours::ui::CursorType::Default)
-                .with_corner_radius(theme::kChatCorner)
+                .with_roundness(0.0f)
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
@@ -8690,7 +8681,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool open =
             app && tool_is_open(*app, key, pile_result_row(msgs, lo, hi));
 
-        float rowW = paneWidth - 4.0f;
+        float rowW = paneWidth;
         if (rowW < 160.0f) rowW = 160.0f;
 
         auto wrap = div(ctx, mk(parent, 260 + keyIndex * 10),
@@ -8882,8 +8873,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(sub_out_box_h(m))})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_custom_background(theme::window_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_background(theme::code_bg())
+                .with_border(theme::border_soft(), pixels(1.0f))
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
@@ -9000,6 +8991,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static constexpr float kEventRowH = 20.0f;
     static constexpr float kEventRowGap = 4.0f;
+    static constexpr float kEventInset = 8.0f;
 
     static float event_row_height() {
         return kEventRowH + 2.0f * kEventRowGap;
@@ -9023,9 +9015,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(parent, 3600 + index * 10),
             ComponentConfig{}
                 .with_styled_label(event_spans(m))
-                .with_size(ComponentSize{pixels(colW), pixels(kEventRowH)})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(kEventRowH)})
                 .with_margin(Margin{.top = pixels(kEventRowGap),
-                                    .bottom = pixels(kEventRowGap)})
+                                    .bottom = pixels(kEventRowGap),
+                                    .left = pixels(kEventInset)})
                 .with_transparent_bg()
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
@@ -9051,7 +9045,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.expandedThinking.count(delivery_key(m, index)) == 0)
             return event_row_height();
         return event_row_height() +
-               rich_body_h(strip_inline_md(m.text), colW - kThinkingInset) +
+               rich_body_h(strip_inline_md(m.text),
+                           colW - kEventInset - kThinkingInset) +
                kThinkingPadBot;
     }
 
@@ -9064,7 +9059,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto wrap = div(ctx, mk(parent, 3700 + index * 10),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), children()})
+                .with_size(ComponentSize{pixels(colW - kEventInset), children()})
+                .with_margin(Margin{.left = pixels(kEventInset)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -9073,7 +9069,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto head = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), pixels(event_row_height())})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(event_row_height())})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -9106,7 +9103,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     {{std::string(st.word) + "   ", st.tint},
                      {fmtutil::ellipsize(delivery_head(m), 90),
                       theme::text_secondary()}})
-                .with_size(ComponentSize{pixels(colW - 14.0f), pixels(18)})
+                .with_size(ComponentSize{pixels(colW - kEventInset - 14.0f),
+                                         pixels(18)})
                 .with_transparent_bg()
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
@@ -9117,8 +9115,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto body = div(ctx, mk(wrap.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW - kThinkingInset),
-                                         children()})
+                .with_size(ComponentSize{
+                    pixels(colW - kEventInset - kThinkingInset), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.left = pixels(kThinkingInset),
@@ -9127,7 +9125,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("delivery_body"));
         render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
-                         colW - kThinkingInset);
+                         colW - kEventInset - kThinkingInset);
     }
 
     // The fold's own comment has always said this row is "one quiet row
@@ -9160,7 +9158,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.expandedThinking.count(thinking_key(m, index)) == 0)
             return kThinkingRowH;
         return kThinkingRowH +
-               rich_body_h(strip_inline_md(m.text), colW - kThinkingInset) +
+               rich_body_h(strip_inline_md(m.text),
+                           colW - kEventInset - kThinkingInset) +
                kThinkingPadBot;
     }
 
@@ -9172,7 +9171,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto wrap = div(ctx, mk(parent, 3400 + index * 10),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), children()})
+                .with_size(ComponentSize{pixels(colW - kEventInset), children()})
+                .with_margin(Margin{.left = pixels(kEventInset)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -9181,7 +9181,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto head = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), pixels(kThinkingRowH)})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(kThinkingRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -9223,8 +9224,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto body = div(ctx, mk(wrap.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW - kThinkingInset),
-                                         children()})
+                .with_size(ComponentSize{
+                    pixels(colW - kEventInset - kThinkingInset), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.left = pixels(kThinkingInset),
@@ -9233,7 +9234,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("thinking_body"));
         render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
-                         colW - kThinkingInset);
+                         colW - kEventInset - kThinkingInset);
     }
 
     static bool is_spawn_tool(const api::Message& m) {
@@ -9250,13 +9251,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                n == "Task" || n == "task" || n == "sub_agent" ||
                n == "spawn_sub_agent";
     }
-    static constexpr float kSpawnCardH = 46.0f;
+    static constexpr float kSpawnCardH = 38.0f;
     static float spawn_card_height() {
         return kToolRowGap + kSpawnCardH + kToolRowGap;
     }
     void render_spawn_card(UIContext<InputAction>& ctx, Entity& parent,
                            int index, const api::Message& m, float paneWidth) {
-        float rowW = paneWidth - 4.0f;
+        float rowW = paneWidth;
         if (rowW < 160.0f) rowW = 160.0f;
         // A fold-recognized spawn (EventKind::SubAgent) knows the child's
         // TITLE — the name it was actually given, and the only thing that
@@ -9279,12 +9280,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     .bottom = pixels(kToolRowGap)})
                 .with_padding(Padding{.top = pixels(0), .right = pixels(12),
                                       .bottom = pixels(0), .left = pixels(12)})
-                // A calm accent-tinted surface (distinct from the neutral tool
-                // card) so a spawn reads as a notable "new agent" event.
-                .with_custom_background(
-                    theme::over(theme::accent_soft(), theme::panel_bg()))
-                .with_border(theme::accent(), pixels(1.0f))
-                .with_corner_radius(theme::kChatCorner)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
                 .with_debug_name("spawn_card"));
 
         // Sparkle icon (sub-agent). Uses the same sprite as the brand mark.
@@ -9362,7 +9359,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A lone Tool message: one dense collapsed tool row (not expandable).
     void render_tool_block(UIContext<InputAction>& ctx, Entity& parent,
                            int index, const api::Message& m, float paneWidth) {
-        float rowW = paneWidth - 4.0f;
+        float rowW = paneWidth;
         if (rowW < 160.0f) rowW = 160.0f;
         AppComponent* app = app_singleton();
         const std::string key = m.id.empty() ? "" : m.id;
