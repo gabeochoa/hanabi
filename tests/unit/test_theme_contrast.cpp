@@ -52,6 +52,13 @@ static void check_mode(theme::Mode mode, const char* name) {
     check_direct((std::string(name) + " destructive surface").c_str(),
                  theme::destructive(),
                  theme::over(dangerTint, theme::panel_bg()));
+    const auto selected = theme::chrome::selected_on(theme::sidebar_bg());
+    if (selected.r == theme::sidebar_bg().r &&
+        selected.g == theme::sidebar_bg().g &&
+        selected.b == theme::sidebar_bg().b)
+        ++failures;
+    if (theme::chrome::ROW < theme::chrome::HIT) ++failures;
+    if (theme::chrome::RADIUS > theme::chrome::ROW * 0.25f) ++failures;
 }
 
 int main() {

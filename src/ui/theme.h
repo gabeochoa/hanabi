@@ -139,19 +139,19 @@ struct Tokens {
 // two again; raised surfaces (cards, chips, the search pill) use panel_bg_2,
 // which is what actually separates them from the plane now.
 inline const Tokens kDark = {
-    /*window_bg*/ {23, 23, 35, 255},   // #171723
-    /*sidebar_bg*/ {23, 23, 35, 255},  // #171723 — no separate rail tint
-    /*panel_bg*/ {23, 23, 35, 255},    // #171723 — the main pane is the window
-    /*panel_bg_2*/ {36, 36, 48, 255},  // #242430 — search fill
-    /*border*/ {62, 62, 72, 255},
-    /*border_soft*/ {255, 255, 255, 20},
-    /*section_header_bg*/ {34, 34, 45, 255},  // #22222D
-    /*divider*/ {42, 42, 57, 255},            // #2A2A39
+    /*window_bg*/ {18, 20, 25, 255},
+    /*sidebar_bg*/ {24, 27, 34, 255},
+    /*panel_bg*/ {29, 32, 40, 255},
+    /*panel_bg_2*/ {37, 41, 51, 255},
+    /*border*/ {61, 66, 79, 255},
+    /*border_soft*/ {255, 255, 255, 18},
+    /*section_header_bg*/ {24, 27, 34, 255},
+    /*divider*/ {48, 52, 63, 255},
 
-    /*text_primary*/ {224, 224, 230, 255},
-    /*text_secondary*/ {142, 142, 154, 255},
-    /*text_faint*/ {100, 100, 112, 255},
-    /*empty_state_text*/ {112, 112, 124, 255},
+    /*text_primary*/ {232, 234, 240, 255},
+    /*text_secondary*/ {164, 169, 181, 255},
+    /*text_faint*/ {112, 118, 132, 255},
+    /*empty_state_text*/ {132, 138, 151, 255},
 
     /*accent*/ {90, 128, 255, 255},
     /*accent_soft*/ {90, 128, 255, 38},
@@ -160,9 +160,9 @@ inline const Tokens kDark = {
     /*link*/ {126, 166, 255, 255},
     /*button_primary*/ {90, 128, 255, 255},
     /*button_secondary*/ {58, 58, 66, 255},
-    /*hover_bg*/ {255, 255, 255, 16},
-    /*selected_bg*/ {46, 58, 88, 255},  // #2E3A58 — selected row + active tab
-    /*row_separator*/ {46, 46, 54, 255},
+    /*hover_bg*/ {255, 255, 255, 14},
+    /*selected_bg*/ {42, 52, 72, 255},
+    /*row_separator*/ {48, 52, 63, 255},
     /*focus_ring*/ {90, 128, 255, 255},
 
     /*disabled_bg*/ {44, 44, 50, 255},
@@ -256,32 +256,19 @@ inline const Tokens kLight = {
     // canvas = a very light neutral (#f6f6f7); main pane = pure white; cards
     // sit on white with a crisp 1px border. This gives real light/dark polarity
     // instead of two greys.
-    /*window_bg*/ {246, 246, 247, 255},   // canvas behind panels
-    /*sidebar_bg*/ {251, 251, 252, 255},  // near-white sidebar
-    /*panel_bg*/ {255, 255, 255, 255},    // main / transcript = pure white
-    /*panel_bg_2*/ {242, 242, 245, 255},  // search field / recessed surfaces
-    /*border*/ {209, 209, 216, 255},      // crisp hairline (was too dark 176)
-    /*border_soft*/ {0, 0, 0, 22},
-    // The two surfaces the dark palette gained for Puffin parity. These are
-    // NOT derived from the dark values and NOT an inversion of them: Puffin has
-    // no light theme to measure (see below), so each takes the light palette's
-    // OWN existing value for the same role — the recessed surface for the
-    // header strip, the hairline for the rail divider. No existing light token
-    // moved.
-    /*section_header_bg*/ {242, 242, 245, 255},
-    /*divider*/ {209, 209, 216, 255},
+    /*window_bg*/ {233, 235, 239, 255},
+    /*sidebar_bg*/ {243, 244, 247, 255},
+    /*panel_bg*/ {250, 251, 252, 255},
+    /*panel_bg_2*/ {255, 255, 255, 255},
+    /*border*/ {206, 210, 218, 255},
+    /*border_soft*/ {0, 0, 0, 18},
+    /*section_header_bg*/ {243, 244, 247, 255},
+    /*divider*/ {214, 217, 224, 255},
 
-    /*text_primary*/ {33, 33, 43, 255},
-    /*text_secondary*/ {85, 85, 95, 255},
-    // text_faint renders on BOTH the white pane and the recessed card fill
-    // (panel_bg_2 = 242). The old {134,134,143} was 3.6:1 on white and only
-    // 3.2:1 on the card — below the 4.5:1 small-text bar (defect: faint text
-    // fails contrast on light). {110,110,122} lifts it to 5.0:1 (white) /
-    // 4.5:1 (card) while staying clearly lighter than text_secondary (7.4:1).
-    /*text_faint*/ {110, 110, 122, 255},
-    // empty-state copy is large & centered but was 4.2:1 on white; nudged to
-    // 4.9:1 so it clears 4.5:1 without going as dark as body text.
-    /*empty_state_text*/ {112, 112, 124, 255},
+    /*text_primary*/ {30, 33, 40, 255},
+    /*text_secondary*/ {78, 83, 94, 255},
+    /*text_faint*/ {103, 109, 122, 255},
+    /*empty_state_text*/ {100, 106, 118, 255},
 
     /*accent*/ {46, 90, 236, 255},
     /*accent_soft*/ {46, 90, 236, 34},
@@ -290,9 +277,9 @@ inline const Tokens kLight = {
     /*link*/ {24, 70, 210, 255},
     /*button_primary*/ {46, 90, 236, 255},
     /*button_secondary*/ {224, 224, 230, 255},
-    /*hover_bg*/ {0, 0, 0, 14},
-    /*selected_bg*/ {205, 220, 255, 255},
-    /*row_separator*/ {216, 216, 224, 255},
+    /*hover_bg*/ {22, 40, 72, 16},
+    /*selected_bg*/ {218, 228, 247, 255},
+    /*row_separator*/ {220, 223, 229, 255},
     /*focus_ring*/ {46, 90, 236, 255},
 
     /*disabled_bg*/ {228, 228, 232, 255},
@@ -581,9 +568,9 @@ constexpr float SPOTLIGHT = 17.0f;   // spotlight/kickoff input
 constexpr float LG = 14.0f;          // transcript h2 / large labels
 constexpr float TITLE = 13.5f;       // digest card title
 constexpr float BODY = 13.0f;        // smart-view row label
-constexpr float ROW = 12.5f;         // thread-row title, tab label
-constexpr float LIST_ROW = 16.5f;   // session-list row title (Puffin-measured)
-constexpr float MD = 12.0f;          // folder name, section body
+constexpr float ROW = 12.5f;
+constexpr float LIST_ROW = 13.0f;
+constexpr float MD = 12.0f;
 constexpr float SUBROW = 11.5f;      // sub-agent sub-row title
 constexpr float SM = 11.0f;          // counts, status bar, sub-labels
 constexpr float LABEL = 10.5f;       // section labels (VIEWS/FOLDERS)
@@ -591,6 +578,30 @@ constexpr float XS = 10.0f;          // smallest body
 constexpr float CHIP = 9.5f;         // tag chip text
 constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
 }  // namespace type
+
+namespace chrome {
+constexpr float SPACE_1 = 4.0f;
+constexpr float SPACE_2 = 8.0f;
+constexpr float SPACE_3 = 12.0f;
+constexpr float SPACE_4 = 16.0f;
+constexpr float SPACE_6 = 24.0f;
+constexpr float HIT = 28.0f;
+constexpr float ROW = 32.0f;
+constexpr float RADIUS = 6.0f;
+constexpr float HAIRLINE = 1.0f;
+
+inline Color selected_on(Color backdrop) {
+    Color tint = accent();
+    tint.a = mode() == Mode::Dark ? 42 : 30;
+    return over(tint, backdrop);
+}
+
+inline Color attention_fill(Color backdrop) {
+    Color tint = destructive();
+    tint.a = mode() == Mode::Dark ? 28 : 20;
+    return over(tint, backdrop);
+}
+}
 
 // Real rendered width (logical px) of `s` at font size `px`, measured against
 // the SAME active font draw_text uses (fontstash bounds). Replaces the
