@@ -1330,6 +1330,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // One-shot: HANABI_FIND_STEP is a stand-in for a keypress, so it fires
     // once and not every frame.
     bool findStepApplied_ = false;
+    bool modelPopoverWasOpen_ = false;
+    bool effortPopoverWasOpen_ = false;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -4210,16 +4212,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app, Entity& anchorEnt,
                               const std::string& currentModel) {
+        if (!app.modelPopoverOpen && !modelPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3200);
+        const RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        if (!app.modelPopoverOpen) {
+            afterhours::ui::imm::popover(
+                ctx, popRoot, anchor, app.modelPopoverOpen,
+                afterhours::ui::overlay::Placement::Above);
+            modelPopoverWasOpen_ = false;
+            return;
+        }
+        modelPopoverWasOpen_ = true;
         constexpr float kRowH = hanabi::surface::kMenuRowH;
         constexpr float kPopW = 252.0f;
         constexpr float kHeadH = 44.0f;
         const auto& models = hanabi::models::all();
         const float popH =
             kHeadH + kRowH * static_cast<float>(models.size()) + 8.0f;
-        const RectangleType anchor =
-            anchorEnt.get<afterhours::ui::UIComponent>().rect();
         auto pop = afterhours::ui::imm::popover(
-            ctx, mk(parent, 3200), anchor, app.modelPopoverOpen,
+            ctx, popRoot, anchor, app.modelPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
             hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("model_popover"));
@@ -4291,16 +4303,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_effort_popover(UIContext<InputAction>& ctx, Entity& parent,
                                AppComponent& app, Entity& anchorEnt,
                                const std::string& currentEffort) {
+        if (!app.effortPopoverOpen && !effortPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3300);
+        const RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        if (!app.effortPopoverOpen) {
+            afterhours::ui::imm::popover(
+                ctx, popRoot, anchor, app.effortPopoverOpen,
+                afterhours::ui::overlay::Placement::Above);
+            effortPopoverWasOpen_ = false;
+            return;
+        }
+        effortPopoverWasOpen_ = true;
         constexpr float kRowH = hanabi::surface::kMenuRowH;
         constexpr float kPopW = 286.0f;
         constexpr float kHeadH = 44.0f;
         const auto& levels = hanabi::effort::all();
         const float popH = kHeadH +
                            kRowH * static_cast<float>(levels.size()) + 8.0f;
-        const RectangleType anchor =
-            anchorEnt.get<afterhours::ui::UIComponent>().rect();
         auto pop = afterhours::ui::imm::popover(
-            ctx, mk(parent, 3300), anchor, app.effortPopoverOpen,
+            ctx, popRoot, anchor, app.effortPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
             hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("effort_popover"));
