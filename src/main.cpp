@@ -935,6 +935,7 @@ static void apply_stream_demo(ecs::AppComponent* app) {
     }
     app->streamActive = true;
     app->streamSessionId = app->pane().openSession->summary.id;
+    app->streamPaneIndex = app->focusedPane;
     app->streamMsgIndex = msgs.size() - 1;
     app->pane().selectedId = app->pane().openSession->summary.id;
     app->streamPhase = ecs::AppComponent::StreamPhase::Thinking;

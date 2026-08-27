@@ -222,6 +222,9 @@ struct Pane {
     // True while a full-transcript ("load older") fetch is in flight, so the
     // render side can show a spinner and the loader doesn't double-fire.
     bool loadingOlder = false;
+    std::future<api::Result<api::Session>> olderFuture;
+    bool olderPending = false;
+    std::string olderPendingId;
     // Scroll-anchor preservation for load-older: when older messages are
     // prepended, the content grows ABOVE the viewport, so the scroll offset
     // must be bumped by the added-above height to keep the user's view on the
@@ -353,11 +356,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // Whether the OPEN thread currently has a live subscription (drives the
     // "live" status indicator's connected state). Recomputed each frame.
     bool openThreadLive = false;
-    // Legacy single-sub fields kept for the load-older / live refetch of the
-    // FOCUSED thread (the immediate-swap path). liveFuture/livePending drive a
-    // fetch whose result swaps into openSession.
-    std::future<api::Result<api::Session>> liveFuture;
-    bool livePending = false;
 
     // Phase X: LRU transcript cache (last 20 msgs x last 5 threads). On a
     // cache HIT the loader sets openSession synchronously (no fetch, no Loading
@@ -667,6 +665,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string requestStreamPrompt;   // reply into the OPEN session, streamed.
     bool streamActive = false;         // a stream is in flight.
     std::string streamSessionId;       // which session the stream targets.
+    int streamPaneIndex = 0;
     StreamPhase streamPhase = StreamPhase::Idle;
     // Wall-clock (seconds) when the current stream/thinking turn began, so the
     // live "thinking" indicator can show an elapsed timer ("Thinking… · 32s").
