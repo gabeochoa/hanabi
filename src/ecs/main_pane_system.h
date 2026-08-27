@@ -9000,6 +9000,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static constexpr float kEventRowH = 20.0f;
     static constexpr float kEventRowGap = 4.0f;
+    static constexpr float kEventInset = 8.0f;
 
     static float event_row_height() {
         return kEventRowH + 2.0f * kEventRowGap;
@@ -9023,9 +9024,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(parent, 3600 + index * 10),
             ComponentConfig{}
                 .with_styled_label(event_spans(m))
-                .with_size(ComponentSize{pixels(colW), pixels(kEventRowH)})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(kEventRowH)})
                 .with_margin(Margin{.top = pixels(kEventRowGap),
-                                    .bottom = pixels(kEventRowGap)})
+                                    .bottom = pixels(kEventRowGap),
+                                    .left = pixels(kEventInset)})
                 .with_transparent_bg()
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
@@ -9051,7 +9054,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.expandedThinking.count(delivery_key(m, index)) == 0)
             return event_row_height();
         return event_row_height() +
-               rich_body_h(strip_inline_md(m.text), colW - kThinkingInset) +
+               rich_body_h(strip_inline_md(m.text),
+                           colW - kEventInset - kThinkingInset) +
                kThinkingPadBot;
     }
 
@@ -9064,7 +9068,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto wrap = div(ctx, mk(parent, 3700 + index * 10),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), children()})
+                .with_size(ComponentSize{pixels(colW - kEventInset), children()})
+                .with_margin(Margin{.left = pixels(kEventInset)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -9073,7 +9078,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto head = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), pixels(event_row_height())})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(event_row_height())})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -9106,7 +9112,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     {{std::string(st.word) + "   ", st.tint},
                      {fmtutil::ellipsize(delivery_head(m), 90),
                       theme::text_secondary()}})
-                .with_size(ComponentSize{pixels(colW - 14.0f), pixels(18)})
+                .with_size(ComponentSize{pixels(colW - kEventInset - 14.0f),
+                                         pixels(18)})
                 .with_transparent_bg()
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
@@ -9117,8 +9124,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto body = div(ctx, mk(wrap.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW - kThinkingInset),
-                                         children()})
+                .with_size(ComponentSize{
+                    pixels(colW - kEventInset - kThinkingInset), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.left = pixels(kThinkingInset),
@@ -9127,7 +9134,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("delivery_body"));
         render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
-                         colW - kThinkingInset);
+                         colW - kEventInset - kThinkingInset);
     }
 
     // The fold's own comment has always said this row is "one quiet row
@@ -9160,7 +9167,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.expandedThinking.count(thinking_key(m, index)) == 0)
             return kThinkingRowH;
         return kThinkingRowH +
-               rich_body_h(strip_inline_md(m.text), colW - kThinkingInset) +
+               rich_body_h(strip_inline_md(m.text),
+                           colW - kEventInset - kThinkingInset) +
                kThinkingPadBot;
     }
 
@@ -9172,7 +9180,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto wrap = div(ctx, mk(parent, 3400 + index * 10),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), children()})
+                .with_size(ComponentSize{pixels(colW - kEventInset), children()})
+                .with_margin(Margin{.left = pixels(kEventInset)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -9181,7 +9190,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto head = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW), pixels(kThinkingRowH)})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(kThinkingRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -9223,8 +9233,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto body = div(ctx, mk(wrap.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(colW - kThinkingInset),
-                                         children()})
+                .with_size(ComponentSize{
+                    pixels(colW - kEventInset - kThinkingInset), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_margin(Margin{.left = pixels(kThinkingInset),
@@ -9233,7 +9243,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("thinking_body"));
         render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
-                         colW - kThinkingInset);
+                         colW - kEventInset - kThinkingInset);
     }
 
     static bool is_spawn_tool(const api::Message& m) {
