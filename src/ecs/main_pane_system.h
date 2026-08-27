@@ -8499,7 +8499,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void tool_count_badge(UIContext<InputAction>& ctx, Entity& parent,
                           int count, float rowW) {
-        constexpr float badgeW = 54.0f;
+        constexpr float badgeW = 82.0f;
         auto badge = div(ctx, mk(parent, 31),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(badgeW), pixels(18)})
@@ -8525,7 +8525,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("tool_count_icon"));
         div(ctx, mk(badge.ent(), 2),
             ComponentConfig{}
-                .with_label(std::to_string(count))
+                .with_label(std::to_string(count) + " tool calls")
                 .with_size(ComponentSize{children(), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
@@ -8651,7 +8651,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float leadW = 34.0f;
         const float rightW = tool_status_width(dur, status);
         const float commandRight = showCount
-            ? (rowW * 0.5f - 31.0f)
+            ? (rowW * 0.5f - 45.0f)
             : (rowW - 16.0f - rightW - 8.0f);
         float commandW = commandRight - 10.0f - leadW;
         if (commandW < 44.0f) commandW = 44.0f;
