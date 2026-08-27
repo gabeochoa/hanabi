@@ -12549,6 +12549,10 @@ set it (`tests/ui/wheel_notch_distance_is_settable.e2e`). The cost is that the
 app ships feeling wrong on one input or the other, and which one depends on the
 mouse the reader happens to own.
 
+
+**Hanabi reference.** `src/util/scroll_prefs.h::HANABI_SCROLL_SPEED` — per-machine escape hatch for the one-multiplier wheel/trackpad problem. `src/util/scroll_prefs.h` (`sv.scroll_speed = speed;`) — applies the override to HasScrollView. Tests: `tests/ui/wheel_notch_distance_is_settable.e2e` (`HANABI_SCROLL_SPEED=10`) — script proves the speed knob reaches the transcript scroll view. Measurement/gate: `tests/ui/wheel_notch_distance_is_settable.e2e` (`706 = 646 + 3 x 10 x 2`) — test comment records the expected distance under the override.
+
+
 **Minimal upstream fix.** Carry the bit. sokol already has it: one more field on
 `sapp_event` (`bool scroll_precise`) set beside `scroll_x`/`scroll_y`, plumbed
 through `input::get_mouse_wheel_move_v` as a second return or a sibling
@@ -12614,6 +12618,10 @@ same question.
 that nests scroll views cannot correct this from outside, because the wheel is
 consumed inside the library before the app sees a frame.
 
+
+**Hanabi reference.** Negative result: `tests/ui/wheel_scrolls_the_pane_under_the_pointer.e2e` (`The wheel drives the pane the pointer is over, and only that one.`) — current app coverage shows the reported split-pane wheel symptom is not this nested-scroll hit-test issue. `tests/ui/wheel_scrolls_the_pane_under_the_pointer.e2e` (`mouse_move 900 400`) — script separately targets the right pane before wheeling it. Tests: `tests/ui/wheel_scrolls_the_pane_under_the_pointer.e2e` (`expect_no_text #39:`) — asserts the pane under the pointer actually scrolled.
+
+
 **Minimal upstream fix.** Three lines: the same `accumulated_scroll_offset`
 subtraction `HandleScrollbarDrag` already does, moved into a shared helper both
 call. Or a comment on `HandleScrollInput` saying nesting is unsupported, which
@@ -12663,6 +12671,10 @@ and its arithmetic in a comment
 (`tests/ui/wheel_scrolls_the_transcript.e2e`, `wheel_notch_distance_is_settable.e2e`).
 The cost is that a change to the injector's lifetime rule silently moves every
 one of those pixel assertions, and they will fail as "the wheel broke".
+
+
+**Hanabi reference.** `tests/ui/wheel_scrolls_the_transcript.e2e` (`one scroll_wheel command is read on two consecutive frames`) — wheel tests document the injector double-delivery factor. `tests/ui/wheel_notch_distance_is_settable.e2e` (`3 x 10 x 2`) — speed-knob test bakes in the same two-frame injector math. Tests: `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=766`) — script asserts the doubled default wheel distance through a proxy element.
+
 
 **Minimal upstream fix.** Make the survival one-shot rather than
 one-frame-long: mark the delta consumed the first time
@@ -12714,6 +12726,10 @@ of the failure has to know that the pad is a proxy for an offset at all.
 **The workaround, and its cost.** A proxy element and a comment recording where
 its number came from and the window size it is true at, in every wheel test
 here. Cost: exactly gap #232's complaint, one more time.
+
+
+**Hanabi reference.** `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=646`) — scroll offset is asserted through a named proxy element at the pinned position. `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=766`) — same proxy element verifies the scrolled position because assert_ui has no scroll_y property. Tests: `tests/ui/wheel_notch_distance_is_settable.e2e` (`assert_ui transcript_bottom_pad y=706`) — speed override test uses the same proxy-element workaround.
+
 
 **Minimal upstream fix.** Two lines in `check_ui_property`:
 
@@ -12773,6 +12789,12 @@ per-widget configuration that is expensive to compute hits this.
 
 CLASS: MISSING
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The title’s “not fixing” wording is stale: current source fixes the OS/default/env reads by caching them in function-local statics.
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/util/scroll_prefs.h` (`static const bool resolved = []`) — natural-scroll preference is resolved once instead of per scroll panel per frame. `src/util/scroll_prefs.h` (`static const float smooth = []`) — sibling scroll preference getenv is also cached once. Measurement/gate: `src/util/scroll_prefs.h` (`measured at 333 ns a`) — source comment records the measured per-call cost and why it was cached.
+
 ---
 
 ### #410 — PERF, not fixing: the soak driver's only handle on a widget is a linear walk of every entity, per call, per frame
@@ -12806,6 +12828,10 @@ the problem: caching the entity pointer between frames is wrong (immediate mode
 destroys and rebuilds it), and caching the ID needs a name-to-ID index the
 library does not offer. afterhours has `UIEntityMappingCache` for its own
 lookups and no public way to ask it "which entity has this debug name".
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/util/soak.h` (`inline bool scroll_named(const char* debugName, float dy)`) — soak driver still resolves a scroll view by debug-name walk. `src/util/soak.h` (`for (auto& ptr : afterhours::EntityHelper::get_entities_for_mod())`) — implementation is a linear entity walk per call. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`scroll_named returns false when the view is not on screen`) — perf notes record the driver behavior and missing-target handling.
+
 
 **Minimal upstream fix.** Expose the debug-name lookup the e2e plugin already
 performs (`ui_commands.h`, the `whereLambda` name match in every `*_ui` handler)
