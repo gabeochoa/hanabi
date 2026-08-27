@@ -275,6 +275,24 @@
     "32_new_messages_dark": {
       "threshold_pct": 0.0,
       "note": "Reopening a thread that gained messages while you were away. Same pinned-epoch dependency as 20_big_transcript_dark."
+    },
+    "07c_hover_user_actions_dark": {
+      "threshold_pct": 0.0,
+      "note": "A hovered user message with the persistent Copy and Retry action labels inside the redesigned frame."
+    },
+    "21b_tools_expanded_detail_dark": {
+      "threshold_pct": 0.0,
+      "note": "Expanded tool details inside the redesigned frame; the tool renderer itself is unchanged."
+    },
+    "33_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "Narrow desktop window with three tabs, full sidebar, and reply surface."
+    },
+    "34_narrow_many_tabs_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "Narrow desktop window with ten tabs exercising the minimum tab width and horizontal overflow."
     }
   },
   "unbaselined": {}
