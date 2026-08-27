@@ -3231,6 +3231,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return q.text;
     }
 
+    static const std::vector<std::size_t>* paint_offsets_for(
+        int messageIndex, std::size_t lineIndex) {
+        const Pane* p = painting_pane();
+        if (p == nullptr || messageIndex < 0) return nullptr;
+        return p->findMemo.line_hits(static_cast<std::size_t>(messageIndex),
+                                     lineIndex);
+    }
+
     // Move the current match one step and ask the transcript to scroll it into
     // view. The Cmd+G chord and the find bar's chevrons both come through
     // here, so they cannot drift onto different matches.
@@ -7292,7 +7300,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // elements here, so what this builds occupies exactly what was measured.
     void render_heading(UIContext<InputAction>& ctx, Entity& parent, int seg,
                         int level, const std::string& text, float blockH,
-                        const std::string& findQuery) {
+                        const std::string& findQuery, int messageIndex,
+                        std::size_t findLine) {
         div(ctx, mk(parent, 20000 + seg),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f),
@@ -7312,18 +7321,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        .with_alignment(TextAlignment::Left)
                        .with_roundness(0.0f)
                        .with_debug_name("md_h" + std::to_string(level));
-        // Same two bands a body line gets, at the heading's font size: a
-        // heading the reader can see but not select, or that find skips over,
-        // is a hole in features that already work everywhere else.
-        auto idHolder = std::make_shared<afterhours::EntityID>(-1);
-        cfg = cfg.with_on_draw_bg(
-            [text, q = findQuery, idHolder, fontPx](RectangleType r) {
-                hanabi::text_select::draw(*idHolder, r, text, fontPx);
-                if (!q.empty())
-                    hanabi::find_highlight::draw(r, text, q, fontPx);
-            });
-        auto el = div(ctx, mk(parent, 100 + seg), cfg);
-        *idHolder = el.ent().id;
+        const auto ep = mk(parent, 100 + seg);
+        Entity& headingEnt = ep.first.get();
+        auto& ld = headingEnt.addComponentIfMissing<ecs::LineDrawState>();
+        ld.text = text;
+        ld.query = findQuery;
+        if (const auto* hits = paint_offsets_for(messageIndex, findLine))
+            ld.findOffsets = *hits;
+        else
+            ld.findOffsets.clear();
+        ld.id = headingEnt.id;
+        ecs::LineDrawState* ldp = &ld;
+        cfg = cfg.with_on_draw_bg([ldp, fontPx](RectangleType r) {
+            hanabi::text_select::draw(ldp->id, r, ldp->text, fontPx);
+            if (!ldp->query.empty())
+                hanabi::find_highlight::draw(r, ldp->text, ldp->query, fontPx,
+                                             &ldp->findOffsets);
+        });
+        auto el = div(ctx, ep, cfg);
         selectable_text(ctx, el.ent(), text, fontPx);
     }
 
@@ -7331,13 +7346,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           const std::string& shown, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
                           float bodyStartY = 0.0f,
-                          const std::string& findQuery = std::string()) {
+                          const std::string& findQuery = std::string(),
+                          int messageIndex = -1) {
         // The find text arrives from the caller, which is the only level that
         // knows WHICH message this body belongs to — and therefore whether an
         // operator has excluded it from the search.
         const bool cull = winBot > winTop;
         size_t start = 0;
         int seg = 0;
+        std::size_t findLine = 0;
         float y = bodyStartY;         // running content-y of this segment's top
         float pending = 0.0f;         // accumulated off-window height to flush
         auto flush = [&](int tag) {
@@ -7430,9 +7447,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 } else {
                     flush(9000 + seg);
                     render_heading(ctx, parent, seg, level,
-                                   md_heading_text(line), blockH, findQuery);
+                                   md_heading_text(line), blockH, findQuery,
+                                   messageIndex, findLine);
                 }
                 ++seg;
+                ++findLine;
                 if (nl == std::string::npos) break;
                 start = nl + 1;
                 continue;
@@ -7445,6 +7464,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // drives wrap/height (identical to the measure path), the spans
             // drive the styled draw below.
             InlineParse ip = md_to_spans(line);
+            const std::size_t thisFindLine = findLine;
+            if (!line.empty()) ++findLine;
             if (blank) {
                 segH = kBlankPitch;
             } else {
@@ -7506,6 +7527,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
                 ld.text = ip.visible;
                 ld.query = findQuery;
+                if (const auto* hits =
+                        paint_offsets_for(messageIndex, thisFindLine))
+                    ld.findOffsets = *hits;
+                else
+                    ld.findOffsets.clear();
                 ld.links = lnks;
                 ld.id = lineEnt.id;
                 ecs::LineDrawState* ldp = &ld;
@@ -7514,7 +7540,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                               theme::type::BODY);
                     if (!ldp->query.empty())
                         hanabi::find_highlight::draw(r, ldp->text, ldp->query,
-                                                     theme::type::BODY);
+                                                     theme::type::BODY,
+                                                     &ldp->findOffsets);
                 });
                 // The underline goes OVER the glyphs' own row, so it is drawn
                 // in the foreground pass; the colour alone would leave an id
@@ -7787,17 +7814,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text");
-            auto uidHolder = std::make_shared<afterhours::EntityID>(-1);
-            ucfg = ucfg.with_on_draw_bg(
-                [t = userBody, q = uq, uidHolder](RectangleType r) {
-                    hanabi::text_select::draw(*uidHolder, r, t,
-                                              theme::type::BODY);
-                    if (!q.empty())
-                        hanabi::find_highlight::draw(r, t, q,
-                                                     theme::type::BODY);
-                });
-            auto uEl = div(ctx, mk(bub.ent(), 2), ucfg);
-            *uidHolder = uEl.ent().id;
+            const auto uep = mk(bub.ent(), 2);
+            Entity& userEnt = uep.first.get();
+            auto& uld = userEnt.addComponentIfMissing<ecs::LineDrawState>();
+            uld.text = userBody;
+            uld.query = uq;
+            if (const auto* hits = paint_offsets_for(index, 0))
+                uld.findOffsets = *hits;
+            else
+                uld.findOffsets.clear();
+            uld.id = userEnt.id;
+            ecs::LineDrawState* uldp = &uld;
+            ucfg = ucfg.with_on_draw_bg([uldp](RectangleType r) {
+                hanabi::text_select::draw(uldp->id, r, uldp->text,
+                                          theme::type::BODY);
+                if (!uldp->query.empty())
+                    hanabi::find_highlight::draw(
+                        r, uldp->text, uldp->query, theme::type::BODY,
+                        &uldp->findOffsets);
+            });
+            auto uEl = div(ctx, uep, ucfg);
             selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY);
             // WhatsApp-style sync glyph in the bubble's bottom-right corner.
             // gap #28 (nested child of a custom-bg bubble + on_draw_fg didn't
@@ -7928,7 +7964,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_thinking_indicator(ctx, asstBubble.ent(), app);
         } else {
             render_rich_body(ctx, asstBubble.ent(), shown, textW, winTop,
-                             winBot, bodyStartY, paint_query_for(index));
+                             winBot, bodyStartY, paint_query_for(index), index);
         }
 
         // Inline image (agent surface): if the message carries a decodable

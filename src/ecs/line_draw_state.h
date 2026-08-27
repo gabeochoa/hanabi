@@ -24,6 +24,7 @@
 // `draw_rectangle_rounded` the test build resolves to a different overload.
 // The main binary built clean and three test binaries did not.
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,7 @@ namespace ecs {
 struct LineDrawState : public afterhours::BaseComponent {
     std::string text;
     std::string query;
+    std::vector<std::size_t> findOffsets;
     std::vector<hanabi::links::Link> links;
     afterhours::EntityID id = -1;
 };

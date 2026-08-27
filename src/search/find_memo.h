@@ -122,6 +122,15 @@ class Memo {
         return index < row_has_match_.size() && row_has_match_[index];
     }
 
+    const std::vector<std::size_t>* line_hits(std::size_t index,
+                                              std::size_t line) const {
+        if (index >= sequence_.size() || sequence_[index] == nullptr) return nullptr;
+        const Entry& e = *sequence_[index];
+        if (e.query_generation != query_generation_ || line >= e.hits.size())
+            return nullptr;
+        return &e.hits[line];
+    }
+
     std::size_t entries() const { return entries_.size(); }
     static constexpr std::size_t capacity() { return kMaxCachedMessages; }
     const Stats& stats() const { return stats_; }
@@ -150,7 +159,7 @@ class Memo {
         api::Role role = api::Role::Assistant;
         api::EventKind kind = api::EventKind::Text;
         std::vector<std::string> lines;
-        std::vector<std::pair<std::size_t, std::size_t>> hits;
+        std::vector<std::vector<std::size_t>> hits;
         std::uint64_t query_generation = 0;
         std::uint64_t turn_signature = 0;
         std::uint64_t seen = 0;
@@ -267,21 +276,22 @@ class Memo {
             if (e->query_generation != query_generation_ ||
                 e->turn_signature != turn) {
                 ++stats_.message_work;
-                e->hits.clear();
+                e->hits.assign(e->lines.size(), {});
                 if (!query_.invalid && !query_.text.empty()) {
-                    for (std::size_t line = 0; line < e->lines.size(); ++line) {
-                        for (std::size_t off :
-                             textscan::occurrences(e->lines[line], query_.text))
-                            e->hits.emplace_back(line, off);
-                    }
+                    for (std::size_t line = 0; line < e->lines.size(); ++line)
+                        e->hits[line] =
+                            textscan::occurrences(e->lines[line], query_.text);
                 }
                 e->query_generation = query_generation_;
                 e->turn_signature = turn;
             }
-            if (!e->hits.empty()) row_has_match_[i] = true;
-            for (const auto& hit : e->hits)
-                matches_.push_back(
-                    Match{static_cast<int>(i), hit.first, hit.second});
+            bool any = false;
+            for (std::size_t line = 0; line < e->hits.size(); ++line) {
+                if (!e->hits[line].empty()) any = true;
+                for (std::size_t off : e->hits[line])
+                    matches_.push_back(Match{static_cast<int>(i), line, off});
+            }
+            row_has_match_[i] = any;
         }
     }
 

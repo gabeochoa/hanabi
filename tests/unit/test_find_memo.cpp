@@ -164,6 +164,9 @@ static void test_soft_wrap_offsets_and_fold_state_are_keyed() {
     CHECK(first.size() == 1);
     CHECK(first[0].line == 0);
     CHECK(first[0].off == 0);
+    const auto* hits = memo.line_hits(0, 0);
+    CHECK(hits != nullptr);
+    CHECK(hits != nullptr && hits->size() == 1 && (*hits)[0] == 0);
     const std::size_t misses = memo.stats().result_misses;
     memo.collect(s, 1, q, policy(341.0f, true, 1), Normalizer{&calls});
     memo.collect(s, 1, q, policy(341.0f, false, 2), Normalizer{&calls});
