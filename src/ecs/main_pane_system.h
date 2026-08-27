@@ -860,7 +860,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // measured that at +180 live blocks per 1000 frames on the sidebar.
         for (int k = win.first; k < win.last; ++k)
             digest_card(ctx, wrap, ++i, *rows[static_cast<size_t>(k)], app,
-                        false, cardW, false, /*trackCursor=*/false);
+                        false, cardW, false, false);
         card_spacer(ctx, wrap, 91, win.below);
 
         cardsBuilt_ = i;

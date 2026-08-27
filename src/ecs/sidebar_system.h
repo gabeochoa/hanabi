@@ -866,7 +866,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return c;
     }
 
-    // ---- status mark -------------------------------------------------------
     enum class SidebarGlyph { Running, Blocked, Done, Idle };
     static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
     static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
@@ -3005,7 +3004,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool rowClicked = pointer_click(ctx, row.ent());
         bool starClicked = false;
 
-        // Status glyph slot.
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
