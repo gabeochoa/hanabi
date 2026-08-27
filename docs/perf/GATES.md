@@ -39,6 +39,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | event transcript | `make events-gate` | yes | ~8 s |
 | transcript slope | `scripts/perf_transcript_slope.sh` | yes | ~10 s |
 | text measurement | `scripts/perf_text_gate.sh` | yes | ~14 s |
+| find level | `scripts/find_gate.sh` | yes | ~12 s |
 | launch / RSS | `scripts/measure_launch.sh` | yes | ~4 s |
 
 This table was two tables run together for a while: the note below interrupted
@@ -158,6 +159,7 @@ told the gate.
 | **perf_transcript_slope** · allocations slope | the transcript render cache's `get` forced to miss | `allocations/frame 8636.7 → 24112.8  slope 36.8/msg  limit 12  FAIL` |
 | **perf_transcript_slope** · render-cache rate | same | `0 hit / 342.8 miss = 0.0%  limit 95.0%  FAIL` (both sizes) |
 | **perf_transcript_slope** · wrap calls, level | the line-count memo's `find` forced to miss | **added by this branch** — `wrap calls/frame 81.4  limit 5.0  FAIL` |
+| **find_gate** · repeated-frame level | the whole-result memo hit forced off | `rows/frame 797.6 / 6099.8  limit 30  FAIL` at 480 / 3,672 messages |
 | **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, so the set SATURATES, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL`, with every slope row above it reading `ok` |
 | **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |
 | **validate-screenshots-fast** · composer fill | the composer field given a `(57,57,68)` background (gap #262 in hanabi; vendor is read-only) | `6 of 8 FAIL, 1.1551%-2.4837% differs` — every screen with a composer in frame; `15_settings_dark` and `18_auth_dark` stay green |
@@ -1239,3 +1241,27 @@ outside. The gate can only see the slope, and the slope is zero in both cases.
 `UICollectionHolder`'s collection after the frame. That is what the tree *is*,
 not what was *built* — a widget created and discarded within the frame costs
 real time and is invisible here. See `afterhours_gaps.md` #146.
+
+---
+
+## The find level gate — does an unchanged query revisit the transcript?
+
+`scripts/find_gate.sh`, in `make test`, opens Cmd+F on 480- and 3,672-message
+fixtures and compares each with the same transcript closed. It gates exact work
+rather than time: rows visited by the collector, whole-result hit rate, cached
+entry count, and the open/closed allocation ratio.
+
+The long arm reads 20.6 visited rows per measured frame because one cold scan of
+3,672 messages is amortized across the run; every unchanged frame after that
+visits zero. Its ceiling is 30.0. The memo hit rate is 99.33% against a 95%
+floor, the cache holds 1,836 paintable entries against its 16,384 cap, and the
+allocation ratio is 1.528× against a 2.0× ceiling.
+
+The failure was rehearsed by disabling the whole-result hit branch while leaving
+the rest of the implementation intact. The 480- and 3,672-message arms read
+797.6 and 6,099.8 rows/frame and both failed. That proves this is a level gate
+on repeated unchanged collection, not another slope gate that the original
+flat cost can pass.
+
+`docs/perf/FIND.md` records the full 480 / 3,672 / 14,688-message before/after
+matrix and the invalidation contract.

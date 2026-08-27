@@ -21,8 +21,8 @@ This is the map, and then the honest part.
 | Tool OUTPUT | never (not persisted) | never | never |
 | Markdown markers | present | present | stripped |
 | Code fences / tables | present | present | skipped |
-| Index | none | rebuilt on every open, a few threads a frame | none |
-| Cost | **165 ms** first frame of a new query, 2000 threads (#368) | 0 disk reads to open; 8 transcripts a frame after (#367) | **+2.65 ms/frame**, doubling it (#365) |
+| Index | none | rebuilt on every open, a few threads a frame | bounded per-pane message + ordered-match memo |
+| Cost | **165 ms** first frame of a new query, 2000 threads (#368) | 0 disk reads to open; 8 transcripts a frame after (#367) | **0.015 ms/f collect at 480 messages**, 223× lower (#365) |
 | Cap | ~2 viewports of rows | 6 results | none |
 | Says when it truncated | no | no | n/a |
 
@@ -167,26 +167,21 @@ plain text; an unknown *value*, or a bare `is:`, sets `invalid` and the bar
 renders `Try: is:user, is:assistant, has:tool, state:failed`. A well-formed
 operator with no plain text reports "no matches" with no hint (**S9**).
 
-**Cost. Measured: the find bar doubles the frame.** Nothing is cached. Every
-frame the bar is open, every loaded message is re-scanned: two whole-string
-allocations per message (`redact_secrets`, `strip_inline_md`) plus
-`md_to_spans` per line. No file I/O.
+**Cost. The collector is memoized per pane.** The first frame for a content
+version normalizes paintable messages and records ordered `(message, line,
+offset)` matches. Unchanged frames return that vector without visiting the
+transcript. Query/operator, width, fold-policy and paintability changes rebuild
+the result; streaming appends and load-older prepends reuse unchanged
+per-message normalization.
 
-`HANABI_PROF=1 HANABI_SOAK=600`, 1180×949, the 480-message fixture (40 loaded),
-CPU time — two new profiler scopes, because this path was invisible to the
-profiler and that is part of why it went unnoticed:
-
-| | bar closed | bar open |
-|---|---|---|
-| `FRAME (cpu)` | 2.807 ms/f | **5.452 ms/f** |
-| `find.collect` | — | 2.430 ms/f (45% of the frame) |
-| `find.paint` | — | 0.341 ms/f |
-| allocations | 2660 /f | 14788 /f |
-
-It is a LEVEL, not a slope, so `soak-gate` reads it as flat, `scaling-gate`
-never opens the bar, and none of `alloc-gate`'s three fixtures does either.
-`afterhours_gaps.md` #365: the fix is a per-message memo of `paintable_lines`,
-half a day, and the app already has three caches of exactly that shape.
+At 480 / 3,672 / 14,688 messages, `find.collect` fell from 3.3937 / 25.6338 /
+109.6700 ms/f to 0.0152 / 0.0971 / 0.4332 ms/f in the 180-frame measurement
+window: 223× / 264× / 253× lower. More importantly, the exact repeated-frame
+work is zero message visits: the reported 2.9 / 20.6 / 81.8 visits per measured
+frame are the one cold scan amortized over the run. Open/closed allocation
+ratios fell from 5.368× / 28.616× / 75.137× to 1.451× / 1.526× / 1.527×.
+`docs/perf/FIND.md` has the method, key, invalidation contract, bound and the
+remaining paint cost.
 
 ---
 
@@ -231,9 +226,9 @@ have made the number change under a scrollbar for no reason a user could name.
 
 So the count is unchanged and the claim is rewritten. The invariant that is
 actually true, and is now what those files say, runs the other way: **nothing
-is counted that find could not paint** — same rows, same normalization, same
-operator predicate on both sides. `bands ≤ count` is a fact about the window,
-not a violation.
+is counted that find could not paint** — only `EventKind::Text` user/assistant
+rows, with the same normalization and operator predicate on both sides.
+`bands ≤ count` is a fact about the window, not a violation.
 
 The test is real now. It was one line, `expect_text "no matches"`, satisfied by
 any bug returning zero, and it never enabled the band audit it was named after:
@@ -532,12 +527,15 @@ while parsing your whole cache on the UI thread to get there (**S5**, 370 ms at
 2000 threads, now 0.2 ms); both fixed, and it says when there were more results
 than fit (**S9**) and comes back newest-first (**S7**). The sidebar's deep
 search searched the JSON document rather than the conversation (**S3**).
+Find's per-frame loaded-thread scan is fixed by the per-pane memo (**#365**),
+with a count-based level gate that fails if unchanged frames revisit messages.
 
 Still open, all written up with numbers in `afterhours_gaps.md`: the sidebar
 truncates without saying so (**S9**, #372) and un-virtualizes when a search
 meets "Show N more" (**S8**, #369); its deep filter costs 165 ms on the first
-frame of a new query (#368); the find bar costs 2.43 ms a frame it does not
-need to (#365); and four small things are #371.
+frame of a new query (#368); and four small things are #371. The remaining
+find-paint cost and the two vendored wrapping mechanisms behind it are
+#435–#438.
 
 And the two tests that would have caught the two most embarrassing of these
 passed without the code they name (**S10**) — both fixed, one renamed, three

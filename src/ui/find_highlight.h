@@ -84,18 +84,12 @@ inline int take_band_count() {
 // (gap #51), and two transcriptions rot independently.
 inline void paint_bands(RectangleType rect, const std::string& text,
                         const std::string& query, float fontPx,
-                        theme::Color band, int& tally) {
+                        theme::Color band, int& tally,
+                        const std::vector<size_t>* cached = nullptr) {
     if (query.empty() || text.empty() || rect.width <= 0.0f) return;
-    // Does this label contain the query AT ALL? Asked first, and that is the
-    // whole of it: this runs for every painted label while the bar is open,
-    // and everything below — the wrap, a measure per candidate line, a vector
-    // of strings the width of the paragraph — used to happen for labels with
-    // no match in them, which is nearly all of them. On the 480-message
-    // fixture the find bar cost +2.77 ms a frame (2.81 -> 5.58, CPU time,
-    // HANABI_PROF at 1180x949) and +13k to +19k allocations a frame; most of
-    // that was this. A byte scan of the label is the cheapest thing in the
-    // function and it answers for all of it.
-    const std::vector<size_t> found = occurrences(text, query);
+    std::vector<size_t> scanned;
+    if (cached == nullptr) scanned = occurrences(text, query);
+    const std::vector<size_t>& found = cached == nullptr ? scanned : *cached;
     if (found.empty()) return;
     hanabi::prof::Scope _ppaint("find.paint");
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
@@ -181,10 +175,11 @@ inline void paint_bands(RectangleType rect, const std::string& text,
 
 // Find's own bands: the find colour, counted into find's tally.
 inline void draw(RectangleType rect, const std::string& text,
-                 const std::string& query, float fontPx) {
+                 const std::string& query, float fontPx,
+                 const std::vector<size_t>* cached = nullptr) {
     paint_bands(rect, text, query, fontPx,
                 theme::over(theme::find_match(), theme::panel_bg()),
-                band_count());
+                band_count(), cached);
 }
 
 }  // namespace hanabi::find_highlight

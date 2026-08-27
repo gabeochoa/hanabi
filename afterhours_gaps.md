@@ -124,7 +124,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #366 `wrap_text_to_width` returns the lines and not their offsets in the source, and a break CONSUMES the whitespace at it — so a query straddling a wrap is in no rendered line and a consumer must reconstruct the mapping *(the smaller, cheaper half of #51)*
 
 **Search subsystem: what it costs, and what is left** *(docs/SEARCH.md)*
-- #365 find-in-conversation re-normalizes every loaded message every frame — **2.43 ms/f, 45% of the frame**, +5.6x allocations; a LEVEL, so every gate reads it as flat. NOT FIXED, wants a per-message memo
+- #365 find-in-conversation re-normalized every loaded message every frame — FIXED by a bounded per-pane memo; 223×–264× lower collection cost and a level gate that fails when unchanged frames revisit rows
 - #367 opening Cmd+Shift+F parsed the whole disk cache on the UI thread — **370 ms at 2000 threads**. FIXED: 0.2 ms to open, 8 transcripts a frame after
 - #368 the sidebar's deep filter reads a file per thread on the first frame of every NEW query — **165 ms at 2000 threads**, memoized to 0.05 ms after. NOT FIXED
 - #369 a sidebar search plus "Show N more" un-virtualizes the list, and the two tests that would catch it never overlap. NOT FIXED; blocked on #224/#326
@@ -132,6 +132,10 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #371 four small leftovers: two snippet cutters with one bug, the mock reading another backend's cache, no Unicode folding, `advance(..., Step::None)` returning 0
 - #372 the sidebar truncates search results and the catch-all group is headerless, so nothing says how many matched. NOT FIXED
 - #373 ideas considered and rejected, with reasons
+- #435 plain wrapped labels rebuild their line vectors on every draw; measured update to #42/#340
+- #436 styled labels independently rebuild nested wrapped runs every draw; measured update to #340
+- #437 the renderer exposes no byte-to-rectangle layout map, so find highlight wraps again; measured refinement of #51
+- #438 visible rich text still reparses markdown and copies configs every frame; app-owned remainder after #365
 
 **Added 2026-08-26** (the glyph atlas; full entries at the end of the file)
 - #350 nothing can be asked of the font atlas — not its occupancy, not whether a measurement dropped a glyph — so a PARTIAL drop (622 px where the truth is ~5000) is undetectable from outside *(the residue #211's detector cannot cover)*
@@ -12142,7 +12146,7 @@ CLASS: NOT A GAP (app-side)
 
 ---
 
-### #365 — PERF (ours, NOT FIXED): find-in-conversation re-normalizes every loaded message every frame, and it is 45% of the frame
+### #365 — PERF (ours, FIXED): find-in-conversation re-normalized every loaded message every frame, and was 45% of the frame
 
 **Measured.** `HANABI_PROF=1 HANABI_SOAK=600`, 1180x949, the 480-message
 `rbig` fixture (40 messages loaded — `LoaderSystem::kMessagesWindow`), CPU
@@ -12179,21 +12183,34 @@ a frame, which is 34 fps with the find bar open and nothing else happening.
 (Extrapolation, not a measurement: the headless path does not run the
 load-older prefetch far enough to hold 480.)
 
-**The fix, and its size.** A per-message memo of `paintable_lines`, keyed on
-the message id plus its text length (the text only changes while a message is
-streaming, and the length changes with it). The app already has this exact
-shape three times over — `cache.msgrender_hit`, `cache.hug_hit`,
-`cache.lines_hit` are 293, 146 and 34 hits a frame in the profile above — so
-the pattern and its invalidation story are established, and the work is
-wiring find into one of them rather than inventing a cache. Half a day,
-including a fixture in `alloc-gate` that opens the find bar so the level is
-gated afterwards rather than rediscovered.
+**Fixed on `perf/find-memo`.** `src/search/find_memo.h` keeps normalized
+paintable lines and ordered `(message, logical-line, byte-offset)` matches in a
+per-pane, 16,384-message-bounded memo. The key covers the transcript content
+version, exact message content signature, parsed operator AST, ASCII fold
+policy, pane width, long-message fold policy, reasoning visibility, fold-state
+revision, role and event kind. Append/prepend sync reuses unchanged message
+entries; streaming and replacement paths advance `Pane::transcriptVersion`.
 
-**One cheap piece IS taken.** `paint_bands` now answers "does this label
-contain the query at all" with a byte scan before doing the wrap, so a label
-with no match costs a `find()` instead of a wrap plus a vector of strings.
-Worth 0.19 ms/f and ~850 allocations/f of the numbers above, which is 7% of
-the find bar's cost — the other 93% is `find.collect` and needs the memo.
+At 480 / 3,672 / 14,688 messages, `find.collect` fell from 3.3937 / 25.6338 /
+109.6700 ms/f to 0.0152 / 0.0971 / 0.4332 ms/f. The stable evidence is the
+operation and allocation counts: repeated unchanged frames visit zero messages,
+whole-result hit rate is 99.33%, and open/closed allocation ratios fell from
+5.368× / 28.616× / 75.137× to 1.451× / 1.526× / 1.527×. Disabling the
+whole-result hit path makes `scripts/find_gate.sh` fail at 797.6 and 6,099.8
+rows/frame for its 480/3,672-message arms.
+
+**Hanabi reference.** `hanabi::find_memo::Memo::collect` in
+`src/search/find_memo.h`; `MainPaneSystem::collect_matches` and
+`Pane::note_transcript_change`; `tests/unit/test_find_memo.cpp` and
+`scripts/find_gate.sh`. The unit test covers query/content/operator/fold/width/
+event-kind changes, append, prepend, two panes and the bound. The gate is in
+`make test`.
+
+**Rejected.** Caching only the count loses ordered stepping and cannot drive
+paint. Keying only by message id serves stale text after streaming or refetch.
+A global thread cache lets two panes with different queries and widths evict or
+reuse one another's answer. A fixed result cap breaks the whole-loaded-thread
+count law.
 
 
 
@@ -13379,3 +13396,168 @@ and one glyph slot. `scripts/alloc_gate.sh` and `scripts/scaling_gate.sh` are th
 measurement harnesses; 01/02/03 baselines cover the visible result.
 
 CLASS: PERF PROOF (app-side)
+
+---
+
+### #435 — PERF: `draw_text_in_rect` reconstructs plain wrapped lines on every draw and exposes no reusable layout
+
+**What was wanted.** Repaint an unchanged wrapped label and place a find band on
+known byte offsets without rebuilding the same line layout twice.
+
+**Verified mechanism.** In pinned afterhours `428047e`,
+`plugins/ui/rendering.h:629-653` tests for hard/soft wrapping and then calls
+`detail::wrap_text_to_width` into a new `std::vector<std::string>` on every
+`draw_text_in_rect`. The wrapper in `plugins/ui/text_selection.h:65-212` first
+builds `source_lines`, then `chunks`, then output lines; strings are copied at
+`:77`, `:157`, `:184` and `:233`. No result is retained on `HasLabel`, and the
+public `measure_text_wrapped` returns dimensions only, not the wrapped lines.
+
+**Measured cost.** With Cmd+F open on the 480-message fixture after the collector
+fix, the allocation profile attributes 87.0 vector allocations/frame and 86.3
+string-growth allocations/frame to `draw_text_in_rect`'s wrap at
+`rendering.h:653`. The whole remaining `find.paint` path is 0.53 ms/frame.
+
+**Hanabi reference.** `MainPaneSystem::render_bubble` in
+`src/ecs/main_pane_system.h` builds the `user_text` label; that label's normal
+draw reaches this mechanism. `find_paints_a_match_that_wraps.e2e` proves its
+soft-wrap behavior, and `scripts/find_gate.sh` reports the resulting allocation
+level.
+
+**Workaround.** Hanabi caches normalized text and match offsets, but cannot feed
+wrapped lines into the renderer. The renderer performs this allocation even
+when every input is unchanged.
+
+**Rejected.** Turning wrapping off changes layout. Supplying one label per line
+would duplicate the library's break algorithm in app code and move selection,
+alignment and hard-break semantics out of the renderer.
+
+**Minimal upstream change.** Store the wrapped-line result on `HasLabel`, keyed
+by text, width, font name/size/spacing, overflow mode and font generation, and
+let `draw_text_in_rect` consume it until one input changes.
+
+CLASS: PERFORMANCE · duplicate family #42/#340
+
+---
+
+### #436 — PERF: styled-label drawing rebuilds a nested run layout every frame, independently of the plain-label wrap
+
+**What was wanted.** Repaint unchanged markdown spans without reconstructing a
+`vector<vector<TextSpan>>` and its concatenated strings every frame.
+
+**Verified mechanism.** `plugins/ui/rendering.h:866-874` calls
+`detail::wrap_runs_to_width` unconditionally in `draw_runs_in_rect`.
+`plugins/ui/text_selection.h:70-208` materializes source-line vectors, token
+chunks, run fragments and output lines. This is a separate path from #435:
+plain labels use `draw_text_in_rect`; styled labels use `draw_runs_in_rect`,
+then call the plain routine once per final run at `rendering.h:915-929`.
+
+**Measured cost.** On the same open-find profile, the renderer's styled-label
+site at `rendering.h:1622` accounts for 320.0 allocations/frame. The calling
+`MainPaneSystem::render_rich_body` accounts for 758.4 allocations/frame in the
+roll-up. This work is viewport-sized, not transcript-sized; it remains after
+the loaded-thread collector is memoized.
+
+**Hanabi reference.** `MainPaneSystem::render_rich_body` and `md_to_spans` in
+`src/ecs/main_pane_system.h` populate `LineDrawState` and `with_styled_label`.
+`find_sees_through_markdown.e2e` and `find_paints_a_match_that_wraps.e2e` hold
+the styled and wrapped output; `scripts/alloc_sites.sh` produces the allocation
+attribution above.
+
+**Workaround.** None without replacing the renderer. Hanabi's message memo keeps
+the normalized line and offsets, but `HasLabel` owns no wrapped-layout cache and
+`draw_runs_in_rect` accepts no precomputed layout.
+
+**Rejected.** Rendering the line as plain text removes inline colors and weights.
+Caching only the `TextSpan` input does not help because the library copies and
+wraps that input after the call.
+
+**Minimal upstream change.** Cache wrapped run lines on `HasLabel` with the same
+key and invalidation inputs as #435, and expose the retained layout to draw-time
+decorations.
+
+CLASS: PERFORMANCE · duplicate family #340
+
+---
+
+### #437 — PERF: find highlight must run a second wrap because the text renderer exposes no byte-to-rectangle map
+
+**What was wanted.** Paint a rectangle behind each cached match offset using the
+layout the renderer already computed.
+
+**Verified mechanism.** `draw_text_in_rect` keeps its wrapped `lines` local in
+`plugins/ui/rendering.h:652-675`; `draw_runs_in_rect` keeps its wrapped run lines
+local at `:873-935`. Neither returns line starts, glyph advances or rectangles.
+The only public geometry helpers in
+`plugins/ui/text_selection.h:337-428` operate on caller-supplied wrapped lines,
+so a caller must first repeat the wrap.
+
+**Measured cost.** After cached collection and cached occurrence offsets,
+`hanabi::find_highlight::paint_bands` still accounts for 686.5 allocations/frame
+and `find.paint` for 0.53 ms/frame on the 480-message fixture. The total
+open/closed allocation ratio is 1.451× there and 1.527× at 14,688 messages,
+showing that the residual is bounded by painted content rather than loaded
+content.
+
+**Hanabi reference.** `hanabi::find_highlight::paint_bands` in
+`src/ui/find_highlight.h` calls afterhours' wrapper, reconstructs each wrapped
+line's source offset, and maps one logical hit onto one or more rectangles.
+`hanabi::find_memo::Memo::line_hits` supplies the cached logical offsets.
+`find_paints_a_match_that_wraps.e2e` proves a phrase crossing a soft wrap is
+counted once and painted; the other find E2Es hold the count/band law.
+
+**Workaround.** Hanabi re-runs the library wrapper for visible matching lines,
+then reconstructs source offsets with ordered substring searches. It caches the
+query hits but not absolute rectangles, because scroll and layout move them.
+
+**Rejected.** Searching each wrapped line drops a phrase whose whitespace was
+consumed by the break. Caching screen-space rectangles goes stale on scroll,
+resize and font change. Counting one rectangle per wrapped fragment breaks the
+one-match stepping order.
+
+**Minimal upstream change.** Return a reusable layout object from the label
+renderer containing wrapped runs plus source byte ranges, and expose a
+`rects_for_range` query in label-local coordinates.
+
+CLASS: MISSING · refines #51
+
+---
+
+### #438 — PERF (ours, not fixing here): visible rich text still reparses markdown and rebuilds widget configuration every frame
+
+**What was wanted.** Account for the cost left after the whole-thread find scan
+was removed instead of folding it into the memo's result.
+
+**Verified mechanism.** This is app-owned. `MainPaneSystem::render_rich_body`
+recreates `InlineParse`, link runs, `ComponentConfig` and styled spans for every
+visible ordinary line on every frame. The library multiplies those values via
+its by-value `ComponentConfig` path (`plugins/ui/component_config.h:199-211`,
+`plugins/ui/component_init.h:58,88,693-696`), the already-filed #181 mechanism.
+
+**Measured cost.** The open-find 480-message allocation profile attributes
+758.4 allocations/frame to `render_rich_body`, another 204.5 to its config
+construction site, and 94.0 each to three `md_to_spans` frames. Total open-find
+allocations are 6,660.9/frame against 4,590.3 closed. The ratio remains nearly
+flat at 1.451× / 1.526× / 1.527× over 480 / 3,672 / 14,688 messages, so this is
+a visible-window level rather than the fixed loaded-thread slope.
+
+**Hanabi reference.** `MainPaneSystem::render_rich_body`, `md_to_spans`, and
+`ecs::LineDrawState` in `src/ecs/main_pane_system.h` and
+`src/ecs/line_draw_state.h`; `scripts/alloc_sites.sh` names the call sites and
+`scripts/find_gate.sh` bounds the aggregate allocation ratio.
+
+**Workaround.** `LineDrawState` already prevents callback captures from cloning
+two strings and a `shared_ptr` through each config copy. The new find memo also
+reuses normalized message lines and query offsets. The remaining per-frame
+styled parsing and component copies are outside the collector fixed here.
+
+**Rejected.** Caching the whole rendered subtree in hanabi cannot work:
+afterhours clears children and visibility before every immediate-mode build.
+Caching only `InlineParse` would reduce app parsing but leave the larger
+library-side wrapped-run and config-copy allocations, so it is a separate
+measured change rather than scope hidden inside #365.
+
+**Minimal upstream change.** The retained wrapped-label layout in #435/#436,
+plus pass `ComponentConfig` through initialization without the three deep
+copies already specified by #181.
+
+CLASS: PERFORMANCE · app + duplicate family #181/#340

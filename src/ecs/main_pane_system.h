@@ -3070,17 +3070,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ---------------- Find in conversation ---------------------------------
-    // Case-insensitive substring search over the open thread. Matching runs on
-    // the message text as stored; the highlight below re-searches each RENDERED
-    // line, so a match split across a markdown marker is counted here and not
-    // painted. Both are honest about the same text — see the note on
-    // highlight_ranges.
-    static std::vector<size_t> find_all(const std::string& hay,
-                                        const std::string& needle) {
-        return textscan::occurrences(hay, needle);
-    }
-
     // ---- What find can actually paint --------------------------------------
     //
     // The count and the highlight must agree. The highlight is drawn per
@@ -3194,69 +3183,65 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // The remaining exception is a match in the folded tail of a long message,
     // which is at least reachable by a click on the fold rather than by
     // nothing at all.
-    struct Match {
-        int msg = 0;
-        size_t off = 0;
-    };
-    static std::vector<Match> collect_matches(const api::Session& s,
-                                              const find_ops::Query& q) {
-        std::vector<Match> out;
-        if (q.text.empty() || q.invalid) return out;
-        for (size_t i = 0; i < s.messages.size(); ++i) {
-            const auto& m = s.messages[i];
-            // Tool rows and system captions are not highlighted, so they are
-            // not counted. Same rule as everything else here: if it cannot be
-            // painted, it does not exist to the tally.
-            if (m.role != api::Role::User && m.role != api::Role::Assistant)
-                continue;
-            // Reasoning is not the conversation. A thinking block is the
-            // model talking to itself on the way to the answer, it arrives
-            // folded, and its body is drawn by a path that carries no
-            // highlight — so a match in it could be counted and never shown.
-            // Skipped here AND in paint_query_for, which is what keeps every
-            // counted match a match find would paint if it were on screen.
-            if (is_thinking(m)) continue;
-            // An operator excludes the row from the tally and from the
-            // painting through this one test, so the two cannot disagree.
-            if (!find_ops::row_matches(s, i, q)) continue;
-            const bool rich = (m.role != api::Role::User);
-            for (const auto& line : paintable_lines(m, rich))
-                for (size_t off : find_all(line, q.text))
-                    out.push_back(Match{static_cast<int>(i), off});
-        }
+    using Match = hanabi::find_memo::Match;
+
+    static const std::vector<Match>& collect_matches(
+        Pane& pane, const api::Session& s, const find_ops::Query& q,
+        float wrapWidth, std::uint64_t foldRevision) {
+        const auto before = pane.findMemo.stats();
+        hanabi::find_memo::PaintPolicy policy;
+        policy.wrap_width = wrapWidth;
+        policy.fold_long_messages = fold_long_messages();
+        policy.show_reasoning = show_reasoning();
+        policy.fold_revision = foldRevision;
+        const auto& out = pane.findMemo.collect(
+            s, pane.transcriptVersion, q, policy,
+            [](const api::Message& m, bool rich) {
+                return paintable_lines(m, rich);
+            });
+        const auto after = pane.findMemo.stats();
+        hanabi::prof::tick("find.memo_hit",
+                           after.result_hits - before.result_hits);
+        hanabi::prof::tick("find.memo_miss",
+                           after.result_misses - before.result_misses);
+        hanabi::prof::tick("find.rows_visited",
+                           after.rows_visited - before.rows_visited);
+        hanabi::prof::tick("find.message_work",
+                           after.message_work - before.message_work);
+        hanabi::prof::tick("find.normalize",
+                           after.normalized - before.normalized);
+        hanabi::prof::tick("find.normalize_reused",
+                           after.normalized_reused - before.normalized_reused);
+        hanabi::prof::gauge("find.memo_entries", pane.findMemo.entries());
         return out;
     }
 
-    // The query as it stands this frame, parsed. Cheap enough to redo per row
-    // (a handful of tokens) and that keeps the parse next to its use instead
-    // of in a cache that can go stale mid-frame.
-    static find_ops::Query live_query() {
+    static const find_ops::Query& live_query() {
+        static const find_ops::Query empty;
         const Pane* p = painting_pane();
-        if (p == nullptr || !p->findOpen) return find_ops::Query{};
-        return find_ops::parse(p->findQuery);
+        return p == nullptr ? empty : p->findMemo.query();
     }
 
     // What find should paint inside message `index` — the query's text, or
     // nothing at all when an operator has excluded that row.
     static std::string paint_query_for(int index) {
         const Pane* p = painting_pane();
-        if (p == nullptr || !p->findOpen || !p->openSession)
+        if (p == nullptr || !p->findOpen || p->findQuery.empty() ||
+            !p->openSession)
             return std::string();
-        const find_ops::Query q = live_query();
+        const find_ops::Query& q = live_query();
         if (q.invalid || q.text.empty()) return std::string();
-        const auto& msgs = p->openSession->messages;
-        // The other half of the rule above. A thinking block normally draws
-        // through render_thinking_block, which paints no bands at all — but a
-        // reasoning message that is still STREAMING renders as an ordinary
-        // bubble, and that path would paint. Answering "nothing" here means
-        // the two states agree with each other and with the tally.
-        if (static_cast<size_t>(index) < msgs.size() &&
-            is_thinking(msgs[static_cast<size_t>(index)]))
-            return std::string();
-        if (!find_ops::row_matches(*p->openSession,
-                                   static_cast<size_t>(index), q))
+        if (!p->findMemo.row_is_paintable(static_cast<std::size_t>(index)))
             return std::string();
         return q.text;
+    }
+
+    static const std::vector<std::size_t>* paint_offsets_for(
+        int messageIndex, std::size_t lineIndex) {
+        const Pane* p = painting_pane();
+        if (p == nullptr || messageIndex < 0) return nullptr;
+        return p->findMemo.line_hits(static_cast<std::size_t>(messageIndex),
+                                     lineIndex);
     }
 
     // Move the current match one step and ask the transcript to scroll it into
@@ -3623,6 +3608,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const auto& msgs = pane.openSession->messages;
         const int n = static_cast<int>(msgs.size());
+        const find_ops::Query findQ =
+            pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
+        static const std::vector<Match> noMatches;
+        const std::vector<Match>* matches = &noMatches;
+        if (pane.findOpen) {
+            hanabi::prof::Scope _pfind("find.collect");
+            matches = &collect_matches(pane, *pane.openSession, findQ, colW,
+                                       app.findFoldVersion);
+            if (pane.findIndex >= static_cast<int>(matches->size()))
+                pane.findIndex = 0;
+        }
+        pane.findCount = static_cast<int>(matches->size());
 
         // ---- Where the reader left off -------------------------------------
         // The first message newer than the stamp saved when this thread was
@@ -3846,20 +3843,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::gauge("items.spawn", nSpawn);
             hanabi::prof::gauge("items.thinking", nThink);
         }
-        // ---- Find in conversation: matches + scroll-to-match ---------------
-        // Recomputed each frame from the query. Cheap (a substring scan of the
-        // loaded window) and it keeps the count honest as a stream appends.
-        const find_ops::Query findQ =
-            pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
-        std::vector<Match> matches;
-        if (pane.findOpen && !findQ.text.empty()) {
-            hanabi::prof::Scope _pfind("find.collect");
-            matches = collect_matches(*pane.openSession, findQ);
-            if (pane.findIndex >= static_cast<int>(matches.size()))
-                pane.findIndex = 0;
-        }
-        pane.findCount = static_cast<int>(matches.size());
-
         // ---- Virtualization: read last frame's scroll to skip off-screen. --
         float scrollY = 0.0f;
         float viewH = listH;
@@ -3907,9 +3890,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // message's measured height, so the y of the message holding the match
         // is the sum of the heights before it; a third of a viewport of lead-in
         // puts it comfortably inside the pane rather than flush at the top.
-        if (pane.findScrollPending && !matches.empty() &&
+        if (pane.findScrollPending && !matches->empty() &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const int target = matches[static_cast<size_t>(pane.findIndex)].msg;
+            const int target =
+                (*matches)[static_cast<size_t>(pane.findIndex)].msg;
             float y = subH;
             for (const auto& it : items) {
                 if (it.lo == target ||
@@ -6551,22 +6535,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // message that contains one.
         // An operator that excludes this row excludes it here too: unfolding
         // a message find will not highlight would open it for nothing.
-        if (app && app->pane().findOpen &&
-            message_has_match(m, paint_query_for(index)))
+        Pane* pane = painting_pane();
+        if (pane && pane->findOpen &&
+            pane->findMemo.message_has_match(static_cast<std::size_t>(index)))
             return false;
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
         return !(app && app->expandedMsgs.count(mkey) != 0);
-    }
-
-    static bool message_has_match(const api::Message& m,
-                                  const std::string& q) {
-        if (q.empty()) return false;
-        if (m.role != api::Role::User && m.role != api::Role::Assistant)
-            return false;
-        for (const auto& line : paintable_lines(m, m.role != api::Role::User))
-            if (!textscan::occurrences(line, q).empty()) return true;
-        return false;
     }
 
     // TEMPORARY (HANABI_PROBE_MEASURE=1): read back the height the LAYOUT
@@ -7360,7 +7335,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // elements here, so what this builds occupies exactly what was measured.
     void render_heading(UIContext<InputAction>& ctx, Entity& parent, int seg,
                         int level, const std::string& text, float blockH,
-                        const std::string& findQuery) {
+                        const std::string& findQuery, int messageIndex,
+                        std::size_t findLine) {
         div(ctx, mk(parent, 20000 + seg),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f),
@@ -7380,18 +7356,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        .with_alignment(TextAlignment::Left)
                        .with_roundness(0.0f)
                        .with_debug_name("md_h" + std::to_string(level));
-        // Same two bands a body line gets, at the heading's font size: a
-        // heading the reader can see but not select, or that find skips over,
-        // is a hole in features that already work everywhere else.
-        auto idHolder = std::make_shared<afterhours::EntityID>(-1);
-        cfg = cfg.with_on_draw_bg(
-            [text, q = findQuery, idHolder, fontPx](RectangleType r) {
-                hanabi::text_select::draw(*idHolder, r, text, fontPx);
-                if (!q.empty())
-                    hanabi::find_highlight::draw(r, text, q, fontPx);
-            });
-        auto el = div(ctx, mk(parent, 100 + seg), cfg);
-        *idHolder = el.ent().id;
+        const auto ep = mk(parent, 100 + seg);
+        Entity& headingEnt = ep.first.get();
+        auto& ld = headingEnt.addComponentIfMissing<ecs::LineDrawState>();
+        ld.text = text;
+        ld.query = findQuery;
+        if (const auto* hits = paint_offsets_for(messageIndex, findLine))
+            ld.findOffsets = *hits;
+        else
+            ld.findOffsets.clear();
+        ld.id = headingEnt.id;
+        ecs::LineDrawState* ldp = &ld;
+        cfg = cfg.with_on_draw_bg([ldp, fontPx](RectangleType r) {
+            hanabi::text_select::draw(ldp->id, r, ldp->text, fontPx);
+            if (!ldp->query.empty())
+                hanabi::find_highlight::draw(r, ldp->text, ldp->query, fontPx,
+                                             &ldp->findOffsets);
+        });
+        auto el = div(ctx, ep, cfg);
         selectable_text(ctx, el.ent(), text, fontPx);
     }
 
@@ -7399,13 +7381,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                           const std::string& shown, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
                           float bodyStartY = 0.0f,
-                          const std::string& findQuery = std::string()) {
+                          const std::string& findQuery = std::string(),
+                          int messageIndex = -1) {
         // The find text arrives from the caller, which is the only level that
         // knows WHICH message this body belongs to — and therefore whether an
         // operator has excluded it from the search.
         const bool cull = winBot > winTop;
         size_t start = 0;
         int seg = 0;
+        std::size_t findLine = 0;
         float y = bodyStartY;         // running content-y of this segment's top
         float pending = 0.0f;         // accumulated off-window height to flush
         auto flush = [&](int tag) {
@@ -7498,9 +7482,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 } else {
                     flush(9000 + seg);
                     render_heading(ctx, parent, seg, level,
-                                   md_heading_text(line), blockH, findQuery);
+                                   md_heading_text(line), blockH, findQuery,
+                                   messageIndex, findLine);
                 }
                 ++seg;
+                ++findLine;
                 if (nl == std::string::npos) break;
                 start = nl + 1;
                 continue;
@@ -7513,6 +7499,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // drives wrap/height (identical to the measure path), the spans
             // drive the styled draw below.
             InlineParse ip = md_to_spans(line);
+            const std::size_t thisFindLine = findLine;
+            if (!line.empty()) ++findLine;
             if (blank) {
                 segH = kBlankPitch;
             } else {
@@ -7574,6 +7562,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
                 ld.text = ip.visible;
                 ld.query = findQuery;
+                if (const auto* hits =
+                        paint_offsets_for(messageIndex, thisFindLine))
+                    ld.findOffsets = *hits;
+                else
+                    ld.findOffsets.clear();
                 ld.links = lnks;
                 ld.id = lineEnt.id;
                 ecs::LineDrawState* ldp = &ld;
@@ -7582,7 +7575,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                               theme::type::BODY);
                     if (!ldp->query.empty())
                         hanabi::find_highlight::draw(r, ldp->text, ldp->query,
-                                                     theme::type::BODY);
+                                                     theme::type::BODY,
+                                                     &ldp->findOffsets);
                 });
                 // The underline goes OVER the glyphs' own row, so it is drawn
                 // in the foreground pass; the colour alone would leave an id
@@ -7855,17 +7849,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text");
-            auto uidHolder = std::make_shared<afterhours::EntityID>(-1);
-            ucfg = ucfg.with_on_draw_bg(
-                [t = userBody, q = uq, uidHolder](RectangleType r) {
-                    hanabi::text_select::draw(*uidHolder, r, t,
-                                              theme::type::BODY);
-                    if (!q.empty())
-                        hanabi::find_highlight::draw(r, t, q,
-                                                     theme::type::BODY);
-                });
-            auto uEl = div(ctx, mk(bub.ent(), 2), ucfg);
-            *uidHolder = uEl.ent().id;
+            const auto uep = mk(bub.ent(), 2);
+            Entity& userEnt = uep.first.get();
+            auto& uld = userEnt.addComponentIfMissing<ecs::LineDrawState>();
+            uld.text = userBody;
+            uld.query = uq;
+            if (const auto* hits = paint_offsets_for(index, 0))
+                uld.findOffsets = *hits;
+            else
+                uld.findOffsets.clear();
+            uld.id = userEnt.id;
+            ecs::LineDrawState* uldp = &uld;
+            ucfg = ucfg.with_on_draw_bg([uldp](RectangleType r) {
+                hanabi::text_select::draw(uldp->id, r, uldp->text,
+                                          theme::type::BODY);
+                if (!uldp->query.empty())
+                    hanabi::find_highlight::draw(
+                        r, uldp->text, uldp->query, theme::type::BODY,
+                        &uldp->findOffsets);
+            });
+            auto uEl = div(ctx, uep, ucfg);
             selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY);
             // WhatsApp-style sync glyph in the bubble's bottom-right corner.
             // gap #28 (nested child of a custom-bg bubble + on_draw_fg didn't
@@ -7996,7 +7999,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_thinking_indicator(ctx, asstBubble.ent(), app);
         } else {
             render_rich_body(ctx, asstBubble.ent(), shown, textW, winTop,
-                             winBot, bodyStartY, paint_query_for(index));
+                             winBot, bodyStartY, paint_query_for(index), index);
         }
 
         // Inline image (agent surface): if the message carries a decodable
@@ -8050,6 +8053,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (fbtn.ent().get<afterhours::ui::HasClickListener>().down) {
                 if (expanded) app->expandedMsgs.erase(mkey);
                 else app->expandedMsgs.insert(mkey);
+                ++app->findFoldVersion;
             }
         }
         message_actions(ctx, asstBubble.ent(), turn.ent(),

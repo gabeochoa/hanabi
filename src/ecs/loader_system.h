@@ -137,6 +137,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // so "last 5 interacted with" stays accurate on every open/switch.
             if (auto hit = app.transcriptCache.get(id)) {
                 pane.openSession = std::move(*hit);
+                pane.note_transcript_change();
                 pane.transcriptState = LoadState::Loaded;
                 pane.transcriptError.clear();
                 pane.transcriptLoadingId.clear();  // nothing loading now
@@ -197,6 +198,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptState != LoadState::Loaded) {
                 app.transcriptCache.put(*disk);
                 pane.openSession = std::move(*disk);
+                pane.note_transcript_change();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
                 pane.transcriptError.clear();
                 pane.hasMoreOlder = pane.openSession->has_more_older;
@@ -221,6 +223,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // (the user may have switched tabs during a slow fetch).
                     if (pane.selectedId == r.value.summary.id) {
                         pane.openSession = std::move(r.value);
+                        pane.note_transcript_change();
                         pane.transcriptState = LoadState::Loaded;
                         pane.transcriptError.clear();
                         pane.hasMoreOlder = pane.openSession->has_more_older;
@@ -506,6 +509,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         um.created_at = r.value.created_at;
                         app.pane().openSession->messages.push_back(std::move(um));
                         app.pane().openSession->messages.push_back(r.value);
+                        app.pane().note_transcript_change();
                         app.transcriptCache.put(*app.pane().openSession);
                     }
                 } else {
@@ -613,6 +617,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     um.sync = api::SyncState::Persisting;
                     app.optimisticSendId = um.id;
                     app.pane().openSession->messages.push_back(std::move(um));
+                    app.pane().note_transcript_change();
                     app.pane().scrollBottomPending = id;  // keep the new bubble in view
                 }
             }
@@ -652,6 +657,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             app.pane().openSession->messages.push_back(std::move(um));
                         }
                         app.pane().openSession->messages.push_back(r.value);
+                        app.pane().note_transcript_change();
                         app.transcriptCache.put(*app.pane().openSession);
                     }
                     api::disk_cache::outbox_remove(app.sendSessionId, userText);
@@ -772,6 +778,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (it->sync == api::SyncState::None) continue;
             if (it->text != prompt) continue;
             msgs.erase(it);
+            app.pane().note_transcript_change();
             return;
         }
     }
@@ -817,6 +824,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             um.created_at = static_cast<int64_t>(std::time(nullptr));
             um.sync = api::SyncState::LocalOnly;
             app.pane().openSession->messages.push_back(std::move(um));
+            app.pane().note_transcript_change();
             app.pane().scrollBottomPending = id;
         }
     }
@@ -1115,6 +1123,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (app.pane().selectedId == r.value.summary.id &&
                         !app.pane().loadingOlder && !app.livePending) {
                         app.pane().openSession = r.value;
+                        app.pane().note_transcript_change();
                         app.pane().transcriptState = LoadState::Loaded;
                         app.pane().transcriptError.clear();
                         app.pane().hasMoreOlder = app.pane().openSession->has_more_older;
@@ -1159,6 +1168,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         app.transcriptCache.put(r.value);
         save_and_trim(app, r.value);
         app.pane().openSession = std::move(r.value);
+        app.pane().note_transcript_change();
         app.pane().transcriptState = LoadState::Loaded;
         app.pane().transcriptError.clear();
         app.pane().hasMoreOlder = app.pane().openSession->has_more_older;
@@ -1387,6 +1397,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 api::Message assistant = got.finalMsg;
                 assistant.text.clear();  // starts empty; fills as we drain.
                 app.pane().openSession->messages.push_back(assistant);
+                app.pane().note_transcript_change();
                 app.streamMsgIndex = app.pane().openSession->messages.size() - 1;
 
                 app.streamActive = true;
@@ -1453,6 +1464,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
         // Rewrite the live Assistant bubble's text with what we have so far.
         app.pane().openSession->messages[app.streamMsgIndex].text = app.streamBuffer;
+        app.pane().note_transcript_change();
 
         // --- DONE ---
         if (app.streamCursor >= app.streamQueue.size()) {

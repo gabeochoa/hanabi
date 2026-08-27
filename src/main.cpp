@@ -314,6 +314,7 @@ static void setup_app_state() {
     if (!app.restoreActiveId.empty() && app.backend_label == "http") {
         if (auto cached = api::disk_cache::load_transcript(app.restoreActiveId)) {
             app.pane().openSession = std::move(*cached);
+            app.pane().note_transcript_change();
             app.pane().selectedId = app.restoreActiveId;
             app.pane().transcriptState = ecs::LoadState::Loaded;
             app.view = ecs::SmartView::Chat;  // paint the transcript, not Home
@@ -929,6 +930,7 @@ static void apply_stream_demo(ecs::AppComponent* app) {
         live.id = "__thinking_demo__";
         live.text = "";
         msgs.push_back(live);
+        app->pane().note_transcript_change();
     }
     app->streamActive = true;
     app->streamSessionId = app->pane().openSession->summary.id;
