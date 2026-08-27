@@ -1,0 +1,10 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_EMPTY_TRANSCRIPT_DEMO=1
+
+require_thread t2
+expect_text "Start this conversation"
+expect_text "Send a message below to begin."
+assert_ui transcript_empty_anchor hidden=false
+assert_ui transcript_empty_title hidden=false
+assert_ui transcript_empty_title y=572
+assert_ui transcript_empty_body hidden=false

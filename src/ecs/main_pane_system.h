@@ -3542,18 +3542,48 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
 
-        if (pane.openSession->messages.empty()) {
-            div(ctx, mk(scroll.ent(), 1),
-                preset::EmptyStateText(
-                    canReply ? "No messages yet \xe2\x80\x94 start the "
-                               "conversation below."
-                             : "No messages in this thread.")
-                    .with_size(ComponentSize{percent(1.0f), pixels(40)})
-                    .with_padding(Padding{.top = pixels(28), .right = pixels(18),
-                                          .bottom = pixels(8),
+        static const bool emptyTranscriptDemo = [] {
+            const char* v = std::getenv("HANABI_EMPTY_TRANSCRIPT_DEMO");
+            return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+        }();
+        if (pane.openSession->messages.empty() || emptyTranscriptDemo) {
+            float emptyH = listH - 22.0f;
+            if (emptyH < 96.0f) emptyH = 96.0f;
+            auto empty = div(ctx, mk(scroll.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(emptyH)})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_padding(Padding{.right = pixels(18),
+                                          .bottom = pixels(28),
                                           .left = pixels(18)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_empty_anchor"));
+            div(ctx, mk(empty.ent(), 1),
+                ComponentConfig{}
+                    .with_label(canReply ? "Start this conversation"
+                                        : "No messages yet")
+                    .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::LG)
                     .with_alignment(TextAlignment::Center)
-                    .with_debug_name("transcript_empty"));
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_empty_title"));
+            div(ctx, mk(empty.ent(), 2),
+                ComponentConfig{}
+                    .with_label(canReply ? "Send a message below to begin."
+                                        : "Replies are unavailable for this backend.")
+                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::BODY)
+                    .with_alignment(TextAlignment::Center)
+                    .with_roundness(0.0f)
+                    .with_debug_name("transcript_empty_body"));
             return;
         }
 

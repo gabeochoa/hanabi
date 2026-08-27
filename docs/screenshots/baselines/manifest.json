@@ -68,6 +68,10 @@
       "threshold_pct": 0.0,
       "note": "Chat with no thread open: the welcome prompts."
     },
+    "13b_empty_transcript_dark": {
+      "threshold_pct": 0.0,
+      "note": "An open conversation with no messages; the empty state is anchored above the composer."
+    },
     "14_sidebar_folded_dark": {
       "threshold_pct": 0.0,
       "note": "Sidebar folded to the icon rail."

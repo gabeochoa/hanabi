@@ -279,6 +279,7 @@ capture 12_view_blocked_light "$NOTABS_LIGHT" HANABI_VIEW=blocked
 
 # --- Chat with no thread open: the welcome / start-a-conversation screen.
 capture 13_chat_welcome_dark "$NOTABS_DARK" HANABI_VIEW=chat
+capture 13b_empty_transcript_dark "$TABS_DARK" HANABI_EMPTY_TRANSCRIPT_DEMO=1
 
 # --- Sidebar folded to the icon rail (persisted setting, no Cmd+B needed).
 capture 14_sidebar_folded_dark "$FOLDED"
