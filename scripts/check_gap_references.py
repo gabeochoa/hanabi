@@ -12,7 +12,7 @@ from pathlib import Path
 
 ENTRY = re.compile(r"(?m)^###\s+#(?P<number>\d+)\s+—\s+(?P<title>.+)$")
 REFERENCE = re.compile(
-    r"(?ms)^\*\*Hanabi reference\.\*\*\s*(?P<text>.*?)(?=^\*\*[^\n]+\.\*\*|^###\s+#|\Z)"
+    r"(?ms)^\*\*Hanabi reference\.\*\*\s*(?P<text>.*?)(?=^-?\s*\*\*[^\n]+\.\*\*|^###\s+#|\Z)"
 )
 BACKTICK = re.compile(r"`([^`]+)`")
 CLASS_WORKAROUND = re.compile(

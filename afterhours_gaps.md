@@ -1988,6 +1988,10 @@ with content: the same proportions on a bigger screen are a bigger bill.
   caches measured message heights), which helps the app's own layout pass but
   cannot touch what the renderer does when it draws.
 
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `docs/perf/SIDEBAR.md` (`gap #42 — the draw path re-measures every string from scratch every frame`) — current perf docs still identify the afterhours draw-path measurement cost. `src/ui/theme.h` (`afterhours ships a TextMeasureCache wired up as a singleton, and it is unusable from here`) — hanabi uses its own measurement semantics where the library cache cannot be adopted directly. Measurement/gate: `docs/perf/TEXT.md` (`text measurements / frame | 492.6 | **5.3**`) — current text perf document records hanabi-side measurement reductions.
+
 - **What the library could offer instead.** Two independent changes, either one
   worth having:
 
@@ -2049,6 +2053,10 @@ with content: the same proportions on a bigger screen are a bigger bill.
   required-components) per frame and it grows with the app.
 
 - **The workaround.** None — this is inside `System::for_each_derived`.
+
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `tests/e2e/test_perf.cpp` (`=== afterhours #43: component lookup ===`) — microbenchmark compares has_child_of(dynamic_cast) to has(bitset). Measurement/gate: `tests/e2e/test_perf.cpp` (`has_child_of<T> (dynamic_cast)`) — prints ns/call and ratio for the measured component lookup cost.
 
 - **What the library could offer instead.** The type identity is already known
   without asking the runtime. `Entity` carries a `std::bitset<128>` of component
@@ -2147,6 +2155,12 @@ entity is stable for its life, and the imm layer reuses entities across frames.
 - **Severity: makes it slow** (mildly). Listed because it is a small, local
   change on the hottest possible path.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The old 7% profile claim has been superseded by allocation-count evidence and renumbered upstream asks (#181), but the underlying config-copy issue remains.
+
+**Hanabi reference.** Hanabi-owned performance finding: `docs/perf/ALLOCATIONS.md` (`ComponentConfig is copied three times per widget`) — current allocation docs restate the same cost in the updated perf taxonomy. `src/ecs/line_draw_state.h` (`ComponentConfig three times on the way into a widget`) — hanabi moved large draw-callback state onto entities to avoid multiplying captures through those copies. Measurement/gate: `docs/perf/ALLOCATIONS.md` (`ComponentConfig label copies | ~470 | upstream`) — current allocation accounting reports the remaining upstream cost.
+
+
+
 ### #45 — Widget callbacks outlive the frame that wrote them (no imm `on_submit`)
 
 - **What I was trying to build.** Enter sends the message in the chat composer.
@@ -2194,6 +2208,10 @@ entity is stable for its life, and the imm layer reuses entities across frames.
   text on the app, and the per-frame composer code routes it with a mode
   computed this frame. ~15 lines, one new field on the app component, and a
   paragraph of comment so nobody "simplifies" it back.
+
+
+
+**Hanabi reference.** `src/ecs/components.h` (`What Enter in the composer submitted, before it has been routed`) — composer listener parks facts on AppComponent instead of capturing per-frame mode. `src/ecs/main_pane_system.h` (`Enter parked its text here`) — per-frame composer code routes submit text using current kickoff/reply state. Tests: `tests/ui/composer_enter_replies_in_thread.e2e` (`Enter in the composer REPLIES to the open thread`) — script guards the stale-capture failure mode.
 
 - **What the library could offer instead.** Two options, and I would want both:
 
@@ -2286,6 +2304,10 @@ entity is stable for its life, and the imm layer reuses entities across frames.
   is being emitted somewhere for the input's content rect. That one I could not
   reach from app code.
 
+
+
+**Hanabi reference.** `src/preload.cpp` (`theme.focus_ring_thickness = 1.0f;`) — sets the app default to a single focus-ring hairline. `src/preload.cpp` (`theme.focus_ring_offset = 0.0f;`) — keeps that hairline flush so concentric rounded outlines cannot fan out.
+
 - **What the library could offer instead.** Grow the ring in **radius**, not
   just in rect — keep the arcs concentric:
 
@@ -2367,6 +2389,12 @@ required, and the comments repeating it in `tests/ui/*.e2e` are stale.
   in `tests/ui/` now carries a comment saying why, because the natural thing to
   write is the quoted form and it looks right.
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Resolved upstream; old bare-word workaround comments remain in some scripts, but current source can use quoted expect_no_text.
+
+**Hanabi reference.** Current code: `tests/ui/shortcuts_sheet.e2e` (`expect_no_text "Keyboard shortcuts"`) — current scripted tests use a quoted multi-word negative assertion. `docs/COMMIT_AUDIT.md` (`expect_no_text "quoted" can never fail.`) — audit records that this was true when written and fixed by the vendor bump. Tests: `tests/ui/shortcuts_sheet.e2e` (`Fixed in afterhours 2d6f23d.`) — test comment pins that quoted expect_no_text is the current, fixed behavior.
+
 - **What the library could offer instead.** One line, next to its sibling:
 
   ```cpp
@@ -2433,6 +2461,10 @@ required, and the comments repeating it in `tests/ui/*.e2e` are stale.
   does cover: em dashes for the rule, `|` for the caret, and plain words —
   "Enter to send" — for the hint. Plus a `tests/ui` script asserting the hint
   and the button label are on screen, since the failure is invisible.
+
+
+
+**Hanabi reference.** `src/ui/icons.h` (`Small vector marks the UI font cannot draw`) — font-unsafe UI symbols are drawn as vectors instead of typed glyphs. `src/ui/icons.h` (`inline void arrow_up`) — send arrow is vector-drawn because Roboto lacks U+2191. Tests: `tests/unit/test_atlas_guard.cpp::test_zero_for_a_real_string_is_a_fault` — unit test covers the guard's zero-width fault detection. Measurement/gate: `scripts/atlas_gate.sh` (`the atlas overflowed AND the detector raised a fault`) — gate proves the detector fires under real atlas overflow and stays silent on clean UI.
 
 - **What the library could offer instead.** Three things, cheapest first:
 
@@ -2506,6 +2538,12 @@ required, and the comments repeating it in `tests/ui/*.e2e` are stale.
   closes it. The test covers the sheet's content and its dismissal; the binding
   itself — the part most likely to break — is asserted by nobody.
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The harness still cannot hold Super, but the app now ships Ctrl twins/cmd_or_ctrl_down so most Cmd behavior is testable; the original “binding asserted by nobody” claim is stale.
+
+**Hanabi reference.** `src/input_mapping.h` (`WHY THE CTRL TWINS`) — shipping action bindings add Ctrl twins so script CMD+ reaches Cmd-only app actions. `src/keys.h` (`inline bool cmd_or_ctrl_down()`) — raw shortcut reads accept Ctrl as a test-only alias for Cmd. Tests: `tests/ui/composer_line_delete.e2e` (`key CMD+BACKSPACE`) — scripted CMD chords now exercise line-editing behavior through the Ctrl alias.
+
 - **What the library could offer instead.** Three lines and a rename:
 
   ```cpp
@@ -2543,6 +2581,12 @@ required, and the comments repeating it in `tests/ui/*.e2e` are stale.
   shipping build, and routing all six shortcut sites through it. Cheap, and
   worth having anyway — but every app on this library has to independently
   discover the need for it.
+
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's described four-line testing-vs-graphics shim is stale; the current wrapper is simpler and always forwards to afterhours::input.
+
+**Hanabi reference.** `src/keys.h` (`afterhours::input already IS that branch`) — current key helper forwards through afterhours::input rather than graphics. `src/keys.h` (`inline bool pressed(int key) { return afterhours::input::is_key_pressed(key); }`) — all app shortcut reads go through the testable input plugin. Tests: `tests/ui/composer_word_editing.e2e` (`key CMD+LEFT`) — scripted key chords reach app shortcut/editing code through the input path.
 
 - **What the library could offer instead.** Give the graphics key API the same
   `#ifdef` branch the input plugin already has, so the two agree:
@@ -2626,6 +2670,10 @@ required, and the comments repeating it in `tests/ui/*.e2e` are stale.
   text, a padding-aware margin — and hanabi's highlights silently slide off the
   words with nothing failing to build. It is the most fragile code in the app,
   and it cannot be made less fragile from this side.
+
+
+
+**Hanabi reference.** `src/ui/find_highlight.h` (`where is byte N of this label on screen`) — hanabi redoes afterhours text layout with copied renderer constants for find bands. `src/ui/link_detect.h` (`calls text_select::detail::layout_of`) — link rects share the same app-side reconstructed text layout. Tests: `tests/ui/find_counts_only_what_it_could_paint.e2e` (`Nothing is counted that find could not paint.`) — script guards count-vs-paint consistency.
 
 - **What the library could offer instead.** The renderer already computes this;
   it just throws it away. Two shapes, either would do:
@@ -2802,6 +2850,10 @@ should.
   completeness thing, and it is worth doing properly once rather than
   approximately in every app.
 
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
+
 ### #53 — A layout an app declares wrong is corrected silently, and warned about forever
 
 - **How I hit it.** Twice in one afternoon, in a 34px-tall bar with five
@@ -2848,6 +2900,10 @@ should.
     the bar's contents by about 12px and nobody noticed for a week. Silence
     would be better than plausible-but-wrong; a visible break would be better
     still.
+
+
+
+**Hanabi reference.** Negative result: `scripts/bounds_gate.sh` (`assert_no_overflow measures every element against the VIEWPORT`) — hanabi has its own parent-containment audit because the library assertion checks the wrong relationship. `scripts/bounds_gate.sh` (`fail on anything not in the baseline`) — current gate freezes known harmless overflows and fails on new parent escapes. Measurement/gate: `scripts/bounds_gate.sh` (`HANABI_BOUNDS_AUDIT=1`) — measurement mode reads resolved rects after layout rather than relying on screenshot/log spam.
 
 - **What the library could offer instead.** The detection is already there and
   correct — it is the reporting that fails:
@@ -2913,6 +2969,10 @@ should.
 
   Then a chord test can hold Cmd, and the 72 lines go away as a side effect.
 
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
+
 ### #55 — A scripted test can right-click a coordinate, never a named element
 
 - **What I was trying to build.** The session-rename theme: right-click a
@@ -2946,6 +3006,10 @@ should.
   and the test keeps passing while exercising the wrong thing (or fails for a
   reason that has nothing to do with rename). The menu ITEM is safe, because
   once the menu is open `click_ui row_menu_rename` finds it by name.
+
+
+
+**Hanabi reference.** `tests/ui/session_rename.e2e` (`right_click 120 475`) — rename test still hardcodes the secondary-click coordinate. `tests/ui/session_archive.e2e` (`right_click 120 475`) — archive test carries the same coordinate workaround. Tests: `tests/ui/session_rename.e2e` (`click_ui row_menu_rename`) — menu item can be addressed by name after coordinate right-click opens the menu.
 
 - **What the library could offer instead.** The same handler `click_ui`
   already has, dispatching `simulate_right_click` instead of
@@ -3005,6 +3069,10 @@ should.
   It works, and it is guesswork: the app is reaching past the returned handle
   into the widget's internal child structure and papering over a one-frame
   ordering rule with a counter.
+
+
+
+**Hanabi reference.** `src/ecs/rename_modal_system.h` (`if (justOpened) focusFrames_ = 3`) — rename modal reasserts focus across several frames. `src/ecs/rename_modal_system.h::ctx.set_focus(focusable_field(field.ent()))` — workaround focuses the text_input's inner field rather than the returned wrapper. Tests: `tests/ui/session_rename.e2e` (`The field opens focused with the whole title selected`) — script relies on autofocus/select-all to type the replacement title.
 
 - **What the library could offer instead.** Either make `set_focus` on the
   entity `text_input` returns mean "focus this input" (route it to the field,
@@ -3086,6 +3154,10 @@ should.
      back" a one-liner that cannot rot: today the only way to say it is to
      index into the widget's children.
 
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`const auto refocus_field = [&]`) — composer reaches into widget children to restore focus. `src/ecs/main_pane_system.h` (`was_focused = true`) — workaround preserves caret behavior after restoring focus. Tests: `tests/ui/slash_menu_escape_keeps_draft.e2e` (`Escape puts the slash menu away and keeps what you typed.`) — script guards Escape menu dismissal without losing draft/focus.
+
+
+
 ### #58 — No colour input of any kind, so a theme editor can only offer a menu
 
 - **What I was trying to build.** The custom theme editor from
@@ -3121,6 +3193,10 @@ should.
 - **Severity: caps what an app can build.** Any app with theming, a drawing
   tool, a chart editor or a tag-colour setting hits this the moment it wants a
   colour from a person rather than from a constant.
+
+
+
+**Hanabi reference.** `src/ecs/settings_system.h` (`Two NAMED tokens are editable`) — settings uses named swatches rather than a free color picker. `src/ecs/settings_system.h` (`What this is not is the colour-picker`) — source documents why the richer picker is not shipped. Tests: `tests/ui/custom_theme_colours.e2e` (`The two editable colour tokens change`) — script covers swatch selection.
 
 - **Minimal upstream fix.** An `imm::color_swatch(ctx, id, Color& value, cfg)`
   — a button that fills with the current colour and, when pressed, opens a
@@ -3170,6 +3246,10 @@ should.
 - **Severity: makes it ugly.** Nothing is unreachable here, and the failure is
   loud rather than silent, which is the saving grace: a malformed assertion
   fails the script instead of passing vacuously.
+
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`No spaces: assert_ui name text=<value> splits its arguments on whitespace`) — syntax audit captions avoid spaces because assert_ui cannot parse them. `tests/ui/pinned_threads_head_the_sidebar.e2e` (`assert_ui row_title text=kicker-tick`) — current direct text property assertions use single-token values. Tests: `tests/ui/syntax_highlighting.e2e` (`assert_ui code_block_audit_PYTHON text=kw2/ty0/str2/com1/num4`) — audit caption is encoded as one token to fit assert_ui.
 
 - **Minimal upstream fix.** Add `assert_ui` (and `assert_no_overflow`'s
   siblings, if any grow arguments) to the runner's parse switch with the same
@@ -3221,6 +3301,10 @@ should.
      scripted test drives the queue directly (`native_simulate_file_drop`) and
      the AppKit delivery itself is verified by hand.
 
+
+
+**Hanabi reference.** `src/native_extras.mm` (`sokol's own drag-and-drop is unreachable from here`) — AppKit category workaround is documented beside the native implementation. `src/native_extras.mm` (`void native_filedrop_install`) — window content view is registered as an NSDraggingDestination. Tests: `tests/ui/composer_image_attach.e2e` (`HANABI_DROP_TEST feeds the pending-drop queue the way AppKit does`) — script covers everything downstream of the actual AppKit drag.
+
 - **Minimal upstream fix.** One bool on `Config` (`enable_file_drop`) copied
   into `desc.enable_dragndrop`, and the dropped-files event surfaced the way
   the other sokol events already are — a `files_dropped` callback on `Config`,
@@ -3266,6 +3350,10 @@ should.
   in the same position: assertable only through a hook the app adds for the
   purpose. Three of hanabi's features now carry one.
 
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`HANABI_SYNTAX_AUDIT caption`) — code block renders a test-only text summary of colored runs. `src/ecs/main_pane_system.h` (`No spaces: assert_ui name text=<value> splits its arguments on whitespace`) — audit summary is intentionally whitespace-free. Tests: `tests/ui/syntax_highlighting.e2e` (`HANABI_SYNTAX_AUDIT=1`) — script asserts run-count captions because colors are not directly assertable.
+
 - **Minimal upstream fix.** Teach `check_ui_property` two more properties:
 
   ```cpp
@@ -3306,6 +3394,10 @@ should.
   overflow handling and its text selection, for a feature that is legibility
   polish.
 
+
+
+**Hanabi reference.** `src/ui/syntax_highlighter.h` (`What it cannot do it leaves as plain text.`) — scanner deliberately leaves unsupported/plain runs uncolored. `src/ecs/main_pane_system.h` (`case hanabi::syntax::Tok::Punct: return theme::syntax_punct();`) — punctuation coloring is intentionally skipped to reduce monospace run-boundary wobble. Tests: `tests/ui/syntax_highlighting.e2e::kw2/ty3/str0/com2/num2` — script proves colored syntax runs are present, but not punctuation-level styling.
+
 - **Minimal upstream fix.** Lay a styled label out on the ORIGINAL string's
   measured positions rather than by accumulating per-run widths: measure the
   full label once, then draw each run at the offset its byte range has in that
@@ -3345,6 +3437,10 @@ fails.
 **Severity: a papercut with a reliable workaround.** Any widget that wants a
 frame, a focus ring, an overlay or a selection band over a subtree it owns hits
 this. Every one of them can add a trailing absolute child.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`Where the viewport is, drawn LAST`) — minimap scrubber is a trailing absolute child so it draws over mark children. `src/ecs/main_pane_system.h` (`.with_debug_name("minimap_scrubber")`) — extra overlay entity carries the over-subtree draw. Tests: `tests/ui/minimap_navigator.e2e` (`The rail on the right edge takes you to the message you point at.`) — minimap behavior is covered even though the scrubber itself is drawn.
+
 
 **Minimal upstream fix.** An `on_draw_over` callback on `HasOnDraw` enqueued by
 `collect()` AFTER the child loop, so a container can paint over the subtree it
@@ -3389,6 +3485,10 @@ locally, and nothing detects a future collision.
 "of the frame" rather than "of a panel" — a rail divider, a drag-resize handle,
 a window-wide focus ring, a drop-target outline — needs its own orphan entity
 and its own hand-picked layer.
+
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`void render_rail_divider`) — sidebar/main divider is an orphan root-level absolute entity. `src/ecs/sidebar_system.h::with_render_layer(7)` — divider uses a hand-picked render layer above status/tab chrome. Tests: `tests/ui/composer_reaches_the_window_floor.e2e` (`The composer runs to the window's floor`) — test verifies the frame/footer geometry around the window-level chrome.
+
 
 **Minimal upstream fix.** Two independent things, either of which helps:
 (a) named render layers, or at minimum a `Layer::Chrome`-style enum the app can
@@ -3454,6 +3554,12 @@ background one, so `with_border_right` survives its own children (this is #63's
   in the app inherits an inset it did not choose from a height it chose for a
   different reason.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The text_input padding workaround described by the entry is stale for the composer because it moved to text_area; kFieldH survives for a different text_area sizing reason.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`text_area derives neither -- its padding is a fixed 6/4`) — current composer no longer uses text_input's height-derived padding. `src/ecs/main_pane_system.h` (`const float kFieldH = composer_field_h(composerRows_)`) — one-row field height is now derived for text_area row/padding agreement. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`One row, and this is the number the whole composer band is measured against.`) — current composer field/box sizing is pinned by scripted geometry.
+
+
+
 ### #66 — A placeholder is a string, so a hint the font cannot draw cannot be drawn
 
 - **What I was trying to build.** Puffin's composer placeholder, verbatim:
@@ -3482,6 +3588,10 @@ background one, so `with_border_right` survives its own children (this is #63's
   fallback chain across the loaded faces (JetBrains Mono covers ⏎ — this is
   gap #48's fourth ask and would make the plain string just work), or a
   placeholder that accepts styled runs the way the transcript's spans do.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`Puffin's reads "Message Agentcloud… (↵)". The key hint is dropped`) — composer placeholder drops the return-arrow hint and explains why. `src/ecs/main_pane_system.h` (`with_on_draw_fg([placeholder]`) — current placeholder is an app-drawn overlay over text_area. Tests: `tests/ui/composer_hints_are_legible.e2e` (`The composer's keyboard hint must be TEXT`) — script covers the composer hint/status text.
+
+
 
 ### #67 — Multi-line is a different widget, not a mode, so the switch is a rewrite
 
@@ -3516,6 +3626,12 @@ background one, so `with_border_right` survives its own children (this is #63's
   state type so an app can move between them without rewriting its callers.
   The second is the honest one: the state IS the API here, and the library has
   two of them for one concept.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Entry's 'not attempted; composer stays single-line' claim is stale: the rewrite is now in current source, with compatibility shims.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`auto inputRes = afterhours::ui::imm::text_area`) — current composer did switch to text_area. `src/ecs/main_pane_system.h` (`A SHADOW HasTextInputState`) — source documents one compatibility shim needed because text_area uses different state. Tests: `tests/ui/composer_shift_enter.e2e` (`Shift+Enter puts a line break in the message; Enter still sends it.`) — script proves the multiline rewrite shipped.
+
+
 ### #68 — Nothing reports the height an element actually came out at, so every scrolling list keeps two copies of its own layout
 
 **What I wanted.** A virtualized transcript whose spacers are the size of the
@@ -3576,6 +3692,10 @@ a 1px residual I cannot explain and did not paper over.
 fails. The transcript just scrolls slightly wrong, more so the longer the
 thread, and the next person to change a padding re-introduces it.
 
+
+**Hanabi reference.** `src/ui/measure_probe.h` (`TEMPORARY measure-vs-draw probe`) — probe records expected and observed heights to catch drift. `src/ecs/main_pane_system.h::probe_drawn_turns` — transcript walks rendered turn entities and compares their resolved heights. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`A user turn is a bubble that hugs its own text`) — script pins geometry that depends on the duplicated measurement/draw math. Measurement/gate: `src/ui/measure_probe.h` (`[mprobe] DRIFT`) — probe emits measured-vs-drawn height mismatches when enabled.
+
+
 **Minimal upstream fix.** Either half would do:
 (a) a `measure_only` pass — hand the library a ComponentConfig subtree and get
 back the height it WOULD resolve, so the app has one layout function instead of
@@ -3619,6 +3739,10 @@ settings.
 **Severity: a chat app cannot draw a chat bubble without it.** Any bubble,
 chip, tag or tooltip that hugs its content hits both halves.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`static constexpr float kLabelInsetX = 6.0f`) — hanabi names and compensates for the renderer's private label inset. `src/ecs/main_pane_system.h` (`UserBox user_box`) — hanabi computes wrapped text width and hands the bubble a pixel width. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`SHRINK-TO-FIT, CAPPED`) — script pins the app-computed hugging bubble width.
+
+
 **Minimal upstream fix.** `ComponentSize{ content(), ... }` for a label — the
 wrapper already computes the line extents it needs — and expose the two inset
 constants (or, better, stop applying them and let padding be padding).
@@ -3649,6 +3773,10 @@ equally inert; it looks correct, so nobody has questioned it.
 
 **Severity: silent, and it looks like working code.** Create-then-configure is
 the natural shape and it fails by doing nothing.
+
+
+**Hanabi reference.** `src/ecs/tab_model.h` (`pinned applies to a NEWLY created tab only`) — pinned state is passed into tab creation rather than applied by a same-frame lookup. `src/ecs/tab_bar_system.h` (`/*pinned=*/std::find(app.restorePinnedIds.begin()`) — restore path feeds pinned state directly into open_session_in_tab. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`pinned had to become a`) — visual-parity notes record the create-then-configure failure and the parameter workaround.
+
 
 **Minimal upstream fix.** Have `getEntityForID` see the pending set too (it
 already knows about it — the temp-warning flag on `EntityQuery` exists for
@@ -3718,6 +3846,12 @@ problem. Grid snapping is on for the whole app, so every hardcoded pixel
 geometry in hanabi — tab heights, composer insets, row pitches — is a
 suggestion that the layout rounds to a unit the designer never chose and cannot
 see. The taller the window, the coarser the rounding.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The original “ships with drift” paragraph is stale; snapping is disabled app-wide and the entry’s resolved postscript is the current behavior.
+
+**Hanabi reference.** Current code: `src/preload.cpp` (`UIStylingDefaults::get().set_grid_snapping(false);`) — turns off the global grid snapping that quantized row positions. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`It is off now, and pitch is exactly 32`) — records the measured correction and no-regression result.
+
 
 **Minimal upstream fix.** Honour `skip_grid_snap` in the position path too — one
 condition, and a widget that says "place me exactly" gets placed exactly.
@@ -3795,6 +3929,12 @@ chrome controls, which pushes the ring onto a view row where it is at least
 row-shaped. ~600 pixels that no geometry work can remove, and the ring will move
 again the next time someone deletes or reorders a control.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The old skip_tabbing-only workaround is superseded by the current focus-visible policy.
+
+**Hanabi reference.** Current code: `src/ui/focus_visible.h` (`The ring is off until a navigation key is pressed`) — current app implements a focus-visible heuristic instead of merely moving the startup ring. `src/ecs/focus_visible_system.h` (`ctx.theme.focus_ring_thickness = fv::ring_thickness();`) — system writes the renderer-visible focus-ring thickness each frame. Tests: `tests/ui/focus_ring_waits_for_the_keyboard.e2e` (`expect_text "ring off"`) — test asserts no focus ring at rest.
+
+
 **Minimal upstream fix.** A focus-visible rule: track whether focus was last
 moved by the KEYBOARD, and paint the ring only then (`focus_source` is already
 carried on the context — `FocusSource::Pointer` vs `Explicit` — so the
@@ -3859,6 +3999,10 @@ longer than 36 bytes — the fixture, not the test, decides which rows are
 assertable. Change a title's length and a passing test quietly starts measuring
 a card.
 
+
+**Hanabi reference.** `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text takes whichever entity the query reaches first`) — the current sidebar-order test is written around the duplicate-label ambiguity and documents why only initial-viewport rows are safe. Tests: `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text "SKU backfill — my name for it" y=306`) — the workaround pins row order by positional text assertions on rows whose sidebar entities win over main-pane cards.
+
+
 **Minimal upstream fix.** A scope argument on both commands —
 `assert_ui_text "<text>" under=sidebar y=306`, resolved by walking up the
 UIComponent parent chain to a debug-named ancestor — plus an error rather than
@@ -3899,6 +4043,10 @@ established. Four full rebuilds (~2 min each) plus a pixel scan to read one
 height the engine already knows. The 2px itself is still unexplained, because
 "which child is wrong" is exactly the question that cannot be asked.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::probe_drawn_turns` — the current measure probe can only walk the flat UI collection by debug name and compare resolved turn rect heights. `src/ui/measure_probe.h` (`turn#<i>`) — the probe API records named height expectations instead of traversing a resolved child tree. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`UIComponent::children is cleared every frame before app code runs`) — records the original pixel-diff investigation and why subtree traversal was unavailable.
+
+
 **Minimal upstream fix.** Keep the previous frame's structure alongside the
 previous frame's rects — either don't clear `children` until the new tree is
 built (double-buffer it), or expose a read-only `resolved_children(id)` /
@@ -3926,6 +4074,10 @@ the app carries the same error; the tab bar is just where it was measured.
 `(w-1) x (h-1)` at `(x+1, y+1)`. In hanabi that is `tab_colors::kRasterGrow`,
 a named 1.0f whose only job is to undo the library. Hit-testing still uses the
 true outer rect, so the two now disagree by a pixel on every edge.
+
+
+**Hanabi reference.** `src/ecs/tab_colors.h::kRasterGrow` — names the 1px compensation for afterhours box raster growth. `src/ecs/tab_bar_system.h` (`tabW - tab_colors::kRasterGrow`) — applies the width/height shrink and x/y translation compensation to tab boxes. Tests: `tests/ui/selected_view_fill.e2e` (`boxes rasterize one pixel bigger and one up-left than asked for`) — the scripted selected-fill test documents the same raster convention while pinning full-width geometry.
+
 
 **Minimal upstream fix.** Rasterize a `w x h` box as `w x h` pixels at
 `(x, y)`. Failing that, say in the API which convention is meant (inclusive
@@ -3965,6 +4117,10 @@ in the file's history. Rediscovering it cost ~35 minutes of reading the backend.
 in `tab_colors::tab_corners_top_round_bottom_square()` with a comment telling
 the next reader not to "fix" it.
 
+
+**Hanabi reference.** `src/ecs/tab_colors.h::tab_corners_top_round_bottom_square` — rounds the bottom-left and bottom-right bits to render top-only rounded tabs under the inverted backend mapping. `src/ecs/tab_bar_system.h::with_rounded_corners(tab_colors::tab_corners_top_round_bottom_square())` — uses the inverted-corner helper for active and inactive tab chips.
+
+
 **Minimal upstream fix.** One of the two layouts has to move. Making the
 backend read `0=TL, 1=TR, 2=BL, 3=BR` matches the public enum and costs four
 lines. Whichever way it goes, `top_round()`/`bottom_round()` need to set the
@@ -3994,6 +4150,10 @@ side; this is the single-line path.
 **Workaround.** Author every left pad as `design_inset - 5.0f`, with a named
 `kTextMarginPx` constant so the subtraction is explained rather than magic. The
 design number in the source is now not the design number.
+
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h` (`const float kTextMarginPx = 5.0f`) — subtracts the private afterhours text inset from authored tab title padding. `src/ecs/sidebar_footer_geometry.h` (`kAhTextInset = 5.0f`) — centralizes the 5px label inset for footer label positioning. Tests: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`row_title x=23`) — pins the row-title element position that compensates for the private text inset. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`Text carries a hardcoded 5px margin`) — records the visual-parity measurement behind the app constants.
+
 
 **Minimal upstream fix.** Honour the element's own padding for text instead of
 adding a private margin on top of it — or at minimum expose the margin on
@@ -4025,6 +4185,10 @@ size it was measured at.
 .bottom = pixels(0), .right = pixels(0)})` on any child that must not be
 padded. All four sides are required — a partially-specified Padding still trips
 the default.
+
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h` (`Zero it explicitly (gap #76)`) — explicitly sets all four padding sides to zero on tab_label to avoid the default Spacing::sm. `scripts/check_label_padding.py` (`literal zero is exempt (gap #76's deliberate no-op)`) — the label-padding audit recognizes zero padding as an intentional workaround, not a defect.
+
 
 **Minimal upstream fix.** Default to zero, and make the theme's spacing an
 opt-in (`with_padding(Spacing::sm)`) rather than an opt-out. If the default has
@@ -4107,6 +4271,12 @@ which is a licensing decision, not a library one.
 
 CLASS: WORKAROUND
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry correctly calls out that its original silent-failure half is stale; under the allowed source scope there are no live with_font_weight call sites.
+
+**Hanabi reference.** Current code: `docs/visual-parity/FRICTION_LOG.md` (`resolve_weighted has called warn_once`) — records that the silent-fallback subclaim was fixed upstream and the current issue is asset availability/metric fit. `src/ecs/sidebar_system.h` (`The reference also draws it semibold; that half is gap #77 and not available to us`) — current source still treats semibold as unavailable for selected view labels. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`Bold / semibold face (feat/bold-face)`) — contains the measured regular-vs-semibold comparison and warning correction.
+
 ---
 
 ### #78 — `draw_circle_v` truncates its centre to whole pixels
@@ -4147,6 +4317,10 @@ and that path uses `centerX`/`centerY` as floats throughout with a
 caller-chosen segment count. One line, and it works. The cost is that the
 primitive with the obvious name is the broken one, so every future caller writes
 `draw_circle_v` first and only discovers this by looking at a screenshot.
+
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`draw_circle_v truncates its centre to int (gap #78)`) — the Dot status mark avoids draw_circle_v and uses draw_ring_segment for a float-centered filled disc.
+
 
 **Minimal upstream fix.** Delete the cast: add a float overload of
 `draw_circle` (or change `draw_circle_v` to build the fan directly, which is
@@ -4198,6 +4372,12 @@ plus an ellipsis fits. It is correct at any size and any face. The cost is that
 it is the third place in hanabi that re-derives text metrics the layout engine
 already computes, and every one of them pays a measure-per-frame per row —
 bounded here only because the list renders viewport-many rows.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The original upstream ask is closed; the remaining source uses are narrower app-side choices around measurement/inset differences.
+
+**Hanabi reference.** Current code: `src/ecs/sidebar_system.h::fit_to_width(display_title_view(s.title)` — the sidebar still carries its measured-width app-side ellipsizer. `src/ecs/settings_system.h::with_text_overflow(TextOverflow::Ellipsis)` — current source also uses afterhours' landed TextOverflow::Ellipsis API. Tests: `tests/unit/test_ellipsize.cpp::test_it_returns_what_the_linear_scan_returned` — pins hanabi's app-side fit_to_width behavior while the stale workaround remains in use.
+
 
 **Minimal upstream fix.** A `TextOverflow::Ellipsis` on `ComponentConfig`,
 resolved inside the renderer where the font, the size and the final rect are all
