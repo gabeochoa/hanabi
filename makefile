@@ -24,7 +24,8 @@ ifeq ($(UNAME_S),Darwin)
     EXT := .exe
     FRAMEWORKS := -framework CoreFoundation -framework CoreServices \
         -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore \
-        -framework Carbon -framework CoreSpotlight -framework UniformTypeIdentifiers
+        -framework Carbon -framework CoreSpotlight -framework UniformTypeIdentifiers \
+        -framework UserNotifications
 else ifeq ($(OS),Windows_NT)
     CXX := g++
     EXT := .exe
@@ -153,6 +154,7 @@ clean:
 
 clean-all: clean
 	rm -f $(MAIN_EXE)
+	rm -rf $(OUTPUT_DIR)/Hanabi.app
 
 copy-resources:
 	@mkdir -p $(OUTPUT_DIR)/resources/fonts
@@ -210,76 +212,40 @@ run-mock:
 
 # macOS .app bundle
 APP_BUNDLE := $(OUTPUT_DIR)/Hanabi.app
+APP_INFO_PLIST := resources/macos/Info.plist
+APP_INSTALL_DIR ?= $(HOME)/Applications/Hanabi.app
+APP_VERSION := $(shell awk -F'"' '/kVersion/{print $$2; exit}' src/version.h)
 
-# Canonical "build the shippable app" target. The real backend is https, so the
-# distributable .app MUST be a TLS build — otherwise every real thread fails with
-# "https backend requires a TLS build" and the transcript + composer never render
-# (looked like "no chat input box"). Always build the app via this target.
 app:
+	@command -v brew >/dev/null || { echo "make app needs Homebrew OpenSSL (brew install openssl@3)" >&2; exit 1; }
+	@test -d "$$(brew --prefix openssl@3 2>/dev/null)" || { echo "make app needs openssl@3 (brew install openssl@3)" >&2; exit 1; }
 	@$(MAKE) HANABI_TLS=1 bundle
 
-bundle: $(MAIN_EXE) copy-resources
+bundle: $(MAIN_EXE) copy-resources $(APP_INFO_PLIST)
 	@echo "Building Hanabi.app..."
-	@# Preflight: a .app pointed at a real https backend needs TLS linked in. If the
-	@# binary we're about to bundle has no libssl, WARN loudly (mock-only demo is a
-	@# valid non-TLS build, but shipping a non-TLS .app to a real-backend user is the
-	@# "where's the input box?" bug). Non-fatal so the mock demo bundle still works.
-	@if ! otool -L $(MAIN_EXE) 2>/dev/null | grep -qiE 'libssl|libcrypto'; then \
-		echo ""; \
-		echo "  ⚠️  WARNING: bundling a NON-TLS binary. A real https:// backend will fail"; \
-		echo "      with 'https backend requires a TLS build' (no transcript, no composer)."; \
-		echo "      For a real-backend .app run:  make app   (== make HANABI_TLS=1 bundle)"; \
-		echo ""; \
-	fi
-	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
-	@mkdir -p $(APP_BUNDLE)/Contents/Resources
-	@cp $(MAIN_EXE) $(APP_BUNDLE)/Contents/MacOS/hanabi
-	@rsync -a --delete $(OUTPUT_DIR)/resources/ $(APP_BUNDLE)/Contents/Resources/
-	@printf '%s\n' \
-		'<?xml version="1.0" encoding="UTF-8"?>' \
-		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-		'<plist version="1.0">' \
-		'<dict>' \
-		'    <key>CFBundleExecutable</key>' \
-		'    <string>hanabi</string>' \
-		'    <key>CFBundleIdentifier</key>' \
-		'    <string>com.hanabi.app</string>' \
-		'    <key>CFBundleName</key>' \
-		'    <string>Hanabi</string>' \
-		'    <key>CFBundleDisplayName</key>' \
-		'    <string>Hanabi</string>' \
-		'    <key>CFBundleVersion</key>' \
-		'    <string>0.1.0</string>' \
-		'    <key>CFBundleShortVersionString</key>' \
-		'    <string>0.1.0</string>' \
-		'    <key>CFBundlePackageType</key>' \
-		'    <string>APPL</string>' \
-		'    <key>CFBundleInfoDictionaryVersion</key>' \
-		'    <string>6.0</string>' \
-		'    <key>LSMinimumSystemVersion</key>' \
-		'    <string>12.0</string>' \
-		'    <key>LSApplicationCategoryType</key>' \
-		'    <string>public.app-category.developer-tools</string>' \
-		'    <key>NSHighResolutionCapable</key>' \
-		'    <true/>' \
-		'    <key>NSSupportsAutomaticGraphicsSwitching</key>' \
-		'    <true/>' \
-		'    <key>NSHumanReadableCopyright</key>' \
-		'    <string>hanabi — native Navi desktop client</string>' \
-		'    <key>CFBundleURLTypes</key>' \
-		'    <array>' \
-		'        <dict>' \
-		'            <key>CFBundleURLName</key>' \
-		'            <string>com.hanabi.app.thread</string>' \
-		'            <key>CFBundleURLSchemes</key>' \
-		'            <array>' \
-		'                <string>hanabi</string>' \
-		'            </array>' \
-		'        </dict>' \
-		'    </array>' \
-		'</dict>' \
-		'</plist>' > $(APP_BUNDLE)/Contents/Info.plist
+	@bash scripts/package_macos_app.sh "$(APP_BUNDLE)" "$(MAIN_EXE)" \
+		"$(OUTPUT_DIR)/resources" "$(APP_INFO_PLIST)" "$(APP_VERSION)"
 	@echo "Built $(APP_BUNDLE)"
+
+verify-app: app
+	@bash scripts/verify_macos_app.sh "$(APP_BUNDLE)"
+
+register-app: app
+	@bash scripts/manage_macos_app.sh register "$(APP_BUNDLE)"
+	@echo "registered $(APP_BUNDLE) with LaunchServices"
+
+unregister-app:
+	@bash scripts/manage_macos_app.sh unregister "$(APP_BUNDLE)"
+	@echo "unregistered $(APP_BUNDLE) from LaunchServices"
+
+install-app: app
+	@bash scripts/manage_macos_app.sh install "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)"
+
+uninstall-app:
+	@bash scripts/manage_macos_app.sh uninstall "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)"
+
+launch-app: register-app
+	@open -na "$(APP_BUNDLE)"
 
 # `make mock-server` — launch the local dev mock server (tools/mock_server).
 # Serves the REST + SSE shape hanabi's http adapter expects so the app can be
@@ -291,7 +257,8 @@ MOCK_PORT ?= 8787
 mock-server:
 	python3 tools/mock_server/server.py --port $(MOCK_PORT)
 
-.PHONY: all clean clean-all deps copy-resources output run run-mock bundle app mock-server
+.PHONY: all clean clean-all deps copy-resources output run run-mock bundle app verify-app \
+	register-app unregister-app install-app uninstall-app launch-app mock-server
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)
@@ -604,7 +571,17 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_follow_latch
+$(TEST_DIR)/test_native_extras: tests/unit/test_native_extras.mm src/native_extras.mm src/native_extras.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_native_extras..."
+	$(CXX) -ObjC++ $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_native_extras.mm \
+		src/native_extras.mm -framework AppKit -framework Carbon -framework CoreSpotlight \
+		-framework UniformTypeIdentifiers -framework UserNotifications -framework MetalKit -o $@
+
+$(TEST_DIR)/test_spotlight_catalog: tests/unit/test_spotlight_catalog.cpp src/util/spotlight_catalog.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_spotlight_catalog..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_spotlight_catalog.cpp -o $@
+
+UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_follow_latch
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

@@ -13,8 +13,11 @@
 #import <Carbon/Carbon.h>   // RegisterEventHotKey, kVK_ANSI_N, event handler
 #import <CoreSpotlight/CoreSpotlight.h>          // CSSearchableIndex/Item (bundled Spotlight)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>  // UTTypeText
+#import <UserNotifications/UserNotifications.h>
 #include <atomic>
+#include <cstdio>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -240,156 +243,356 @@ bool native_palette_hotkey_take_triggered(void) {
 // ===========================================================================
 // 2. Native notification
 // ===========================================================================
-//
-// API choice: NSUserNotification (the older NSUserNotificationCenter API)
-// rather than the modern UNUserNotificationCenter.
-//
-//   Why: UNUserNotificationCenter REQUIRES the app to (a) run from a proper
-//   .app bundle with a bundle identifier and (b) request authorization, which
-//   would pop a permission prompt. hanabi builds as a bare output/hanabi.exe
-//   (no bundle id) — UNUserNotificationCenter simply refuses to deliver
-//   without a bundle, and asking for authorization from a non-bundled binary
-//   is undefined. NSUserNotification is deprecated BUT needs zero permission
-//   and no bundle plumbing, which is exactly right for a dev tool that ships as
-//   a plain executable. Tradeoff: it's deprecated (may be removed in a future
-//   macOS) and, from a non-bundled binary, delivery is best-effort — the OS
-//   may drop the banner but the call is always safe and never prompts. We
-//   accept that: no-prompt + no-bundle-requirement matters more here than the
-//   deprecation, and #3 documents the bundle gap that would also unlock UN.
-//
-// The deprecation warnings are silenced narrowly around this call so the .mm
-// still compiles clean under -Wall -Wextra (the whole file is built with those).
 
-// Forward decl: the shared "a thread wants opening" setter (defined with the
-// deep-link slot at the bottom). Both the notification-click delegate and the
-// hanabi:// URL handler feed the SAME pending slot that the frame loop drains.
 static void set_pending_open_thread(const std::string& id);
+static NSString* const kHanabiBundleIdentifier = @"io.github.gabeochoa.hanabi";
 
-// Delegate for NSUserNotificationCenter: a delivered banner is shown even when
-// hanabi is frontmost, and CLICKING it activates hanabi + opens the thread
-// carried in the notification's userInfo["thread_id"].
-@interface HanabiNotifDelegate : NSObject <NSUserNotificationCenterDelegate>
+enum class NotificationState {
+    NotStarted,
+    NonBundled,
+    NotDetermined,
+    Denied,
+    Authorized,
+    Provisional,
+    Error,
+};
+
+static const char* notification_state_text(NotificationState state);
+
+struct NotificationPayload {
+    std::string title;
+    std::string body;
+    std::string thread_id;
+    bool sound = true;
+};
+
+static std::atomic<NotificationState> g_notification_state{
+    NotificationState::NotStarted};
+static std::atomic<bool> g_notification_started{false};
+static std::mutex g_notification_mu;
+static bool g_notification_pending = false;
+static NotificationPayload g_pending_notification;
+
+static bool hanabi_is_bundled(void) {
+    NSString* identifier = [[NSBundle mainBundle] bundleIdentifier];
+    return identifier != nil && [identifier isEqualToString:kHanabiBundleIdentifier];
+}
+
+static bool notification_allowed(NotificationState state) {
+    return state == NotificationState::Authorized ||
+           state == NotificationState::Provisional;
+}
+
+static NotificationState notification_state(UNAuthorizationStatus status) {
+    switch (status) {
+        case UNAuthorizationStatusNotDetermined:
+            return NotificationState::NotDetermined;
+        case UNAuthorizationStatusDenied:
+            return NotificationState::Denied;
+        case UNAuthorizationStatusAuthorized:
+            return NotificationState::Authorized;
+        case UNAuthorizationStatusProvisional:
+            return NotificationState::Provisional;
+    }
+    return NotificationState::Error;
+}
+
+static void deliver_notification(const NotificationPayload& payload) {
+    UNMutableNotificationContent* content =
+        [[[UNMutableNotificationContent alloc] init] autorelease];
+    content.title = [NSString stringWithUTF8String:payload.title.c_str()];
+    if (!payload.body.empty())
+        content.body = [NSString stringWithUTF8String:payload.body.c_str()];
+    if (!payload.thread_id.empty()) {
+        NSString* thread = [NSString stringWithUTF8String:payload.thread_id.c_str()];
+        content.threadIdentifier = thread;
+        content.userInfo = @{ @"thread_id" : thread };
+    }
+    if (payload.sound) content.sound = [UNNotificationSound defaultSound];
+    NSString* identifier = [NSString stringWithFormat:@"hanabi.%@",
+        [[NSUUID UUID] UUIDString]];
+    UNNotificationRequest* request =
+        [UNNotificationRequest requestWithIdentifier:identifier
+                                             content:content
+                                             trigger:nil];
+    [[UNUserNotificationCenter currentNotificationCenter]
+        addNotificationRequest:request
+          withCompletionHandler:^(NSError* error) {
+              if (error != nil) {
+                  g_notification_state.store(NotificationState::Error);
+                  NSLog(@"native_extras: notification delivery failed: %@",
+                        error.localizedDescription);
+              } else {
+                  HLOG(@"native_extras: notification request accepted");
+              }
+          }];
+}
+
+static void deliver_pending_notification(void) {
+    NotificationPayload payload;
+    {
+        std::lock_guard<std::mutex> lock(g_notification_mu);
+        if (!g_notification_pending) return;
+        payload = g_pending_notification;
+        g_notification_pending = false;
+    }
+    deliver_notification(payload);
+}
+
+@interface HanabiNotifDelegate : NSObject <UNUserNotificationCenterDelegate>
 @end
 @implementation HanabiNotifDelegate
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-- (BOOL)userNotificationCenter:(NSUserNotificationCenter*)center
-     shouldPresentNotification:(NSUserNotification*)notification {
-    (void)center; (void)notification;
-    return YES;   // present even if hanabi is the active app
-}
-- (void)userNotificationCenter:(NSUserNotificationCenter*)center
-       didActivateNotification:(NSUserNotification*)notification {
+- (void)userNotificationCenter:(UNUserNotificationCenter*)center
+       willPresentNotification:(UNNotification*)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
     (void)center;
-    id tid = notification.userInfo[@"thread_id"];
-    if ([tid isKindOfClass:[NSString class]] && [tid length] > 0) {
-        set_pending_open_thread(std::string([tid UTF8String]));
-        NSLog(@"native_extras: notification click -> open thread id=%@", tid);
-        [NSApp activateIgnoringOtherApps:YES];
-    }
+    UNNotificationPresentationOptions options =
+        UNNotificationPresentationOptionBanner |
+        UNNotificationPresentationOptionList;
+    if (notification.request.content.sound != nil)
+        options |= UNNotificationPresentationOptionSound;
+    completionHandler(options);
 }
-#pragma clang diagnostic pop
+- (void)userNotificationCenter:(UNUserNotificationCenter*)center
+ didReceiveNotificationResponse:(UNNotificationResponse*)response
+         withCompletionHandler:(void (^)(void))completionHandler {
+    (void)center;
+    id thread = response.notification.request.content.userInfo[@"thread_id"];
+    if ([thread isKindOfClass:[NSString class]] && [thread length] > 0) {
+        const char* value = [thread UTF8String];
+        if (value != nullptr) set_pending_open_thread(std::string(value));
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp activateIgnoringOtherApps:YES];
+        });
+    }
+    completionHandler();
+}
 @end
 
 static HanabiNotifDelegate* g_notif_delegate = nil;
 
-void native_notify(const char* title, const char* body, const char* thread_id) {
-    if (title == nullptr || title[0] == '\0') return;
-    @autoreleasepool {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        NSUserNotificationCenter* center =
-            [NSUserNotificationCenter defaultUserNotificationCenter];
-        // Install the delegate once so notification clicks open the thread.
-        if (g_notif_delegate == nil) {
-            g_notif_delegate = [[HanabiNotifDelegate alloc] init];
-            center.delegate = g_notif_delegate;
+static void request_notification_authorization(void) {
+    UNUserNotificationCenter* center =
+        [UNUserNotificationCenter currentNotificationCenter];
+    [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert |
+                                             UNAuthorizationOptionSound)
+                          completionHandler:^(BOOL granted, NSError* error) {
+        if (error != nil) {
+            g_notification_state.store(NotificationState::Error);
+            NSLog(@"native_extras: notification authorization failed: %@",
+                  error.localizedDescription);
+            return;
         }
-        NSUserNotification* note = [[[NSUserNotification alloc] init]
-            autorelease];
-        note.title = [NSString stringWithUTF8String:title];
-        if (body != nullptr && body[0] != '\0')
-            note.informativeText = [NSString stringWithUTF8String:body];
-        note.soundName = NSUserNotificationDefaultSoundName;
-        // Carry the thread id so a click can deep-link to it (see delegate).
-        if (thread_id != nullptr && thread_id[0] != '\0')
-            note.userInfo = @{ @"thread_id"
-                               : [NSString stringWithUTF8String:thread_id] };
-        [center deliverNotification:note];
-#pragma clang diagnostic pop
+        g_notification_state.store(granted ? NotificationState::Authorized
+                                            : NotificationState::Denied);
+        HLOG(@"native_extras: notification authorization result=%s",
+             granted ? "authorized" : "denied");
+        if (granted) deliver_pending_notification();
+    }];
+}
+
+void native_notifications_start(void) {
+    if (!hanabi_is_bundled()) {
+        g_notification_state.store(NotificationState::NonBundled);
+        return;
     }
+    if (g_notification_started.exchange(true)) return;
+    UNUserNotificationCenter* center =
+        [UNUserNotificationCenter currentNotificationCenter];
+    g_notif_delegate = [[HanabiNotifDelegate alloc] init];
+    center.delegate = g_notif_delegate;
+    [center getNotificationSettingsWithCompletionHandler:^(
+        UNNotificationSettings* settings) {
+        const NotificationState state =
+            notification_state(settings.authorizationStatus);
+        g_notification_state.store(state);
+        HLOG(@"native_extras: notification authorization status=%s",
+             notification_state_text(state));
+        if (state == NotificationState::NotDetermined) {
+            request_notification_authorization();
+        } else if (notification_allowed(state)) {
+            deliver_pending_notification();
+        }
+    }];
+}
+
+void native_notify(const char* title, const char* body, const char* thread_id,
+                   bool sound) {
+    if (title == nullptr || title[0] == '\0') return;
+    if (!hanabi_is_bundled()) {
+        g_notification_state.store(NotificationState::NonBundled);
+        return;
+    }
+    NotificationPayload payload;
+    payload.title = title;
+    if (body != nullptr) payload.body = body;
+    if (thread_id != nullptr) payload.thread_id = thread_id;
+    payload.sound = sound;
+    const NotificationState state = g_notification_state.load();
+    if (notification_allowed(state)) {
+        deliver_notification(payload);
+        return;
+    }
+    if (state == NotificationState::Denied || state == NotificationState::Error)
+        return;
+    {
+        std::lock_guard<std::mutex> lock(g_notification_mu);
+        g_pending_notification = std::move(payload);
+        g_notification_pending = true;
+    }
+    native_notifications_start();
 }
 
 // ===========================================================================
-// 3. Spotlight / CoreSpotlight — REAL when bundled, safe NO-OP otherwise
+// 3. Spotlight / CoreSpotlight
 // ===========================================================================
-//
-// CoreSpotlight's CSSearchableIndex indexes items on behalf of an app
-// identified by its bundle identifier; the index is keyed to that bundle and
-// surfaced by Spotlight only for apps registered with LaunchServices (a real
-// Foo.app bundle). We now SHIP a .app bundle (make bundle -> Hanabi.app with
-// CFBundleIdentifier com.hanabi.app, LaunchServices-registered), so real
-// indexing is viable — BUT ONLY when running from inside that bundle.
-//
-// GATING: we detect a real bundle at runtime via
-// NSBundle.mainBundle.bundleIdentifier. A bare dev binary (output/hanabi.exe)
-// has a nil bundle identifier — for it we keep the historical safe no-op
-// (indexing from a non-bundled binary is rejected / never surfaces and can't
-// deep-link back). This keeps the dev workflow untouched while the bundled
-// app gets real Spotlight entries. Thread deep-link (tapping a result) still
-// needs an NSUserActivity/URL-scheme handler in the bundle — tracked as a
-// follow-up; indexing itself is the first, independently-useful half.
 
-void native_spotlight_index(const char* id, const char* title) {
-    if (id == nullptr || title == nullptr) return;
-    @autoreleasepool {
-        // Only index when we're a real, identified bundle. A nil identifier
-        // means the bare dev binary — stay a safe no-op there.
-        if ([[NSBundle mainBundle] bundleIdentifier] == nil) {
-            static std::atomic<bool> logged{false};
-            if (!logged.exchange(true)) {
-                NSLog(@"native_extras: Spotlight indexing is a no-op in the "
-                      @"non-bundled dev binary (run from Hanabi.app to index)");
-            }
-            return;
-        }
-        NSString* nsId = [NSString stringWithUTF8String:id];
-        NSString* nsTitle = [NSString stringWithUTF8String:title];
-        if (nsId.length == 0) return;
+enum class SpotlightState {
+    Idle,
+    NonBundled,
+    Indexing,
+    Ready,
+    Error,
+};
 
-        CSSearchableItemAttributeSet* attrs =
-            [[CSSearchableItemAttributeSet alloc]
-                initWithContentType:UTTypeText];
-        attrs.title = nsTitle;
-        attrs.contentDescription = @"hanabi thread";
-        // Deep-link back: tapping the result opens hanabi://thread/<id>, which
-        // our Apple-event handler (native_openurl_install) captures and turns
-        // into an open-thread request. The scheme is declared in the bundle's
-        // Info.plist (CFBundleURLTypes).
-        attrs.contentURL = [NSURL URLWithString:
-            [NSString stringWithFormat:@"hanabi://thread/%@",
-                [nsId stringByAddingPercentEncodingWithAllowedCharacters:
-                    [NSCharacterSet URLPathAllowedCharacterSet]]]];
+static std::atomic<SpotlightState> g_spotlight_state{SpotlightState::Idle};
+static NSString* const kSpotlightManifestKey = @"HanabiSpotlightIdentifiersV1";
+static NSString* const kSpotlightDomain = @"threads";
 
-        CSSearchableItem* item =
-            [[CSSearchableItem alloc] initWithUniqueIdentifier:nsId
-                                              domainIdentifier:@"threads"
-                                                  attributeSet:attrs];
-        [[CSSearchableIndex defaultSearchableIndex]
-            indexSearchableItems:@[ item ]
-               completionHandler:^(NSError* _Nullable error) {
-                   if (error != nil) {
-                       NSLog(@"native_extras: Spotlight index failed: %@",
-                             error.localizedDescription);
-                   } else {
-                       static std::atomic<bool> okLogged{false};
-                       if (!okLogged.exchange(true)) {
-                           NSLog(@"native_extras: Spotlight index OK "
-                                 @"(first item donated to CSSearchableIndex)");
-                       }
-                   }
-               }];
+static NSString* searchable_identifier(NSString* thread_id) {
+    return [@"thread:" stringByAppendingString:thread_id];
+}
+
+void native_spotlight_sync(const NativeSpotlightItem* items, int count) {
+    if (!hanabi_is_bundled()) {
+        g_spotlight_state.store(SpotlightState::NonBundled);
+        return;
     }
+    if (count < 0 || (count > 0 && items == nullptr)) return;
+    @autoreleasepool {
+        NSMutableArray<CSSearchableItem*>* searchable =
+            [NSMutableArray arrayWithCapacity:static_cast<NSUInteger>(count)];
+        NSMutableArray<NSString*>* current =
+            [NSMutableArray arrayWithCapacity:static_cast<NSUInteger>(count)];
+        for (int i = 0; i < count; ++i) {
+            if (items[i].id == nullptr || items[i].id[0] == '\0') continue;
+            NSString* thread = [NSString stringWithUTF8String:items[i].id];
+            NSString* unique = searchable_identifier(thread);
+            NSString* title = items[i].title == nullptr
+                ? @"Untitled thread"
+                : [NSString stringWithUTF8String:items[i].title];
+            NSString* preview = items[i].preview == nullptr
+                ? @""
+                : [NSString stringWithUTF8String:items[i].preview];
+            NSString* url = items[i].url == nullptr
+                ? @""
+                : [NSString stringWithUTF8String:items[i].url];
+            CSSearchableItemAttributeSet* attributes =
+                [[[CSSearchableItemAttributeSet alloc]
+                    initWithContentType:UTTypeText] autorelease];
+            attributes.title = title;
+            attributes.displayName = title;
+            attributes.contentDescription = preview;
+            if (url.length > 0) attributes.contentURL = [NSURL URLWithString:url];
+            CSSearchableItem* item = [[[CSSearchableItem alloc]
+                initWithUniqueIdentifier:unique
+                        domainIdentifier:kSpotlightDomain
+                            attributeSet:attributes] autorelease];
+            [searchable addObject:item];
+            [current addObject:unique];
+        }
+
+        NSArray<NSString*>* previous =
+            [[NSUserDefaults standardUserDefaults] arrayForKey:kSpotlightManifestKey];
+        if (previous == nil) previous = @[];
+        NSSet<NSString*>* current_set = [NSSet setWithArray:current];
+        NSMutableArray<NSString*>* removed = [NSMutableArray array];
+        for (NSString* identifier in previous)
+            if (![current_set containsObject:identifier]) [removed addObject:identifier];
+
+        g_spotlight_state.store(SpotlightState::Indexing);
+        CSSearchableIndex* index = [CSSearchableIndex defaultSearchableIndex];
+        dispatch_group_t group = dispatch_group_create();
+        auto failed = std::make_shared<std::atomic<bool>>(false);
+        if (removed.count > 0) {
+            dispatch_group_enter(group);
+            [index deleteSearchableItemsWithIdentifiers:removed
+                                      completionHandler:^(NSError* error) {
+                if (error != nil) {
+                    failed->store(true);
+                    NSLog(@"native_extras: Spotlight delete failed: %@",
+                          error.localizedDescription);
+                }
+                dispatch_group_leave(group);
+            }];
+        }
+        for (NSUInteger begin = 0; begin < searchable.count; begin += 500) {
+            const NSUInteger length = MIN((NSUInteger)500, searchable.count - begin);
+            NSArray<CSSearchableItem*>* batch =
+                [searchable subarrayWithRange:NSMakeRange(begin, length)];
+            dispatch_group_enter(group);
+            [index indexSearchableItems:batch completionHandler:^(NSError* error) {
+                if (error != nil) {
+                    failed->store(true);
+                    NSLog(@"native_extras: Spotlight index failed: %@",
+                          error.localizedDescription);
+                }
+                dispatch_group_leave(group);
+            }];
+        }
+        dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+            if (failed->load()) {
+                g_spotlight_state.store(SpotlightState::Error);
+                return;
+            }
+            [[NSUserDefaults standardUserDefaults]
+                setObject:current forKey:kSpotlightManifestKey];
+            g_spotlight_state.store(SpotlightState::Ready);
+            HLOG(@"native_extras: Spotlight catalog synced (%lu indexed, %lu removed)",
+                 (unsigned long)current.count, (unsigned long)removed.count);
+        });
+#if !OS_OBJECT_USE_OBJC
+        dispatch_release(group);
+#endif
+    }
+}
+
+static const char* notification_state_text(NotificationState state) {
+    switch (state) {
+        case NotificationState::NotStarted: return "not-started";
+        case NotificationState::NonBundled: return "non-bundled";
+        case NotificationState::NotDetermined: return "not-determined";
+        case NotificationState::Denied: return "denied";
+        case NotificationState::Authorized: return "authorized";
+        case NotificationState::Provisional: return "provisional";
+        case NotificationState::Error: return "error";
+    }
+}
+
+static const char* spotlight_state_text(SpotlightState state) {
+    switch (state) {
+        case SpotlightState::Idle: return "idle";
+        case SpotlightState::NonBundled: return "non-bundled";
+        case SpotlightState::Indexing: return "indexing";
+        case SpotlightState::Ready: return "ready";
+        case SpotlightState::Error: return "error";
+    }
+}
+
+void native_integration_status(char* out, int cap) {
+    if (out == nullptr || cap <= 0) return;
+    NSString* identifier = [[NSBundle mainBundle] bundleIdentifier];
+    const char* bundle = identifier == nil ? "none" : [identifier UTF8String];
+    std::snprintf(out, static_cast<size_t>(cap),
+                  "bundle=%s notifications=%s spotlight=%s", bundle,
+                  notification_state_text(g_notification_state.load()),
+                  spotlight_state_text(g_spotlight_state.load()));
+    out[cap - 1] = '\0';
+}
+
+void native_simulate_notification_click(const char* thread_id) {
+    if (thread_id == nullptr) return;
+    set_pending_open_thread(std::string(thread_id));
 }
 
 // ===========================================================================
@@ -439,7 +642,10 @@ static std::string parse_thread_url(NSString* url) {
     auto cut = id.find_first_of("?#");
     if (cut != std::string::npos) id = id.substr(0, cut);
     while (!id.empty() && id.back() == '/') id.pop_back();
-    return id;
+    NSString* encoded = [NSString stringWithUTF8String:id.c_str()];
+    NSString* decoded = [encoded stringByRemovingPercentEncoding];
+    const char* value = decoded == nil ? nullptr : [decoded UTF8String];
+    return value == nullptr ? std::string() : std::string(value);
 }
 
 @interface HanabiURLHandler : NSObject
@@ -463,6 +669,12 @@ static std::string parse_thread_url(NSString* url) {
 @end
 
 static HanabiURLHandler* g_url_handler = nil;
+
+void native_simulate_open_url(const char* url) {
+    if (url == nullptr) return;
+    NSString* value = [NSString stringWithUTF8String:url];
+    set_pending_open_thread(parse_thread_url(value));
+}
 
 void native_openurl_install(void) {
     if (g_url_handler != nil) return;   // already installed

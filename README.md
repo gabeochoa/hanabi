@@ -84,12 +84,34 @@ frameworks (installed with the Xcode command-line tools).
 ```bash
 git clone --recurse-submodules <this-repo>
 cd hanabi
-make            # build ./output/hanabi
-make run        # build + launch (mock backend)
-make app        # build a macOS Hanabi.app WITH TLS (for a real https:// backend)
-make bundle     # build a macOS Hanabi.app (mock-only; non-TLS)
-make test       # run unit tests
+make            # build ./output/hanabi.exe for development
+make run        # build + launch without changing the app-bundle workflow
+make app        # build a self-contained TLS-enabled output/Hanabi.app
+make verify-app # validate identity, signature, resources, and runtime libraries
+make install-app   # install/update ~/Applications/Hanabi.app + register it
+make uninstall-app # unregister and remove that exact bundle
+make test       # run unit, headless UI, screenshot, and performance gates
 ```
+
+## macOS app bundle
+
+`make app` produces `output/Hanabi.app` with the stable bundle identifier
+`io.github.gabeochoa.hanabi`. It includes resources plus the OpenSSL dylibs used
+by the TLS build, uses macOS Keychain roots for certificate verification, and is
+ad-hoc signed so its local bundle seal and identifier can be verified. It is not
+Developer ID signed or notarized.
+
+Building does not install or register anything. `make install-app` copies the
+verified app to `~/Applications/Hanabi.app` and registers it with
+LaunchServices; `make uninstall-app` unregisters and removes only an app at that
+path with Hanabi's exact bundle identifier. `APP_INSTALL_DIR=/path/Hanabi.app`
+overrides the destination. `make register-app` / `make unregister-app` manage
+the build output directly for local verification.
+
+The bundled app requests notification permission on its first windowed launch.
+The developer executable and every headless screenshot/test path remain
+non-bundled no-ops for notifications and Spotlight. See
+[`docs/macos-bundle.md`](docs/macos-bundle.md) for diagnostics and verification.
 
 ## Before you push
 
