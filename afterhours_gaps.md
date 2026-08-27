@@ -262,6 +262,12 @@ allocate the offscreen texture at `width*scale x height*scale`, set
 contract the windowed high_dpi path already uses), so the capture is a true
 @2x supersample. Deferred; do NOT patch vendor.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The core upstream gap remains (no true headless supersample), but the old absolute claim that rendering at 2x is not a workaround is stale: current scripts pair 2x dimensions with HANABI_UI_SCALE=2.0 and downsample. It is intentionally opt-in because text metrics get worse.
+
+**Hanabi reference.** `src/main.cpp` (`What DOES work, and the old note here said it did not`) — headless capture now documents the 2x-size plus HANABI_UI_SCALE path and why it is zoom/downsample rather than true supersampling. `scripts/shoot_hanabi.sh` (`2x CAPTURE (HANABI_SHOOT_2X=1)`) — the review capture script implements the opt-in 2x path and downsample step. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`Capturing at 2x (feat/vis-hidpi)`) — the visual-parity measurement record for the 2x capture experiment.
+
+
+
 ### #7 — (watch) memory knobs for RAM budget < 250 MB
 hanabi targets peak RSS < 250 MB. Not a gap yet (baseline ~70 MB windowed), but
 IF we later need to cap/evict GPU-side memory (font atlas is fixed 2048x2048 in
@@ -270,6 +276,10 @@ API to size/evict those. If we hit the ceiling: do NOT patch vendor — record t
 exact knob needed here (e.g. configurable font-atlas dimensions, a texture-cache
 eviction hook) and work around in app code (e.g. our own image-cache eviction for
 textures we own). Placeholder until measured.
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/util/texture_budget.h` (`kDefaultMaxEntries <= hanabi::gpu::kMaxLiveTextures`) — hanabi now has an app-owned texture-cache policy bounded by bytes and sampler-pool capacity. `src/gpu_mem.mm::hanabi_metal_allocated_bytes` — GPU memory is measured through the Metal device rather than inferred from malloc. Tests: `tests/unit/test_texture_budget.cpp::test_the_budget_bounds_what_the_device_holds` — unit coverage for the texture byte budget and entry cap. Measurement/gate: `docs/perf/MEMORY.md` (`The GPU half is no longer blind`) — current memory audit and GPU/RSS attribution.
+
+
 
 ### #8 — Windowed launch cost is dominated by the vendored/OS graphics init (NOT ours; log-only)
 Rigorous windowed-launch profiling (2026-08-02, cli:aspen; `HANABI_STARTUP_PROF=1`
@@ -305,6 +315,12 @@ UPSTREAM ASK (optional, low priority): a hook/callback afterhours could fire
 right at the top of `sokol_init_cb` (before `sg_setup`) so an app can time the
 window-create vs GPU-setup split itself. Until then, Gfx init is a single
 opaque vendored span. Log-only; do NOT patch vendor.
+
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Conclusion still holds, but the numeric ranges in the entry are stale relative to docs/perf/STARTUP.md's current 229/171/187 ms gfx-init runs and 38/1/1 ms app-init runs.
+
+**Hanabi reference.** Negative result: `src/main.cpp` (`Gfx init: {} ms (window + GPU/Metal context`) — startup logging still separates vendored/OS graphics init from app init. `scripts/measure_launch.sh::WindowedFirstFrame` — the measurement script extracts the windowed first-frame split. Measurement/gate: `docs/perf/STARTUP.md` (`The windowed number is a different number, and it is not ours`) — current launch measurements and conclusion that warm app init is about 1 ms.
 
 ---
 
@@ -403,6 +419,10 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   default pipeline used for 2D UI, or add a `draw_texture_pro` variant that
   pushes a blend pipeline around the quad, so callers don't each roll their own.
 
+**Hanabi reference.** `src/ui/icons.h` (`A pipeline with standard src-alpha over blending`) — AtlasTexture constructs a blend-enabled sgl pipeline in app code. `src/ui/icons.h::sgl_load_pipeline(AtlasTexture::get().blend_pipeline())` — icon blits push the blend pipeline around draw_texture_pro.
+
+
+
 ### #14 — load_texture sampler has no mipmaps (aliases when minified)
 - **Gap:** `afterhours::load_texture` (sokol backend) creates its image with a
   sampler using `mipmap_filter = SG_FILTER_NEAREST` and a single mip level (no
@@ -424,6 +444,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   `load_texture` (and set `mipmap_filter = LINEAR` for trilinear), or add a
   `load_texture` variant/param to opt into mipmaps + an anisotropy level, so
   minified textures don't alias.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The mipmap limitation/workaround remains, but the entry's atlas inventory is stale: the atlas now has 23 entries, including clock/automated/hand/check_circle/pin/panel_left/sliders.
+
+**Hanabi reference.** `scripts/gen_icons.py` (`CELL = 32`) — the generator authors atlas cells near draw size to avoid large minification. `src/ui/icons_atlas.h` (`inline constexpr int kCell = 32`) — the generated atlas currently uses 32 px cells.
+
+
 
 ### #15 — low-alpha `with_custom_background` renders OPAQUE (UI rect fill, not just textures)
 - **Gap:** same root cause as #13 (sokol_gl default pipeline has blending
@@ -453,6 +479,10 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   low-alpha `with_custom_background` composites over whatever it's drawn on —
   no per-call-site backdrop knowledge or manual pre-blend needed.
 
+**Hanabi reference.** `src/ui/theme.h` (`inline Color over`) — theme::over pre-composites translucent tokens into opaque colors. `src/ecs/main_pane_system.h` (`return theme::over(theme::tag_blocked_bg(), surface)`) — tag-chip backgrounds are pre-composited over their known surface.
+
+
+
 ### #16 — No OS appearance (light/dark) query
 - **Gap:** afterhours exposes no way to read the host OS's current appearance
   (macOS `AppleInterfaceStyle` / `NSApp.effectiveAppearance`, or the equivalent
@@ -471,6 +501,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 - **Minimal upstream help (optional):** a `graphics::os_appearance()` returning
   {Light, Dark, Unknown} plus an appearance-changed callback so "System" can be
   resolved live without app-side platform code.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's workaround statement is obsolete for current hanabi: System is now backed by a macOS appearance probe.
+
+**Hanabi reference.** Current code: `src/ecs/settings_system.h` (`"System" now tracks the real macOS appearance`) — System theme now resolves from the OS instead of falling back to Dark. `src/sokol_impl.mm` (`extern "C" bool macos_is_dark_mode`) — macOS AppleInterfaceStyle is exposed through the app's native seam.
+
+
 
 ### #17 — imm `text_input` ignores `with_font_size` and `with_custom_background`
 - **Gap:** the immediate-mode `text_input` widget
@@ -516,6 +552,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   string is empty (drawn on top of the field fill, cleared on first keystroke) —
   the standard text-field affordance.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The current source still has a text_input theme workaround for sidebar search, but the composer-specific claims are stale: composer is text_area, and text_input placeholder support exists.
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`The immediate-mode text_input forces its field background`) — sidebar search still scopes ctx.theme to work around text_input styling. `src/ecs/sidebar_system.h` (`.with_placeholder("Search")`) — sidebar search now uses a native placeholder on text_input. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`assert_ui composer_input_wrap h=67`) — the multiline composer grows with draft content.
+
+
+
 ### #18 — no flex-grow: can't pin a trailing element to the right edge
 - **Gap:** afterhours' flex layout has no `flex-grow` / "fill remaining space" on a
   child. A row like `[icon(18px)] [label] [count(24px)]` can't make the label expand to
@@ -543,6 +585,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   space — the standard flexbox primitive. Would let trailing counts/badges right-align
   cleanly and remove the mixed-unit percent guessing.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The workaround remains, but the entry's named constants are stale: current source uses dynamic badge width and kBadgeRightPad rather than the older kCountColW/kCountRightPad shape.
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`Label column: explicit pixel width`) — smart-view labels are pixel-sized to push badges to the right edge. `src/ecs/sidebar_system.h` (`float svLabelW = kSvContent`) — the current implementation computes remaining width rather than using flex-grow.
+
+
+
 ### #19 — icon atlas has no "waiting / attention" glyph (hanabi resource gap)
 - **Gap:** the generated Lucide atlas (`src/ui/icons_atlas.h`, built by
   `scripts/gen_icons.py`) carries 13 sprites — brand / gear / plus / search /
@@ -565,6 +613,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   rather than an app-drawn shape. NOT done here (atlas + gen script are owned
   by another agent); reported for that owner to pick up.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** No longer true: the atlas has a hand glyph and the Blocked smart view uses it. The old draw_attention_icon helper remains in the file but is not selected.
+
+**Hanabi reference.** Current code: `scripts/gen_icons.py` (`("hand", "hand")`) — the icon generator now includes the waiting/attention hand glyph. `src/ui/icons_atlas.h` (`{"hand",`) — the generated atlas contains the hand sprite.
+
+
+
 ### #20 — icon atlas has no "automated / scheduled" (clock/gear) glyph (hanabi resource gap)
 - **Gap:** the generated Lucide atlas (`src/ui/icons_atlas.h`) still has no
   glyph that reads as "automated / scheduled / cron" — no clock, gear-cog,
@@ -586,6 +640,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   NOT done here (atlas + gen script are owned by another agent). This is the
   same atlas the #19 note wants a "clock" for — a single "clock" sprite would
   satisfy both #19 (attention) and #20 (scheduled) if reused thoughtfully.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The no-glyph claim is false in current source, and the old hollow-square row treatment was removed as a design guess.
+
+**Hanabi reference.** Current code: `scripts/gen_icons.py` (`("automated", "repeat")`) — the icon generator now includes an automated/scheduled glyph. `src/ui/icons_atlas.h` (`{"automated",`) — the generated atlas contains the automated sprite.
+
+
 
 ### #21 — headless --screenshot wait gates on session-LIST load, not TRANSCRIPT load (hanabi harness gap)
 - **Gap:** `run_headless_screenshot` (src/main.cpp) pumps frames until the
@@ -614,6 +674,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   and the render path is backend-agnostic (the http adapter flattens real
   blocks[] into the same api::Message list the mock uses), so the real
   transcript will render identically once the harness waits for it.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The described headless wait bug is fixed in current run_headless_screenshot.
+
+**Hanabi reference.** Current code: `src/main.cpp` (`tab's TRANSCRIPT to finish loading too`) — headless screenshot capture now waits for the opened transcript as well as the session list. Tests: `tests/README.md` (`The runner settles on CONTENT, not on a frame count`) — the scripted UI runner documents the same content-settle requirement.
+
+
 
 ### #22 — styled label spans (`with_styled_label`) render on ONE line, don't word-wrap
 - **Gap:** `component_config.h::with_styled_label(std::vector<TextSpan>)` +
@@ -651,6 +717,12 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
   hanabi-fix-gap22) with the turnkey hanabi wiring in vendor_patches/README.md.
   Pointer not bumped (needs maintainer push); hanabi keeps stripped inline code
   until then.
+
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The old stripped-inline-code workaround is no longer the current assistant path; current code emits styled spans. There is also a separate stale source comment saying TextSpan has no weight, contradicted by the later gap postscript.
+
+**Hanabi reference.** Current code: `vendor_patches/22-styled-spans-word-wrap.patch` (`Subject: [PATCH] feat(ui): styled label spans now word-wrap across lines`) — the captured proof patch for wrapping TextSpan labels. `src/ecs/main_pane_system.h` (`Inline markdown -> colored spans`) — current transcript path treats the gap as unblocked. Tests: `tests/ui/find_sees_through_markdown.e2e` (`stores. The transcript shows "6 failures"`) — scripted coverage around rendered markdown text vs stored markdown markers.
 
 ---
 
@@ -697,6 +769,12 @@ mixed-height rows cannot use it. The live entry is **#326**; #31 (the stale
 offset) is also partly answered by the overscan. Verified by reading the
 vendored source, not by running it.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Hanabi still has a mixed-height app-side virtualizer, so the workaround is live. The broad 'no list virtualization primitive' wording is stale because later notes/current docs acknowledge a uniform-row virtual_list exists upstream.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`Pass 2: emit spacers + only the visible items`) — the transcript virtualizer emits spacers for off-window content and only builds visible items. `src/ecs/main_pane_system.h` (`render_bubble(ctx, col`) — visible transcript items are the only ones passed to the body renderer. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`Pass 2 is genuinely virtualized`) — measured current transcript virtualization behavior and remaining costs.
+
+
+
 ### #24 — wrapped text ignores hard line breaks (`\n` is treated as a word char)
 - **Gap:** `detail::wrap_text_to_width` (rendering.h) does greedy word-wrap by
   splitting on SPACES only; a `\n` in the label is treated as an ordinary
@@ -734,6 +812,12 @@ branch below it is commented "Only soft-wrap when asked; otherwise break on
 per-segment split described above is no longer needed for correctness, though
 it is still what gives the paragraph spacing. Verified by reading the vendored
 source, not by running it.
+
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Current source does not rely on one label swallowing hard breaks; rich body rendering splits on newlines and uses explicit paragraph spacing. The entry's upstream-gap statement is obsolete.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`size_t nl = shown.find('\n', start);`) — render_rich_body walks hard-newline-delimited segments. `src/ecs/main_pane_system.h` (`blank line = half pitch`) — blank-line paragraph spacing remains an app-side behavior.
 
 ---
 
@@ -888,6 +972,12 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
   verts, or just `return;` without any `sgl_*`). A one-liner: replace the whole
   `radius <= 0` block with `return;`.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The app is no longer keeping the all_round workaround described by the entry; current tab colors use a mixed-corner config, so the behavior has been corrected/superseded.
+
+**Hanabi reference.** Current code: `vendor_patches/25-rounded-corner-degenerate-triangle.patch` (`Fix: return early`) — the captured proof patch deletes the degenerate sharp-corner primitive. `vendor_patches/README.md` (`app-side all_round() workaround was removed`) — patch README says the workaround was removed after the fix.
+
+
+
 ### #26 — `HasScrollView` has no built-in scrollbar / scroll-indicator render
 - **Gap:** afterhours' `HasScrollView` (`vendor/afterhours/src/plugins/ui/components.h`)
   fully TRACKS scroll state — `scroll_offset` (Vector2, `.y` grows downward),
@@ -954,6 +1044,12 @@ behaviour — nothing at rest, a bar while scrolling — which is **#94**, writt
 against these fields. Verified by reading the vendored source, not by running
 it.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's requested draggable built-in scrollbar is now shipped upstream; remaining work is overlay auto-hide styling, not absence of a scrollbar.
+
+**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`show_scrollbar =`) — current code drives the built-in HasScrollView scrollbar visibility. `src/ecs/sidebar_system.h` (`(scrollbar now drawn by afterhours)`) — the old temporary app-side scroll indicator is gone.
+
+
+
 ### #27 — immediate-mode UI clears + rebuilds the whole tree every frame; no retained-layout / dirty-skip primitive (the T7 idle-frame floor)
 - **Gap:** the UI is fully immediate-mode. Every frame `BeginUIContextManager`
   runs `ClearVisibity` + `ClearUIComponentChildren` over all `UIComponent`s,
@@ -997,6 +1093,12 @@ it.
   is expressible in app code because the clear+rebuild lives in the vendored
   `BeginUIContextManager`/autolayout pass.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The architectural limitation may remain, but the entry's headline 8.7/11.6 ms floor is stale; current docs attribute most of the old number to building without -O.
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/main.cpp::HANABI_FRAME_SPLIT` — frame split instrumentation still exists for measuring update vs render costs. Measurement/gate: `tests/README.md` (`Home digest, idle`) — current headless frame measurements are ~0.95/1.14/1.64 ms, not the old 8-12 ms floor.
+
+
+
 ### #28 — No OS window-focus / frontmost-app query or focus-gated global hotkey support
 afterhours has no notion of OS-level application activation state (is this app
 frontmost?) and no focus-gated global-hotkey primitive. The framework's input
@@ -1015,6 +1117,10 @@ it when hanabi resigns active. When unregistered, the chord flows through to the
 frontmost app normally. If afterhours grew a cross-platform "app-focus changed"
 signal (or a focus-gated hotkey binding), this NSApp-notification plumbing could
 move behind the framework seam instead of living in the .mm.
+
+**Hanabi reference.** `src/native_extras.mm` (`FOCUS GATING`) — native app focus is observed to gate global hotkey registration. `src/native_extras.mm::HotkeyFocusObserver` — NSApplication active/resign notifications register and unregister the Carbon hotkey.
+
+
 
 ### #29 — Single hot-entity: a hoverable child steals the parent row's hover fill
 afterhours tracks hover as ONE global `hot_id` (context.h): `HandleClicks`
@@ -1042,6 +1148,12 @@ tints. If afterhours grew either a `mouse_in_subtree(id)` query or a
 "child-hover propagates to parent hot" option (or a hit-test-ignore flag), this
 per-row id cache + base-color baking could collapse to a single call.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The old per-row star id cache described in the entry is gone; current code uses mouse_in_subtree/mouse_was_in_subtree.
+
+**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`Subtree, not the row entity alone`) — row hover now reads subtree hover rather than caching the star child id. `src/ecs/sidebar_system.h::ctx.mouse_was_in_subtree(row.ent().id)` — current row-hover test composes with hoverable children.
+
+
+
 ### #30 — No scroll-anchor / preserve-position-on-prepend for scroll views
 - **Gap:** `HasScrollView` tracks `scroll_offset` in absolute px from the top.
   When content is inserted ABOVE the current viewport (loading older messages
@@ -1062,6 +1174,10 @@ per-row id cache + base-color baking could collapse to a single call.
 - **Minimal upstream fix:** an opt-in "anchor" mode on `HasScrollView` — remember
   the top-most visible child before layout and re-derive `scroll_offset` after,
   so a content-size change above the fold keeps the visible item stable.
+
+**Hanabi reference.** `src/ecs/components.h` (`anchorPending is the session id awaiting the offset bump`) — pane state carries the pending scroll-anchor adjustment. `src/ecs/main_pane_system.h` (`sv.scroll_offset.y += prependedH`) — render applies the measured prepended height to preserve viewport position.
+
+
 
 ### #31 — Virtualization window must be built from a STALE scroll offset (no next-offset / velocity hint)
 - **Gap:** an app doing its own list virtualization (#23) reads
@@ -1084,16 +1200,32 @@ per-row id cache + base-color baking could collapse to a single call.
   next offset), or — better — provide the virtualization itself (see #23) so
   apps don't re-derive a velocity-aware window by hand.
 
+**Hanabi reference.** `src/ecs/pane_state.h` (`Virtualiser scroll velocity`) — per-pane state tracks last scroll position for virtualization overscan. `src/ecs/main_pane_system.h` (`velocity-aware extension in the direction of travel`) — transcript virtualization expands the window according to scroll velocity. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`velocity-aware extension in the direction of travel`) — current perf doc explains the scrolling cost and blank-gap prevention tradeoff.
+
+
+
 ### #28 — a 2nd column child of a custom-background div doesn't render; on_draw_fg on a bg div doesn't fire (hanabi-observed)
 - **Gap:** In the transcript, the user bubble is a `div` with `.with_custom_background(...)` + FlexDirection::Column. Adding a SECOND child after the first (a text label) — verified with a bright test label — does NOT render the 2nd child. Separately, attaching `.with_on_draw_fg(...)` to the bubble div itself (which has a custom background) never fires the callback (verified with a bright filled-rect probe — nothing drew). Tool-row checks DO draw via on_draw_fg, but they're transparent-bg children inside a Row, not children of a custom-bg Column.
 - **Impact:** Blocked the "WhatsApp-style sync check as a nested badge under the bubble" approach. Worked around by appending a font-safe text suffix to the bubble's single body label ("· sent" etc.). A proper trailing badge/glyph row inside a filled bubble needs either (a) on_draw_fg to fire on bg divs, or (b) multi-child layout to render for custom-bg columns.
 - **Repro:** add a 2nd `div(mk(bub.ent(), 9), ...label...)` after the user_text label; it doesn't appear. Add on_draw_fg to `bub`; it doesn't fire.
 - **Also:** unicode U+2713 (✓) renders BLANK in the bundled font (JetBrainsMono/Roboto) at MICRO size — a check glyph must come from the icon atlas (draw_at "star"-style) or a drawn shape, not a text label.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Resolved; source contains old dead/duplicated comments around the interim text suffix, but current code renders sync_check as a nested child.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`gap #28 (nested child of a custom-bg bubble`) — current user bubble comments say the upstream bump fixed nested child/on_draw_fg rendering. `src/ecs/main_pane_system.h::draw_sync_check(st` — the real sync glyph is rendered as a nested on_draw_fg child.
+
+
+
 ### #29 — text_input has no placeholder support
 - **Gap:** `afterhours::ui::imm::text_input` renders an empty field with no placeholder/ghost-text affordance when the bound string is empty. The hanabi composer + sidebar search both show a blank box with no "Reply…" / "Search…" hint. A `with_placeholder("…")` (rendered as faint text, cleared on first keystroke, not part of the value) would fix it cleanly.
 - **Impact:** minor UX — the composer gives no cue what to type. Worked around by adjacent labels elsewhere; a real placeholder needs input support.
 - **Related:** gap #17 (text_input forces its own Secondary bg + derives font size from height, ignoring per-widget colors) — same widget, same "input is hard to style" family.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The text_input claim is obsolete. The composer still draws its own placeholder only because it moved to text_area, which lacks that feature.
+
+**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`.with_placeholder("Search")`) — current sidebar search uses text_input placeholder support. `src/ecs/main_pane_system.h` (`text_input renders a placeholder itself`) — composer comments confirm text_input placeholder exists, while text_area still needs overlay text.
+
+
 
 ### #30 — scroll is a raw wheel-delta add (no smoothing/momentum) → feels janky vs native macOS
 - **Gap:** `HandleScrollInput` does `scroll_offset += direction * wheel * speed` — the rendered offset jumps by the raw wheel delta each event. There's no eased/target-based scrolling, so on macOS (where native scroll has momentum + sub-pixel smoothing) hanabi's scroll feels stepped/janky even at 100+fps. This is the "scroll perf" complaint — it's smoothness, not framerate (frame cost on a 120-msg transcript is only ~5.8ms).
@@ -1111,6 +1243,12 @@ pinned base, so it is not compiled into anything `make test` builds. "First step
 arithmetic; it is not a measurement of a running binary. `has_smooth_scroll`
 has since left `src/` entirely, so even the SFINAE half is gone.
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Raw wheel-delta scrolling is no longer current: HasScrollView has scroll_target/scroll_smoothing in the pinned API and hanabi writes it directly. The entry's no-test/SFINAE statements are stale.
+
+**Hanabi reference.** Current code: `src/util/scroll_prefs.h` (`set_scroll_smoothing(sv, smooth)`) — current app writes scroll_smoothing directly; SFINAE/no-op path is gone. `src/ecs/follow_latch.h` (`afterhours' wheel handler`) — current code assumes upstream scroll_target/eased scrolling behavior. Tests: `tests/ui/wheel_scrolls_the_transcript.e2e` (`The wheel moved a transcript exactly zero pixels`) — scripted regression covers wheel/eased-scroll/follow-latch interaction.
+
 ---
 ## Reusable app-scaffolding gaps (survey 2026-08-03) — what a NATIVE DESKTOP app needs that afterhours doesn't provide
 
@@ -1120,22 +1258,46 @@ afterhours is a game/UI framework; hanabi is the first *native macOS desktop app
 - afterhours has zero bundling support. hanabi's `makefile` hand-writes the whole `.app`: `Contents/MacOS/<exe>`, `rsync` of `Contents/Resources/`, and a heredoc'd `Info.plist` (CFBundle* keys, LSMinimumSystemVersion, NSHighResolutionCapable, LSApplicationCategoryType, **CFBundleURLTypes** for the `hanabi://` scheme).
 - Upstream shape: a reusable `bundle.mk` include or a `tools/mk_bundle.sh <exe> <name> <id> <plist-extras>` that any afterhours desktop app can call. Also a Linux `.desktop` + Windows resource equivalent for cross-platform.
 
+**Hanabi reference.** `src/native_extras.mm` (`We now SHIP a .app bundle`) — allowed source confirms the app now expects a real Hanabi.app bundle for Spotlight/deep links. `src/native_extras.mm` (`Info.plist (CFBundleURLTypes -> hanabi)`) — native URL handling depends on the bundle declaring the scheme.
+
+
+
 ### #32 — HAS-BUT-UNUSABLE: `files::get_resource_path` resolves relative to CWD, not the executable/bundle
 - `ProvidesResourcePaths` sets `resource_folder_path = fs::current_path() / root_folder` (files.cpp ~54). A launched `.app` has CWD `/`, so bundled resources under `Contents/Resources/` are never found — the app can only find resources when run from its build dir. This makes the resource API unusable for the exact case (a shipped bundle) it's most needed for.
 - hanabi workaround (src/preload.cpp `get_exe_dir()` + `resolve_resource_root()`): platform-specific exe-path lookup (`_NSGetExecutablePath` / `/proc/self/exe` / `GetModuleFileNameA`) then probe `<exe>/resources`, then `<exe>/../Resources` (.app), then CWD fallback — and pass THAT to `files::init`.
 - Upstream fix: `files::init` should resolve the resource root from the executable path (with a CWD/dev fallback), not raw CWD. The exe-dir helper is trivially generic and belongs in the files plugin.
 
+**Hanabi reference.** `src/preload.cpp` (`std::filesystem::path get_exe_dir()`) — app-owned executable-directory resolver. `src/preload.cpp` (`std::string resolve_resource_root()`) — resource root probes executable resources, .app Resources, then CWD fallback.
+
+
+
 ### #33 — MISSING: native menu-bar extra (NSStatusItem), notifications, global hotkey, Spotlight
 - afterhours has no menu-bar / tray, no native notifications, no global-hotkey registration, no Spotlight/indexing. hanabi implemented all of these in `src/native_extras.mm` (NSStatusItem status item + menu; UNUserNotification/NSUserNotification click-to-open; Carbon RegisterEventHotKey Cmd+Shift+N; CoreSpotlight donation). These are generic desktop-app needs — a thin `afterhours/desktop` (mac) shim (menubar item, post-notification, register-hotkey, on-activate callback) would be broadly reusable.
+
+**Hanabi reference.** `src/menubar.mm` (`NSStatusItem* g_status_item`) — menu-bar status item implementation. `src/native_extras.mm::RegisterEventHotKey` — global hotkeys are implemented in native Obj-C++.
+
+
 
 ### #34 — MISSING: URL-scheme / deep-link handling (Apple-event kInternetEventClass/kAEGetURL)
 - A non-App-Store bundle receives `myapp://...` opens via the classic Apple-event route (`kInternetEventClass`/`kAEGetURL` on the shared NSAppleEventManager). hanabi hand-registers a handler (`native_extras.mm handleGetURLEvent`) and drains it into the app via a pending-open queue. Generic: afterhours could expose `desktop::on_open_url(cb)` + auto-register the handler when the bundle declares CFBundleURLTypes.
 
+**Hanabi reference.** `src/native_extras.mm::handleGetURLEvent` — Apple-event URL handler parses hanabi://thread links. `src/main.cpp::native_take_open_thread` — frame loop drains pending deep links into requestOpenTab.
+
+
+
 ### #35 — MISSING: runtime font swap is possible but there's no "list installed system fonts" / font-picker primitive
 - FontManager.load_font(name, path) DOES allow swapping a named font at runtime (good — hanabi uses it for a font-choice pref). But there's no way to ENUMERATE available system fonts (macOS CTFontManagerCopyAvailableFontFamilyNames / fontconfig on Linux), so an app can't offer "pick any system font" without its own platform code. A `fonts::list_system_families()` would enable a real font picker. (hanabi ships a bundled-font CHOICE instead — Roboto default + Atkinson Hyperlegible, both OFL/Apache, no enumeration needed.)
 
+**Hanabi reference.** `src/preload.cpp` (`fontMgr.load_font("hyperlegible"`) — bundled alternate font is loaded under a stable name. `src/ecs/settings_system.h::render_font_row` — settings exposes Standard/Hyperlegible rather than enumerating system fonts.
+
+
+
 ### #36 — MISSING: config/save path is fine, but no "app data/cache dir" distinct from config
 - `files::get_config_path()` (per-app config dir) works and hanabi uses it. But there's no separate get_cache_path() (XDG cache / ~/Library/Caches) — hanabi puts its transcript disk-cache under the config dir. Minor; a cache-vs-config split is the platform-correct convention.
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 
 ## gap #30 update (2026-08-03): hanabi-side eased-scroll workaround shipped
 The vendor smooth-scroll patch (#30, scroll_target/scroll_smoothing fields) is captured in
@@ -1203,6 +1365,12 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
   ev->char_code != 0x7F) push_char(...)`), or tighten `insert_char`'s guard to
   also reject 0x7F. A one-liner in the backend's CHAR case is cleanest.
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's ComposerCharFilterSystem workaround is stale; no tracked src/ecs/char_filter_system.h remains in the allowed tree, and the test drives upstream insert_char unfiltered.
+
+**Hanabi reference.** Current code: `tests/unit/test_textinput.cpp` (`FIXED UPSTREAM (afterhours gap #31)`) — current unit test states the app-side char filter was deleted and upstream now rejects controls. Tests: `tests/unit/test_textinput.cpp::test_backspace_char_not_inserted` — unit coverage that 0x7F does not enter text storage.
+
+
+
 ### #32 — text_input CURSOR (caret) draws INSIDE the last glyph, not after it
 - **Symptom (Gabe):** "the typing playhead is inside the last typed letter" — the
   blinking caret overlaps the final character instead of sitting one gap to its right.
@@ -1214,6 +1382,12 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
   past the measured prefix width; clamp to the field's content width. App can't fix it
   (the caret is drawn entirely inside the vendored widget).
 
+**POSTSCRIPT 2026-08-26 (source-reference audit).** No app workaround is visible in allowed source; the allowed docs say the current vendor pin already carries the correction.
+
+**Hanabi reference.** Current code: `docs/COMMIT_AUDIT.md` (`caret should stop`) — current audit notes the vendor pin already included the caret correction.
+
+
+
 ### #33 — text_input has NO Shift+Enter newline (single-line only; Enter is the only submit)
 - **Symptom (Gabe):** "shift+enter should make a new line." The single-line `text_input`
   treats plain Enter as submit (WidgetPress) and has no Shift+Enter → insert '\n' path.
@@ -1222,6 +1396,12 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
   Shift is held, insert '\n' instead of invoking on_submit (and let the field grow / wrap).
   Requires the field to render multi-line (see #34). Alternatively hanabi swaps the
   composer to `text_area` — but that widget needs the same wrap fix and a submit binding.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The single-line text_input claim is obsolete for current composer behavior; a nearby source comment still says Shift+Enter is not a newline and should be corrected.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`auto inputRes = afterhours::ui::imm::text_area`) — composer now uses multiline text_area. `src/ecs/main_pane_system.h` (`.with_submit_on_enter(hanabi::enter_sends`) — plain Enter submit remains configurable while text_area handles newlines. Tests: `tests/ui/composer_shift_enter.e2e` (`Shift+Enter breaks the line instead of sending`) — scripted UI coverage for Shift+Enter newline and Enter submit.
+
+
 
 ### #34 — text_input does NOT wrap or clip long text — it overflows OUTSIDE the field box
 - **Symptom (Gabe):** "the text is still not wrapping it just goes outside the box." Typing
@@ -1237,6 +1417,12 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
   multi-line WRAP mode (pairs with #33 shift+enter) so the composer grows vertically.
 - **App-side interim:** none reliable yet (the draw is inside the vendored widget); needs
   the vendor fix. Tracked for the afterhours branch.
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The old overflow description no longer matches the composer path; current source uses text_area with auto-grow/max-lines behavior.
+
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`.with_max_lines(kComposerMaxRows)`) — composer field now auto-grows as a multiline text_area bounded by max lines. `src/ecs/main_pane_system.h` (`composerRows_ = rows < 1`) — composer box height follows the text_area layout cache. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`assert_ui composer_input_wrap h=151`) — scripted UI coverage for multiline growth and max height.
+
+
 
 ### #35 — text_input: no Escape-to-clear; arrow-key caret movement depends on InputSystem
 - **Escape:** Gabe wants Esc (2nd press) to clear the field. text_input has no
@@ -1256,6 +1442,12 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
   column + lead columns exceed the card content width. Fix the width math (shrink the
   status column / compute it from remaining width like the tool-row meta cluster) so it
   fits, killing the per-frame overflow warn (which also triggers solve_violations = perf).
+
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The gap's 'no Escape-to-clear' half is stale because hanabi ships it app-side; the mapping dependency remains documented and implemented.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::ESCAPE-TO-CLEAR` — composer-focused Esc clears the field through app-owned routing. `src/input_mapping.h::bind(InputAction::WidgetLeft` — input mapping binds arrow/caret actions explicitly. Tests: `tests/ui/escape_dismisses_one_thing.e2e` (`With nothing over it, Esc belongs to the composer again`) — scripted coverage for Esc ownership and clearing.
 
 ---
 
@@ -1418,6 +1610,12 @@ NSText standard key bindings.
   3. **No selection, so no Cmd+C.** The keyboard route people actually use is
      still dead; they have to find and hit a button.
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The afterhours gap remains, but the entry's stated workaround is stale: the Copy button is no longer the only route; hanabi now has per-element selection and copy.
+
+**Hanabi reference.** `src/ui/text_select.h` (`Selecting text in the transcript`) — hanabi implements app-owned read-only text selection. `src/ecs/main_pane_system.h::selectable_text` — rendered transcript text registers with the app selection helper. Tests: `tests/ui/select_text_in_a_message.e2e` (`afterhours has no selection on read-only text`) — scripted coverage that dragging transcript text keeps the transcript stable.
+
 - **What the library could offer instead.** An opt-in on the config, defaulting
   off so nothing changes for anyone who doesn't ask:
 
@@ -1509,6 +1707,10 @@ NSText standard key bindings.
   hanabi now does this in two places (`sidebar_system.h:1866` for the star, and
   here).
 
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`Hoverable only because of this listener`) — turn containers still add a no-op click listener solely to become hover-test candidates. `src/ecs/main_pane_system.h::ctx.mouse_was_in_subtree(turn.id)` — message actions are revealed through subtree hover state. Tests: `tests/ui/message_copy_on_hover.e2e` (`expect_text "Copy"`) — scripted coverage that hovering a message reveals the Copy action.
+
 - **What the library could offer instead.** Two small additions:
 
   ```cpp
@@ -1586,6 +1788,12 @@ NSText standard key bindings.
   Two lines, but they require having read the internals of three headers to know
   the public API is not load-bearing.
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's workaround is gone because upstream fixed single-script failure reporting. tests/README still carries old workaround wording.
+
+**Hanabi reference.** Current code: `src/main.cpp` (`Both were working around afterhours bugs that are now fixed`) — run_e2e no longer reads the internal command-error counter workaround. `src/main.cpp` (`const bool failed = runner.has_failed() || ranOut`) — current verdict trusts runner.has_failed plus timeout.
+
 - **What the library could offer instead.** Fold the counter in for both modes —
   give `finalize_current_script()` a single-script branch, or have `has_failed()`
   itself consider `get_command_error_count()`:
@@ -1636,6 +1844,12 @@ NSText standard key bindings.
   times out for real, and only then read the verdict. Costs ~0.7s per script and
   an explanation in the host loop.
 
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's 40-extra-frame workaround is no longer current; upstream runner behavior is documented as fixed.
+
+**Hanabi reference.** Current code: `src/main.cpp` (`runner used to declare itself finished in the same tick it dispatched the`) — run_e2e documents the upstream fix for the last-command drain bug. `src/main.cpp` (`No drain loop, and no reading the handlers' counter`) — current host loop removed the 40-frame drain workaround.
+
 - **What the library could offer instead.** Don't set `finished_` while commands
   are outstanding; let the top-of-tick guard do its job:
 
@@ -1677,6 +1891,10 @@ NSText standard key bindings.
   5. **The app must settle before the script starts.** Data loads
      asynchronously; a script that clicks a sidebar row on frame 1 clicks empty
      space.
+
+
+
+**Hanabi reference.** Proof patch or spike, not shipped: `src/main.cpp` (`static int run_e2e`) — hanabi has a complete host loop using E2ERunner. `src/main.cpp` (`t::test_input::reset_frame();`) — host loop documents and performs per-frame input reset. Tests: `tests/ui/composer_enter_replies_in_thread.e2e` (`Enter in the composer REPLIES to the open thread`) — one scripted UI test that runs through this host loop.
 
 - **What the library could offer instead.** One example program under
   `examples/` — a window, three widgets, a `.e2e` script, and the host loop —
