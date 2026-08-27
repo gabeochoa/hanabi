@@ -14,6 +14,14 @@ This file is the front matter. It changes no entry's number — **source code an
 eight commit messages cite these numbers, so nothing is renumbered here** — it
 only sorts, weighs, groups and corrects them.
 
+Each detailed entry that records a shipped workaround, proof patch, negative
+result, or Hanabi-owned performance finding has a `**Hanabi reference.**`
+subsection. References use stable repository paths plus symbols, test names, or
+grep-able strings instead of line numbers; `None — no app-side workaround is
+implemented` is explicit when the prose might otherwise imply code exists.
+`scripts/check_gap_references.py` enforces coverage and rejects referenced files
+that do not exist, and `make source-checks` runs it.
+
 **Read section 1 and stop.** The rest is reference.
 
 | | |
