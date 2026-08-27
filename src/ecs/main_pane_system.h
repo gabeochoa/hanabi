@@ -8627,11 +8627,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(0), .left = pixels(10)})
                 .with_margin(Margin{.top = pixels(kToolRowGap),
                                     .bottom = pixels(kToolRowGap)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_transparent_bg()
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_cursor(expandable ? afterhours::ui::CursorType::Pointer
                                         : afterhours::ui::CursorType::Default)
-                .with_corner_radius(theme::kChatCorner)
+                .with_roundness(0.0f)
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
             ComponentConfig{}
@@ -8690,7 +8690,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool open =
             app && tool_is_open(*app, key, pile_result_row(msgs, lo, hi));
 
-        float rowW = paneWidth - 4.0f;
+        float rowW = paneWidth;
         if (rowW < 160.0f) rowW = 160.0f;
 
         auto wrap = div(ctx, mk(parent, 260 + keyIndex * 10),
@@ -9256,7 +9256,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     void render_spawn_card(UIContext<InputAction>& ctx, Entity& parent,
                            int index, const api::Message& m, float paneWidth) {
-        float rowW = paneWidth - 4.0f;
+        float rowW = paneWidth;
         if (rowW < 160.0f) rowW = 160.0f;
         // A fold-recognized spawn (EventKind::SubAgent) knows the child's
         // TITLE — the name it was actually given, and the only thing that
@@ -9362,7 +9362,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A lone Tool message: one dense collapsed tool row (not expandable).
     void render_tool_block(UIContext<InputAction>& ctx, Entity& parent,
                            int index, const api::Message& m, float paneWidth) {
-        float rowW = paneWidth - 4.0f;
+        float rowW = paneWidth;
         if (rowW < 160.0f) rowW = 160.0f;
         AppComponent* app = app_singleton();
         const std::string key = m.id.empty() ? "" : m.id;
