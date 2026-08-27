@@ -154,6 +154,24 @@ static void test_unchanged_is_constant_work() {
     }
 }
 
+static void test_explicit_invalidation_is_local() {
+    TranscriptItemIndex index;
+    Model model = seeded(100);
+    check_reference(index, "0/thread", model);
+    index.invalidate("0/thread", 70);
+    const auto suffix = update(index, "0/thread", model);
+    CHECK(suffix.rebuilt);
+    CHECK(!suffix.full_rebuild);
+    CHECK(suffix.messages_visited <= 31);
+    CHECK(same(*suffix.items, reference(model)));
+
+    index.invalidate_all();
+    const auto full = update(index, "0/thread", model);
+    CHECK(full.rebuilt);
+    CHECK(full.full_rebuild);
+    CHECK(full.messages_visited == model.messages.size());
+}
+
 static void test_bounded_and_pane_width_isolated() {
     TranscriptItemIndex index;
     Model left = seeded(40);
@@ -227,6 +245,7 @@ static void test_randomized_differential() {
 
 int main() {
     test_unchanged_is_constant_work();
+    test_explicit_invalidation_is_local();
     test_bounded_and_pane_width_isolated();
     test_randomized_differential();
     if (failures == 0) {

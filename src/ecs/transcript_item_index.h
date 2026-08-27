@@ -82,10 +82,11 @@ class TranscriptItemIndex {
                 std::size_t message_count, const TranscriptMutation& mutation,
                 const TranscriptGeometryFacts& facts, Build&& build) {
         Slot& slot = touch(key);
-        std::size_t restart = no_restart();
-        bool full = slot.items.empty() && !slot.initialized;
+        std::size_t restart = slot.dirty_from;
+        bool full = slot.force_full || (slot.items.empty() && !slot.initialized);
 
-        if (!full && mutation.revision == slot.revision &&
+        if (!full && restart == no_restart() &&
+            mutation.revision == slot.revision &&
             data_identity == slot.data_identity && facts_equal(facts, slot.facts)) {
             return View{&slot.items, slot.height, 0, false, false};
         }
@@ -163,8 +164,25 @@ class TranscriptItemIndex {
         slot.message_count = message_count;
         slot.revision = mutation.revision;
         slot.facts = facts;
+        slot.dirty_from = no_restart();
+        slot.force_full = false;
         return View{&slot.items, slot.height, message_count - restart, true,
                     restart == 0};
+    }
+
+    void invalidate(const std::string& key, std::size_t first) {
+        auto found = slots_.find(key);
+        if (found == slots_.end()) return;
+        found->second.dirty_from = std::min(found->second.dirty_from, first);
+    }
+
+    void invalidate(const std::string& key) {
+        auto found = slots_.find(key);
+        if (found != slots_.end()) found->second.force_full = true;
+    }
+
+    void invalidate_all() {
+        for (auto& entry : slots_) entry.second.force_full = true;
     }
 
     std::size_t slots() const { return slots_.size(); }
@@ -189,6 +207,8 @@ class TranscriptItemIndex {
         std::size_t message_count = 0;
         std::uint64_t revision = 0;
         TranscriptGeometryFacts facts;
+        std::size_t dirty_from = no_restart();
+        bool force_full = false;
         std::list<std::string>::iterator pos;
     };
 
@@ -261,5 +281,10 @@ class TranscriptItemIndex {
     std::unordered_map<std::string, Slot> slots_;
     std::list<std::string> order_;
 };
+
+inline TranscriptItemIndex& transcript_item_index() {
+    static TranscriptItemIndex index;
+    return index;
+}
 
 }  // namespace ecs::model
