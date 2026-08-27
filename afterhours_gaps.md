@@ -11485,6 +11485,10 @@ meaning. That is a real hole for keyboard-only use and it is not one an app can
 close: the order is derived inside the library from a walk the app does not
 drive, so the app cannot renumber it, filter it, or bound it.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** Honour the clusters that already exist -- when the
 focused entity is inside a `FocusClusterRoot`, confine `process_tabbing`'s
 `last_processed` to entities under that root, and wrap at its ends. The
@@ -11524,6 +11528,10 @@ transcript keeps passing, because scrolling the WRONG scroll view still returns
 2. `scroll_named` COUNTS its matches and prints to stderr when there is more
    than one, so the next widget that gets duplicated fails loudly instead of
    passing forever. That is a smoke alarm, not a fix.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`static const std::string& scroll_name(int paneIndex)`) — pane scroll views get distinct names. `src/util/soak.h` (`AMBIGUOUS scroll target`) — driver warns on duplicates. Tests: `tests/ui/pane_split.e2e` (`assert_ui transcript_scroll_2 w=407`) — e2e verifies second scroll name.
+
 
 **Minimal upstream fix.** #147's -- a stable addressable handle from
 `imm::scroll_view` -- and this entry exists to raise its priority rather than
@@ -11582,6 +11590,10 @@ that could register a handler would not merely be told; it could fix it.
 partial-drop hole #350 describes. `fonsSetErrorCallback` would close that hole
 completely and cost one line.
 
+
+**Hanabi reference.** `src/util/atlas_guard.h` (`fonsSetErrorCallback is out of reach`) — callback cannot be registered. `scripts/atlas_gate.sh` (`src/util/atlas_guard.h -- and that guard has the failure mode`) — gate proves fallback detector. Tests: `tests/unit/test_atlas_guard.cpp::first_fault()` — unit test covers reporting state. Measurement/gate: `src/main.cpp` (`detector fired:`) — atlas stress reports detector status.
+
+
 **Minimal upstream fix.**
 
 ```cpp
@@ -11631,6 +11643,10 @@ sizes, again at 2×/3×/4×/6×, fit with the reference measurement unchanged. T
 cost is that this remains true only by luck, and the app now needs a gate
 (`scripts/atlas_gate.sh`) to notice when it stops being true.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** `graphics::Config::font_atlas_width/height`,
 defaulted to 2048, passed to `sfons_create`. Beside the pool sizes #210 asks
 for, since they are the same request about the same struct.
@@ -11666,6 +11682,10 @@ The width-keyed thing that DID thrash was hanabi's own transcript render cache,
 which memoizes wrapped heights and holds two widths per message -- two panes at
 two widths is four. That is an app bug and was fixed app-side
 (`ecs/transcript_render_cache.h`), not a library one.
+
+**Hanabi reference.** Negative result: `src/ui/mk.h` (`h = mix(h, static_cast<std::uint32_t>(parentID));`) — parent id disambiguates subtrees. `src/ecs/transcript_render_cache.h` (`A SLOT IS A PANE AND A THREAD`) — cache is per pane/thread. Tests: `tests/unit/test_pane_memory.cpp::test_two_panes_at_two_widths_do_not_thrash` — unit test covers two-pane width behavior.
+
+
 ### #307 — NOT A GAP: `HasTextAreaState::line_index` does not move the caret, so an outside write that leaves it stale is unobservable
 
 **The trap this entry exists to close.** `HasTextAreaState` carries a
@@ -11725,6 +11745,10 @@ renders on the next frame.
 
 CLASS: NOT A GAP
 
+
+
+**Hanabi reference.** Negative result: `src/ecs/main_pane_system.h` (`See afterhours_gaps.md #307 -- a stale index`) — set_field documents negative result. `src/ecs/main_pane_system.h` (`replyDraft = text;`) — outside writes go through bound string. Tests: `tests/ui/composer_history.e2e` (`expect_input_text composer_reply_input "msg1"`) — history recall works.
+
 ---
 
 ### #339 — NOT A GAP: `imm::divider` and `hsplit` already exist, and the hand-rolled version had exactly the bug the library's doc comment warns about
@@ -11757,6 +11781,10 @@ needed so far, and `imm_components.h` is worth reading end to end before
 building any container-shaped thing.
 
 CLASS: NOT A GAP
+
+
+
+**Hanabi reference.** Negative result: `src/ecs/main_pane_system.h` (`imm::divider is the LIBRARY's separator, not a hand-rolled one`) — current split uses library divider. `src/ecs/main_pane_system.h` (`app.splitRatio = hanabi::clamp_split_ratio`) — divider delta updates ratio. Tests: `tests/ui/pane_split.e2e` (`The movement is a DELTA, not a position`) — e2e pins non-jumping drag.
 
 ---
 
@@ -11799,6 +11827,10 @@ builds declaratively; hanabi already memoizes its OWN wrapped heights
 (`ecs/transcript_render_cache.h`) and that cache is on the measure path, which
 this does not use. `use_batched` takes a different path (`rendering.h:2283`)
 that calls the same function.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Cache the wrap result on `HasLabel` beside the spans,
 keyed by (rect width, font size, spacing) -- the same shape as the existing
@@ -11843,6 +11875,10 @@ clean, plausible, empty region.
 **The workaround.** Detection only: `src/util/atlas_guard.h` faults on the
 measurement, which at least names the cause on stderr before the labels start
 disappearing. Nothing hanabi can do makes the glyph draw.
+
+
+**Hanabi reference.** `src/util/atlas_guard.h` (`a string that measures short is LAID OUT short and a string that`) — source documents visible impact. `src/util/atlas_guard.h` (`raise(Fault::ZeroWidth, text, px);`) — zero-width text measurements are loud. Tests: `scripts/atlas_gate.sh` (`a normal render raised a glyph-atlas fault`) — gate catches ordinary-run faults. Measurement/gate: `src/main.cpp` (`detector fired:`) — stress reports detector status.
+
 
 **Minimal upstream fix.** Whatever #350 or #351 provides covers this too — one
 notification serves both halves. Failing that, rendering the substitute glyph
@@ -11919,6 +11955,10 @@ subtree, and it cannot be done from the app: `imm::mk` is what keeps a widget
 alive, and a frame that does not call it is a frame the widget goes unbuilt --
 which after 90 such frames is a frame the retire sweep destroys it. "Do not
 rebuild but stay alive" is not expressible.
+
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/transcript_render_cache.h` (`two panes have different widths the moment the divider is dragged off`) — explains rejected shared-cache idea. `src/ui/minimap_marks.h` (`inline std::vector<Slot> group_marks`) — minimap marks are grouped. Tests: `tests/unit/test_pane_memory.cpp::test_two_panes_at_two_widths_do_not_thrash` — unit test covers rejected cache sharing. Measurement/gate: `docs/perf/EVENTS.md` (`transcript.minimap @ 3,672`) — minimap before/after.
 
 ---
 
@@ -12043,6 +12083,10 @@ capture can reach, so a colour that only appears after a click or a keystroke
 — which is precisely what a focus colour is — needs a test-only env hook to
 force it.
 
+
+**Hanabi reference.** `scripts/composer_chrome_gate.sh` (`scripts/composer_chrome_gate.sh -- the composer's INTERIOR and its FOCUS`) — pixel gate is appearance workaround. `src/ui/field_chrome.h` (`The two bits of chrome text_area gets wrong`) — gate targets #262/#263. Tests: `scripts/composer_chrome_gate.sh` (`THE INTERIOR IS THE WINDOW COLOUR`) — checks background color. Measurement/gate: `scripts/composer_chrome_gate.sh` (`COLS = (600, 700, 800, 900, 1000)`) — pixel sample columns.
+
+
 **Minimal upstream fix.** Add the colour components to
 `check_ui_property`, comparing against a parsed `r,g,b,a`:
 `bg=23,23,35`, `border=0,122,204`, and a `border-thickness`. The entity is
@@ -12091,6 +12135,10 @@ inside it is most of that — so this is worth doing when someone is next in
 these files, not on its own.
 
 CLASS: NOT A GAP (app-side)
+
+
+
+**Hanabi reference.** Negative result: `src/ui/find_highlight.h` (`afterhours::measure_text(font, s.c_str(), fontPx, kSpacing).x`) — find highlight still uses raw measure. `src/ecs/main_pane_system.h::afterhours::ui::measure_text_line` — other paths use cached helper. Measurement/gate: `docs/perf/TEXT.md` (`hanabi's own measuring still goes around the library's cache`) — app-side nature is documented.
 
 ---
 
@@ -12147,6 +12195,10 @@ with no match costs a `find()` instead of a wrap plus a vector of strings.
 Worth 0.19 ms/f and ~850 allocations/f of the numbers above, which is 7% of
 the find bar's cost — the other 93% is `find.collect` and needs the memo.
 
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/main_pane_system.h` (`static std::vector<std::string> paintable_lines`) — find collection builds paintable strings. `src/ecs/main_pane_system.h` (`hanabi::prof::Scope _pfind("find.collect")`) — find collection is profiled. Measurement/gate: `docs/SEARCH.md` (`find.collect | — | 2.430 ms/f`) — docs record find.collect cost.
+
 ---
 
 ### #367 — PERF (ours, FIXED HERE): opening Cmd+Shift+F parsed the entire disk cache on the UI thread — 370 ms at a 2000-thread cache
@@ -12198,6 +12250,10 @@ machine is doing — and it could not be gated on a shared box at all.
   nothing equivalent, so a thread read since the last open would be stale with
   no way to notice. Worth doing after the LRU grows a generation; not before.
 
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/search/session_corpus.h` (`inline constexpr std::size_t kDeepenPerFrame = 8;`) — search deepens corpus in slices. `src/ecs/session_search_system.h::corpus_.deepen(hanabi::search::kDeepenPerFrame` — UI uses bounded deepening. Tests: `tests/unit/test_session_index.cpp::test_opening_the_panel_reads_nothing_from_disk` — unit test pins zero reads on open. Measurement/gate: `docs/SEARCH.md` (`opening the panel | **370.5 ms**, 2000 disk reads | **0.2 ms**, 0 disk reads`) — before/after measurement.
+
 ---
 
 ### #368 — PERF (ours, NOT FIXED): the sidebar's deep filter reads a file per thread on the first frame of every new query — 165 ms at a 2000-thread cache
@@ -12237,6 +12293,10 @@ new query costs what the memoized one does. A day, and it wants the
 `Depth::Windowed` bookkeeping from docs/SEARCH.md S2 so it does not quietly
 hold half a thread and call it the thread. Alternatively: pay it off the frame
 thread — same ownership problem as #367's rejected arm.
+
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`api::disk_cache::content_matches(s.id, q)`) — sidebar still calls content search. `src/api/disk_cache.cpp` (`If the new query CONTAINS the old one`) — memo optimizes narrowing only. Tests: `tests/unit/test_data.cpp::test_content_search_memo_is_not_stale` — unit test covers invalidation. Measurement/gate: `docs/SEARCH.md` (`its deep filter costs 165 ms on the first`) — docs record open perf issue.
 
 ---
 
@@ -12279,6 +12339,10 @@ uncap while one is. Half a day with a test that does both halves —
 type a query AND click the expander — which is the test neither existing script
 is.
 
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`if (!uniformHeight) return w;`) — search rows disable row-window arithmetic. `src/ecs/sidebar_system.h` (`Presence = expanded.`) — Show N more uses expanded sentinel. `src/ecs/sidebar_system.h` (`app.collapsedFolders.insert(more_key(key, moreKeyScratch_));`) — click expands list. Tests: `tests/ui/sidebar_show_all_is_still_virtualized.e2e` (`"Show N more…" must not cost N rows.`) — test covers Show N more without query. Measurement/gate: `docs/perf/GATES.md` (`one they clicked "Show N more…" on, and that list cost 17.2 ms of CPU a frame`) — row-window regression cost.
+
 ---
 
 ### #372 — PERF/HONESTY (ours, NOT FIXED): the sidebar truncates its search results and there is no header to say so
@@ -12308,6 +12372,10 @@ owns sorting, pinning and the drag pass. (a) is right; it needs
 `rowsMatched_`/`rowsRendered_` turned into accumulators reset once per frame
 rather than once per group, and a label that is not a test-only audit. Two
 hours, and the risk is entirely in the accumulator's reset point.
+
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`/*headerless=*/true`) — catch-all group is headerless. `src/ecs/sidebar_system.h` (`The count in the header is still the true number`) — visible_limit rationale depends on header count. Measurement/gate: `docs/SEARCH.md` (`The sidebar truncates silently`) — docs record issue as open.
 
 ---
 
@@ -12350,6 +12418,10 @@ docs/SEARCH.md S13.
    second caller. Ten minutes, and the test says the wrong thing rather than
    the code doing it.
 
+
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/search/session_index.h` (`inline std::string snippet_around`) — first snippet cutter exists. `src/ui/snippet_text.h` (`inline std::string extract`) — second snippet cutter exists. Tests: `tests/unit/test_find_nav.cpp` (`CHECK(advance(1, 3, Step::None) == 0);`) — test asserts Step::None behavior.
+
 ---
 
 ### #373 — Ideas considered for the search subsystem and rejected, with reasons
@@ -12385,6 +12457,10 @@ Recorded so nobody spends the afternoon I would have.
   search. Persisting it would grow the cache by roughly the size of the
   transcripts again and wants a decision about the cache cap first, not a
   search change.
+
+
+
+**Hanabi reference.** Negative result: `docs/SEARCH.md` (`Fixed the other way round from the entry's suggestion.`) — docs preserve rejection of wrapped-line totals. `docs/SEARCH.md` (`Rejected: a **cap**`) — docs preserve rejection of capped corpus. Tests: `tests/unit/test_data.cpp` (`CHECK(!api::disk_cache::content_matches("quota-42", "xylophone"));`) — tool output not searchable.
 
 ---
 
