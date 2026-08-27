@@ -2761,8 +2761,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("date_divider"));
         // Explicit widths, never percent(1.0): a percent child in a NoWrap row
         // resolves against the whole row and shoves its siblings out (gap #53).
-        // The label is centred, so each rule takes half of what it leaves.
-        float ruleW = (rowW - lw - 2.0f * kGap) * 0.5f;
+        // The label is centred, and each rule is capped so date metadata does
+        // not visually divide the conversation as strongly as a run outcome.
+        float ruleW = std::min(72.0f,
+                               (rowW - lw - 2.0f * kGap) * 0.5f);
         if (ruleW < 8.0f) ruleW = 8.0f;
         const auto rule = [&](int childId) {
             div(ctx, mk(row.ent(), childId),
