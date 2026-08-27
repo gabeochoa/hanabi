@@ -346,7 +346,7 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Thirteen families cover 110 of the 198 entries.** Fix the canonical one and the
+**Fourteen families cover 115 of the 203 entries.** Fix the canonical one and the
 rest either close or shrink to a footnote — 41 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
@@ -359,15 +359,16 @@ to fix.
 | **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42 | No content sizing and no prefix/count query, so every consumer re-derives metrics the layout already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Twelve entries; **filed independently by at least six agents**, the latest (#340) three weeks after the first. |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
-| **Virtualization** | **#326** | #23, #170, #31a, #224, #220, #147 | `virtual_list` divides by one row height. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. |
+| **Virtualization** | **#326** | #23, #170, #31a, #224, #220, #147, #455 | `virtual_list` divides by one row height. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. #455 carries the current busy-event CPU and allocation measurements. |
 | **Alpha and antialiasing** | **#92** | #13, #15, #106, #96 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4). |
 | **Text input vs text area** | **#67** | #17, #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
-| **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #337 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. |
+| **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #337, #456 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name, no clipboard assertion. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. |
+| **Accessibility semantics** | **#112** | #458 | Icon-only controls have debug names and pixels but no platform role, accessible name, description, or value. #458 is the message/tool proof and downstream visible-label cost. |
 | **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. |
 | **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
 | **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
-| **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259, #380, #381 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, its best diagnostic is unregistered, a handler cannot own its own timeout message (#380 — and #113 is that same overwrite from the other side), and the directory mode runs a whole suite in one process with no reset between scripts (#381). #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
+| **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259, #380, #381, #457 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, its best diagnostic is unregistered, custom commands lose quoted arguments (#457), a handler cannot own its own timeout message (#380 — and #113 is that same overwrite from the other side), and the directory mode runs a whole suite in one process with no reset between scripts (#381). #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
 
 **Exact duplicates**, as opposed to families — the same finding written twice:
 
@@ -400,6 +401,7 @@ reader. They must never be quietly folded into the ask list.
 | **#338** | **Two subtrees built from the same call sites get DISJOINT widget identities**, and the text measure cache is width-independent — so a split pane needed neither an id-namespacing scheme nor a per-pane cache. The natural fear about splitting a view is the one thing the library already handles. |
 | **#307** | **A stale `LineIndex` in a text area is unobservable.** `HasTextAreaState` maintains a source-line index at six sites and rebuilds it only when told, so an outside write to `storage` leaves it describing the previous string — an obvious latent bug with a one-line fix. Nothing reads it: `text_area` navigates by VISUAL rows off `layout_cache` (`text_area.h:597-600`) and the `line_index` consumers in `utils.h` have no call site in `text_area.h` at all. The one-line fix was written, and a scripted test for it passed WITHOUT the fix, twice. |
 | **#339** | **`imm::divider` and `hsplit` already exist**, and the hand-rolled version had exactly the bug the library's own doc comment warns about. The cost of not looking was a defect the library had already written down. |
+| **#459** | **Conditional immediate-mode construction already makes a hidden hover subtree free.** Returning before `imm::div` creates the overlay yields zero hidden action entities; no library feature is missing. |
 | **#4** | The status-glyph primitives are real and reachable — `draw_triangle`, etc. — so a shape-per-status glyph needed no gap at all. |
 | **#8** | Windowed launch cost is dominated by OS/graphics init, not by anything hanabi or afterhours does. **Log-only, deliberately.** Do not turn this into a performance ask. |
 | **#7** | RAM knobs: a *watch* item, recorded so that IF a ceiling is hit the exact knob is already written down. Not a request. |
@@ -711,6 +713,11 @@ correction narrows them rather than closing them.
 | 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
 | 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
+| 455 | Variable-height transcript virtualization still scans every item | PERFORMANCE | HIGH | M | dup→#326/#224; measured |
+| 456 | E2E has no clipboard assertion despite exposing clipboard reads | MISSING | MED | S | **live** |
+| 457 | Custom E2E commands lose quoted arguments | FOOTGUN | HIGH | S | **live** |
+| 458 | Icon controls have no semantic accessible name or role | MISSING | HIGH | M | dup→#112 |
+| 459 | Conditional construction gives zero hidden hover entities | NOT A GAP | — | — | neg |
 
 ---
 

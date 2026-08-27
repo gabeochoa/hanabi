@@ -18,6 +18,14 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 
 ---
 
+## MESSAGE ACTIONS + TOOL PRESENTATION — COMPLETE (2026-08-27)
+- [x] Hover/focus overlay is zero-height and built only while visible; copy feedback is isolated by pane and thread.
+- [x] Copy preserves the message source bytes; retry appears only on user prompts that are not already sending and enters the persistent outbox before dispatch.
+- [x] Tool summaries show real name/node/command, a centered count, and right-aligned aggregate duration/status; expansion shows per-call rows and captured output without merging nodes, subagents, or deliveries.
+- [x] UI coverage: pointer copy, keyboard retry, exact clipboard bytes, failed retry persistence, split-pane focus, long command, no-output tool, failed tool, fold persistence, event classes, and nested subagents.
+- [x] Screens: `07c_hover_user_actions_dark` and `21b_tools_expanded_detail_dark`.
+- [x] Busy event transcript: 15/240 turns = 2345/2381 allocations per frame, slope 0.16/turn, under the 2900 and 2.0 gates. Remaining pass-1 cost stays filed in #455.
+
 ## DONE + MERGED + PUSHED (this session, newest first)
 - [x] Live SSE + memory-light newest-N + tool-call block-splitting (wt/live-sse be636ed — PENDING MERGE).
 - [x] icons.h TODO(icon-atlas) convention for missing-sprite fallbacks (372c6e1).
@@ -50,8 +58,7 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 - [ ] Open transcripts at the BOTTOM (newest) by default — loader now delivers newest-40.
 - [ ] Set app.requestLoadOlder=true when scrolled to TOP and app.hasMoreOlder — loader fetches full transcript (interim: no backward cursor yet).
 - [ ] "load older messages" affordance/spinner keyed off hasMoreOlder / loadingOlder.
-- [ ] Tool-row renderer: replace HASHED tool_duration/tool_count/status with REAL Message fields
-      (tool_duration_ms, tool_status, tool_result). subtitle+text already flow. Show real output + completed/error check in nested sub-rows.
+- [x] Tool-row renderer: REAL Message fields now drive name, command, output, status, and duration; expanded piles show nested per-node rows.
 
 ## OPEN ASKS — batch 4 (2026-08-02, live testing — NOT STARTED)
 - [ ] TABS: allow REARRANGING tabs (drag to reorder).
@@ -135,7 +142,7 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
    tab drag-reorder (model::reorder_tab + e2e). All gated + pushed.
 
 ## NEW asks (batch 5, 2026-08-02)
-- [ ] MESSAGE HOVER ACTIONS: buttons underneath a message on hover (copy / retry / etc. — like Navi web chat).
+- [x] MESSAGE HOVER ACTIONS: copy + retry are visible labels with icons, keyboard focus, exact-copy tests, and durable outbox routing.
 - [ ] PROFILE STARTUP + FIX IT (direct): startup varies 159ms..1464ms in the wild (cold vs warm, real backend
       list fetch blocks?). Instrument app_init phases, find the cost, cut it. (Note: windowed Startup log
       showed 1164-1464ms on real-backend cold launch — likely the synchronous list/auth on the UI thread.)
@@ -147,9 +154,7 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
       pinned when new msgs arrive; if NOT at bottom, don't move. (Ties into open-at-bottom + SSE.)
 - [ ] ARCHIVED needs a real ICON (currently U+25A4 box fallback) — cut a Lucide archive sprite into the
       atlas (icons_atlas.h + icons.png via scripts/gen_icons.py) and drop the fallback. (gap TODO(icon-atlas))
-- [ ] TOOL CALL missing info (screenshot): the tool row shows only an icon + count(5) + 53s + check, but
-      NO command/name text. Wire the REAL tool fields (name->subtitle, command->text) so the row shows
-      what ran. (Overlaps the render-wiring owed after data-layer merge — the block-split emits these now.)
+- [x] TOOL CALL detail: collapsed rows show the real name, node, command, aggregate duration, and status; expansion preserves each call and output.
 - [ ] THREAD SWITCH super slow / BEACHBALL: switching threads blocks the UI thread. Make the switch
       async (spinner while loading), keep UI interactive. ALL API calls on the API/worker thread, never
       UI thread. (Overlaps loader async + the jank/idle-cost work.)
@@ -160,7 +165,7 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
       remain clickable — text not drawn past a scroll offset. ADD E2E TESTS. (dup of batch-4 bug, still open.)
 - [ ] STARTUP: profile + fix (Gabe: do the profiling IN A SUBAGENT). Windowed cold launch 1164-1464ms on
       real backend; instrument app_init phases (Gfx-init vs App-init split already added), find + cut cost.
-- [ ] MESSAGE HOVER ACTIONS: buttons under a message on hover (copy/retry) — batch-5, still open.
+- [x] MESSAGE HOVER ACTIONS: buttons under a message on hover (copy/retry) — finished on feat/message-actions with pointer, keyboard, persistence, and split-pane coverage.
 
 ## STANDING DIRECTIVES RESTATED (Gabe, batch 5+6)
 - Work the WHOLE list autonomously; merge+push freely (permission granted).
@@ -201,8 +206,7 @@ TOP 10 (ranked) + owner routing:
 2. [P0] LIGHT THEME broken (muddy grey sidebar, no card contrast, not shippable) -> NEW task: fix light tokens (theme.h).
 3. [P0] Tool row incomplete: GREY check (no success color), NO duration, heavy count pill -> MY tool-row fix
    (0f31e2e) added real duration+status+green/red check — VERIFY on mock+real; the audit screenshot PREDATES it. Mock has no duration (blank is correct); real has it. Re-audit tool row post-fix.
-4. [P0] Nested per-node tool SUB-ROWS missing (expanded pile shows only sub-agent chips) -> the block-split
-   emits Role::Tool msgs; need the pile EXPAND to render nested sub-rows w/ node+subcmd+dur+check (main_pane).
+4. [x] Nested per-node tool SUB-ROWS: expanded piles now render real name+node+command+duration+status and captured output.
 5. [P1] Send button always grey/dead -> accent when field non-empty (composer_system.h; ties to data-async send).
 6. [P1] Tri-color section labels (red/grey/green) break one-accent rule -> neutral labels, color only in glyph (main_pane home digest).
 7. [P1] Smart-view row inconsistency (Blocked=title+time, Starred=title+subtitle+pill) -> unify one row component (main_pane digest).
@@ -274,7 +278,7 @@ Ranked by heat. Each must be VERIFIED (screenshot / e2e), not assumed.
 2. [x] **Corners too round** on the tool-call card (screenshot). Reduce roundness.
 3. [x] **User prompt bubble corners MUST MATCH the tool-call card corners** (same roundness).
 4. [x] **Tool-call ROW header left-align**: "🔑 2 tool calls · [cli:aspen] cd …" should be left aligned.
-5. [ ] **Tool-call footer meta** ("⚙ 2 … 5s ●"): count centered, duration+status-dot right aligned.
+5. [x] **Tool-call footer meta**: count is independently centered; aggregate duration and real status stay right aligned.
 6. [x] **Remove the message-count from the transcript header** — don't need it at top; put it in the
        TAB TITLE instead (we don't really care how many messages).
 7. [x] **Settings: make it WIDER so you don't need to scroll.**
