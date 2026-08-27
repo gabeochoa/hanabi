@@ -9635,6 +9635,10 @@ other way round — and that the trap is entirely silent for the next person, wh
 will also have the parent-relative numbers in hand and no reason to distrust
 them.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`const auto railRect = rail.ent().get<afterhours::ui::UIComponent>().rect()`) — The minimap rail reads the laid-out retained rect rather than hit-testing against configured parent-relative translate values. Tests: `tests/ui/minimap_drag.e2e` (`The rail is at x=1084..1094, y=73..656`) — The UI test records the measured absolute rail rect used by coordinate gestures.
+
+
 **Minimal upstream fix.** Either resolve `with_translate` against the parent's
 absolute origin at build time and hand it back on the `ElementResult`, or —
 smaller and more useful — make `mouse_was_in_subtree`'s geometry available as
@@ -9698,6 +9702,10 @@ that the enumerators the library gates on are PRESENT
 has a chord of the right shape in the shipping table. The first of those
 assertions is the one that matters — it is the only thing standing between a
 tidy-up of the enum and the silent removal of the feature.
+
+
+**Hanabi reference.** `src/input_mapping.h::TextDeleteWordBack` — Hanabi's InputAction enum now declares the word-editing enumerators the library checks by name. `src/input_mapping.h::bind(InputAction::TextDeleteWordBack` — The shipping keymap binds the word-editing actions. Tests: `tests/unit/test_input_pipeline.cpp::test_word_chords_are_bound_to_option` — Unit tests assert word-editing chords are present and use Option.
+
 
 **Minimal upstream fix.** Any of three, cheapest first:
 
@@ -9783,6 +9791,10 @@ press_drag_threshold_px` is a hard 6px with no per-widget override, which on a
 583px rail standing for 12,000px of transcript is a 124px dead zone at the
 start of every drag; a scrubber wants a smaller threshold than a list row does
 and cannot ask for one.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`if (ctx.mouse.just_pressed) drag.armed = onRail;`) — The minimap rail hand-rolls drag state from raw mouse fields. `src/ecs/main_pane_system.h::drag.live` — The app maintains its own drag-in-progress state and scrolls while live. Tests: `tests/ui/minimap_drag.e2e` (`Releasing OUTSIDE the rail ends the drag`) — The UI test covers held drag behavior, off-rail release, and click-without-drag.
+
 
 **Minimal upstream fix.** `ComponentConfig::with_drag_listener()` (or a bare
 `with_draggable()`, since the useful half is `down` and not the callback),
@@ -9873,6 +9885,12 @@ line of it is a thing the library knows and an app has to re-derive:
 - a floor — 0.5px, because nothing rounds a widget's origin (#110) and a
   fractional overflow fires on almost every `percent()`-sized element.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's 55/3-survivor figures are stale against current bounds_gate comments, which describe eleven known 1.0-1.5px vertical survivors; the app-side audit remains current.
+
+**Hanabi reference.** `src/util/bounds_audit.h` (`Every flow-positioned element whose rect escapes its parent's content box`) — Hanabi walks the UI tree and compares each flow child against its parent's content box. Tests: `scripts/bounds_gate.sh` (`fail on anything not in the baseline`) — The bounds gate runs the audit over reachable states and compares against a frozen baseline. Measurement/gate: `scripts/bounds_gate.sh` (`The survivors are eleven`) — The gate documents the current known baseline and why new parent overflows fail.
+
+
 **Minimal upstream fix.** Two small ones, and the first is nearly free:
 `assert_no_overflow` already walks every laid-out element with its parent one
 hop away, so adding the parent-content-box comparison beside the viewport one
@@ -9925,6 +9943,10 @@ was added as an explicit alias for the harness's benefit.
 **The workaround.** Bind the Ctrl twin for anything that must be tested, and
 for anything read off the key state, read Ctrl as well as Super. Both are in
 `src/input_mapping.h` and `src/keys.h` with the reason written down.
+
+
+**Hanabi reference.** Current code: `src/input_mapping.h` (`WHY THE CTRL TWINS`) — The keymap binds Ctrl twins because the script CMD+ prefix maps to Ctrl. `src/keys.h::cmd_or_ctrl_down()` — Raw Cmd-only app chords read Ctrl as a test-harness alias. Tests: `tests/unit/test_input_pipeline.cpp::test_line_chords_are_bound_to_command` — Unit tests assert Cmd and Ctrl twins for line-motion chords.
+
 
 **Minimal upstream fix.** Hold the modifier that was parsed. Three lines next
 to the three that are already there:
@@ -9988,6 +10010,10 @@ Cmd+Backspace must NOT be bound as an explicit chord in the key table.
 `suppress_permissive_duplicates` would then claim the BACKSPACE key and
 suppress the plain `TextBackspace` binding — the very one the workaround
 relies on to perform the delete.
+
+
+**Hanabi reference.** `src/ecs/text_edit_chords_system.h` (`st->selection_anchor = line_start`) — Hanabi implements Cmd+Backspace by selecting to line start and letting TextBackspace delete. `src/ecs/keyboard_focus.h::focused_text_field()` — The app locates the focused text_input/text_area state before applying its chord workaround. Tests: `tests/ui/composer_line_delete.e2e` (`expect_input_text composer_reply_input "three"`) — UI coverage proves Cmd+Backspace deletes to line start and survives the next frame.
+
 
 **Minimal upstream fix.** `TextDeleteToLineStart` (and its mirror
 `TextDeleteToLineEnd`, which is Ctrl+K on macOS), guarded the same
@@ -10081,6 +10107,12 @@ cannot be its focus ring, and a custom accent swatch is walked wherever the
 threshold requires rather than to where the designer put it. An app that wants
 the system accent, on a dark theme, cannot have it.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The 'nothing turns them off' framing is stale: focus_ring_thickness=0 now disables all outlines. The specific lack of separate contrast-edge control remains and the color workaround ships.
+
+**Hanabi reference.** `src/ui/focus_visible.h` (`ring_color(afterhours::Color base`) — Hanabi shifts the ring color to make the forced contrast edges sink into the backdrop. `src/ecs/focus_visible_system.h` (`ctx.theme.focus = fv::ring_color`) — A frame-level focus-visible system applies the adjusted ring color. Tests: `tests/unit/test_focus_ring.cpp::check_the_edge_does_not_outshout_the_ring` — Unit tests assert the contrast edge is less visually dominant than the ring.
+
+
 **Minimal upstream fix.** Gate the two contrast edges the way the coloured ring
 is already gated — a `focus_ring_contrast` field, or simply `bool` — so an app
 that has decided its ring is legible can say so. Better, derive the edge from
@@ -10164,6 +10196,12 @@ a copy of the text, whose only purpose is to be visible to the harness
 deliberately left alone so it cannot answer "is a field focused" with a stale
 yes, and hanabi's own lookups ask for the area state first.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The workaround is no longer merely 'on the spike branch'; it is present in current source. The underlying vendored expect_input_text limitation remains.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`A SHADOW HasTextInputState, for the scripted-UI harness only.`) — The multiline composer adds a shadow HasTextInputState so expect_input_text can read text_area content. Tests: `tests/ui/composer_shift_enter.e2e` (`expect_input_text composer_reply_input ""`) — The multiline composer suite still uses expect_input_text for the empty-field case.
+
+
 **Minimal upstream fix.** The `||` its two siblings already have.
 
 ```cpp
@@ -10224,6 +10262,10 @@ So the correct offset is +something for one widget, -something for another and
 because flush is the least-wrong single answer for its mix of widgets, and
 accepts a ring that overlaps a label on the chips.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** Let a widget carry its own offset — the same
 override `HasRoundedCorners` already gives the ring for corner radius, which
 `focus_ring_for` reads two lines above where it reads the global offset. A
@@ -10255,6 +10297,10 @@ bytes joined and 22 with a break between them, so `0 22` is the whole claim,
 and `0` would mean it sent instead. `tests/ui/composer_shift_enter.e2e` on the
 spike branch is written this way throughout. It is exact, and it reads
 terribly — every assertion is a number the reader has to recompute by hand.
+
+
+**Hanabi reference.** `tests/ui/composer_shift_enter.e2e` (`WHY THE ASSERTIONS ARE BYTE COUNTS`) — multiline assertions use selection byte ranges. Tests: `tests/ui/composer_shift_enter.e2e` (`expect_input_selection composer_reply_input 0 22`) — Shift+Enter is proven by range.
+
 
 **Minimal upstream fix.** Process `\n` (and `\\`) in `parse_quoted`. Four
 lines, and it makes `type` able to enter a newline as a bonus, which no
@@ -10302,6 +10348,10 @@ the movement happens inside the same call that reads the key.
 this gap named beside it, so that a library fix shows up as a failing test
 rather than as nothing.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** The four lines `text_input` already has, in the two
 word-motion branches of `text_area`.
 
@@ -10329,6 +10379,10 @@ the spike branch brings it back for the widget that still needs it. Measured
 against the single-line field it replaces, the overlay lands on the same pixel
 the typed text does (x=329, y=706), so the two agree — but that is a
 hand-alignment that holds only until either side's padding changes.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`with_debug_name("composer_placeholder")`) — composer draws overlay placeholder. `src/ecs/main_pane_system.h` (`text_area does not render one at all`) — source explains overlay.
+
 
 **Minimal upstream fix.** The four lines from `component.h`, in `text_area`'s
 line loop when the text is empty.
@@ -10377,6 +10431,10 @@ descendant next to the version string, because the focusable thing is the row
 CONTAINER and it holds no text of its own; that string is what a scripted test
 asserts, and it is the only way from outside to say WHICH element the ring is
 on.
+
+
+**Hanabi reference.** `src/input_mapping.h` (`bind(InputAction::WidgetNext, {keys::TAB});`) — Tab focus action is bound. `src/ecs/sidebar_system.h` (`HANABI_FOCUS_AUDIT=1`) — footer audit names focus-ring target. Tests: `tests/ui/tab_walks_the_focus_ring.e2e` (`expect_text "ring on Settings"`) — e2e proves ring walks.
+
 
 **Minimal upstream fix.** Two lines in `focus_ring_for`: if no binding can
 reach `WidgetNext`, the frame cannot move focus by keyboard, so log once and
@@ -10452,6 +10510,10 @@ right: #109 is about a LABEL, which is drawn from the element's own rect and
 never sees padding, and this is about child DIVS, which are all padding
 reaches. A consumer has to know which of the two shapes they are holding before
 they can pick, and nothing in the API distinguishes them.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`.with_padding(Padding{.left = pixels(16)})`) — chip row indent uses padding rather than margin. Tests: `tests/ui/subagent_chips_stay_inside_the_rollup.e2e` (`The sub-agent chip row is indented by PADDING, not by a left margin`) — e2e pins containment.
+
 
 **Minimal upstream fix.** Subtract the child's `computed_margin[axis]` in the
 `Dim::Percent` resolution, exactly as the cross-axis `Dim::Expand` path already
@@ -10533,6 +10595,10 @@ a reader sees is dot-ink to first glyph, and the label's own rect already
 spends some of it". That idiom now appears four times in the file, with two
 different values for the one constant.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`constexpr float kLabelInset = 5.0f;`) — composer path names label inset. `src/ecs/main_pane_system.h` (`static constexpr float kLabelInsetX = 6.0f;`) — transcript path carries measured inset. Tests: `tests/ui/thinking_indicator_sits_on_the_text_column.e2e` (`kLabelInsetX (6), because afterhours adds that 6 back`) — e2e pins alignment.
+
+
 **Minimal upstream fix.** Name it and expose it: a
 `ui::kLabelTextInset` (or a field on the theme, since it is a styling decision)
 that `position_text_ex`'s callers read instead of the literal, plus a
@@ -10610,6 +10676,10 @@ widget gets, not about how many a label may have.
 
 CLASS: NOT A GAP
 
+
+
+**Hanabi reference.** Negative result: `src/ecs/main_pane_system.h::with_styled_label(event_spans(m))` — event rows use one styled-label widget. `src/ecs/main_pane_system.h` (`with_styled_label(code_spans(shown, runs, &audit))`) — inline code uses same capability.
+
 ---
 
 ### #241 — NOT A GAP: `imm::mk` hashes the SOURCE LOCATION, so two row kinds cannot collide, and the hand-allocated id bases in hanabi's transcript protect against nothing
@@ -10678,6 +10748,10 @@ it has to live in app state at all.
 
 CLASS: NOT A GAP
 
+
+
+**Hanabi reference.** Negative result: `src/ui/mk.h` (`widget_key(parent.id, otherID, loc)`) — identity includes parent/id/source-location. `src/ecs/main_pane_system.h` (`delivery_key(const api::Message& m, int index)`) — real fold state is message-keyed.
+
 ---
 
 ### #262 — `text_area` hardcodes its field background and ignores `with_transparent_bg`
@@ -10707,6 +10781,12 @@ the call and restore it — the same save/restore this composer already does for
 global, and it would recolour anything else in the call that reads Secondary.
 This is one of the two reasons hanabi's multiline composer is a spike branch
 rather than a shipped change.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** original 'none used' and grey-interior measurement are stale; postscript/current code correct them.
+
+**Hanabi reference.** `src/ui/field_chrome.h` (`inline void clear_forced_fill`) — forced fill is cleared after text_area builds. `src/ecs/main_pane_system.h` (`hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);`) — composer applies workaround. Tests: `scripts/composer_chrome_gate.sh` (`THE INTERIOR IS THE WINDOW COLOUR`) — pixel gate catches fill regression. Measurement/gate: `src/ui/field_chrome.h` (`42 pixels, measured`) — outline-overpaint measurement.
+
 
 **Minimal upstream fix.** Read the background from the config the way the rest
 of the widget reads everything else, defaulting to Secondary when unset.
@@ -10802,6 +10882,12 @@ from `state.is_focused`, at the cost of one frame of lag (the wrapper is built
 before the field it contains) and a ring around the 45px box rather than the
 29px field. Not obviously wrong, but it is a visual change to the most
 measured widget in the app, so it is on the spike branch and not shipped.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** original 'none used' wrapper workaround is stale; current code fixes field entity directly.
+
+**Hanabi reference.** `src/ui/field_chrome.h` (`inline void apply_focus_edge`) — field entity receives focused border. `src/ecs/main_pane_system.h::hanabi::ui::field_chrome::apply_focus_edge` — composer applies workaround. Tests: `scripts/composer_chrome_gate.sh` (`A FOCUSED FIELD HAS A COLOURED EDGE`) — pixel gate verifies focused edge.
+
 
 **Minimal upstream fix.** The four lines from `component.h`.
 
@@ -10903,6 +10989,10 @@ also means re-deriving which enumerator names exist (#255). A unit test
 asserts the split explicitly — that Cmd is NOT on the word actions — because
 the failure mode of drifting back toward the library's default is a chord that
 still does something.
+
+
+**Hanabi reference.** `src/input_mapping.h` (`WHICH MODIFIER MEANS WHAT. On macOS Option is the WORD modifier and Command`) — shipping key map is macOS-first. `src/input_mapping.h` (`bind(InputAction::TextWordLeft, {KeyChord{keys::LEFT, ALT}});`) — word motion is Option/Alt only. Tests: `tests/ui/composer_word_editing.e2e` (`Cmd+Left / Cmd+Right are the LINE ends on macOS`) — e2e verifies behavior.
+
 
 **Minimal upstream fix.** Split the modifier by platform in `bind_chord`, or
 offer `default_keymap_macos<InputAction>()` beside it. The values are already
@@ -11089,6 +11179,10 @@ two offsets. That is what makes this survivable.
   panes. `ecs::model::pane_key`.
 - Per-pane NAMES: see #337.
 
+
+**Hanabi reference.** `src/ecs/components.h` (`struct Pane`) — per-pane app state exists. `src/ecs/main_pane_system.h` (`render_split(UIContext<InputAction>& ctx`) — split view renders two pane columns. Tests: `tests/ui/pane_split.e2e` (`Two panes, side by side, and only one of them has the keyboard`) — e2e covers split/focus.
+
+
 **Minimal upstream fix.** Not "make the singletons plural" -- that is a rewrite
 and most of them are correctly one per window. The smallest thing that would
 have helped: let a subtree be declared a FOCUS SCOPE, and let `UIContext` hold
@@ -11169,6 +11263,10 @@ What hanabi does instead is *bound* it: `scripts/alloc_gate.sh` grew a
 `draft6` arm so the cost cannot grow further unnoticed, and the ceiling
 carries a note saying it should come down when this lands.
 
+
+**Hanabi reference.** Proof patch or spike, not shipped: `vendor_patches/305-text-area-wraps-every-frame.patch` (`Subject: [PATCH] text_area: wrap once per change, and measure through the`) — proof patch implements cached rebuild/measurement. `scripts/alloc_gate.sh::CEIL_DRAFT6` — gate bounds current allocation cost. Measurement/gate: `vendor_patches/305-text-area-wraps-every-frame.patch` (`one line, 130 chars 1007.0 824.0`) — before/after allocation counts.
+
+
 **Minimal upstream fix.** Both halves are small, and both are PROVEN — the
 patch is `vendor_patches/305-text-area-wraps-every-frame.patch`, applies
 cleanly to 428047e, and takes the table above to 810 / 824 / 847. Hold the
@@ -11221,6 +11319,10 @@ But it is reaching into the widget's state component for a number the widget
 computed and discarded, and every app that puts a text area inside its own
 chrome will do the same reach.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::layout_cache.line_count()` — composer reads widget row count. `src/ecs/main_pane_system.h` (`static float composer_field_h(size_t rows)`) — composer chrome sizes from row count. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`The composer box GROWS with the draft`) — e2e covers growth.
+
+
 **Minimal upstream fix.** Return it. Either a field on `ElementResult` (it is
 already the widget's channel back to the caller) or an accessor pair on
 `HasTextAreaState` that says `rows()` and `capped_rows()` in so many words —
@@ -11270,6 +11372,10 @@ of three properties I read out of `text_selection.h` before relying on them:
 
 So every returned line is a contiguous substring of the input, in order.
 The reconstruction is O(text) per label per frame on top of the wrap.
+
+
+**Hanabi reference.** `src/ui/find_highlight.h` (`Match over the WHOLE line, then place the hit on the wrapped ones`) — highlight reconstructs wrapped-line offsets. `src/ecs/main_pane_system.h` (`find_highlight::paint_bands matches over the`) — find tally and paint rule match. Tests: `tests/ui/find_paints_a_match_that_wraps.e2e` (`A phrase broken across a soft wrap is counted AND painted`) — e2e covers straddling match.
+
 
 **Minimal upstream fix.** Return the ranges alongside the lines, or as a
 sibling entry point:
@@ -11338,6 +11444,10 @@ The cost is that the partial-drop window is bounded rather than closed: between
 two probes, a measurement can be short and nothing will say so. That window is
 the residue of a one-`bool` return value the library already has and does not
 give back.
+
+
+**Hanabi reference.** `src/util/atlas_guard.h` (`inline float check(std::string_view text, float px, float w)`) — guard catches impossible widths. `src/util/atlas_guard.h` (`inline bool probe(float px_hint, Measure&& measure)`) — probe detects atlas-full condition. Tests: `tests/unit/test_atlas_guard.cpp::test_zero_for_a_real_string_is_a_fault` — unit test covers zero-width fault. Measurement/gate: `src/main.cpp` (`--atlas-stress: FILL the glyph atlas on purpose`) — stress mode exercises overflow.
+
 
 **Minimal upstream fix.** Either of two, both small. (a) An out-parameter or a
 sibling entry point: `measure_text_checked(..., bool* complete)`, set false
