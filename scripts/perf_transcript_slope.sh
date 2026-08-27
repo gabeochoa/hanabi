@@ -25,7 +25,7 @@
 #
 # Usage: scripts/perf_transcript_slope.sh [path-to-hanabi.exe]
 # ---------------------------------------------------------------------------
-set -u
+set -euo pipefail
 
 EXE="${1:-output/hanabi.exe}"
 SHORT_TURNS=15    # 60 messages
@@ -47,11 +47,23 @@ run() {  # run <turns> -> prof lines on stdout
     cat > "$h/Library/Application Support/hanabi/settings.json" <<J
 {"window_width":1180,"window_height":949,"open_tabs":["rbig"],"active_tab":"rbig","theme":"dark"}
 J
-    env HOME="$h" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
+    if ! env HOME="$h" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
         HANABI_CONFIG=/tmp/none HANABI_BIG_TRANSCRIPT=1 \
         HANABI_BIG_TURNS="$turns" HANABI_PROF=1 HANABI_SOAK="$FRAMES" \
+        HANABI_SOAK_EVERY=100 HANABI_SOAK_WARM_FRAMES=0 \
+        HANABI_SOAK_MAX_RSS_KB_PER1K=999999 \
+        HANABI_SOAK_MAX_HEAP_KB_PER1K=999999 \
+        HANABI_SOAK_MAX_MS_PER1K=999999 \
+        HANABI_SOAK_MAX_ENT_PER1K=999999 \
+        HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K=999999 \
+        HANABI_SOAK_MAX_GPU_KB_PER1K=999999 \
         HANABI_STRESS=idle \
-        "$EXE" --screenshot "$h/shot.png" 2>&1 | grep '^\[prof\]'
+        "$EXE" --screenshot "$h/shot.png" >"$h/run.log" 2>&1; then
+        cat "$h/run.log" >&2
+        rm -rf "$h"
+        return 1
+    fi
+    grep '^\[prof\]' "$h/run.log"
     rm -rf "$h"
 }
 
@@ -85,6 +97,8 @@ wrap_calls() {  # <prof output>
     b=$(printf '%s\n' "$1" | awk '/text\.count_lines/ {print $4; exit}')
     awk -v a="${a:-0}" -v b="${b:-0}" 'BEGIN{printf "%.1f", a + b}'
 }
+S_MESSAGES=$(field "$SHORT_OUT" 'transcript\.messages' 3)
+L_MESSAGES=$(field "$LONG_OUT" 'transcript\.messages' 3)
 S_WRAP=$(wrap_calls "$SHORT_OUT")
 L_WRAP=$(wrap_calls "$LONG_OUT")
 S_ALLOC=$(field "$SHORT_OUT" 'ALLOCATIONS' 6)
@@ -96,8 +110,32 @@ L_MISS=$(field "$LONG_OUT" 'cache\.msgrender_miss' 4)
 L_VISITS=$(field "$LONG_OUT" 'transcript\.item_messages_visited' 3)
 L_INDEX_HITS=$(field "$LONG_OUT" 'transcript\.item_index_hit' 3)
 L_INDEX_REBUILDS=$(field "$LONG_OUT" 'transcript\.item_index_rebuild' 3)
-: "${S_MISS:=0}" "${L_MISS:=0}" "${L_VISITS:=0}" \
-  "${L_INDEX_HITS:=0}" "${L_INDEX_REBUILDS:=0}"
+
+require_metric() {
+    local name=$1 value=$2
+    if [[ ! "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "  FAIL: missing or non-numeric metric: $name" >&2
+        exit 1
+    fi
+}
+require_metric short.messages "$S_MESSAGES"
+require_metric long.messages "$L_MESSAGES"
+require_metric short.wraps "$S_WRAP"
+require_metric long.wraps "$L_WRAP"
+require_metric short.allocations "$S_ALLOC"
+require_metric long.allocations "$L_ALLOC"
+require_metric short.render_hits "$S_HIT"
+require_metric short.render_misses "$S_MISS"
+require_metric long.render_hits "$L_HIT"
+require_metric long.render_misses "$L_MISS"
+require_metric long.item_visits "$L_VISITS"
+require_metric long.index_hits "$L_INDEX_HITS"
+require_metric long.index_rebuilds "$L_INDEX_REBUILDS"
+if [ "$S_MESSAGES" -ne "$SHORT_MSGS" ] || [ "$L_MESSAGES" -ne "$LONG_MSGS" ]; then
+    echo "  FAIL: fixture size mismatch: got $S_MESSAGES/$L_MESSAGES messages," >&2
+    echo "        expected $SHORT_MSGS/$LONG_MSGS" >&2
+    exit 1
+fi
 
 fail=0
 

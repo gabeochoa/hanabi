@@ -159,7 +159,7 @@ told the gate.
 | **perf_transcript_slope** · allocations slope | the transcript render cache's `get` forced to miss | `allocations/frame 8636.7 → 24112.8  slope 36.8/msg  limit 12  FAIL` |
 | **perf_transcript_slope** · render-cache rate | same | `0 hit / 342.8 miss = 0.0%  limit 95.0%  FAIL` (both sizes) |
 | **perf_transcript_slope** · wrap calls, level | the line-count memo's `find` forced to miss | **added by this branch** — `wrap calls/frame 81.4  limit 5.0  FAIL` |
-| **perf_transcript_slope** · unchanged-frame item walk | force `TranscriptItemIndex::update` to rebuild on every lookup | `visited / (messages × index calls) = 0.9956  limit 0.02  FAIL`; clean is 0.0026 |
+| **perf_transcript_slope** · unchanged-frame item walk | force `TranscriptItemIndex::update` to rebuild on every lookup | `FAIL: missing or non-numeric metric: long.index_hits`; before strict metric validation the same defect read `0.9956` against `0.02` |
 | **find_gate** · repeated-frame level | the whole-result memo hit forced off | `rows/frame 797.6 / 6099.8  limit 30  FAIL` at 480 / 3,672 messages |
 | **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, so the set SATURATES, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL`, with every slope row above it reading `ok` |
 | **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |

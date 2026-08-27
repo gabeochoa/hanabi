@@ -881,7 +881,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             um.created_at = static_cast<int64_t>(std::time(nullptr));
             um.sync = api::SyncState::LocalOnly;
             app.pane().openSession->messages.push_back(std::move(um));
-            app.pane().note_transcript_change();
             app.pane().scrollBottomPending = id;
         }
         const std::size_t added =

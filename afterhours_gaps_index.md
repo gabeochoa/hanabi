@@ -26,12 +26,12 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **230** |
-| Distinct numeric gap numbers | **221** (seven numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **231** |
+| Distinct numeric gap numbers | **222** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **238** — one per indexed heading, nothing dropped |
+| **Rows in the triage table (§6)** | **239** — one per indexed heading, nothing dropped |
 | Standalone live asks | **133** |
-| Live but subsumed into a family canonical | **51** (§3) |
+| Live but subsumed into a family canonical | **52** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **18** (§4) |
 | hanabi/platform-owned, not afterhours' | **22** |
