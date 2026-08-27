@@ -28,6 +28,7 @@
 #include "../keys.h"
 #include "../search/session_corpus.h"
 #include "../search/session_index.h"
+#include "../ui/secondary_surface.h"
 #include "components.h"
 #include "keyboard_focus.h"
 #include "ui_imports.h"
@@ -36,13 +37,8 @@ namespace ecs {
 
 struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kPanelW = 560.0f;
-    // Explicit, because afterhours has no flex-grow: a percent child of a
-    // NoWrap column resolves against the whole panel and overflows its
-    // padding (afterhours_gaps.md #18).
-    static constexpr float kRowW = 500.0f;
-    static constexpr float kTextW = kRowW - 26.0f;
-    static constexpr float kFieldH = 34.0f;
-    static constexpr float kRowH = 46.0f;
+    static constexpr float kFieldH = hanabi::surface::kFieldH;
+    static constexpr float kRowH = 52.0f;
     static constexpr float kNoteH = 18.0f;
     static constexpr size_t kMaxRows = 6;
 
@@ -134,60 +130,72 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
-        auto backdrop = button(ctx, mk(uiRoot, 8400),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(sw), pixels(sh)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
-                .with_custom_background(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_custom_hover_bg(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(10)
+        const float rowsH =
+            kRowH * static_cast<float>(hits.size()) +
+            (overflowed ? kNoteH : 0.0f);
+        const float wantedH = hanabi::surface::kSheetPadV * 2.0f +
+                              hanabi::surface::kHeaderH + kFieldH + 12.0f +
+                              rowsH + 12.0f + kNoteH;
+        const hanabi::surface::Rect panelRect =
+            hanabi::surface::top_centered(sw, sh, kPanelW, wantedH);
+        const float contentW =
+            panelRect.width - hanabi::surface::kSheetPadH * 2.0f;
+
+        auto backdrop = button(
+            ctx, mk(uiRoot, 8400),
+            hanabi::surface::scrim(sw, sh, 10)
                 .with_debug_name("xsearch_backdrop"));
-        if (backdrop) {
+        if (backdrop &&
+            !afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos,
+                RectangleType{panelRect.x, panelRect.y, panelRect.width,
+                              panelRect.height})) {
             close(*app);
             return;
         }
 
-        const float rowsH =
-            kRowH * static_cast<float>(hits.size()) +
-            (overflowed ? kNoteH : 0.0f);
-        // Slack on purpose: afterhours has no flex-grow, and a column whose
-        // children add up to exactly its height gets silently re-solved (and
-        // warned about every frame — gap #53).
-        const float ph = kFieldH + 12.0f + rowsH + 12.0f + kNoteH + 24.0f;
-        const float px = (sw - kPanelW) * 0.5f;
-        const float py = std::min(120.0f, sh * 0.15f);
+        auto panelConfig = hanabi::surface::sheet(panelRect, 11);
+        panelConfig.with_overflow(Overflow::Scroll, Axis::Y)
+            .with_debug_name("xsearch_panel");
+        auto panel = div(ctx, mk(uiRoot, 8410), panelConfig);
 
-        auto panel = div(ctx, mk(uiRoot, 8410),
+        auto header = div(ctx, mk(panel.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(kPanelW), pixels(ph)})
-                .with_absolute_position()
-                .with_translate(px, py)
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kHeaderH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(8), .right = pixels(8),
-                                      .bottom = pixels(8), .left = pixels(8)})
-                .with_roundness(0.35f)
-                .with_render_layer(11)
-                .with_debug_name("xsearch_panel"));
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("xsearch_header"));
+        div(ctx, mk(header.ent(), 1),
+            ComponentConfig{}
+                .with_label("Search conversations")
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kTitleH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(FontSize::Large)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("xsearch_heading"));
+        div(ctx, mk(header.ent(), 2),
+            ComponentConfig{}
+                .with_label("Titles, previews, and locally cached messages")
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kSubtitleH)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("xsearch_subtitle"));
 
         const std::string before = app->sessionSearchQuery;
         auto inputRes = afterhours::ui::imm::text_input(
-            ctx, mk(panel.ent(), 1), app->sessionSearchQuery,
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
-                .with_border(theme::border(), pixels(1.0f))
-                .with_custom_text_color(theme::text_primary())
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.3f)
-                .with_render_layer(11)
+            ctx, mk(panel.ent(), 2), app->sessionSearchQuery,
+            hanabi::surface::field(contentW, 11)
                 .with_debug_name("xsearch_input"));
         if (app->sessionSearchQuery != before) app->sessionSearchIndex = 0;
         if (focusFrames_ > 0) {
@@ -202,21 +210,16 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
             // BUTTON from its text — which collapsed the row to one line and
             // warned about the overflow every frame (gap #53). Same shape the
             // sidebar's chat rows use.
-            auto row = div(ctx, mk(panel.ent(), 100 + static_cast<int>(i)),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(kRowW), pixels(kRowH)})
+            auto row = div(
+                ctx, mk(panel.ent(), 100 + static_cast<int>(i)),
+                hanabi::surface::option_row(contentW, kRowH, selected, 11)
                     .with_margin(Margin{.top = pixels(i == 0 ? 8 : 2)})
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_padding(Padding{.top = pixels(4), .right = pixels(8),
+                    .with_padding(Padding{.top = pixels(4), .left = pixels(10),
                                           .bottom = pixels(4),
-                                          .left = pixels(10)})
-                    .with_custom_background(selected ? theme::selected_bg()
-                                                     : theme::panel_bg())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                                          .right = pixels(8)})
                     .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_roundness(0.3f)
-                    .with_render_layer(11)
                     .with_debug_name("xsearch_row_" + std::to_string(i)));
             row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
@@ -234,7 +237,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(row.ent(), 1),
                 ComponentConfig{}
                     .with_label(title)
-                    .with_size(ComponentSize{pixels(kTextW), pixels(18)})
+                    .with_size(ComponentSize{pixels(contentW - 26.0f), pixels(18)})
                     .with_transparent_bg()
                     .with_custom_text_color(selected ? theme::text_primary()
                                                      : theme::text_secondary())
@@ -248,7 +251,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
                 div(ctx, mk(row.ent(), 2),
                     ComponentConfig{}
                         .with_label(hits[i].snippet)
-                        .with_size(ComponentSize{pixels(kTextW), pixels(16)})
+                        .with_size(ComponentSize{pixels(contentW - 26.0f), pixels(16)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_faint())
                         .with_font_size(theme::type::SM)
@@ -273,7 +276,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label("More matches \xe2\x80\x94 keep typing to "
                                 "narrow")
-                    .with_size(ComponentSize{pixels(kRowW), pixels(kNoteH)})
+                    .with_size(ComponentSize{pixels(contentW), pixels(kNoteH)})
                     .with_margin(Margin{.top = pixels(2), .left = pixels(10)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
@@ -288,7 +291,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(panel.ent(), 3),
             ComponentConfig{}
                 .with_label(note_for(*app, corpus_, hits))
-                .with_size(ComponentSize{pixels(kRowW), pixels(kNoteH)})
+                .with_size(ComponentSize{pixels(contentW), pixels(kNoteH)})
                 .with_margin(Margin{.top = pixels(8), .left = pixels(10)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
