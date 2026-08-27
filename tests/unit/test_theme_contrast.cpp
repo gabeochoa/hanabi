@@ -29,6 +29,12 @@ static void check_pair(const char* name, theme::Color fg, theme::Color bg) {
     if (ratio < 4.5) ++failures;
 }
 
+static void check_direct(const char* name, theme::Color fg, theme::Color bg) {
+    const double ratio = contrast(fg, bg);
+    std::printf("%s %.2f:1\n", name, ratio);
+    if (ratio < 4.5) ++failures;
+}
+
 static void check_mode(theme::Mode mode, const char* name) {
     theme::set_mode(mode);
     check_pair((std::string(name) + " blocked").c_str(), theme::tag_blocked_fg(),
@@ -37,6 +43,15 @@ static void check_mode(theme::Mode mode, const char* name) {
                theme::tag_ready_bg());
     check_pair((std::string(name) + " done").c_str(), theme::tag_done_fg(),
                theme::tag_done_bg());
+    check_direct((std::string(name) + " panel primary").c_str(),
+                 theme::text_primary(), theme::panel_bg());
+    check_direct((std::string(name) + " panel secondary").c_str(),
+                 theme::text_secondary(), theme::panel_bg());
+    theme::Color dangerTint = theme::destructive();
+    dangerTint.a = mode == theme::Mode::Light ? 34 : 16;
+    check_direct((std::string(name) + " destructive surface").c_str(),
+                 theme::destructive(),
+                 theme::over(dangerTint, theme::panel_bg()));
 }
 
 int main() {

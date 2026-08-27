@@ -136,14 +136,14 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         if (st == State::Failed) {
-            label_row(ctx, parent, 2, "Sign-in failed.", theme::text_primary(),
+            label_row(ctx, parent, 2, "Sign-in failed.", theme::destructive(),
                       FontSize::Large, 40);
             const std::string reason =
                 app.authFlow && !app.authFlow->error().empty()
                     ? app.authFlow->error()
                     : "Please try again.";
-            label_row(ctx, parent, 3, reason, theme::text_secondary(),
-                      FontSize::Small, 24);
+            value_row(ctx, parent, 3, reason, theme::text_primary(), 48.0f,
+                      false, true);
             return;
         }
         if (st == State::Expired) {
@@ -189,7 +189,7 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
 
     void value_row(UIContext<InputAction>& ctx, Entity& parent, int id,
                    const std::string& text, theme::Color color, float h,
-                   bool emphasized) {
+                   bool emphasized, bool danger = false) {
         div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(text)
@@ -197,13 +197,18 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(6), .left = pixels(12),
                                       .bottom = pixels(6), .right = pixels(12)})
                 .with_custom_background(
-                    emphasized ? theme::over(theme::accent_soft(),
-                                             theme::panel_bg_2())
-                               : theme::panel_bg_2())
-                .with_border(emphasized ? theme::accent() : theme::border(),
+                    danger ? hanabi::surface::destructive_surface()
+                           : emphasized
+                                 ? theme::over(theme::accent_soft(),
+                                               theme::panel_bg_2())
+                                 : theme::panel_bg_2())
+                .with_border(danger ? theme::destructive()
+                                    : emphasized ? theme::accent()
+                                                 : theme::border(),
                              pixels(1.0f))
                 .with_custom_text_color(color)
                 .with_font_size(emphasized ? FontSize::Large : FontSize::Medium)
+                .with_text_overflow(TextOverflow::Wrap)
                 .with_alignment(TextAlignment::Left)
                 .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_debug_name(emphasized ? "auth_code" : "auth_url"));

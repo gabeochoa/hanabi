@@ -18,7 +18,7 @@ using afterhours::ui::pixels;
 
 inline theme::Color destructive_surface() {
     theme::Color tint = theme::destructive();
-    tint.a = theme::mode() == theme::Mode::Light ? 34 : 42;
+    tint.a = theme::mode() == theme::Mode::Light ? 34 : 16;
     return theme::over(tint, theme::panel_bg());
 }
 
