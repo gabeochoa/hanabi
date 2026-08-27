@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <branding.h>
 #include <cctype>
 #include <cstdint>
 #include <string>
@@ -74,7 +75,8 @@ inline std::vector<Item> make_catalog(
             session->title.empty() ? "Untitled thread" : session->title,
             kMaxTitleBytes);
         item.preview = utf8_prefix(session->preview, kMaxPreviewBytes);
-        item.url = "hanabi://thread/" + path_segment(session->id);
+        item.url = std::string(product_branding::kUrlScheme) + "://thread/" +
+                   path_segment(session->id);
         item.updated_at = session->updated_at;
         result.push_back(std::move(item));
     }

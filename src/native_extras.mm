@@ -14,6 +14,7 @@
 #import <CoreSpotlight/CoreSpotlight.h>          // CSSearchableIndex/Item (bundled Spotlight)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>  // UTTypeText
 #import <UserNotifications/UserNotifications.h>
+#include <branding.h>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -124,7 +125,8 @@ static void hotkey_register(void) {
         g_hotkey_ref = nullptr;
         return;
     }
-    HLOG(@"native_extras: global hotkey Cmd+Shift+N registered (hanabi active)");
+    HLOG(@"native_extras: global hotkey Cmd+Shift+N registered (%s active)",
+         product_branding::kAppName);
 
     // Cmd+Shift+K opens the command palette. Same focus-gated lifetime as the
     // chord above, for the same reason: an unfocused app must not swallow a
@@ -161,8 +163,9 @@ static void hotkey_unregister(void) {
     // trigger doesn't fire after we've decided hanabi isn't focused.
     g_hotkey_triggered.store(false);
     g_palette_triggered.store(false);
-    HLOG(@"native_extras: global hotkey Cmd+Shift+N unregistered (hanabi "
-         @"resigned active) — passes through to other apps");
+    HLOG(@"native_extras: global hotkey Cmd+Shift+N unregistered (%s "
+         @"resigned active) — passes through to other apps",
+         product_branding::kAppName);
 }
 
 // Observer that toggles the Carbon hotkey registration with hanabi's active
@@ -221,7 +224,8 @@ void native_hotkey_install(void) {
                  object:nil];
         g_focus_observed = true;
         NSLog(@"native_extras: hotkey focus-gating installed (Cmd+Shift+N "
-              @"active only while hanabi is frontmost)");
+              @"active only while %s is frontmost)",
+              product_branding::kAppName);
     }
 
     // Seed the initial state from whether hanabi is CURRENTLY active. On the
@@ -245,7 +249,6 @@ bool native_palette_hotkey_take_triggered(void) {
 // ===========================================================================
 
 static void set_pending_open_thread(const std::string& id);
-static NSString* const kHanabiBundleIdentifier = @"io.github.gabeochoa.hanabi";
 
 enum class NotificationState {
     NotStarted,
@@ -275,7 +278,9 @@ static NotificationPayload g_pending_notification;
 
 static bool hanabi_is_bundled(void) {
     NSString* identifier = [[NSBundle mainBundle] bundleIdentifier];
-    return identifier != nil && [identifier isEqualToString:kHanabiBundleIdentifier];
+    NSString* expected = [NSString
+        stringWithUTF8String:product_branding::kBundleIdentifier];
+    return identifier != nil && [identifier isEqualToString:expected];
 }
 
 static bool notification_allowed(NotificationState state) {
@@ -309,7 +314,9 @@ static void deliver_notification(const NotificationPayload& payload) {
         content.userInfo = @{ @"thread_id" : thread };
     }
     if (payload.sound) content.sound = [UNNotificationSound defaultSound];
-    NSString* identifier = [NSString stringWithFormat:@"hanabi.%@",
+    NSString* prefix = [NSString
+        stringWithUTF8String:product_branding::kNotificationPrefix];
+    NSString* identifier = [prefix stringByAppendingString:
         [[NSUUID UUID] UUIDString]];
     UNNotificationRequest* request =
         [UNNotificationRequest requestWithIdentifier:identifier
@@ -456,11 +463,19 @@ enum class SpotlightState {
 };
 
 static std::atomic<SpotlightState> g_spotlight_state{SpotlightState::Idle};
-static NSString* const kSpotlightManifestKey = @"HanabiSpotlightIdentifiersV1";
-static NSString* const kSpotlightDomain = @"threads";
+
+static NSString* spotlight_manifest_key(void) {
+    return [NSString stringWithUTF8String:product_branding::kSpotlightManifestKey];
+}
+
+static NSString* spotlight_domain(void) {
+    return [NSString stringWithUTF8String:product_branding::kSpotlightDomain];
+}
 
 static NSString* searchable_identifier(NSString* thread_id) {
-    return [@"thread:" stringByAppendingString:thread_id];
+    NSString* prefix = [NSString
+        stringWithUTF8String:product_branding::kSpotlightIdentifierPrefix];
+    return [prefix stringByAppendingString:thread_id];
 }
 
 void native_spotlight_sync(const NativeSpotlightItem* items, int count) {
@@ -496,14 +511,14 @@ void native_spotlight_sync(const NativeSpotlightItem* items, int count) {
             if (url.length > 0) attributes.contentURL = [NSURL URLWithString:url];
             CSSearchableItem* item = [[[CSSearchableItem alloc]
                 initWithUniqueIdentifier:unique
-                        domainIdentifier:kSpotlightDomain
+                        domainIdentifier:spotlight_domain()
                             attributeSet:attributes] autorelease];
             [searchable addObject:item];
             [current addObject:unique];
         }
 
         NSArray<NSString*>* previous =
-            [[NSUserDefaults standardUserDefaults] arrayForKey:kSpotlightManifestKey];
+            [[NSUserDefaults standardUserDefaults] arrayForKey:spotlight_manifest_key()];
         if (previous == nil) previous = @[];
         NSSet<NSString*>* current_set = [NSSet setWithArray:current];
         NSMutableArray<NSString*>* removed = [NSMutableArray array];
@@ -546,7 +561,7 @@ void native_spotlight_sync(const NativeSpotlightItem* items, int count) {
                 return;
             }
             [[NSUserDefaults standardUserDefaults]
-                setObject:current forKey:kSpotlightManifestKey];
+                setObject:current forKey:spotlight_manifest_key()];
             g_spotlight_state.store(SpotlightState::Ready);
             HLOG(@"native_extras: Spotlight catalog synced (%lu indexed, %lu removed)",
                  (unsigned long)current.count, (unsigned long)removed.count);
@@ -583,10 +598,14 @@ void native_integration_status(char* out, int cap) {
     if (out == nullptr || cap <= 0) return;
     NSString* identifier = [[NSBundle mainBundle] bundleIdentifier];
     const char* bundle = identifier == nil ? "none" : [identifier UTF8String];
-    std::snprintf(out, static_cast<size_t>(cap),
-                  "bundle=%s notifications=%s spotlight=%s", bundle,
-                  notification_state_text(g_notification_state.load()),
-                  spotlight_state_text(g_spotlight_state.load()));
+    std::snprintf(
+        out, static_cast<size_t>(cap),
+        "bundle=%s notifications=%s spotlight=%s scheme=%s "
+        "notification-prefix=%s spotlight-domain=%s",
+        bundle, notification_state_text(g_notification_state.load()),
+        spotlight_state_text(g_spotlight_state.load()),
+        product_branding::kUrlScheme, product_branding::kNotificationPrefix,
+        product_branding::kSpotlightDomain);
     out[cap - 1] = '\0';
 }
 
@@ -628,14 +647,15 @@ static void set_pending_open_thread(const std::string& id) {
 static std::string parse_thread_url(NSString* url) {
     if (url == nil) return std::string();
     std::string s([url UTF8String] ? [url UTF8String] : "");
-    // Accept both "hanabi://thread/" and "hanabi:thread/" prefixes.
-    static const char* kPfx1 = "hanabi://thread/";
-    static const char* kPfx2 = "hanabi:thread/";
+    const std::string pfx1 =
+        std::string(product_branding::kUrlScheme) + "://thread/";
+    const std::string pfx2 =
+        std::string(product_branding::kUrlScheme) + ":thread/";
     std::string id;
-    if (s.rfind(kPfx1, 0) == 0)
-        id = s.substr(std::strlen(kPfx1));
-    else if (s.rfind(kPfx2, 0) == 0)
-        id = s.substr(std::strlen(kPfx2));
+    if (s.rfind(pfx1, 0) == 0)
+        id = s.substr(pfx1.size());
+    else if (s.rfind(pfx2, 0) == 0)
+        id = s.substr(pfx2.size());
     else
         return std::string();
     // Trim a trailing '/' and anything after a '?' or '#'.
@@ -662,7 +682,8 @@ static std::string parse_thread_url(NSString* url) {
     std::string id = parse_thread_url(urlStr);
     if (id.empty()) return;
     set_pending_open_thread(id);
-    NSLog(@"native_extras: hanabi://thread open -> id=%s", id.c_str());
+    NSLog(@"native_extras: %s://thread open -> id=%s",
+          product_branding::kUrlScheme, id.c_str());
     // Bring hanabi forward so the opened thread is visible.
     [NSApp activateIgnoringOtherApps:YES];
 }
@@ -685,7 +706,8 @@ void native_openurl_install(void) {
             andSelector:@selector(handleGetURLEvent:withReplyEvent:)
           forEventClass:kInternetEventClass
              andEventID:kAEGetURL];
-    NSLog(@"native_extras: hanabi:// URL handler installed");
+    NSLog(@"native_extras: %s:// URL handler installed",
+          product_branding::kUrlScheme);
 }
 
 bool native_take_open_thread(char* out, int cap) {
@@ -860,8 +882,10 @@ static NSPasteboard* hanabi_paste_source(void) {
 static std::string write_temp_png(NSData* png) {
     if (png == nil || [png length] == 0) return std::string();
     NSString* dir = NSTemporaryDirectory();
-    NSString* name =
-        [NSString stringWithFormat:@"hanabi-paste-%@.png", [[NSUUID UUID] UUIDString]];
+    NSString* prefix = [NSString
+        stringWithUTF8String:product_branding::kStorageName];
+    NSString* name = [NSString stringWithFormat:@"%@-paste-%@.png", prefix,
+        [[NSUUID UUID] UUIDString]];
     NSString* path = [dir stringByAppendingPathComponent:name];
     NSError* err = nil;
     if (![png writeToFile:path options:NSDataWritingAtomic error:&err]) {

@@ -95,18 +95,21 @@ make test       # run unit, headless UI, screenshot, and performance gates
 
 ## macOS app bundle
 
-`make app` produces `output/Hanabi.app` with the stable bundle identifier
-`io.github.gabeochoa.hanabi`. It includes resources plus the OpenSSL dylibs used
-by the TLS build, uses macOS Keychain roots for certificate verification, and is
-ad-hoc signed so its local bundle seal and identifier can be verified. It is not
-Developer ID signed or notarized.
+`make app` produces `output/Hanabi.app` with the default bundle identifier
+`io.github.gabeochoa.hanabi`. The four defaults live only in
+`resources/macos/branding.json`; `make app APP_NAME=Ember
+BUNDLE_ID=io.github.gabeochoa.ember EXECUTABLE_NAME=ember URL_SCHEME=ember`
+builds an isolated alternate identity. It includes resources plus the OpenSSL
+dylibs used by the TLS build, uses macOS Keychain roots for certificate
+verification, and is ad-hoc signed so its local bundle seal and identifier can
+be verified. It is not Developer ID signed or notarized.
 
 Building does not install or register anything. `make install-app` copies the
-verified app to `~/Applications/Hanabi.app` and registers it with
+verified app to `~/Applications/<app_name>.app` and registers it with
 LaunchServices; `make uninstall-app` unregisters and removes only an app at that
-path with Hanabi's exact bundle identifier. `APP_INSTALL_DIR=/path/Hanabi.app`
-overrides the destination. `make register-app` / `make unregister-app` manage
-the build output directly for local verification.
+path with the resolved display name and bundle identifier.
+`APP_INSTALL_DIR=/path/Name.app` overrides the destination. `make register-app`
+/ `make unregister-app` manage the build output directly for local verification.
 
 The bundled app requests notification permission on its first windowed launch.
 The developer executable and every headless screenshot/test path remain

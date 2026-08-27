@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <branding.h>
 
 #include <afterhours/src/plugins/files.h>
 
@@ -22,7 +23,8 @@ std::string Settings::get_settings_path() const {
     // nest as .../hanabi/hanabi and settings would silently never load.
     auto configDir = afterhours::files::get_config_path();
     if (configDir.empty()) {
-        configDir = std::filesystem::current_path() / "hanabi";
+        configDir = std::filesystem::current_path() /
+                    product_branding::kStorageName;
     }
     std::error_code ec;
     std::filesystem::create_directories(configDir, ec);

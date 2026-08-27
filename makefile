@@ -2,6 +2,30 @@
 
 UNAME_S := $(shell uname -s)
 
+BRANDING_CONFIG := resources/macos/branding.json
+BRANDING_TEMPLATE := resources/macos/Info.plist
+BRANDING_TOOL := scripts/branding.py
+APP_NAME ?= $(shell /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) field app_name)
+BUNDLE_ID ?= $(shell /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) field bundle_id)
+EXECUTABLE_NAME ?= $(shell /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) field executable_name)
+URL_SCHEME ?= $(shell /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) field url_scheme)
+BRANDING_ARGS = --app-name "$(APP_NAME)" --bundle-id "$(BUNDLE_ID)" \
+	--executable-name "$(EXECUTABLE_NAME)" --url-scheme "$(URL_SCHEME)"
+BRANDING_KEY := $(shell /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) \
+	key $(BRANDING_ARGS))
+BRANDING_DIR := output/branding/$(BRANDING_KEY)
+BRANDING_HEADER := $(BRANDING_DIR)/branding.h
+BRANDING_PLIST := $(BRANDING_DIR)/Info.plist
+
+$(BRANDING_HEADER): $(BRANDING_CONFIG) $(BRANDING_TEMPLATE) $(BRANDING_TOOL)
+	@mkdir -p "$(BRANDING_DIR)"
+	@/usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) generate \
+		$(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)"
+
+$(BRANDING_PLIST): $(BRANDING_HEADER)
+	@test -f "$@" || /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) generate \
+		$(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)"
+
 # --- Build-speed: parallel by default -----------------------------------------
 # Bare `make` used to run serially (~22s clean). Default to all cores so a plain
 # `make` is as fast as `make -jN` (~6s clean here). An explicit `-jN` on the
@@ -60,7 +84,7 @@ CXXFLAGS := $(CXXSTD) $(CXXFLAGS_BASE) $(CXXFLAGS_SUPPRESS) \
     -DFMT_HEADER_ONLY \
     -DHANABI_BUILD_STAMP=\"$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)\"
 
-INCLUDES := -isystem vendor/ -isystem vendor/afterhours/vendor/
+INCLUDES := -isystem vendor/ -isystem vendor/afterhours/vendor/ -I$(BRANDING_DIR)
 LDFLAGS := -L. $(FRAMEWORKS)
 
 # Optional TLS/HTTPS support for the http backend. OFF by default so the
@@ -77,7 +101,7 @@ ifeq ($(HANABI_TLS),1)
     endif
 endif
 
-OBJ_DIR := output/objs-$(if $(filter 1,$(HANABI_TLS)),tls,notls)-O$(OPT)
+OBJ_DIR := output/objs-$(if $(filter 1,$(HANABI_TLS)),tls,notls)-O$(OPT)-$(BRANDING_KEY)
 OUTPUT_DIR := output
 
 MAIN_SRC := $(shell find src -name '*.cpp')
@@ -106,8 +130,8 @@ MAIN_EXE := $(OUTPUT_DIR)/hanabi$(EXT)
 # differs from the current mode we bump the marker's mtime at parse time so the
 # exe's timestamp rule triggers a relink from the (cached) objects — a link,
 # not a recompile.
-TLS_WANT := $(if $(filter 1,$(HANABI_TLS)),tls,notls)-O$(OPT)
-EXE_MODE_MARKER := $(OUTPUT_DIR)/.exe_mode
+TLS_WANT := $(if $(filter 1,$(HANABI_TLS)),tls,notls)-O$(OPT)-$(BRANDING_KEY)
+EXE_MODE_MARKER := $(OUTPUT_DIR)/.exe_mode.h
 EXE_MODE_PREV := $(shell cat $(EXE_MODE_MARKER) 2>/dev/null || echo none)
 ifneq ($(EXE_MODE_PREV),$(TLS_WANT))
 $(shell mkdir -p $(OUTPUT_DIR); echo $(TLS_WANT) > $(EXE_MODE_MARKER))
@@ -130,12 +154,12 @@ $(MAIN_EXE): $(MAIN_OBJS) $(EXE_MODE_MARKER) | $(OUTPUT_DIR)/.stamp
 
 -include $(MAIN_DEPS)
 
-$(OBJ_DIR)/main/%.o: src/%.cpp | $(OBJ_DIR)/main
+$(OBJ_DIR)/main/%.o: src/%.cpp $(BRANDING_HEADER) | $(OBJ_DIR)/main
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
 
-$(OBJ_DIR)/main/%.o: src/%.mm | $(OBJ_DIR)/main
+$(OBJ_DIR)/main/%.o: src/%.mm $(BRANDING_HEADER) | $(OBJ_DIR)/main
 	@echo "Compiling (ObjC++) $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ $(CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
@@ -154,7 +178,7 @@ clean:
 
 clean-all: clean
 	rm -f $(MAIN_EXE)
-	rm -rf $(OUTPUT_DIR)/Hanabi.app
+	rm -rf "$(APP_BUNDLE)"
 
 copy-resources:
 	@mkdir -p $(OUTPUT_DIR)/resources/fonts
@@ -211,9 +235,8 @@ run-mock:
 	@HANABI_BACKEND=mock ./$(MAIN_EXE)
 
 # macOS .app bundle
-APP_BUNDLE := $(OUTPUT_DIR)/Hanabi.app
-APP_INFO_PLIST := resources/macos/Info.plist
-APP_INSTALL_DIR ?= $(HOME)/Applications/Hanabi.app
+APP_BUNDLE = $(OUTPUT_DIR)/$(APP_NAME).app
+APP_INSTALL_DIR ?= $(HOME)/Applications/$(APP_NAME).app
 APP_VERSION := $(shell awk -F'"' '/kVersion/{print $$2; exit}' src/version.h)
 
 app:
@@ -221,28 +244,28 @@ app:
 	@test -d "$$(brew --prefix openssl@3 2>/dev/null)" || { echo "make app needs openssl@3 (brew install openssl@3)" >&2; exit 1; }
 	@$(MAKE) HANABI_TLS=1 bundle
 
-bundle: $(MAIN_EXE) copy-resources $(APP_INFO_PLIST)
-	@echo "Building Hanabi.app..."
+bundle: $(MAIN_EXE) copy-resources $(BRANDING_HEADER) $(BRANDING_PLIST)
+	@echo "Building $(APP_NAME).app..."
 	@bash scripts/package_macos_app.sh "$(APP_BUNDLE)" "$(MAIN_EXE)" \
-		"$(OUTPUT_DIR)/resources" "$(APP_INFO_PLIST)" "$(APP_VERSION)"
+		"$(OUTPUT_DIR)/resources" "$(BRANDING_PLIST)" "$(APP_VERSION)"
 	@echo "Built $(APP_BUNDLE)"
 
 verify-app: app
-	@bash scripts/verify_macos_app.sh "$(APP_BUNDLE)"
+	@bash scripts/verify_macos_app.sh "$(APP_BUNDLE)" "$(BRANDING_PLIST)"
 
 register-app: app
-	@bash scripts/manage_macos_app.sh register "$(APP_BUNDLE)"
+	@bash scripts/manage_macos_app.sh register "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)" "$(BRANDING_PLIST)"
 	@echo "registered $(APP_BUNDLE) with LaunchServices"
 
-unregister-app:
-	@bash scripts/manage_macos_app.sh unregister "$(APP_BUNDLE)"
+unregister-app: $(BRANDING_PLIST)
+	@bash scripts/manage_macos_app.sh unregister "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)" "$(BRANDING_PLIST)"
 	@echo "unregistered $(APP_BUNDLE) from LaunchServices"
 
 install-app: app
-	@bash scripts/manage_macos_app.sh install "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)"
+	@bash scripts/manage_macos_app.sh install "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)" "$(BRANDING_PLIST)"
 
-uninstall-app:
-	@bash scripts/manage_macos_app.sh uninstall "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)"
+uninstall-app: $(BRANDING_PLIST)
+	@bash scripts/manage_macos_app.sh uninstall "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)" "$(BRANDING_PLIST)"
 
 launch-app: register-app
 	@open -na "$(APP_BUNDLE)"
@@ -277,14 +300,14 @@ TEST_CXXFLAGS := $(CXXSTD) -g -O0 -Wall -Wextra \
 # Perf benchmark wants optimizations on (measures the real hot path).
 PERF_CXXFLAGS := $(CXXSTD) -O2 -Wall -Wextra \
     -Wno-deprecated-literal-operator -Wno-sign-conversion
-TEST_INCLUDES := -isystem vendor/ -I.
+TEST_INCLUDES := -isystem vendor/ -I. -I$(BRANDING_DIR)
 TEST_DIR := $(OUTPUT_DIR)/tests
 
 $(TEST_DIR):
 	@mkdir -p $(TEST_DIR)
 
 # See the note on TEST_CXXFLAGS: every test re-links when any header moves.
-TEST_HDRS := $(wildcard src/*.h src/*/*.h src/*/*/*.h)
+TEST_HDRS := $(wildcard src/*.h src/*/*.h src/*/*/*.h) $(BRANDING_HEADER) $(EXE_MODE_MARKER)
 
 # Everything make_client() can construct has to link wherever config.cpp does,
 # so this is one list rather than nine. Adding a backend means editing here and
@@ -801,9 +824,12 @@ stress-break: $(MAIN_EXE) copy-resources
 atlas-gate: $(MAIN_EXE)
 	@bash scripts/atlas_gate.sh
 
-source-checks:
+source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	@echo "Running source checks..."
 	@rc=0; \
+	if /usr/bin/python3 scripts/branding.py --config "$(BRANDING_CONFIG)" check \
+	    $(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)" --root .; then :; else rc=1; fi; \
+	if /usr/bin/python3 tests/test_branding.py; then :; else rc=1; fi; \
 	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py; do \
 	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
 	done; \
@@ -851,7 +877,7 @@ count:
 # on, that drives the real UI from a .e2e script: move the mouse, click, type,
 # assert on the text that is actually on screen. Its own object dir so the
 # shipping build never sees the test-input branches.
-UITEST_OBJ_DIR := output/objs-uitest-O$(OPT)
+UITEST_OBJ_DIR := output/objs-uitest-O$(OPT)-$(BRANDING_KEY)
 UITEST_CXXFLAGS := $(CXXFLAGS) -DAFTER_HOURS_ENABLE_E2E_TESTING
 UITEST_OBJS := $(MAIN_SRC:src/%.cpp=$(UITEST_OBJ_DIR)/%.o)
 UITEST_OBJS += $(patsubst src/%.mm,$(UITEST_OBJ_DIR)/%.o,$(MAIN_MM_SRC))
@@ -861,12 +887,12 @@ UITEST_EXE := $(OUTPUT_DIR)/hanabi_uitest$(EXT)
 
 -include $(UITEST_DEPS)
 
-$(UITEST_OBJ_DIR)/%.o: src/%.cpp
+$(UITEST_OBJ_DIR)/%.o: src/%.cpp $(BRANDING_HEADER)
 	@echo "Compiling (uitest) $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
 
-$(UITEST_OBJ_DIR)/%.o: src/%.mm
+$(UITEST_OBJ_DIR)/%.o: src/%.mm $(BRANDING_HEADER)
 	@echo "Compiling (uitest, ObjC++) $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@

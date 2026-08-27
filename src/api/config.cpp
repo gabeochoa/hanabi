@@ -1,4 +1,5 @@
 #include "client.h"
+#include <branding.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -29,10 +30,11 @@ std::string config_file_path() {
     }
     namespace fs = std::filesystem;
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
-        return (fs::path(xdg) / "hanabi" / "config.json").string();
+        return (fs::path(xdg) / product_branding::kStorageName / "config.json").string();
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return (fs::path(home) / ".config" / "hanabi" / "config.json").string();
+        return (fs::path(home) / ".config" /
+                product_branding::kStorageName / "config.json").string();
     }
     return "";
 }

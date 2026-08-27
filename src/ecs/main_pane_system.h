@@ -1,4 +1,5 @@
 #pragma once
+#include <branding.h>
 
 // Renders the main pane (right of the sidebar, below the tab strip). Dispatches
 // on AppComponent::view: the smart views (Home / Blocked / Review / Starred)
@@ -4479,8 +4480,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         div(ctx, mk(strip.ent(), 2),
             ComponentConfig{}
-                .with_label("hanabi can't send images yet \xe2\x80\x94 these "
-                            "stay in the composer")
+                .with_label(std::string(product_branding::kAppName) +
+                            " can't send images yet \xe2\x80\x94 these stay in the composer")
                 .with_size(ComponentSize{percent(1.0f), pixels(kAttachNoteH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())

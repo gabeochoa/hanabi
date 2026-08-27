@@ -65,7 +65,7 @@ This is the running roadmap; MVP items are the near-term dogfood.
 - Background sync + Dock badge — unread/attention counts on the Dock icon.
 - Multi-window — several transcripts as separate native windows.
 - Native file handoff — drag to Finder, Reveal in Finder, Quick Look.
-- Deep links / URL scheme — hanabi://session/... handoff from other apps + notifications.
+- Deep links / URL scheme — the configured native scheme hands sessions off from other apps and notifications.
 
 ## Top 5 to add after the current MVP
 1. Session search + cross-session search (snippet highlighting).
