@@ -18,6 +18,13 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 
 ---
 
+## MESSAGE ACTIONS + TOOL PRESENTATION — COMPLETE (2026-08-27)
+- [x] Hover/focus overlay is zero-height and built only while visible; copy feedback is isolated by pane and thread.
+- [x] Copy preserves source bytes; retry appears only on eligible user prompts and enters the persistent outbox before dispatch.
+- [x] Tool summaries show real name/node/command, centered count, and right-aligned duration/status; expansion preserves calls and output.
+- [x] Pointer, keyboard, clipboard, retry persistence, split-pane focus, long/no-output/failed tools, fold persistence, event classes and nested subagents are covered.
+- [x] Busy event transcript: 15/240 turns = 2345/2381 allocations/frame, slope 0.16/turn, under 2900 and 2.0 gates. Remaining pass-1 cost is #455.
+
 ## HISTORICAL MERGE STATUS (reconciled 2026-08-27)
 - [x] Live SSE + memory-light newest-N + tool-call block-splitting (`be636ed`) merged.
 - [x] Scrollbar, fold-all, collapsed rail and archive sprite merged (`e997b33`, `0c99ec7`).
@@ -129,9 +136,7 @@ current instructions.
       re-arms when the scroll reaches the end. Split-pane behavior is covered separately.
 - [x] ARCHIVED uses the real Lucide `archive` sprite (`0c99ec7`); the generated atlas, map and header
       all carry it. The U+25A4 value remains only as the generic atlas-load fallback path.
-- [ ] TOOL CALL missing info (screenshot): the tool row shows only an icon + count(5) + 53s + check, but
-      NO command/name text. Wire the REAL tool fields (name->subtitle, command->text) so the row shows
-      what ran. (Overlaps the render-wiring owed after data-layer merge — the block-split emits these now.)
+- [x] TOOL CALL detail: collapsed rows show real name, node, command, duration and status; expansion preserves each call and output (`feat/message-actions`).
 - [ ] THREAD SWITCH super slow / BEACHBALL: switching threads blocks the UI thread. Make the switch
       async (spinner while loading), keep UI interactive. ALL API calls on the API/worker thread, never
       UI thread. (Overlaps loader async + the jank/idle-cost work.)

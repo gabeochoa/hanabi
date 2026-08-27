@@ -1,0 +1,18 @@
+# A focused action remains in its pane while pointer hover reveals the other pane's independent action bar.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+key CTRL+BACKSLASH
+wait_frames 20
+
+mouse_move 600 160
+wait_frames 4
+focus_ui msg_retry_btn
+expect_focused msg_retry_btn
+
+mouse_move 1000 160
+wait_frames 4
+assert_ui msg_actions_2 hidden=false
+expect_focused msg_retry_btn
+focus_ui msg_copy_btn_2
+expect_focused msg_copy_btn_2

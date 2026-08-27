@@ -15,7 +15,15 @@
 # Folded is the default: both piles are one row apiece, no output.
 require_thread rfold
 
+assert_ui tool_count x=657 w=82
+assert_ui tool_status_cluster x=926 w=122
+
 expect_text "wc -l cache/evict.rs"
+expect_text "bash"
+expect_text "500ms"
+expect_text "completed"
+expect_text "49s"
+expect_text "failed"
 expect_no_text "182 cache/evict.rs"
 expect_no_text "lru_drops_the_oldest_entry_first"
 
@@ -25,6 +33,11 @@ wait_frames 8
 click_ui fold_row_1
 wait_frames 10
 expect_text "182 cache/evict.rs"
+expect_text "read"
+expect_text "sed -n '1,240p' cache/evict.rs"
+expect_text "bench"
+expect_text "failed"
+expect_no_text "bench evict/lru  1.20 us"
 expect_text "lru_drops_the_oldest_entry_first"
 
 # Auto keeps the short one open and shuts the log.

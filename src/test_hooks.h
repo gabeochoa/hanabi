@@ -229,4 +229,27 @@ inline bool focus_composer() {
     return on;
 }
 
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+inline std::string& clipboard_text_storage() {
+    static std::string value;
+    return value;
+}
+#endif
+
+inline void record_clipboard_text(std::string_view text) {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    clipboard_text_storage().assign(text);
+#else
+    (void)text;
+#endif
+}
+
+inline std::string_view recorded_clipboard_text() {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    return clipboard_text_storage();
+#else
+    return {};
+#endif
+}
+
 }  // namespace hanabi::test_hooks

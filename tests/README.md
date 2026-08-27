@@ -139,12 +139,13 @@ and restores it byte-for-byte on exit (trap), asserting an md5 match. Backend
 is forced to the zero-config mock (`HANABI_BACKEND=mock`) and runtime backend
 config is isolated (`HANABI_CONFIG=/tmp/none_$$`).
 
-**States captured (29):** the Home digest and every smart view (Blocked /
+**States captured (31):** the Home digest and every smart view (Blocked /
 Review / Starred / Archived), light and dark; the transcript on two different
 threads; the chat welcome screen; the folded sidebar rail; the settings sheet,
 new-task sheet and device-code login overlay; ten open tabs; the long-transcript
 fixture; every tool row expanded; split view; the hover states (row star, tab,
-message actions); the focused composer; and the transient states nobody sees for
+message copy/retry actions); the focused composer; expanded real tool details;
+and the transient states nobody sees for
 long enough to review by hand — skeleton, thread-loading, load-older, thinking,
 streaming.
 
@@ -216,7 +217,8 @@ any state a click cannot reach — an overlay whose only binding is a Cmd chord,
 which the injector cannot produce (`afterhours_gaps.md` #49).
 
 A script is a plain list of commands — `click_ui <name>`, `click x y`, `mouse_move x y`,
-`scroll_wheel dx dy`, `type "…"`, `key ENTER`, `wait_frames n`,
+`scroll_wheel dx dy`, `type "…"`, `key ENTER`, `focus_ui <name>`,
+`expect_clipboard "…"`, `expect_outbox <session> "…"`, `wait_frames n`,
 `expect_text "…"`, `expect_no_text "…"`, `screenshot path`. A leading
 `# settings: {…}` line chooses the settings.json the app starts from (open
 tabs, theme, window size); the default is Home, no tabs, dark.

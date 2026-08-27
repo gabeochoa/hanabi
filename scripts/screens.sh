@@ -267,6 +267,7 @@ capture 07_hover_tab_dark "$TABS_DARK" HANABI_TEST_HOVER=tab:t6
 #  - a hovered MESSAGE revealing its Copy action. m2 is the first assistant
 #    message of t2, so the bar appears under its body.
 capture 07b_hover_msg_copy_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m2
+capture 07c_hover_user_actions_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m1
 
 # --- Smart views. HANABI_VIEW forces the landing view (no click needed).
 capture 08_view_blocked_dark  "$NOTABS_DARK"  HANABI_VIEW=blocked
@@ -298,6 +299,7 @@ capture 19_many_tabs_dark "$MANYTABS"
 # --- Long transcript (perf fixture) + every tool row pre-expanded.
 capture 20_big_transcript_dark "$TABS_DARK" HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
 capture 21_tools_expanded_dark "$TABS_DARK" HANABI_EXPAND=1
+capture 21b_tools_expanded_detail_dark "$TABS_DARK" HANABI_FOLD_DEMO=1 HANABI_OPEN=rfold HANABI_EXPAND=1
 capture 22_split_view_dark     "$TABS_DARK" HANABI_OPEN=t2 HANABI_SPLIT=t6
 
 # --- Transient states: the ones a user only sees for a second.

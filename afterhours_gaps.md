@@ -13561,3 +13561,93 @@ plus pass `ComponentConfig` through initialization without the three deep
 copies already specified by #181.
 
 CLASS: PERFORMANCE · app + duplicate family #181/#340
+
+---
+
+### #455 — `virtual_list` cannot window variable-height transcript rows, so every frame scans every item to find the visible window
+
+**Exact afterhours mechanism.** `vendor/afterhours/src/plugins/ui/imm_components.h:159-219` accepts one `row_height`, derives `first` and `last` with `offset / row_height` at lines 185-188, and sizes both spacers as `count * row_height` at lines 194-217. A transcript mixes wrapped bubbles, tool piles, output panels, thinking folds, deliveries, and dividers; one height cannot represent it.
+
+**Measured cost.** `scripts/events_gate.sh` on this checkout, 1180×949 and the real-event mix, measured **2345 allocations/frame at 15 turns and 2381 at 240 turns**, a flat **0.16 allocations/turn** and below the 2900/2.0 gates. Allocation traffic is not the remaining slope. The existing CPU ladder in `docs/perf/EVENTS.md` measures `transcript.pass1_measure` at **1.50 ms for 3,672 messages and 6.12 ms for 14,688 messages**, **85% of the frame** at the long arm. That is the item-list scan this fixed-height primitive cannot replace.
+
+**Workaround.** Hanabi maintains measured heights, prefix positions, overscan, and top/bottom spacers itself. The workaround is correct and allocation-flat, but it still walks the full item list each frame.
+
+**Minimal upstream change.** Add a `virtual_list` overload that accepts a stable per-row height table or prefix-sum index and binary-searches the visible range, plus a way to invalidate one changed row.
+
+**Rejected approaches.** An average row height makes the viewport wrong after the first expanded tool output. Building every row once to ask its height spends the entities and layout work virtualization exists to avoid. Replacing all rows with one fixed height destroys readable message and tool content.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h`, `MainPaneSystem::render_transcript` and `tool_pile_height`, demonstrate the variable-height measure/render mirror and hand-windowed item list. `src/ecs/transcript_render_cache.h` carries the width-keyed measurements. `scripts/events_gate.sh` and `scripts/perf_transcript_slope.sh` are the level/slope gates; `docs/perf/EVENTS.md` records the CPU ladder. Measured workaround; no complete downstream fix remains.
+
+CLASS: PERFORMANCE
+
+---
+
+### #456 — The e2e harness can write clipboard text but has no assertion for the clipboard it already exposes
+
+**Exact afterhours mechanism.** The Metal clipboard plugin exposes both `set_text` and `get_text` at `vendor/afterhours/src/plugins/clipboard.h:34-54`. The built-in e2e registration at `vendor/afterhours/src/plugins/e2e_testing/e2e_testing.h:54-82` registers text, pointer, key, wait, resize, and overflow commands, but no clipboard assertion.
+
+**Measured cost.** The first exact-copy script clicked the real button and then read `clipboard::get_text()` in the headless Metal runner; it failed with expected 82 source bytes and actual 0 bytes. The product write is real, but the headless backend cannot prove it. Hanabi now carries one test-only mirror and a custom command solely to observe the value passed to the plugin.
+
+**Workaround.** `HandleExpectClipboardCommand` compares against `test_hooks::recorded_clipboard_text`, recorded at the same call site that invokes `afterhours::clipboard::set_text`. Shipping builds compile the recorder to a no-op.
+
+**Minimal upstream change.** Add an e2e clipboard backend and built-in `expect_clipboard "text"` command whose `set_text`/`get_text` round trip is deterministic headlessly.
+
+**Rejected approaches.** `pbpaste` reads the host clipboard, not necessarily the headless app backend, and makes tests depend on machine state. Asserting the visible word `Copied` proves feedback, not bytes. Skipping the exact assertion leaves markdown, whitespace, and truncation regressions invisible.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h`, `HandleExpectClipboardCommand`; `src/test_hooks.h`, `record_clipboard_text`; `src/ecs/main_pane_system.h`, `MainPaneSystem::message_actions`; and `tests/ui/message_actions_copy_retry.e2e`. The script proves exact source bytes through pointer activation. Downstream workaround is test-only.
+
+CLASS: MISSING
+
+---
+
+### #457 — Custom e2e commands do not receive the quoted arguments the built-in parser promises
+
+**Exact afterhours mechanism.** `vendor/afterhours/src/plugins/e2e_testing/runner.h:162-170` calls `parse_quoted()` only for a hardcoded set of built-in names. Known one/two/three-argument commands have separate tables at lines 221-237. Every custom command falls through to `while (iss >> arg)` at lines 238-243, splitting quoted prose on spaces and retaining the quote characters.
+
+**Measured cost.** The first `expect_clipboard "Reconcile this cycle's …"` run reached the handler as expected=`"Reconcile`; `expect_outbox "t2" "Reconcile …"` looked for session=`"t2"`. Both failed before the product assertions ran. Hanabi adds a shared downstream join-and-unquote helper for two commands.
+
+**Workaround.** `joined_args` in `src/ecs/e2e_commands.h` rejoins the whitespace-split tail and strips one matching quote pair. It cannot represent multiple independently quoted custom arguments without each handler knowing which prefix is structural.
+
+**Minimal upstream change.** Tokenize every command with the same quote-aware lexer, then let handlers consume the resulting argument vector; remove command-name-specific parsing branches.
+
+**Rejected approaches.** Banning spaces makes clipboard and prompt assertions useless. Encoding spaces produces a test language different from the product bytes. Adding each downstream command name to the vendor parser edits vendor and does not scale.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h`, `joined_args`, `HandleExpectClipboardCommand`, and `HandleExpectOutboxCommand`; `tests/ui/message_actions_copy_retry.e2e` supplies a multi-word prompt to both. The focused UI suite fails before `joined_args` and passes with it. Proven downstream workaround.
+
+CLASS: FOOTGUN
+
+---
+
+### #458 — Icon-only controls have no semantic name or role; a visible text child is the only accessible label
+
+**Exact afterhours mechanism.** `ComponentConfig` exposes visual label, debug name, button variant, and icon texture fields at `vendor/afterhours/src/plugins/ui/component_config.h:122-191`, with setters such as `with_debug_name` at lines 478-480. There is no accessibility name, description, role, or platform accessibility adapter. This is the message/tool-specific proof of existing gap #112, not a second independent upstream ask.
+
+**Measured cost.** `focus_ui` and `expect_focused` can reach the new action containers by debug name, proving keyboard activation inside the toolkit. They cannot query a macOS accessibility tree. To avoid shipping unnamed icons, each visible action is a container plus an icon child plus a text child: a hovered user row builds seven action entities including the bar; the hidden path builds zero. The long busy-event arm remains under gate at **2381 allocations/frame** and **507 widgets**, versus **2369 / 501** before the richer action/tool presentation.
+
+**Workaround.** Pair every icon with persistent visible text (`Copy`, `Retry`, `Copied`, `Queued`) and give the actionable container a stable debug name. This is readable and keyboard-focusable but does not create native assistive semantics.
+
+**Minimal upstream change.** Add semantic role/name/value fields to `ComponentConfig`, propagate them to the macOS accessibility tree, and teach the e2e harness to assert them.
+
+**Rejected approaches.** A tooltip is neither persistent nor keyboard/screen-reader metadata. A debug name is test instrumentation, not user-facing semantics. Icon shape and colour alone fail both discoverability and non-visual access.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h`, `MainPaneSystem::message_actions`, `tool_count_badge`, `tool_status_cluster`, and `tool_sub_row`; `tests/ui/message_actions_copy_retry.e2e` and `message_actions_split_focus.e2e` prove pointer and keyboard focus; `scripts/events_gate.sh` supplies the allocation/widget numbers. Workaround only; upstream accessibility remains missing. DUPLICATE/NARROWED PROOF OF #112.
+
+CLASS: MISSING
+
+---
+
+### #459 — NOT A GAP: conditional immediate-mode construction is enough to make hidden hover actions cost zero entities
+
+**Exact afterhours mechanism.** `imm::div` immediately dereferences the entity pair and calls `init_component` at `vendor/afterhours/src/plugins/ui/imm_components.h:126-138`. There is no hidden-widget optimization to wait for: if application code does not call `div`, no entity is created. Hover is available from `UIContext::mouse_was_in_subtree` at `vendor/afterhours/src/plugins/ui/context.h:266-295` once the host has a hit-test listener.
+
+**Measured cost.** Before this branch, `message_actions` built the absolute `msg_actions` bar and only then returned when not hovered, paying one hidden entity per visible conversational row. It now returns before the first `div`; static inspection proves **zero hidden action entities**. The post-change long busy-event gate is **2345 allocations/frame at 15 turns and 2381 at 240 turns**, slope **0.16/turn**. The +12 allocation and +4/+6 widget levels versus the pre-change 2333/2369 and 325/501 are the visible real-status/tool-detail UI, not a hidden-action slope.
+
+**Workaround.** Plain application-side conditional construction. None needed upstream.
+
+**Minimal upstream change.** None. A lazy subtree helper could improve ergonomics, but it would wrap the same `if` and would not change cost or capability.
+
+**Rejected approaches.** Keeping invisible buttons with alpha zero preserves hit targets and tab stops that are not on screen. Reserving a row under every message caused layout jump and 24px of permanent vertical cost per turn. A widget-level `hidden` flag would still create the entity and misses the performance requirement.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h`, `MainPaneSystem::message_actions`, returns before `msg_actions` construction; `tests/ui/message_copy_on_hover.e2e` proves absent-at-rest and visible-on-hover; `tests/ui/message_actions_split_focus.e2e` proves focused state is pane-local; `scripts/events_gate.sh` records the allocation level and slope. Proof-only negative result.
+
+CLASS: NOT A GAP

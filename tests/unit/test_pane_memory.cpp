@@ -163,8 +163,20 @@ static void test_two_panes_on_one_thread_keep_their_own() {
     left.lastScrollY = 900.0f;
     left.haveLastScrollY = true;
 
+    left.copiedMessageKey = "same-message";
+    left.copiedMessageAt = std::chrono::steady_clock::now();
+    left.retriedMessageKey = "same-message";
+    left.retriedMessageAt = std::chrono::steady_clock::now();
+    left.focusedMessageActionKey = "same-message";
+
     CHECK(left.replyDraft == "typed on the left");
     CHECK(right.replyDraft.empty());
+    CHECK(left.copiedMessageKey == "same-message");
+    CHECK(right.copiedMessageKey.empty());
+    CHECK(left.retriedMessageKey == "same-message");
+    CHECK(right.retriedMessageKey.empty());
+    CHECK(left.focusedMessageActionKey == "same-message");
+    CHECK(right.focusedMessageActionKey.empty());
     CHECK(right.latch.follow);          // the right pane is still pinned to the end
     CHECK(!right.haveLastScrollY);
     CHECK(store.size() == 2);

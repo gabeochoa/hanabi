@@ -24,6 +24,7 @@ expect_no_text Copy
 mouse_move 600 240
 wait_frames 3
 expect_text "Copy"
+expect_no_text Retry
 
 # Off the transcript entirely (the sidebar), and it goes away.
 mouse_move 140 700

@@ -46,6 +46,7 @@
 // UIContext, no afterhours draw, so a unit test can drive it headlessly.
 // ---------------------------------------------------------------------------
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -102,6 +103,12 @@ struct PaneState {
     std::vector<std::string> sent;   // oldest first
     std::size_t walkIndex = 0;       // steps back from the live draft
     std::string stashedDraft;        // the draft the walk started from
+
+    std::string copiedMessageKey;
+    std::chrono::steady_clock::time_point copiedMessageAt{};
+    std::string retriedMessageKey;
+    std::chrono::steady_clock::time_point retriedMessageAt{};
+    std::string focusedMessageActionKey;
 
     bool worth_keeping() const { return !replyDraft.empty(); }
 };

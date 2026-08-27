@@ -38,6 +38,9 @@
 #include <memory>
 #include <string>
 
+#include "../../vendor/afterhours/src/plugins/clipboard.h"
+#include "../api/disk_cache.h"
+#include "../test_hooks.h"
 #include "../ui/link_detect.h"
 #include "components.h"
 
@@ -138,9 +141,77 @@ struct HandleClickLinkCommand
     }
 };
 
+inline std::string joined_args(
+    const afterhours::testing::PendingE2ECommand& cmd, size_t first) {
+    std::string out;
+    for (size_t i = first; i < cmd.args.size(); ++i) {
+        if (!out.empty()) out.push_back(' ');
+        out += cmd.arg(i);
+    }
+    if (out.size() >= 2 &&
+        ((out.front() == '"' && out.back() == '"') ||
+         (out.front() == '\'' && out.back() == '\'')))
+        return out.substr(1, out.size() - 2);
+    return out;
+}
+
+struct HandleExpectClipboardCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_clipboard")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_clipboard requires text");
+            return;
+        }
+        const std::string want = joined_args(cmd, 0);
+        std::string actual(hanabi::test_hooks::recorded_clipboard_text());
+        if (actual.empty()) actual = afterhours::clipboard::get_text();
+        if (actual == want) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("clipboard mismatch: expected '{}', got '{}'",
+                             want, actual));
+    }
+};
+
+struct HandleExpectOutboxCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_outbox")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_outbox requires session id and prompt");
+            return;
+        }
+        const std::string promptText = joined_args(cmd, 1);
+        const auto prompts = api::disk_cache::outbox_list(cmd.arg(0));
+        for (const auto& prompt : prompts) {
+            if (prompt == promptText) {
+                cmd.consume();
+                return;
+            }
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("outbox missing prompt for '{}'", cmd.arg(0)));
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectClipboardCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectOutboxCommand>());
 }
 
 }  // namespace hanabi::e2e
