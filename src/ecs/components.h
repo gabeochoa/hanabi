@@ -942,8 +942,8 @@ struct LayoutComponent : public afterhours::BaseComponent {
     // frameless window leaves clear (Puffin: tabs occupy y=32..65 of a 67px
     // strip, and the content plane starts at 67). tabStripTabHeight is the tab
     // itself; the difference is the clear band.
-    float tabStripHeight = 56.0f;
-    float tabStripTabHeight = 32.0f;
+    float tabStripHeight = 67.0f;
+    float tabStripTabHeight = 34.0f;
     float composerHeight = 98.0f;  // chat input strip height (0 hides it)
 };
 

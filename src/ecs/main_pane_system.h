@@ -57,7 +57,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // sections themselves; the value is Recent's original cap, shared so the
     // four sections cannot drift apart again.
     static constexpr size_t kMaxSection = 20;
-    static constexpr float kPageHeaderH = 48.0f;
+    static constexpr float kPageHeaderH = 46.0f;
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* layout = find_singleton<LayoutComponent>();
@@ -372,7 +372,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // with the section labels + cards in its scroll body (was 20 vs
                 // the body's 24 — a 4px title/content misalignment on every
                 // digest view). Right uses the same inset for symmetry.
-                .with_padding(Padding{.top = pixels(theme::chrome::SPACE_4),
+                .with_padding(Padding{.top = pixels(14),
                                       .right = pixels(kContentInset),
                                       .bottom = pixels(theme::chrome::SPACE_2),
                                       .left = pixels(kContentInset)})

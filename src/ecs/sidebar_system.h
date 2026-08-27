@@ -562,10 +562,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // column stacks in exactly this order, and the sum is the list's top edge:
     //   kSbTitlebarH 36 | kSbStripH 28 | views 4 + 6*32 | rule 4 | search 32 |
     //   kSbListGap 4  ->  list at y=300, first glyph centre y=316
-    static constexpr float kSbTitlebarH = 32.0f;
-    static constexpr float kSbStripH = 24.0f;
-    static constexpr float kSbViewsTopPad = 2.0f;
-    static constexpr float kSbViewRowH = 30.0f;
+    static constexpr float kSbTitlebarH = 36.0f;
+    static constexpr float kSbStripH = 28.0f;
+    static constexpr float kSbViewsTopPad = 4.0f;
+    static constexpr float kSbViewRowH = theme::chrome::ROW;
     // The selected fill is shorter than the pitch and rounded; both measured
     // off the reference (fill y69..97 inside a row starting at 68, first row
     // x3..276 against a middle of x0..278).
@@ -591,7 +591,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kSbFieldH = 26.0f;
     static constexpr float kSbListGap = theme::chrome::SPACE_1;
     static constexpr float kSbFooterH = theme::chrome::HIT;
-    static constexpr float kSbInset = theme::chrome::SPACE_3;
+    static constexpr float kSbInset = 9.0f;
     // ---- shared count-column geometry (gap #18: afterhours has no flex-grow)
     // The view rows and the session rows both show a right-aligned count. To
     // land every count at the SAME right-edge x, we reserve one count-column
