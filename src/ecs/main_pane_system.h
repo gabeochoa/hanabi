@@ -2162,10 +2162,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_render_layer(8)
-                .with_on_draw_bg([](RectangleType r) {
-                    afterhours::draw_rectangle_rounded(r, 0.5f, 6,
-                                                       theme::panel_bg_2());
-                })
                 .with_debug_name("minimap_rail"));
 
         // ---- press, drag, release --------------------------------------
