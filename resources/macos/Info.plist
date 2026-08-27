@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Hanabi</string>
+    <string>@APP_NAME@</string>
     <key>CFBundleExecutable</key>
-    <string>hanabi</string>
+    <string>@EXECUTABLE_NAME@</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.gabeochoa.hanabi</string>
+    <string>@BUNDLE_ID@</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Hanabi</string>
+    <string>@APP_NAME@</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -24,10 +24,10 @@
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>io.github.gabeochoa.hanabi.thread</string>
+            <string>@URL_TYPE_NAME@</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>hanabi</string>
+                <string>@URL_SCHEME@</string>
             </array>
         </dict>
     </array>
@@ -40,6 +40,6 @@
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>Hanabi contributors</string>
+    <string>@COPYRIGHT@</string>
 </dict>
 </plist>

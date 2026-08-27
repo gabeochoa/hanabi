@@ -1,5 +1,7 @@
+#include <branding.h>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "../../src/native_extras.h"
 
@@ -19,7 +21,9 @@ int main() {
     CHECK(native_take_open_thread(thread, sizeof(thread)));
     CHECK(std::strcmp(thread, "thread/from-notification") == 0);
     CHECK(!native_take_open_thread(thread, sizeof(thread)));
-    native_simulate_open_url("hanabi://thread/space%2Fid%20one?source=spotlight");
+    const std::string url = std::string(product_branding::kUrlScheme) +
+                            "://thread/space%2Fid%20one?source=spotlight";
+    native_simulate_open_url(url.c_str());
     CHECK(native_take_open_thread(thread, sizeof(thread)));
     CHECK(std::strcmp(thread, "space/id one") == 0);
     native_simulate_open_url("https://example.invalid/thread/nope");

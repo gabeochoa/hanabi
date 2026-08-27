@@ -1,4 +1,5 @@
 #include "disk_cache.h"
+#include <branding.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -44,9 +45,10 @@ std::string ns_token(const std::string& key) {
 static fs::path flat_cache_base() {
     if (const char* p = std::getenv("HANABI_CACHE_DIR"); p && *p) return p;
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
-        return fs::path(xdg) / "hanabi" / "cache";
+        return fs::path(xdg) / product_branding::kStorageName / "cache";
     if (const char* home = std::getenv("HOME"); home && *home)
-        return fs::path(home) / ".config" / "hanabi" / "cache";
+        return fs::path(home) / ".config" / product_branding::kStorageName /
+               "cache";
     return {};
 }
 
@@ -100,9 +102,10 @@ std::string cache_dir() {
     if (const char* p = std::getenv("HANABI_CACHE_DIR"); p && *p)
         base = p;
     else if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
-        base = fs::path(xdg) / "hanabi" / "cache";
+        base = fs::path(xdg) / product_branding::kStorageName / "cache";
     else if (const char* home = std::getenv("HOME"); home && *home)
-        base = fs::path(home) / ".config" / "hanabi" / "cache";
+        base = fs::path(home) / ".config" /
+               product_branding::kStorageName / "cache";
     else
         return "";
     // Scope to the active backend when a namespace is set, so distinct backends
@@ -372,18 +375,18 @@ std::optional<Session> load_transcript(const std::string& id) {
 std::string export_dir() {
     const char* home = std::getenv("HOME");
     if (!home || !*home) return "";
-    return (fs::path(home) / "hanabi" / "threads").string();
+    return (fs::path(home) / product_branding::kStorageName / "threads").string();
 }
 
 namespace {
 const char* role_word(Role r) {
     switch (r) {
         case Role::User: return "You";
-        case Role::Assistant: return "hanabi";
+        case Role::Assistant: return product_branding::kAppName;
         case Role::System: return "System";
         case Role::Tool: return "Tool";
     }
-    return "hanabi";
+    return product_branding::kAppName;
 }
 // A filesystem-safe slug from a title (letters/digits/dash/underscore only).
 std::string slugify(const std::string& s, const std::string& fallback) {

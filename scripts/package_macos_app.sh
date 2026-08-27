@@ -1,28 +1,46 @@
 #!/bin/bash
 set -euo pipefail
 
+[[ $# -eq 5 ]] || { echo "usage: $0 app binary resources plist version" >&2; exit 2; }
 app=$1
 binary=$2
 resources=$3
 plist=$4
 version=$5
 
+plist_value() {
+    /usr/libexec/PlistBuddy -c "Print :$1" "$plist"
+}
+
+app_name=$(plist_value CFBundleDisplayName)
+executable_name=$(plist_value CFBundleExecutable)
+[[ "$app" == *.app && "$(basename "$app")" == "$app_name.app" ]] || {
+    echo "bundle path must end in $app_name.app: $app" >&2
+    exit 2
+}
+[[ -f "$binary" && -d "$resources" && -f "$plist" ]] || {
+    echo "packaging input is missing" >&2
+    exit 2
+}
+
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-install -m 0755 "$binary" "$app/Contents/MacOS/hanabi"
-rsync -a --delete "$resources/" "$app/Contents/Resources/"
+install -m 0755 "$binary" "$app/Contents/MacOS/$executable_name"
+rsync -a --delete --exclude '/macos/branding.json' --exclude '/macos/Info.plist' \
+    "$resources/" "$app/Contents/Resources/"
 cp "$plist" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 
-exe="$app/Contents/MacOS/hanabi"
+exe="$app/Contents/MacOS/$executable_name"
 deps=$(otool -L "$exe" | awk 'NR > 1 {print $1}' | grep -E '/lib(ssl|crypto)\.[^/]*\.dylib$' || true)
 
 if [[ -n "$deps" ]]; then
     mkdir -p "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
-    for dep in $deps; do
+    while IFS= read -r dep; do
+        [[ -n "$dep" ]] || continue
         cp -L "$dep" "$app/Contents/Frameworks/$(basename "$dep")"
         install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$exe"
-    done
+    done <<< "$deps"
     for dylib in "$app"/Contents/Frameworks/*.dylib; do
         install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib"
         while IFS= read -r dep; do

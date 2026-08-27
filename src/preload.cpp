@@ -1,4 +1,5 @@
 #include "preload.h"
+#include <branding.h>
 
 #include <afterhours/src/plugins/files.h>
 #include <afterhours/src/plugins/ui/theme.h>
@@ -66,7 +67,7 @@ std::string resolve_resource_root() {
 Preload::Preload() {}
 
 Preload& Preload::init(const char* /*title*/) {
-    files::init("hanabi", resolve_resource_root());
+    files::init(product_branding::kStorageName, resolve_resource_root());
     afterhours::graphics::set_exit_key(0);
 
     return *this;

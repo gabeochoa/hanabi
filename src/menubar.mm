@@ -14,6 +14,7 @@
 // app state (no cross-thread mutation of ECS components from a menu callback).
 
 #import <AppKit/AppKit.h>
+#include <branding.h>
 #include <atomic>
 
 #include "menubar.h"
@@ -92,7 +93,9 @@ void menubar_install(void) {
         menu.autoenablesItems = NO;  // we control enabled state explicitly
 
         // Disabled header row.
-        NSMenuItem* header = [[NSMenuItem alloc] initWithTitle:@"hanabi"
+        NSString* app_name =
+            [NSString stringWithUTF8String:product_branding::kAppName];
+        NSMenuItem* header = [[NSMenuItem alloc] initWithTitle:app_name
                                                         action:nil
                                                  keyEquivalent:@""];
         [header setEnabled:NO];
@@ -108,7 +111,8 @@ void menubar_install(void) {
 
         [menu addItem:[NSMenuItem separatorItem]];
 
-        NSMenuItem* show = [[NSMenuItem alloc] initWithTitle:@"Show hanabi"
+        NSString* show_title = [NSString stringWithFormat:@"Show %@", app_name];
+        NSMenuItem* show = [[NSMenuItem alloc] initWithTitle:show_title
                                                       action:@selector(onShow:)
                                                keyEquivalent:@""];
         [show setTarget:g_target];
@@ -123,7 +127,8 @@ void menubar_install(void) {
 
         [menu addItem:[NSMenuItem separatorItem]];
 
-        NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:@"Quit hanabi"
+        NSString* quit_title = [NSString stringWithFormat:@"Quit %@", app_name];
+        NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:quit_title
                                                       action:@selector(onQuit:)
                                                keyEquivalent:@""];
         [quit setTarget:g_target];

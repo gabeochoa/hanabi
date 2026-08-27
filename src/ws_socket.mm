@@ -7,6 +7,7 @@
 #include <string>
 
 #include "ws_socket.h"
+#include <branding.h>
 
 // The server's own /ws/chat read bound. Anything larger is a protocol error on
 // their side, so matching it here turns a silent truncation into a close.
@@ -73,7 +74,8 @@ ws_conn* ws_open(const ws_config* cfg) {
     c->on_text = cfg->on_text;
     c->on_close = cfg->on_close;
     c->user = cfg->user;
-    c->queue = dispatch_queue_create("hanabi.ws", DISPATCH_QUEUE_SERIAL);
+    c->queue = dispatch_queue_create(product_branding::kWebSocketQueueLabel,
+                                     DISPATCH_QUEUE_SERIAL);
 
     NSURLSessionConfiguration* sc =
         [NSURLSessionConfiguration ephemeralSessionConfiguration];

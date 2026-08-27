@@ -1,0 +1,6 @@
+{
+  "app_name": "Hanabi",
+  "bundle_id": "io.github.gabeochoa.hanabi",
+  "executable_name": "hanabi",
+  "url_scheme": "hanabi"
+}

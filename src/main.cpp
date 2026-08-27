@@ -1,4 +1,5 @@
 #include <argh.h>
+#include <branding.h>
 
 #ifndef HANABI_BUILD_STAMP
 #define HANABI_BUILD_STAMP "dev"
@@ -447,7 +448,7 @@ static void app_init() {
     };
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    Preload::get().init("hanabi");
+    Preload::get().init(product_branding::kAppName);
     auto t1 = std::chrono::high_resolution_clock::now();
     Preload::get().make_singleton();
     auto t2 = std::chrono::high_resolution_clock::now();
@@ -512,8 +513,9 @@ static void app_frame() {
         // notification banner + click->open-thread path can be exercised
         // manually. Ignored when unset; never runs on the headless path.
         if (const char* nt = std::getenv("HANABI_NOTIFY_TEST"); nt && *nt) {
-            native_notify("hanabi: thread needs you",
-                          "Click to open this thread", nt,
+            const std::string title =
+                std::string(product_branding::kAppName) + ": thread needs you";
+            native_notify(title.c_str(), "Click to open this thread", nt,
                           Settings::get().get_notification_sound());
         }
         if (const char* sid = std::getenv("HANABI_SPOTLIGHT_TEST"); sid && *sid) {
@@ -521,10 +523,14 @@ static void app_frame() {
                 native_spotlight_sync(nullptr, 0);
             } else {
                 const std::string url =
-                    "hanabi://thread/" + hanabi::spotlight::path_segment(sid);
+                    std::string(product_branding::kUrlScheme) + "://thread/" +
+                    hanabi::spotlight::path_segment(sid);
+                const std::string title =
+                    std::string(product_branding::kAppName) +
+                    " Spotlight verification";
                 const NativeSpotlightItem item{
-                    sid, "Hanabi Spotlight verification",
-                    "Local-only packaged-app indexing check", url.c_str()};
+                    sid, title.c_str(), "Local-only packaged-app indexing check",
+                    url.c_str()};
                 native_spotlight_sync(&item, 1);
             }
         }
@@ -1318,7 +1324,7 @@ static int run_atlas_stress() {
         fprintf(stderr, "[atlas-stress] headless graphics init failed\n");
         return 2;
     }
-    Preload::get().init("hanabi").make_singleton();
+    Preload::get().init(product_branding::kAppName).make_singleton();
 
     std::string ascii;
     for (char c = 33; c < 127; ++c) ascii.push_back(c);
@@ -1482,7 +1488,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     }
     hmark("graphics::init");
 
-    Preload::get().init("hanabi").make_singleton();
+    Preload::get().init(product_branding::kAppName).make_singleton();
     hmark("preload");
     setup_app_state();
     hmark("setup_app_state");
@@ -2079,7 +2085,7 @@ static int run_e2e(const std::string& path, int w, int h) {
         return 2;
     }
 
-    Preload::get().init("hanabi").make_singleton();
+    Preload::get().init(product_branding::kAppName).make_singleton();
     setup_app_state();
 
     SystemManager sm;
@@ -2272,18 +2278,25 @@ int main(int argc, char* argv[]) {
     // as a bare flag plus a positional arg, cmdl.params() comes back empty,
     // and we silently fall through to the windowed run() path — which opens a
     // real Metal window and never exits in a headless/one-shot context.
-    cmdl.add_params({"--screenshot", "--e2e"});
+    cmdl.add_params({"--screenshot", "--e2e", "--parse-thread-url"});
     cmdl.parse(argc, argv);
 
     // --version prints and exits.
     if (cmdl["--version"] || cmdl["-V"]) {
-        printf("hanabi %s\n", hanabi::kVersion);
+        printf("%s %s\n", product_branding::kAppName, hanabi::kVersion);
         return 0;
     }
     if (cmdl["--native-diagnostics"]) {
         char status[512];
         native_integration_status(status, sizeof(status));
         printf("%s\n", status);
+        return 0;
+    }
+    if (std::string url = cmdl("parse-thread-url").str(); !url.empty()) {
+        char thread[512] = {};
+        native_simulate_open_url(url.c_str());
+        if (!native_take_open_thread(thread, sizeof(thread))) return 2;
+        printf("%s\n", thread);
         return 0;
     }
 
@@ -2319,7 +2332,8 @@ int main(int argc, char* argv[]) {
     // Include the build stamp in the title so a screenshot instantly reveals
     // WHICH binary is running (the "am I even on the new build?" blind spot).
     static std::string s_title =
-        std::string("hanabi  ·  build ") + HANABI_BUILD_STAMP;
+        std::string(product_branding::kAppName) + "  ·  build " +
+        HANABI_BUILD_STAMP;
     cfg.title = s_title.c_str();
     cfg.target_fps = 120;
     cfg.flags = afterhours::graphics::FLAG_WINDOW_RESIZABLE;

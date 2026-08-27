@@ -33,6 +33,7 @@
 // the agent as literal text, which is what typing "/compact" did before.
 // ---------------------------------------------------------------------------
 
+#include <branding.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,7 +50,7 @@ struct Command {
     // Whether this client can actually carry the command out today.
     bool runnable = false;
     // Shown when it cannot: what is missing, in the user's words.
-    std::string_view unwired;
+    std::string unwired;
 };
 
 inline const std::vector<Command>& all() {
@@ -60,9 +61,9 @@ inline const std::vector<Command>& all() {
         {"effort", "<level>", "set the effort level", false,
          "no effort picker yet"},
         {"btw", "<question>", "fork this thread", false,
-         "hanabi has no fork call yet"},
+         std::string(product_branding::kAppName) + " has no fork call yet"},
         {"compact", "", "compact the context now", false,
-         "hanabi has no compact call yet"},
+         std::string(product_branding::kAppName) + " has no compact call yet"},
     };
     return kCommands;
 }

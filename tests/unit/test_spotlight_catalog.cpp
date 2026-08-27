@@ -40,7 +40,8 @@ static void test_metadata_and_url() {
     CHECK(items.size() == 1);
     CHECK(items[0].title == "Untitled thread");
     CHECK(items[0].preview == "offline preview");
-    CHECK(items[0].url == "hanabi://thread/space%2Fid%20%3F");
+    CHECK(items[0].url == std::string(product_branding::kUrlScheme) +
+                              "://thread/space%2Fid%20%3F");
 }
 
 static void test_empty_and_duplicate_ids_are_removed() {

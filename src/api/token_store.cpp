@@ -1,4 +1,5 @@
 #include "token_store.h"
+#include <branding.h>
 
 #include <sys/stat.h>
 
@@ -20,10 +21,12 @@ std::string token_file_path() {
     }
     namespace fs = std::filesystem;
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
-        return (fs::path(xdg) / "hanabi" / "token.json").string();
+        return (fs::path(xdg) / product_branding::kStorageName /
+                "token.json").string();
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return (fs::path(home) / ".config" / "hanabi" / "token.json").string();
+        return (fs::path(home) / ".config" /
+                product_branding::kStorageName / "token.json").string();
     }
     return "";
 }
