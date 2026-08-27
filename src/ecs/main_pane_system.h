@@ -295,8 +295,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- Which pane is being built right now -------------------------------
     // Everything down to the per-message painters takes `Pane&` explicitly.
-    // The leaves below the message loop (paint_query_for, fold_mode and the
-    // functions that call them) do not: they are reached fifteen
+    // The five leaves below the message loop (live_query, paint_query_for,
+    // fold_mode and the two that call them) do not: they are reached fifteen
     // signatures deep, and every one of them ALREADY reached for a global --
     // app_singleton() -- to answer the same question. So the global they reach
     // for is narrowed rather than added to: not "the app", but "the pane whose
@@ -3217,6 +3217,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    static const find_ops::Query& live_query() {
+        static const find_ops::Query empty;
+        const Pane* p = painting_pane();
+        return p == nullptr ? empty : p->findMemo.query();
+    }
+
     // What find should paint inside message `index` — the query's text, or
     // nothing at all when an operator has excluded that row.
     static std::string paint_query_for(int index) {
@@ -3224,7 +3230,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (p == nullptr || !p->findOpen || p->findQuery.empty() ||
             !p->openSession)
             return std::string();
-        const find_ops::Query& q = p->findMemo.query();
+        const find_ops::Query& q = live_query();
         if (q.invalid || q.text.empty()) return std::string();
         if (!p->findMemo.row_is_paintable(static_cast<std::size_t>(index)))
             return std::string();
