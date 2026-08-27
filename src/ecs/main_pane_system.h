@@ -5102,24 +5102,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // padding is what the widget decides.
         constexpr float kSendDia = 19.0f;
         constexpr float kSendGap = 9.0f;
-        // THE SEND BUTTON'S SHAPE IS DECIDED HERE, ABOVE THE ROW, because the
-        // input's width is carved out of what is left after it -- and for a
-        // long time it was decided 400 lines further down instead, after the
-        // input had already been sized for a 19px circle. A pill-shaped state
-        // (in-flight) is 78 wide, so the button ran 78 - 19 = 59px past the
-        // row's content box, out over the pane's right gutter. That is the
-        // report's "buttons going outside the bounds" at its most visible:
-        // measured on the parity window, composer_send drew x=1083..1161
-        // inside a row whose content ends at 1102.
-        //
-        // Two facts, one place, in the order the layout needs them. A future
-        // state with a fourth width costs the input those pixels instead of
-        // spending them outside the row.
-        constexpr float kSendPillW = 78.0f;
-        constexpr float kSendPillH = 32.0f;
-        const bool sendIsCircle = !sending;
-        const float sendW = sendIsCircle ? kSendDia : kSendPillW;
-        const float sendH = sendIsCircle ? kSendDia : kSendPillH;
+        const float sendW = kSendDia;
+        const float sendH = kSendDia;
         // 46, not 45: a 1px border draws ON the box edge, so a 45px box paints
         // 46 rows and the reference's paints 47 (y=884 through y=930).
         //
@@ -5709,7 +5693,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // In-flight keeps the pill. Its label is an ellipsis, which is not a
         // verb and not a name -- it is "wait" -- and a 78px box of nothing-
         // to-press reads as disabled in a way a small circle does not.
-        const char* sendLabel = sending ? "\xe2\x80\xa6" : "";
+        const char* sendLabel = "";
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
@@ -5727,18 +5711,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_corner_radius(sendIsCircle ? kSendDia * 0.5f : 8.0f)
-                .with_on_draw_fg([sendIsCircle, steerMode,
+                .with_corner_radius(kSendDia * 0.5f)
+                .with_on_draw_fg([steerMode, sending,
                                   sendEnabled](RectangleType rr) {
-                    if (!sendIsCircle) return;
                     const theme::Color ink = sendEnabled
                                                  ? theme::window_bg()
                                                  : theme::disabled_text();
-                    // Same box, same centre, same extent: the two marks differ
-                    // by the bend and by nothing else, so the button does not
-                    // move when the verb changes.
-                    if (steerMode) hanabi::glyph::steer(rr, ink);
-                    else hanabi::glyph::arrow_up(rr, ink);
+                    if (sending && !sendEnabled) {
+                        afterhours::draw_ring(
+                            rr.x + rr.width * 0.5f, rr.y + rr.height * 0.5f,
+                            2.5f, 4.5f, 18, ink);
+                    } else if (steerMode) {
+                        hanabi::glyph::steer(rr, ink);
+                    } else {
+                        hanabi::glyph::arrow_up(rr, ink);
+                    }
                 })
                 .with_debug_name("composer_send"));
         if (send && sendEnabled) {
