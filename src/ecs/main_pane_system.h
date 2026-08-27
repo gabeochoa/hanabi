@@ -3685,6 +3685,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         {
             hanabi::prof::Scope _p("transcript.pass1_measure");
             int i = 0;
+            hanabi::prof::tick("transcript.item_messages_visited",
+                               static_cast<unsigned long long>(n));
             while (i < n) {
                 // The day row goes above whatever item starts this day —
                 // measured here, drawn from the same height below. A boundary
