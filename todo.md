@@ -215,12 +215,19 @@ Re-verified post-merge: many-tabs strip clean (headline defect fixed), light the
 
 ## AUDIT ITEMS RESOLVED: #1 many-tabs, #2 light theme, #3 tool row (real fields), #14 cost meter,
    star right-align/no-bg, scroll-text-disappear (+e2e), layout-warn spam (0), settings cache wipe+size.
-## CURRENT OPEN UI POLISH (reconciled 2026-08-27)
-  - Message-action/tool footer and nested tool sub-rows: owned by the message-actions branch; do not edit here.
-  - Smart-view row consistency; four-state sidebar glyph vocabulary; neutral Home section labels;
-    legible status pills; anchored empty-transcript state.
+## UI POLISH STATUS (reconciled 2026-08-27)
+  - [x] Jump-to-bottom now focuses and explicitly re-arms its own pane (`ad82541`).
+  - [x] Archived uses the Lucide sprite with no box fallback (`e8212d9`).
+  - [x] All four smart views use the same title, status-pill and metadata row (`92278a6`).
+  - [x] Home section labels are neutral; state color remains on the disclosure glyph (`1cc1b51`).
+  - [x] Sidebar rows use running/blocked/done/idle only, with unchanged 811/1163 home
+        allocations per frame and 322/428 widgets at 20/2000 sessions (`c2b9286`).
+  - [x] Empty transcripts use a two-line state anchored above the composer (`e5b52a5`).
+  - [x] Status pills were already fixed (`8a0db3f`, `fe22503`): measured foreground/background
+        contrast is 4.92–6.21:1 dark and 4.71–6.01:1 light.
+  - Message-action/tool footer and nested tool sub-rows are owned by the message-actions branch;
+    this branch does not touch that rendering.
   - T7 dirty/skip-rebuild work remains the largest unrelated performance lever.
-  - The screenshot harness still needs any genuinely new state added with a committed baseline.
 
 ## PHASE AUTH — COMPLETE (d80701d). Device-code flow was already live-proven (no client_id/secret —
    client mints its own deviceCode; endpoints /api/cli/auth/code+poll verified live). Startup async fix
