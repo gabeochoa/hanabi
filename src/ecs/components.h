@@ -54,6 +54,7 @@ enum class EscapeIntent {
     None,
     ClosePalette,
     CloseSessionSearch,
+    CloseContextMenu,
     CloseRename,
     CloseComposer,
     CloseShortcuts,

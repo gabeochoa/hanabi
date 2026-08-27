@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "needs a decision before it can go on"
+right_click 120 475
+wait_frames 6
+expect_text "CONVERSATION"
+expect_text "Archive"
+key ESCAPE
+wait_frames 6
+expect_no_text "CONVERSATION"
+expect_text "needs a decision before it can go on"

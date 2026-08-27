@@ -40,6 +40,7 @@
 #include "../ui/effort_menu.h"
 #include "../ui/fold_menu.h"
 #include "../ui/measure_probe.h"
+#include "../ui/secondary_surface.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "line_draw_state.h"
@@ -4190,44 +4191,50 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app, Entity& anchorEnt,
                               const std::string& currentModel) {
-        constexpr float kRowH = 24.0f;
-        constexpr float kPopW = 210.0f;
+        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        constexpr float kPopW = 252.0f;
+        constexpr float kHeadH = 44.0f;
         const auto& models = hanabi::models::all();
         const float popH =
-            kRowH * static_cast<float>(models.size()) + 8.0f;
+            kHeadH + kRowH * static_cast<float>(models.size()) + 8.0f;
         const RectangleType anchor =
             anchorEnt.get<afterhours::ui::UIComponent>().rect();
         auto pop = afterhours::ui::imm::popover(
             ctx, mk(parent, 3200), anchor, app.modelPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
-                .with_roundness(0.25f)
-                .with_render_layer(7)
+            hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("model_popover"));
         if (!pop) return;
+        div(ctx, mk(pop.ent(), 900),
+            ComponentConfig{}
+                .with_label("Model")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(8)})
+                .with_debug_name("model_popover_title"));
+        div(ctx, mk(pop.ent(), 901),
+            ComponentConfig{}
+                .with_label("Default for new tasks")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(8)})
+                .with_debug_name("model_popover_subtitle"));
         for (size_t i = 0; i < models.size(); ++i) {
             const auto& m = models[i];
             const bool selected = m.id == currentModel;
             auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
-                ComponentConfig{}
+                hanabi::surface::option_row(kPopW - 8.0f, kRowH,
+                                            selected, 8)
                     .with_label(std::string(m.name))
-                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                    .with_custom_background(selected ? theme::selected_bg()
-                                                     : theme::panel_bg_2())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(selected ? theme::text_primary()
-                                                     : theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(26)})
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    .with_render_layer(8)
+                    .with_padding(Padding{.left = pixels(30)})
                     .with_on_draw_fg([selected](RectangleType r) {
                         // The mark is drawn, not typed: Roboto has no
                         // geometric shapes and would paint nothing (gap #48).
@@ -4265,44 +4272,51 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_effort_popover(UIContext<InputAction>& ctx, Entity& parent,
                                AppComponent& app, Entity& anchorEnt,
                                const std::string& currentEffort) {
-        constexpr float kRowH = 30.0f;
-        constexpr float kPopW = 230.0f;
+        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        constexpr float kPopW = 286.0f;
+        constexpr float kHeadH = 44.0f;
         const auto& levels = hanabi::effort::all();
-        const float popH = kRowH * static_cast<float>(levels.size()) + 8.0f;
+        const float popH = kHeadH +
+                           kRowH * static_cast<float>(levels.size()) + 8.0f;
         const RectangleType anchor =
             anchorEnt.get<afterhours::ui::UIComponent>().rect();
         auto pop = afterhours::ui::imm::popover(
             ctx, mk(parent, 3300), anchor, app.effortPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
-                .with_roundness(0.25f)
-                .with_render_layer(7)
+            hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("effort_popover"));
         if (!pop) return;
+        div(ctx, mk(pop.ent(), 900),
+            ComponentConfig{}
+                .with_label("Thinking effort")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(8)})
+                .with_debug_name("effort_popover_title"));
+        div(ctx, mk(pop.ent(), 901),
+            ComponentConfig{}
+                .with_label("Default for new tasks")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(8)})
+                .with_debug_name("effort_popover_subtitle"));
         for (size_t i = 0; i < levels.size(); ++i) {
             const auto& lv = levels[i];
             const bool selected = lv.id == currentEffort;
             auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
-                ComponentConfig{}
+                hanabi::surface::option_row(kPopW - 8.0f, kRowH,
+                                            selected, 8)
                     .with_label(std::string(lv.name) + "   \xc2\xb7   " +
                                 std::string(lv.note))
-                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                    .with_custom_background(selected ? theme::selected_bg()
-                                                     : theme::panel_bg_2())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(selected ? theme::text_primary()
-                                                     : theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(26)})
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    .with_render_layer(8)
+                    .with_padding(Padding{.left = pixels(30)})
                     .with_on_draw_fg([selected](RectangleType r) {
                         // Drawn, not typed: Roboto has no geometric shapes and
                         // a codepoint it lacks paints nothing (gap #48).
@@ -5515,6 +5529,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 set_field(typed);
                 return;
             }
+            if (cmd->name == "model") {
+                app.modelPopoverOpen = true;
+                app.effortPopoverOpen = false;
+                app.slashNotice.clear();
+                set_field("");
+                return;
+            }
+            if (cmd->name == "effort") {
+                app.effortPopoverOpen = true;
+                app.modelPopoverOpen = false;
+                app.slashNotice.clear();
+                set_field("");
+                return;
+            }
             if (!cmd->runnable) {
                 app.slashNotice =
                     "/" + std::string(cmd->name) + " \xe2\x80\x94 " +
@@ -5770,51 +5798,65 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // off-screen. A sibling of the composer bar under the same uiRoot
         // parent, in the same screen coordinates, on a layer over it.
         if (slashOpen && absX >= 0.0f && absY >= 0.0f) {
-            constexpr float kRowH = 22.0f;
-            const float menuH = kRowH * static_cast<float>(slashRows.size());
-            auto menu = div(ctx, mk(parent, 3100),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(inputW), pixels(menuH)})
-                    .with_absolute_position()
-                    .with_translate(absX + composerGutter,
-                                    absY - menuH - 6.0f)
-                    .with_flex_direction(FlexDirection::Column)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_roundness(0.25f)
-                    .with_render_layer(7)
-                    .with_debug_name("slash_menu"));
+            constexpr float kRowH = hanabi::surface::kMenuRowH;
+            const float menuH =
+                kRowH * static_cast<float>(slashRows.size()) + 8.0f;
+            auto menuConfig = hanabi::surface::menu(inputW, menuH, 7);
+            menuConfig.with_absolute_position()
+                .with_translate(absX + composerGutter, absY - menuH - 6.0f)
+                .with_debug_name("slash_menu");
+            auto menu = div(ctx, mk(parent, 3100), menuConfig);
             for (size_t i = 0; i < slashRows.size(); ++i) {
                 const hanabi::slash::Command& c = *slashRows[i];
-                std::string label = "/" + std::string(c.name);
-                if (!c.arg.empty()) label += " " + std::string(c.arg);
-                label += "   " + std::string(c.blurb);
-                // An unwired verb says so in the row, so the menu is not a
-                // list of promises.
-                if (!c.runnable)
-                    label += " \xc2\xb7 " + std::string(c.unwired);
+                std::string command = "/" + std::string(c.name);
+                if (!c.arg.empty()) command += " " + std::string(c.arg);
                 const bool selected = static_cast<int>(i) ==
                                       app.slashMenuIndex;
-                auto row = button(ctx, mk(menu.ent(), static_cast<int>(i)),
+                auto row = button(
+                    ctx, mk(menu.ent(), static_cast<int>(i)),
+                    hanabi::surface::option_row(inputW - 8.0f, kRowH,
+                                                selected, 8)
+                        .with_label(" ")
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_align_items(AlignItems::Center)
+                        .with_debug_name("slash_item_" + std::to_string(i)));
+                div(ctx, mk(row.ent(), 1),
                     ComponentConfig{}
-                        .with_label(label)
-                        .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                        .with_custom_background(selected
-                                                    ? theme::selected_bg()
-                                                    : theme::panel_bg_2())
-                        .with_custom_hover_bg(
-                            theme::hover_over(theme::panel_bg_2()))
-                        .with_custom_text_color(c.runnable
-                                                    ? theme::text_primary()
-                                                    : theme::text_secondary())
+                        .with_label(command)
+                        .with_size(ComponentSize{pixels(106), pixels(20)})
+                        .with_margin(Margin{.left = pixels(10)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_primary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
-                        .with_padding(Padding{.left = pixels(10)})
-                        .with_click_activation(ClickActivationMode::Press)
-                        .with_roundness(0.0f)
-                        .with_render_layer(7)
-                        .with_debug_name("slash_item_" + std::to_string(i)));
+                        .with_debug_name("slash_command_" +
+                                         std::to_string(i)));
+                const float statusW = c.runnable ? 0.0f : 78.0f;
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(std::string(c.blurb))
+                        .with_size(ComponentSize{pixels(
+                            std::max(40.0f, inputW - 132.0f - statusW)),
+                                                 pixels(20)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("slash_blurb_" +
+                                         std::to_string(i)));
+                if (!c.runnable)
+                    div(ctx, mk(row.ent(), 3),
+                        ComponentConfig{}
+                            .with_label("Unavailable")
+                            .with_size(ComponentSize{pixels(statusW), pixels(20)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_faint())
+                            .with_font_size(theme::type::MICRO)
+                            .with_alignment(TextAlignment::Right)
+                            .with_debug_name("slash_unavailable_" +
+                                             std::to_string(i)));
                 if (row) choose_slash(static_cast<int>(i));
             }
         }

@@ -38,6 +38,7 @@
 #include "../util/text_cache.h"
 #include "../util/text_epoch.h"
 #include "../ui/icons.h"
+#include "../ui/secondary_surface.h"
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "thread_model.h"
@@ -426,6 +427,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
+        if (app.escape == EscapeIntent::CloseContextMenu) {
+            app.close_row_menu();
+            return;
+        }
         const api::SessionSummary* target = app.find_summary(app.rowMenuSessionId);
         if (target == nullptr) {
             app.close_row_menu();
@@ -453,15 +458,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             items.push_back({"Reset order", "row_menu_reset_order",
                              Action::ResetOrder});
 
-        const float menuW = 150.0f;
-        const float itemH = 26.0f;
-        const float menuH = itemH * static_cast<float>(items.size());
+        const float menuW = 176.0f;
+        const float headerH = 28.0f;
+        const float itemH = hanabi::surface::kMenuRowH;
+        const float menuH =
+            headerH + itemH * static_cast<float>(items.size()) + 8.0f;
         float mx = app.rowMenuX;
         float my = app.rowMenuY;
-        if (mx + menuW > ctx.screen_width) mx = ctx.screen_width - menuW;
-        if (my + menuH > ctx.screen_height) my = ctx.screen_height - menuH;
-        if (mx < 0.0f) mx = 0.0f;
-        if (my < 0.0f) my = 0.0f;
+        if (mx + menuW > ctx.screen_width - 4.0f)
+            mx = ctx.screen_width - menuW - 4.0f;
+        if (my + menuH > ctx.screen_height - 4.0f)
+            my = ctx.screen_height - menuH - 4.0f;
+        if (mx < 4.0f) mx = 4.0f;
+        if (my < 4.0f) my = 4.0f;
 
         constexpr int kMenuLayer = 30;
 
@@ -482,35 +491,47 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(kMenuLayer - 1)
                 .with_debug_name("row_menu_eater"));
 
-        div(ctx, mk(uiRoot, 8900),
+        auto menuConfig = hanabi::surface::menu(menuW, menuH, kMenuLayer);
+        menuConfig.with_absolute_position()
+            .with_translate(mx, my)
+            .with_debug_name("row_menu");
+        div(ctx, mk(uiRoot, 8900), menuConfig);
+        div(ctx, mk(uiRoot, 8998),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(menuW), pixels(menuH)})
+                .with_label("CONVERSATION")
+                .with_size(ComponentSize{pixels(menuW - 16.0f), pixels(headerH)})
                 .with_absolute_position()
-                .with_translate(mx, my)
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1))
-                .with_roundness(0.2f)
-                .with_render_layer(kMenuLayer)
-                .with_debug_name("row_menu"));
+                .with_translate(mx + 8.0f, my + 4.0f)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_letter_spacing(0.8f)
+                .with_alignment(TextAlignment::Left)
+                .with_render_layer(kMenuLayer + 1)
+                .with_debug_name("row_menu_title"));
 
         const std::string targetId = target->id;
         for (size_t k = 0; k < items.size(); ++k) {
+            const bool destructive =
+                items[k].action == Action::Archive &&
+                !model::is_archived(*target);
+            auto rowConfig = hanabi::surface::option_row(
+                menuW - 8.0f, itemH, false, kMenuLayer + 1,
+                destructive ? hanabi::surface::destructive_surface()
+                            : theme::panel_bg());
+            rowConfig.with_label(items[k].label)
+                .with_absolute_position()
+                .with_translate(mx + 4.0f,
+                                my + 4.0f + headerH +
+                                    itemH * static_cast<float>(k))
+                .with_custom_text_color(destructive ? theme::destructive()
+                                                    : theme::text_primary())
+                .with_font_size(theme::type::ROW)
+                .with_alignment(TextAlignment::Left)
+                .with_padding(Padding{.left = pixels(10)})
+                .with_debug_name(items[k].name);
             auto hit = button(ctx, mk(uiRoot, 8901 + static_cast<int>(k)),
-                ComponentConfig{}
-                    .with_label(items[k].label)
-                    .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
-                    .with_absolute_position()
-                    .with_translate(mx, my + itemH * static_cast<float>(k))
-                    .with_custom_background(theme::panel_bg())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_primary())
-                    .with_font_size(theme::type::ROW)
-                    .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(10)})
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    .with_render_layer(kMenuLayer + 1)
-                    .with_debug_name(items[k].name));
+                              rowConfig);
             if (!hit) continue;
             switch (items[k].action) {
                 case Action::Rename:

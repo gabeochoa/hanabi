@@ -33,37 +33,21 @@ expect_text "compact the context now"
 # Typing on narrows it to one command.
 type "mod"
 wait_frames 8
-expect_text "switch the model"
+expect_text "choose the default model"
 expect_no_text "compact the context now"
 
-# Clicking a row that takes an argument completes the verb into the field and
-# leaves the caret there, so the argument can be typed straight away.
+# Choosing /model opens the real picker instead of leaving an inert command in
+# the field.
 click_ui slash_item_0
 wait_frames 8
-type "opus"
+expect_text "Server default"
+expect_text "Opus 5"
+click_ui model_row_1
 wait_frames 8
-expect_input_text composer_reply_input "/model opus"
+expect_text "Opus 5"
+expect_input_text composer_reply_input ""
 
-# Return runs it. There is no model picker in this client yet, so the strip
-# says so — and the words never reach the agent as a message.
-key ENTER
-wait_frames 20
-expect_text "no model picker yet"
-expect_input_text composer_reply_input "/model opus"
-
-# Esc putting the MENU away without clearing the draft has its own script
-# (slash_menu_escape_keeps_draft.e2e) — here the menu is already closed, so Esc
-# means the field's clear, which is what the /new phase needs.
-#
-# /new is the one verb with somewhere to go: it raises the new-conversation
-# sheet. Esc on a focused field is the app's clear (escape_system.h resolves it
-# to the transcript once no menu is up); it blurs the field on the way out,
-# which is afterhours' own behaviour (gap #57), so the caret is clicked back —
-# and by then the field is empty, so what that click selects cannot matter.
-click_ui composer_reply_input
-wait_frames 4
-key ESCAPE
-wait_frames 6
+# /new raises the new-conversation sheet.
 click_ui composer_reply_input
 wait_frames 4
 type "/new"
