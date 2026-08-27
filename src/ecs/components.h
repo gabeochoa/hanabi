@@ -20,6 +20,7 @@
 #include "../settings.h"
 #include "../search/find_memo.h"
 #include "transcript_cache.h"
+#include "transcript_item_index.h"
 
 namespace ecs {
 
@@ -129,6 +130,33 @@ struct Pane {
     // The thread this pane is showing, and its transcript.
     std::string selectedId;
     std::optional<api::Session> openSession;
+    model::TranscriptMutation transcriptMutation;
+
+    void note_transcript_mutation(model::TranscriptMutationKind kind,
+                                  std::size_t first, std::size_t count) {
+        const std::uint64_t base = transcriptMutation.revision;
+        transcriptMutation = {base, base + 1, kind, first, count};
+    }
+
+    void note_transcript_reset() {
+        note_transcript_mutation(model::TranscriptMutationKind::Reset, 0,
+                                 openSession ? openSession->messages.size() : 0);
+    }
+
+    void note_transcript_append(std::size_t first, std::size_t count) {
+        note_transcript_mutation(model::TranscriptMutationKind::Append, first,
+                                 count);
+    }
+
+    void note_transcript_prepend(std::size_t count) {
+        note_transcript_mutation(model::TranscriptMutationKind::Prepend, 0,
+                                 count);
+    }
+
+    void note_transcript_update(std::size_t first, std::size_t count = 1) {
+        note_transcript_mutation(model::TranscriptMutationKind::Update, first,
+                                 count);
+    }
     LoadState transcriptState = LoadState::Idle;
     std::string transcriptError;
 
