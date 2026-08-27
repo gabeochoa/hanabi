@@ -19,20 +19,19 @@
 //      whatever app is focused otherwise. See the CHOSEN CHORD note below.
 //
 //   2. Native notification. Posts a macOS notification when the "blocked on
-//      you" count newly increases, so the user is told a thread needs them
-//      even when hanabi is in the background. Uses NSUserNotification (see the
-//      API note in native_extras.mm for the deprecated-vs-permission tradeoff).
+//      you" count newly increases. The bundled app uses
+//      UNUserNotificationCenter, requests permission on its first windowed run,
+//      and routes a click back to the notification's thread.
 //
 //   3b. Image attachments (section 6 below). Pasting or dropping an image is
 //      an AppKit fact — NSPasteboard holds the pixels, NSDraggingDestination
 //      delivers the file — so both arrive through this seam as a PATH the
 //      immediate-mode core can hold in app state and draw from.
 //
-//   3. Spotlight indexing seam. native_spotlight_index() exists so open/recent
-//      threads COULD be indexed into system search — but see the honest
-//      feasibility note in native_extras.mm: CoreSpotlight needs a real .app
-//      bundle + bundle identifier, which the bare output/hanabi.exe build does
-//      not have, so this is a documented NO-OP in the current build.
+//   3. Spotlight catalog sync. The bundled app indexes the current bounded
+//      session catalog with title, preview, and hanabi:// deep link metadata,
+//      updates changed rows, and removes identifiers that left the catalog. The
+//      bare developer executable stays a safe no-op.
 //
 // -------------------------------------------------------------------------
 // CHOSEN GLOBAL HOTKEY CHORD:  Cmd + Shift + N
@@ -68,28 +67,39 @@ bool native_palette_hotkey_take_triggered(void);
 
 // ---- 2. Native notification ------------------------------------------------
 
-// Post a native macOS notification. title/body are UTF-8 C strings (never
-// retained). No-op if title is null/empty. Windowed path only — the caller
-// must NOT call this from the headless --screenshot path (it would request
-// notification delivery / could prompt). Rate-limiting/debounce is the
-// caller's responsibility (see main.cpp's blocked-count seam).
-//
-// `thread_id` (may be null/empty) is attached to the notification so that
-// CLICKING it opens that thread: the notification-center delegate routes the
-// id through the same pending-open-thread slot the hanabi:// deep-link uses,
-// drained by native_take_open_thread(). Pass the id of the thread the banner
-// is about (e.g. the newly-blocked thread).
-void native_notify(const char* title, const char* body, const char* thread_id);
+// Installs the UNUserNotificationCenter delegate and requests alert/sound
+// authorization once for a windowed bundled launch. A bare developer executable
+// remains a no-op. The headless paths never call this function.
+void native_notifications_start(void);
 
-// ---- 3. Spotlight (best-effort; NO-OP in the non-bundled build) ------------
+// Queues a modern macOS notification. A first notification waits for the
+// authorization answer instead of being dropped. `sound` controls whether this
+// request carries UNNotificationSound.defaultSound. Clicking it routes
+// `thread_id` through native_take_open_thread().
+void native_notify(const char* title, const char* body, const char* thread_id,
+                   bool sound);
 
-// Would index a thread (id + title) into CoreSpotlight so system search can
-// find it. In the current bare-executable build this is a documented NO-OP:
-// CSSearchableIndex requires the app to run from a real .app bundle with a
-// bundle identifier registered with LaunchServices, which output/hanabi.exe is
-// not. The seam exists so the wiring is ready once hanabi ships as a bundle.
-// See the feasibility note in native_extras.mm.
-void native_spotlight_index(const char* id, const char* title);
+// ---- 3. Spotlight ----------------------------------------------------------
+
+typedef struct NativeSpotlightItem {
+    const char* id;
+    const char* title;
+    const char* preview;
+    const char* url;
+} NativeSpotlightItem;
+
+// Reconciles the app's complete bounded catalog. Existing identifiers update in
+// place, missing identifiers are deleted, and no network is touched. A bare
+// developer executable remains a no-op.
+void native_spotlight_sync(const NativeSpotlightItem* items, int count);
+
+// Copies a one-line bundle / notification / Spotlight status into `out`.
+void native_integration_status(char* out, int cap);
+
+// Test-only process-local seam for the notification click route. It performs no
+// AppKit, notification, network, or filesystem work.
+void native_simulate_notification_click(const char* thread_id);
+void native_simulate_open_url(const char* url);
 
 // ---- 4. Spotlight deep-link (open a thread from a tapped result) -----------
 

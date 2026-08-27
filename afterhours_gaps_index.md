@@ -1,6 +1,6 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is ~10,900 lines and 198 entries, written by dozens of
+`afterhours_gaps.md` is ~12,000 lines and 212 numbered entries, written by dozens of
 agents over several days. As a record it is good. As a work queue it is
 unusable: you cannot see what matters, what is one change, what is the same
 finding filed four times, and what has already been fixed under it.
@@ -18,15 +18,15 @@ only sorts, weighs, groups and corrects them.
 
 | | |
 |---|---|
-| Numbered headings in the file | **193** |
-| Distinct gap numbers | **183** (nine numbers are used twice, one three times — §5) |
+| Numbered headings in the file | **212** |
+| Distinct gap numbers | **202** (nine numbers are used twice, one three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **202** — one per heading, nothing dropped |
+| **Rows in the triage table (§6)** | **218** — one per indexed heading, nothing dropped |
 | Standalone live asks | **123** |
 | Live but subsumed into a family canonical | **44** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **11** (§4) |
-| hanabi's own, not afterhours' | **7** |
+| hanabi/platform-owned, not afterhours' | **17** |
 | **Entries WRONG or overtaken by events** | **9 found here, 4 already known** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
@@ -346,7 +346,7 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Thirteen families cover 110 of the 198 entries.** Fix the canonical one and the
+**Thirteen families cover 120 of the 217 entries.** Fix the canonical one and the
 rest either close or shrink to a footnote — 41 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
@@ -364,7 +364,7 @@ to fix.
 | **Text input vs text area** | **#67** | #17, #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
 | **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #337 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. |
 | **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. |
-| **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). |
+| **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60, #465–#474 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). #465–#474 are the verified bundle/LaunchServices/UserNotifications/CoreSpotlight follow-up, including its measured costs and platform-gated proof. |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
 | **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
 | **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259, #380, #381 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, its best diagnostic is unregistered, a handler cannot own its own timeout message (#380 — and #113 is that same overwrite from the other side), and the directory mode runs a whole suite in one process with no reset between scripts (#381). #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
@@ -414,10 +414,11 @@ Two more that read as gaps and are not, and belong on the same shelf:
   (`with_skip_hover_override()`), and the entry should not be read as
   criticism of the fix.
 
-And the entries that are **hanabi's**, not afterhours': **#19**, **#20** (icon
+And the entries that are **hanabi/platform-owned**, not afterhours': **#19**, **#20** (icon
 atlas resources), **#21** (the app's own screenshot harness), **#27b**
 (`spawn_status` overflows `spawn_card` — the app's width math), **#108** and
-**#114** (`gen_icons.py`). All six sit in the same numbered series as real
+**#114** (`gen_icons.py`), plus the bundle/LaunchServices/UserNotifications/
+CoreSpotlight findings **#465–#474**. They sit in the same numbered series as
 library gaps and read as asks; they are not.
 
 ---
@@ -711,6 +712,16 @@ correction narrows them rather than closing them.
 | 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
 | 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
+| 465 | Bundle identity comes from Info.plist, not the executable path | FIXED | HIGH | S | app (fixed) |
+| 466 | TLS bundle retained absolute Homebrew dylib paths; self-containment costs 5,628 KB | FIXED | HIGH | S | app (fixed) |
+| 467 | The linker's ad-hoc signature did not seal the assembled app/resources | FIXED | HIGH | XS | app (fixed) |
+| 468 | A declared URL scheme is inert until explicit LaunchServices registration | FIXED | HIGH | S | app (fixed) |
+| 469 | Notification authorization is user-controlled; Aspen reports denied | PLATFORM-GATED | — | — | platform |
+| 470 | Async first-run authorization can race and drop the first event | FIXED | MED | S | app (fixed) |
+| 471 | Foreground presentation and request sound are separate switches | FIXED | MED | XS | app (fixed) |
+| 472 | Default CoreSpotlight cannot persist batch state or enumerate prior ids | FIXED | HIGH | M | app (fixed) |
+| 473 | CoreSpotlight accepted the item; three mdquery predicates still returned 0 | PLATFORM-GATED | LOW | — | platform |
+| 474 | A bundled headless executable still has the real bundle id | FIXED | CRIT | XS | app (fixed) |
 
 ---
 

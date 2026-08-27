@@ -42,6 +42,7 @@
 #include "util/stress.h"
 #include "util/notify_events.h"
 #include "util/quiet_hours.h"
+#include "util/spotlight_catalog.h"
 #include "version.h"
 #include "ui_context.h"
 #include "ui/inline_image.h"
@@ -495,6 +496,7 @@ static void app_frame() {
         // windowed-only, install-once path. Idempotent; headless never reaches
         // here so no global listener lingers after a --screenshot capture.
         native_hotkey_install();
+        native_notifications_start();
         // Phase G extra: install the hanabi:// URL / Apple-event handler so a
         // tapped Spotlight result (hanabi://thread/<id>) opens that thread.
         // Windowed-only + install-once, same as the hotkey.
@@ -511,7 +513,20 @@ static void app_frame() {
         // manually. Ignored when unset; never runs on the headless path.
         if (const char* nt = std::getenv("HANABI_NOTIFY_TEST"); nt && *nt) {
             native_notify("hanabi: thread needs you",
-                          "Click to open this thread", nt);
+                          "Click to open this thread", nt,
+                          Settings::get().get_notification_sound());
+        }
+        if (const char* sid = std::getenv("HANABI_SPOTLIGHT_TEST"); sid && *sid) {
+            if (std::string(sid) == "clear") {
+                native_spotlight_sync(nullptr, 0);
+            } else {
+                const std::string url =
+                    "hanabi://thread/" + hanabi::spotlight::path_segment(sid);
+                const NativeSpotlightItem item{
+                    sid, "Hanabi Spotlight verification",
+                    "Local-only packaged-app indexing check", url.c_str()};
+                native_spotlight_sync(&item, 1);
+            }
         }
     }
 
@@ -707,25 +722,23 @@ static void app_frame() {
                 if (ecs::model::in_blocked_view(s)) ++blocked;
             menubar_set_blocked(blocked);
 
-            // Phase G extra: donate threads to Spotlight (CoreSpotlight). Only
-            // does real work when running from the .app bundle (native_extras
-            // gates on a non-nil bundle identifier); the bare dev binary stays
-            // a no-op. Re-index only when the session set actually changes — a
-            // cheap signature (count + concatenated id hash) gates it so we
-            // don't re-donate every frame. Screenshot runs never reach here.
-            {
+            if (app.listState == ecs::LoadState::Loaded &&
+                app.backend_label != "mock" && app.backend_label != "none") {
+                const auto catalog = hanabi::spotlight::make_catalog(app.sessions);
+                const size_t sig = hanabi::spotlight::signature(catalog);
+                static bool indexed = false;
                 static size_t lastIndexSig = 0;
-                size_t sig = app.sessions.size() * 1000003u;
-                for (const auto& s : app.sessions)
-                    sig = sig * 1000003u +
-                          std::hash<std::string>{}(s.id) +
-                          std::hash<std::string>{}(s.title);
-                if (sig != lastIndexSig) {
+                if (!indexed || sig != lastIndexSig) {
+                    std::vector<NativeSpotlightItem> native_items;
+                    native_items.reserve(catalog.size());
+                    for (const auto& item : catalog) {
+                        native_items.push_back({item.id.c_str(), item.title.c_str(),
+                                                item.preview.c_str(), item.url.c_str()});
+                    }
+                    native_spotlight_sync(native_items.data(),
+                                          static_cast<int>(native_items.size()));
+                    indexed = true;
                     lastIndexSig = sig;
-                    for (const auto& s : app.sessions)
-                        if (!s.id.empty())
-                            native_spotlight_index(s.id.c_str(),
-                                                   s.title.c_str());
                 }
             }
 
@@ -788,7 +801,8 @@ static void app_frame() {
                     // slot the deep-link uses).
                     native_notify(isBlocked ? "A thread needs you"
                                             : "A run finished",
-                                  pick->title.c_str(), pick->id.c_str());
+                                  pick->title.c_str(), pick->id.c_str(),
+                                  Settings::get().get_notification_sound());
                     lastNotifyAt = nowSec;
                 }
             }
@@ -2264,6 +2278,12 @@ int main(int argc, char* argv[]) {
     // --version prints and exits.
     if (cmdl["--version"] || cmdl["-V"]) {
         printf("hanabi %s\n", hanabi::kVersion);
+        return 0;
+    }
+    if (cmdl["--native-diagnostics"]) {
+        char status[512];
+        native_integration_status(status, sizeof(status));
+        printf("%s\n", status);
         return 0;
     }
 

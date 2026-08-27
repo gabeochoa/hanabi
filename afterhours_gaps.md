@@ -11920,3 +11920,203 @@ than a walk. Both the e2e handlers and every out-of-tree driver would stop
 walking.
 
 CLASS: MISSING
+
+---
+
+### #465 — PLATFORM, FIXED: a process path inside `Foo.app` is not an application identity; `NSBundle.bundleIdentifier` comes from the bundle manifest
+
+**What was needed.** Notifications, CoreSpotlight, and the `hanabi://` handler need one stable application identity shared across rebuilds.
+
+**Exact mechanism.** Foundation exposes the process bundle through `NSBundle.mainBundle` and its nullable `bundleIdentifier` (`Foundation.framework/Headers/NSBundle.h:23,110`). The old bare `output/hanabi.exe` returned `nil`; copying that same Mach-O into a directory named `Hanabi.app` without a real manifest does not invent an identifier.
+
+**Measured result.** Before this change the in-process diagnostic printed `bundle=none` for the developer executable. The packaged executable now prints `bundle=io.github.gabeochoa.hanabi`; `mdls` reports the same `kMDItemCFBundleIdentifier`, and the LaunchServices record's `identifier` and `codeInfoID` both match it.
+
+**Rejected approaches.** Deriving identity from `argv[0]` changes with the path. Using `com.hanabi.app` is globally generic rather than owned by this repository. Treating any non-nil bundle id as Hanabi allows a test host or repackager to write under another app's identity.
+
+**Workaround.** Fixed in the app: a checked-in Info.plist owns `io.github.gabeochoa.hanabi`, and native integrations require that exact value.
+
+**Hanabi reference.** `resources/macos/Info.plist` owns the identifier; `native_extras.mm::hanabi_is_bundled` enforces it; `main.cpp --native-diagnostics` proves bundled versus bare behavior; `scripts/verify_macos_app.sh` rejects drift.
+
+**Minimal upstream change.** None. This is application packaging, not an afterhours defect.
+
+CLASS: FIXED
+
+---
+
+### #466 — PLATFORM/PERF, FIXED: a TLS executable copied into an app kept two absolute Homebrew load commands and was not self-contained
+
+**What was needed.** `make app` must run on a Mac without the build machine's `/opt/homebrew/opt/openssl@3` tree.
+
+**Exact mechanism.** Mach-O records linked libraries in `LC_LOAD_DYLIB` and search roots in `LC_RPATH` (`usr/include/mach-o/loader.h:293,317,702-705,1227-1228`). The old bundle copied only the executable, whose two load commands named `/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib` and `libcrypto.3.dylib`.
+
+**Measured result.** The old app was 7,256 KB and failed the self-contained test with two machine-local dependencies. The packaged app is 12,884 KB: `Contents/Frameworks` costs 5,604 KB and the OpenSSL licence 16 KB. Its executable now names only `@rpath/libssl.3.dylib` and `@rpath/libcrypto.3.dylib`; libssl's own crypto dependency is also `@rpath`. The self-containment costs **5,628 KB**.
+
+**Rejected approaches.** Requiring Homebrew on the destination is not self-contained. Static linking changes the build and licence surface. A shell launcher that sets `DYLD_LIBRARY_PATH` makes `CFBundleExecutable` a script and moves the failure into process startup.
+
+**Workaround.** Fixed in packaging: copy both dylibs, rewrite ids and load commands, add `@executable_path/../Frameworks`, then sign the rewritten bytes.
+
+**Hanabi reference.** `scripts/package_macos_app.sh` lines 17-45 perform the relocation; `scripts/verify_macos_app.sh` rejects `/opt/homebrew`, `/usr/local`, and `/Users` load paths; `make verify-app` is the gate.
+
+**Minimal upstream change.** None. afterhours does not own Hanabi's TLS dependencies.
+
+CLASS: FIXED
+
+---
+
+### #467 — PLATFORM, FIXED: the compiler's ad-hoc signature covered the Mach-O, not the assembled app or its resources
+
+**What was needed.** A locally verifiable bundle seal and an identifier bound to the complete app, without claiming Developer ID distribution or notarization.
+
+**Exact mechanism.** Mach-O carries an `LC_CODE_SIGNATURE` command (`usr/include/mach-o/loader.h:318,1248`), but the linker signs only the executable it emits. Before packaging, `codesign -dv` said `Identifier=hanabi.exe`, `Info.plist=not bound`, `Sealed Resources=none`; `codesign --verify --deep --strict Hanabi.app` failed: `code has no resources but signature indicates they must be present`.
+
+**Measured result.** The rebuilt bundle reports `Identifier=io.github.gabeochoa.hanabi`, `Signature=adhoc`, `TeamIdentifier=not set`, and `Sealed Resources version=2 ... files=11`. Strict deep verification takes **0.24 s** on Aspen. This proves local integrity only.
+
+**Rejected approaches.** Preserving the linker's signature fails after `install_name_tool`. `codesign --deep` alone before rewriting libraries seals bytes that are then changed. Describing ad-hoc signing as trusted, Developer ID, or notarized would be false.
+
+**Workaround.** Fixed in packaging: sign each relocated dylib, then the executable, then the final bundle; verify after all mutations.
+
+**Hanabi reference.** `scripts/package_macos_app.sh` lines 26-46 order the mutations and signatures; `scripts/verify_macos_app.sh` verifies and prints the explicit `local ad-hoc only` scope.
+
+**Minimal upstream change.** None. A future release process may replace the ad-hoc identity with a real Developer ID and notarization, but this task cannot claim those credentials.
+
+CLASS: FIXED
+
+---
+
+### #468 — PLATFORM, FIXED: declaring a URL scheme in Info.plist does not make a build artifact a LaunchServices handler until it is registered
+
+**What was needed.** A Spotlight result's `hanabi://thread/<id>` URL must resolve back to Hanabi, and install/update/remove must not hide system-state changes inside `make app`.
+
+**Exact mechanism.** LaunchServices registers an application URL through `LSRegisterURL` (`LaunchServices.framework/Headers/LSInfo.h:248-261`). The bundle's `CFBundleURLTypes` is data LaunchServices reads; writing the plist alone does not insert the handler into its database.
+
+**Measured result.** Explicit registration took **0.05 s**. The database then contained the exact app path, identifier, `claimed schemes: hanabi:`, and claim id `io.github.gabeochoa.hanabi.thread`. Install was exercised twice at the same destination, then uninstall removed it; no stale process remained.
+
+**Rejected approaches.** Registering as a side effect of `make app` makes a build mutate user state. Depending on Finder/open's incidental registration makes tests order-dependent. Blind `rm -rf ~/Applications/Hanabi.app` can remove an unrelated app with the same filename.
+
+**Workaround.** Fixed with explicit `register-app`/`unregister-app` and `install-app`/`uninstall-app` targets. Replacement and removal require the exact bundle id.
+
+**Hanabi reference.** `scripts/manage_macos_app.sh::require_hanabi` and actions at lines 22-55 implement the reversible path; `makefile` exposes the four targets; `docs/macos-bundle.md` names every side effect.
+
+**Minimal upstream change.** None. Registration belongs to the app installer.
+
+CLASS: FIXED
+
+---
+
+### #469 — PLATFORM-GATED: modern notifications have a durable authorization state, and this machine has denied Hanabi
+
+**What was needed.** Replace deprecated `NSUserNotificationCenter` with `UNUserNotificationCenter` without prompting from tests or pretending delivery succeeded when permission is denied.
+
+**Exact mechanism.** The API is asynchronous: request authorization at `UNUserNotificationCenter.h:53`, read settings at `:60`, and distinguish not-determined, denied, authorized, and provisional at `UNNotificationSettings.h:12-26,60`. Ephemeral authorization is explicitly unavailable on macOS at line 26.
+
+**Measured result.** A real windowed launch from the registered bundle reached the platform in the first frame and reported `notification authorization status=denied` **7 ms after the URL handler installed**. No delivery error was fabricated and no banner was claimed. The same call from the bare unit executable reports `non-bundled` and performs no platform request.
+
+**Rejected approaches.** Falling back to deprecated notifications bypasses the chosen modern contract. Re-requesting after denial cannot override the user's system choice. Changing Notification Center preferences programmatically would be an unauthorized system mutation.
+
+**Workaround.** None for denied permission. The app reports the state and continues normally; the user can change it in System Settings. This work is permission-gated, not broken.
+
+**Hanabi reference.** `native_extras.mm::native_notifications_start` maps the platform statuses; `main.cpp::app_frame` calls it only on the windowed path; `tests/unit/test_native_extras.mm` proves the bare path is side-effect-free; `HANABI_NOTIFY_TEST` exercises the real seam without any backend send.
+
+**Minimal upstream change.** None. Authorization is deliberately controlled by macOS and the user.
+
+CLASS: PLATFORM-GATED
+
+---
+
+### #470 — PLATFORM, FIXED: notification authorization and delivery are both asynchronous, so the first real event can race the first-run answer
+
+**What was needed.** If the first blocked/finished transition arrives while the first-run permission sheet is unresolved, it must not be silently lost.
+
+**Exact mechanism.** Both `requestAuthorizationWithOptions` and `addNotificationRequest` complete later (`UNUserNotificationCenter.h:53,63`). Calling add immediately while status is still `NotDetermined` can return before the authorization answer and reject the request.
+
+**Measured result.** On the verified run, installation, settings lookup, and Spotlight donation all completed inside the first 24 ms of the frame; authorization returned independently. The race window is therefore not theoretical even on a warm machine. Hanabi holds exactly **one** pending payload, so the bound is title + body + thread id rather than an unbounded notification queue.
+
+**Rejected approaches.** Sleeping blocks the UI and still guesses at consent timing. Dropping the first event violates the notification contract. Queueing every transition can replay a burst after a person spends minutes deciding.
+
+**Workaround.** Fixed: keep the newest one pending while status is unresolved, flush it only on authorized/provisional, and drop it on denied/error.
+
+**Hanabi reference.** `native_extras.mm::NotificationPayload`, `deliver_pending_notification`, and `native_notify` implement the one-item queue; `main.cpp` retains the existing 30-second debounce before this seam.
+
+**Minimal upstream change.** None. The asynchronous API is intentional; queue policy belongs to the app.
+
+CLASS: FIXED
+
+---
+
+### #471 — PLATFORM, FIXED: foreground presentation and request sound are separate switches in UserNotifications
+
+**What was needed.** Preserve audible notifications when enabled, silence them when disabled, and still show a banner while Hanabi is frontmost.
+
+**Exact mechanism.** Request content owns its nullable `sound` and `threadIdentifier` (`UNNotificationContent.h:115-122`), while the delegate separately chooses foreground presentation options (`UNUserNotificationCenter.h:83-86,97`). Setting one does not imply the other.
+
+**Measured result.** The old `native_notify` always attached the default sound even though Settings exposed Off/Ping. The new seam passes one boolean per event: Off creates no `UNNotificationSound`; Ping does. The delegate returns Banner + List and adds Sound only when the request carries one. Mute, quiet-hours, and the **30 s** debounce remain before the native call.
+
+**Rejected approaches.** Authorizing sound but always attaching it ignores Settings. Omitting the delegate makes foreground delivery depend on system defaults and can hide the banner. Using one notification identifier per thread would replace prior delivered requests, contrary to separate transition events.
+
+**Workaround.** Fixed in the app.
+
+**Hanabi reference.** `native_extras.mm::deliver_notification` sets sound/thread/userInfo; `HanabiNotifDelegate::willPresentNotification` mirrors the request; `main.cpp` passes `Settings::get().get_notification_sound()`; `tests/unit/test_notify_events.cpp` holds transition, mute, and debounce-adjacent selection logic.
+
+**Minimal upstream change.** None.
+
+CLASS: FIXED
+
+---
+
+### #472 — PLATFORM/PERF, FIXED: CoreSpotlight updates by identifier but does not return the previous catalog, and batching is unavailable on the default index
+
+**What was needed.** Titles/previews must update, deleted sessions must disappear, a failed refresh must not erase the last good index, and index memory/work must stay bounded.
+
+**Exact mechanism.** CoreSpotlight exposes index and delete-by-identifier at `CSSearchableIndex.h:48,53`; its durable client-state batching is explicitly unsupported for `defaultSearchableIndex` at `:71-73`. `CSSearchableItem` supplies stable unique/domain identifiers at `CSSearchableItem.h:48-65`, but no API enumerates the app's old identifiers.
+
+**Measured result.** Catalog planning over **2,500** synthetic sessions, truncating to the newest **2,000**, including UTF-8 truncation, URL encoding, dedupe, sorting, and signature, averaged **541.5 µs** over 1,000 runs at `-O2`. One real donation completed **24 ms** after the first native install log; the next sync reported `1 indexed, 1 removed`. The persisted manifest held one `thread:` id, then an explicit empty sync removed it and persisted `()`.
+
+**Rejected approaches.** `deleteAllSearchableItems` can erase unrelated future Hanabi domains. Domain-delete then re-add creates a visible empty window every refresh. Keeping prior ids only in memory leaves stale results after relaunch. Syncing mock fixtures pollutes a real user's Spotlight.
+
+**Workaround.** Fixed: newest-first 2,000-item catalog, 500-item API chunks, stable `thread:` identifiers, a bundle-scoped id manifest, delete-only-the-difference, and no sync on Loading/Error/mock.
+
+**Hanabi reference.** `src/util/spotlight_catalog.h::make_catalog` owns bound/order/metadata; `native_extras.mm::native_spotlight_sync` owns update/delete/manifest; `main.cpp` gates on `LoadState::Loaded` and a non-mock backend; `tests/unit/test_spotlight_catalog.cpp` tests bound, dedupe, UTF-8, preview, URL, and update signature.
+
+**Minimal upstream change.** A public `fetchSearchableItemIdentifiers(domain:)` or durable client state on the default index would remove the app-owned manifest. Until then the manifest is the smallest correct reconciliation state.
+
+CLASS: FIXED
+
+---
+
+### #473 — PLATFORM-GATED: CoreSpotlight accepted the item, but all three `mdquery`/`mdfind` predicates returned zero rows
+
+**What was needed.** Programmatic verification that the donated title/preview/URL is discoverable through the same metadata query tool used for file Spotlight content.
+
+**Exact mechanism.** `indexSearchableItems` exposes only an error-or-success completion (`CSSearchableIndex.h:48`). The item's searchable title, description, and URL fields exist (`CSSearchableItemAttributeSet_General.h:14,26,58`; `_Documents.h:23`), but the command-line metadata query does not promise to enumerate CoreSpotlight's private app-domain records.
+
+**Measured result.** The real completion handler reported `Spotlight catalog synced (1 indexed, 1 removed)`. Immediately afterward, exact-title, preview-text, and bundle-id `mdfind` predicates each returned **0** rows. LaunchServices and the persisted manifest independently showed the correct bundle and item id.
+
+**Rejected approaches.** Treating zero `mdfind` rows as indexing failure contradicts the API's success callback. Scraping private CoreSpotlight databases is OS-version-specific and privacy-sensitive. Creating a fake file solely so `mdfind` returns a path would test file metadata, not the donated item.
+
+**Workaround.** None for command-line visibility. Keep the successful completion as API proof and classify end-user discoverability as Spotlight-UI/index-state gated.
+
+**Hanabi reference.** `HANABI_SPOTLIGHT_TEST=<id>` in `main.cpp::app_frame` donates one local-only record; `native_extras.mm` logs completion; `docs/macos-bundle.md` records the limitation and `HANABI_SPOTLIGHT_TEST=clear` cleanup.
+
+**Minimal upstream change.** A supported command-line/CoreSpotlight diagnostic that queries an app's own domain by bundle id and unique identifier.
+
+CLASS: PLATFORM-GATED
+
+---
+
+### #474 — PLATFORM, FIXED: a headless executable run from inside the app still has the real bundle id, so bundle gating alone does not prevent side effects
+
+**What was needed.** Headless screenshots, scripted UI, unit tests, and performance gates must never request notification permission, install a global hotkey, register a drop target, or write CoreSpotlight.
+
+**Exact mechanism.** `NSBundle.mainBundle.bundleIdentifier` describes where the process came from, not whether it has a window (`NSBundle.h:23,110`). Therefore `Hanabi.app/Contents/MacOS/hanabi --screenshot ...` reports the same stable id as a windowed launch and would pass every `hanabi_is_bundled()` guard.
+
+**Measured result.** A bundled headless run with both `HANABI_NOTIFY_TEST=must-not-send` and `HANABI_SPOTLIGHT_TEST=must-not-index` produced a **102,916-byte** screenshot, emitted **0** native side-effect logs, and left a seeded Spotlight manifest exactly `thread:sentinel`. The bare native unit also remained non-bundled. The complete unit/e2e run passed **37/37**.
+
+**Rejected approaches.** Checking only the bundle id is insufficient. Checking for CI or a terminal is heuristic. Making native functions inspect `--screenshot` couples platform code to the app's argument parser and can drift as new headless modes appear.
+
+**Workaround.** Fixed at the ownership boundary: notification startup, hotkey, URL handler, file drop, and test donations are called only from `app_frame`; every headless path owns a separate loop and never reaches it. Native functions still require the exact bundle id as defense in depth.
+
+**Hanabi reference.** `main.cpp::app_frame` is the only native-start call site; `run_headless_screenshot` and `run_e2e` never call it; `tests/unit/test_native_extras.mm` proves bare no-ops; the bundled sentinel probe is documented in `docs/macos-bundle.md`.
+
+**Minimal upstream change.** None. afterhours correctly separates its windowed and headless loops; the application must keep side effects on the windowed branch.
+
+CLASS: FIXED

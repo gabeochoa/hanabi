@@ -6,9 +6,9 @@
 
 ### Already Built (don't build these again):
 1. **Global hotkey (Cmd+Shift+N)** — fully wired in `native_extras.mm`, focus-gated via NSApp notifications, brings hanabi to front + starts new task (line 41–207).
-2. **Native notifications** — `native_notify()` posts macOS NSUserNotification with thread_id deep-link; click opens thread via `native_take_open_thread()` (line 210–290).
-3. **Spotlight indexing seam** — `native_spotlight_index()` is wired (line 292–362); NO-OP in bare dev binary (no bundle ID), but ready for the bundled app build.
-4. **Spotlight deep-link handler** — `native_openurl_install()` + `native_take_open_thread()` capture `hanabi://thread/<id>` URLs (line 364–459).
+2. **Native notifications** — `native_notify()` uses `UNUserNotificationCenter`, preserves sound/debounce, and carries a thread id to the shared click/deep-link open seam. Authorization is requested only by a windowed bundled launch.
+3. **Spotlight indexing** — `native_spotlight_sync()` reconciles a bounded catalog of title, preview, and `hanabi://` URL metadata; changed identifiers update and absent identifiers are deleted.
+4. **Spotlight deep-link handler** — `native_openurl_install()` + `native_take_open_thread()` capture and decode `hanabi://thread/<id>` URLs.
 5. **Menu-bar extra** — `menubar.mm` shows "N blocked on you" glyph + count, with Show / New Task / Quit actions (line 1–162).
 
 ### Real Gaps (6 total):
