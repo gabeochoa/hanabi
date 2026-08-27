@@ -2023,8 +2023,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // two are different things wearing one glyph here until now.
         smart_item(ctx, container.ent(), 5, "pin", "\xf0\x9f\x93\x8c", "Pinned",
                    SmartView::Starred, -1, app, folded, panelW, lit);
-        // "archive" now has a real Lucide sprite in the atlas; \xe2\x96\xa4 stays as fallback.
-        smart_item(ctx, container.ent(), 6, "archive", "\xe2\x96\xa4",
+        smart_item(ctx, container.ent(), 6, "archive", "",
                    "Archived", SmartView::Archived, -1, app, folded,
                    panelW, lit);
     }
