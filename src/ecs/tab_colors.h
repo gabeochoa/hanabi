@@ -37,13 +37,13 @@ namespace tab_colors {
 // and its text: on the reference there is no recessed well behind it. On hover
 // an inactive tab gets a faint additive wash over its own fill (theme::over,
 // gap #13 — a subtle tint, never a solid block).
-inline afterhours::Color strip_bg() { return theme::window_bg(); }
+inline afterhours::Color strip_bg() { return theme::chrome::titlebar(); }
 inline afterhours::Color tab_active() {
-    return theme::chrome::selected_on(theme::window_bg());
+    return theme::chrome::selected_on(theme::chrome::titlebar());
 }
-inline afterhours::Color tab_inactive() { return theme::window_bg(); }
+inline afterhours::Color tab_inactive() { return theme::chrome::titlebar(); }
 inline afterhours::Color tab_hover() {
-    return theme::over(theme::hover_bg(), theme::window_bg());
+    return theme::over(theme::hover_bg(), theme::chrome::titlebar());
 }
 inline afterhours::Color tab_text() { return theme::text_secondary(); }
 // The pin's ink, before it is composited over whichever tab carries it.
@@ -96,7 +96,7 @@ inline afterhours::Color close_hover(afterhours::Color backdrop) {
     return theme::hover_over(backdrop);
 }
 inline afterhours::Color border() { return theme::border(); }
-inline afterhours::Color tab_outline() { return theme::divider(); }
+inline afterhours::Color tab_outline() { return theme::chrome::divider(); }
 inline afterhours::Color accent() { return theme::accent(); }
 inline constexpr float kTabCorner = theme::chrome::RADIUS;
 inline constexpr float kTabBorderPx = 1.0f;

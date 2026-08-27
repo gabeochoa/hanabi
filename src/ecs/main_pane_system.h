@@ -72,7 +72,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(r.width), pixels(r.height)})
                 .with_absolute_position()
                 .with_translate(r.x, r.y)
-                .with_custom_background(theme::panel_bg())
+                .with_custom_background(theme::chrome::content())
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_roundness(0.0f)
@@ -625,7 +625,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(46), pixels(46)})
-                .with_custom_background(theme::panel_bg_2())
+                .with_custom_background(theme::chrome::raised())
                 .with_roundness(0.5f)
                 .with_margin(Margin{.bottom = pixels(14)})
                 .with_on_draw_fg([glyph](RectangleType r) {
@@ -805,7 +805,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
-                .with_custom_background(theme::panel_bg())
+                .with_custom_background(theme::chrome::content())
                 .with_padding(Padding{.top = pixels(6), .right = pixels(24),
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("digest_scroll"));
@@ -1252,7 +1252,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // rect fill can't alpha-blend (afterhours gap #13), so pre-composite the
         // tint OVER the card surface (panel_bg_2) into an opaque color — giving
         // the intended subtle pill instead of a saturated solid block.
-        const theme::Color surface = theme::panel_bg_2();
+        const theme::Color surface = theme::chrome::raised();
         switch (t) {
             case api::ThreadTag::Blocked:
                 return theme::over(theme::tag_blocked_bg(), surface);
@@ -1289,8 +1289,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static theme::Color chip_bg(const api::SessionSummary& s) {
         if (s.tag != api::ThreadTag::None) return tag_bg(s.tag);
         if (s.state == api::ThreadState::Running)
-            return theme::over(theme::tag_ready_bg(), theme::panel_bg_2());
-        return theme::panel_bg_2();
+            return theme::over(theme::tag_ready_bg(), theme::chrome::raised());
+        return theme::chrome::raised();
     }
 
     // Renders one digest card. `emphasizeMeta` gives the subtitle/metadata a
@@ -1433,11 +1433,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(7), .right = pixels(16),
                                       .bottom = pixels(7), .left = pixels(16)})
                 .with_custom_background(onCursor
-                                            ? theme::hover_over(theme::panel_bg_2())
-                                            : theme::panel_bg_2())
-                .with_border(onCursor ? theme::accent() : theme::border(),
+                                            ? theme::hover_over(theme::chrome::raised())
+                                            : theme::chrome::raised())
+                .with_border(onCursor ? theme::accent() : theme::chrome::divider(),
                              pixels(1.0f))
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::raised()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(theme::layout::ROUNDNESS_BOX)
                 .with_debug_name("digest_card"));
@@ -1601,7 +1601,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
-                .with_custom_background(theme::panel_bg())
+                .with_custom_background(theme::chrome::content())
                 .with_padding(Padding{.top = pixels(6), .right = pixels(24),
                                       .bottom = pixels(6), .left = pixels(24)})
                 .with_debug_name("home_scroll"));

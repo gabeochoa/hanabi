@@ -24,7 +24,7 @@ static void check_mode(theme::Mode mode) {
     const auto hovered = ecs::tab_colors::tab_hover();
     const auto close = ecs::tab_colors::close_hover(active);
 
-    CHECK(same(strip, theme::window_bg()));
+    CHECK(same(strip, theme::chrome::titlebar()));
     CHECK(same(inactive, strip));
     CHECK(!same(active, inactive));
     CHECK(!same(hovered, inactive));

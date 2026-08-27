@@ -59,8 +59,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // per-widget colors. Point those at hanabi tokens so the search field's
         // inner surface blends into its pill (panel_bg_2) instead of rendering
         // as a jarring default dark-blue box, and its text uses our palette.
-        ctx.theme.secondary = theme::panel_bg_2();
-        ctx.theme.surface = theme::panel_bg_2();
+        ctx.theme.secondary = theme::chrome::raised();
+        ctx.theme.surface = theme::chrome::raised();
         ctx.theme.font = theme::text_primary();
         // The search field's placeholder colour has to be smuggled through
         // the THEME: text_input forces its own colours and ignores the
@@ -170,7 +170,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(r.width), pixels(r.height)})
                 .with_absolute_position()
                 .with_translate(r.x, r.y)
-                .with_custom_background(theme::sidebar_bg())
+                .with_custom_background(theme::chrome::sidebar())
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_roundness(0.0f)
@@ -224,7 +224,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // ScrollPanels don't hit this because they hold a SINGLE
                 // content child; only this many-direct-children panel wraps.)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_custom_background(theme::sidebar_bg())
+                .with_custom_background(theme::chrome::sidebar())
                 .with_debug_name("sidebar_scroll"));
         // Match the OS "natural scrolling" setting (see util/scroll_prefs.h).
         hanabi::apply_scroll_prefs(scroll.ent());
@@ -1215,8 +1215,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // puts hanabi's at x12..18.
                 .with_padding(Padding{.right = pixels(5),
                                       .left = pixels(7)})
-                .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Clickable but NOT a keyboard-focus stop: afterhours parks
                 // initial focus on the first focusable element and paints its
@@ -1272,7 +1272,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(24), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_hover_bg(theme::hover_over(
-                    theme::sidebar_bg()))
+                    theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
@@ -1390,7 +1390,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(r.width), pixels(1)})
                 .with_absolute_position()
                 .with_translate(0.0f, top)
-                .with_custom_background(theme::divider())
+                .with_custom_background(theme::chrome::divider())
                 .with_roundness(0.0f)
                 .with_render_layer(2)
                 .with_debug_name("sb_footer_rule"));
@@ -1484,7 +1484,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_absolute_position()
                     .with_translate(cx - 11.0f, top + 3.0f)
                     .with_transparent_bg()
-                    .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_skip_tabbing(true)
@@ -1526,7 +1526,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(1), pixels(h)})
                 .with_absolute_position()
                 .with_translate(x, 0.0f)
-                .with_custom_background(theme::divider())
+                .with_custom_background(theme::chrome::divider())
                 .with_roundness(0.0f)
                 // Above the status bar (5) and the tab strip (6) so the rule is
                 // unbroken top to bottom; below the row menu (kMenuLayer).
@@ -1538,8 +1538,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return ComponentConfig{}
             .with_label(label)
             .with_size(ComponentSize{pixels(26), pixels(26)})
-            .with_custom_background(theme::sidebar_bg())
-            .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+            .with_custom_background(theme::chrome::sidebar())
+            .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
             .with_custom_text_color(theme::text_secondary())
             .with_font_size(FontSize::Medium)
             .with_alignment(TextAlignment::Center)
@@ -1559,8 +1559,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return ComponentConfig{}
             .with_label(" ")
             .with_size(ComponentSize{pixels(28), pixels(28)})
-            .with_custom_background(theme::sidebar_bg())
-            .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+            .with_custom_background(theme::chrome::sidebar())
+            .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
             .with_cursor(afterhours::ui::CursorType::Pointer)
             .with_click_activation(ClickActivationMode::Press)
             .with_roundness(0.3f)
@@ -1636,8 +1636,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // either, because the rect fill cannot alpha-blend (gap #13) and would
         // render it as an opaque black outline.
         theme::Color fieldFill =
-            searchHot ? theme::hover_over(theme::panel_bg_2())
-                      : theme::panel_bg_2();
+            searchHot ? theme::hover_over(theme::chrome::raised())
+                      : theme::chrome::raised();
         theme::Color fieldBorder =
             searchFocused ? theme::focus_ring() : fieldFill;
         // Field width in pixels: the wrap's content box minus the filter
@@ -1658,7 +1658,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(3), .right = pixels(4),
                                       .bottom = pixels(3), .left = pixels(4)})
                 .with_custom_background(fieldFill)
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::raised()))
                 .with_border(fieldBorder,
                              pixels(searchFocused ? 1.5f : 1.0f))
                 .with_corner_radius(theme::chrome::RADIUS)
@@ -1737,7 +1737,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(18), pixels(20)})
                     .with_transparent_bg()
-                    .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::LG)
                     .with_alignment(TextAlignment::Center)
@@ -1765,7 +1765,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(24), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
@@ -1782,7 +1782,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg([fg = hidingAuto ? theme::accent()
                                                   : theme::text_faint()](
                                      RectangleType r) {
-                    hanabi::glyph::filter_rules(r, fg, theme::panel_bg_2());
+                    hanabi::glyph::filter_rules(r, fg, theme::chrome::raised());
                 })
                 .with_debug_name("sb_search_filter"));
         if (filt) {
@@ -1906,8 +1906,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(kCountRightPad),
                                       .bottom = pixels(5),
                                       .left = pixels(kSbInset)})
-                .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_settings"));
@@ -1954,7 +1954,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     SmartView lit) {
         bool active = lit == view;
         const theme::Color selectedFill =
-            theme::chrome::selected_on(theme::sidebar_bg());
+            theme::chrome::selected_on(theme::chrome::sidebar());
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
                 // Unfolded: the FILL is shorter than the row's pitch. The
@@ -1994,10 +1994,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                                                kSvFillTop),
                                     .left = pixels(0)})
                 .with_custom_background(active ? selectedFill
-                                               : theme::sidebar_bg())
+                                               : theme::chrome::sidebar())
                 .with_custom_hover_bg(active ? selectedFill
                                              : theme::hover_over(
-                                                   theme::sidebar_bg()))
+                                                   theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Puffin's selected row runs the full width -- x0..278, the
                 // whole sidebar -- but its corners are ROUNDED, not square:
@@ -2459,8 +2459,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(4),
                                       .right = pixels(kCountRightPad),
                                       .bottom = pixels(4), .left = pixels(10)})
-                .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
                 .with_debug_name("folder_head"));
@@ -2735,8 +2735,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                           .bottom = pixels(2),
                                           .left = pixels(kRowLeftInset + kGlyphW +
                                                          kRowTitlePad)})
-                    .with_custom_background(theme::sidebar_bg())
-                    .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                    .with_custom_background(theme::chrome::sidebar())
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::ROW)
                     .with_alignment(TextAlignment::Left)
@@ -2842,8 +2842,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(kCountRightPad),
                                       .bottom = pixels(6),
                                       .left = pixels(kRowLeftInset)})
-                .with_custom_background(theme::sidebar_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
+                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Open on RELEASE, not press. afterhours withholds a click
                 // whose press moved past the drag threshold, but only on the
@@ -2864,7 +2864,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 if (row.ent().has<afterhours::HasColor>())
                     row.ent()
                         .get<afterhours::HasColor>()
-                        .set(theme::hover_over(theme::sidebar_bg()));
+                        .set(theme::hover_over(theme::chrome::sidebar()));
             }
         }
 
@@ -2887,8 +2887,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_on_draw_fg([mark, rowHot](RectangleType rect) {
                     draw_mark(rect, mark,
-                              rowHot ? theme::hover_over(theme::sidebar_bg())
-                                     : theme::sidebar_bg());
+                              rowHot ? theme::hover_over(theme::chrome::sidebar())
+                                     : theme::chrome::sidebar());
                 })
                 .with_debug_name("row_glyph"));
 
@@ -3071,8 +3071,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
                                 ctx.mouse_was_in_subtree(row.ent().id);
             const theme::Color chip = rowHot
-                ? theme::hover_over(theme::sidebar_bg())
-                : theme::sidebar_bg();
+                ? theme::hover_over(theme::chrome::sidebar())
+                : theme::chrome::sidebar();
             std::string sid = s.id;
             auto star = button(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
