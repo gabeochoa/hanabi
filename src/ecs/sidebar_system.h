@@ -1594,9 +1594,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // twenty rows are not worth one.
                 .with_padding(Padding{
                     .top = pixels(kSbSearchH - kSbFieldH - 1.0f),
-                                      .right = pixels(0),
-                                      .bottom = pixels(0),
-                                      .left = pixels(kSbInset)})
+                    .right = pixels(kSbInset),
+                    .bottom = pixels(0),
+                    .left = pixels(kSbInset)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("sb_search_wrap"));
@@ -1622,6 +1622,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             s_searchInputId !=
                 std::numeric_limits<afterhours::EntityID>::max() &&
             ctx.has_focus(s_searchInputId);
+        const bool hidingAuto = app.collapsedFolders.count(kHideAutoKey) > 0;
         // Fill: MEASURED off the reference at (36,36,48) — a step above the
         // window colour, i.e. this one IS a filled control. (The composer's
         // input and chips are outlines on the window colour; the sidebar's
@@ -1646,7 +1647,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // sits OUTSIDE it, glyph on x259..274. So: the pill, then a 5px gap,
         // then the filter's 24px box hard against the sidebar's right edge --
         // which is what centres its glyph on the reference's 266.5.
-        float fieldW = panelW - kSbInset - 30.0f;
+        float fieldW = panelW - 2.0f * kSbInset;
         if (fieldW < 60.0f) fieldW = 60.0f;
         auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
@@ -1654,13 +1655,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(3), .right = pixels(6),
+                .with_padding(Padding{.top = pixels(3), .right = pixels(4),
                                       .bottom = pixels(3), .left = pixels(4)})
                 .with_custom_background(fieldFill)
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_border(fieldBorder,
                              pixels(searchFocused ? 1.5f : 1.0f))
-                .with_roundness(0.3f)
+                .with_corner_radius(theme::chrome::RADIUS)
                 .with_debug_name("sb_search"));
         s_searchFieldId = field.ent().id;
         spacer_x(ctx, field.ent(), 9, 6.0f);
@@ -1701,15 +1702,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // so a narrow sidebar never yields a negative/zero width.
         bool hasQuery = !app.searchQuery.empty();
         const float kSearchSlot = 20.0f;  // per fixed sibling (icon / clear-×)
-        float searchInner = fieldW - 10.0f;             // field content box
-        float searchTextW = searchInner - kSearchSlot;  // minus magnifier slot
-        if (hasQuery) searchTextW -= kSearchSlot;        // minus clear-× slot
+        float searchInner = fieldW - 8.0f;
+        float searchTextW = searchInner - kSearchSlot - 24.0f;
+        if (hasQuery) searchTextW -= kSearchSlot;
         // Clamp so the text field never exceeds the pill's inner box (else the
         // NoWrap search row overflows + churns solve_violations). Prefer 40px,
         // but if the field is genuinely tiny (a sub-usable sidebar width), fall
         // back to the actual remaining width so it still can't overflow.
         if (searchTextW < 40.0f)
-            searchTextW = std::max(12.0f, searchInner - kSearchSlot -
+            searchTextW = std::max(12.0f, searchInner - kSearchSlot - 24.0f -
                                               (hasQuery ? kSearchSlot : 0.0f));
         auto searchRes = afterhours::text_input::text_input(
             ctx, mk(field.ent(), 2), app.searchQuery,
@@ -1758,9 +1759,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // are drawn as quiet metadata, and this hides them outright. The state
         // rides the collapsedFolders sentinel set for the same reason the VIEWS
         // fold does — AppComponent is shared and this is one boolean.
-        const bool hidingAuto = app.collapsedFolders.count(kHideAutoKey) > 0;
-        spacer_x(ctx, wrap.ent(), 3, 5.0f);
-        auto filt = button(ctx, mk(wrap.ent(), 2),
+        spacer_x(ctx, field.ent(), 4, 4.0f);
+        auto filt = button(ctx, mk(field.ent(), 5),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(24), pixels(20)})
@@ -1782,7 +1782,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg([fg = hidingAuto ? theme::accent()
                                                   : theme::text_faint()](
                                      RectangleType r) {
-                    hanabi::glyph::filter_rules(r, fg, theme::sidebar_bg());
+                    hanabi::glyph::filter_rules(r, fg, theme::panel_bg_2());
                 })
                 .with_debug_name("sb_search_filter"));
         if (filt) {
