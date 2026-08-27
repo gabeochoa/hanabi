@@ -70,6 +70,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
              it != app.pane().openSession->messages.rend(); ++it) {
             if (it->id == app.optimisticSendId) {
                 it->sync = st;
+                const std::size_t index =
+                    app.pane().openSession->messages.size() - 1 -
+                    static_cast<std::size_t>(std::distance(
+                        app.pane().openSession->messages.rbegin(), it));
+                app.pane().note_transcript_update(index);
                 return;
             }
         }
@@ -137,7 +142,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // so "last 5 interacted with" stays accurate on every open/switch.
             if (auto hit = app.transcriptCache.get(id)) {
                 pane.openSession = std::move(*hit);
-                pane.note_transcript_change();
+                pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
                 pane.transcriptError.clear();
                 pane.transcriptLoadingId.clear();  // nothing loading now
@@ -198,7 +203,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptState != LoadState::Loaded) {
                 app.transcriptCache.put(*disk);
                 pane.openSession = std::move(*disk);
-                pane.note_transcript_change();
+                pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
                 pane.transcriptError.clear();
                 pane.hasMoreOlder = pane.openSession->has_more_older;
@@ -223,7 +228,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // (the user may have switched tabs during a slow fetch).
                     if (pane.selectedId == r.value.summary.id) {
                         pane.openSession = std::move(r.value);
-                        pane.note_transcript_change();
+                        pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
                         pane.transcriptError.clear();
                         pane.hasMoreOlder = pane.openSession->has_more_older;
@@ -507,9 +512,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                 std::to_string(app.pane().openSession->messages.size());
                         um.text = userText;
                         um.created_at = r.value.created_at;
+                        const std::size_t first =
+                            app.pane().openSession->messages.size();
                         app.pane().openSession->messages.push_back(std::move(um));
                         app.pane().openSession->messages.push_back(r.value);
-                        app.pane().note_transcript_change();
+                        app.pane().note_transcript_append(first, 2);
                         app.transcriptCache.put(*app.pane().openSession);
                     }
                 } else {
@@ -616,8 +623,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         static_cast<int64_t>(std::time(nullptr));
                     um.sync = api::SyncState::Persisting;
                     app.optimisticSendId = um.id;
+                    const std::size_t first =
+                        app.pane().openSession->messages.size();
                     app.pane().openSession->messages.push_back(std::move(um));
-                    app.pane().note_transcript_change();
+                    app.pane().note_transcript_append(first, 1);
                     app.pane().scrollBottomPending = id;  // keep the new bubble in view
                 }
             }
@@ -645,6 +654,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         // Fallback: if the optimistic bubble wasn't recorded
                         // (e.g. the thread was switched at dispatch), reconstruct
                         // the user turn so the transcript still reads complete.
+                        const std::size_t first =
+                            app.pane().openSession->messages.size();
                         if (app.optimisticSendId.empty()) {
                             api::Message um;
                             um.role = api::Role::User;
@@ -657,7 +668,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             app.pane().openSession->messages.push_back(std::move(um));
                         }
                         app.pane().openSession->messages.push_back(r.value);
-                        app.pane().note_transcript_change();
+                        app.pane().note_transcript_append(
+                            first,
+                            app.pane().openSession->messages.size() - first);
                         app.transcriptCache.put(*app.pane().openSession);
                     }
                     api::disk_cache::outbox_remove(app.sendSessionId, userText);
@@ -751,6 +764,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (it->text != prompt) continue;
             it->sync = api::SyncState::Persisting;
             app.optimisticSendId = it->id;
+            const std::size_t index =
+                app.pane().openSession->messages.size() - 1 -
+                static_cast<std::size_t>(std::distance(
+                    app.pane().openSession->messages.rbegin(), it));
+            app.pane().note_transcript_update(index);
             return true;
         }
         return false;
@@ -765,6 +783,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (it->sync == api::SyncState::None) continue;
             if (it->text != prompt) continue;
             it->sync = st;
+            const std::size_t index =
+                app.pane().openSession->messages.size() - 1 -
+                static_cast<std::size_t>(std::distance(
+                    app.pane().openSession->messages.rbegin(), it));
+            app.pane().note_transcript_update(index);
             return;
         }
     }
@@ -778,7 +801,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (it->sync == api::SyncState::None) continue;
             if (it->text != prompt) continue;
             msgs.erase(it);
-            app.pane().note_transcript_change();
+            app.pane().note_transcript_reset();
             return;
         }
     }
@@ -806,6 +829,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (!app.pane().openSession) return;
         const std::string id = app.pane().openSession->summary.id;
         if (app.outboxRetry.count_for(id) == 0) return;
+        const std::size_t firstAdded =
+            app.pane().openSession->messages.size();
         for (const auto& e : app.outboxRetry.entries()) {
             if (e.sessionId != id) continue;
             bool present = false;
@@ -827,6 +852,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.pane().note_transcript_change();
             app.pane().scrollBottomPending = id;
         }
+        const std::size_t added =
+            app.pane().openSession->messages.size() - firstAdded;
+        if (added != 0) app.pane().note_transcript_append(firstAdded, added);
     }
 
     void drive_outbox(AppComponent& app) {
@@ -1134,7 +1162,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (app.pane().selectedId == r.value.summary.id &&
                         !app.pane().loadingOlder && !app.livePending) {
                         app.pane().openSession = r.value;
-                        app.pane().note_transcript_change();
+                        app.pane().note_transcript_reset();
                         app.pane().transcriptState = LoadState::Loaded;
                         app.pane().transcriptError.clear();
                         app.pane().hasMoreOlder = app.pane().openSession->has_more_older;
@@ -1178,8 +1206,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         reconcile_optimistic(app, r.value);
         app.transcriptCache.put(r.value);
         save_and_trim(app, r.value);
+        const std::size_t previousCount =
+            app.pane().openSession
+                ? app.pane().openSession->messages.size()
+                : 0;
+        const bool prepended =
+            fromLoadOlder && r.value.messages.size() > previousCount;
+        const std::size_t added =
+            prepended ? r.value.messages.size() - previousCount : 0;
         app.pane().openSession = std::move(r.value);
-        app.pane().note_transcript_change();
+        if (prepended) app.pane().note_transcript_prepend(added);
+        else app.pane().note_transcript_reset();
         app.pane().transcriptState = LoadState::Loaded;
         app.pane().transcriptError.clear();
         app.pane().hasMoreOlder = app.pane().openSession->has_more_older;
@@ -1403,12 +1440,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         std::to_string(app.pane().openSession->messages.size());
                 um.text = prompt;
                 um.created_at = got.finalMsg.created_at;
+                const std::size_t first =
+                    app.pane().openSession->messages.size();
                 app.pane().openSession->messages.push_back(std::move(um));
 
                 api::Message assistant = got.finalMsg;
                 assistant.text.clear();  // starts empty; fills as we drain.
                 app.pane().openSession->messages.push_back(assistant);
-                app.pane().note_transcript_change();
+                app.pane().note_transcript_append(first, 2);
                 app.streamMsgIndex = app.pane().openSession->messages.size() - 1;
 
                 app.streamActive = true;
@@ -1473,22 +1512,21 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (drained > 0)
             app.streamPhase = AppComponent::StreamPhase::Streaming;
 
-        // Rewrite the live Assistant bubble's text with what we have so far.
-        app.pane().openSession->messages[app.streamMsgIndex].text = app.streamBuffer;
-        app.pane().note_transcript_change();
+        api::Message& live =
+            app.pane().openSession->messages[app.streamMsgIndex];
+        live.text = app.streamBuffer;
 
-        // --- DONE ---
         if (app.streamCursor >= app.streamQueue.size()) {
-            // Finalize: stamp the real id/created_at, ensure the full text is
-            // in place, refresh the cache so a re-open shows the complete turn.
-            api::Message& live = app.pane().openSession->messages[app.streamMsgIndex];
             live.text = app.streamFinal.text;
             if (!app.streamFinal.id.empty()) live.id = app.streamFinal.id;
             if (app.streamFinal.created_at != 0)
                 live.created_at = app.streamFinal.created_at;
+            app.pane().note_transcript_update(app.streamMsgIndex);
             app.transcriptCache.put(*app.pane().openSession);
             app.streamPhase = AppComponent::StreamPhase::Done;
             reset_stream(app, /*keepPhase=*/true);
+        } else {
+            app.pane().note_transcript_update(app.streamMsgIndex);
         }
     }
 

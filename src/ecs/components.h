@@ -136,6 +136,8 @@ struct Pane {
                                   std::size_t first, std::size_t count) {
         const std::uint64_t base = transcriptMutation.revision;
         transcriptMutation = {base, base + 1, kind, first, count};
+        ++transcriptVersion;
+        if (transcriptVersion == 0) transcriptVersion = 1;
     }
 
     void note_transcript_reset() {
@@ -248,10 +250,7 @@ struct Pane {
     std::uint64_t transcriptVersion = 1;
     hanabi::find_memo::Memo findMemo;
 
-    void note_transcript_change() {
-        ++transcriptVersion;
-        if (transcriptVersion == 0) transcriptVersion = 1;
-    }
+    void note_transcript_change() { note_transcript_reset(); }
 
     // Is this pane showing a thread at all?
     bool has_thread() const { return openSession.has_value(); }
