@@ -866,24 +866,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return c;
     }
 
-    // ---- status mark (shape + tone, straight from the shared model) -------
-    // EVERY row gets a leading indicator slot of the same size, so no row
-    // looks unlabeled. WHICH mark a row wears is not decided here: the pure,
-    // headlessly-tested ecs::model::mark_for owns the whole rule (see the long
-    // note there), and this file only knows how to draw the five shapes and
-    // what the three tones are worth in pixels. The sidebar used to hold a
-    // second, richer mapping of its own that re-derived the model's answer —
-    // two rules for one question, and the one the reader saw was the one the
-    // tests did not cover.
-    //
-    // The shapes and the three hues are Puffin's, measured off
-    // ref/01_home.png: an open arc while a run is live, a bang when the thread
-    // wants you, a cross when it died, a chevron on a settled thread that
-    // opens, a dot for everything else.
-    using Glyph = ecs::model::Glyph;
-    using Mark = ecs::model::Mark;
+    // ---- status mark -------------------------------------------------------
+    enum class SidebarGlyph { Running, Blocked, Done, Idle };
     static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
     static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
+    static constexpr theme::Color kGlyphDone{126, 210, 150, 255};
     static constexpr theme::Color kGlyphCalm{146, 146, 171, 255};
     // The sub-agent count's two colours, both measured off the reference
     // capture (docs/visual-parity/ref/01_home.png) the way the glyph colours
@@ -1020,13 +1007,27 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // brighter. The eye does not report "nine levels dim"; inkdiff.py does.
     static constexpr theme::Color kRowTitleFg{247, 247, 255, 255};
 
-    // Tone -> ink. The three colours the marks are drawn in, and the only
-    // place the model's meanings become pixels.
-    static theme::Color mark_color(ecs::model::Tone t) {
-        switch (t) {
-            case ecs::model::Tone::Alert: return kGlyphAlert;
-            case ecs::model::Tone::Live: return kGlyphActive;
-            case ecs::model::Tone::Calm: break;
+    static SidebarGlyph sidebar_glyph(const api::SessionSummary& s) {
+        if (s.tag == api::ThreadTag::Blocked ||
+            s.tag == api::ThreadTag::Failed ||
+            s.state == api::ThreadState::Attention)
+            return SidebarGlyph::Blocked;
+        if (s.state == api::ThreadState::Running ||
+            s.state == api::ThreadState::Working)
+            return SidebarGlyph::Running;
+        if (s.tag == api::ThreadTag::Done ||
+            s.tag == api::ThreadTag::Review ||
+            s.state == api::ThreadState::Ready)
+            return SidebarGlyph::Done;
+        return SidebarGlyph::Idle;
+    }
+
+    static theme::Color mark_color(SidebarGlyph glyph) {
+        switch (glyph) {
+            case SidebarGlyph::Running: return kGlyphActive;
+            case SidebarGlyph::Blocked: return kGlyphAlert;
+            case SidebarGlyph::Done: return kGlyphDone;
+            case SidebarGlyph::Idle: return kGlyphCalm;
         }
         return kGlyphCalm;
     }
@@ -1077,11 +1078,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kBangDotY = 5.26f;
     static constexpr float kBangDotH = 2.28f;
     static constexpr float kDotR = 3.4f;
-    static constexpr float kCrossH = 3.0f;
-    static constexpr float kCrossT = 1.6f;
-    static constexpr float kChevH = 3.6f;
-    static constexpr float kChevW = 2.0f;
-    static constexpr float kChevT = 1.6f;
+    static constexpr float kCheckT = 1.8f;
 
     // Where the mark's centre sits relative to the slot's own. Puffin draws it
     // above the row's midline and right of a 13px slot's centre; both are
@@ -1094,12 +1091,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // and a fringe pre-mixed against the wrong colour is a visible halo. The
     // row's own fill changes under the pointer, so the caller passes it rather
     // than this assuming the sidebar's.
-    static void draw_mark(RectangleType rect, Mark m, theme::Color bg) {
+    static void draw_mark(RectangleType rect, SidebarGlyph glyph,
+                          theme::Color bg) {
         const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
         const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
-        const theme::Color c = mark_color(m.tone);
-        switch (m.shape) {
-            case Glyph::Arc: {
+        const theme::Color c = mark_color(glyph);
+        switch (glyph) {
+            case SidebarGlyph::Running: {
                 // The gap is at the TOP, and this is the one thing in the
                 // glyph column that was not a pixel-nudge: hanabi drew the gap
                 // in the LOWER LEFT, so the mark read as a hook where the
@@ -1120,7 +1118,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                               -49.0f, 240.0f, 28, c);
                 break;
             }
-            case Glyph::Dot: {
+            case SidebarGlyph::Idle: {
                 // draw_circle_v truncates its centre to int (gap #78), which
                 // at this size lands the dot half a pixel off and reads as a
                 // lumpy polygon. A zero-inner-radius ring segment is the same
@@ -1129,7 +1127,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                               360.0f, 28, c);
                 break;
             }
-            case Glyph::Bang: {
+            case SidebarGlyph::Blocked: {
                 // The most common mark in the list -- six of the eighteen
                 // visible rows -- and it was carrying twice the reference's
                 // ink: three hard columns at full strength where the reference
@@ -1153,29 +1151,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                        c, bg);
                 break;
             }
-            case Glyph::Cross: {
-                const float h = hanabi::viewport::px(kCrossH);
-                afterhours::draw_line_ex(afterhours::vec2{cx - h, cy - h},
-                                         afterhours::vec2{cx + h, cy + h},
-                                         hanabi::viewport::px(kCrossT), c);
-                afterhours::draw_line_ex(afterhours::vec2{cx + h, cy - h},
-                                         afterhours::vec2{cx - h, cy + h},
-                                         hanabi::viewport::px(kCrossT), c);
-                break;
-            }
-            case Glyph::Chevron: {
-                // Two strokes to a vertex on the right, NOT the filled
-                // triangle hanabi::glyph::chevron draws for folder headers:
-                // the reference's row chevron is a stroked ">" and a solid
-                // wedge at this size reads as a play button. Drawn here rather
-                // than shared, because the folder one is deliberately filled.
-                const float h = hanabi::viewport::px(kChevH);   // half-height, measured
-                const float w = hanabi::viewport::px(kChevW);   // half-width
-                const afterhours::vec2 top{cx - w, cy - h};
-                const afterhours::vec2 tip{cx + w, cy};
-                const afterhours::vec2 bot{cx - w, cy + h};
-                afterhours::draw_line_ex(top, tip, hanabi::viewport::px(kChevT), c);
-                afterhours::draw_line_ex(tip, bot, hanabi::viewport::px(kChevT), c);
+            case SidebarGlyph::Done: {
+                const float u = hanabi::viewport::px(1.0f);
+                afterhours::draw_line_ex(
+                    afterhours::vec2{cx - 4.0f * u, cy},
+                    afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u},
+                    kCheckT * u, c);
+                afterhours::draw_line_ex(
+                    afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u},
+                    afterhours::vec2{cx + 5.0f * u, cy - 4.0f * u},
+                    kCheckT * u, c);
                 break;
             }
         }
@@ -2960,11 +2945,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          const api::SessionSummary& s,
                                          AppComponent& app, bool archived,
                                          float panelW) {
-        // The row's state mark, straight from the shared model. No row-local
-        // adjustment: a title-shaped exception here (the "-tick" one that used
-        // to live at this line) is a status decided by a filename, and it
-        // outranked the thread's real state.
-        Mark mark = ecs::model::mark_for(s);
+        const SidebarGlyph mark = sidebar_glyph(s);
 
         // ---- STABLE row hover (fixes the "star hover flashes the whole row")
         // The trailing star is a real clickable child of the row, and hot is a
@@ -3024,8 +3005,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool rowClicked = pointer_click(ctx, row.ent());
         bool starClicked = false;
 
-        // Status glyph slot: a small transparent box whose foreground draw
-        // paints the shape-per-status glyph. Nothing is drawn when calm.
+        // Status glyph slot.
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
