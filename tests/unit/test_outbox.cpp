@@ -214,6 +214,27 @@ static void test_restore_does_not_reset_a_backoff() {
     CHECK(r.next(1001, anywhere) == nullptr);
 }
 
+static void test_retry_now_reuses_the_durable_entry() {
+    std::printf("test_outbox_retry_now_reuses_the_durable_entry\n");
+    api::outbox::Retry r;
+    auto anywhere = [](const std::string&) { return true; };
+    r.restore(store({{"s1", "hello"}}));
+    const api::outbox::Entry* first = r.next(0, anywhere);
+    CHECK(first != nullptr);
+    if (!first) return;
+    r.attempted(*first);
+    r.failed("s1", "hello", 100);
+    CHECK(r.next(101, anywhere) == nullptr);
+    CHECK(r.retry_now("s1", "hello"));
+    CHECK(r.size() == 1);
+    const api::outbox::Entry* immediate = r.next(101, anywhere);
+    CHECK(immediate != nullptr);
+    if (!immediate) return;
+    r.attempted(*immediate);
+    CHECK(!r.retry_now("s1", "hello"));
+    CHECK(r.size() == 1);
+}
+
 static void test_a_hand_resend_does_not_double_send() {
     std::printf("test_outbox_a_hand_resend_does_not_double_send\n");
     api::outbox::Retry r;
@@ -244,6 +265,7 @@ int main(int argc, char** argv) {
     test_a_failed_send_is_retried();
     test_one_dead_thread_does_not_starve_the_others();
     test_restore_does_not_reset_a_backoff();
+    test_retry_now_reuses_the_durable_entry();
     test_a_hand_resend_does_not_double_send();
 
     unsetenv("HANABI_CACHE_DIR");

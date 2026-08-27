@@ -844,6 +844,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
+        if (!app.requestRetryPrompt.empty() &&
+            !app.requestRetrySessionId.empty()) {
+            const std::string id = std::move(app.requestRetrySessionId);
+            const std::string prompt = std::move(app.requestRetryPrompt);
+            app.requestRetrySessionId.clear();
+            app.requestRetryPrompt.clear();
+            if (!app.outboxRetry.holds(id, prompt))
+                api::disk_cache::outbox_add(id, prompt);
+            app.outboxRetry.retry_now(id, prompt);
+        }
+
         if (app.outboxRetry.empty()) return;
         restore_outbox_bubbles(app);
 

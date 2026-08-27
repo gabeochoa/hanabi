@@ -192,6 +192,18 @@ class Retry {
         entries_.push_back(Entry{sessionId, prompt, attempts, 0});
     }
 
+    bool retry_now(const std::string& sessionId, const std::string& prompt) {
+        if (inFlight_ && inFlightId_ == sessionId && inFlightPrompt_ == prompt)
+            return false;
+        for (auto& e : entries_) {
+            if (e.sessionId != sessionId || e.prompt != prompt) continue;
+            e.notBefore = 0;
+            return true;
+        }
+        entries_.push_back(Entry{sessionId, prompt, 0, 0});
+        return true;
+    }
+
     // How many unconfirmed prompts are held for one thread.
     std::size_t count_for(const std::string& sessionId) const {
         std::size_t n = 0;
