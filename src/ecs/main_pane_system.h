@@ -518,12 +518,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 const std::string& caption) {
         auto wrap = div(ctx, mk(parent, 81),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(120)})
+                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::Center)
-                .with_padding(Padding{.top = pixels(48)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_loading"));
@@ -557,11 +556,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      const std::string& text) {
         div(ctx, mk(parent, 80),
             preset::EmptyStateText(text)
-                .with_size(ComponentSize{percent(1.0f), pixels(60)})
-                .with_padding(Padding{.top = pixels(20), .right = pixels(18),
-                                      .bottom = pixels(8), .left = pixels(18)})
+                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
+                .with_padding(Padding{.right = pixels(28),
+                                      .left = pixels(28)})
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
-                .with_alignment(TextAlignment::Left)
+                .with_alignment(TextAlignment::Center)
                 .with_debug_name("main_note"));
     }
 
@@ -3519,9 +3519,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_align_items(AlignItems::Center)
-                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_justify_content(JustifyContent::Center)
                     .with_padding(Padding{.right = pixels(18),
-                                          .bottom = pixels(28),
                                           .left = pixels(18)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
