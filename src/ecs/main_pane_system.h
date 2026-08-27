@@ -295,8 +295,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---- Which pane is being built right now -------------------------------
     // Everything down to the per-message painters takes `Pane&` explicitly.
-    // The five leaves below the message loop (live_query, paint_query_for,
-    // fold_mode and the two that call them) do not: they are reached fifteen
+    // The leaves below the message loop (paint_query_for, fold_mode and the
+    // functions that call them) do not: they are reached fifteen
     // signatures deep, and every one of them ALREADY reached for a global --
     // app_singleton() -- to answer the same question. So the global they reach
     // for is narrowed rather than added to: not "the app", but "the pane whose
@@ -3071,17 +3071,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ---------------- Find in conversation ---------------------------------
-    // Case-insensitive substring search over the open thread. Matching runs on
-    // the message text as stored; the highlight below re-searches each RENDERED
-    // line, so a match split across a markdown marker is counted here and not
-    // painted. Both are honest about the same text — see the note on
-    // highlight_ranges.
-    static std::vector<size_t> find_all(const std::string& hay,
-                                        const std::string& needle) {
-        return textscan::occurrences(hay, needle);
-    }
-
     // ---- What find can actually paint --------------------------------------
     //
     // The count and the highlight must agree. The highlight is drawn per
@@ -3195,67 +3184,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // The remaining exception is a match in the folded tail of a long message,
     // which is at least reachable by a click on the fold rather than by
     // nothing at all.
-    struct Match {
-        int msg = 0;
-        size_t off = 0;
-    };
-    static std::vector<Match> collect_matches(const api::Session& s,
-                                              const find_ops::Query& q) {
-        std::vector<Match> out;
-        if (q.text.empty() || q.invalid) return out;
-        for (size_t i = 0; i < s.messages.size(); ++i) {
-            const auto& m = s.messages[i];
-            // Tool rows and system captions are not highlighted, so they are
-            // not counted. Same rule as everything else here: if it cannot be
-            // painted, it does not exist to the tally.
-            if (m.role != api::Role::User && m.role != api::Role::Assistant)
-                continue;
-            // Reasoning is not the conversation. A thinking block is the
-            // model talking to itself on the way to the answer, it arrives
-            // folded, and its body is drawn by a path that carries no
-            // highlight — so a match in it could be counted and never shown.
-            // Skipped here AND in paint_query_for, which is what keeps every
-            // counted match a match find would paint if it were on screen.
-            if (is_thinking(m)) continue;
-            // An operator excludes the row from the tally and from the
-            // painting through this one test, so the two cannot disagree.
-            if (!find_ops::row_matches(s, i, q)) continue;
-            const bool rich = (m.role != api::Role::User);
-            for (const auto& line : paintable_lines(m, rich))
-                for (size_t off : find_all(line, q.text))
-                    out.push_back(Match{static_cast<int>(i), off});
-        }
-        return out;
-    }
+    using Match = hanabi::find_memo::Match;
 
-    // The query as it stands this frame, parsed. Cheap enough to redo per row
-    // (a handful of tokens) and that keeps the parse next to its use instead
-    // of in a cache that can go stale mid-frame.
-    static find_ops::Query live_query() {
-        const Pane* p = painting_pane();
-        if (p == nullptr || !p->findOpen) return find_ops::Query{};
-        return find_ops::parse(p->findQuery);
+    static const std::vector<Match>& collect_matches(
+        Pane& pane, const api::Session& s, const find_ops::Query& q,
+        float wrapWidth, std::uint64_t foldRevision) {
+        const auto before = pane.findMemo.stats();
+        hanabi::find_memo::PaintPolicy policy;
+        policy.wrap_width = wrapWidth;
+        policy.fold_long_messages = fold_long_messages();
+        policy.show_reasoning = show_reasoning();
+        policy.fold_revision = foldRevision;
+        const auto& out = pane.findMemo.collect(
+            s, pane.transcriptVersion, q, policy,
+            [](const api::Message& m, bool rich) {
+                return paintable_lines(m, rich);
+            });
+        const auto after = pane.findMemo.stats();
+        hanabi::prof::tick("find.memo_hit",
+                           after.result_hits - before.result_hits);
+        hanabi::prof::tick("find.memo_miss",
+                           after.result_misses - before.result_misses);
+        hanabi::prof::tick("find.message_work",
+                           after.message_work - before.message_work);
+        hanabi::prof::tick("find.normalize",
+                           after.normalized - before.normalized);
+        hanabi::prof::tick("find.normalize_reused",
+                           after.normalized_reused - before.normalized_reused);
+        hanabi::prof::gauge("find.memo_entries", pane.findMemo.entries());
+        return out;
     }
 
     // What find should paint inside message `index` — the query's text, or
     // nothing at all when an operator has excluded that row.
     static std::string paint_query_for(int index) {
         const Pane* p = painting_pane();
-        if (p == nullptr || !p->findOpen || !p->openSession)
+        if (p == nullptr || !p->findOpen || p->findQuery.empty() ||
+            !p->openSession)
             return std::string();
-        const find_ops::Query q = live_query();
+        const find_ops::Query& q = p->findMemo.query();
         if (q.invalid || q.text.empty()) return std::string();
-        const auto& msgs = p->openSession->messages;
-        // The other half of the rule above. A thinking block normally draws
-        // through render_thinking_block, which paints no bands at all — but a
-        // reasoning message that is still STREAMING renders as an ordinary
-        // bubble, and that path would paint. Answering "nothing" here means
-        // the two states agree with each other and with the tally.
-        if (static_cast<size_t>(index) < msgs.size() &&
-            is_thinking(msgs[static_cast<size_t>(index)]))
-            return std::string();
-        if (!find_ops::row_matches(*p->openSession,
-                                   static_cast<size_t>(index), q))
+        if (!p->findMemo.row_is_paintable(static_cast<std::size_t>(index)))
             return std::string();
         return q.text;
     }
@@ -3594,6 +3563,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const auto& msgs = pane.openSession->messages;
         const int n = static_cast<int>(msgs.size());
+        const find_ops::Query findQ =
+            pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
+        static const std::vector<Match> noMatches;
+        const std::vector<Match>* matches = &noMatches;
+        if (pane.findOpen) {
+            hanabi::prof::Scope _pfind("find.collect");
+            matches = &collect_matches(pane, *pane.openSession, findQ, colW,
+                                       app.findFoldVersion);
+            if (pane.findIndex >= static_cast<int>(matches->size()))
+                pane.findIndex = 0;
+        }
+        pane.findCount = static_cast<int>(matches->size());
 
         // ---- Where the reader left off -------------------------------------
         // The first message newer than the stamp saved when this thread was
@@ -3817,20 +3798,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::gauge("items.spawn", nSpawn);
             hanabi::prof::gauge("items.thinking", nThink);
         }
-        // ---- Find in conversation: matches + scroll-to-match ---------------
-        // Recomputed each frame from the query. Cheap (a substring scan of the
-        // loaded window) and it keeps the count honest as a stream appends.
-        const find_ops::Query findQ =
-            pane.findOpen ? find_ops::parse(pane.findQuery) : find_ops::Query{};
-        std::vector<Match> matches;
-        if (pane.findOpen && !findQ.text.empty()) {
-            hanabi::prof::Scope _pfind("find.collect");
-            matches = collect_matches(*pane.openSession, findQ);
-            if (pane.findIndex >= static_cast<int>(matches.size()))
-                pane.findIndex = 0;
-        }
-        pane.findCount = static_cast<int>(matches.size());
-
         // ---- Virtualization: read last frame's scroll to skip off-screen. --
         float scrollY = 0.0f;
         float viewH = listH;
@@ -3878,9 +3845,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // message's measured height, so the y of the message holding the match
         // is the sum of the heights before it; a third of a viewport of lead-in
         // puts it comfortably inside the pane rather than flush at the top.
-        if (pane.findScrollPending && !matches.empty() &&
+        if (pane.findScrollPending && !matches->empty() &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const int target = matches[static_cast<size_t>(pane.findIndex)].msg;
+            const int target =
+                (*matches)[static_cast<size_t>(pane.findIndex)].msg;
             float y = subH;
             for (const auto& it : items) {
                 if (it.lo == target ||
@@ -6523,21 +6491,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // An operator that excludes this row excludes it here too: unfolding
         // a message find will not highlight would open it for nothing.
         if (app && app->pane().findOpen &&
-            message_has_match(m, paint_query_for(index)))
+            app->pane().findMemo.message_has_match(
+                static_cast<std::size_t>(index)))
             return false;
         const std::string mkey =
             m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
         return !(app && app->expandedMsgs.count(mkey) != 0);
-    }
-
-    static bool message_has_match(const api::Message& m,
-                                  const std::string& q) {
-        if (q.empty()) return false;
-        if (m.role != api::Role::User && m.role != api::Role::Assistant)
-            return false;
-        for (const auto& line : paintable_lines(m, m.role != api::Role::User))
-            if (!textscan::occurrences(line, q).empty()) return true;
-        return false;
     }
 
     // TEMPORARY (HANABI_PROBE_MEASURE=1): read back the height the LAYOUT
@@ -8021,6 +7980,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (fbtn.ent().get<afterhours::ui::HasClickListener>().down) {
                 if (expanded) app->expandedMsgs.erase(mkey);
                 else app->expandedMsgs.insert(mkey);
+                ++app->findFoldVersion;
             }
         }
         message_actions(ctx, asstBubble.ent(), turn.ent(),

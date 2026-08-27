@@ -18,6 +18,7 @@
 #include "../api/client.h"
 #include "../api/outbox.h"
 #include "../settings.h"
+#include "../search/find_memo.h"
 #include "transcript_cache.h"
 
 namespace ecs {
@@ -216,6 +217,13 @@ struct Pane {
     // Set when the current match changes; the transcript scrolls it into view
     // on the next frame it lays out, then clears this.
     bool findScrollPending = false;
+    std::uint64_t transcriptVersion = 1;
+    hanabi::find_memo::Memo findMemo;
+
+    void note_transcript_change() {
+        ++transcriptVersion;
+        if (transcriptVersion == 0) transcriptVersion = 1;
+    }
 
     // Is this pane showing a thread at all?
     bool has_thread() const { return openSession.has_value(); }
@@ -426,6 +434,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // rendered vertex/entity count — a long message no longer blows up RAM).
     // The set holds the message ids that are expanded; default folded.
     std::set<std::string> expandedMsgs;
+    std::uint64_t findFoldVersion = 1;
 
     // Transcript: which THINKING blocks the reader has opened. Reasoning is
     // real content but it is not the answer, so it arrives folded and is

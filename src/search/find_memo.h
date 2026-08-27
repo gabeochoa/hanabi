@@ -92,6 +92,14 @@ class Memo {
             have_query_ = true;
             ++query_generation_;
         }
+        if (query_.invalid || query_.text.empty()) {
+            matches_.clear();
+            row_paintable_.assign(session.messages.size(), false);
+            row_has_match_.assign(session.messages.size(), false);
+            result_content_version_ = content_version;
+            have_result_ = true;
+            return matches_;
+        }
         if (!have_corpus_ || corpus_content_version_ != content_version) {
             sync(session, std::forward<Normalize>(normalize));
             corpus_content_version_ = content_version;
