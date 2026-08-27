@@ -225,14 +225,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case SmartView::Blocked:
                 render_digest(ctx, content.ent(), *app, "Blocked on you",
                               r.width, contentH, ecs::model::in_blocked_view,
-                              "Nothing is waiting on you. \xf0\x9f\x8e\x89",
-                              /*singleState=*/true);
+                              "Nothing is waiting on you. \xf0\x9f\x8e\x89");
                 break;
             case SmartView::Review:
                 render_digest(ctx, content.ent(), *app, "Ready for review",
                               r.width, contentH, ecs::model::in_review_view,
-                              "No threads are ready for review yet.",
-                              /*singleState=*/true);
+                              "No threads are ready for review yet.");
                 break;
             case SmartView::Starred:
                 render_digest(ctx, content.ent(), *app, "Pinned", r.width,
@@ -746,18 +744,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---------------- Digest views (Blocked / Review / Starred) ------------
-    // `singleState`: this view contains exactly ONE state (Blocked / Review), so
-    // the header already names it and a per-card chip + "waiting on you" sub-line
-    // on every row is the same fact three times (same redundancy Wave 6 killed
-    // for Home's grouped sections). When true, cards render in grouped mode:
-    // no chip, just the discriminating age, collapsed to a dense single row.
-    // Starred is genuinely MIXED (any state can be starred) so it stays false.
     template <typename Pred>
     void render_digest(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const std::string& title,
                        float paneW, float paneH, Pred pred,
-                       const std::string& emptyMsg = "Nothing here right now.",
-                       bool singleState = false) {
+                       const std::string& emptyMsg = "Nothing here right now.") {
         // Reused across frames so the collection costs no allocation once the
         // catalog has been seen at its largest. clear() keeps the capacity;
         // the old local vector malloc'd a pointer per matching session on
@@ -813,7 +804,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::AllocScope _a("digest.pitch.allocs");
             for (const auto* s : rows)
                 pitches_.push_back(
-                    digest::card_pitch(*s, singleState, subScratch_));
+                    digest::card_pitch(*s, false, subScratch_));
         }
 
         float viewH = 0.0f, offsetY = 0.0f, targetY = 0.0f;
@@ -869,7 +860,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // measured that at +180 live blocks per 1000 frames on the sidebar.
         for (int k = win.first; k < win.last; ++k)
             digest_card(ctx, wrap, ++i, *rows[static_cast<size_t>(k)], app,
-                        false, cardW, singleState, /*trackCursor=*/false);
+                        false, cardW, false, /*trackCursor=*/false);
         card_spacer(ctx, wrap, 91, win.below);
 
         cardsBuilt_ = i;
