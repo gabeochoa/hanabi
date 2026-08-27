@@ -1,6 +1,6 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is ~10,900 lines and 198 entries, written by dozens of
+`afterhours_gaps.md` is ~12,000 lines and 212 numbered headings, written by dozens of
 agents over several days. As a record it is good. As a work queue it is
 unusable: you cannot see what matters, what is one change, what is the same
 finding filed four times, and what has already been fixed under it.
@@ -18,15 +18,16 @@ only sorts, weighs, groups and corrects them.
 
 | | |
 |---|---|
-| Numbered headings in the file | **193** |
-| Distinct gap numbers | **183** (nine numbers are used twice, one three times — §5) |
+| Numbered headings in the file | **212** |
+| Distinct gap numbers | **201** (nine numbers are used twice, one three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **202** — one per heading, nothing dropped |
-| Standalone live asks | **123** |
-| Live but subsumed into a family canonical | **44** (§3) |
+| **Rows in the triage table (§6)** | **213** |
+| Standalone live asks | **130** |
+| Live but subsumed into a family canonical | **47** (§3) |
 | Already fixed upstream | **9** |
-| Deliberate NEGATIVE results — do not promote | **11** (§4) |
-| hanabi's own, not afterhours' | **7** |
+| Deliberate NEGATIVE results — do not promote | **12** (§4) |
+| hanabi's own, not afterhours' | **10** |
+| Entries marked wrong | **5** |
 | **Entries WRONG or overtaken by events** | **9 found here, 4 already known** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
@@ -356,14 +357,14 @@ to fix.
 | Family | Canonical | Also filed as | The one mechanism |
 |---|---|---|---|
 | **Widget lifetime** | **#115** | #171, #162, #163, #220, #146, #160, AN-9 | Nothing retires an entity, so identity is the slot, the library's own entities are invisible, a scroll view clamps against children that are not there, and an exit animation has nothing to animate. #160 is the *cost* of the fix; #146 is how you would gate it. |
-| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42 | No content sizing and no prefix/count query, so every consumer re-derives metrics the layout already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Twelve entries; **filed independently by at least six agents**, the latest (#340) three weeks after the first. |
+| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42, #435, #436, #437 | No content sizing and no reusable draw-layout artifact, so every consumer re-derives metrics and byte geometry the renderer already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Fifteen entries; filed independently by at least six agents. |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
 | **Virtualization** | **#326** | #23, #170, #31a, #224, #220, #147 | `virtual_list` divides by one row height. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. |
 | **Alpha and antialiasing** | **#92** | #13, #15, #106, #96 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4). |
 | **Text input vs text area** | **#67** | #17, #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
 | **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #337 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. |
-| **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. |
+| **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44, #438 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. #438 records the visible rich-text remainder after find collection stopped scaling with the thread. |
 | **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
 | **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
@@ -659,6 +660,7 @@ correction narrows them rather than closing them.
 | 351 | `fonsSetErrorCallback` exists and is never registered | MISSING | CRIT | XS | **live — top 10** |
 | 352 | The 2048² atlas is a build-time constant of the library | MISSING | HIGH | XS | **live — top 10** |
 | 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** |
+| 365 | Find-in-conversation normalized every loaded message every frame | PERFORMANCE | HIGH | M | app (fixed) |
 | 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live |
 | 220 | A scroll view's viewport is zero on frame one | SHARP EDGE | MED | XS | wrong |
 | 221 | `with_label` takes `const std::string&` | TEDIOUS | MED | XS | dup→#180 |
@@ -711,6 +713,10 @@ correction narrows them rather than closing them.
 | 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
 | 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
+| 435 | Plain wrapped labels rebuild their line vectors on every draw | PERFORMANCE | HIGH | M | dup→#340 |
+| 436 | Styled labels independently rebuild nested wrapped runs on every draw | PERFORMANCE | HIGH | M | dup→#340 |
+| 437 | The renderer exposes no byte-to-rectangle layout map for find bands | MISSING | HIGH | M | dup→#51 |
+| 438 | Visible rich text still reparses markdown and copies configs every frame | PERFORMANCE | — | — | app |
 
 ---
 
