@@ -7394,6 +7394,12 @@ by hand against a viewport, and a section header has to carry the true count
 because the rows no longer do. And it is a high-water mark, not a fix: a user
 who visits one big screen still pays for it for the rest of the session.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's original claim that app-side deletion was impossible is stale; the postscript and current source show the public map plus mk shadowing workaround shipped.
+
+**Hanabi reference.** `src/ui/widget_epoch.h` (`EntityID -> the epoch that last built it. 0 == not ours.`) — Hanabi stamps widgets created through its mk wrapper and tracks built/live/stale/unstamped counts. `src/ecs/widget_retire_system.h::retire_stale(hanabi::widget_epoch::grace_frames())` — A frame-top system advances the epoch and sweeps stale widgets. Tests: `tests/unit/test_widget_retire.cpp::the_map_never_points_at_a_dead_entity` — Unit coverage pins the two-part retire invariant: erase the mk map and destroy the entity. Measurement/gate: `scripts/retire_gate.sh` (`sweep on 168 159 0 1.06`) — Gate comments record the measured live/built separation with the sweep on and off.
+
+
 **Minimal upstream fix.** A frame stamp and a sweep. `mk()` already touches
 every live element -- write the current frame number onto the entity when it
 does. At end of frame, retire entities whose stamp is older than N frames (N a
@@ -7514,6 +7520,10 @@ that demonstrates the case the binary search provably cannot get right. Roughly
 300 lines and a documented correctness caveat, to do what one library call
 should do exactly and in one pass.
 
+
+**Hanabi reference.** `src/util/ellipsize.h` (`fit_to_width(const std::string& text, float maxW`) — Hanabi implements the app-side O(log n) ellipsis helper with the documented kerning caveat. Tests: `tests/unit/test_ellipsize.cpp` (`reference_fit(const std::string& text, float maxW`) — Differential tests compare the fast helper with the old linear reference over synthetic rulers. Measurement/gate: `docs/perf/TEXT.md` (`measure calls per ellipsized title (cold)`) — The text perf report records before/after per-operation counts for ellipsized titles.
+
+
 **Minimal upstream fix.** One function beside `measure_text`:
 
     // Bytes of `text` that fit in `max_width`, on a code point boundary.
@@ -7587,6 +7597,12 @@ attribute every span between process start and `FirstFrame`, so the warm-up is
 visible as its own line rather than hiding inside whichever phase happens to
 contain it. That is documentation, not a fix — the 22-35 ms is still spent.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The gap remains, but the original 5-8x/6.3-10.7 ms framing is stale: STARTUP.md says the per-frame number included sleep and is about 3x too high on CPU time.
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** A `graphics::prewarm()` that renders and discards one
 frame against the real pipeline state, callable right after `init` and before
 the app's own timer starts. Failing that, a `graphics::pipeline_cache_cold()`
@@ -7653,6 +7669,12 @@ one cost forty minutes of bisecting onto master, and an entry in this file that
 had to be retracted and rewritten because the first diagnosis (a wall-clock
 multi-click window racing a frame-counted harness) was plausible, wrong, and
 would have sent the next person into the vendor.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** Several quoted coordinates and the claim that click_text was only a proposed fix are stale. Current source has click_link for tracker links, while double/triple-clicking a text run still remains coordinate-based.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h` (`click_link <id>`) — Hanabi added a custom command that clicks the renderer-derived rect for tracker links instead of a stale coordinate. `src/ui/link_detect.h` (`painted_rects()[id] = r`) — The renderer records link rects for the e2e-only click_link command. Tests: `tests/ui/tracker_links.e2e` (`click_link D948120`) — The tracker-link script no longer pins a coordinate.
+
 
 **Minimal upstream fix.** The one in #86 -- have the capture/e2e layer report
 laid-out rects for text runs -- plus a `click_text "ledger"` command that
@@ -7800,6 +7822,10 @@ size. Nothing in a soak asserts on pixels so it does not matter here, but it
 means this arm can never be extended into a screenshot test, and it means the
 render-target half of a resize — a real cost on a real drag — stays unmeasured.
 
+
+**Hanabi reference.** `src/util/stress.h::HANABI_STRESS_RESIZE_BACKEND` — The resize stress arm defaults to layout-only and can opt back into the backend resize path to reproduce the upstream leak. Measurement/gate: `docs/perf/STRESS.md` (`layout only (default) | +0.0 KB | PASS`) — The perf report records the current workaround and the backend-resize failure slope.
+
+
 **Minimal upstream fix.** Either have `sgl_destroy_context` release the
 context's pipelines, or — better, and entirely within afterhours — stop making
 a context per render texture: `load_render_texture` creates one because it
@@ -7907,6 +7933,10 @@ same height: the arithmetic that makes it cheap is `offset / rowHeight`, and
 hanabi has to switch the whole thing off when a search snippet makes the rows
 uneven.
 
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`RowWindow row_window(Entity& parent, int limit, bool uniformHeight) const`) — The sidebar implements its own scroll-window calculation from stale viewport/offset and overscan. `src/ecs/sidebar_system.h` (`render_row_spacer(UIContext<InputAction>& ctx, Entity& parent`) — Skipped rows are represented by spacer widgets to preserve content height. Tests: `scripts/scroll_gate.sh` (`level row_window() returns the whole list`) — The scroll gate has an intentional-failure arm for disabling row windowing. Measurement/gate: `scripts/scroll_gate.sh` (`20 sessions: 364 364 364`) — The gate records entity-count scaling for virtualized vs unwindowed lists.
+
+
 **Minimal upstream fix.** A `HasVirtualList` component beside `HasScrollView`:
 the consumer sets `item_count` and `item_height`, the library resolves
 `[first, last)` from the offset it already owns AND the offset it is about to
@@ -7991,6 +8021,12 @@ destroy and recreate a row's worth of entities on every scroll frame, which is
 allocation churn where the slot scheme has none. Everything above about the
 slot being right and not free is unchanged.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The unbounded 'forever' claim is superseded by the #115 retirement sweep; slot keys still ship because row-index keys cause churn and a larger bounded working set.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`Keyed on the window SLOT, never the card index.`) — Digest-card windowing deliberately keys built cards by slot rather than by absolute card index. `src/ecs/sidebar_system.h` (`The row ids run base+1 .. base+window`) — Sidebar virtualization bounds the mk id space by the visible window slots. Tests: `scripts/scroll_gate.sh` (`row ids keyed on the row INDEX`) — The scroll gate rehearses the row-index-id defect. Measurement/gate: `scripts/scroll_gate.sh` (`blocks row ids keyed on the row INDEX`) — The script records the allocation/leak signal when the slot-key workaround is removed.
+
+
 **Minimal upstream fix.** Make recycling a thing the library knows about:
 `mk()` taking an optional stable KEY distinct from its slot, so the library can
 re-use the slot's entity while telling the consumer the key changed -- one
@@ -8040,6 +8076,10 @@ paragraph in `docs/perf/GATES.md` under "What could NOT be gated" saying which
 half of the scroll path is measured and which half is not. The cost is a
 permanent blind spot with a known shape, which is the best available outcome
 and is still a blind spot.
+
+
+**Hanabi reference.** `src/util/soak.h` (`scroll_named(const char* debugName, float dy)`) — The soak driver mutates scroll state directly rather than injecting an input event. `docs/perf/STRESS.md` (`Nothing here presses a key or opens a menu`) — Perf docs explicitly keep the input-path blind spot visible. Measurement/gate: `docs/perf/STRESS.md` (`half hanabi owns`) — The stress report distinguishes measured app-owned work from unavailable OS/input/backend paths.
+
 
 **Minimal upstream fix.** Split the injector from the harness. A tiny
 always-compiled seam -- `input::post_synthetic(Event)`, guarded at RUNTIME by a
@@ -8114,6 +8154,10 @@ rather than a measurement. The bug is real, the current symptom is not
 visible, and it gets worse in exactly the direction every app moves — more
 measurement memoized, for longer.
 
+
+**Hanabi reference.** `src/util/text_epoch.h::bump_font_epoch()` — Hanabi maintains its own font generation counter when a font name's face changes. `src/ecs/settings_system.h::tmc->clear()` — The settings font swap bumps the app epoch and clears afterhours' TextMeasureCache. Measurement/gate: `docs/perf/TEXT.md` (`live swap and a cold start in Hyperlegible produce frames 0.02% apart`) — The perf report records that the stale-cache fix is correctness-driven despite minimal visible pixel difference on fixtures.
+
+
 **Minimal upstream fix.** A generation counter on `FontManager`, bumped by
 `load_font`, and a `TextMeasureCache` that mixes it into the key or checks it
 on lookup. That is two integers and turns a silent wrong answer into a cold
@@ -8187,6 +8231,10 @@ allocations per frame, and 134 fewer allocations per bubble hug. Restating a
 vendored algorithm to get a cheaper form of its answer is a bad trade that
 was worth making.
 
+
+**Hanabi reference.** `src/util/wrap_count.h::wrapped_line_count_linear` — Hanabi restates the wrap algorithm over offsets/counts instead of materializing every line string. Tests: `tests/unit/test_wrap_count.cpp` (`vendor_lines(const std::string& s, float w`) — Differential coverage compares the counters against afterhours' wrap_text_to_width. Measurement/gate: `docs/perf/TEXT.md` (`text measurements / frame | 492.6 | **5.3**`) — Text perf docs record the before/after call and allocation reductions from the text work.
+
+
 **Minimal upstream fix.** One more overload beside `wrap_text`, sharing the
 same loop so it cannot disagree:
 
@@ -8255,6 +8303,10 @@ with `assert_ui` probes against guessed names, and the question ("which
 widget's geometry depends on the face?") went unanswered. It is a detour of
 maybe forty minutes for anyone who reads `ui_commands.h`, sees the command,
 and believes it is available.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Two lines: register the handler in
 `register_ui_commands`, and add `dump_ui` to the runner's arg-shape table
@@ -8325,6 +8377,10 @@ rather than the entity collection -- the map only contains ids the app itself
 owns right now -- but that is a second piece of reasoning bought with the
 performance.
 
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ui/widget_epoch.h` (`inline std::vector<unsigned> g_stamps`) — Hanabi uses a dense EntityID-indexed vector instead of a component for the hot frame stamp. Tests: `tests/unit/test_widget_retire.cpp` (`src/ui/widget_epoch.h puts hanabi's mk in front of afterhours`) — Unit coverage exercises the stamped mk wrapper and retirement state. Measurement/gate: `docs/perf/RETIRE.md` (`g_stamps[entity.id] = frame;`) — Retirement perf docs record the side-table stamp cost that motivated the design.
+
+
 **Minimal upstream fix.** A documented per-entity user word: `uint64_t
 Entity::user_data` (or a small `std::array<uint32_t, 2>`) in the header, next
 to `id` and `entity_type`, reserved for the app and never read by the library.
@@ -8382,6 +8438,10 @@ that is uppercased at the call site (`"Recent"` is drawn as `"RECENT"`).
 about a minute each, for three facts that were all sitting in a structure the
 harness already builds.
 
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
+
 **Minimal upstream fix.** Two lines of registration for the `dump_ui` handler,
 and raise the truncation to something that fits a screen (or drop the limit and
 let the reader scroll). Better still, print the registry on failure the way
@@ -8426,6 +8486,10 @@ counting.
 everything else, so the blind spot is visible rather than assumed
 (`src/ui/widget_epoch.h`, `Tally::unstamped`). The cost is that "we hold what
 we draw" is true of hanabi's widgets and silently approximate overall.
+
+
+**Hanabi reference.** `src/ui/widget_epoch.h` (`size_t unstamped = 0;`) — The tally distinguishes widgets made through hanabi mk from unstamped library-owned entities. `src/util/soak.h` (`%zu unstamped (library's own)`) — The soak census reports unstamped library-owned entities next to live/built/stale counts. Measurement/gate: `docs/perf/RETIRE.md` (`grep '\[soak\] widgets:'`) — The retire docs show how to reproduce the widget census that exposes the unstamped column.
+
 
 **Minimal upstream fix.** Tag them. A `LibraryOwned` marker component (or a
 reserved tag) on every entity the UI plugin creates for its own use, plus
@@ -8485,6 +8549,10 @@ retirement work and is out of its scope. It is filed because the mechanism is
 now known exactly, and because anyone who tries to fix "coming back to a screen
 loses your place" will otherwise look at the widget lifetime, which is the
 wrong place: the culprit is a measurement of an empty tree.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Do not clamp against a content size measured from
 zero children. Either skip the measure entirely when `cmp.children.empty()` (a
@@ -8575,6 +8643,12 @@ The cost of the workaround is a texture cache four times smaller than the
 byte budget would allow, sized by a constant from another library's internals
 that nothing will tell us if it changes.
 
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's 'single seam every texture' claim was stale; current source also checks the icon atlas and invalid blend pipeline path.
+
+**Hanabi reference.** `src/util/texture_budget.h` (`kDefaultMaxEntries = 32`) — Hanabi caps cached textures below the measured sampler-pool ceiling. `src/ui/decode_to_fit.h` (`reject_if_unsamplable(TextureType& tex)`) — Texture loads are rejected if afterhours returns an image/view with sampler_id 0. Tests: `tests/unit/test_texture_budget.cpp::test_the_budget_bounds_what_the_device_holds` — The cache budget policy is covered independently of GPU resources.
+
+
 **Minimal upstream fix.** Two things, neither large. (a) Check the sampler in
 `load_texture_from_pixels` the way the image and the view are already checked,
 and return an empty `TextureType` — three lines, and it converts sixty
@@ -8640,6 +8714,10 @@ profile of the hit path counts work that can never produce an answer.
 be the safe way round. The cost was diagnostic: `HANABI_LINK_AUDIT=1`
 (src/ui/link_detect.h) prints the point with the rect, and the NaN is only
 visible because that diagnostic prints misses as well as hits.
+
+
+**Hanabi reference.** Negative result: `src/ui/link_detect.h` (`const bool in = px >= r.x && px <= r.x + r.width`) — Hanabi's link hit test uses comparisons for which NaN safely evaluates as not inside. `src/ui/link_detect.h::HANABI_LINK_AUDIT` — The diagnostic logs hit/miss points and rects, including NaN points. Tests: `tests/ui/tracker_links.e2e` (`HANABI_LINK_AUDIT=1`) — The tracker-link script keeps the link audit enabled for remeasurement.
+
 
 **Minimal upstream fix.** Initialise `mouse.pos` to something a comparison can
 be reasoned about — off-screen (`{-1, -1}`) is the conventional answer — or
@@ -8708,6 +8786,12 @@ from the library.
 cannot detect. The cost is that if hanabi ever ships a font-size setting or a
 non-Latin script, the first symptom will be labels laying out at zero width and
 nothing in the app or the library will say why.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The original 'none taken' workaround claim is stale. Current source ships atlas_guard and atlas_gate; the residual partial-drop caveat remains.
+
+**Hanabi reference.** `src/util/atlas_guard.h` (`probe() asks the question directly`) — Hanabi detects a full glyph atlas by probing an uncached glyph/size and checking suspicious measurements. `src/util/soak.h::text-faults` — Soak output includes atlas fault counts. Tests: `tests/unit/test_atlas_guard.cpp::test_atlas_zero_for_a_real_string_is_a_fault` — Unit tests cover zero and non-finite measurement faults. Measurement/gate: `scripts/atlas_gate.sh` (`first bad measurement`) — The gate reports the first bad measurement and detector status.
+
 
 **Minimal upstream fix.** Three lines and a field. Call
 `fonsSetErrorCallback` in the backend's init with a handler that `log_error`s
@@ -8795,6 +8879,10 @@ the suite becomes load-dependent at once, with no error message that says so.
 
 **The workaround.** Keep `kDt` fixed and say why. Done, in main.cpp.
 
+
+**Hanabi reference.** `src/main.cpp` (`constexpr float kDt = 1.0f / 60.0f`) — Hanabi's e2e host passes a fixed timestep, making wait_frames deterministic. Tests: `tests/ui/composer_shift_enter.e2e` (`wait_frames 8`) — Current scripts depend on wait_frames semantics under the fixed-step host.
+
+
 **Minimal upstream fix.** Give `PendingCommand` a frame COUNT alongside
 `wait_seconds` and have `tick` decrement whichever the command set. A frame
 count is what the command is named after and it is exact under any dt.
@@ -8854,6 +8942,10 @@ loop, where the drain follows naturally, and its one out-of-frame texture load
 the code sits rather than by design, and nothing would catch either changing.
 The cost of the probe was an hour and a crash whose message names a static in
 another library.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** A sentence in `unload_texture`'s comment saying the
 release is deferred to the next frame, which is the whole of what a consumer
@@ -8919,6 +9011,12 @@ Cost: 3,731 → 1,426 allocations per frame at 2000 sessions (−62%), 2,721 →
 at 20 sessions (−65%), entity counts unchanged. And a permanent fork of a
 function whose semantics every other consumer relies on — if upstream changes
 what goes into the key, hanabi silently keeps the old one.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The initial 2,589/47% number is stale; current source and alloc_gate use 2,164 allocations on Home 2000 and 3,063 on thread480.
+
+**Hanabi reference.** Hanabi-owned performance finding: `src/ui/mk.h` (`widget_key(parent.id, otherID, loc)`) — Hanabi replaces afterhours mk key construction with a field hash that avoids constructing a string. `src/ui/widget_epoch.h` (`hanabi::ui::mk(parent, otherID, location)`) — The epoch wrapper routes app widgets through the fast mk implementation. Tests: `scripts/alloc_gate.sh` (`point the app's mk wrapper back at the library's`) — The allocation gate rehearses the one-line regression back to the vendored mk. Measurement/gate: `scripts/alloc_gate.sh` (`home2000 3361.0 1450`) — Gate comments record the measured allocation delta when the wrapper uses the library's mk.
+
 
 **Minimal upstream fix.** Hash the fields instead of a rendering of them:
 `hash_combine(parent.id, otherID, (uintptr_t)location.file_name(),
@@ -8997,6 +9095,10 @@ hash (#180), the wrap measurement — and left this. It is now the single
 largest remaining allocation source on the Home view and there is no app-side
 lever on it.
 
+
+**Hanabi reference.** Hanabi-owned performance finding: `scripts/alloc_gate.sh` (`home20 2550.0 827.0`) — The allocation gate records the remaining per-frame allocation ceiling after surrounding reductions.
+
+
 **Minimal upstream fix.** Take the config by reference through the whole init
 path, or move it: `overwrite_defaults(ctx, ComponentConfig&& config, ...)` and
 `merge_with_defaults` mutating `result` in place rather than copy-constructing
@@ -9049,6 +9151,12 @@ which is the only reason it is a comfortable one.
 What it does not touch is the ~430 widgets that legitimately are focusable.
 Those still cost a malloc each per frame and nothing in app code can change
 that.
+
+
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The residue estimate is stale: the postscript corrects ~430 remaining focusable nodes to about 242. The skip-tabbing workaround remains current.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::with_skip_tabbing(true)` — Minimap marks are intentionally removed from tabbing to avoid per-mark focusable-set allocations. `src/ecs/sidebar_system.h::with_skip_tabbing(true)` — Sidebar/transcript paths use skip-tabbing for widgets that should not be focus stops. Tests: `scripts/alloc_gate.sh` (`thread480 6687.0 2740.0`) — The allocation gate bounds the post-workaround allocation level on a thread-heavy screen. Measurement/gate: `docs/perf/ALLOCATIONS.md` (`with_skip_tabbing(true) takes them out`) — Allocation docs record the skipped-tabbing reduction.
+
 
 **Minimal upstream fix.** A sorted `std::vector<EntityID>` with `clear()`
 (which keeps capacity) and `push_back`, or any flat set. The access pattern is
@@ -9110,6 +9218,10 @@ viewport height in two places (the `ComponentSize` and the window call) and
 nothing checks they agree; the day someone gives the scroll a `percent()`
 height instead of `pixels(listH)`, the fallback silently becomes a guess.
 
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`if (viewH <= 0.0f) viewH = listH;`) — The digest screen substitutes the pane's own requested list height on the first unmeasured frame. `src/ecs/digest_layout.h` (`CardWindow card_window(int n, Pitch&& pitch, float viewH`) — The shared card-window helper still treats zero view height as build-all, so callers must provide the fallback. Tests: `tests/ui/digest_is_windowed.e2e` (`expect_text "digest cards 16 of 81 @ 0"`) — The UI script asserts the digest screen builds a bounded visible window and follows scroll. Measurement/gate: `docs/perf/DIGEST.md` (`digest cards 16 of 81 @ 0`) — Digest docs record the card-audit signal used to verify windowing.
+
+
 **Minimal upstream fix.** Either would do it:
 - `HasScrollView` keeps the size it was configured with, resolved or not, so a
   consumer can read `requested_size` on frame one instead of zero; or
@@ -9149,6 +9261,10 @@ the pitch pass (which needs the length, not the text) can avoid this, and then
 pays it anyway at the one call site that renders. That split is the workaround:
 **the measurement path is allocation-free and the render path is not**, which
 is fine here only because the window made the render path small.
+
+
+**Hanabi reference.** None — no app-side workaround is implemented.
+
 
 **Minimal upstream fix.** Add `with_label(std::string_view)` and
 `with_label(std::string&&)`. The config's storage is a `std::string`, so the
@@ -9192,6 +9308,10 @@ by a row, so the card count the label reports is the count for a slightly
 shorter pane. Fine for a UI test that pins its own window size; wrong for a
 gate, which is why hanabi's digest gate reads a log line instead and the label
 is only for the scripted suite.
+
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`digest_audit(UIContext<InputAction>& ctx, Entity& parent)`) — The digest audit label is rendered as a normal sized row rather than as an absolute overlay. `src/util/bounds_audit.h` (`if (c.absolute)`) — The bounds audit deliberately skips absolute children when checking parent containment. Tests: `scripts/bounds_gate.sh` (`HANABI_BOUNDS_AUDIT=1`) — The containment gate runs the bounds audit across reachable states.
+
 
 **Minimal upstream fix.** Make `with_absolute_position()` remove the child
 from the parent's flow accounting — which is what "absolute" means in every
@@ -9253,6 +9373,10 @@ is genuinely load-sensitive and is what took out an unrelated script during the
 load spike. And establishing that a failure is not yours costs a worktree, a
 submodule checkout and a full compile, every time.
 
+
+**Hanabi reference.** `src/main.cpp::runner.tick(kDt)` — The e2e host passes the runner a fixed timestep, making retry budgets deterministic in hanabi. `scripts/retire_gate.sh` (`No milliseconds anywhere`) — Gate scripts avoid wall-clock timing where possible because the shared machine is noisy. Measurement/gate: `scripts/scroll_gate.sh` (`Both scenarios terminate on a fixed frame COUNT`) — Scroll-gate comments record the fixed-count strategy used to avoid load-sensitive verdicts.
+
+
 **Minimal upstream fix.** Rename the field to `wait_frames_` and count ticks,
 or document at `tick(dt)` that the runner's determinism is the caller's
 responsibility and that a fixed step is what the harness expects. The rename is
@@ -9292,6 +9416,10 @@ the built card, so the app's two copies cannot disagree with each other — and
 a unit test (`tests/unit/test_digest_layout.cpp`) that pins the pitch to 42
 and 60 for the two card shapes. Neither can catch the library changing its
 mind; they can only make the app's own two answers the same answer.
+
+
+**Hanabi reference.** `src/ecs/digest_layout.h` (`inline float card_pitch(std::string_view sub)`) — Hanabi centralizes the hand-rolled card pitch used by both windowing and rendering. `src/ecs/main_pane_system.h::pitches_.push_back(digest::card_pitch` — The digest window computes card heights up front rather than asking the library to measure unbuilt children. Tests: `tests/unit/test_digest_layout.cpp` (`CHECK(dg::card_pitch("3h") == 42.0f)`) — Unit coverage pins the pitch for sparse and rich card shapes.
+
 
 **Minimal upstream fix.** A `measure_config(const ComponentConfig&, float
 available_w)` that runs the sizing rules without minting an entity. That is
@@ -9333,6 +9461,10 @@ every rect the hit test considered next to the point it tested:
 
 That is the precondition, after the fact, in the log of a normal run. It is
 also the mechanical re-measure that replaces the screenshot ruler.
+
+
+**Hanabi reference.** `src/ecs/e2e_commands.h::HandleRequireThreadCommand` — Hanabi added a command that waits for a named thread to be open with content and fails with the actual state. Tests: `tests/harness/precondition_not_met.e2e` (`require_thread t1`) — A harness fixture intentionally fails to prove the precondition failure text.
+
 
 **Minimal upstream fix.** `expect_point_in <element> <x> <y>`, asserting that
 the point is inside a named element's rect, would cover the general case
@@ -9424,6 +9556,10 @@ change that moves the rail 20px does not fail as "the rail moved", it fails as
 "dragging does not scrub". It also pins the window size for a reason that has
 nothing to do with what is under test, and every other pane's geometry is now
 load-bearing for a test about the minimap.
+
+
+**Hanabi reference.** `tests/ui/minimap_drag.e2e` (`mouse_down 1089 650`) — The minimap drag test still uses absolute coordinates because no element-addressed press/move exists. `src/ecs/main_pane_system.h` (`minimap_rail(UIContext<InputAction>& ctx`) — The app implements the minimap rail as an addressable UI element, but the script cannot drag it by name. Tests: `tests/ui/minimap_drag.e2e` (`expect_text "Follow-up question #0:"`) — The script asserts the drag moves the transcript while the button is held.
+
 
 **Minimal upstream fix.** `mouse_down_ui <name> [dx dy]` and `mouse_move_ui
 <name> [dx dy]`, parsed like `double_click_ui` and resolved through the same
