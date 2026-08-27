@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+
+expect_text "What can I help with?"
+expect_text "Start with a prompt or write your own below"
+click_ui welcome_chip
+wait_frames 6
+expect_input_text composer_reply_input "Draft a status update"

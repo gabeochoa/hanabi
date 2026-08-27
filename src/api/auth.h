@@ -95,6 +95,11 @@ class DeviceCodeFlow {
         verification_uri_ = fake_uri;
         state_ = State::AwaitingUser;
     }
+    void set_demo_failed(const std::string& message) {
+        error_ = message;
+        state_ = State::Failed;
+    }
+    void set_demo_expired() { state_ = State::Expired; }
 
     // Generate a RFC-4122 version-4 UUID string (std::random_device based, no
     // external dependency). Exposed for the real-run proof/logging in main.cpp.

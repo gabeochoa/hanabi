@@ -1,0 +1,11 @@
+# settings: {"window_width":800,"window_height":360,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=shortcuts
+
+resize 800 360
+wait_frames 6
+assert_ui shortcuts_panel y=24 h=312
+assert_ui shortcuts_cols h=220
+expect_text "Keyboard shortcuts"
+key ESCAPE
+wait_frames 6
+expect_no_text "Press a shortcut anywhere it applies"

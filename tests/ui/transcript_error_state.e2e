@@ -1,0 +1,6 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TRANSCRIPT_ERROR_DEMO='The conversation could not be refreshed.'
+
+require_thread t2
+expect_text "Couldn’t load this conversation"
+expect_text "The conversation could not be refreshed."

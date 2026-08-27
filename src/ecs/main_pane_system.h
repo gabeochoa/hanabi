@@ -555,15 +555,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static void note(UIContext<InputAction>& ctx, Entity& parent,
                      const std::string& text) {
-        div(ctx, mk(parent, 80),
-            preset::EmptyStateText(text)
-                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
-                .with_padding(Padding{.right = pixels(28),
-                                      .left = pixels(28)})
+        auto card = div(ctx, mk(parent, 80),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(104)})
+                .with_margin(Margin{.top = pixels(24), .right = pixels(24),
+                                    .left = pixels(24)})
+                .with_padding(Padding{.top = pixels(14), .left = pixels(16),
+                                      .bottom = pixels(14), .right = pixels(16)})
+                .with_custom_background(hanabi::surface::destructive_surface())
+                .with_border(theme::destructive(), pixels(1.0f))
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("main_error"));
+        div(ctx, mk(card.ent(), 1),
+            ComponentConfig{}
+                .with_label("Couldn\xe2\x80\x99t load this conversation")
+                .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::destructive())
+                .with_font_size(theme::type::LG)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("main_error_title"));
+        div(ctx, mk(card.ent(), 2),
+            ComponentConfig{}
+                .with_label(text.empty() ? "Try again in a moment." : text)
+                .with_size(ComponentSize{percent(1.0f), pixels(40)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
-                .with_alignment(TextAlignment::Center)
-                .with_debug_name("main_note"));
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("main_error_body"));
     }
 
     // A representative glyph (drawn shape) for a smart view's empty state.
@@ -2361,9 +2385,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // note in a tall void. Modern-chat "What can I help with?" landing.
     void render_chat_welcome(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, float paneW, float paneH) {
-        (void)paneW;
-        // The composer is rendered ONCE at the pane level (always visible), so
-        // the welcome hero just fills its content height.
+        const float chipW = std::max(180.0f, std::min(360.0f, paneW - 48.0f));
         float colH = paneH - 20.0f;
         if (colH < 120.0f) colH = 120.0f;
         auto col = div(ctx, mk(parent, 90),
@@ -2381,8 +2403,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(40), pixels(40)})
-                .with_transparent_bg()
-                .with_margin(Margin{.bottom = pixels(14)})
+                .with_custom_background(theme::over(theme::accent_soft(),
+                                                    theme::panel_bg_2()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_corner_radius(12.0f)
                 .with_on_draw_fg([](RectangleType r) {
                     hanabi::icons::draw_at("brand", r.x + r.width * 0.5f,
                                            r.y + r.height * 0.5f, 30.0f,
@@ -2392,21 +2416,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(col.ent(), 2),
             ComponentConfig{}
                 .with_label("What can I help with?")
-                .with_size(ComponentSize{pixels(360), pixels(28)})
+                .with_size(ComponentSize{pixels(chipW), pixels(28)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::H1)
                 .with_alignment(TextAlignment::Center)
-                .with_margin(Margin{.bottom = pixels(18)})
+                .with_margin(Margin{.top = pixels(14), .bottom = pixels(4)})
                 .with_roundness(0.0f)
                 .with_debug_name("welcome_greeting"));
-        // Suggestion chips — clicking one starts a new task seeded with it.
+        div(ctx, mk(col.ent(), 3),
+            ComponentConfig{}
+                .with_label("Start with a prompt or write your own below")
+                .with_size(ComponentSize{pixels(chipW), pixels(22)})
+                .with_margin(Margin{.bottom = pixels(12)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_debug_name("welcome_subtitle"));
         static const char* kChips[] = {
             "Summarize what's waiting on me",
             "What changed since I last looked?",
             "Draft a status update",
         };
-        auto chips = div(ctx, mk(col.ent(), 3),
+        auto chips = div(ctx, mk(col.ent(), 4),
             ComponentConfig{}
                 .with_size(ComponentSize{children(), children()})
                 .with_flex_direction(FlexDirection::Column)
@@ -2417,23 +2450,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("welcome_chips"));
         for (int i = 0; i < 3; ++i) {
             auto chip = button(ctx, mk(chips.ent(), 10 + i),
-                ComponentConfig{}
+                hanabi::surface::option_row(chipW, 38.0f, false, 2,
+                                            theme::panel_bg_2())
                     .with_label(kChips[i])
-                    .with_size(ComponentSize{pixels(320), pixels(34)})
-                    .with_padding(Padding{.top = pixels(6), .right = pixels(14),
+                    .with_padding(Padding{.top = pixels(6), .left = pixels(14),
                                           .bottom = pixels(6),
-                                          .left = pixels(14)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(theme::text_secondary())
+                                          .right = pixels(14)})
                     .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
                     .with_margin(Margin{.bottom = pixels(8)})
                     .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.5f)
                     .with_debug_name("welcome_chip"));
             if (chip) {
                 // Seed the LANDING composer's kickoff draft (below) instead of
@@ -3420,8 +3448,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // parity (the commit message says what that costs a reader).
 
         if (pane.transcriptState == LoadState::Error) {
-            note(ctx, parent,
-                 "Could not load transcript: " + pane.transcriptError);
+            note(ctx, parent, pane.transcriptError);
             return;
         }
         if (!pane.openSession) {

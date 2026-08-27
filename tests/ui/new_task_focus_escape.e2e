@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer
+
+type "Investigate the launch regression"
+wait_frames 8
+expect_input_text composer_input "Investigate the launch regression"
+key ESCAPE
+wait_frames 6
+expect_no_text "Start a focused conversation with your agent"

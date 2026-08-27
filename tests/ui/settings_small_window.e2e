@@ -1,0 +1,12 @@
+# settings: {"window_width":800,"window_height":360,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings
+
+resize 800 360
+wait_frames 6
+assert_ui settings_panel y=24 h=312
+assert_ui settings_body_scroll h=220
+expect_text "Settings"
+expect_text "Appearance"
+key ESCAPE
+wait_frames 6
+expect_no_text "Appearance, behavior, notifications, and local data"
