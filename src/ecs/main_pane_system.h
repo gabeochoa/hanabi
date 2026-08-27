@@ -4766,6 +4766,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // `StripMetrics.horizontalPadding`, which insets the strip inside the
         // composer's 12 and is what puts the last pill's edge at 1099 instead
         // of at the content edge.
+        const bool compactComposer = paneW < 560.0f;
+        if (compactComposer) {
+            app.modelPopoverOpen = false;
+            app.effortPopoverOpen = false;
+        }
         auto meta = div(ctx, mk(bar.ent(), 3),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(18)})
@@ -4839,57 +4844,59 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //
         // No trailing room in the box: the effort run butts straight onto it,
         // and its own 5px inset is the word space between them.
-        const std::string currentModel = Settings::get().get_default_model();
-        const std::string modelText = hanabi::models::display_name(currentModel);
-        auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
-            ComponentConfig{}
-                .with_label(modelText)
-                .with_size(ComponentSize{pixels(run_box(modelText, 0.0f)),
-                                         pixels(18)})
-                .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_alignment(TextAlignment::Left)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_debug_name("composer_model"));
-        if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
-        if (app.escape == EscapeIntent::CloseModelPicker)
-            app.modelPopoverOpen = false;
-        render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
+        if (!compactComposer) {
+            const std::string currentModel = Settings::get().get_default_model();
+            const std::string modelText = hanabi::models::display_name(currentModel);
+            auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
+                ComponentConfig{}
+                    .with_label(modelText)
+                    .with_size(ComponentSize{pixels(run_box(modelText, 0.0f)),
+                                             pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("composer_model"));
+            if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
+            if (app.escape == EscapeIntent::CloseModelPicker)
+                app.modelPopoverOpen = false;
+            render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
 
-        // The effort, parenthesised directly onto the model the way Puffin
-        // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
-        // `Text(name)` then `Text(" (\(effort))").opacity(0.7)`, which is why
-        // the reference reads "Opus 5 (high)" as a single run of words.
-        //
-        // Two widgets rather than one, because hanabi's model and effort are
-        // two SEPARATE pickers where Puffin's are one popover. Butted together
-        // and drawn a shade fainter, they are the same run of text on screen;
-        // each half still opens its own list, and `composer_effort` stays the
-        // name the effort test clicks.
-        const std::string currentEffort = Settings::get().get_default_effort();
-        const std::string effortText =
-            "(" + hanabi::effort::display_name(currentEffort) + ")";
-        auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
-            ComponentConfig{}
-                .with_label(effortText)
-                .with_size(ComponentSize{
-                    pixels(run_box(effortText, kLabelInset)), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_alignment(TextAlignment::Left)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_debug_name("composer_effort"));
-        if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
-        if (app.escape == EscapeIntent::CloseEffortPicker)
-            app.effortPopoverOpen = false;
-        render_effort_popover(ctx, parent, app, effortChip.ent(),
-                              currentEffort);
+            // The effort, parenthesised directly onto the model the way Puffin
+            // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
+            // `Text(name)` then `Text(" (\(effort))").opacity(0.7)`, which is why
+            // the reference reads "Opus 5 (high)" as a single run of words.
+            //
+            // Two widgets rather than one, because hanabi's model and effort are
+            // two SEPARATE pickers where Puffin's are one popover. Butted together
+            // and drawn a shade fainter, they are the same run of text on screen;
+            // each half still opens its own list, and `composer_effort` stays the
+            // name the effort test clicks.
+            const std::string currentEffort = Settings::get().get_default_effort();
+            const std::string effortText =
+                "(" + hanabi::effort::display_name(currentEffort) + ")";
+            auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
+                ComponentConfig{}
+                    .with_label(effortText)
+                    .with_size(ComponentSize{
+                        pixels(run_box(effortText, kLabelInset)), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("composer_effort"));
+            if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
+            if (app.escape == EscapeIntent::CloseEffortPicker)
+                app.effortPopoverOpen = false;
+            render_effort_popover(ctx, parent, app, effortChip.ent(),
+                                  currentEffort);
+        }
 
         // The tool-fold chip, at the right: how much of a tool call this
         // thread shows by default. Only where there is a thread to set it on —
@@ -4984,7 +4991,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The denominator is the session's compaction budget, or the declared
         // one for a backend that reports none; with neither, the bar is absent
         // rather than filled to something invented.
-        if (canSend && app.pane().openSession) {
+        if (!compactComposer && canSend && app.pane().openSession) {
             const api::ContextUsage& usage = app.pane().openSession->context;
             const bool counted = usage.counted();
             const int64_t tok =

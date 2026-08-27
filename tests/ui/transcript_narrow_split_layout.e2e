@@ -1,0 +1,13 @@
+# Narrow split panes keep transcript and composer controls inside the window.
+# settings: {"window_width":760,"window_height":760,"open_tabs":["r8"],"active_tab":"r8","theme":"dark","sidebar_collapsed":true}
+# env: HANABI_WIN_W=760 HANABI_WIN_H=760
+
+require_thread r8
+key CTRL+BACKSLASH
+wait_frames 24
+assert_ui split_right x=409 w=351
+assert_ui composer_row x=52 w=352
+assert_ui composer_input_wrap x=76 w=276
+assert_ui composer_send x=361 w=19 h=19 hidden=false
+assert_ui event_row x=84 w=296
+assert_ui composer_reply_input hidden=false
