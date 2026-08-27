@@ -3632,31 +3632,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // does not look like an external change and does not delete the line
         // the reader is looking at. Anything else — another window, a test
         // placing the boundary — is a real re-mark and is honoured.
-        if (!mark.unreadComputed || msgs.size() < mark.unreadSeen ||
-            lastRead != mark.unreadStamp) {
-            mark.unreadComputed = true;
-            mark.unreadStamp = lastRead;
-            mark.unreadSeen = msgs.size();
-            mark.unreadFirst = -1;
-            mark.unreadCount = 0;
-            if (lastRead > 0) {
-                for (int i = 0; i < n; ++i) {
-                    if (msgs[static_cast<size_t>(i)].created_at > lastRead) {
-                        if (mark.unreadFirst < 0) mark.unreadFirst = i;
-                        ++mark.unreadCount;
-                    }
-                }
-            }
-            // Everything new, on a thread that has been read before, means the
-            // stamp is stale rather than the whole thread being unread.
-            if (mark.unreadFirst == 0 && mark.unreadCount == n)
-                mark.unreadFirst = -1;
-        } else if (msgs.size() > mark.unreadSeen && mark.unreadFirst >= 0) {
-            // Messages arrived while it was open — they are new too, and they
-            // are appended, so the boundary index is unaffected.
-            mark.unreadCount += static_cast<int>(msgs.size() - mark.unreadSeen);
-            mark.unreadSeen = msgs.size();
-        }
+        model::update_unread(mark, msgs, lastRead, pane.transcriptMutation);
         const int firstUnread = mark.unreadFirst;
         const int unreadCount = mark.unreadCount;
 

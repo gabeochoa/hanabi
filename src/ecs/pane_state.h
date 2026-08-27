@@ -56,6 +56,7 @@
 
 #include "../ui/minimap_scrub.h"
 #include "follow_latch.h"
+#include "transcript_item_index.h"
 
 namespace ecs::model {
 
@@ -71,6 +72,8 @@ struct PaneState {
     bool unreadComputed = false;
     std::int64_t unreadStamp = 0;  // the persisted stamp it was computed from
     std::size_t unreadSeen = 0;    // message count when it was computed
+    std::uint64_t unreadRevision = 0;
+    std::int64_t unreadLastCreatedAt = 0;
     int unreadFirst = -1;
     int unreadCount = 0;
 
@@ -112,6 +115,60 @@ struct PaneState {
 
     bool worth_keeping() const { return !replyDraft.empty(); }
 };
+
+template <class Messages>
+void update_unread(PaneState& state, const Messages& messages,
+                   std::int64_t lastRead,
+                   const TranscriptMutation& mutation) {
+    const std::size_t size = messages.size();
+    bool recompute = !state.unreadComputed || lastRead != state.unreadStamp ||
+                     size < state.unreadSeen;
+    const bool mutationChanged = mutation.revision != state.unreadRevision;
+    if (mutationChanged && !recompute) {
+        if (mutation.base_revision != state.unreadRevision ||
+            mutation.kind == TranscriptMutationKind::Reset ||
+            mutation.kind == TranscriptMutationKind::Prepend) {
+            recompute = true;
+        } else if (mutation.kind == TranscriptMutationKind::Update) {
+            const bool onlyLast = mutation.count == 1 && size != 0 &&
+                                  mutation.first + 1 == size;
+            if (!onlyLast || messages.back().created_at !=
+                                 state.unreadLastCreatedAt)
+                recompute = true;
+        }
+    }
+
+    if (recompute) {
+        state.unreadComputed = true;
+        state.unreadStamp = lastRead;
+        state.unreadFirst = -1;
+        state.unreadCount = 0;
+        if (lastRead > 0) {
+            for (std::size_t i = 0; i < size; ++i) {
+                if (messages[i].created_at <= lastRead) continue;
+                if (state.unreadFirst < 0)
+                    state.unreadFirst = static_cast<int>(i);
+                ++state.unreadCount;
+            }
+        }
+        if (state.unreadFirst == 0 &&
+            state.unreadCount == static_cast<int>(size))
+            state.unreadFirst = -1;
+    } else if (mutationChanged &&
+               mutation.kind == TranscriptMutationKind::Append) {
+        const std::size_t first = std::min(mutation.first, size);
+        for (std::size_t i = first; i < size; ++i) {
+            if (messages[i].created_at <= lastRead) continue;
+            if (state.unreadFirst < 0)
+                state.unreadFirst = static_cast<int>(i);
+            ++state.unreadCount;
+        }
+    }
+
+    state.unreadSeen = size;
+    state.unreadRevision = mutation.revision;
+    state.unreadLastCreatedAt = size == 0 ? 0 : messages.back().created_at;
+}
 
 // An LRU over PaneState, keyed by PANE AND session id.
 //

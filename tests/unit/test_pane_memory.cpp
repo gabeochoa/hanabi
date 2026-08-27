@@ -262,6 +262,35 @@ static void test_same_id_content_change_invalidates_geometry() {
     CHECK(cache.changed() == 1);
 }
 
+static void test_unread_tracks_append_prepend_and_replace() {
+    std::printf("test_unread_tracks_append_prepend_and_replace\n");
+    struct M { std::int64_t created_at; };
+    std::vector<M> messages{{10}, {20}, {30}};
+    ecs::model::PaneState state;
+    ecs::model::TranscriptMutation mutation;
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == 1);
+    CHECK(state.unreadCount == 2);
+
+    messages.push_back({40});
+    mutation = {0, 1, ecs::model::TranscriptMutationKind::Append, 3, 1};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == 1);
+    CHECK(state.unreadCount == 3);
+
+    messages.insert(messages.begin(), M{5});
+    mutation = {1, 2, ecs::model::TranscriptMutationKind::Prepend, 0, 1};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == 2);
+    CHECK(state.unreadCount == 3);
+
+    messages = {{1}, {2}, {3}, {4}, {5}};
+    mutation = {2, 3, ecs::model::TranscriptMutationKind::Reset, 0, 5};
+    ecs::model::update_unread(state, messages, 15, mutation);
+    CHECK(state.unreadFirst == -1);
+    CHECK(state.unreadCount == 0);
+}
+
 int main() {
     std::printf("=== test_pane_memory ===\n");
     test_pane_state_is_bounded();
@@ -269,6 +298,7 @@ int main() {
     test_two_panes_on_one_thread_keep_their_own();
     test_render_cache_holds_both_panes();
     test_same_id_content_change_invalidates_geometry();
+    test_unread_tracks_append_prepend_and_replace();
     test_two_panes_at_two_widths_do_not_thrash();
     test_render_cache_is_still_bounded();
     if (g_failures == 0) {
