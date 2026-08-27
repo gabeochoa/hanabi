@@ -26,12 +26,12 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **237** |
-| Distinct numeric gap numbers | **228** (seven numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **240** |
+| Distinct numeric gap numbers | **231** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **245** — includes 11 index-only identifiers; #366–#373 remain unindexed |
-| Standalone live asks | **139** |
-| Live but subsumed into a family canonical | **52** (§3) |
+| **Rows in the triage table (§6)** | **248** — includes 11 index-only identifiers; #366–#373 remain unindexed |
+| Standalone live asks | **141** |
+| Live but subsumed into a family canonical | **53** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **18** (§4) |
 | hanabi/platform-owned, not afterhours' | **22** |
@@ -762,12 +762,9 @@ correction narrows them rather than closing them.
 | 482 | FlexEnd already anchors an empty-state column | NOT A GAP | — | — | neg |
 | 483 | Color assertions still require screenshot processes | MISSING | HIGH | S | dup→#308 |
 | 484 | One draw-callback branch adds zero entities/allocations | PERF PROOF | — | — | app |
-| 445 | Middle-click bypasses UI hit resolution and the scripted injector | MISSING | MED | S | **live** |
-| 446 | A horizontal-only scroll view ignores vertical wheel and Shift+wheel intent | MISSING | HIGH | S | **live** |
-| 447 | Drag groups have no click threshold or nested-control exclusion | FOOTGUN | HIGH | M | **live** |
-| 448 | Drag hit-testing ignores ancestor scroll and viewport clipping | FOOTGUN | HIGH | S | **live** |
-| 449 | Drag overlays cannot reproduce composite widgets | MISSING | MED | M | **live** |
-| 450 | `tab_container`'s text minimum defeats its own ellipsis | FOOTGUN | MED | S | **live** |
+| 525 | Closed popovers still resolve and retain a UI entity | PERFORMANCE | MED | XS | live |
+| 526 | Synthetic right-click misses direct button polling | MISSING | MED | XS | live |
+| 527 | Secondary controls lack native accessibility semantics | MISSING | HIGH | M | dup→#112/#458 |
 
 ---
 

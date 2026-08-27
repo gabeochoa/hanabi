@@ -1,0 +1,12 @@
+# settings: {"window_width":800,"window_height":360,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_AUTH_DEMO=failed
+
+resize 800 360
+wait_frames 6
+assert_ui auth_panel y=24 h=312
+expect_text "Sign in to Agentcloud"
+expect_text "Sign-in failed."
+expect_text "The approval server rejected this request."
+key ESCAPE
+wait_frames 6
+expect_text "Sign in to Agentcloud"

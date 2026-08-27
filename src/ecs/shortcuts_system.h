@@ -20,6 +20,7 @@
 #include "../keys.h"
 #include "../util/scroll_prefs.h"
 #include "../ui/icons.h"
+#include "../ui/secondary_surface.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -71,9 +72,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
 
     static constexpr float kPanelW = 820.0f;
     static constexpr float kColGap = 28.0f;
-    static constexpr float kPadH = 24.0f;
-    static constexpr float kPadV = 20.0f;
-    static constexpr float kHeaderH = 34.0f;
+    static constexpr float kPadH = hanabi::surface::kSheetPadH;
+    static constexpr float kPadV = hanabi::surface::kSheetPadV;
+    static constexpr float kHeaderH = hanabi::surface::kHeaderH;
     static constexpr float kRowH = 26.0f;
     static constexpr float kSectionH = 30.0f;
     static constexpr float kKeyColW = 132.0f;
@@ -140,7 +141,6 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
-        const float pw = kPanelW;
         // The list only grows -- every feature that binds a key adds a row --
         // so the sheet is capped at what the window can hold and the rows
         // scroll inside it. Without the cap the last sections rendered past
@@ -152,26 +152,21 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         const float tallest = std::max(column_height(0, split),
                                        column_height(split, kRows.size()));
         const float wanted = kPadV * 2.0f + kHeaderH + tallest;
-        const float ph = std::min(wanted, sh - 80.0f);
-        const float px = (sw - pw) * 0.5f;
-        const float py = (sh - ph) * 0.5f;
+        const hanabi::surface::Rect panelRect =
+            hanabi::surface::centered(sw, sh, kPanelW, wanted);
+        const float pw = panelRect.width;
+        const float ph = panelRect.height;
+        const float px = panelRect.x;
+        const float py = panelRect.y;
+        activePanelW_ = pw;
 
         // Dimmed backdrop. Click-outside dismisses, but ONLY when the press
         // lands outside the panel — the backdrop spans the window and sits
         // under the sheet, so it reports a press for clicks on the sheet too
         // (the same trap settings_system.h documents).
-        auto backdrop = button(ctx, mk(uiRoot, 8300),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(sw), pixels(sh)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
-                .with_custom_background(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_custom_hover_bg(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(10)
+        auto backdrop = button(
+            ctx, mk(uiRoot, 8300),
+            hanabi::surface::scrim(sw, sh, 10)
                 .with_debug_name("shortcuts_backdrop"));
         if (backdrop &&
             !afterhours::ui::is_mouse_inside(ctx.mouse.pos,
@@ -180,21 +175,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        auto panel = div(ctx, mk(uiRoot, 8310),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(pw), pixels(ph)})
-                .with_absolute_position()
-                .with_translate(px, py)
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(kPadV),
-                                      .right = pixels(kPadH),
-                                      .bottom = pixels(kPadV),
-                                      .left = pixels(kPadH)})
-                .with_corner_radius(8.0f)
-                .with_render_layer(11)
+        auto panel = div(
+            ctx, mk(uiRoot, 8310),
+            hanabi::surface::sheet(panelRect, 11)
                 .with_debug_name("shortcuts_panel"));
 
         render_header(ctx, panel.ent(), *app);
@@ -205,12 +188,13 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(ph - kPadV * 2.0f - kHeaderH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
+                .with_overflow(Overflow::Scroll, Axis::Y)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_render_layer(11)
                 .with_debug_name("shortcuts_cols"));
 
-        const float colW = (kPanelW - 2.0f * kPadH - kColGap) * 0.5f;
+        const float colW = (pw - 2.0f * kPadH - kColGap) * 0.5f;
         const auto column = [&](int id, float leftMargin) {
             return div(ctx, mk(cols.ent(), id),
                 ComponentConfig{}
@@ -238,8 +222,8 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
-    static float content_w() {
-        return (kPanelW - 2.0f * kPadH - kColGap) * 0.5f;
+    float content_w() const {
+        return (activePanelW_ - 2.0f * kPadH - kColGap) * 0.5f;
     }
 
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
@@ -247,18 +231,26 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         auto header = div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kHeaderH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("shortcuts_header"));
+        auto titleRow = div(ctx, mk(header.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kTitleH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("shortcuts_header"));
-        div(ctx, mk(header.ent(), 1),
+                .with_debug_name("shortcuts_title_row"));
+        div(ctx, mk(titleRow.ent(), 1),
             ComponentConfig{}
                 .with_label("Keyboard shortcuts")
-                // Fills the row minus the close button, which pins it right —
-                // afterhours has no flex-grow (gap #18).
-                .with_size(ComponentSize{pixels(content_w() - 34.0f),
+                .with_size(ComponentSize{pixels(activePanelW_ - 2.0f * kPadH -
+                                                 34.0f),
                                          pixels(24)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
@@ -266,7 +258,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("shortcuts_title"));
-        auto closeBtn = button(ctx, mk(header.ent(), 2),
+        auto closeBtn = button(ctx, mk(titleRow.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
@@ -274,10 +266,22 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_secondary(), 14.0f))
                 .with_debug_name("shortcuts_close"));
+        div(ctx, mk(header.ent(), 2),
+            ComponentConfig{}
+                .with_label("Press a shortcut anywhere it applies")
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kSubtitleH)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("shortcuts_subtitle"));
         if (closeBtn) app.showShortcuts = false;
     }
 
@@ -334,6 +338,8 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("shortcuts_what"));
     }
+
+    float activePanelW_ = kPanelW;
 };
 
 }  // namespace ecs

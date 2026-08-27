@@ -228,8 +228,14 @@ static void setup_app_state() {
                     const std::string&, const std::string&) {
                 return api::AuthResponse{};  // never called in demo mode
             });
-        app.authFlow->set_demo_awaiting("ZKRFZQ",
-                                        "https://example.invalid/cli/auth?code=ZKRFZQ");
+        const std::string demo = std::getenv("HANABI_AUTH_DEMO");
+        if (demo == "failed")
+            app.authFlow->set_demo_failed("The approval server rejected this request.");
+        else if (demo == "expired")
+            app.authFlow->set_demo_expired();
+        else
+            app.authFlow->set_demo_awaiting(
+                "ZKRFZQ", "https://example.invalid/cli/auth?code=ZKRFZQ");
         app.showAuth = true;
     } else if (cfg.auth_ready() && cfg.backend == "http" && cfg.token.empty()) {
         app.authFlow = std::make_shared<api::DeviceCodeFlow>(
@@ -997,10 +1003,8 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         }
     }
 
-    // Screenshot affordance: HANABI_TEST_OVERLAY=settings|composer|shortcuts|
-    // find|palette opens an overlay that is otherwise keypress-only, so the
-    // settings sheet + new-task composer can be photographed headlessly.
-    // Mirrors HANABI_VIEW; ignored when unset; no network, render-only.
+    // Screenshot affordance: HANABI_TEST_OVERLAY selects an otherwise
+    // keyboard- or pointer-only secondary surface for deterministic capture.
     if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
         std::string os(ov);
         if (os == "settings") app->showSettings = true;
@@ -1009,6 +1013,43 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "find") app->pane().findOpen = true;
         else if (os == "palette") app->paletteOpen = true;
         else if (os == "search") app->sessionSearchOpen = true;
+        else if (os == "model") app->modelPopoverOpen = true;
+        else if (os == "effort") app->effortPopoverOpen = true;
+        else if (os == "slash") {
+            const std::string id = app->pane().openSession
+                                       ? app->pane().openSession->summary.id
+                                       : std::string("__kickoff__");
+            ecs::model::pane_states()
+                .touch(ecs::model::pane_key(app->focusedPane, id))
+                .replyDraft = "/";
+        }
+        else if (os == "toast")
+            app->raise_toast("Conversation archived", "t2",
+                             ecs::AppComponent::ToastUndo::Archive);
+        else if (os == "row-menu") {
+            app->rowMenuOpen = true;
+            app->rowMenuSessionId = "t2";
+            app->rowMenuX = 320.0f;
+            app->rowMenuY = 300.0f;
+        }
+        else if (os == "tab-menu") {
+            auto tabs = afterhours::EntityQuery({.force_merge = true})
+                            .whereHasComponent<ecs::TabStripComponent>()
+                            .gen();
+            if (!tabs.empty()) {
+                auto& strip = tabs[0].get().get<ecs::TabStripComponent>();
+                if (!strip.tabOrder.empty()) {
+                    strip.menuOpen = true;
+                    strip.menuTabId = strip.tabOrder.front();
+                    strip.menuX = 360.0f;
+                    strip.menuY = 88.0f;
+                }
+            }
+        }
+    }
+    if (const char* d = std::getenv("HANABI_PALETTE_DEMO"); d && *d) {
+        app->paletteOpen = true;
+        app->paletteQuery = d;
     }
     // Screenshot affordance: HANABI_UNREAD_DEMO=<n> marks the open thread as
     // last read just before its Nth-from-last message, so the "new messages"
@@ -1069,6 +1110,10 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     if (const char* d = std::getenv("HANABI_FIND_DEMO"); d && *d) {
         app->pane().findOpen = true;
         app->pane().findQuery = d;
+    }
+    if (const char* d = std::getenv("HANABI_TRANSCRIPT_ERROR_DEMO"); d && *d) {
+        app->pane().transcriptState = ecs::LoadState::Error;
+        app->pane().transcriptError = d;
     }
 
     // Screenshot affordance: HANABI_SKELETON_DEMO=1 forces the cold-cache

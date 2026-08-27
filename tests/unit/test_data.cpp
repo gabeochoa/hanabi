@@ -577,16 +577,13 @@ static void test_slash_parsing() {
     CHECK(sl::filter("/zzz").empty());
     CHECK(sl::filter("/model gpt").empty());
 
-    // Completing a verb that wants an argument leaves room to type it.
-    CHECK(sl::completion(*sl::find("model")) == "/model ");
+    CHECK(sl::completion(*sl::find("model")) == "/model");
     CHECK(sl::completion(*sl::find("new")) == "/new");
 
-    // /rename is deliberately absent while rename_v1's request flag is being
-    // built elsewhere: it must not turn into a second wire call.
     CHECK(sl::find("rename") == nullptr);
-    // Only /new can actually be carried out today.
     for (const auto& c : sl::all())
-        CHECK(c.runnable == (c.name == "new"));
+        CHECK(c.runnable ==
+              (c.name == "new" || c.name == "model" || c.name == "effort"));
 }
 
 // --- the model menu -------------------------------------------------------

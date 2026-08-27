@@ -12,6 +12,7 @@
 #include <array>
 #include <bitset>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <string>
 
@@ -25,6 +26,7 @@
 
 #include "../ui/accessibility.h"
 #include "../ui/icons.h"
+#include "../ui/secondary_surface.h"
 
 namespace ecs {
 
@@ -656,6 +658,10 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // actions. Drawn on a high render layer so it sits above the strip and
         // content. Dismissed on click-away or after an action.
         if (strip.menuOpen) {
+            if (app.escape == EscapeIntent::CloseContextMenu) {
+                strip.close_menu();
+                return;
+            }
             // Resolve the target tab (it may have been closed since opening).
             auto menuOpt = EntityHelper::getEntityForID(strip.menuTabId);
             if (!menuOpt.valid() || !menuOpt->has<Tab>()) {
@@ -688,30 +694,39 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             app.client && app.client->supports_rename() ? 0 : 1;
         const int nItems = static_cast<int>(kItems.size()) - firstItem;
 
-        const float menuW = 160.0f;
-        const float itemH = 26.0f;
-        const float menuH = itemH * static_cast<float>(nItems);
-        // Keep the menu on-screen (nudge left/up if it would spill off).
+        const float menuW = 184.0f;
+        const float headerH = 28.0f;
+        const float itemH = hanabi::surface::kMenuRowH;
+        const float menuH = headerH + itemH * static_cast<float>(nItems) + 8.0f;
         float mx = strip.menuX;
         float my = strip.menuY;
-        if (mx + menuW > ctx.screen_width) mx = ctx.screen_width - menuW;
-        if (my + menuH > ctx.screen_height) my = ctx.screen_height - menuH;
-        if (mx < 0.0f) mx = 0.0f;
-        if (my < 0.0f) my = 0.0f;
+        if (mx + menuW > ctx.screen_width - 4.0f)
+            mx = ctx.screen_width - menuW - 4.0f;
+        if (my + menuH > ctx.screen_height - 4.0f)
+            my = ctx.screen_height - menuH - 4.0f;
+        if (mx < 4.0f) mx = 4.0f;
+        if (my < 4.0f) my = 4.0f;
 
         const int kMenuLayer = 30;  // well above tabs (6-10) and content
 
-        // Menu panel background + border.
-        div(ctx, mk(uiRoot, 970),
+        auto menuConfig = hanabi::surface::menu(menuW, menuH, kMenuLayer);
+        menuConfig.with_absolute_position()
+            .with_translate(mx, my)
+            .with_debug_name("tab_menu");
+        div(ctx, mk(uiRoot, 970), menuConfig);
+        div(ctx, mk(uiRoot, 969),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(menuW), pixels(menuH)})
+                .with_label("TAB ACTIONS")
+                .with_size(ComponentSize{pixels(menuW - 16.0f), pixels(headerH)})
                 .with_absolute_position()
-                .with_translate(mx, my)
-                .with_custom_background(tab_colors::tab_active())
-                .with_border(tab_colors::border(), pixels(1))
-                .with_roundness(0.2f)
-                .with_render_layer(kMenuLayer)
-                .with_debug_name("tab_menu"));
+                .with_translate(mx + 8.0f, my + 4.0f)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_letter_spacing(0.8f)
+                .with_alignment(TextAlignment::Left)
+                .with_render_layer(kMenuLayer + 1)
+                .with_debug_name("tab_menu_title"));
 
         bool clickedItem = false;
         for (int k = 0; k < nItems; ++k) {
@@ -719,23 +734,29 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const char* itemLabel = item.action == 4
                                         ? (tab.pinned ? "Unpin tab" : "Pin tab")
                                         : item.label;
-            float iy = my + itemH * static_cast<float>(k);
+            float iy = my + 4.0f + headerH + itemH * static_cast<float>(k);
             bool itemHovered = afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, RectangleType{mx, iy, menuW, itemH});
+                ctx.mouse.pos,
+                RectangleType{mx + 4.0f, iy, menuW - 8.0f, itemH});
+            const bool destructive = kItems[k].action == 1;
+            const theme::Color base = destructive
+                                          ? hanabi::surface::destructive_surface()
+                                          : theme::panel_bg();
             div(ctx, mk(uiRoot, 971 + k),
                 ComponentConfig{}
                     .with_label(itemLabel)
-                    .with_size(ComponentSize{pixels(menuW), pixels(itemH)})
+                    .with_size(ComponentSize{pixels(menuW - 8.0f), pixels(itemH)})
                     .with_absolute_position()
-                    .with_translate(mx, iy)
+                    .with_translate(mx + 4.0f, iy)
                     .with_custom_background(itemHovered
-                                                ? tab_colors::tab_hover()
-                                                : tab_colors::tab_active())
-                    .with_custom_text_color(tab_colors::tab_text_act())
+                                                ? theme::hover_over(base)
+                                                : base)
+                    .with_custom_text_color(destructive ? theme::destructive()
+                                                        : theme::text_primary())
                     .with_font_size(theme::type::ROW)
                     .with_alignment(TextAlignment::Left)
                     .with_padding(Padding{.left = pixels(10)})
-                    .with_roundness(0.0f)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
                     .with_render_layer(kMenuLayer + 1)
                     .with_debug_name(item.debugName));
             if (itemHovered && ctx.mouse.just_pressed) {
@@ -769,8 +790,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // Dismiss: an item click, or any left-press outside the menu rect.
+        const char* testOverlay = std::getenv("HANABI_TEST_OVERLAY");
+        const bool forcedForCapture =
+            testOverlay != nullptr && std::string_view(testOverlay) == "tab-menu";
         bool pressedOutside =
-            ctx.mouse.just_pressed &&
+            !forcedForCapture && ctx.mouse.just_pressed &&
             !afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{mx, my, menuW, menuH});
         if (clickedItem || pressedOutside) strip.close_menu();

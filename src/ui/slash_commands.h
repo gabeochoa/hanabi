@@ -22,15 +22,9 @@
 //     verb at all — only the compaction BUDGET the context meter measures
 //     against.
 //
-// `/model` and `/effort` are the pickers (docs/breakdown/composer.md gaps 3
-// and 4), which ship on their own branches. `/rename` is deliberately absent:
-// it is `rename_v1` on the wire, the request flag it should route to is being
-// built on feat/session-rename, and duplicating the wire call here is exactly
-// what that would be — duplication. It joins the registry when that lands.
-//
-// So the menu advertises the vocabulary and the router refuses honestly: an
-// unwired command reports why in the composer strip instead of being sent to
-// the agent as literal text, which is what typing "/compact" did before.
+// `/new` opens the new-task sheet. `/model` and `/effort` open the same live
+// pickers as the composer chips. `/btw` and `/compact` remain visible but
+// explicitly unavailable because this client has neither wire operation.
 // ---------------------------------------------------------------------------
 
 #include <branding.h>
@@ -56,10 +50,8 @@ struct Command {
 inline const std::vector<Command>& all() {
     static const std::vector<Command> kCommands = {
         {"new", "", "start a new conversation", true, ""},
-        {"model", "<name>", "switch the model", false,
-         "no model picker yet"},
-        {"effort", "<level>", "set the effort level", false,
-         "no effort picker yet"},
+        {"model", "", "choose the default model", true, ""},
+        {"effort", "", "choose the thinking effort", true, ""},
         {"btw", "<question>", "fork this thread", false,
          std::string(product_branding::kAppName) + " has no fork call yet"},
         {"compact", "", "compact the context now", false,

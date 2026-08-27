@@ -12,6 +12,7 @@
 #include <string>
 
 #include "../keys.h"
+#include "../ui/secondary_surface.h"
 #include "keyboard_focus.h"
 #include "ui_imports.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
@@ -38,61 +39,66 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
-        auto backdrop = button(ctx, mk(uiRoot, 8200),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(sw), pixels(sh)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
-                .with_custom_background(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_custom_hover_bg(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(12)
+        auto backdrop = button(
+            ctx, mk(uiRoot, 8200),
+            hanabi::surface::scrim(sw, sh, 12)
                 .with_debug_name("rename_backdrop"));
         if (backdrop && !app->renamePending) {
             close(*app);
             return;
         }
 
-        const float pw = 420.0f;
-        const float ph = 186.0f;
-        auto panel = div(ctx, mk(uiRoot, 8210),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(pw), pixels(ph)})
-                .with_absolute_position()
-                .with_translate((sw - pw) * 0.5f, (sh - ph) * 0.5f)
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(18), .right = pixels(20),
-                                      .bottom = pixels(18), .left = pixels(20)})
-                .with_roundness(0.35f)
-                .with_render_layer(13)
+        const auto panelRect =
+            hanabi::surface::centered(sw, sh, 440.0f, 230.0f);
+        auto panel = div(
+            ctx, mk(uiRoot, 8210),
+            hanabi::surface::sheet(panelRect, 13)
                 .with_debug_name("rename_panel"));
 
-        div(ctx, mk(panel.ent(), 1),
+        auto header = div(ctx, mk(panel.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kHeaderH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("rename_header"));
+        div(ctx, mk(header.ent(), 1),
             ComponentConfig{}
                 .with_label("Rename session")
-                .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kTitleH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Large)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("rename_title"));
+        div(ctx, mk(header.ent(), 2),
+            ComponentConfig{}
+                .with_label("Use a short title you can recognize later")
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kSubtitleH)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("rename_subtitle"));
 
         auto field = afterhours::ui::imm::text_input(
             ctx, mk(panel.ent(), 2), app->renameDraft,
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(34)})
-                .with_margin(Margin{.top = pixels(10)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kFieldH)})
+                .with_margin(Margin{.top = pixels(8)})
+                .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
-                .with_roundness(0.3f)
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_render_layer(13)
                 .with_debug_name("rename_input"));
 
@@ -117,9 +123,11 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(panel.ent(), 3),
             ComponentConfig{}
                 .with_label(app->renameError)
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_margin(Margin{.top = pixels(6)})
-                .with_transparent_bg()
+                .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                .with_margin(Margin{.top = pixels(6), .left = pixels(8)})
+                .with_custom_background(app->renameError.empty()
+                                            ? theme::panel_bg()
+                                            : hanabi::surface::destructive_surface())
                 .with_custom_text_color(theme::destructive())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
@@ -139,8 +147,8 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                         AppComponent& app) {
         auto row = div(ctx, mk(parent, 4),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(38)})
-                .with_padding(Padding{.top = pixels(10)})
+                .with_size(ComponentSize{percent(1.0f), pixels(48)})
+                .with_padding(Padding{.top = pixels(14)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -164,20 +172,11 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         auto cancel = button(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
+            hanabi::surface::action_button(92.0f, false, 13)
                 .with_label("Cancel")
-                .with_size(ComponentSize{pixels(92), pixels(32)})
                 .with_margin(Margin{.right = pixels(8)})
-                .with_custom_background(theme::button_secondary())
-                .with_custom_hover_bg(
-                    theme::hover_over(theme::button_secondary()))
-                .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.35f)
                 .with_debug_name("rename_cancel"));
         if (cancel) {
             close(app);
@@ -185,18 +184,10 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         auto confirmBtn = button(ctx, mk(row.ent(), 3),
-            ComponentConfig{}
+            hanabi::surface::action_button(92.0f, true, 13)
                 .with_label("Rename")
-                .with_size(ComponentSize{pixels(92), pixels(32)})
-                .with_custom_background(theme::button_primary())
-                .with_custom_hover_bg(theme::button_primary())
-                .with_custom_text_color(theme::window_bg())
                 .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.35f)
                 .with_debug_name("rename_confirm"));
         if (confirmBtn) confirm(app);
     }

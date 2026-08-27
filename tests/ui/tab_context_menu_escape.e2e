@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TEST_OVERLAY=tab-menu
+
+require_thread t2
+expect_text "TAB ACTIONS"
+key ESCAPE
+wait_frames 6
+expect_no_text "TAB ACTIONS"
+expect_text "Reconciled 4,812 accounts"

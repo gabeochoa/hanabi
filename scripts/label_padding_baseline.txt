@@ -1,9 +1,6 @@
-effort_row_
 fold_row_
 md_table_cell
-model_row_
 msg_time
 sb_no_results
 sb_show_more
 shortcuts_keys
-slash_item_

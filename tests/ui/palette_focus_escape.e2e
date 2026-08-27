@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=palette
+
+wait_frames 6
+type "settings"
+wait_frames 8
+expect_text "Settings"
+expect_no_text "New task"
+key ESCAPE
+wait_frames 6
+expect_no_text "Command palette"

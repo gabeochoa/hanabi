@@ -39,15 +39,10 @@
 //   Behavior · Memory backend (Traditional/Hindsight).
 //   Notifications · Sound (Off/Ping).
 //   Data · cache usage + clear / cache limit / export — client-local.
-//   Model · Default model (Server default/Fast/Reasoning).
 //   Account · identity + counts — read-only /whoami.
 //
-// COMING SOON (genuinely need server work we can't do yet, so rendered with the
-// intentional coming-soon treatment — a clean row + muted pill, NOT a dead
-// disabled control):
-//   Advanced · power-user options (branch override / experiments / compaction
-//     threshold / keyboard shortcuts / reset) — need dedicated API support.
-//   Account · Sign out — needs an auth-clear + client-teardown flow.
+// Model and effort are selected from the composer's live picker, not duplicated
+// here. Controls without a working action are omitted.
 //
 // "System" theme tracks the real macOS appearance via hanabi::os_is_dark_mode()
 // (afterhours exposes no OS-appearance query — see afterhours_gaps.md #16).
@@ -70,11 +65,11 @@
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
 #include "../util/text_epoch.h"
-#include "../ui/model_menu.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
+#include "../ui/secondary_surface.h"
 
 namespace ecs {
 
@@ -126,54 +121,29 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
-        // Panel geometry, computed BEFORE the backdrop so the backdrop click
-        // handler can hit-test the cursor against the panel rect (see below).
-        // Height is derived from the content stack so there's no dead space at
-        // the bottom (Task B) — pad(top+bottom) + header + each section
-        // (gap + label + control) + footnote (gap + line).
         const float pw = kPanelW;
-        // contentH = the full stacked height of every section body (everything
-        // BELOW the fixed header). Sized so the whole set FITS a normal window
-        // WITHOUT scrolling (Task 1) — the wider panel + tightened section set
-        // means idealPh is well under a default 760px window. The scroll body
-        // remains only as a safety net for a very short window; on a normal
-        // window bodyViewH == contentH so nothing scrolls or clips.
-        // Update this sum whenever a section is added/removed.
-        // Two-column content height = the TALLER column + the full-width
-        // footnote beneath. Each column is a stack of (group header + its
-        // control rows). Keep this in sync with the LEFT/RIGHT render blocks.
-        const float ctrlRow = kRowNameFoot + kThemeRowH;   // a segmented row
+        const float ctrlRow = kRowNameFoot + kThemeRowH;
         const float leftH =
-            (kGroupH + ctrlRow * 3.0f) +          // Appearance: Theme + Rotate + Font
-            (kGroupH + ctrlRow * 5.0f) +          // Behavior: 5 rows
-            (kGroupH + ctrlRow * 2.0f) +          // Notifications: Sound + Quiet hours
-            (kGroupH + ctrlRow * 2.0f) +          // Appearance: Theme + Font
-            (kGroupH + ctrlRow * 3.0f) +          // Behavior: 3 rows
-            (kGroupH + ctrlRow) +                 // Notifications: Sound
-            (kGroupH + ctrlRow);                  // Model: default model
-        const float ctrlRowRight = kRowNameFoot + kThemeRowH;
+            (kGroupH + ctrlRow * 3.0f) +
+            (kGroupH + ctrlRow * 5.0f) +
+            (kGroupH + ctrlRow * 2.0f);
         const float rightH =
-            (kGroupH + ctrlRowRight * 2.0f) +     // Custom colours: 2 swatch rows
-            (kGroupH + ctrlRow * 4.0f) +          // Transcript: 4 rows
-            (kGroupH + (kRowNameFoot + kCacheRowH) + (kRowNameFoot + kLimitRowH) +
-             (kRowNameFoot + kExportRowH)) +      // Data: cache/limit/export
-            (kGroupH + kAdvancedH) +              // Advanced: coming-soon
-            (kGroupH + kAccountRowH);             // Account: identity+signout
+            (kGroupH + ctrlRow * 2.0f) +
+            (kGroupH + ctrlRow * 4.0f) +
+            (kGroupH + (kRowNameFoot + kCacheRowH) +
+             (kRowNameFoot + kLimitRowH) +
+             (kRowNameFoot + kExportRowH)) +
+            (kGroupH + kAccountRowH);
         const float contentH =
             std::max(leftH, rightH) + (kFootnoteGap + kFootnoteH) + 8.0f;
-        // Ideal (unclipped) panel height = pad + header + all content.
         const float idealPh = kPadV * 2.0f + kHeaderH + contentH;
-        // But the panel is a fixed centered sheet — cap it so it always fits
-        // the window (leave a margin top+bottom); the body div scrolls when the
-        // content is taller than the visible area.
-        const float kWinMargin = 48.0f;  // min gap to window edges
-        const float ph = std::min(idealPh, sh - kWinMargin);
-        // Visible height available for the scrollable body (panel minus pad +
-        // header). The body's CONTENT is contentH; when contentH > bodyViewH
-        // the overflow scrolls.
-        const float bodyViewH = ph - kPadV * 2.0f - kHeaderH;
-        const float px = (sw - pw) * 0.5f;
-        const float py = (sh - ph) * 0.5f;
+        const hanabi::surface::Rect panelRect =
+            hanabi::surface::centered(sw, sh, pw, idealPh);
+        const float ph = panelRect.height;
+        const float bodyViewH =
+            std::max(40.0f, ph - kPadV * 2.0f - kHeaderH);
+        const float px = panelRect.x;
+        const float py = panelRect.y;
 
         // Dimmed full-window backdrop. The UI fill pipeline has alpha blending
         // disabled (afterhours gap #13), so pre-blend a translucent black over
@@ -188,18 +158,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // dismiss when the cursor is genuinely OUTSIDE the panel rect. Esc-close
         // still works (handled above); clicks on rows/labels/empty panel space
         // now do nothing.
-        auto backdrop = button(ctx, mk(uiRoot, 8000),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(sw), pixels(sh)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
-                .with_custom_background(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_custom_hover_bg(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(10)
+        auto backdrop = button(
+            ctx, mk(uiRoot, 8000),
+            hanabi::surface::scrim(sw, sh, 10)
                 .with_debug_name("settings_backdrop"));
         if (backdrop) {
             const bool insidePanel = afterhours::ui::is_mouse_inside(
@@ -210,24 +171,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        auto panel = div(ctx, mk(uiRoot, 8010),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(pw), pixels(ph)})
-                .with_absolute_position()
-                .with_translate(px, py)
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(kPadV), .right = pixels(kPadH),
-                                      .bottom = pixels(kPadV),
-                                      .left = pixels(kPadH)})
-                // Modest corner like the buttons (Gabe: "reduce the corner radius
-                // on the settings container, similar to the buttons"). afterhours
-                // radius = min(w,h)*0.5*roundness, so on a 600px panel a fixed
-                // 0.35 was a huge sweep — derive a ~8px pixel radius instead.
-                .with_corner_radius(8.0f)
-                .with_render_layer(11)
+        auto panel = div(
+            ctx, mk(uiRoot, 8010),
+            hanabi::surface::sheet(panelRect, 11)
                 .with_debug_name("settings_panel"));
 
         render_header(ctx, panel.ent(), *app);
@@ -302,8 +248,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
             render_notification_row(ctx, L, *app);
             render_quiet_hours_row(ctx, L, *app);
-            group_label(ctx, L, 6, "Model", "settings_grp_model");
-            render_model_row(ctx, L, *app);
         }
         // RIGHT column: Data / Advanced / Account.
         {
@@ -320,8 +264,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_cache_row(ctx, R, *app);
             render_cache_limit_row(ctx, R, *app);
             render_export_row(ctx, R, *app);
-            group_label(ctx, R, 7, "Advanced", "settings_grp_advanced");
-            render_advanced_section(ctx, R, *app);
             group_label(ctx, R, 8, "Account", "settings_grp_account");
             render_account_row(ctx, R, *app);
         }
@@ -340,7 +282,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // drift. Widened from 360 → 600 so the whole section set fits WITHOUT
     // vertical scrolling on a normal window (Task 1).
     static constexpr float kPanelW = 720.0f;    // panel width (single source)
-    static constexpr float kPadH = 24.0f;       // panel left/right padding
+    static constexpr float kPadH = hanabi::surface::kSheetPadH;
     // Usable content width inside the panel (both horizontal pads removed).
     // Usable content width for controls in the CURRENTLY-rendering column.
     // Two-column layout: set per-column to col_w() before rendering that
@@ -364,8 +306,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float col_w() {
         return (full_content_w() - kColGap) * 0.5f;
     }
-    static constexpr float kPadV = 20.0f;        // panel top/bottom padding
-    static constexpr float kHeaderH = 28.0f;     // title + close row
+    static constexpr float kPadV = hanabi::surface::kSheetPadV;
+    static constexpr float kHeaderH = hanabi::surface::kHeaderH;
+    static constexpr float kTitleH = hanabi::surface::kTitleH;
+    static constexpr float kSubtitleH = hanabi::surface::kSubtitleH;
     // Group headers (Appearance / Behavior / …). ONE per group; controls stack
     // under it, each with its own compact inline name (kRowNameH). Grouping
     // keeps the whole set inside a normal window without scrolling (Task 1).
@@ -394,16 +338,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // across one 264px column without truncating the path to uselessness.
     static constexpr float kExportRowH = 52.0f;  // destination line + buttons
     static constexpr float kLimitRowH = 30.0f;   // cache-limit segmented control
-    // Account body: identity line (20) + gap + one sign-out coming-soon row.
-    static constexpr float kAccountRowH = 62.0f; // identity/counts + sign-out
-    // Coming-soon row geometry (Advanced + Sign out).
-    static constexpr float kSoonRowH = 28.0f;    // one coming-soon pill row
-    static constexpr float kSoonRowGap = 5.0f;   // gap below each such row
-    // Advanced section body: ONE summary coming-soon row (the individual
-    // power-user toggles genuinely need server work; one tidy row communicates
-    // that without a tall stack).
-    static constexpr float kAdvancedH = kSoonRowH + kSoonRowGap;
-    static constexpr float kFootnoteGap = 14.0f; // space above footnote
+    static constexpr float kAccountRowH = 24.0f;
+    static constexpr float kSoonRowH = 28.0f;
+    static constexpr float kFootnoteGap = 14.0f;
     static constexpr float kFootnoteH = 18.0f;   // footnote line
 
   private:
@@ -411,48 +348,55 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        AppComponent& app) {
         auto header = div(ctx, mk(parent, 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_size(ComponentSize{percent(1.0f), pixels(kHeaderH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_header"));
+        auto titleRow = div(ctx, mk(header.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kTitleH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("settings_header"));
-
-        div(ctx, mk(header.ent(), 1),
+                .with_debug_name("settings_title_row"));
+        div(ctx, mk(titleRow.ent(), 1),
             ComponentConfig{}
                 .with_label("Settings")
-                // Fill the row minus the close button so the ✕ pins flush-right
-                // (Gabe: "the x button is in the wrong space"). Full content
-                // width = kPanelW - 2*kPadH; reserve the 26px close + 8px gap.
                 .with_size(ComponentSize{pixels(full_content_w() - 34.0f),
-                                         pixels(24)})
+                                         pixels(kTitleH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Large)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_title"));
-
-        // Close (✕) — pinned flush-right by the full-width title above.
-        auto closeBtn = button(ctx, mk(header.ent(), 2),
+        auto closeBtn = button(ctx, mk(titleRow.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
                 .with_margin(Margin{.left = pixels(8)})
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Center)
-                .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
-                // Lucide "close" sprite (atlas); unicode \xc3\x97 is the fallback.
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_secondary(), 14.0f))
                 .with_debug_name("settings_close"));
+        div(ctx, mk(header.ent(), 2),
+            ComponentConfig{}
+                .with_label("Appearance, behavior, notifications, and local data")
+                .with_size(ComponentSize{percent(1.0f), pixels(kSubtitleH)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_subtitle"));
         if (closeBtn) app.showSettings = false;
     }
 
@@ -1039,59 +983,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ── "Coming soon" treatment (Task 4) ────────────────────────────────────
-    // A clean, INTENTIONAL row for a setting that genuinely needs server work
-    // we can't do yet: the setting name on the left, a muted "Coming soon" pill
-    // (tag_done tokens) hugging the right. Reads as designed, not broken — no
-    // faint disabled control. `sub` is an optional dimmer descriptor under the
-    // name (e.g. the current server default) shown small + faint.
-    void coming_soon_row(UIContext<InputAction>& ctx, Entity& parent, int id,
-                         const std::string& label, const std::string& sub,
-                         const std::string& dbg) {
-        // A quiet, clearly-NON-interactive row: no filled surface, no pill that
-        // looks like a button (Gabe: "the coming soon buttons look weird").
-        // Just the dimmed setting name on the left and a small faint
-        // "Coming soon" note on the right — reads as "not available yet", not
-        // as a clickable control.
-        auto row = div(ctx, mk(parent, id),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kSoonRowH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_row"));
-
-        // Left: name (+ optional faint sub, appended inline) — dimmed.
-        std::string left = label;
-        if (!sub.empty()) left += "   \xc2\xb7   " + sub;
-        div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_label(left)
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_label"));
-
-        // Right: a small faint "Coming soon" note (plain text, right-aligned —
-        // NOT a pill/button).
-        div(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
-                .with_label("Coming soon")
-                .with_size(ComponentSize{children(), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name(dbg + "_note"));
-    }
-
     // ── Behavior group ─────────────────────────────────────────────────────
     // Yap level / verbosity (0 = No yapping, 1 = A little, 2 = Full). WIRED:
     // reads Settings::get_yap_level(), writes on click (auto-persists locally +
@@ -1286,68 +1177,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        });
     }
 
-    // ── Model group ────────────────────────────────────────────────────────
-    // Default model. Persisted as defaultModelId + synced, exactly as before;
-    // what changed is who chooses it. This row used to be three segments
-    // reading "Server default / Fast / Reasoning" — a vocabulary no server
-    // serves. The real menu is the deployment's own (src/ui/model_menu.h),
-    // which is nine entries and does not fit a segmented control, so the
-    // choosing moved to the composer's model chip and this row reports what
-    // is set. Same value, one owner.
-    void render_model_row(UIContext<InputAction>& ctx, Entity& parent,
-                          AppComponent& app) {
-        (void)app;
-        row_name(ctx, parent, 140, "Default model", "settings_model_label");
-        auto row = div(ctx, mk(parent, 141),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_justify_content(JustifyContent::SpaceBetween)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("settings_model_row"));
-        div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_label(hanabi::models::display_name(
-                    Settings::get().get_default_model()))
-                .with_size(ComponentSize{children(), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_model_value"));
-        div(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
-                .with_label("pick it from the composer's model chip")
-                .with_size(ComponentSize{children(), pixels(20)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_model_hint"));
-    }
-
-    // ── Advanced group ─────────────────────────────────────────────────────
-    // Power-user settings that GENUINELY need server work we can't do yet
-    // (branch override / experiments / compaction threshold / keyboard
-    // shortcuts / reset). Rather than a tall stack of dead controls, ONE tidy
-    // coming-soon row with the intentional treatment (Task 4): the group of
-    // features named on the left + a muted pill. Designed, not broken.
-    void render_advanced_section(UIContext<InputAction>& ctx, Entity& parent,
-                                 AppComponent& app) {
-        (void)app;
-        coming_soon_row(ctx, parent, 151, "Power-user options", "",
-                        "settings_advanced");
-    }
-
-    // Account row: shows the backend-reported identity + counts so the user can
-    // verify hanabi is talking to the right account / is set up correctly.
-    // Data comes from the async /whoami fetch (app.settings / settingsState),
-    // kicked when the overlay opens. Shows a loading/err/empty state honestly.
     void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app) {
         std::string line;
@@ -1385,25 +1214,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_account_value"));
 
-        // Sign out — genuinely needs an auth-clear + client-teardown flow that
-        // doesn't exist yet, so it gets the intentional coming-soon treatment
-        // (a clean row + muted pill) rather than a dead disabled control.
-        // TODO(settings): wire to token_store clear + client teardown +
-        // return-to-login.
-        auto signout_wrap = div(ctx, mk(parent, 32),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kSoonRowH)})
-                .with_margin(Margin{.top = pixels(6)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("settings_signout_wrap"));
-        coming_soon_row(ctx, signout_wrap.ent(), 1, "Sign out", "",
-                        "settings_signout");
     }
 
-    // One segmented theme button. Selected = accent fill; others = secondary.
     void theme_choice(UIContext<InputAction>& ctx, Entity& parent, int id,
                       const std::string& label, const std::string& value,
                       AppComponent& app, float segW = 102.0f,
@@ -1430,7 +1242,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (btn) apply_theme(app, value);
     }
 
-    // Apply a theme choice: remember it, persist it, and re-tint live.
     static void apply_theme(AppComponent& app, const std::string& value) {
         app.themeChoice = value;
         // "System" now tracks the real macOS appearance (macos_is_dark_mode,

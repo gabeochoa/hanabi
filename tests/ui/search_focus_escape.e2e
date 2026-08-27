@@ -1,0 +1,10 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=search
+
+wait_frames 6
+type "decision"
+wait_frames 10
+expect_text "needs a decision before it can go on"
+key ESCAPE
+wait_frames 6
+expect_no_text "Search conversations"

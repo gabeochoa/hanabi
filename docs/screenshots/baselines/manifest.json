@@ -72,9 +72,17 @@
       "threshold_pct": 0.0,
       "note": "Chat with no thread open: the welcome prompts."
     },
+    "13a_chat_welcome_light": {
+      "threshold_pct": 0.0,
+      "note": "Welcome state and starter actions, light."
+    },
     "13b_empty_transcript_dark": {
       "threshold_pct": 0.0,
       "note": "An open conversation with no messages; the empty state is anchored above the composer."
+    },
+    "13c_empty_transcript_light": {
+      "threshold_pct": 0.0,
+      "note": "Empty conversation state above the composer, light."
     },
     "14_sidebar_folded_dark": {
       "threshold_pct": 0.0,
@@ -100,9 +108,113 @@
       "threshold_pct": 0.0,
       "note": "Keyboard-shortcuts sheet, light."
     },
+    "17d_newtask_light": {
+      "threshold_pct": 0.0,
+      "note": "New-task sheet with focused field, light."
+    },
     "18_auth_dark": {
       "threshold_pct": 0.0,
       "note": "Device-code sign-in. The code and URL are the mock's fixed example.invalid pair."
+    },
+    "18a_auth_light": {
+      "threshold_pct": 0.0,
+      "note": "Device-code sign-in, light."
+    },
+    "18b_palette_dark": {
+      "threshold_pct": 0.0,
+      "note": "Command palette with action and thread rows, dark."
+    },
+    "18c_palette_light": {
+      "threshold_pct": 0.0,
+      "note": "Command palette with action and thread rows, light."
+    },
+    "18d_palette_empty_dark": {
+      "threshold_pct": 0.0,
+      "note": "Command palette no-results state, dark."
+    },
+    "18e_palette_empty_light": {
+      "threshold_pct": 0.0,
+      "note": "Command palette no-results state, light."
+    },
+    "18f_search_dark": {
+      "threshold_pct": 0.0,
+      "note": "Full conversation search results and coverage note, dark."
+    },
+    "18g_search_light": {
+      "threshold_pct": 0.0,
+      "note": "Full conversation search results and coverage note, light."
+    },
+    "18h_search_empty_dark": {
+      "threshold_pct": 0.0,
+      "note": "Full conversation search empty state, dark."
+    },
+    "18i_search_empty_light": {
+      "threshold_pct": 0.0,
+      "note": "Full conversation search empty state, light."
+    },
+    "18j_model_picker_dark": {
+      "threshold_pct": 0.0,
+      "note": "Model picker with selected row and explanatory heading, dark."
+    },
+    "18k_model_picker_light": {
+      "threshold_pct": 0.0,
+      "note": "Model picker with selected row and explanatory heading, light."
+    },
+    "18l_effort_picker_dark": {
+      "threshold_pct": 0.0,
+      "note": "Effort picker with descriptions and selected row, dark."
+    },
+    "18m_effort_picker_light": {
+      "threshold_pct": 0.0,
+      "note": "Effort picker with descriptions and selected row, light."
+    },
+    "18n_slash_menu_dark": {
+      "threshold_pct": 0.0,
+      "note": "Slash-command menu with capability status, dark."
+    },
+    "18o_slash_menu_light": {
+      "threshold_pct": 0.0,
+      "note": "Slash-command menu with capability status, light."
+    },
+    "18p2_tab_menu_dark": {
+      "threshold_pct": 0.0,
+      "note": "Tab context menu and destructive close treatment, dark."
+    },
+    "18p_context_menu_dark": {
+      "threshold_pct": 0.0,
+      "note": "Conversation context menu with destructive treatment, dark."
+    },
+    "18q2_tab_menu_light": {
+      "threshold_pct": 0.0,
+      "note": "Tab context menu and destructive close treatment, light."
+    },
+    "18q_context_menu_light": {
+      "threshold_pct": 0.0,
+      "note": "Conversation context menu with destructive treatment, light."
+    },
+    "18r_toast_dark": {
+      "threshold_pct": 0.0,
+      "note": "Undo toast with bounded message and action layout, dark."
+    },
+    "18s_toast_light": {
+      "threshold_pct": 0.0,
+      "note": "Undo toast with bounded message and action layout, light."
+    },
+    "18t_auth_failed_dark": {
+      "threshold_pct": 0.0,
+      "note": "Device authorization failure state, dark."
+    },
+    "18u_auth_failed_light": {
+      "threshold_pct": 0.0,
+      "note": "Device authorization failure state, light."
+    },
+    "18v_transcript_error_dark": {
+      "threshold_pct": 0.0,
+      "note": "Conversation load error treatment, dark."
+    },
+    "18w_transcript_error_light": {
+      "threshold_pct": 0.0,
+      "note": "Conversation load error treatment, light."
     },
     "19_many_tabs_dark": {
       "threshold_pct": 0.0,

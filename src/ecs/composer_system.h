@@ -24,6 +24,8 @@
 
 #include "../api/disk_cache.h"
 #include "../ui/icons.h"
+#include "../ui/secondary_surface.h"
+#include "keyboard_focus.h"
 
 namespace ecs {
 
@@ -47,7 +49,8 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         // network. We only overwrite the live draft when disk has something AND
         // the field is currently empty, so a restore never clobbers text the
         // user just started typing this session.
-        if (app->composerOpen && !wasOpen_) {
+        const bool justOpened = app->composerOpen && !wasOpen_;
+        if (justOpened) {
             std::string saved =
                 api::disk_cache::load_draft(api::disk_cache::new_draft_key());
             if (!saved.empty() && app->composerDraft.empty())
@@ -57,6 +60,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         wasOpen_ = app->composerOpen;
 
         if (!app->composerOpen) return;
+        if (justOpened) focusFrames_ = 3;
 
         // Esc closes (escape_system.h decides which overlay it belongs to).
         if (app->escape == EscapeIntent::CloseComposer) {
@@ -71,43 +75,20 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::viewport::height();
 
         // Dimmed full-window backdrop (pre-blended, gap #13). Click = close.
-        auto backdrop = button(ctx, mk(uiRoot, 8100),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(sw), pixels(sh)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
-                .with_custom_background(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_custom_hover_bg(
-                    theme::over(theme::scrim(), theme::window_bg()))
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(10)
+        auto backdrop = button(
+            ctx, mk(uiRoot, 8100),
+            hanabi::surface::scrim(sw, sh, 10)
                 .with_debug_name("composer_backdrop"));
         if (backdrop) {
             app->composerOpen = false;
             return;
         }
 
-        // Centered panel.
-        const float pw = 420.0f;
-        const float ph = 176.0f;
-        const float px = (sw - pw) * 0.5f;
-        const float py = (sh - ph) * 0.5f;
-
-        auto panel = div(ctx, mk(uiRoot, 8110),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(pw), pixels(ph)})
-                .with_absolute_position()
-                .with_translate(px, py)
-                .with_custom_background(theme::panel_bg())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(18), .right = pixels(20),
-                                      .bottom = pixels(18), .left = pixels(20)})
-                .with_roundness(0.35f)
-                .with_render_layer(11)
+        const auto panelRect =
+            hanabi::surface::centered(sw, sh, 440.0f, 216.0f);
+        auto panel = div(
+            ctx, mk(uiRoot, 8110),
+            hanabi::surface::sheet(panelRect, 11)
                 .with_debug_name("composer_panel"));
 
         render_header(ctx, panel.ent(), *app);
@@ -134,42 +115,57 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                        AppComponent& app) {
         auto header = div(ctx, mk(parent, 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kHeaderH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_header"));
+        auto titleRow = div(ctx, mk(header.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kTitleH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("composer_header"));
-
-        div(ctx, mk(header.ent(), 1),
+                .with_debug_name("composer_title_row"));
+        div(ctx, mk(titleRow.ent(), 1),
             ComponentConfig{}
                 .with_label("New task")
-                .with_size(ComponentSize{pixels(340), pixels(24)})
+                .with_size(ComponentSize{pixels(332), pixels(24)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Large)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("composer_title"));
-
-        auto closeBtn = button(ctx, mk(header.ent(), 2),
+        auto closeBtn = button(ctx, mk(titleRow.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
+                .with_margin(Margin{.left = pixels(8)})
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Center)
-                .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
-                // Lucide "close" sprite (atlas); unicode \xc3\x97 is the fallback.
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_secondary(), 14.0f))
                 .with_debug_name("composer_close"));
+        div(ctx, mk(header.ent(), 2),
+            ComponentConfig{}
+                .with_label("Start a focused conversation with your agent")
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kSubtitleH)})
+                .with_margin(Margin{.top = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("composer_subtitle"));
         if (closeBtn) app.composerOpen = false;
     }
 
@@ -197,22 +193,29 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_caption"));
 
-        afterhours::ui::imm::text_input(ctx, mk(parent, 2), app.composerDraft,
+        auto field = afterhours::ui::imm::text_input(
+            ctx, mk(parent, 2), app.composerDraft,
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(34)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::surface::kFieldH)})
                 .with_margin(Margin{.top = pixels(6)})
+                .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_text_color(theme::text_primary())
                 .with_alignment(TextAlignment::Left)
-                .with_roundness(0.3f)
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_debug_name("composer_input"));
+        if (focusFrames_ > 0) {
+            --focusFrames_;
+            ctx.set_focus(focusable_field(field.ent()));
+        }
     }
 
     void render_actions(UIContext<InputAction>& ctx, Entity& parent,
                         AppComponent& app) {
         auto row = div(ctx, mk(parent, 3),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(38)})
+                .with_size(ComponentSize{percent(1.0f), pixels(48)})
                 .with_padding(Padding{.top = pixels(14)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
@@ -225,19 +228,11 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         bool hasText = !app.composerDraft.empty();
 
         auto cancel = button(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
+            hanabi::surface::action_button(92.0f, false, 11)
                 .with_label("Cancel")
-                .with_size(ComponentSize{pixels(92), pixels(32)})
                 .with_margin(Margin{.right = pixels(8)})
-                .with_custom_background(theme::button_secondary())
-                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
-                .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.35f)
                 .with_debug_name("composer_cancel"));
         if (cancel) {
             app.composerOpen = false;
@@ -245,21 +240,16 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         auto start = button(ctx, mk(row.ent(), 2),
-            ComponentConfig{}
+            hanabi::surface::action_button(92.0f, hasText, 11)
                 .with_label("Start")
-                .with_size(ComponentSize{pixels(92), pixels(32)})
                 .with_custom_background(hasText ? theme::button_primary()
                                                 : theme::disabled_bg())
-                .with_custom_hover_bg(hasText ? theme::button_primary()
+                .with_custom_hover_bg(hasText ? theme::hover_over(theme::button_primary())
                                               : theme::disabled_bg())
                 .with_custom_text_color(hasText ? theme::window_bg()
                                                 : theme::disabled_text())
                 .with_font_size(FontSize::Medium)
-                .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
-                .with_align_items(AlignItems::Center)
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.35f)
                 .with_debug_name("composer_start"));
         if (start && hasText) {
             // Kick off a new session: hand the draft to the loader via the
@@ -279,6 +269,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
     // Tracks the composer's open state across frames so we can detect the
     // false->true edge and restore the persisted draft exactly once on open.
     bool wasOpen_ = false;
+    int focusFrames_ = 0;
     // The draft value last written to disk, so we only persist on change
     // (avoids rewriting drafts.json on every idle frame).
     std::string lastPersisted_;

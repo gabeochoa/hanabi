@@ -40,6 +40,7 @@
 #include "../ui/effort_menu.h"
 #include "../ui/fold_menu.h"
 #include "../ui/measure_probe.h"
+#include "../ui/secondary_surface.h"
 #include "../keys.h"
 #include "../settings.h"
 #include "line_draw_state.h"
@@ -554,15 +555,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static void note(UIContext<InputAction>& ctx, Entity& parent,
                      const std::string& text) {
-        div(ctx, mk(parent, 80),
-            preset::EmptyStateText(text)
-                .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
-                .with_padding(Padding{.right = pixels(28),
-                                      .left = pixels(28)})
+        auto card = div(ctx, mk(parent, 80),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(104)})
+                .with_margin(Margin{.top = pixels(24), .right = pixels(24),
+                                    .left = pixels(24)})
+                .with_padding(Padding{.top = pixels(14), .left = pixels(16),
+                                      .bottom = pixels(14), .right = pixels(16)})
+                .with_custom_background(hanabi::surface::destructive_surface())
+                .with_border(theme::destructive(), pixels(1.0f))
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("main_error"));
+        div(ctx, mk(card.ent(), 1),
+            ComponentConfig{}
+                .with_label("Couldn\xe2\x80\x99t load this conversation")
+                .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::destructive())
+                .with_font_size(theme::type::LG)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("main_error_title"));
+        div(ctx, mk(card.ent(), 2),
+            ComponentConfig{}
+                .with_label(text.empty() ? "Try again in a moment." : text)
+                .with_size(ComponentSize{percent(1.0f), pixels(40)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
-                .with_alignment(TextAlignment::Center)
-                .with_debug_name("main_note"));
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("main_error_body"));
     }
 
     // A representative glyph (drawn shape) for a smart view's empty state.
@@ -1305,6 +1330,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // One-shot: HANABI_FIND_STEP is a stand-in for a keypress, so it fires
     // once and not every frame.
     bool findStepApplied_ = false;
+    bool modelPopoverWasOpen_ = false;
+    bool effortPopoverWasOpen_ = false;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -2360,9 +2387,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // note in a tall void. Modern-chat "What can I help with?" landing.
     void render_chat_welcome(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, float paneW, float paneH) {
-        (void)paneW;
-        // The composer is rendered ONCE at the pane level (always visible), so
-        // the welcome hero just fills its content height.
+        const float chipW = std::max(180.0f, std::min(360.0f, paneW - 48.0f));
         float colH = paneH - 20.0f;
         if (colH < 120.0f) colH = 120.0f;
         auto col = div(ctx, mk(parent, 90),
@@ -2380,8 +2405,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(40), pixels(40)})
-                .with_transparent_bg()
-                .with_margin(Margin{.bottom = pixels(14)})
+                .with_custom_background(theme::over(theme::accent_soft(),
+                                                    theme::panel_bg_2()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_corner_radius(12.0f)
                 .with_on_draw_fg([](RectangleType r) {
                     hanabi::icons::draw_at("brand", r.x + r.width * 0.5f,
                                            r.y + r.height * 0.5f, 30.0f,
@@ -2391,21 +2418,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(col.ent(), 2),
             ComponentConfig{}
                 .with_label("What can I help with?")
-                .with_size(ComponentSize{pixels(360), pixels(28)})
+                .with_size(ComponentSize{pixels(chipW), pixels(28)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(theme::text_primary())
                 .with_font_size(theme::type::H1)
                 .with_alignment(TextAlignment::Center)
-                .with_margin(Margin{.bottom = pixels(18)})
+                .with_margin(Margin{.top = pixels(14), .bottom = pixels(4)})
                 .with_roundness(0.0f)
                 .with_debug_name("welcome_greeting"));
-        // Suggestion chips — clicking one starts a new task seeded with it.
+        div(ctx, mk(col.ent(), 3),
+            ComponentConfig{}
+                .with_label("Start with a prompt or write your own below")
+                .with_size(ComponentSize{pixels(chipW), pixels(22)})
+                .with_margin(Margin{.bottom = pixels(12)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_debug_name("welcome_subtitle"));
         static const char* kChips[] = {
             "Summarize what's waiting on me",
             "What changed since I last looked?",
             "Draft a status update",
         };
-        auto chips = div(ctx, mk(col.ent(), 3),
+        auto chips = div(ctx, mk(col.ent(), 4),
             ComponentConfig{}
                 .with_size(ComponentSize{children(), children()})
                 .with_flex_direction(FlexDirection::Column)
@@ -2416,23 +2452,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("welcome_chips"));
         for (int i = 0; i < 3; ++i) {
             auto chip = button(ctx, mk(chips.ent(), 10 + i),
-                ComponentConfig{}
+                hanabi::surface::option_row(chipW, 38.0f, false, 2,
+                                            theme::panel_bg_2())
                     .with_label(kChips[i])
-                    .with_size(ComponentSize{pixels(320), pixels(34)})
-                    .with_padding(Padding{.top = pixels(6), .right = pixels(14),
+                    .with_padding(Padding{.top = pixels(6), .left = pixels(14),
                                           .bottom = pixels(6),
-                                          .left = pixels(14)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(theme::text_secondary())
+                                          .right = pixels(14)})
                     .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
                     .with_margin(Margin{.bottom = pixels(8)})
                     .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.5f)
                     .with_debug_name("welcome_chip"));
             if (chip) {
                 // Seed the LANDING composer's kickoff draft (below) instead of
@@ -3239,14 +3270,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
                   AppComponent& app, Pane& pane, float paneW, int matchCount,
                   const find_ops::Query& q) {
-        // Content must FIT: afterhours has no flex-grow and warns (loudly, every
-        // frame) when a NoWrap row's children exceed it. Sized from the parts:
-        // pad 8+6, input 168, gap 6, tally 74, two 22px steppers, a 4px gap and
-        // a 22px close.
-        constexpr float kBarW = 8.0f + 168.0f + 6.0f + 74.0f + 22.0f + 22.0f +
-                                4.0f + 22.0f + 6.0f;
-        constexpr float kBarH = 34.0f;
-        const float bx = paneW - kBarW - 18.0f;
+        constexpr float kInputW = 176.0f;
+        constexpr float kTallyW = 76.0f;
+        constexpr float kButtonW = 26.0f;
+        constexpr float kBarW = 8.0f + kInputW + 6.0f + kTallyW +
+                                kButtonW * 2.0f + 4.0f + kButtonW + 6.0f;
+        constexpr float kBarH = 38.0f;
+        const float bx = std::max(12.0f, paneW - kBarW - 18.0f);
         auto bar = div(ctx, mk(parent, 7500),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(kBarW), pixels(kBarH)})
@@ -3256,10 +3286,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_padding(Padding{.right = pixels(6), .left = pixels(8)})
-                .with_custom_background(theme::over(theme::panel_bg_2(),
-                                                    theme::panel_bg()))
+                .with_custom_background(theme::panel_bg())
                 .with_border(theme::border(), pixels(1.0f))
-                .with_roundness(0.25f)
+                .with_corner_radius(hanabi::surface::kMenuCorner)
                 .with_render_layer(9)
                 .with_debug_name("find_bar"));
 
@@ -3278,13 +3307,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // inset comes from the bar's padding instead.
         afterhours::ui::imm::text_input(
             ctx, mk(bar.ent(), 1), pane.findQuery,
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(168), pixels(26)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.2f)
-                .with_render_layer(9)
+            hanabi::surface::field(kInputW, 9, 28.0f)
                 .with_debug_name("find_input"));
 
         // "3 of 12", or "no matches" once something has been typed.
@@ -3297,7 +3320,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
                 .with_label(tally)
-                .with_size(ComponentSize{pixels(74), pixels(16)})
+                .with_size(ComponentSize{pixels(kTallyW), pixels(16)})
                 .with_margin(Margin{.left = pixels(6)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -3311,12 +3334,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto b = button(ctx, mk(bar.ent(), id),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(22), pixels(22)})
-                    .with_custom_background(theme::panel_bg())
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_size(ComponentSize{pixels(kButtonW), pixels(kButtonW)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.3f)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
                     .with_render_layer(9)
                     .with_on_draw_fg([up, navigable](RectangleType r) {
                         // A chevron, drawn rather than typed: the font has no
@@ -3350,13 +3373,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto close = button(ctx, mk(bar.ent(), 5),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(22), pixels(22)})
+                .with_size(ComponentSize{pixels(kButtonW), pixels(kButtonW)})
                 .with_margin(Margin{.left = pixels(4)})
-                .with_custom_background(theme::panel_bg())
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.3f)
+                .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_render_layer(9)
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_secondary(), 12.0f))
@@ -3427,8 +3450,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // parity (the commit message says what that costs a reader).
 
         if (pane.transcriptState == LoadState::Error) {
-            note(ctx, parent,
-                 "Could not load transcript: " + pane.transcriptError);
+            note(ctx, parent, pane.transcriptError);
             return;
         }
         if (!pane.openSession) {
@@ -4190,44 +4212,60 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app, Entity& anchorEnt,
                               const std::string& currentModel) {
-        constexpr float kRowH = 24.0f;
-        constexpr float kPopW = 210.0f;
-        const auto& models = hanabi::models::all();
-        const float popH =
-            kRowH * static_cast<float>(models.size()) + 8.0f;
+        if (!app.modelPopoverOpen && !modelPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3200);
         const RectangleType anchor =
             anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        if (!app.modelPopoverOpen) {
+            afterhours::ui::imm::popover(
+                ctx, popRoot, anchor, app.modelPopoverOpen,
+                afterhours::ui::overlay::Placement::Above);
+            modelPopoverWasOpen_ = false;
+            return;
+        }
+        modelPopoverWasOpen_ = true;
+        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        constexpr float kPopW = 252.0f;
+        constexpr float kHeadH = 44.0f;
+        const auto& models = hanabi::models::all();
+        const float popH =
+            kHeadH + kRowH * static_cast<float>(models.size()) + 8.0f;
         auto pop = afterhours::ui::imm::popover(
-            ctx, mk(parent, 3200), anchor, app.modelPopoverOpen,
+            ctx, popRoot, anchor, app.modelPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
-                .with_roundness(0.25f)
-                .with_render_layer(7)
+            hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("model_popover"));
         if (!pop) return;
+        div(ctx, mk(pop.ent(), 900),
+            ComponentConfig{}
+                .with_label("Model")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_margin(Margin{.left = pixels(8)})
+                .with_debug_name("model_popover_title"));
+        div(ctx, mk(pop.ent(), 901),
+            ComponentConfig{}
+                .with_label("Default for new tasks")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_margin(Margin{.left = pixels(8)})
+                .with_debug_name("model_popover_subtitle"));
         for (size_t i = 0; i < models.size(); ++i) {
             const auto& m = models[i];
             const bool selected = m.id == currentModel;
             auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
-                ComponentConfig{}
+                hanabi::surface::option_row(kPopW - 8.0f, kRowH,
+                                            selected, 8)
                     .with_label(std::string(m.name))
-                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                    .with_custom_background(selected ? theme::selected_bg()
-                                                     : theme::panel_bg_2())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(selected ? theme::text_primary()
-                                                     : theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(26)})
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    .with_render_layer(8)
+                    .with_padding(Padding{.left = pixels(30)})
                     .with_on_draw_fg([selected](RectangleType r) {
                         // The mark is drawn, not typed: Roboto has no
                         // geometric shapes and would paint nothing (gap #48).
@@ -4265,44 +4303,61 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_effort_popover(UIContext<InputAction>& ctx, Entity& parent,
                                AppComponent& app, Entity& anchorEnt,
                                const std::string& currentEffort) {
-        constexpr float kRowH = 30.0f;
-        constexpr float kPopW = 230.0f;
-        const auto& levels = hanabi::effort::all();
-        const float popH = kRowH * static_cast<float>(levels.size()) + 8.0f;
+        if (!app.effortPopoverOpen && !effortPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3300);
         const RectangleType anchor =
             anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        if (!app.effortPopoverOpen) {
+            afterhours::ui::imm::popover(
+                ctx, popRoot, anchor, app.effortPopoverOpen,
+                afterhours::ui::overlay::Placement::Above);
+            effortPopoverWasOpen_ = false;
+            return;
+        }
+        effortPopoverWasOpen_ = true;
+        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        constexpr float kPopW = 286.0f;
+        constexpr float kHeadH = 44.0f;
+        const auto& levels = hanabi::effort::all();
+        const float popH = kHeadH +
+                           kRowH * static_cast<float>(levels.size()) + 8.0f;
         auto pop = afterhours::ui::imm::popover(
-            ctx, mk(parent, 3300), anchor, app.effortPopoverOpen,
+            ctx, popRoot, anchor, app.effortPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
-                .with_roundness(0.25f)
-                .with_render_layer(7)
+            hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("effort_popover"));
         if (!pop) return;
+        div(ctx, mk(pop.ent(), 900),
+            ComponentConfig{}
+                .with_label("Thinking effort")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_margin(Margin{.left = pixels(8)})
+                .with_debug_name("effort_popover_title"));
+        div(ctx, mk(pop.ent(), 901),
+            ComponentConfig{}
+                .with_label("Default for new tasks")
+                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_margin(Margin{.left = pixels(8)})
+                .with_debug_name("effort_popover_subtitle"));
         for (size_t i = 0; i < levels.size(); ++i) {
             const auto& lv = levels[i];
             const bool selected = lv.id == currentEffort;
             auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
-                ComponentConfig{}
+                hanabi::surface::option_row(kPopW - 8.0f, kRowH,
+                                            selected, 8)
                     .with_label(std::string(lv.name) + "   \xc2\xb7   " +
                                 std::string(lv.note))
-                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                    .with_custom_background(selected ? theme::selected_bg()
-                                                     : theme::panel_bg_2())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::panel_bg_2()))
-                    .with_custom_text_color(selected ? theme::text_primary()
-                                                     : theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(26)})
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    .with_render_layer(8)
+                    .with_padding(Padding{.left = pixels(30)})
                     .with_on_draw_fg([selected](RectangleType r) {
                         // Drawn, not typed: Roboto has no geometric shapes and
                         // a codepoint it lacks paints nothing (gap #48).
@@ -5515,6 +5570,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 set_field(typed);
                 return;
             }
+            if (cmd->name == "model") {
+                app.modelPopoverOpen = true;
+                app.effortPopoverOpen = false;
+                app.slashNotice.clear();
+                set_field("");
+                return;
+            }
+            if (cmd->name == "effort") {
+                app.effortPopoverOpen = true;
+                app.modelPopoverOpen = false;
+                app.slashNotice.clear();
+                set_field("");
+                return;
+            }
             if (!cmd->runnable) {
                 app.slashNotice =
                     "/" + std::string(cmd->name) + " \xe2\x80\x94 " +
@@ -5770,51 +5839,65 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // off-screen. A sibling of the composer bar under the same uiRoot
         // parent, in the same screen coordinates, on a layer over it.
         if (slashOpen && absX >= 0.0f && absY >= 0.0f) {
-            constexpr float kRowH = 22.0f;
-            const float menuH = kRowH * static_cast<float>(slashRows.size());
-            auto menu = div(ctx, mk(parent, 3100),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(inputW), pixels(menuH)})
-                    .with_absolute_position()
-                    .with_translate(absX + composerGutter,
-                                    absY - menuH - 6.0f)
-                    .with_flex_direction(FlexDirection::Column)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_roundness(0.25f)
-                    .with_render_layer(7)
-                    .with_debug_name("slash_menu"));
+            constexpr float kRowH = hanabi::surface::kMenuRowH;
+            const float menuH =
+                kRowH * static_cast<float>(slashRows.size()) + 8.0f;
+            auto menuConfig = hanabi::surface::menu(inputW, menuH, 7);
+            menuConfig.with_absolute_position()
+                .with_translate(absX + composerGutter, absY - menuH - 6.0f)
+                .with_debug_name("slash_menu");
+            auto menu = div(ctx, mk(parent, 3100), menuConfig);
             for (size_t i = 0; i < slashRows.size(); ++i) {
                 const hanabi::slash::Command& c = *slashRows[i];
-                std::string label = "/" + std::string(c.name);
-                if (!c.arg.empty()) label += " " + std::string(c.arg);
-                label += "   " + std::string(c.blurb);
-                // An unwired verb says so in the row, so the menu is not a
-                // list of promises.
-                if (!c.runnable)
-                    label += " \xc2\xb7 " + std::string(c.unwired);
+                std::string command = "/" + std::string(c.name);
+                if (!c.arg.empty()) command += " " + std::string(c.arg);
                 const bool selected = static_cast<int>(i) ==
                                       app.slashMenuIndex;
-                auto row = button(ctx, mk(menu.ent(), static_cast<int>(i)),
+                auto row = button(
+                    ctx, mk(menu.ent(), static_cast<int>(i)),
+                    hanabi::surface::option_row(inputW - 8.0f, kRowH,
+                                                selected, 8)
+                        .with_label(" ")
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_align_items(AlignItems::Center)
+                        .with_debug_name("slash_item_" + std::to_string(i)));
+                div(ctx, mk(row.ent(), 1),
                     ComponentConfig{}
-                        .with_label(label)
-                        .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                        .with_custom_background(selected
-                                                    ? theme::selected_bg()
-                                                    : theme::panel_bg_2())
-                        .with_custom_hover_bg(
-                            theme::hover_over(theme::panel_bg_2()))
-                        .with_custom_text_color(c.runnable
-                                                    ? theme::text_primary()
-                                                    : theme::text_secondary())
+                        .with_label(command)
+                        .with_size(ComponentSize{pixels(106), pixels(20)})
+                        .with_margin(Margin{.left = pixels(10)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_primary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
-                        .with_padding(Padding{.left = pixels(10)})
-                        .with_click_activation(ClickActivationMode::Press)
-                        .with_roundness(0.0f)
-                        .with_render_layer(7)
-                        .with_debug_name("slash_item_" + std::to_string(i)));
+                        .with_debug_name("slash_command_" +
+                                         std::to_string(i)));
+                const float statusW = c.runnable ? 0.0f : 78.0f;
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(std::string(c.blurb))
+                        .with_size(ComponentSize{pixels(
+                            std::max(40.0f, inputW - 132.0f - statusW)),
+                                                 pixels(20)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("slash_blurb_" +
+                                         std::to_string(i)));
+                if (!c.runnable)
+                    div(ctx, mk(row.ent(), 3),
+                        ComponentConfig{}
+                            .with_label("Unavailable")
+                            .with_size(ComponentSize{pixels(statusW), pixels(20)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_faint())
+                            .with_font_size(theme::type::MICRO)
+                            .with_alignment(TextAlignment::Right)
+                            .with_debug_name("slash_unavailable_" +
+                                             std::to_string(i)));
                 if (row) choose_slash(static_cast<int>(i));
             }
         }
