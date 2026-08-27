@@ -47,6 +47,20 @@ wait_frames 8
 expect_text "Opus 5"
 expect_input_text composer_reply_input ""
 
+click_ui composer_reply_input
+wait_frames 4
+type "/eff"
+wait_frames 8
+expect_text "choose the thinking effort"
+click_ui slash_item_0
+wait_frames 8
+expect_text "Thinking effort"
+expect_text "middle of the ladder"
+click_ui effort_row_0
+wait_frames 8
+expect_text "(Low)"
+expect_input_text composer_reply_input ""
+
 # /new raises the new-conversation sheet.
 click_ui composer_reply_input
 wait_frames 4
