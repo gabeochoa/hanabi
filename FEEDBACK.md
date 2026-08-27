@@ -1,199 +1,127 @@
 # hanabi — feedback from Gabe, 2026-08-26
 
-Live list. He is testing the build (`063bebc`) and sending items as he finds
-them, from inside hanabi itself. Nothing is started until he stops, except
-where marked.
+Reconciled against current `main` (`e249747`) on 2026-08-27. The live list had
+not been updated as its branches landed. The status below is code- and
+test-backed; there is no merge queue left in this file.
 
-Status key: `TODO` · `IN PROGRESS` · `DONE` · `WONTFIX (reason)`
+Status key: `DONE` · `OPEN`
 
-## Every item files its gap
+## A. Session event fidelity
 
-His instruction, 2026-08-26: *"make sure to write everything you need into
-afterhours gaps so i can go look into it"*.
+### A1. His messages to me are visible — DONE (`201b663`, `2ae06eb`)
 
-So each item below has two deliverables, not one: the fix in hanabi, and — where
-the library is what made it hard — an entry in `afterhours_gaps.md` written for
-someone who will go read it cold and decide whether to change afterhours. The
-gap is the more valuable half: hanabi is one consumer, and ~20 projects vendor
-this library. `vendor/afterhours` stays READ-ONLY; the gap is how the finding
-gets out.
+Agentcloud transcript folding now keeps the authored reply separate from
+reasoning and tool JSON, and the event model no longer assumes every frame is a
+four-role chat message. Covered by `tests/ui/every_event_class_has_a_row.e2e`.
 
-A gap entry earns its place by naming the MECHANISM — the specific call, type or
-lifetime rule that forces the workaround — not the symptom. The bar this session
-has been holding: #115 was filed claiming the app was stuck, and the claim was
-wrong because of a single word (`existing_ui_elements` is public, not private);
-it had to be retracted and rewritten. Prefer no entry to a confident wrong one.
+### A2. Thinking is visible — DONE (`2ecc99b`, `c56135b`)
 
-Gap numbers: the file is at **151 entries** and its highest live number is
-**#232**. Take **#240 and up** for this batch, one range per work item, so
-parallel work does not collide. NOTE a pre-existing wart: entries #27–#35 appear
-TWICE in the file (around lines 852 and 1111) from an early era — do not
-renumber them, source cites those numbers, but do not add to the confusion.
+Thinking renders as its own event row and disclosure with the hidden-reasoning
+size stated. Covered by `tests/ui/thinking_disclosure.e2e` and
+`tests/ui/thinking_indicator_sits_on_the_text_column.e2e`.
 
-Items whose gap is likely the whole point:
-- **A1–A6** — whatever makes a four-role transcript the shape of least
-  resistance. This is the biggest one on the list.
-- **B1** — what a single-line text_input costs to turn into a text area, and
-  what breaks in the turning.
-- **B2/B3** — no word-delete, no select-all: what the input plugin does and
-  does not give a consumer, and whether a consumer can add them without
-  reimplementing editing.
-- **C1** — #83 already exists for `:focus-visible`; this is its second act, and
-  should say what the ring's GEOMETRY cannot be told (offset, radius, which
-  element).
-- **C2** — containment: a widget drawing outside its own rect.
-- **C6** — dragging a custom-drawn surface; see #147 (a scroll view is
-  reachable only by debug name) and #138 (a mark per item is linear in
-  allocations).
-- **E1** — whether anything in the library supports two independent view trees
-  in one window.
+### A3. Deliveries are visible — DONE (`2ecc99b`)
 
----
+Delivery frames render as their own event class instead of being flattened into
+a shared grey line. Covered by `tests/ui/every_event_class_has_a_row.e2e`.
 
-# A. Blocking — the client cannot show what a session emits
+### A4. Subagents are visible — DONE (`2ecc99b`, `c56135b`)
 
-These are almost certainly ONE root cause: `api::Role` is
-`{User, Assistant, System, Tool}` (`src/api/types.h:18`), so every event that
-is not one of those four has nowhere to land. The transcript renders a narrow
-subset of a real session and silently drops the rest. Fixing the type is the
-first move; each item below then needs its own rendering.
+Subagent events and the transcript rollup render independently, including
+running/done state. Covered by `tests/ui/subagent_toggle.e2e` and
+`tests/ui/subagent_chips_stay_inside_the_rollup.e2e`.
 
-## A1. His messages to me are not visible — TODO
-"i cant see your messages to me you need to test and validate that works"
-The one that makes the app unusable rather than rough. Must end with a real
-end-to-end check against a live session, not a mock.
+### A5. Nodes are visible — DONE (`2ecc99b`)
 
-## A2. Thinking is missing — TODO
-## A3. Deliveries are missing — TODO
-## A4. Subagents are missing — TODO
-"i dont see any subagents"
-## A5. Nodes are missing — TODO
-## A6. Skills are missing — TODO
+Node events have a dedicated row in the event model. Covered by
+`tests/ui/every_event_class_has_a_row.e2e`.
 
----
+### A6. Skills are visible — DONE (`2ecc99b`)
 
-# B. Input and keyboard
+Skill events have a dedicated row in the event model. Covered by
+`tests/ui/every_event_class_has_a_row.e2e`.
 
-## B1. No Shift+Enter for a newline — TODO
-"theres no shift+enter to add newlines in the message"
-Confirmed in source: `main_pane_system.h` ~5054 states it outright — single-line
-composer, plain Enter sends. afterhours has a multiline text-area config
-(`component_config.h:178`). Moving to it must preserve: Enter-to-send, the
-send-key setting (Return vs Cmd+Return), draft persistence per thread, and
-up-arrow history recall.
+## B. Input and keyboard
 
-## B2. Alt+Backspace does not delete a word — TODO
-"alt-backspace doesnt work, i thought we added these already?"
-He believes this was done before. No match for alt/word-delete anywhere in
-`src/keys.h` or the ECS systems — so either it never landed or it landed and
-regressed. Find out which and say so.
+### B1. Shift+Enter inserts a newline — DONE (`e2d4bc8`)
 
-## B3. Cmd+A does not select all text — TODO
+The composer is a multiline `text_area`; Enter still sends and Shift+Enter
+breaks the line. Covered by `tests/ui/composer_shift_enter.e2e`.
 
----
+### B2. Option+Backspace deletes a word — DONE (`101e215`)
 
-# C. Visual and layout
+The macOS editing chord table now includes word motion and word deletion.
+Covered by `tests/ui/composer_word_editing.e2e`.
 
-## C1. Focus rings need a lot of work — TODO (raised twice)
-"the focus rings are really bad" … "the focus rings need a ton of work"
-Mine from this session: `src/ui/focus_visible.h` +
-`src/ecs/focus_visible_system.h`, built because afterhours rings whatever holds
-focus however it got there (gap #83). My rule: off until a nav key, off again
-after a pointer press. Raising it twice means it is not a small miss. Suspects:
-arming on ANY of Tab/Up/Down/Left/Right (arrow keys inside a text field arm it);
-1px hairline in `theme.focus_ring` blue, drawn flush, ignoring the widget's own
-corner radius; possibly painted on several elements or the wrong one.
+### B3. Cmd+A selects all text — DONE (`101e215`, `a3a9d98`)
 
-## C2. Many buttons render outside their bounds — TODO
-Needs the specific buttons; likely a general containment bug worth one fix.
+Select-all and selection-extending motion use the same editing path in the
+composer. Covered by `tests/ui/composer_shift_selection.e2e`.
 
-## C3. Typing indicator is positioned wrong — TODO
-"the position of the typing indicator doesnt line up where it should"
+## C. Visual and layout
 
-## C4. Pinned threads are not in the sidebar — TODO
-"pinned threads arent there"
-The sidebar has a whole pinned-prefix sort pass (`sidebar_system.h` 2507-2512,
-2775) — so the ordering logic exists and something upstream of it is wrong.
+### C1. Focus rings — DONE (`eed2f62`, `f9f4989`, `2410dd7`, `5163857`)
 
-## C5. The Steer button should be an icon — TODO
+The ring is a single backdrop-aware band, appears for keyboard navigation,
+does not arm on text-field arrow keys, and follows each widget's geometry.
+Covered by `tests/ui/focus_ring_waits_for_the_keyboard.e2e` and
+`tests/ui/an_arrow_key_is_not_a_focus_ring.e2e`.
 
-## C6. Allow dragging along the minimap — TODO
-Scrub the transcript by dragging the minimap, not just clicking it. Note gap
-#138: the minimap's per-message mark costs an entity each, so a drag that
-rebuilds marks per frame is the expensive shape — build the interaction so it
-does not.
+### C2. Buttons outside their bounds — DONE (`060ee5a`, `563ebbe`, `759f644`, `12472e5`)
 
+The containment audit identified the real escapes, shared row geometry removed
+the repeated segment overflow, and the send/subagent rows were corrected.
+`scripts/bounds_gate.sh` now fails on any new parent-bound escape.
 
-## C7. Mouse wheel must scroll a thread — DONE (`feat/transcript-wheel`)
+### C3. Typing indicator alignment — DONE (`fb71e0d`)
 
-His words, 2026-08-26: *"can you make sure that scrolling with the scroll wheel
-works in threads, i would love that feature"*.
+The indicator is anchored to the message text column rather than the bubble
+padding. Covered by `tests/ui/thinking_indicator_sits_on_the_text_column.e2e`.
 
-It did not half-work. Over a transcript the wheel moved the view **exactly zero
-pixels** — eight notches, `transcript_bottom_pad` at y=646 before and y=646
-after — and it was not a dead event or a missed hit-test, because the same eight
-notches after one PAGE_UP moved the pad 646 → 1209 → 1689. The notch arrived
-every time and the pane erased it on the next frame.
+### C4. Pinned threads in the sidebar — DONE (`df19be0`)
 
-Two lines of the follow-latch, in this order:
+Pinned sessions form the sidebar prefix before ordinary sessions. Covered by
+`tests/ui/pinned_threads_head_the_sidebar.e2e`.
 
-```
-if (prevOffset >= 0 && offset < prevOffset - 2) follow = false;
-if (nearEnd) follow = true;              // undoes the line above
-```
+### C5. Steer is an icon — DONE (`e3bf42c`)
 
-afterhours writes a notch to `scroll_target` and eases `scroll_offset` toward it
-at 0.28 of the distance a frame, so one frame after a notch the offset has moved
-5.6 px — inside the 24 px `nearEnd` band. The latch broke and re-armed on
-consecutive lines, the pane re-pinned to the end writing BOTH fields, and the
-offset could never leave the band. Every thread opens pinned to the end, so the
-wheel was dead everywhere a reader actually is.
+The idle action is a bent-stem mark with an accessible name instead of a large
+button. Covered by `tests/ui/steer_is_an_icon_with_a_name.e2e`.
 
-Fixed by reading the reader's intent off `scroll_target` — the field the WHEEL
-writes — instead of `scroll_offset`, the field the EASING writes
-(`src/ecs/follow_latch.h`, `tests/unit/test_follow_latch.cpp`). Scrolling up
-lets go of the bottom, scrolling back to the end pins again, and both panes of
-a split work.
+### C6. Dragging the minimap — DONE (`8004943`, merge `3f1a2ca`)
 
-STILL NOT RIGHT, and it needs his hardware to settle: a trackpad or Magic Mouse
-scrolls twice as far as the finger, and a wheel detent moves one line where the
-Mac convention is three. One multiplier, two conventions —
-`afterhours_gaps.md #405`. `HANABI_SCROLL_SPEED` is the knob until then.
+Press-drag-release continuously scrubs the transcript and preserves the pane's
+independent scroll state. Covered by `tests/ui/minimap_drag.e2e` and
+`tests/unit/test_minimap_scrub.cpp`.
 
----
+### C7. Mouse wheel scrolling — DONE (`3316179`, `5ae33ee`, merge `cb47404`)
 
-# D. Audits he asked for
+A wheel gesture breaks the bottom-follow latch, scrolling back to the end
+re-arms it, and split panes remain independent. Covered by
+`tests/unit/test_follow_latch.cpp`, `tests/ui/wheel_scrolls_the_transcript.e2e`,
+and `tests/ui/wheel_scrolls_the_pane_under_the_pointer.e2e`.
 
-## D1. Look up how search works — TODO
-Read it and report; scope unstated, so start with a plain explanation of the
-current behaviour and where it is wrong.
+The remaining hardware distinction is not this ask: afterhours exposes trackpad
+and wheel as the same float, recorded as gap #405. `HANABI_SCROLL_SPEED` remains
+the application workaround.
 
-## D2. Verify all ~800 commit descriptions against their diffs — TODO
-"read through all 800 commits and make sure each one description is supported"
-821 commits in the repo. Every claim in every message checked against what the
-commit actually changed. Parallelizable and mechanical; the deliverable is the
-list of messages that overstate, misattribute, or contradict their diff.
-I have already found two of my own this session (a 635px line width that was
-not a line width; gap #115's claim the app was stuck, which one wrong word
-caused) — so the yield here is real.
+## D. Audits
 
----
+### D1. Explain and correct search — DONE (`7d1920f`, merge `67f0696`)
 
-# E. Features
+`docs/SEARCH.md` documents the three searches. The follow-up made deep search
+incremental and honest about coverage/truncation, and made find count the whole
+thread rather than only the current render window.
 
-## E1. Pane splitting — TODO
-Split the main pane so two things are visible at once. Needs a decision from
-him on the shape before building: split which axis, how many panes, does each
-pane hold its own thread (and therefore its own tab strip / scroll position /
-draft), and is the split per-window or per-tab. This is the one item on the
-list that sets a direction hard to redirect later — the pane owns scroll state,
-draft state, and the transcript render cache keys, all of which are currently
-single-pane assumptions.
+### D2. Verify commit descriptions against diffs — DONE (`116ec8a`, `38e7e69`, merge `ffc5ae7`)
 
----
+`docs/COMMIT_AUDIT.md` records the full audit; 58 copied claims and numbers were
+corrected in docs and source comments.
 
-## Housekeeping
+## E. Features
 
-- Worktree cleanup: 86 of 87 merged worktrees being removed.
-  `~/w/hanabi-bold` (`feat/bold-face`, 3 unmerged commits, weighted font
-  resolution) kept back pending his call.
+### E1. Pane splitting — DONE (`a2f7e04`, `1a70900`, merge `274f369`)
+
+Two panes now own independent thread, scroll, draft, focus, find, minimap and
+follow-latch state, with a draggable divider. Covered by
+`tests/ui/pane_split.e2e` and `tests/unit/test_pane_memory.cpp`.
