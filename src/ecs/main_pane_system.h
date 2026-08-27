@@ -1768,7 +1768,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // no triangles (gap #48) and a missing codepoint paints nothing at all.
     bool section_label(UIContext<InputAction>& ctx, Entity& parent,
                               int id, const std::string& text, bool first,
-                              theme::Color color, AppComponent& app,
+                              theme::Color glyphColor, AppComponent& app,
                               const std::string& shelfKey) {
         const bool collapsed = app.collapsedShelves.count(shelfKey) != 0;
         list_extent((first ? 4.0f : 20.0f) + 20.0f + 6.0f);
@@ -1800,8 +1800,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(18)})
                 .with_transparent_bg()
-                .with_on_draw_fg([collapsed, color](RectangleType r) {
-                    hanabi::glyph::chevron(r, collapsed, color, 3.2f);
+                .with_on_draw_fg([collapsed, glyphColor](RectangleType r) {
+                    hanabi::glyph::chevron(r, collapsed, glyphColor, 3.2f);
                 })
                 .with_debug_name("home_section_chev"));
 
@@ -1815,7 +1815,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(upper(text))
                 .with_size(ComponentSize{children(), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_text_color(color)
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::LABEL)
                 .with_letter_spacing(1.0f)
                 .with_alignment(TextAlignment::Left)
