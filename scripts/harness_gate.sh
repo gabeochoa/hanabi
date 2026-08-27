@@ -61,9 +61,9 @@ else
     b="$root/state_b/Library/Application Support/hanabi/settings.json"
     if [ ! -f "$a" ] || [ ! -f "$b" ]; then
         note_fail "each script must get its own home; found: $(find "$root" -name settings.json | wc -l | tr -d ' ') settings file(s) under $root"
-    elif ! grep -q '"theme":"dark"' "$a"; then
+    elif ! python3 -c 'import json,sys; raise SystemExit(json.load(open(sys.argv[1])).get("theme") != "dark")' "$a"; then
         note_fail "state_a's home does not hold state_a's declared settings: $(cat "$a")"
-    elif ! grep -q '"theme":"light"' "$b"; then
+    elif ! python3 -c 'import json,sys; raise SystemExit(json.load(open(sys.argv[1])).get("theme") != "light")' "$b"; then
         note_fail "state_b's home does not hold state_b's declared settings: $(cat "$b")"
     else
         echo "  per-script homes                   PASS"

@@ -6,9 +6,8 @@
 # harness uses for every other Cmd-only surface.
 #
 # What is asserted here is the honesty of the answer, not the plumbing. The
-# corpus is what this machine holds: two transcripts are in memory (the
-# restored tab, and the newest thread, which the loader opens on its own) and
-# the other eighteen threads are a title and a preview. A panel
+# corpus is what this machine holds: one transcript is in memory (the restored
+# tab) and the other nineteen threads are a title and a preview. A panel
 # that showed "1 result" without saying that would be reporting "you said this
 # once" when it means "this is the one place we could look".
 #
@@ -24,7 +23,7 @@ expect_text "needs a decision"
 expect_text "acct 8842 - ledger"
 
 # The admission, with real numbers in it.
-expect_text "Full text for 2 of 20 threads; the rest by title and preview only"
+expect_text "Full text for 1 of 20 threads; the rest by title and preview only"
 
 # And the OTHER admission stays quiet when there is nothing to admit: "ledger"
 # hits two threads, which is fewer than the six rows fit, so the panel must not
@@ -35,4 +34,4 @@ expect_no_text narrow
 # Escape puts the panel away.
 key ESCAPE
 wait_frames 10
-expect_no_text "Full text for 2 of 20 threads"
+expect_no_text "Full text for 1 of 20 threads"

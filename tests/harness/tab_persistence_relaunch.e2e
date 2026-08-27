@@ -1,0 +1,13 @@
+# Relaunch restores two distinct pane threads and the explicitly persisted focused pane.
+
+require_thread t1
+require_thread t4
+expect_panes t1 t4 1
+
+assert_ui split_divider hidden=false
+assert_ui split_focus_edge x=693
+assert_ui tab_t1 hidden=false
+assert_ui tab_active hidden=false
+expect_text "Tab: stickers broke — concluded, D113637134 on you, pinned"
+expect_text "Tab: finished, and wants you to read it, active"
+expect_no_text "Tab: needs a decision before it can go on"

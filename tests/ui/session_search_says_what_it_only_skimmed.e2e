@@ -18,6 +18,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_XSEARCH_DEMO=question
 
+require_thread rbig
+
 # The hit is real — "question" is in the tail we hold — and the row says which
 # kind of reading found it, because an ABSENT match in a thread read this way
 # is not evidence of anything.

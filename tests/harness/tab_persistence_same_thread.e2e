@@ -1,0 +1,9 @@
+# Explicit pane focus survives when both panes show the same active session.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","pinned_tabs":[],"split_open":true,"split_ratio":0.5,"split_panes":["t2","t2"],"split_focused_pane":1,"theme":"dark"}
+
+require_thread t2
+expect_panes t2 t2 1
+
+assert_ui split_divider hidden=false
+assert_ui split_focus_edge x=693
+expect_text "Tab: needs a decision before it can go on, active"

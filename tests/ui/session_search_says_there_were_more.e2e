@@ -14,6 +14,8 @@
 # The chord is Cmd+Shift+F, which no script can press (afterhours_gaps.md #49).
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
 # env: HANABI_XSEARCH_DEMO=s
 
 # "s" is in every title in the catalog, so this is the case the panel used to

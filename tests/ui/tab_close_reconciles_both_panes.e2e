@@ -1,0 +1,19 @@
+# Closing a tab shown only in the unfocused pane retargets that pane too.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","pinned_tabs":[],"split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"theme":"dark"}
+
+require_thread t2
+require_thread t9
+
+expect_text "Reconcile this cycle's Stars payouts against the ledger"
+expect_text "Recurring: kick the pending queue every ten minutes."
+expect_text "Close tab: kicker-tick"
+
+mouse_move 711 49
+wait_frames 2
+click 711 49
+wait_frames 20
+
+require_thread t2
+expect_no_text "Recurring: kick the pending queue every ten minutes."
+expect_no_text "Close tab: kicker-tick"
+expect_text "Tab: needs a decision before it can go on, active"

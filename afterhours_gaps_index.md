@@ -1,6 +1,6 @@
 # afterhours gaps — index
 
-`afterhours_gaps.md` is ~14,500 lines and 230 numbered entries, written by dozens of
+`afterhours_gaps.md` is ~14,000 lines and 237 parsed entries, written by dozens of
 agents over several days. As a record it is good. As a work queue it is
 unusable: you cannot see what matters, what is one change, what is the same
 finding filed four times, and what has already been fixed under it.
@@ -26,16 +26,16 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **231** |
-| Distinct numeric gap numbers | **222** (seven numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **237** |
+| Distinct numeric gap numbers | **228** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **239** — one per indexed heading, nothing dropped |
-| Standalone live asks | **133** |
+| **Rows in the triage table (§6)** | **245** — includes 11 index-only identifiers; #366–#373 remain unindexed |
+| Standalone live asks | **139** |
 | Live but subsumed into a family canonical | **52** (§3) |
 | Already fixed upstream | **9** |
 | Deliberate NEGATIVE results — do not promote | **18** (§4) |
 | hanabi/platform-owned, not afterhours' | **22** |
-| **Entries WRONG or overtaken by events** | **9 found here, 4 already known** (§2) |
+| **Rows explicitly marked wrong** | **5** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
 submodule **428047e**. Nothing here was verified by running the library; each
@@ -364,7 +364,7 @@ to fix.
 | Family | Canonical | Also filed as | The one mechanism |
 |---|---|---|---|
 | **Widget lifetime** | **#115** | #171, #162, #163, #220, #146, #160, AN-9 | Nothing retires an entity, so identity is the slot, the library's own entities are invisible, a scroll view clamps against children that are not there, and an exit animation has nothing to animate. #160 is the *cost* of the fix; #146 is how you would gate it. |
-| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42, #435, #436, #437 | No content sizing and no reusable draw-layout artifact, so every consumer re-derives metrics and byte geometry the renderer already has — against a cache that answers a different question (#137), keyed by a font name that does not change when the face does (#190), measuring the ink box rather than the advance (#103), with no weight parameter (#82). Fifteen entries; filed independently by at least six agents. |
+| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42, #435, #436, #437, #450 | No content sizing and no reusable draw-layout artifact, so every consumer re-derives metrics and byte geometry the renderer already has. `tab_container` adds the policy form: it asks for ellipsis and then makes text the minimum width (#450). |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
 | **Virtualization** | **#326 / #420** | #23, #170, #31a, #224, #220, #147, #455 | `virtual_list` divides by one row height and has no retained prefix-height index or range invalidation. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. #455 carries the current busy-event CPU and allocation measurements; #420 carries the retained index workaround and range-invalidation ask. |
@@ -377,6 +377,8 @@ to fix.
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
 | **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
 | **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259, #380, #381, #457 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, its best diagnostic is unregistered, custom commands lose quoted arguments (#457), a handler cannot own its own timeout message (#380 — and #113 is that same overwrite from the other side), and the directory mode runs a whole suite in one process with no reset between scripts (#381). #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
+| **Pointer buttons and scroll axes** | **#405** | #30b, #406, #407, #408, #445, #446 | The facade has a two-axis wheel but a horizontal-only view accepts X only; wheel lifetime, scroll assertions, nested hit-testing, and middle-button state each diverge between real input and the scripted model. #445 is the button form, #446 the axis-policy form. |
+| **Drag interaction** | **#287** | AN-12, #447, #448, #449 | A raw drag primitive exists, but there is no candidate threshold or nested-control exclusion, scrolled/clipped hit tests use raw rects, and the overlay can copy only a flat label/color. Hanabi carries the complete composite-tab gesture outside the primitive. |
 
 **Exact duplicates**, as opposed to families — the same finding written twice:
 
@@ -760,6 +762,12 @@ correction narrows them rather than closing them.
 | 482 | FlexEnd already anchors an empty-state column | NOT A GAP | — | — | neg |
 | 483 | Color assertions still require screenshot processes | MISSING | HIGH | S | dup→#308 |
 | 484 | One draw-callback branch adds zero entities/allocations | PERF PROOF | — | — | app |
+| 445 | Middle-click bypasses UI hit resolution and the scripted injector | MISSING | MED | S | **live** |
+| 446 | A horizontal-only scroll view ignores vertical wheel and Shift+wheel intent | MISSING | HIGH | S | **live** |
+| 447 | Drag groups have no click threshold or nested-control exclusion | FOOTGUN | HIGH | M | **live** |
+| 448 | Drag hit-testing ignores ancestor scroll and viewport clipping | FOOTGUN | HIGH | S | **live** |
+| 449 | Drag overlays cannot reproduce composite widgets | MISSING | MED | M | **live** |
+| 450 | `tab_container`'s text minimum defeats its own ellipsis | FOOTGUN | MED | S | **live** |
 
 ---
 

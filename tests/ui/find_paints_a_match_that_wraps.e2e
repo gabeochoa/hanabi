@@ -15,6 +15,8 @@
 # and counted once, so the audit and the bar still report the same number.
 #
 # settings: {"window_width":1000,"window_height":760,"open_tabs":["r2"],"active_tab":"r2","theme":"dark"}
+
+require_thread r2
 # env: HANABI_FIND_DEMO='The import' HANABI_FIND_AUDIT=1
 
 expect_text "1 of 1"

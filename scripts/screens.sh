@@ -243,7 +243,7 @@ ARCHIVED_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_t
 TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
 TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"light"}'
 TABS_T6='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t6","theme":"dark"}'
-MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
+MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","r1","r2","r4","r5","r6","r7","r8","r9","r10","r11"],"active_tab":"r11","pinned_tabs":["r10","r11"],"theme":"dark"}'
 FOLDED='{"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}'
 
 # --- Home digest ------------------------------------------------------------

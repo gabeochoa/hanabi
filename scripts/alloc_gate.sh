@@ -19,7 +19,7 @@
 # by 1, because a one-off allocation lands in a different bucket.)
 #
 # ---------------------------------------------------------------------------
-# THE ARMS, AND WHY THESE THREE
+# THE ARMS, AND WHY THESE FIVE
 #
 #   home20     the hand-written 20-session fixture, Home view. The floor: what
 #              an idle app costs with almost nothing on screen.
@@ -29,6 +29,9 @@
 #   thread480  a 480-message thread open over that same catalog. The transcript
 #              is where the per-frame text work lives, and it is the arm that
 #              the wrap memo moved most.
+#   tabs20     twenty open tabs in overflow. HEAD e249747 measured 774/f; this
+#              branch measures 762/f after removing render/menu vectors and
+#              caching semantic labels. The 920 ceiling keeps 20% headroom.
 #
 # ---------------------------------------------------------------------------
 # WHERE THE CEILINGS COME FROM (measured 2026-08-25 on gabeochoa-mac-GRQ7Y259H4,
@@ -85,16 +88,17 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-EXE="$ROOT/output/hanabi.exe"
+EXE="${HANABI_ALLOC_EXE:-$ROOT/output/hanabi.exe}"
 
 FRAMES="${HANABI_ALLOC_GATE_FRAMES:-600}"
 EVERY="${HANABI_ALLOC_GATE_EVERY:-200}"
 CEIL_HOME20="${HANABI_ALLOC_CEIL_HOME20:-1000}"
 CEIL_HOME2000="${HANABI_ALLOC_CEIL_HOME2000:-1450}"
 CEIL_THREAD480="${HANABI_ALLOC_CEIL_THREAD480:-3300}"
+CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-920}"
 # The composer holding a SIX-LINE DRAFT, standing still.
 #
-# The other three arms have an empty composer, and an empty composer is the one
+# The other four arms have an empty composer, and an empty composer is the one
 # state of this widget that costs nothing. text_area re-wraps its whole text
 # every frame -- unconditionally, with no memo, and through the raw backend
 # measure rather than the shared TextMeasureCache (afterhours_gaps.md #305) --
@@ -122,11 +126,20 @@ kill_own_runs() { pkill -9 -f "^$EXE" >/dev/null 2>&1 || true; }
 trap kill_own_runs EXIT
 
 fail=0
+ONLY="${HANABI_ALLOC_ONLY:-}"
+case "$ONLY" in
+    ""|home20|home2000|tabs20|thread480|draft6) ;;
+    *)
+        echo "alloc_gate: unknown HANABI_ALLOC_ONLY '$ONLY'" >&2
+        exit 2
+        ;;
+esac
 
 # run_arm <name> <sessions> <ceiling> <open_tabs-json> <active-json> [extra env...]
 run_arm() {
     local name=$1 sessions=$2 ceiling=$3 tabs=$4 active=$5
     shift 5
+    [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || return 0
     local h
     h="$(mktemp -d)"
     mkdir -p "$h/Library/Application Support/hanabi"
@@ -138,11 +151,20 @@ J
     # single "A=1 B=2" string sets ONE variable named A to "1 B=2" under zsh,
     # which does not word-split unquoted expansions. That mistake silently
     # measured the wrong fixture for an afternoon.
+    local run_rc=0
     env HOME="$h" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
         HANABI_CONFIG=/nonexistent/hanabi/alloc-gate.json HANABI_PROF=1 \
         HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$EVERY" \
-        HANABI_STRESS_SESSIONS="$sessions" "$@" \
-        "$EXE" --screenshot "$h/shot.png" > "$log" 2>&1
+        HANABI_SOAK_WARM_FRAMES=0 HANABI_STRESS_SESSIONS="$sessions" "$@" \
+        "$EXE" --screenshot "$h/shot.png" > "$log" 2>&1 || run_rc=$?
+    if [ "$run_rc" -ne 0 ]; then
+        printf '  %-11s %12s  FAIL — executable exited %s\n' \
+            "$name" "?" "$run_rc"
+        tail -5 "$log" | sed 's/^/        /' >&2
+        rm -rf "$h"
+        fail=1
+        return
+    fi
 
     # Read the per-BUCKET column, not the verdict line. The verdict belongs to
     # soak.h's trend machinery, which refuses to report at all until enough
@@ -193,6 +215,7 @@ printf '  %-11s %12s %10s %8s   %s\n' "arm" "allocs/f" "ceiling" "of ceil" "verd
 
 run_arm home20      20   "$CEIL_HOME20"     '[]'       '""'
 run_arm home2000  2000   "$CEIL_HOME2000"   '[]'       '""'
+run_arm tabs20       20   "$CEIL_TABS20"     '["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","r1","r2","r4","r5","r6","r7","r8","r9","r10","r11"]' '"r11"'
 run_arm thread480 2000   "$CEIL_THREAD480"  '["rbig"]' '"rbig"' \
     HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_TURNS=120
 # HANABI_REPLY_DEMO seeds the composer that is on screen with no thread open,

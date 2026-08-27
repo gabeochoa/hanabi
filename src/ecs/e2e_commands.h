@@ -4,8 +4,8 @@
 // Scripted-UI commands that only hanabi can implement.
 //
 // afterhours' e2e vocabulary is deliberately generic: click a point, type a
-// key, assert on visible text. Two things this app's scripts need are not
-// expressible in it, and BOTH of them are the reason a test has read as a
+// key, assert on visible text. Four things this app's scripts need are not
+// expressible in it, and all four are the reason a test has read as a
 // flake here rather than as a broken app:
 //
 //   require_thread <id>   A script that asserts on a transcript has a
@@ -30,6 +30,15 @@
 //                         read as "the link feature broke". The renderer
 //                         derives the rect anyway; this aims at its centre.
 //
+//   expect_panes <left> <right> <focus>
+//                         Assert both pane contents and the focus owner without
+//                         relying on which transcript lines are in the
+//                         viewport.
+//
+//   reset_clipboard_probe  Clear the test-only write generation.
+//   expect_clipboard <text> Assert that a fresh tab-menu copy reached the
+//                           platform clipboard rather than only changing UI.
+//
 // Registered from run_e2e BEFORE register_unknown_handler, which is the
 // ordering the unknown handler's own error message asks for.
 // ---------------------------------------------------------------------------
@@ -42,6 +51,7 @@
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
 #include "../ui/link_detect.h"
+#include "../util/clipboard.h"
 #include "components.h"
 
 namespace hanabi::e2e {
@@ -155,6 +165,65 @@ inline std::string joined_args(
     return out;
 }
 
+struct HandleExpectPanesCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_panes")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("expect_panes requires left_id right_id focused_index");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const int focused = cmd.arg_as<int>(2);
+        const auto holds = [](const ecs::Pane& pane, const std::string& id) {
+            return pane.selectedId == id && pane.openSession &&
+                   pane.openSession->summary.id == id;
+        };
+        if (app != nullptr && app->splitOpen &&
+            holds(app->panes[0], cmd.arg(0)) &&
+            holds(app->panes[1], cmd.arg(1)) && app->focusedPane == focused) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        const std::string left = app != nullptr && app->panes[0].openSession
+                                     ? app->panes[0].openSession->summary.id
+                                     : "-";
+        const std::string right = app != nullptr && app->panes[1].openSession
+                                      ? app->panes[1].openSession->summary.id
+                                      : "-";
+        cmd.fail(
+            std::format("pane mismatch: left={} right={} focused={} split={}",
+                        left, right, app != nullptr ? app->focusedPane : -1,
+                        app != nullptr && app->splitOpen));
+    }
+};
+
+inline std::uint64_t fingerprint(std::string_view value) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (const unsigned char c : value) {
+        hash ^= c;
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+struct HandleResetClipboardCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("reset_clipboard_probe")) return;
+        hanabi::clipboard::reset_test_probe();
+        cmd.consume();
+    }
+};
+
 struct HandleExpectClipboardCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -165,10 +234,17 @@ struct HandleExpectClipboardCommand
             cmd.fail("expect_clipboard requires text");
             return;
         }
-        const std::string want = joined_args(cmd, 0);
-        std::string actual(hanabi::test_hooks::recorded_clipboard_text());
-        if (actual.empty()) actual = afterhours::clipboard::get_text();
-        if (actual == want) {
+        const std::string expected = joined_args(cmd, 0);
+        const auto& probe = hanabi::clipboard::test_probe();
+        std::string actual;
+        bool fresh = probe.generation > 0;
+        if (fresh) {
+            actual = probe.text;
+        } else {
+            actual = std::string(hanabi::test_hooks::recorded_clipboard_text());
+            if (actual.empty()) actual = afterhours::clipboard::get_text();
+        }
+        if (actual == expected) {
             cmd.consume();
             return;
         }
@@ -176,8 +252,11 @@ struct HandleExpectClipboardCommand
             cmd.retry();
             return;
         }
-        cmd.fail(std::format("clipboard mismatch: expected '{}', got '{}'",
-                             want, actual));
+        cmd.fail(std::format(
+            "clipboard mismatch: fresh={} expected_len={} expected_hash={:016x} "
+            "actual_len={} actual_hash={:016x}",
+            fresh, expected.size(), fingerprint(expected), actual.size(),
+            fingerprint(actual)));
     }
 };
 
@@ -210,6 +289,8 @@ struct HandleExpectOutboxCommand
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectPanesCommand>());
+    sm.register_update_system(std::make_unique<HandleResetClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxCommand>());
 }

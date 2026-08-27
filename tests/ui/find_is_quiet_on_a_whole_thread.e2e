@@ -8,6 +8,8 @@
 # NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
 # env: HANABI_FIND_DEMO=kestrel
 
 expect_text "no matches"

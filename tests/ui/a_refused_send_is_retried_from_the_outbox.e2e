@@ -18,6 +18,8 @@
 # shared box. Zero means "as soon as the thread can take it".
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
 # env: HANABI_MOCK_SEND_FAIL=1 HANABI_OUTBOX_BACKOFF=0
 
 expect_text "needs a decision"
