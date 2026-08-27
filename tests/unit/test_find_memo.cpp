@@ -66,10 +66,12 @@ static void test_unchanged_frames_are_constant_work() {
     CHECK(first.size() == 2);
     CHECK(calls == 2);
     const std::size_t work = memo.stats().message_work;
+    const std::size_t rows = memo.stats().rows_visited;
     const auto& second = memo.collect(s, 1, q, policy(), Normalizer{&calls});
     CHECK(second.size() == 2);
     CHECK(calls == 2);
     CHECK(memo.stats().message_work == work);
+    CHECK(memo.stats().rows_visited == rows);
     CHECK(memo.stats().result_hits == 1);
 }
 
@@ -83,6 +85,17 @@ static void test_query_change_reuses_normalized_text() {
     CHECK(matches.size() == 1);
     CHECK(matches[0].msg == 1);
     CHECK(calls == 2);
+}
+
+static void test_invalid_query_clears_prior_matches() {
+    Memo memo;
+    api::Session s = basic_session();
+    int calls = 0;
+    CHECK(memo.collect(s, 1, find_ops::parse("alpha"), policy(),
+                       Normalizer{&calls}).size() == 2);
+    CHECK(memo.collect(s, 1, find_ops::parse("is:nope"), policy(),
+                       Normalizer{&calls}).empty());
+    CHECK(memo.query().invalid);
 }
 
 static void test_content_mutation_rebuilds_only_that_message() {
@@ -218,6 +231,7 @@ static void test_cache_is_bounded_without_truncating_matches() {
 int main() {
     test_unchanged_frames_are_constant_work();
     test_query_change_reuses_normalized_text();
+    test_invalid_query_clears_prior_matches();
     test_content_mutation_rebuilds_only_that_message();
     test_append_and_prepend_are_incremental();
     test_operator_ast_and_tool_state_invalidate_matches();

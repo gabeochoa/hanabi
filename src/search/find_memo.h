@@ -37,6 +37,7 @@ struct Match {
 struct Stats {
     std::size_t result_hits = 0;
     std::size_t result_misses = 0;
+    std::size_t rows_visited = 0;
     std::size_t message_work = 0;
     std::size_t normalized = 0;
     std::size_t normalized_reused = 0;
@@ -248,6 +249,7 @@ class Memo {
         row_has_match_.assign(session.messages.size(), false);
         const bool cacheable = sequence_.size() == session.messages.size();
         for (std::size_t i = 0; i < session.messages.size(); ++i) {
+            ++stats_.rows_visited;
             const api::Message& m = session.messages[i];
             if (!message_is_paintable(m)) continue;
             row_paintable_[i] = find_ops::row_matches(session, i, query_);

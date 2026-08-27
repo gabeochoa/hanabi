@@ -647,6 +647,8 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/perf_transcript_slope.sh
 	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
 	@bash scripts/perf_text_gate.sh
+	@echo "Running find level gate (scripts/find_gate.sh)..."
+	@bash scripts/find_gate.sh
 
 # `make test` = unit + e2e + scripted UI + perf + the screenshot subset (the
 # full harness, one command).
@@ -661,6 +663,8 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/perf_transcript_slope.sh
 	@echo "Running text measurement gate (scripts/perf_text_gate.sh)..."
 	@bash scripts/perf_text_gate.sh
+	@echo "Running find level gate (scripts/find_gate.sh)..."
+	@bash scripts/find_gate.sh
 	@$(MAKE) soak-gate
 	@$(MAKE) alloc-gate
 	@$(MAKE) scaling-gate
@@ -738,6 +742,9 @@ scaling-gate: $(MAIN_EXE) copy-resources
 
 scroll-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scroll_gate.sh
+
+find-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/find_gate.sh
 
 retire-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/retire_gate.sh

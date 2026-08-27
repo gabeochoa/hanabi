@@ -3205,6 +3205,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            after.result_hits - before.result_hits);
         hanabi::prof::tick("find.memo_miss",
                            after.result_misses - before.result_misses);
+        hanabi::prof::tick("find.rows_visited",
+                           after.rows_visited - before.rows_visited);
         hanabi::prof::tick("find.message_work",
                            after.message_work - before.message_work);
         hanabi::prof::tick("find.normalize",
