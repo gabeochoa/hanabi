@@ -8149,18 +8149,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // (tool_node / tool_status / tool_duration_ms / tool_result), so the
     // renderer reads those directly — no fabricated per-message values. Counts
     // come from the real pile size (one Tool message == one call).
+    static std::string format_tool_duration(int64_t durationMs) {
+        if (durationMs <= 0) return "";
+        long long s = durationMs / 1000;
+        if (s < 1) return std::to_string(durationMs) + "ms";
+        if (s < 60) return std::to_string(s) + "s";
+        long long mn = s / 60;
+        long long rs = s % 60;
+        return rs ? (std::to_string(mn) + "m" + std::to_string(rs) + "s")
+                  : (std::to_string(mn) + "m");
+    }
     static std::string tool_duration(const api::Message& m) {
-        // Prefer the REAL duration parsed from the backend (completedAt-startedAt).
-        if (m.tool_duration_ms > 0) {
-            long long s = m.tool_duration_ms / 1000;
-            if (s < 1) return std::to_string(m.tool_duration_ms) + "ms";
-            if (s < 60) return std::to_string(s) + "s";
-            long long mn = s / 60;
-            long long rs = s % 60;
-            return rs ? (std::to_string(mn) + "m" + std::to_string(rs) + "s")
-                      : (std::to_string(mn) + "m");
-        }
-        return "";  // unknown duration -> show nothing (no fake number)
+        return format_tool_duration(m.tool_duration_ms);
     }
     static std::string tool_node(const api::Message& m) {
         // Prefer the REAL node the backend supplied (tool input -> tool_node).
@@ -8177,15 +8177,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::string t = redact_secrets(m.text);
         size_t nl = t.find('\n');
         if (nl != std::string::npos) t = t.substr(0, nl);
-        // Never render a blank tool row: fall back to the tool name (subtitle),
-        // then a generic label, so real tool calls always show WHAT ran.
+        const std::string node = tool_node(m);
+        const std::string prefix = node.empty() ? "" : ("[" + node + "] ");
+        if (!prefix.empty() && t.starts_with(prefix)) t.erase(0, prefix.size());
         if (t.empty()) t = !m.subtitle.empty() ? m.subtitle : std::string("tool call");
         return t;
     }
-    // Real tool status -> check color. "completed"/"" (assume ok) => ready green;
-    // "failed"/"error" => blocked red. Drives the row's trailing check mark.
+    static std::string tool_label(const api::Message& m) {
+        const std::string command = tool_command(m);
+        std::string out;
+        if (!m.subtitle.empty() && m.subtitle != command) out = m.subtitle;
+        const std::string node = tool_node(m);
+        if (!node.empty()) {
+            if (!out.empty()) out += "  \xc2\xb7  ";
+            out += "[" + node + "]";
+        }
+        if (!command.empty() && command != out) {
+            if (!out.empty()) out += "  \xc2\xb7  ";
+            out += command;
+        }
+        return out;
+    }
     static bool tool_failed(const api::Message& m) {
         return m.tool_status == "failed" || m.tool_status == "error";
+    }
+    static std::string pile_duration(const std::vector<api::Message>& msgs,
+                                     int lo, int hi) {
+        int64_t total = 0;
+        for (int i = lo; i < hi; ++i)
+            if (msgs[i].tool_duration_ms > 0) total += msgs[i].tool_duration_ms;
+        return format_tool_duration(total);
+    }
+    static std::string pile_status(const std::vector<api::Message>& msgs,
+                                   int lo, int hi) {
+        std::string status;
+        for (int i = lo; i < hi; ++i) {
+            if (tool_failed(msgs[i])) return "failed";
+            if (msgs[i].tool_status == "running") status = "running";
+            else if (status.empty() && !msgs[i].tool_status.empty())
+                status = msgs[i].tool_status;
+        }
+        return status;
     }
 
     static void draw_wrench(RectangleType r, theme::Color c) {
@@ -8456,94 +8488,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return h;
     }
 
-    // Trailing metadata cluster (count badge + duration + check), into a Row.
-    void tool_meta_cluster(UIContext<InputAction>& ctx, Entity& parent,
-                           int idbase, int count, const std::string& dur,
-                           bool showCount = true, bool failed = false) {
-        // Count badge only when it means something (a PILE of N calls); a single
-        // tool call has no meaningful count, so we drop the "N" badge there.
-        if (showCount) {
-            // Badge = a rounded Row holding the `layers` sprite + the count.
-            // (Icon and text live in SEPARATE child divs — combining a visible
-            // label with on_draw_fg on one widget doesn't render the text.)
-            auto badge = div(ctx, mk(parent, idbase + 1),
-                ComponentConfig{}
-                    .with_size(ComponentSize{children(), pixels(18)})
-                    .with_flex_direction(FlexDirection::Row)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.right = pixels(7), .left = pixels(7)})
-                    .with_custom_background(theme::panel_bg_2())
-                    .with_roundness(0.5f)
-                    .with_margin(Margin{.right = pixels(6)})
-                    .with_debug_name("tool_count"));
-            // Lucide `layers` sprite (a stacked pile) — replaces the raw `≡`
-            // unicode glyph (last raw chrome glyph; Phase H).
-            div(ctx, mk(badge.ent(), 1),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{pixels(12), pixels(18)})
-                    .with_transparent_bg()
-                    .with_margin(Margin{.right = pixels(1)})
-                    .with_on_draw_fg([](RectangleType r) {
-                        hanabi::icons::draw_at(
-                            "layers", r.x + r.width * 0.5f,
-                            r.y + r.height * 0.5f, 11.0f,
-                            theme::text_secondary());
-                    })
-                    .with_debug_name("tool_count_icon"));
-            div(ctx, mk(badge.ent(), 2),
-                ComponentConfig{}
-                    .with_label(std::to_string(count))
-                    .with_size(ComponentSize{children(), pixels(18)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::MICRO)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("tool_count_n"));
-        }
-        // Duration only when known (real ms parsed); blank -> no fake number.
-        // Sized to its CONTENT (children()) with a small trailing gap so it
-        // sits right next to the dot instead of floating at the right edge of a
-        // wide fixed box (Gabe: "group the icons together, why so much space").
-        if (!dur.empty()) {
-            div(ctx, mk(parent, idbase + 2),
-                ComponentConfig{}
-                    .with_label(dur)
-                    .with_size(ComponentSize{children(), pixels(18)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Right)
-                    .with_margin(Margin{.right = pixels(6)})
-                    .with_debug_name("tool_dur"));
-        }
-        // Chat redesign #3: status is a small calm trailing DOT, not a big
-        // checkmark — done = soft green, failed = red. Reads as an ambient
-        // status indicator on the quiet tool card, not a "task complete" stamp.
-        // Slot is 18px tall (matches the count/dur rows) and align_items::Center
-        // on the parent row centers it vertically; the glyph is drawn at the
-        // exact slot center (Gabe: "center the green dot").
-        theme::Color dotC = failed ? theme::tag_blocked_fg()
-                                   : theme::status_active();
-        div(ctx, mk(parent, idbase + 3),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(12), pixels(18)})
-                .with_transparent_bg()
-                .with_on_draw_fg([dotC, failed](RectangleType rr) {
-                    const float cx = rr.x + rr.width * 0.5f;
-                    const float cy = rr.y + rr.height * 0.5f;
-                    if (failed) {
-                        draw_tool_fail(rr, dotC);  // keep the × for failures
-                    } else {
-                        afterhours::draw_circle_v({cx, cy}, 3.0f, dotC);
-                    }
-                })
-                .with_debug_name("tool_check"));
-    }
-    // Small "×"-ish fail mark for a failed tool call (distinct from the check).
     static void draw_tool_fail(RectangleType r, theme::Color c) {
         const float cx = r.x + r.width * 0.5f;
         const float cy = r.y + r.height * 0.5f;
@@ -8553,12 +8497,119 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                  afterhours::vec2{cx - 3.0f, cy + 3.0f}, 1.7f, c);
     }
 
-    // Dense COLLAPSED tool row: chevron? + wrench + mono command + cluster.
+    void tool_count_badge(UIContext<InputAction>& ctx, Entity& parent,
+                          int count, float rowW) {
+        constexpr float badgeW = 54.0f;
+        auto badge = div(ctx, mk(parent, 31),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(badgeW), pixels(18)})
+                .with_absolute_position((rowW - badgeW) * 0.5f, 5.0f)
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_custom_background(theme::panel_bg())
+                .with_roundness(0.5f)
+                .with_debug_name("tool_count"));
+        div(ctx, mk(badge.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(12), pixels(18)})
+                .with_transparent_bg()
+                .with_margin(Margin{.right = pixels(2)})
+                .with_on_draw_fg([](RectangleType r) {
+                    hanabi::icons::draw_at("layers", r.x + r.width * 0.5f,
+                                           r.y + r.height * 0.5f, 11.0f,
+                                           theme::text_secondary());
+                })
+                .with_debug_name("tool_count_icon"));
+        div(ctx, mk(badge.ent(), 2),
+            ComponentConfig{}
+                .with_label(std::to_string(count))
+                .with_size(ComponentSize{children(), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("tool_count_n"));
+    }
+
+    static float tool_status_width(const std::string& dur,
+                                   const std::string& status) {
+        float width = 0.0f;
+        if (!dur.empty()) width += 42.0f;
+        if (!status.empty()) width += std::min(78.0f, 12.0f + 6.0f * status.size());
+        if (!status.empty()) width += 14.0f;
+        return width;
+    }
+
+    void tool_status_cluster(UIContext<InputAction>& ctx, Entity& parent,
+                             const std::string& dur,
+                             const std::string& status, float rowW) {
+        const float clusterW = tool_status_width(dur, status);
+        if (clusterW <= 0.0f) return;
+        const bool failed = status == "failed" || status == "error";
+        auto cluster = div(ctx, mk(parent, 41),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(clusterW), pixels(18)})
+                .with_absolute_position(rowW - 16.0f - clusterW, 5.0f)
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("tool_status_cluster"));
+        if (!dur.empty()) {
+            div(ctx, mk(cluster.ent(), 1),
+                ComponentConfig{}
+                    .with_label(dur)
+                    .with_size(ComponentSize{pixels(38), pixels(18)})
+                    .with_margin(Margin{.right = pixels(4)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Right)
+                    .with_roundness(0.0f)
+                    .with_debug_name("tool_dur"));
+        }
+        if (!status.empty()) {
+            const float statusW = std::min(72.0f, 8.0f + 6.0f * status.size());
+            div(ctx, mk(cluster.ent(), 2),
+                ComponentConfig{}
+                    .with_label(fmtutil::ellipsize(status, 12))
+                    .with_size(ComponentSize{pixels(statusW), pixels(18)})
+                    .with_margin(Margin{.right = pixels(2)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(failed ? theme::tag_blocked_fg()
+                                                   : theme::text_faint())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Right)
+                    .with_roundness(0.0f)
+                    .with_debug_name("tool_status"));
+            const theme::Color dotC = failed ? theme::tag_blocked_fg()
+                                             : theme::status_active();
+            div(ctx, mk(cluster.ent(), 3),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(12), pixels(18)})
+                    .with_transparent_bg()
+                    .with_on_draw_fg([dotC, failed](RectangleType r) {
+                        if (failed) draw_tool_fail(r, dotC);
+                        else afterhours::draw_circle_v(
+                            {r.x + r.width * 0.5f, r.y + r.height * 0.5f},
+                            3.0f, dotC);
+                    })
+                    .with_debug_name("tool_check"));
+        }
+    }
+
     Entity& tool_row(UIContext<InputAction>& ctx, Entity& parent, int idbase,
                      float rowW, bool expandable, bool open,
                      const std::string& command, int count,
-                     const std::string& dur, bool showCount = true,
-                     bool failed = false) {
+                     const std::string& dur, const std::string& status,
+                     bool showCount = true) {
         auto head = div(ctx, mk(parent, idbase),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(rowW), pixels(kToolRowH)})
@@ -8569,19 +8620,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(0), .left = pixels(10)})
                 .with_margin(Margin{.top = pixels(kToolRowGap),
                                     .bottom = pixels(kToolRowGap)})
-                // Chat redesign #3: a calm raised surface, NOT a bordered box.
-                // The border + panel_bg made tool calls read as debug-log rules;
-                // a soft panel_bg_2 fill with no border integrates them into the
-                // assistant turn as a quiet step (spec: "belongs to the turn").
                 .with_custom_background(theme::panel_bg_2())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_cursor(expandable ? afterhours::ui::CursorType::Pointer
                                         : afterhours::ui::CursorType::Default)
-                // Shared chat corner: derive roundness from THIS row's height so
-                // the tool card's pixel corner matches the user prompt bubble
-                // (both target theme::kChatCorner). 0.42 here made a much rounder
-                // corner than the bubble's — Gabe: "why did you round the corners
-                // so much" + "corners of my prompt must match the tool call".
                 .with_corner_radius(theme::kChatCorner)
                 .with_debug_name("tool_head"));
         div(ctx, mk(head.ent(), 1),
@@ -8606,33 +8648,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     draw_wrench(rr, theme::text_faint());
                 })
                 .with_debug_name("tool_icon"));
-        // Right-align the meta cluster (count/dur/check) to the row's right
-        // edge. afterhours has no flex-grow (gap #18), so we compute the meta
-        // cluster's ACTUAL width from what will be shown and size the command
-        // column to fill the rest — otherwise a fixed 168px reserve left the
-        // numbers floating mid-row (worst for a single tool call, which has no
-        // count badge). Leading = chevron(12) + icon(16) + icon margin(6).
-        const float kLeadW = 12.0f + 16.0f + 6.0f;
-        float metaW = 12.0f;                         // status dot slot (always)
-        if (!dur.empty()) metaW += 40.0f + 6.0f;     // duration (content) + margin
-        if (showCount) metaW += 37.0f + 6.0f;        // count badge (content-sized) + margin
-        // The row has left=10 + right=16 padding (26 total), so the content box
-        // is rowW-26; subtract lead + meta from THAT. The wider right pad gives
-        // the trailing status dot / duration breathing room from the hover
-        // box's right edge (Gabe: "hover state too close to the time").
-        float cmdW = rowW - 26.0f - kLeadW - metaW;
-        if (cmdW < 60.0f) cmdW = 60.0f;
+        const float leadW = 34.0f;
+        const float rightW = tool_status_width(dur, status);
+        const float commandRight = showCount
+            ? (rowW * 0.5f - 31.0f)
+            : (rowW - 16.0f - rightW - 8.0f);
+        float commandW = commandRight - 10.0f - leadW;
+        if (commandW < 44.0f) commandW = 44.0f;
         div(ctx, mk(head.ent(), 3),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(command, 96))
-                .with_size(ComponentSize{pixels(cmdW), pixels(18)})
+                .with_label(fmtutil::ellipsize(command, 120))
+                .with_size(ComponentSize{pixels(commandW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("tool_cmd"));
-        tool_meta_cluster(ctx, head.ent(), 10, count, dur, showCount, failed);
+        if (showCount) tool_count_badge(ctx, head.ent(), count, rowW);
+        tool_status_cluster(ctx, head.ent(), dur, status, rowW);
         return head.ent();
     }
 
@@ -8661,21 +8695,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("tool_pile"));
 
-        // Header command: prefix the node (e.g. "[cli:aspen] ") when the tool
-        // ran on a specific node, so the collapsed header reads like Gabe asked:
-        // "N tool calls · [node] cmd". tool_node() returns "" for local/unknown
-        // (no fabricated node), so the prefix only appears when real.
-        const std::string pileNode = tool_node(msgs[lo]);
-        std::string cmd = std::to_string(count) + " tool calls  \xc2\xb7  " +
-                          (pileNode.empty() ? "" : ("[" + pileNode + "] ")) +
-                          tool_command(msgs[lo]);
-        // The badge shows the REAL pile size (one Tool message == one call), so
-        // it always matches the "N tool calls" header text. (Previously summed a
-        // hashed per-message fake, which could disagree with the header.)
+        std::string cmd = tool_label(msgs[lo]);
         int total = count;
-        std::string dur = tool_duration(msgs[lo]);
-        Entity& head =
-            tool_row(ctx, wrap.ent(), 1, rowW, true, open, cmd, total, dur);
+        std::string dur = pile_duration(msgs, lo, hi);
+        std::string status = pile_status(msgs, lo, hi);
+        Entity& head = tool_row(ctx, wrap.ent(), 1, rowW, true, open, cmd,
+                                total, dur, status);
         head.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (app && head.get<afterhours::ui::HasClickListener>().down) {
@@ -8739,44 +8764,77 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sub_icon"));
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(tool_node(m))
-                .with_size(ComponentSize{pixels(84), pixels(16)})
+                .with_label(fmtutil::ellipsize(m.subtitle, 10))
+                .with_size(ComponentSize{pixels(64), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font("mono", theme::type::MICRO)
-                .with_margin(Margin{.right = pixels(8)})
+                .with_margin(Margin{.right = pixels(6)})
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("sub_name"));
+        const std::string node = tool_node(m);
+        div(ctx, mk(row.ent(), 3),
+            ComponentConfig{}
+                .with_label(node.empty() ? "" : ("[" + node + "]"))
+                .with_size(ComponentSize{pixels(92), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font("mono", theme::type::MICRO)
+                .with_margin(Margin{.right = pixels(6)})
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sub_node"));
-        div(ctx, mk(row.ent(), 3),
+        float commandW = rowW - 14.0f - 19.0f - 70.0f - 98.0f - 116.0f;
+        if (commandW < 40.0f) commandW = 40.0f;
+        div(ctx, mk(row.ent(), 4),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(tool_command(m), 52))
-                .with_size(ComponentSize{pixels(rowW - 168.0f), pixels(16)})
+                .with_label(fmtutil::ellipsize(tool_command(m), 96))
+                .with_size(ComponentSize{pixels(commandW), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font("mono", theme::type::SUBROW)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sub_cmd"));
-        div(ctx, mk(row.ent(), 4),
+        div(ctx, mk(row.ent(), 5),
             ComponentConfig{}
                 .with_label(tool_duration(m))
-                .with_size(ComponentSize{pixels(30), pixels(16)})
+                .with_size(ComponentSize{pixels(36), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::MICRO)
                 .with_alignment(TextAlignment::Right)
-                .with_margin(Margin{.right = pixels(6)})
+                .with_margin(Margin{.right = pixels(4)})
                 .with_debug_name("sub_dur"));
-        div(ctx, mk(row.ent(), 5),
+        const bool failed = tool_failed(m);
+        div(ctx, mk(row.ent(), 6),
             ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(12), pixels(16)})
+                .with_label(fmtutil::ellipsize(m.tool_status, 10))
+                .with_size(ComponentSize{pixels(58), pixels(16)})
                 .with_transparent_bg()
-                .with_on_draw_fg([](RectangleType rr) {
-                    draw_check(rr, theme::tag_ready_fg());
-                })
-                .with_debug_name("sub_check"));
+                .with_custom_text_color(failed ? theme::tag_blocked_fg()
+                                               : theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Right)
+                .with_margin(Margin{.right = pixels(2)})
+                .with_debug_name("sub_status"));
+        if (!m.tool_status.empty()) {
+            const theme::Color color = failed ? theme::tag_blocked_fg()
+                                              : theme::status_active();
+            div(ctx, mk(row.ent(), 7),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(12), pixels(16)})
+                    .with_transparent_bg()
+                    .with_on_draw_fg([color, failed](RectangleType rr) {
+                        if (failed) draw_tool_fail(rr, color);
+                        else afterhours::draw_circle_v(
+                            {rr.x + rr.width * 0.5f, rr.y + rr.height * 0.5f},
+                            2.5f, color);
+                    })
+                    .with_debug_name("sub_check"));
+        }
     }
 
     // How many output lines a sub-row's detail panel shows (a peek, not a dump).
@@ -9307,13 +9365,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // chevron shows only when there's something to expand.
         // Single tool row: prefix the node ("[cli:aspen] cmd") when known, same
         // as the pile header (Gabe: "[cli:aspen] cd …"). Empty for local/unknown.
-        const std::string oneNode = tool_node(m);
-        const std::string oneCmd =
-            (oneNode.empty() ? "" : ("[" + oneNode + "] ")) + tool_command(m);
+        const std::string oneCmd = tool_label(m);
         Entity& head = tool_row(ctx, parent, 200 + index * 10, rowW,
                                 /*expandable=*/expandable, open,
-                                oneCmd, 1, tool_duration(m),
-                                /*showCount=*/false, /*failed=*/tool_failed(m));
+                                oneCmd, 1, tool_duration(m), m.tool_status,
+                                /*showCount=*/false);
         if (expandable && app && !key.empty()) {
             head.addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});

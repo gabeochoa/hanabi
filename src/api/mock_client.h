@@ -1466,18 +1466,19 @@ class MockClient : public Client {
                              hrs_ago(1), "active", ThreadState::Unknown,
                              "tool fold fixture");
             Message shortA{"fd2", Role::Tool,
-                           "wc -l cache/evict.rs", hrs_ago(2), "shell"};
+                           "wc -l cache/evict.rs", hrs_ago(2), "bash"};
             shortA.tool_result = "182 cache/evict.rs";
             shortA.tool_status = "completed";
             shortA.tool_duration_ms = 300;
-            Message shortB{"fd3", Role::Tool, "head -3 cache/evict.rs",
-                           hrs_ago(2), "shell"};
-            shortB.tool_result = "use crate::clock;";
+            Message shortB{
+                "fd3", Role::Tool,
+                "sed -n '1,240p' cache/evict.rs && printf '%s\\n' cache-audit-complete",
+                hrs_ago(2), "read"};
             shortB.tool_status = "completed";
             shortB.tool_duration_ms = 200;
             // Over kAutoResultChars, so Auto keeps this pile shut.
             Message longA{"fd5", Role::Tool, "cargo test -p cache",
-                          hrs_ago(1), "shell"};
+                          hrs_ago(1), "test"};
             longA.tool_result =
                 "running 6 tests\n"
                 "test evict::lru_drops_the_oldest_entry_first ... ok\n"
@@ -1488,10 +1489,11 @@ class MockClient : public Client {
                 "SWEEPBUDGET exhausted after 4096 entries\n";
             longA.tool_status = "completed";
             longA.tool_duration_ms = 9100;
-            Message longB{"fd6", Role::Tool, "cargo bench -p cache",
-                          hrs_ago(1), "shell"};
-            longB.tool_result = "bench evict/lru  1.20 us";
-            longB.tool_status = "completed";
+            Message longB{
+                "fd6", Role::Tool,
+                "cargo bench -p cache --features stress-testing -- --sample-size 1000 --measurement-time 30",
+                hrs_ago(1), "bench"};
+            longB.tool_status = "failed";
             longB.tool_duration_ms = 40000;
             s.messages = {
                 {"fd1", Role::User, "how big is the eviction path?", hrs_ago(2),
