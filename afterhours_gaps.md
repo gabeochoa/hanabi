@@ -12238,7 +12238,7 @@ widgets at 2000 sessions    428     428
 ```
 
 The 2000/20 widget ratio stayed **1.33x**. The minimum frame ratio moved
-**1.27x → 1.28x**, normal timing noise; the count-based invariants did not move.
+**1.27x → 1.25x**, normal timing noise; the count-based invariants did not move.
 
 **Workaround.** Keep all four shapes inside the existing row glyph callback and
 classify with a branch over existing session fields.
