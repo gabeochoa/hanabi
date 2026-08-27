@@ -9260,7 +9260,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                n == "Task" || n == "task" || n == "sub_agent" ||
                n == "spawn_sub_agent";
     }
-    static constexpr float kSpawnCardH = 46.0f;
+    static constexpr float kSpawnCardH = 38.0f;
     static float spawn_card_height() {
         return kToolRowGap + kSpawnCardH + kToolRowGap;
     }
@@ -9289,12 +9289,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     .bottom = pixels(kToolRowGap)})
                 .with_padding(Padding{.top = pixels(0), .right = pixels(12),
                                       .bottom = pixels(0), .left = pixels(12)})
-                // A calm accent-tinted surface (distinct from the neutral tool
-                // card) so a spawn reads as a notable "new agent" event.
-                .with_custom_background(
-                    theme::over(theme::accent_soft(), theme::panel_bg()))
-                .with_border(theme::accent(), pixels(1.0f))
-                .with_corner_radius(theme::kChatCorner)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
                 .with_debug_name("spawn_card"));
 
         // Sparkle icon (sub-agent). Uses the same sprite as the brand mark.
