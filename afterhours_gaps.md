@@ -12855,7 +12855,7 @@ CLASS: MISSING
 
 **Workaround.** Fixed in the app: a checked-in Info.plist owns `io.github.gabeochoa.hanabi`, and native integrations require that exact value.
 
-**Hanabi reference.** `resources/macos/Info.plist` owns the identifier; `native_extras.mm::hanabi_is_bundled` enforces it; `main.cpp --native-diagnostics` proves bundled versus bare behavior; `scripts/verify_macos_app.sh` rejects drift.
+**Hanabi reference.** `resources/macos/Info.plist::CFBundleIdentifier` — the checked-in bundle manifest owns the stable application identity. `src/native_extras.mm::hanabi_is_bundled` — native integrations require that exact identifier. Measurement/gate: `scripts/verify_macos_app.sh` (`runtime_status`) — the bundle verifier checks the plist, signature identity, and runtime identity agree.
 
 **Minimal upstream change.** None. This is application packaging, not an afterhours defect.
 
@@ -12875,7 +12875,7 @@ CLASS: FIXED
 
 **Workaround.** Fixed in packaging: copy both dylibs, rewrite ids and load commands, add `@executable_path/../Frameworks`, then sign the rewritten bytes.
 
-**Hanabi reference.** `scripts/package_macos_app.sh` lines 17-45 perform the relocation; `scripts/verify_macos_app.sh` rejects `/opt/homebrew`, `/usr/local`, and `/Users` load paths; `make verify-app` is the gate.
+**Hanabi reference.** `scripts/package_macos_app.sh` (`install_name_tool -add_rpath`) — packaging copies OpenSSL, rewrites its install names, and adds the bundle-relative runtime path before signing. Measurement/gate: `scripts/verify_macos_app.sh` (`bundle has a machine-local runtime dependency`) — verification rejects Homebrew, local, and user-home load paths. `makefile::verify-app` — the make target runs the bundle gate.
 
 **Minimal upstream change.** None. afterhours does not own Hanabi's TLS dependencies.
 
@@ -12895,7 +12895,7 @@ CLASS: FIXED
 
 **Workaround.** Fixed in packaging: sign each relocated dylib, then the executable, then the final bundle; verify after all mutations.
 
-**Hanabi reference.** `scripts/package_macos_app.sh` lines 26-46 order the mutations and signatures; `scripts/verify_macos_app.sh` verifies and prints the explicit `local ad-hoc only` scope.
+**Hanabi reference.** `scripts/package_macos_app.sh` (`codesign --force --sign -`) — packaging signs relocated libraries, then the executable, then the assembled bundle. Measurement/gate: `scripts/verify_macos_app.sh` (`signing scope: local ad-hoc only`) — verification checks the sealed bundle and states the signature's limited scope.
 
 **Minimal upstream change.** None. A future release process may replace the ad-hoc identity with a real Developer ID and notarization, but this task cannot claim those credentials.
 
@@ -12915,7 +12915,7 @@ CLASS: FIXED
 
 **Workaround.** Fixed with explicit `register-app`/`unregister-app` and `install-app`/`uninstall-app` targets. Replacement and removal require the exact bundle id.
 
-**Hanabi reference.** `scripts/manage_macos_app.sh::require_hanabi` and actions at lines 22-55 implement the reversible path; `makefile` exposes the four targets; `docs/macos-bundle.md` names every side effect.
+**Hanabi reference.** `scripts/manage_macos_app.sh::require_hanabi` — registration, replacement, and removal refuse any bundle with the wrong identity. `makefile::register-app` — the reversible registration targets expose the state change explicitly. `docs/macos-bundle.md` (`register-app`) — the bundle guide documents each side effect.
 
 **Minimal upstream change.** None. Registration belongs to the app installer.
 
@@ -12935,7 +12935,7 @@ CLASS: FIXED
 
 **Workaround.** None for denied permission. The app reports the state and continues normally; the user can change it in System Settings. This work is permission-gated, not broken.
 
-**Hanabi reference.** `native_extras.mm::native_notifications_start` maps the platform statuses; `main.cpp::app_frame` calls it only on the windowed path; `tests/unit/test_native_extras.mm` proves the bare path is side-effect-free; `HANABI_NOTIFY_TEST` exercises the real seam without any backend send.
+**Hanabi reference.** `src/native_extras.mm::native_notifications_start` — the app maps durable macOS authorization states and never retries denied permission as if it were transient. `src/main.cpp::app_frame` — only the windowed frame starts native notification integration. Tests: `tests/unit/test_native_extras.mm` (`native_notifications_start`) — the bare executable path proves side-effect-free behavior.
 
 **Minimal upstream change.** None. Authorization is deliberately controlled by macOS and the user.
 
@@ -12955,7 +12955,7 @@ CLASS: PLATFORM-GATED
 
 **Workaround.** Fixed: keep the newest one pending while status is unresolved, flush it only on authorized/provisional, and drop it on denied/error.
 
-**Hanabi reference.** `native_extras.mm::NotificationPayload`, `deliver_pending_notification`, and `native_notify` implement the one-item queue; `main.cpp` retains the existing 30-second debounce before this seam.
+**Hanabi reference.** `src/native_extras.mm::NotificationPayload` — the bounded pending slot stores exactly one newest notification while authorization is unresolved. `src/native_extras.mm::deliver_pending_notification` — authorization success flushes that slot and denial/error drops it. `src/native_extras.mm::native_notify` — delivery and queue policy meet at the app seam.
 
 **Minimal upstream change.** None. The asynchronous API is intentional; queue policy belongs to the app.
 
@@ -12975,7 +12975,7 @@ CLASS: FIXED
 
 **Workaround.** Fixed in the app.
 
-**Hanabi reference.** `native_extras.mm::deliver_notification` sets sound/thread/userInfo; `HanabiNotifDelegate::willPresentNotification` mirrors the request; `main.cpp` passes `Settings::get().get_notification_sound()`; `tests/unit/test_notify_events.cpp` holds transition, mute, and debounce-adjacent selection logic.
+**Hanabi reference.** `src/native_extras.mm::deliver_notification` — request content independently sets sound, thread identity, and payload. `src/native_extras.mm::HanabiNotifDelegate` — foreground presentation mirrors the request's sound choice while always allowing banner and list. Tests: `tests/unit/test_notify_events.cpp` — transition, mute, and debounce-adjacent selection logic remains covered.
 
 **Minimal upstream change.** None.
 
@@ -12995,7 +12995,7 @@ CLASS: FIXED
 
 **Workaround.** Fixed: newest-first 2,000-item catalog, 500-item API chunks, stable `thread:` identifiers, a bundle-scoped id manifest, delete-only-the-difference, and no sync on Loading/Error/mock.
 
-**Hanabi reference.** `src/util/spotlight_catalog.h::make_catalog` owns bound/order/metadata; `native_extras.mm::native_spotlight_sync` owns update/delete/manifest; `main.cpp` gates on `LoadState::Loaded` and a non-mock backend; `tests/unit/test_spotlight_catalog.cpp` tests bound, dedupe, UTF-8, preview, URL, and update signature.
+**Hanabi reference.** `src/util/spotlight_catalog.h::make_catalog` — the catalog owns bounds, ordering, deduplication, preview truncation, URLs, and update signatures. `src/native_extras.mm::native_spotlight_sync` — native code reconciles update/delete sets with the bundle-scoped manifest. Tests: `tests/unit/test_spotlight_catalog.cpp` — catalog bounds, dedupe, UTF-8, previews, URLs, and signatures are covered.
 
 **Minimal upstream change.** A public `fetchSearchableItemIdentifiers(domain:)` or durable client state on the default index would remove the app-owned manifest. Until then the manifest is the smallest correct reconciliation state.
 
@@ -13015,7 +13015,7 @@ CLASS: FIXED
 
 **Workaround.** None for command-line visibility. Keep the successful completion as API proof and classify end-user discoverability as Spotlight-UI/index-state gated.
 
-**Hanabi reference.** `HANABI_SPOTLIGHT_TEST=<id>` in `main.cpp::app_frame` donates one local-only record; `native_extras.mm` logs completion; `docs/macos-bundle.md` records the limitation and `HANABI_SPOTLIGHT_TEST=clear` cleanup.
+**Hanabi reference.** `src/main.cpp` (`HANABI_SPOTLIGHT_TEST`) — a local-only diagnostic donates or clears one record without a backend send. `src/native_extras.mm::native_spotlight_sync` — the completion log is the supported API proof. Measurement/gate: `docs/macos-bundle.md` (`HANABI_SPOTLIGHT_TEST=clear`) — the guide records the command-line visibility limit and cleanup path.
 
 **Minimal upstream change.** A supported command-line/CoreSpotlight diagnostic that queries an app's own domain by bundle id and unique identifier.
 
@@ -13035,7 +13035,7 @@ CLASS: PLATFORM-GATED
 
 **Workaround.** Fixed at the ownership boundary: notification startup, hotkey, URL handler, file drop, and test donations are called only from `app_frame`; every headless path owns a separate loop and never reaches it. Native functions still require the exact bundle id as defense in depth.
 
-**Hanabi reference.** `main.cpp::app_frame` is the only native-start call site; `run_headless_screenshot` and `run_e2e` never call it; `tests/unit/test_native_extras.mm` proves bare no-ops; the bundled sentinel probe is documented in `docs/macos-bundle.md`.
+**Hanabi reference.** `src/main.cpp::app_frame` — the windowed loop is the only owner of native startup and test donations. `src/main.cpp::run_headless_screenshot` and `src/main.cpp::run_e2e` — both headless loops remain outside that ownership boundary. Tests: `tests/unit/test_native_extras.mm` — bare native calls are no-ops. Measurement/gate: `docs/macos-bundle.md` (`sentinel`) — the bundled headless sentinel probe documents that no side effect escapes.
 
 **Minimal upstream change.** None. afterhours correctly separates its windowed and headless loops; the application must keep side effects on the windowed branch.
 
