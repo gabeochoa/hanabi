@@ -71,7 +71,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // next system re-asserts its own. MainPaneSystem now does; measured,
         // because when it did not the main pane's score moved 0.14 points on
         // a change that touched only the sidebar (gap #90).
-        ctx.theme.font_muted = kSearchHintFg;
+        ctx.theme.font_muted = theme::text_secondary();
 
         // Apply a pending star-toggle request (set by a row's star affordance).
         // The mutation lives HERE so this owned system is the single writer of
@@ -562,10 +562,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // column stacks in exactly this order, and the sum is the list's top edge:
     //   kSbTitlebarH 36 | kSbStripH 28 | views 4 + 6*32 | rule 4 | search 32 |
     //   kSbListGap 4  ->  list at y=300, first glyph centre y=316
-    static constexpr float kSbTitlebarH = 36.0f;  // OS traffic-light zone
-    static constexpr float kSbStripH = 28.0f;     // "VIEWS" header strip
-    static constexpr float kSbViewsTopPad = 4.0f;
-    static constexpr float kSbViewRowH = 32.0f;   // view row pitch
+    static constexpr float kSbTitlebarH = 32.0f;
+    static constexpr float kSbStripH = 24.0f;
+    static constexpr float kSbViewsTopPad = 2.0f;
+    static constexpr float kSbViewRowH = 30.0f;
     // The selected fill is shorter than the pitch and rounded; both measured
     // off the reference (fill y69..97 inside a row starting at 68, first row
     // x3..276 against a middle of x0..278).
@@ -586,16 +586,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // list 14.25% -> 17.18%. Six view rows are not worth twenty list rows.
     static constexpr float kSbViewFillRadius = 5.0f;
     static constexpr int kSbViewRows = 6;
-    static constexpr float kSbRuleH = 4.0f;       // 3px gap + a 1px hairline
-    static constexpr float kSbSearchH = 32.0f;    // 7px gap + a 25px field
-    // 24, which rasterizes as the reference's 25 (gap #80). It was 26, giving
-    // 27.
-    static constexpr float kSbFieldH = 24.0f;
-    static constexpr float kSbListGap = 4.0f;
-    static constexpr float kSbFooterH = 28.0f;    // 1px rule + the footer row
-    // One left inset for EVERY column in the sidebar: the strip's chevron, a
-    // view row's icon, a session row's glyph. Puffin puts all three at x=9.
-    static constexpr float kSbInset = 9.0f;
+    static constexpr float kSbRuleH = theme::chrome::SPACE_1;
+    static constexpr float kSbSearchH = 32.0f;
+    static constexpr float kSbFieldH = 26.0f;
+    static constexpr float kSbListGap = theme::chrome::SPACE_1;
+    static constexpr float kSbFooterH = theme::chrome::HIT;
+    static constexpr float kSbInset = theme::chrome::SPACE_3;
     // ---- shared count-column geometry (gap #18: afterhours has no flex-grow)
     // The view rows and the session rows both show a right-aligned count. To
     // land every count at the SAME right-edge x, we reserve one count-column
@@ -622,7 +618,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr int kSpacerBelowIdOffset = 198;
     // The fixed on-screen height of one session row — the MEASURED Puffin
     // pitch. Used by the fill-the-viewport cap so the list reaches the footer.
-    static constexpr float kRowHeight = 32.0f;
+    static constexpr float kRowHeight = theme::chrome::ROW;
     // The snippet line a row grows while the list is being searched.
     static constexpr float kSnippetH = 16.0f;
     // A session row's left inset and its leading status-glyph slot. Puffin puts
@@ -888,144 +884,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     enum class SidebarGlyph { Running, Blocked, Done, Idle };
-    static constexpr theme::Color kGlyphActive{155, 196, 255, 255};
-    static constexpr theme::Color kGlyphAlert{224, 92, 96, 255};
-    static constexpr theme::Color kGlyphDone{126, 210, 150, 255};
-    static constexpr theme::Color kGlyphCalm{146, 146, 171, 255};
-    // The sub-agent count's two colours, both measured off the reference
-    // capture (docs/visual-parity/ref/01_home.png) the way the glyph colours
-    // above were. A count is antialiased text with no solid interior, so
-    // neither could be read straight off a peak pixel: the hue comes from the
-    // RATIO of (pixel - background) across samples, which is independent of
-    // coverage, and the magnitude from the brightest sample.
-    //
-    // The live colour is NOT kGlyphActive. The reference's running glyph and
-    // its running count measure to two different blues on the same row —
-    // the count is the more saturated of the two — so the row draws two, and
-    // reusing the glyph's would have been a visible miss on the one row that
-    // matters most.
-    static constexpr theme::Color kCountLive{120, 169, 255, 255};
-    // Settled matches the calm glyph exactly, which is the reference's own
-    // muted text; measured (130,130,153) and (137,137,160) both sit on this
-    // colour's ray out of the row background.
-    static constexpr theme::Color kCountSettled = kGlyphCalm;
-    // Breathing room between the title's ellipsis and the count's digits.
     static constexpr float kCountTextPad = 6.0f;
-    // afterhours insets label text by a hardcoded 5px from its box on EVERY
-    // alignment, with no way to switch it off (vendor is read-only —
-    // afterhours_gaps.md #84). Right-aligning the count therefore lands its
-    // digits 5px shy of the row's right edge, and the reference puts them
-    // flush against it — the same 5px by which every count already in this
-    // sidebar (the smart-view badges, the folder counts) sits left of where
-    // Puffin draws it.
-    //
-    // The way out without touching the vendor: LEFT-align inside a slot sized
-    // to the text PLUS that inset. The inset then falls on the left, where
-    // there is nothing to be flush with, and the text's right edge lands
-    // exactly on the slot's — which, as the row's last child, is the row's.
     static constexpr float kAhTextInset = 5.0f;
-    // Measured off the reference: its count digits stand 8px tall where the
-    // row title's stand 11, and the title is LIST_ROW (16.5).
-    static constexpr float kCountFontPx = 13.5f;
-    // Puffin gives EVERY session-row title the same near-white; the list does
-    // not encode attention in the title's brightness the way hanabi did.
-    // ---- the smart-view count badge ----
-    // Measured off the reference: the count is not a bare number, it is a
-    // 17x17 ring with the digit centred in it, right edge at panelW −
-    // kCountRightPad. All three colours are the SAME hue at three coverages —
-    // the ratio of (pixel − background) is (0.596, 0.778, 1.000) at every
-    // sample, ring and fill and digit alike, which is how you read a colour
-    // off a 1px antialiased stroke (REFERENCE.md: never by peak pixel).
-    //
-    // Given as flat colours over the sidebar rather than as alpha, because
-    // the badge also sits on the SELECTED row's fill and afterhours composites
-    // a border against the element's own background, not the one behind it.
-    static constexpr theme::Color kBadgeFill{43, 50, 69, 255};
-    static constexpr theme::Color kBadgeRing{79, 96, 129, 255};
-    // Re-measured by the (pixel - fill) ratio across every digit pixel of the
-    // reference's 6 and 3 badges -- 0.641/0.803 and 0.643/0.804, agreeing to
-    // two thousandths on two independent badges, which is what says the read is
-    // the colour and not the coverage. Ten levels of red short of where hanabi
-    // had it.
-    static constexpr theme::Color kBadgeText{162, 199, 255, 255};
-    // Asked for 16, not 17: every box rasterizes one pixel bigger and one
-    // pixel up-left than requested (gap #80), so a 16px request lands as the
-    // measured 17. The lost pixel on the right is given back by shortening
-    // this row's right padding by one, below — the badge is the row's last
-    // child, so its right edge IS the row's content edge.
+    static constexpr float kCountFontPx = theme::type::SM;
     static constexpr float kBadgeD = 16.0f;
-    // The digit inside it. Measured on the reference's 6 and 3 badges: 8px of
-    // ink tall and 5-6 wide, where `theme::type::SM` gave hanabi 7 by 4 -- 12
-    // lit pixels against the reference's 32, and 30 brightness levels short
-    // with it, because a smaller glyph never reaches its own colour. This is
-    // the sub-agent count's `kCountFontPx` arrived at independently: the same
-    // 8px digit, in the same sidebar, at the same size.
-    static constexpr float kBadgeFontPx = 14.0f;
-    // The badge sat a pixel below the reference's -- ring y140..156 against
-    // y139..155 -- while the label, the icon and everything else in the same
-    // row were exactly on it, so nothing about the ROW could be moved to fix
-    // it. A bottom margin under `AlignItems::Center` lifts the badge alone:
-    // the row splits what is left, so 2px of margin under a 16px badge in a
-    // 22px content box is a 1px rise. Measured back: ring y139..155, digit
-    // y143..150, both exactly the reference's rows.
+    static constexpr float kBadgeFontPx = theme::type::SM;
     static constexpr float kBadgeLift = 2.0f;
-    // The reference pads the digits by 5pt on each side; one digit lands on
-    // the square case above, two need the capsule.
     static constexpr float kBadgePadX = 5.0f;
-    // The smart-view label: measured off the reference, ink starting at x=37
-    // and standing 11px tall for "Blocked" over a 49px run. hanabi drew it at
-    // theme::type::BODY (13), which is 9px tall over 39px -- barely half the
-    // ink, which is most of what the VIEWS region was still scoring.
-    static constexpr float kViewLabelPx = 16.8f;
-    // Ink colour, read by the (pixel - background) ratio rather than by peak
-    // pixel (REFERENCE.md): 0.907 / 0.907 / 1.000, i.e. blue-tinted, where
-    // theme::text_secondary is a neutral grey.
-    static constexpr theme::Color kViewLabelFg{150, 150, 175, 255};
-    static constexpr unsigned char kVIF = 140;
-    static constexpr unsigned char kVIFB = 166;
-    static constexpr theme::Color kViewLabelActiveFg{251, 250, 255, 255};
-    // The ICON gets its own ink, and the reason is the reason the sidebar
-    // footer's colour sweep came out backwards (REFERENCE.md): a sprite blit
-    // reaches its own colour and 9pt text never does. Puffin paints both from
-    // one token -- `SmartViewSidebar` line 297 hands `Chrome.mutedText` to the
-    // whole row -- so a single hanabi constant looks like the faithful
-    // reading, and it is not: kViewLabelFg was measured off the LABEL, where
-    // it is 10 levels above the token to make up for coverage the text never
-    // gets. Handed to a blit, those 10 levels arrive in full and every icon
-    // peaks 15-22 above the reference's.
-    static constexpr theme::Color kViewIconFg{kVIF, kVIF, kVIFB, 255};
-    static constexpr float kViewIconPx = 16.0f;
-    
-    // The gap between the icon slot and the label. It is a SPACER, not the
-    // label's padding: padding on a label-only div is silently ignored
-    // (afterhours_gaps.md #85), which is why the 12px pad this row used to ask
-    // for never moved anything and the label sat 6px left of the reference for
-    // the whole parity effort.
-    static constexpr float kViewLabelGap = 6.0f;
-    // The search pill's hint. Measured: the reference's placeholder stands
-    // 10px tall where hanabi's stood 8, and its ink peaks at (163,163,168)
-    // where hanabi's peaked at (98,98,110) -- half the contrast, on the one
-    // label in the sidebar whose whole job is to be noticed by someone who
-    // has not found the field yet.
-    // The VIEWS strip's own label. Measured: the reference's "VIEWS" is 37px
-    // of ink (x22..58) where hanabi's LABEL size gave 26.
-    static constexpr float kViewsHeadPx = 14.5f;
-    static constexpr float kSearchPx = 15.5f;
-    static constexpr theme::Color kSearchHintFg{168, 168, 174, 255};
-    // The filter glyph is brighter than the hint beside it: measured, it peaks
-    // at (193,193,196) where the placeholder peaks at (163,163,168).
-    static constexpr theme::Color kSearchFilterFg{200, 200, 206, 255};
-    // Was `kCountRightPad - 1`, which tied the smart-view badges to the
-    // session rows' count. They are two columns in two different lists and
-    // they measured out to two different insets: the badges already land on
-    // the reference's x255..271 and the counts sat 1.3px left of theirs, so
-    // one constant could not be right for both.
-    static constexpr float kBadgeRightPad = 8.0f;
-
-    // (247,247,255), measured off the reference's own row titles: same hue
-    // ratio as hanabi already had (1.000/1.000/0.986) but nine levels
-    // brighter. The eye does not report "nine levels dim"; inkdiff.py does.
-    static constexpr theme::Color kRowTitleFg{247, 247, 255, 255};
+    static constexpr float kViewLabelPx = theme::type::BODY;
+    static constexpr float kViewIconPx = 15.0f;
+    static constexpr float kViewLabelGap = theme::chrome::SPACE_2;
+    static constexpr float kViewsHeadPx = theme::type::LABEL;
+    static constexpr float kSearchPx = theme::type::ROW;
+    static constexpr float kBadgeRightPad = theme::chrome::SPACE_3;
 
     static SidebarGlyph sidebar_glyph(const api::SessionSummary& s) {
         if (s.tag == api::ThreadTag::Blocked ||
@@ -1044,12 +915,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     static theme::Color mark_color(SidebarGlyph glyph) {
         switch (glyph) {
-            case SidebarGlyph::Running: return kGlyphActive;
-            case SidebarGlyph::Blocked: return kGlyphAlert;
-            case SidebarGlyph::Done: return kGlyphDone;
-            case SidebarGlyph::Idle: return kGlyphCalm;
+            case SidebarGlyph::Running: return theme::accent();
+            case SidebarGlyph::Blocked: return theme::status_blocked();
+            case SidebarGlyph::Done: return theme::status_review();
+            case SidebarGlyph::Idle: return theme::text_faint();
         }
-        return kGlyphCalm;
+        return theme::text_faint();
     }
 
     // The mute mark: a small ring with a slash through it, the universal
@@ -1269,21 +1140,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // ---- the hairline under the views block ----
     // Puffin puts a 1px rule at y=263, three px under the last view row.
     void section_rule(UIContext<InputAction>& ctx, Entity& parent) {
-        auto wrap = div(ctx, mk(parent, 10),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kSbRuleH)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(kSbRuleH - 1.0f)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("sb_rule_wrap"));
-        div(ctx, mk(wrap.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(1)})
-                .with_custom_background(theme::divider())
-                .with_roundness(0.0f)
-                .with_debug_name("sb_rule"));
+        spacer(ctx, parent, 10, kSbRuleH);
     }
 
     // ---- header / title bar ----
@@ -1358,9 +1215,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // puts hanabi's at x12..18.
                 .with_padding(Padding{.right = pixels(5),
                                       .left = pixels(7)})
-                .with_custom_background(theme::section_header_bg())
-                .with_custom_hover_bg(theme::hover_over(
-                    theme::section_header_bg()))
+                .with_custom_background(theme::sidebar_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Clickable but NOT a keyboard-focus stop: afterhours parks
                 // initial focus on the first focusable element and paints its
@@ -1379,7 +1235,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // The strip's ink is the same blue-tinted grey as the view labels
         // below it, not theme::text_faint: measured, the reference's VIEWS
         // peaks at (151,151,176) where text_faint is (100,100,112).
-        const theme::Color tint = kViewLabelFg;
+        const theme::Color tint = theme::text_faint();
         div(ctx, mk(strip.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -1405,6 +1261,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(tint)
                 .with_font_size(kViewsHeadPx)
+                .with_letter_spacing(0.8f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_views_label"));
@@ -1415,7 +1272,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(24), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_hover_bg(theme::hover_over(
-                    theme::section_header_bg()))
+                    theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
@@ -1826,7 +1683,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // 11px, not 13: the reference's magnifier is 10px wide
                 // (x 17..26) where hanabi's was 12.
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "search", "\xf0\x9f\x94\x8d", kSearchHintFg, 11.0f,
+                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 12.0f,
                     -1.0f))
                 .with_debug_name("sb_search_icon"));
 
@@ -1860,7 +1717,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(searchTextW), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
-                                                 : kSearchHintFg)
+                                                 : theme::text_secondary())
                 .with_font_size(kSearchPx)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -1923,7 +1780,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // not this drawing either -- 18/10/4 against the reference's
                 // measured 12/10/7.
                 .with_on_draw_fg([fg = hidingAuto ? theme::accent()
-                                                  : kSearchFilterFg](
+                                                  : theme::text_faint()](
                                      RectangleType r) {
                     hanabi::glyph::filter_rules(r, fg, theme::sidebar_bg());
                 })
@@ -2057,7 +1914,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (pointer_click(ctx, row.ent())) app.showSettings = true;
-        const theme::Color txt = kViewLabelFg;
+        const theme::Color txt = theme::text_secondary();
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -2068,7 +1925,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // for the same reason -- a blit reaches its colour, the label
                 // beside it does not.
                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                    "gear", "\xe2\x9a\x99", kViewIconFg, 16.0f, -1.0f))
+                    "gear", "\xe2\x9a\x99", theme::text_faint(), kViewIconPx, -1.0f))
                 .with_debug_name("sv_icon"));
         // Same geometry as smart_item's label, for the same measured reasons:
         // a real spacer rather than an inert padding (gap #85), the reference's
@@ -2096,6 +1953,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     AppComponent& app, bool folded, float panelW,
                     SmartView lit) {
         bool active = lit == view;
+        const theme::Color selectedFill =
+            theme::chrome::selected_on(theme::sidebar_bg());
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
                 // Unfolded: the FILL is shorter than the row's pitch. The
@@ -2134,12 +1993,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                                          : kSbViewFillInset -
                                                                kSvFillTop),
                                     .left = pixels(0)})
-                .with_custom_background(active ? theme::selected_bg()
+                .with_custom_background(active ? selectedFill
                                                : theme::sidebar_bg())
-                // A SELECTED item does not react to hover (no double state):
-                // its hover bg == its selected fill, so hovering it is a no-op.
-                // Only an UNselected item gets the subtle hover wash.
-                .with_custom_hover_bg(active ? theme::selected_bg()
+                .with_custom_hover_bg(active ? selectedFill
                                              : theme::hover_over(
                                                    theme::sidebar_bg()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
@@ -2174,7 +2030,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // colour. theme::text_primary reads 224 at its peak against the
         // reference's 251. (The reference also draws it semibold; that half is
         // gap #77 and not available to us.)
-        theme::Color txt = active ? kViewLabelActiveFg : kViewLabelFg;
+        theme::Color txt = active ? theme::text_primary() : theme::text_secondary();
 
         // Folded rail: a smart view whose count > 0 gets a small attention dot
         // at the icon's top-right corner (Blocked = red, others = accent), so
@@ -2193,7 +2049,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // is gone and the row draws its sprite like every other row.
         const bool useAttentionIcon = false;
         const float iconPx = folded ? 18.0f : 16.0f;
-        const theme::Color iconInk = active ? kViewLabelActiveFg : kViewIconFg;
+        const theme::Color iconInk = active ? theme::accent() : theme::text_faint();
         auto attnColor = iconInk;
         auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph,
                                                iconInk, kViewIconPx, -1.0f);
@@ -2273,11 +2129,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sv_label"));
 
         if (svShowCount) {
-            // A square box at full roundness is a circle: afterhours derives a
-            // corner radius of min(w,h) * 0.5 * roundness, so 17x17 at 1.0 is
-            // r=8.5. Centred text needs no slot-sizing trick — the hardcoded
-            // 5px inset that makes Right alignment useless (gap #84) is
-            // symmetric under Center, so it cancels.
+            theme::Color countColor = theme::accent();
+            if (view == SmartView::Blocked) countColor = theme::status_blocked();
+            if (view == SmartView::Review) countColor = theme::status_review();
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(countText)
@@ -2286,12 +2140,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                         .right = pixels(0.0f),
                                         .bottom = pixels(kBadgeLift),
                                         .left = pixels(0.0f)})
-                    .with_custom_background(kBadgeFill)
-                    .with_border(kBadgeRing, pixels(1))
-                    .with_custom_text_color(kBadgeText)
+                    .with_transparent_bg()
+                    .with_custom_text_color(countColor)
                     .with_font_size(kBadgeFontPx)
                     .with_alignment(TextAlignment::Center)
-                    .with_roundness(1.0f)
+                    .with_roundness(0.0f)
                     .with_debug_name("sv_count"));
         }
     }
@@ -3045,7 +2898,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // secondary/primary/faint split was a hanabi invention that also read
         // as three fonts. Attention still shows in the glyph. Only the
         // deliberately de-emphasized families stay faint.
-        theme::Color titleColor = kRowTitleFg;
+        theme::Color titleColor = theme::text_primary();
         if (archived) titleColor = theme::text_faint();
         // The row being dragged reads as lifted off the list — faint, the way a
         // semi-transparent row would, so the eye follows the drop line instead.
@@ -3214,7 +3067,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // made room rather than as a box over it.
         if (showStar && (s.starred || rowHovered)) {
             theme::Color starColor =
-                s.starred ? theme::tag_ready_fg() : theme::text_faint();
+                s.starred ? theme::accent() : theme::text_faint();
             const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
                                 ctx.mouse_was_in_subtree(row.ent().id);
             const theme::Color chip = rowHot
@@ -3277,7 +3130,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // steals hot from it (the star already costs one).
         if (showCount) {
             const bool live = ecs::model::sub_agents_live(s);
-            theme::Color countColor = live ? kCountLive : kCountSettled;
+            theme::Color countColor = live ? theme::accent() : theme::text_faint();
             if (archived) countColor = theme::text_faint();
             div(ctx, mk(row.ent(), 6),
                 ComponentConfig{}
