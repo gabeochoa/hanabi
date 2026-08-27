@@ -8331,7 +8331,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::diff::LineKind kind) {
         const auto wash = [](theme::Color c) {
             return theme::over(theme::Color{c.r, c.g, c.b, 28},
-                               theme::window_bg());
+                               theme::code_bg());
         };
         switch (kind) {
             case hanabi::diff::LineKind::Added:
@@ -8882,8 +8882,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(sub_out_box_h(m))})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_custom_background(theme::window_bg())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_background(theme::code_bg())
+                .with_border(theme::border_soft(), pixels(1.0f))
                 .with_padding(Padding{.top = pixels(4), .right = pixels(8),
                                       .bottom = pixels(4), .left = pixels(10)})
                 .with_margin(Margin{.bottom = pixels(4), .left = pixels(20)})
