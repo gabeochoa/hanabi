@@ -6,5 +6,5 @@ expect_text "Start this conversation"
 expect_text "Send a message below to begin."
 assert_ui transcript_empty_anchor hidden=false
 assert_ui transcript_empty_title hidden=false
-assert_ui transcript_empty_title y=572
+assert_ui transcript_empty_title y=340
 assert_ui transcript_empty_body hidden=false
