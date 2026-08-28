@@ -4752,7 +4752,7 @@ becomes a widget that exists only to be empty.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The mechanism is still true, but the entry's statement that with_margin is no escape is contradicted by current source and by #109.
 
-**Hanabi reference.** `src/ecs/sidebar_system.h` (`spacer_x(ctx, row.ent(), 7, kViewLabelGap)`) — smart-view labels still use a spacer rather than label padding for the measured gap. `scripts/check_label_padding.py` (`with_padding() on an element that has a label and no child`) — current audit tooling detects new label-padding no-ops. Tests: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`Margin moves the`) — guards the later margin-based correction to the same family of bug.
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`spacer_x(ctx, row.ent(), 7, kViewLabelGap)`) — smart-view labels still use a spacer rather than label padding for the measured gap. `scripts/check_label_padding.py` (`with_padding() on an element that has a label and no child`) — current audit tooling detects new label-padding no-ops. Tests: `tests/ui/row_title_starts_where_puffin_starts.e2e` (`Margin moves the`) — guards the later margin-based correction to the same family of bug. Proof-patch decision: `vendor_patches/README.md` rejects #85/#277 because the 5px contract is duplicated across plain, wrapped, styled, ellipsis, immediate, batched, and text-input paths; honoring padding would move nine live labels.
 
 
 **Minimal upstream fix.** Either honour `Padding` in `position_text_ex` — the
@@ -6625,11 +6625,10 @@ script, count lines — is the reflex that made #104's missing assertion hard to
 notice in the first place.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**Hanabi reference.** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch` preserves the timed-out command's first argument. `tests/vendor_probes/e2e_diagnostics_probe.cpp` drives the real cleanup system and is red before/green after through `make verify-vendor-patches`.
 
 
-**Minimal upstream fix.** Widen the special case to a default: when a command
-times out and has args, append them. Three lines, and it makes every
+**Minimal upstream fix.** When a command times out and has args, append them. Three lines, and it makes every
 name-taking command self-describing:
 
 ```cpp
@@ -6926,7 +6925,7 @@ app-side measurement needs its own memo instead.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The old “leave theme::text_px uncached” workaround is stale: current source memoizes the app’s advance semantics with TextKeyCache.
 
-**Hanabi reference.** Current code: `src/ui/theme.h` (`MEASURED, MEMOIZED, AND NOT THE LIBRARY'S CACHE`) — theme::text_px now has an app-owned memo over advance semantics. `src/ui/theme.h::afterhours::measure_text_internal` — the measurement still uses the advance-returning path, not TextMeasureCache's ink-box path. Tests: `tests/unit/test_text_cache.cpp::a_font_swap_drops_the_lot` — app-owned text cache invalidates when the face behind the font name changes. Measurement/gate: `docs/perf/TEXT.md` (`returns the pen ADVANCE and TextMeasureCache caches the INK BOX`) — perf notes record why the shared cache is not a drop-in.
+**Hanabi reference.** Current code: `src/ui/theme.h` (`MEASURED, MEMOIZED, AND NOT THE LIBRARY'S CACHE`) — theme::text_px now has an app-owned memo over advance semantics. `src/ui/theme.h::afterhours::measure_text_internal` — the measurement still uses the advance-returning path, not TextMeasureCache's ink-box path. Tests: `tests/unit/test_text_cache.cpp::a_font_swap_drops_the_lot` — app-owned text cache invalidates when the face behind the font name changes. Measurement/gate: `docs/perf/TEXT.md` (`returns the pen ADVANCE and TextMeasureCache caches the INK BOX`) — perf notes record why the shared cache is not a drop-in. Proof-patch decision: `vendor_patches/README.md` rejects the one-line swap as pixel-unsafe because the measured semantics differ by 2px on current strings.
 
 
 **Minimal upstream fix.** Make the two agree — pick advance or ink box, use it
@@ -8309,13 +8308,11 @@ maybe forty minutes for anyone who reads `ui_commands.h`, sees the command,
 and believes it is available.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**Hanabi reference.** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch` registers the existing handler. `tests/vendor_probes/e2e_diagnostics_probe.cpp` finds zero registered dump handlers before and one after through `make verify-vendor-patches`. The runner's generic fallback already forwards every whitespace-delimited argument, so the earlier claim that an arg-shape table change was required was wrong; registration alone makes the existing one- or two-argument handler reachable.
 
 
-**Minimal upstream fix.** Two lines: register the handler in
-`register_ui_commands`, and add `dump_ui` to the runner's arg-shape table
-(it takes a name and an optional subtree root, so it wants a one-or-two-arg
-entry). Separately, the unknown-command message should not assert a cause it
+**Minimal upstream fix.** Register `HandleDumpUICommand` in
+`register_ui_commands`. Separately, the unknown-command message should not assert a cause it
 cannot know — "no handler consumed 'dump_ui'" is both shorter and true.
 
 CLASS: TEDIOUS
@@ -8443,12 +8440,10 @@ about a minute each, for three facts that were all sitting in a structure the
 harness already builds.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**Hanabi reference.** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch` removes the 200-character format cap. `tests/vendor_probes/e2e_diagnostics_probe.cpp` places a sentinel after byte 260 and proves it is absent before/present after through `make verify-vendor-patches`.
 
 
-**Minimal upstream fix.** Two lines of registration for the `dump_ui` handler,
-and raise the truncation to something that fits a screen (or drop the limit and
-let the reader scroll). Better still, print the registry on failure the way
+**Minimal upstream fix.** Drop the limit and let the reader scroll. Better still, print the registry on failure the way
 `dump_ui` prints the tree -- one label per line, so a diff of expected against
 actual is readable.
 
@@ -8650,7 +8645,7 @@ that nothing will tell us if it changes.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's 'single seam every texture' claim was stale; current source also checks the icon atlas and invalid blend pipeline path.
 
-**Hanabi reference.** `src/util/texture_budget.h` (`kDefaultMaxEntries = 32`) — Hanabi caps cached textures below the measured sampler-pool ceiling. `src/ui/decode_to_fit.h` (`reject_if_unsamplable(TextureType& tex)`) — Texture loads are rejected if afterhours returns an image/view with sampler_id 0. Tests: `tests/unit/test_texture_budget.cpp::test_the_budget_bounds_what_the_device_holds` — The cache budget policy is covered independently of GPU resources.
+**Hanabi reference.** `src/util/texture_budget.h` (`kDefaultMaxEntries = 32`) — Hanabi caps cached textures below the measured sampler-pool ceiling. `src/ui/decode_to_fit.h` (`reject_if_unsamplable(TextureType& tex)`) — Texture loads are rejected if afterhours returns an image/view with sampler_id 0. Tests: `tests/unit/test_texture_budget.cpp::test_the_budget_bounds_what_the_device_holds` — The cache budget policy is covered independently of GPU resources. Proof patch: `vendor_patches/210-reject-unsamplable-textures.patch`; `tests/vendor_probes/source_contract_probe.cpp` verifies sampler validation plus sampler/view/image cleanup before return, and `tests/vendor_probes/sokol_backend_smoke.mm` compiles the patched backend through `make verify-vendor-patches`. Pool sizing is deliberately deferred in `vendor_patches/README.md`.
 
 
 **Minimal upstream fix.** Two things, neither large. (a) Check the sampler in
@@ -9708,7 +9703,7 @@ assertions is the one that matters — it is the only thing standing between a
 tidy-up of the enum and the silent removal of the feature.
 
 
-**Hanabi reference.** `src/input_mapping.h::TextDeleteWordBack` — Hanabi's InputAction enum now declares the word-editing enumerators the library checks by name. `src/input_mapping.h::bind(InputAction::TextDeleteWordBack` — The shipping keymap binds the word-editing actions. Tests: `tests/unit/test_input_pipeline.cpp::test_word_chords_are_bound_to_option` — Unit tests assert word-editing chords are present and use Option.
+**Hanabi reference.** `src/input_mapping.h::TextDeleteWordBack` — Hanabi's InputAction enum now declares the word-editing enumerators the library checks by name. `src/input_mapping.h::bind(InputAction::TextDeleteWordBack` — The shipping keymap binds the word-editing actions. Tests: `tests/unit/test_input_pipeline.cpp::test_word_chords_are_bound_to_option` — Unit tests assert word-editing chords are present and use Option. Proof patch: `vendor_patches/255-word-editing-capability.patch`; `tests/vendor_probes/word_editing_capability_probe.cpp` is a compile failure before and verifies complete/incomplete enums after through `make verify-vendor-patches`.
 
 
 **Minimal upstream fix.** Any of three, cheapest first:
@@ -10114,7 +10109,7 @@ the system accent, on a dark theme, cannot have it.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The 'nothing turns them off' framing is stale: focus_ring_thickness=0 now disables all outlines. The specific lack of separate contrast-edge control remains and the color workaround ships.
 
-**Hanabi reference.** `src/ui/focus_visible.h` (`ring_color(afterhours::Color base`) — Hanabi shifts the ring color to make the forced contrast edges sink into the backdrop. `src/ecs/focus_visible_system.h` (`ctx.theme.focus = fv::ring_color`) — A frame-level focus-visible system applies the adjusted ring color. Tests: `tests/unit/test_focus_ring.cpp::check_the_edge_does_not_outshout_the_ring` — Unit tests assert the contrast edge is less visually dominant than the ring.
+**Hanabi reference.** `src/ui/focus_visible.h` (`ring_color(afterhours::Color base`) — Hanabi shifts the ring color to make the forced contrast edges sink into the backdrop. `src/ecs/focus_visible_system.h` (`ctx.theme.focus = fv::ring_color`) — A frame-level focus-visible system applies the adjusted ring color. Tests: `tests/unit/test_focus_ring.cpp::check_the_edge_does_not_outshout_the_ring` — Unit tests assert the contrast edge is less visually dominant than the ring. Proof patch: `vendor_patches/265-focus-ring-contrast-toggle.patch`; `tests/vendor_probes/focus_ring_contrast_probe.cpp` proves both renderers keep the three-outline default and emit only the requested ring when contrast is disabled through `make verify-vendor-patches`.
 
 
 **Minimal upstream fix.** Gate the two contrast edges the way the coloured ring
@@ -10600,7 +10595,7 @@ spends some of it". That idiom now appears four times in the file, with two
 different values for the one constant.
 
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`constexpr float kLabelInset = 5.0f;`) — composer path names label inset. `src/ecs/main_pane_system.h` (`static constexpr float kLabelInsetX = 6.0f;`) — transcript path carries measured inset. Tests: `tests/ui/thinking_indicator_sits_on_the_text_column.e2e` (`kLabelInsetX (6), because afterhours adds that 6 back`) — e2e pins alignment.
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`constexpr float kLabelInset = 5.0f;`) — composer path names label inset. `src/ecs/main_pane_system.h` (`static constexpr float kLabelInsetX = 6.0f;`) — transcript path carries measured inset. Tests: `tests/ui/thinking_indicator_sits_on_the_text_column.e2e` (`kLabelInsetX (6), because afterhours adds that 6 back`) — e2e pins alignment. Proof-patch decision: `vendor_patches/README.md` rejects #85/#277 because a coherent setting must reach every plain/wrapped/styled and immediate/batched 5px/10px calculation; changing only the visible literal would create divergent pixels.
 
 
 **Minimal upstream fix.** Name it and expose it: a
@@ -11595,7 +11590,7 @@ partial-drop hole #350 describes. `fonsSetErrorCallback` would close that hole
 completely and cost one line.
 
 
-**Hanabi reference.** `src/util/atlas_guard.h` (`fonsSetErrorCallback is out of reach`) — callback cannot be registered. `scripts/atlas_gate.sh` (`src/util/atlas_guard.h -- and that guard has the failure mode`) — gate proves fallback detector. Tests: `tests/unit/test_atlas_guard.cpp::first_fault()` — unit test covers reporting state. Measurement/gate: `src/main.cpp` (`detector fired:`) — atlas stress reports detector status.
+**Hanabi reference.** `src/util/atlas_guard.h` (`fonsSetErrorCallback is out of reach`) — callback cannot be registered. `scripts/atlas_gate.sh` (`src/util/atlas_guard.h -- and that guard has the failure mode`) — gate proves fallback detector. Tests: `tests/unit/test_atlas_guard.cpp::first_fault()` — unit test covers reporting state. Measurement/gate: `src/main.cpp` (`detector fired:`) — atlas stress reports detector status. Proof patch: `vendor_patches/351-report-font-atlas-exhaustion.patch`; `tests/vendor_probes/source_contract_probe.cpp` verifies callback registration and log-once state, and `tests/vendor_probes/sokol_backend_smoke.mm` compiles the patched backend through `make verify-vendor-patches`.
 
 
 **Minimal upstream fix.**

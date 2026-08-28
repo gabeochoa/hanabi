@@ -1,0 +1,33 @@
+From 7b68d03bf2250b112ea099e8083422b9660df577 Mon Sep 17 00:00:00 2001
+From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
+Date: Thu, 27 Aug 2026 22:12:40 -0400
+Subject: [PATCH] fix(sokol): reject textures without a sampler
+
+Pinned base: 428047e3c92442e0ded3a0d473315e9636a451ac
+
+Validate sampler creation like image and view creation. On sampler-pool exhaustion, destroy the partial GPU resources and return an empty TextureType instead of a valid-looking texture that cannot be sampled.
+---
+ src/backends/sokol/drawing_helpers.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/backends/sokol/drawing_helpers.h b/src/backends/sokol/drawing_helpers.h
+index 762e58f..9488313 100644
+--- a/src/backends/sokol/drawing_helpers.h
++++ b/src/backends/sokol/drawing_helpers.h
+@@ -1412,6 +1412,13 @@ inline TextureType load_texture_from_pixels(const unsigned char *rgba, int w,
+   }
+ 
+   sg_sampler smp = make_sampler_for_filter(filter);
++  if (sg_query_sampler_state(smp) != SG_RESOURCESTATE_VALID) {
++    log_error("load_texture_from_pixels: sg_make_sampler failed ({}x{})", w, h);
++    sg_destroy_sampler(smp);
++    sg_destroy_view(view);
++    sg_destroy_image(img);
++    return TextureType{};
++  }
+ 
+   TextureType tex{};
+   tex.width = static_cast<float>(w);
+-- 
+2.50.1
+
