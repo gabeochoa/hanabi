@@ -554,6 +554,32 @@ static void test_split_round_trips_and_clamps() {
     CHECK(s.get_split_ratio() == hanabi::kSplitMinRatio);
 }
 
+static void test_shortcuts_round_trip_and_reset() {
+    std::printf("test_shortcuts_round_trip_and_reset\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+
+    s.reset_shortcuts();
+    const Shortcut custom{
+        P, static_cast<std::uint8_t>(CommandModifier | ShiftModifier)};
+    CHECK(s.set_shortcut(Command::OpenPalette, custom).ok);
+    CHECK(s.get_shortcut(Command::OpenPalette) == custom);
+    s.load_save_file();
+    CHECK(s.get_shortcut(Command::OpenPalette) == custom);
+
+    const auto before = s.get_shortcut(Command::OpenSettings);
+    const auto conflict = s.set_shortcut(Command::OpenSettings, custom);
+    CHECK(!conflict.ok);
+    CHECK(s.get_shortcut(Command::OpenSettings) == before);
+
+    s.reset_shortcuts();
+    s.load_save_file();
+    CHECK(s.get_shortcut(Command::OpenPalette) ==
+          definition(Command::OpenPalette).shortcut);
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -562,6 +588,7 @@ int main() {
     test_shelf_fold_round_trips();
     test_effort_round_trips();
     test_send_key_round_trips();
+    test_shortcuts_round_trip_and_reset();
     test_quiet_hours_window();
     test_quiet_hours_persist();
     test_archive_overlay_round_trips();

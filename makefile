@@ -434,6 +434,10 @@ $(TEST_DIR)/test_outbox: tests/unit/test_outbox.cpp src/api/disk_cache.cpp $(TES
 	@echo "Compiling test_outbox..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
 
+$(TEST_DIR)/test_shortcuts: tests/unit/test_shortcuts.cpp src/shortcuts.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_shortcuts..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_shortcuts.cpp -o $@
+
 $(TEST_DIR)/test_input_pipeline: tests/unit/test_input_pipeline.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_input_pipeline..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) $(filter-out %.h,$^) -o $@
@@ -614,6 +618,12 @@ $(TEST_DIR)/test_agentcloud: tests/unit/test_agentcloud.cpp src/api/agentcloud_a
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
 	    -framework Foundation -framework CFNetwork -o $@
 
+$(TEST_DIR)/test_menubar: tests/unit/test_menubar.mm src/menubar.mm src/menubar.h src/settings.cpp src/settings.h src/shortcuts.h vendor/afterhours/src/plugins/files.cpp $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_menubar..."
+	$(CXX) -ObjC++ $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_menubar.mm \
+		src/menubar.mm src/settings.cpp vendor/afterhours/src/plugins/files.cpp \
+		-framework AppKit -framework Carbon -o $@
+
 $(TEST_DIR)/test_native_extras: tests/unit/test_native_extras.mm src/native_extras.mm src/native_extras.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_native_extras..."
 	$(CXX) -ObjC++ $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_native_extras.mm \
@@ -624,7 +634,7 @@ $(TEST_DIR)/test_spotlight_catalog: tests/unit/test_spotlight_catalog.cpp src/ut
 	@echo "Compiling test_spotlight_catalog..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_spotlight_catalog.cpp -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo
+UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

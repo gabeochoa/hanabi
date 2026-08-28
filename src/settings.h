@@ -2,6 +2,9 @@
 
 #include <afterhours/src/singleton.h>
 
+#include "shortcuts.h"
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -340,6 +343,15 @@ struct Settings {
     const std::string& get_send_key() const;
     void set_send_key(const std::string& key);  // auto-persists
 
+    hanabi::shortcuts::Shortcut get_shortcut(
+        hanabi::shortcuts::Command command) const;
+    hanabi::shortcuts::Bindings get_shortcuts() const;
+    hanabi::shortcuts::Validation set_shortcut(
+        hanabi::shortcuts::Command command,
+        hanabi::shortcuts::Shortcut shortcut);
+    void reset_shortcuts();
+    std::uint64_t shortcut_revision() const;
+
     // ── Backend-sync bookkeeping. Any preference change flips settings_dirty_;
     // the loader debounces + pushes to the backend (best-effort) via
     // ApiClient::update_settings, then clears the flag. Purely in-memory (NOT
@@ -406,6 +418,10 @@ struct Settings {
     std::string default_model_ = "default";
     std::string default_effort_ = "high";
     std::string send_key_ = "return";
+    std::array<std::optional<hanabi::shortcuts::Shortcut>,
+               hanabi::shortcuts::kDefinitions.size()>
+        custom_shortcuts_{};
+    std::uint64_t shortcut_revision_ = 0;
     // In-memory only: set on any preference change, cleared by the loader
     // after a successful (or best-effort) backend push.
     bool settings_dirty_ = false;

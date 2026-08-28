@@ -1,24 +1,14 @@
 #pragma once
 
-// ---------------------------------------------------------------------------
-// Keyboard shortcut reference (Cmd+/).
-//
-// Every shortcut in this app is invisible. Cmd+B folds the sidebar, Cmd+, opens
-// settings, Cmd+W closes a tab, Enter sends — and nothing on screen says so, so
-// they are only ever found by accident or by reading the source. This is the
-// one sheet that says what the keyboard does.
-//
-// It is a REFERENCE, not a settings screen: nothing here is editable, and the
-// rows are read from one table so a shortcut cannot be listed here and bound
-// somewhere else. Dismissed with Cmd+/ again, Esc, or a click outside.
-// ---------------------------------------------------------------------------
-
 #include <algorithm>
 #include <array>
+#include <optional>
+#include <string>
 #include <string_view>
 
 #include "../keys.h"
-#include "../util/scroll_prefs.h"
+#include "../menubar.h"
+#include "../settings.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "ui_imports.h"
@@ -26,166 +16,88 @@
 namespace ecs {
 
 struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
-    // One row of the sheet. A blank `keys` makes a section heading.
-    struct Row {
+    struct ReferenceRow {
         std::string_view keys;
-        std::string_view what;
+        std::string_view title;
     };
 
-    // The shortcuts this app actually binds. Each entry names the file that
-    // owns the binding, so a shortcut that moves cannot quietly go stale here.
-    static constexpr std::array<Row, 33> kRows{{
-        {"", "Conversations"},
-        {"Cmd N", "Start a new task"},              // composer_system.h
-        {"Cmd W", "Close the current tab"},         // tab_bar_system.h
-        {"Enter", "Send the message"},              // main_pane_system.h
-        {"Esc", "Clear the composer"},              // main_pane_system.h
+    static constexpr std::array<ReferenceRow, 17> kReferenceRows{{
         {"", "Editing text"},
-        {"Opt Left/Right", "Move a word"},            // input_mapping.h
-        {"Opt Backspace", "Delete the word before"},  // input_mapping.h
-        {"Opt Delete", "Delete the word after"},      // input_mapping.h
-        {"Cmd Left/Right", "Start or end of the line"},  // input_mapping.h
-        {"Cmd Backspace", "Delete back to the line start"},  // text_edit_chords_system.h
-        {"Cmd A", "Select everything in the field"},  // input_mapping.h
-        {"Shift + a move", "Select as you go"},       // afterhours navigate()
-        {"", "Reading a thread"},
-        {"Home  End", "Jump to the start or the newest"},   // main_pane_system.h
-        {"Page Up/Dn", "Move a screenful"},
-        {"Up  Down", "Move a few lines"},
-        {"Cmd F", "Find in this conversation"},
-        {"Cmd G", "Next match, Shift for the one before"},  // main_pane_system.h
+        {"Opt Left/Right", "Move a word"},
+        {"Opt Backspace", "Delete the word before"},
+        {"Opt Delete", "Delete the word after"},
+        {"Cmd Left/Right", "Start or end of the line"},
+        {"Cmd Backspace", "Delete back to the line start"},
+        {"Cmd A", "Select everything in the field"},
+        {"Shift + a move", "Select as you go"},
+        {"", "Reading and composing"},
+        {"Return", "Send or insert a line, as configured"},
+        {"Home / End", "Jump to the start or the newest"},
+        {"Page Up / Down", "Move a screenful"},
+        {"Up / Down", "Move a few lines"},
         {"Cmd C", "Copy the selected text"},
-        {"", "Window"},
-        {"Cmd B", "Show or hide the sidebar"},      // sidebar_system.h
-        {"Cmd \\", "Split the pane, and close the split"},  // main_pane_system.h
-        {"Cmd ,", "Settings"},                      // settings_system.h
-        {"Cmd K", "Search everything you can do"},  // palette_system.h
-        {"Cmd Shift F", "Search across your threads"},  // session_search_system.h
-        {"Cmd /", "This list"},                     // here
-        {"Esc", "Close whatever is open"},
         {"", "Anywhere on the desktop"},
-        {"Cmd Shift N", "Bring hanabi forward and start a task"},  // native_extras.mm
-        {"Cmd Shift K", "Bring hanabi forward and search"},        // native_extras.mm
-        {"", "Mouse"},
-        {"Hover a message", "Copy it, and see when it was sent"},
+        {"Cmd Shift N", "Bring the app forward and start a task"},
+        {"Cmd Shift K", "Bring the app forward and search"},
     }};
 
-    static constexpr float kPanelW = 820.0f;
+    static constexpr float kPanelW = 900.0f;
+    static constexpr float kPanelH = 590.0f;
     static constexpr float kColGap = 28.0f;
     static constexpr float kPadH = hanabi::surface::kSheetPadH;
     static constexpr float kPadV = hanabi::surface::kSheetPadV;
     static constexpr float kHeaderH = hanabi::surface::kHeaderH;
-    static constexpr float kRowH = 26.0f;
+    static constexpr float kCommandRowH = 34.0f;
+    static constexpr float kReferenceRowH = 26.0f;
     static constexpr float kSectionH = 30.0f;
-    static constexpr float kKeyColW = 132.0f;
-
-    // Must count the section headings' top margin too — the panel is sized
-    // from this, and 8px missed per heading is a clipped last row.
-    static constexpr float kSectionGap = 8.0f;
-    // Where the list splits into two columns: the section boundary nearest to
-    // half the total height, so a heading never ends up alone at the foot of
-    // the left column with its rows in the right one.
-    static size_t split_index() {
-        const float half = content_height() * 0.5f;
-        float h = 0.0f;
-        size_t best = kRows.size();
-        float bestGap = 1e9f;
-        for (size_t i = 0; i < kRows.size(); ++i) {
-            if (kRows[i].keys.empty() && i > 0) {
-                const float gap = std::abs(h - half);
-                if (gap < bestGap) {
-                    bestGap = gap;
-                    best = i;
-                }
-            }
-            h += kRows[i].keys.empty() ? (kSectionH + kSectionGap) : kRowH;
-        }
-        return best;
-    }
-
-    static float column_height(size_t from, size_t to) {
-        float h = 0.0f;
-        for (size_t i = from; i < to && i < kRows.size(); ++i)
-            h += kRows[i].keys.empty() ? (kSectionH + kSectionGap) : kRowH;
-        return h;
-    }
-
-    static float content_height() {
-        float h = 0.0f;
-        for (const auto& r : kRows)
-            h += r.keys.empty() ? (kSectionH + kSectionGap) : kRowH;
-        return h;
-    }
+    static constexpr float kKeyColW = 150.0f;
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
-        if (!app) return;
+        if (app == nullptr || !app->showShortcuts) return;
 
-        // Cmd+/ toggles. Mirrors the Cmd+, pattern in settings_system.h.
-        if (hanabi::keys::cmd_down() &&
-            hanabi::keys::pressed(hanabi::keys::kSlash))
-            app->showShortcuts = !app->showShortcuts;
-
-        if (!app->showShortcuts) return;
-
-        // Esc closes, but only when the sheet is the topmost thing
-        // (escape_system.h decides).
-        if (app->escape == EscapeIntent::CloseShortcuts) {
-            app->showShortcuts = false;
+        if (app->escape == EscapeIntent::CancelShortcutRecording) {
+            app->shortcutRecording = -1;
+            app->shortcutMessage = "Recording cancelled.";
+        } else if (app->escape == EscapeIntent::CloseShortcuts) {
+            close(*app);
             return;
         }
+
+        if (app->shortcutRecording >= 0) capture(*app);
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
-        const float sw =
-            hanabi::viewport::width();
-        const float sh =
-            hanabi::viewport::height();
+        const auto panelRect = hanabi::surface::centered(
+            hanabi::viewport::width(), hanabi::viewport::height(), kPanelW,
+            kPanelH);
+        const float contentW = panelRect.width - kPadH * 2.0f;
+        const float colW = (contentW - kColGap) * 0.5f;
 
-        // The list only grows -- every feature that binds a key adds a row --
-        // so the sheet is capped at what the window can hold and the rows
-        // scroll inside it. Without the cap the last sections rendered past
-        // the panel's own bottom edge, off the sheet entirely.
-        // Two columns: the list only grows -- every feature that binds a key
-        // adds a row -- and a single column ran off the bottom of the sheet.
-        // A reference you have to scroll is a reference you stop reading.
-        const size_t split = split_index();
-        const float tallest = std::max(column_height(0, split),
-                                       column_height(split, kRows.size()));
-        const float wanted = kPadV * 2.0f + kHeaderH + tallest;
-        const hanabi::surface::Rect panelRect =
-            hanabi::surface::centered(sw, sh, kPanelW, wanted);
-        const float pw = panelRect.width;
-        const float ph = panelRect.height;
-        const float px = panelRect.x;
-        const float py = panelRect.y;
-        activePanelW_ = pw;
-
-        // Dimmed backdrop. Click-outside dismisses, but ONLY when the press
-        // lands outside the panel — the backdrop spans the window and sits
-        // under the sheet, so it reports a press for clicks on the sheet too
-        // (the same trap settings_system.h documents).
         auto backdrop = button(
             ctx, mk(uiRoot, 8300),
-            hanabi::surface::scrim(sw, sh, 10)
+            hanabi::surface::scrim(hanabi::viewport::width(),
+                                   hanabi::viewport::height(), 10)
                 .with_debug_name("shortcuts_backdrop"));
         if (backdrop &&
-            !afterhours::ui::is_mouse_inside(ctx.mouse.pos,
-                                             RectangleType{px, py, pw, ph})) {
-            app->showShortcuts = false;
+            !afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos,
+                RectangleType{panelRect.x, panelRect.y, panelRect.width,
+                              panelRect.height})) {
+            close(*app);
             return;
         }
 
-        auto panel = div(
-            ctx, mk(uiRoot, 8310),
-            hanabi::surface::sheet(panelRect, 11)
-                .with_debug_name("shortcuts_panel"));
+        auto panel = div(ctx, mk(uiRoot, 8310),
+                         hanabi::surface::sheet(panelRect, 11)
+                             .with_debug_name("shortcuts_panel"));
+        render_header(ctx, panel.ent(), *app, contentW);
 
-        render_header(ctx, panel.ent(), *app);
-
-        auto cols = div(ctx, mk(panel.ent(), 2),
+        auto cols = div(
+            ctx, mk(panel.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f),
-                                         pixels(ph - kPadV * 2.0f - kHeaderH)})
+                .with_size(ComponentSize{pixels(contentW),
+                                         pixels(panelRect.height - kPadV * 2.0f -
+                                                kHeaderH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_overflow(Overflow::Scroll, Axis::Y)
@@ -194,71 +106,118 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(11)
                 .with_debug_name("shortcuts_cols"));
 
-        const float colW = (pw - 2.0f * kPadH - kColGap) * 0.5f;
-        const auto column = [&](int id, float leftMargin) {
-            return div(ctx, mk(cols.ent(), id),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(colW), percent(1.0f)})
-                    .with_margin(Margin{.left = pixels(leftMargin)})
-                    .with_flex_direction(FlexDirection::Column)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_render_layer(11)
-                    .with_debug_name("shortcuts_col"));
-        };
-        auto left = column(1, 0.0f);
-        auto right = column(2, kColGap);
+        auto left = div(ctx, mk(cols.ent(), 1),
+                        ComponentConfig{}
+                            .with_size(ComponentSize{pixels(colW), children()})
+                            .with_margin(Margin{.right = pixels(kColGap)})
+                            .with_flex_direction(FlexDirection::Column)
+                            .with_flex_wrap(FlexWrap::NoWrap)
+                            .with_transparent_bg()
+                            .with_roundness(0.0f)
+                            .with_render_layer(11)
+                            .with_debug_name("shortcuts_commands"));
+        auto right = div(ctx, mk(cols.ent(), 2),
+                         ComponentConfig{}
+                             .with_size(ComponentSize{pixels(colW), children()})
+                             .with_flex_direction(FlexDirection::Column)
+                             .with_flex_wrap(FlexWrap::NoWrap)
+                             .with_transparent_bg()
+                             .with_roundness(0.0f)
+                             .with_render_layer(11)
+                             .with_debug_name("shortcuts_reference"));
 
-        int id = 100;
-        for (size_t i = 0; i < kRows.size(); ++i) {
-            Entity& into = (i < split) ? left.ent() : right.ent();
-            const auto& r = kRows[i];
-            if (r.keys.empty())
-                section(ctx, into, id++, r.what);
+        section(ctx, left.ent(), 1, "Customizable commands", colW);
+        int id = 20;
+        for (const auto& item : hanabi::shortcuts::kDefinitions)
+            command_row(ctx, left.ent(), id++, item, *app, colW);
+
+        id = 200;
+        for (const auto& row : kReferenceRows) {
+            if (row.keys.empty())
+                section(ctx, right.ent(), id++, row.title, colW);
             else
-                shortcut_row(ctx, into, id++, r.keys, r.what);
+                reference_row(ctx, right.ent(), id++, row.keys, row.title, colW);
         }
     }
 
-  private:
-    float content_w() const {
-        return (activePanelW_ - 2.0f * kPadH - kColGap) * 0.5f;
+   private:
+    static void close(AppComponent& app) {
+        app.showShortcuts = false;
+        app.shortcutRecording = -1;
+        app.shortcutMessage.clear();
+        menubar_set_shortcut_recording(-1);
     }
 
-    void render_header(UIContext<InputAction>& ctx, Entity& parent,
-                       AppComponent& app) {
+    static void capture(AppComponent& app) {
+        std::optional<hanabi::shortcuts::Shortcut> candidate;
+        int key = 0;
+        unsigned char modifiers = 0;
+        if (menubar_take_recorded_shortcut(&key, &modifiers))
+            candidate = hanabi::shortcuts::Shortcut{key, modifiers};
+        else
+            candidate = hanabi::keys::capture_shortcut();
+        if (!candidate.has_value()) return;
+
+        const auto command = static_cast<hanabi::shortcuts::Command>(
+            app.shortcutRecording);
+        const auto result = Settings::get().set_shortcut(command, *candidate);
+        if (!result.ok) {
+            app.shortcutMessage = result.explanation;
+            return;
+        }
+        app.shortcutMessage =
+            "Saved " + std::string(hanabi::shortcuts::definition(command).title) +
+            " as " + hanabi::shortcuts::display(*candidate) + ".";
+        app.shortcutRecording = -1;
+        menubar_set_shortcut_recording(-1);
+    }
+
+    static void render_header(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app, float contentW) {
         auto header = div(ctx, mk(parent, 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kHeaderH)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("shortcuts_header"));
+                          ComponentConfig{}
+                              .with_size(ComponentSize{pixels(contentW),
+                                                       pixels(kHeaderH)})
+                              .with_flex_direction(FlexDirection::Column)
+                              .with_flex_wrap(FlexWrap::NoWrap)
+                              .with_transparent_bg()
+                              .with_roundness(0.0f)
+                              .with_debug_name("shortcuts_header"));
         auto titleRow = div(ctx, mk(header.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f),
-                                         pixels(hanabi::surface::kTitleH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("shortcuts_title_row"));
+                            ComponentConfig{}
+                                .with_size(ComponentSize{
+                                    pixels(contentW),
+                                    pixels(hanabi::surface::kTitleH)})
+                                .with_flex_direction(FlexDirection::Row)
+                                .with_flex_wrap(FlexWrap::NoWrap)
+                                .with_align_items(AlignItems::Center)
+                                .with_transparent_bg()
+                                .with_roundness(0.0f)
+                                .with_debug_name("shortcuts_title_row"));
         div(ctx, mk(titleRow.ent(), 1),
             ComponentConfig{}
                 .with_label("Keyboard shortcuts")
-                .with_size(ComponentSize{pixels(activePanelW_ - 2.0f * kPadH -
-                                                 34.0f),
-                                         pixels(24)})
+                .with_size(ComponentSize{pixels(contentW - 190.0f), pixels(24)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Large)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("shortcuts_title"));
-        auto closeBtn = button(ctx, mk(titleRow.ent(), 2),
+        auto restore = button(
+            ctx, mk(titleRow.ent(), 2),
+            ComponentConfig{}
+                .with_label("Restore defaults")
+                .with_size(ComponentSize{pixels(142), pixels(28)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("shortcuts_restore_defaults"));
+        auto closeButton = button(
+            ctx, mk(titleRow.ent(), 3),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(26), pixels(26)})
@@ -270,28 +229,37 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_secondary(), 14.0f))
                 .with_debug_name("shortcuts_close"));
+        const std::string subtitle = app.shortcutMessage.empty()
+                                         ? "Choose a command, then press a new shortcut"
+                                         : app.shortcutMessage;
         div(ctx, mk(header.ent(), 2),
             ComponentConfig{}
-                .with_label("Press a shortcut anywhere it applies")
-                .with_size(ComponentSize{percent(1.0f),
+                .with_label(subtitle)
+                .with_size(ComponentSize{pixels(contentW),
                                          pixels(hanabi::surface::kSubtitleH)})
                 .with_margin(Margin{.top = pixels(4)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(app.shortcutMessage.empty()
+                                            ? theme::text_secondary()
+                                            : theme::accent())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("shortcuts_subtitle"));
-        if (closeBtn) app.showShortcuts = false;
+        if (restore) {
+            Settings::get().reset_shortcuts();
+            app.shortcutRecording = -1;
+            app.shortcutMessage = "Default shortcuts restored.";
+        }
+        if (closeButton) close(app);
     }
 
-    void section(UIContext<InputAction>& ctx, Entity& parent, int id,
-                 std::string_view text) {
+    static void section(UIContext<InputAction>& ctx, Entity& parent, int id,
+                        std::string_view title, float width) {
         div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_label(fmtutil::to_upper(std::string(text)))
-                .with_size(ComponentSize{percent(1.0f), pixels(kSectionH)})
-                .with_margin(Margin{.top = pixels(kSectionGap)})
+                .with_label(fmtutil::to_upper(std::string(title)))
+                .with_size(ComponentSize{pixels(width), pixels(kSectionH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::MICRO)
@@ -301,34 +269,85 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("shortcuts_section"));
     }
 
-    void shortcut_row(UIContext<InputAction>& ctx, Entity& parent, int id,
-                      std::string_view keys, std::string_view what) {
+    static void command_row(UIContext<InputAction>& ctx, Entity& parent, int id,
+                            const hanabi::shortcuts::Definition& item,
+                            AppComponent& app, float width) {
         auto row = div(ctx, mk(parent, id),
+                       ComponentConfig{}
+                           .with_size(ComponentSize{pixels(width),
+                                                    pixels(kCommandRowH)})
+                           .with_flex_direction(FlexDirection::Row)
+                           .with_flex_wrap(FlexWrap::NoWrap)
+                           .with_align_items(AlignItems::Center)
+                           .with_transparent_bg()
+                           .with_roundness(0.0f)
+                           .with_debug_name("shortcut_command_row"));
+        div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
+                .with_label(std::string(item.title))
+                .with_size(ComponentSize{pixels(width - kKeyColW - 12.0f),
+                                         pixels(22)})
                 .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::MD)
+                .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("shortcuts_row"));
-        // The chord, on a key-cap surface so it reads as something to press.
+                .with_debug_name("shortcut_command_label"));
+        const bool active = app.shortcutRecording == static_cast<int>(item.command);
+        const std::string label =
+            active ? "Press shortcut..."
+                   : hanabi::shortcuts::display(
+                         Settings::get().get_shortcut(item.command));
+        auto recorder = button(
+            ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(kKeyColW), pixels(26)})
+                .with_custom_background(active ? theme::selected_bg()
+                                               : theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_border(active ? theme::accent() : theme::border(),
+                             pixels(1.0f))
+                .with_custom_text_color(active ? theme::text_primary()
+                                               : theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("shortcut_record_" + std::string(item.key)));
+        if (recorder) {
+            app.shortcutRecording = static_cast<int>(item.command);
+            app.shortcutMessage = "Press a shortcut with Command. Escape cancels.";
+            ctx.set_focus(recorder.ent().id);
+        }
+    }
+
+    static void reference_row(UIContext<InputAction>& ctx, Entity& parent, int id,
+                              std::string_view keys, std::string_view title,
+                              float width) {
+        auto row = div(ctx, mk(parent, id),
+                       ComponentConfig{}
+                           .with_size(ComponentSize{pixels(width),
+                                                    pixels(kReferenceRowH)})
+                           .with_flex_direction(FlexDirection::Row)
+                           .with_flex_wrap(FlexWrap::NoWrap)
+                           .with_align_items(AlignItems::Center)
+                           .with_transparent_bg()
+                           .with_roundness(0.0f)
+                           .with_debug_name("shortcuts_reference_row"));
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(std::string(keys))
                 .with_size(ComponentSize{pixels(kKeyColW), pixels(19)})
-                .with_padding(Padding{.right = pixels(8), .left = pixels(8)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.3f)
-                .with_debug_name("shortcuts_keys"));
+                .with_debug_name("shortcuts_reference_keys"));
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(std::string(what))
-                .with_size(ComponentSize{pixels(content_w() - kKeyColW - 12.0f),
+                .with_label(std::string(title))
+                .with_size(ComponentSize{pixels(width - kKeyColW - 12.0f),
                                          pixels(19)})
                 .with_margin(Margin{.left = pixels(12)})
                 .with_transparent_bg()
@@ -336,10 +355,8 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("shortcuts_what"));
+                .with_debug_name("shortcuts_reference_title"));
     }
-
-    float activePanelW_ = kPanelW;
 };
 
-}  // namespace ecs
+}

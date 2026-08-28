@@ -94,51 +94,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Reserve the composer strip UNCONDITIONALLY so the input is always on
         // screen (render_composer disables it + shows a reason when the backend
         // can't send).
-        // Cmd+F opens find-in-conversation; Esc and Cmd+F close it. Only
-        // meaningful with a thread open, so it is a no-op elsewhere.
-        // Shift excluded: Cmd+Shift+F is search-across-threads
-        // (session_search_system.h), and without this it would open the find
-        // bar on the way past.
-        // Cmd+\ splits the main pane, and closes the split again. It sets
-        // the SAME request flag the palette row and the tab menu set, so the
-        // three cannot drift onto different meanings of "toggle"; the loader
-        // decides what a toggle is, once (loader_system.h).
-        //
-        // cmd_or_ctrl_down rather than cmd_down: the scripted harness cannot
-        // hold Super at all and turns its CMD+ prefix into Ctrl
-        // (afterhours_gaps.md #49, #256), so a chord that reads cmd_down alone
-        // is a chord no test in this repo can press. Same bargain the key
-        // table strikes with its Ctrl twins.
-        if (hanabi::keys::cmd_or_ctrl_down() &&
-            hanabi::keys::pressed(hanabi::keys::kBackslash))
-            app->requestSplitToggle = true;
-
-        if (hanabi::keys::cmd_down() && !hanabi::keys::shift_down() &&
-            hanabi::keys::pressed(hanabi::keys::kF)) {
-            app->pane().findOpen = !app->pane().findOpen;
-            if (!app->pane().findOpen) app->pane().findQuery.clear();
-        }
         if (app->pane().findOpen && app->escape == EscapeIntent::CloseFind) {
             app->pane().findOpen = false;
             app->pane().findQuery.clear();
             app->refocusComposer = true;
         }
-        // Cmd+G steps to the next match, Cmd+Shift+G to the previous — the
-        // same move the find bar's chevrons make, through the same find_nav
-        // step, so the chord and the buttons cannot land on different matches.
-        // Only while the bar is open: with it closed there is no tally for a
-        // step to mean anything against.
-        //
-        // findCount is the count the LAST rendered frame computed: every
-        // paintable match in the loaded thread, not the subset the
-        // virtualization window happened to paint. That is the only count
-        // that exists at the top of a frame, and it is the right one to step
-        // over — stepping is how you reach a match that is NOT on screen.
-        if (app->pane().findOpen) {
-            const hanabi::find_nav::Step step = hanabi::find_nav::chord(
-                hanabi::keys::cmd_down(), hanabi::keys::shift_down(),
-                hanabi::keys::pressed(hanabi::keys::kG));
-            apply_find_step(app->pane(), step);
+        if (app->pane().findOpen && app->requestFindStep != 0) {
+            const hanabi::find_nav::Step step =
+                app->requestFindStep < 0 ? hanabi::find_nav::Step::Prev
+                                         : hanabi::find_nav::Step::Next;
+            const int count = std::abs(app->requestFindStep);
+            app->requestFindStep = 0;
+            for (int i = 0; i < count; ++i)
+                apply_find_step(app->pane(), step);
         }
         // Test-only (HANABI_FIND_STEP=<±n>): the harness cannot press a Cmd
         // chord (afterhours_gaps.md #49), so this feeds the same step the

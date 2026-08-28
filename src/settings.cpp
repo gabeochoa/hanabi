@@ -4,6 +4,7 @@
 #include <afterhours/src/plugins/files.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <utility>
@@ -94,6 +95,25 @@ bool Settings::load_save_file() {
         default_model_ = j.value("default_model", default_model_);
         default_effort_ = j.value("default_effort", default_effort_);
         set_send_key(j.value("send_key", send_key_));
+        custom_shortcuts_.fill(std::nullopt);
+        auto loaded_shortcuts = hanabi::shortcuts::defaults();
+        if (j.contains("shortcuts") && j["shortcuts"].is_object()) {
+            for (const auto& item : hanabi::shortcuts::kDefinitions) {
+                const auto at = j["shortcuts"].find(std::string(item.key));
+                if (at == j["shortcuts"].end() || !at->is_string()) continue;
+                const auto parsed =
+                    hanabi::shortcuts::parse(at->get<std::string>());
+                if (!parsed.has_value()) continue;
+                const auto result = hanabi::shortcuts::validate(
+                    item.command, *parsed, loaded_shortcuts);
+                if (!result.ok) continue;
+                loaded_shortcuts[hanabi::shortcuts::index(item.command)] = *parsed;
+                if (*parsed != item.shortcut)
+                    custom_shortcuts_[hanabi::shortcuts::index(item.command)] =
+                        *parsed;
+            }
+        }
+        ++shortcut_revision_;
         open_tabs_.clear();
         if (j.contains("open_tabs") && j["open_tabs"].is_array()) {
             for (const auto& e : j["open_tabs"])
@@ -190,6 +210,15 @@ void Settings::write_save_file() {
     j["default_model"] = default_model_;
     j["default_effort"] = default_effort_;
     j["send_key"] = send_key_;
+    json shortcuts = json::object();
+    for (const auto& item : hanabi::shortcuts::kDefinitions) {
+        const auto& custom =
+            custom_shortcuts_[hanabi::shortcuts::index(item.command)];
+        if (custom.has_value())
+            shortcuts[std::string(item.key)] =
+                hanabi::shortcuts::serialize(*custom);
+    }
+    j["shortcuts"] = std::move(shortcuts);
     j["split_open"] = split_open_;
     j["split_ratio"] = split_ratio_;
     j["split_focused_pane"] = split_focused_pane_;
@@ -580,6 +609,55 @@ void Settings::set_send_key(const std::string& key) {
 const std::string& Settings::get_default_effort() const {
     return default_effort_;
 }
+
+hanabi::shortcuts::Shortcut Settings::get_shortcut(
+    hanabi::shortcuts::Command command) const {
+    const std::size_t at = hanabi::shortcuts::index(command);
+    if (custom_shortcuts_[at].has_value()) return *custom_shortcuts_[at];
+    return hanabi::shortcuts::definition(command).shortcut;
+}
+
+hanabi::shortcuts::Bindings Settings::get_shortcuts() const {
+    auto out = hanabi::shortcuts::defaults();
+    for (std::size_t i = 0; i < custom_shortcuts_.size(); ++i)
+        if (custom_shortcuts_[i].has_value()) out[i] = *custom_shortcuts_[i];
+    return out;
+}
+
+hanabi::shortcuts::Validation Settings::set_shortcut(
+    hanabi::shortcuts::Command command,
+    hanabi::shortcuts::Shortcut shortcut) {
+    const auto result =
+        hanabi::shortcuts::validate(command, shortcut, get_shortcuts());
+    if (!result.ok) return result;
+    const std::size_t at = hanabi::shortcuts::index(command);
+    const auto default_shortcut =
+        hanabi::shortcuts::definition(command).shortcut;
+    if (get_shortcut(command) == shortcut) return result;
+    custom_shortcuts_[at] =
+        shortcut == default_shortcut
+            ? std::optional<hanabi::shortcuts::Shortcut>{}
+            : std::optional<hanabi::shortcuts::Shortcut>{shortcut};
+    ++shortcut_revision_;
+    if (auto_save_enabled) write_save_file();
+    return result;
+}
+
+void Settings::reset_shortcuts() {
+    bool changed = false;
+    for (auto& shortcut : custom_shortcuts_) {
+        if (shortcut.has_value()) changed = true;
+        shortcut.reset();
+    }
+    if (!changed) return;
+    ++shortcut_revision_;
+    if (auto_save_enabled) write_save_file();
+}
+
+std::uint64_t Settings::shortcut_revision() const {
+    return shortcut_revision_;
+}
+
 void Settings::set_default_effort(const std::string& effort) {
     if (effort == default_effort_) return;
     default_effort_ = effort;

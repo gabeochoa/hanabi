@@ -46,16 +46,6 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
 
-        // Cmd+Shift+F. Cmd+F (find in this conversation) is the same key with
-        // the Shift off, and main_pane_system.h refuses it while Shift is held
-        // so one keystroke opens one thing.
-        if (hanabi::keys::cmd_down() && hanabi::keys::shift_down() &&
-            hanabi::keys::pressed(hanabi::keys::kF)) {
-            app->sessionSearchOpen = !app->sessionSearchOpen;
-            app->sessionSearchQuery.clear();
-            app->sessionSearchIndex = 0;
-            indexed_ = false;
-        }
         if (!app->sessionSearchOpen) {
             if (wasOpen_) release_corpus();
             wasOpen_ = false;
@@ -66,7 +56,10 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         // A field has to have been rendered once before it can be grabbed, and
         // the grab has to be re-asserted for a couple of frames, hence a short
         // window rather than one set (afterhours_gaps.md #56/#57).
-        if (!wasOpen_) focusFrames_ = 3;
+        if (!wasOpen_) {
+            focusFrames_ = 3;
+            indexed_ = false;
+        }
         wasOpen_ = true;
 
         if (app->escape == EscapeIntent::CloseSessionSearch) {

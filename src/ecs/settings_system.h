@@ -85,13 +85,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // load_font to frame-top makes the swap atomic w.r.t. rendering.
         apply_pending_font();
 
-        // Cmd+, toggles the settings overlay (mirrors sidebar's Cmd+B pattern:
-        // 343/347 = left/right super, 44 = KEY_COMMA).
-        if (hanabi::keys::cmd_down() &&
-            hanabi::keys::pressed(hanabi::keys::kComma)) {
-            app->showSettings = !app->showSettings;
-        }
-
         if (!app->showSettings) return;
 
         // Fetch account/settings from the backend ONCE when the overlay opens
@@ -125,7 +118,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float ctrlRow = kRowNameFoot + kThemeRowH;
         const float leftH =
             (kGroupH + ctrlRow * 3.0f) +
-            (kGroupH + ctrlRow * 5.0f) +
+            (kGroupH + ctrlRow * 6.0f) +
             (kGroupH + ctrlRow * 2.0f);
         const float rightH =
             (kGroupH + ctrlRow * 2.0f) +
@@ -243,6 +236,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
             render_send_key_row(ctx, L, *app);
+            render_shortcut_editor_row(ctx, L, *app);
             render_subagents_row(ctx, L, *app);
 
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
@@ -1070,6 +1064,30 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                i == 1 ? hanabi::kSendKeyCmdReturn
                                       : hanabi::kSendKeyReturn);
                        });
+    }
+
+    void render_shortcut_editor_row(UIContext<InputAction>& ctx, Entity& parent,
+                                    AppComponent& app) {
+        row_name(ctx, parent, 140, "Keyboard shortcuts",
+                 "settings_shortcuts_label");
+        auto open = button(
+            ctx, mk(parent, 141),
+            ComponentConfig{}
+                .with_label("Customize shortcuts...")
+                .with_size(ComponentSize{pixels(content_w()), pixels(kSegBtnH)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("settings_open_shortcuts"));
+        if (open) {
+            app.showSettings = false;
+            app.showShortcuts = true;
+            app.shortcutRecording = -1;
+            app.shortcutMessage.clear();
+        }
     }
 
     // Sub-agent chips in the transcript rollup: hide the finished ones, or

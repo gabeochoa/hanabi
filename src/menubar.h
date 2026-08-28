@@ -21,6 +21,14 @@ void menubar_set_blocked(int n);
 // per frame. Each returns true exactly once per fire, then clears.
 bool menubar_take_show(void);
 bool menubar_take_new_task(void);
+void menubar_refresh_shortcuts(void);
+void menubar_set_shortcut_recording(int command);
+bool menubar_take_command(int* command);
+bool menubar_take_recorded_shortcut(int* key, unsigned char* modifiers);
+void menubar_diagnostics(char* out, int cap);
+bool menubar_edit_binding(const char* selector, unsigned short* key_code,
+                           unsigned long long* modifiers);
+void menubar_simulate_command(int command);
 
 #ifdef __cplusplus
 }

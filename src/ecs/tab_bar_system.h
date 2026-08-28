@@ -42,9 +42,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         auto& app = *appP;
         auto& strip = *stripP;
 
-        // Cmd+W closes the active tab.
-        bool cmdDown = hanabi::keys::cmd_down();
-        if (cmdDown && hanabi::keys::pressed(hanabi::keys::kW)) {
+        if (app.requestCloseActiveTab) {
+            app.requestCloseActiveTab = false;
             for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
                 auto opt = EntityHelper::getEntityForID(strip.tabOrder[i]);
                 if (opt.valid() && opt->has<ActiveTab>()) {

@@ -19,11 +19,13 @@
 // ---------------------------------------------------------------------------
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "../keys.h"
 #include "../ui/secondary_surface.h"
+#include "command_system.h"
 #include "keyboard_focus.h"
 #include "../util/format.h"
 #include "components.h"
@@ -32,24 +34,11 @@
 namespace ecs {
 
 struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
-    // What a row does when it is chosen. An enum rather than a std::function
-    // so the list can be rebuilt every frame for free.
-    enum class Act {
-        NewTask,
-        ToggleSidebar,
-        OpenSettings,
-        OpenShortcuts,
-        FindInThread,
-        SearchThreads,
-        ToggleSplit,
-        OpenThread,
-    };
-
     struct Row {
         std::string label;
-        std::string hint;   // the chord, or the thread's relative time
-        Act act;
-        std::string arg;    // the session id, for OpenThread
+        std::string hint;
+        std::optional<hanabi::shortcuts::Command> command;
+        std::string arg;
     };
 
     static constexpr float kPanelW = 560.0f;
@@ -62,12 +51,6 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         if (!app) return;
 
-        if (hanabi::keys::cmd_down() &&
-            hanabi::keys::pressed(hanabi::keys::kK)) {
-            app->paletteOpen = !app->paletteOpen;
-            app->paletteQuery.clear();
-            app->paletteIndex = 0;
-        }
         const bool justOpened = app->paletteOpen && !wasOpen_;
         wasOpen_ = app->paletteOpen;
         if (!app->paletteOpen) return;
@@ -271,24 +254,20 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         const std::string& q = app.paletteQuery;
         std::vector<Row> out;
 
-        const Row actions[] = {
-            {"New task", "Cmd N", Act::NewTask, ""},
-            {"Show or hide the sidebar", "Cmd B", Act::ToggleSidebar, ""},
-            {"Split the pane", "Cmd \\", Act::ToggleSplit, ""},
-            {"Settings", "Cmd ,", Act::OpenSettings, ""},
-            {"Keyboard shortcuts", "Cmd /", Act::OpenShortcuts, ""},
-            {"Find in this conversation", "Cmd F", Act::FindInThread, ""},
-            {"Search across your threads", "Cmd Shift F", Act::SearchThreads,
-             ""},
-        };
-        for (const auto& a : actions)
-            if (contains_ci(a.label, q)) out.push_back(a);
+        for (const auto& item : hanabi::shortcuts::kDefinitions) {
+            if (!item.in_palette || !contains_ci(std::string(item.title), q))
+                continue;
+            out.push_back({std::string(item.title),
+                           hanabi::shortcuts::display(
+                               Settings::get().get_shortcut(item.command)),
+                           item.command, ""});
+        }
 
         for (const auto& s : app.sessions) {
             if (out.size() >= kMaxRows) break;
             if (s.title.empty() || !contains_ci(s.title, q)) continue;
             out.push_back({s.title, fmtutil::relative_time(s.updated_at),
-                           Act::OpenThread, s.id});
+                           std::nullopt, s.id});
         }
         return out;
     }
@@ -297,18 +276,10 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
     // The palette adds a way in, never a second implementation.
     static void run(const Row& row, AppComponent& app,
                     LayoutComponent* layout) {
-        switch (row.act) {
-            case Act::NewTask: app.composerOpen = true; break;
-            case Act::ToggleSidebar:
-                if (layout) layout->sidebarCollapsed = !layout->sidebarCollapsed;
-                break;
-            case Act::OpenSettings: app.showSettings = true; break;
-            case Act::OpenShortcuts: app.showShortcuts = true; break;
-            case Act::FindInThread: app.pane().findOpen = true; break;
-            case Act::SearchThreads: app.sessionSearchOpen = true; break;
-            case Act::ToggleSplit: app.requestSplitToggle = true; break;
-            case Act::OpenThread: app.requestOpenTab = row.arg; break;
-        }
+        if (row.command.has_value())
+            ecs::commands::dispatch(*row.command, app, layout);
+        else
+            app.requestOpenTab = row.arg;
         close(app);
     }
 

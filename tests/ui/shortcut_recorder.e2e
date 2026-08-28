@@ -1,0 +1,34 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=shortcuts
+
+expect_text "Keyboard shortcuts"
+expect_text "Choose a command, then press a new shortcut"
+expect_text "Cmd K"
+
+click_ui shortcut_record_open_palette
+wait_frames 4
+expect_text "Press a shortcut with Command. Escape cancels."
+key CMD+N
+wait_frames 5
+expect_text "Already used by New task."
+
+key ESCAPE
+wait_frames 5
+expect_text "Recording cancelled."
+expect_text "Keyboard shortcuts"
+
+click_ui shortcut_record_open_palette
+wait_frames 3
+key CMD+SHIFT+P
+wait_frames 8
+expect_text "Saved Command palette as Cmd Shift P."
+expect_text "Cmd Shift P"
+
+click_ui shortcuts_restore_defaults
+wait_frames 6
+expect_text "Default shortcuts restored."
+expect_text "Cmd K"
+
+key ESCAPE
+wait_frames 5
+expect_no_text "Keyboard shortcuts"

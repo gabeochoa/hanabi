@@ -17,8 +17,13 @@
 // named so a shortcut site reads as its chord rather than as a magic number.
 // ---------------------------------------------------------------------------
 
+#include <array>
+#include <optional>
+
 #include <afterhours/src/core/key_codes.h>
 #include <afterhours/src/plugins/input_system.h>
+
+#include "shortcuts.h"
 
 namespace hanabi::keys {
 
@@ -91,6 +96,49 @@ inline bool cmd_or_ctrl_down() { return cmd_down() || ctrl_down(); }
 // read it the same way it reads Cmd.
 inline bool shift_down() {
     return down(ah::LEFT_SHIFT) || down(ah::RIGHT_SHIFT);
+}
+
+inline bool option_down() {
+    return down(ah::LEFT_ALT) || down(ah::RIGHT_ALT);
+}
+
+inline std::uint8_t shortcut_modifiers() {
+    std::uint8_t modifiers = 0;
+    const bool command = cmd_down();
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    const bool commandAlias = !command && ctrl_down();
+#else
+    const bool commandAlias = false;
+#endif
+    if (command || commandAlias)
+        modifiers |= hanabi::shortcuts::CommandModifier;
+    if (shift_down()) modifiers |= hanabi::shortcuts::ShiftModifier;
+    if (option_down()) modifiers |= hanabi::shortcuts::OptionModifier;
+    if (ctrl_down() && !commandAlias)
+        modifiers |= hanabi::shortcuts::ControlModifier;
+    return modifiers;
+}
+
+inline bool shortcut_pressed(hanabi::shortcuts::Shortcut shortcut) {
+    return shortcut.modifiers == shortcut_modifiers() && pressed(shortcut.key);
+}
+
+inline std::optional<hanabi::shortcuts::Shortcut> capture_shortcut() {
+    using namespace afterhours::keys;
+    static constexpr std::array<int, 58> supported{{
+        A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W,
+        X, Y, Z, ZERO, ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE,
+        APOSTROPHE, COMMA, MINUS, PERIOD, SLASH, SEMICOLON, EQUAL, LEFT_BRACKET,
+        BACKSLASH, RIGHT_BRACKET, GRAVE, SPACE, TAB, ENTER, BACKSPACE, DELETE_KEY,
+        LEFT, RIGHT, UP, DOWN, F1, F2,
+    }};
+    for (const int key : supported)
+        if (pressed(key))
+            return hanabi::shortcuts::Shortcut{key, shortcut_modifiers()};
+    for (int key = F3; key <= F12; ++key)
+        if (pressed(key))
+            return hanabi::shortcuts::Shortcut{key, shortcut_modifiers()};
+    return std::nullopt;
 }
 
 }  // namespace hanabi::keys

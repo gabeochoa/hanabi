@@ -59,6 +59,7 @@
 #include "ecs/components.h"
 #include "ecs/auth_system.h"
 #include "ecs/composer_system.h"
+#include "ecs/command_system.h"
 #include "ecs/palette_system.h"
 #include "ecs/session_search_system.h"
 #include "ecs/arrow_system.h"
@@ -382,6 +383,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     // before this frame's widgets read their colours, so a flip is never half
     // a frame old.
     sm.register_update_system(std::make_unique<ecs::ThemeRotationSystem>());
+    sm.register_update_system(std::make_unique<ecs::commands::System>());
 
     // Resolve Esc before anything reads it, so one keystroke means one thing.
     sm.register_update_system(std::make_unique<ecs::EscapeSystem>());
@@ -507,6 +509,12 @@ static void app_frame() {
     static bool menubarInstalled = false;
     if (!menubarInstalled) {
         menubar_install();
+        if (const char* v = std::getenv("HANABI_NATIVE_MENU_DIAGNOSTIC");
+            v && *v && std::string(v) != "0") {
+            char status[512] = {};
+            menubar_diagnostics(status, sizeof(status));
+            std::fprintf(stderr, "[HANABI_NATIVE_MENU] %s\n", status);
+        }
         // Phase G extras: register the global hotkey (Cmd+Shift+N) on the same
         // windowed-only, install-once path. Idempotent; headless never reaches
         // here so no global listener lingers after a --screenshot capture.
@@ -1010,6 +1018,13 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         if (os == "settings") app->showSettings = true;
         else if (os == "composer") app->composerOpen = true;
         else if (os == "shortcuts") app->showShortcuts = true;
+        else if (os == "shortcuts-recording") {
+            app->showShortcuts = true;
+            app->shortcutRecording = static_cast<int>(
+                hanabi::shortcuts::Command::OpenPalette);
+            app->shortcutMessage =
+                "Press a shortcut with Command. Escape cancels.";
+        }
         else if (os == "find") app->pane().findOpen = true;
         else if (os == "palette") app->paletteOpen = true;
         else if (os == "search") app->sessionSearchOpen = true;
