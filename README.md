@@ -49,6 +49,11 @@ ECS + immediate-mode UI framework, and **Sokol** (Metal on macOS) for rendering.
   each swaps the main pane. Plus user folders + Archived.
 - **Native icons.** A single Lucide (ISC) spritesheet — one replaceable
   `resources/icons/icons.png` atlas, tinted per theme at draw time.
+- **Native macOS menus and customizable shortcuts.** Bundled builds install real
+  File, Edit, View, Window, and Help menus. Settings includes a keyboard recorder
+  for safe application commands; it rejects reserved or conflicting chords with
+  an explanation, persists overrides, restores defaults, and updates menu key
+  equivalents and command-palette hints immediately.
 - **Light / dark theming.** All colors flow from a single swappable token set
   (`src/ui/theme.h`), switchable at runtime and persisted. Dark by default.
 

@@ -26,15 +26,15 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **250** |
-| Distinct numeric gap numbers | **241** (seven numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **260** |
+| Distinct numeric gap numbers | **251** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **258** — includes 11 index-only identifiers; #366–#373 remain unindexed |
-| Standalone live asks | **147** |
-| Live but subsumed into a family canonical | **54** (§3) |
+| **Rows in the triage table (§6)** | **268** — includes 11 index-only identifiers; #366–#373 remain unindexed |
+| Standalone live asks | **150** |
+| Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **9** |
-| Deliberate NEGATIVE results — do not promote | **21** (§4) |
-| hanabi/platform-owned, not afterhours' | **24** |
+| Deliberate NEGATIVE results — do not promote | **24** (§4) |
+| hanabi/platform-owned, not afterhours' | **26** |
 | **Rows explicitly marked wrong** | **5** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
@@ -797,6 +797,16 @@ correction narrows them rather than closing them.
 | 525 | Closed popovers still resolve and retain a UI entity | PERFORMANCE | MED | XS | live |
 | 526 | Synthetic right-click misses direct button polling | MISSING | MED | XS | live |
 | 527 | Secondary controls lack native accessibility semantics | MISSING | HIGH | M | dup→#112/#458 |
+| 560 | Native application menus are outside afterhours' host contract | NOT A GAP | — | — | host |
+| 561 | AppKit consumes menu key equivalents before afterhours sees them | PLATFORM | HIGH | S | app workaround |
+| 562 | E2E parses SUPER but never holds it | MISSING | HIGH | XS | live |
+| 563 | `CMD+` means Ctrl rather than Command in scripts | FOOTGUN | HIGH | XS | dup→#256 |
+| 564 | Synthetic input is intentionally absent from shipping builds | NOT A GAP | — | — | security boundary |
+| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live |
+| 566 | Native Edit capabilities depend on magic enum names | FOOTGUN | HIGH | S | dup→#255 |
+| 567 | Headless UI assertions cannot observe AppKit menus | PLATFORM | MED | — | dup→#308 |
+| 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live |
+| 569 | Non-layered input mapping has no remapping method | TEDIOUS | MED | XS | app workaround |
 | 580 | No cancellable background-job primitive | MISSING | HIGH | M | live |
 | 581 | No deactivate hook for conditional systems | MISSING | HIGH | S | live |
 | 582 | Transcript payload ownership belongs above the ECS | NOT A GAP | — | — | neg |
