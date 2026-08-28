@@ -816,7 +816,8 @@ correction narrows them rather than closing them.
 | 566 | Native Edit capabilities depend on magic enum names | FOOTGUN | HIGH | S | dup→#255 |
 | 567 | Headless UI assertions cannot observe AppKit menus | PLATFORM | MED | — | dup→#308 |
 | 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live |
-| 569 | Non-layered input mapping has no remapping method | TEDIOUS | MED | XS | app workaround || 580 | No cancellable background-job primitive | MISSING | HIGH | M | live |
+| 569 | Non-layered input mapping has no remapping method | TEDIOUS | MED | XS | app workaround |
+| 580 | No cancellable background-job primitive | MISSING | HIGH | M | live |
 | 581 | No deactivate hook for conditional systems | MISSING | HIGH | S | live |
 | 582 | Transcript payload ownership belongs above the ECS | NOT A GAP | — | — | neg |
 | 583 | Entity pool exposes its retained high-water count | NOT A GAP | — | — | neg |
