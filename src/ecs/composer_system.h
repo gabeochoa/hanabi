@@ -34,21 +34,6 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
 
-        // Cmd+N toggles the composer (343/347 = super, 78 = KEY_N).
-        bool cmdDown = hanabi::keys::cmd_down();
-        if (cmdDown && hanabi::keys::pressed(hanabi::keys::kN)) {
-            app->composerOpen = !app->composerOpen;
-        }
-
-        // CRASH-SAFE DRAFT RESTORE (local-first): on the frame the composer
-        // OPENS, restore whatever the user was mid-typing before a crash/quit.
-        // The "New task" composer has no session yet, so its draft persists
-        // under the stable "new" key (disk_cache::new_draft_key()). The backend
-        // namespace is already set (main.cpp set_namespace before the loop), so
-        // this reads from the correct per-backend local cache dir — never the
-        // network. We only overwrite the live draft when disk has something AND
-        // the field is currently empty, so a restore never clobbers text the
-        // user just started typing this session.
         const bool justOpened = app->composerOpen && !wasOpen_;
         if (justOpened) {
             std::string saved =

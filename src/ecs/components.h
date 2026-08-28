@@ -57,6 +57,7 @@ enum class EscapeIntent {
     CloseContextMenu,
     CloseRename,
     CloseComposer,
+    CancelShortcutRecording,
     CloseShortcuts,
     CloseSettings,
     CloseFind,
@@ -543,6 +544,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // The keyboard-shortcut reference (Cmd+/). Every binding in this app is
     // otherwise invisible.
     bool showShortcuts = false;
+    int shortcutRecording = -1;
+    std::string shortcutMessage;
 
     // The command palette (Cmd+K): a query and a cursor over the rows it
     // ranks. Its state lives here rather than in the system's own locals
@@ -585,6 +588,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // action fires; serviced there by opening the composer. A one-shot request
     // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
     bool requestNewTask = false;
+    bool requestCloseActiveTab = false;
+    int requestFindStep = 0;
     // Optional text a welcome-screen suggestion chip seeds into the new-task
     // composer draft (consumed once by render_composer). Empty = no seed.
     std::string welcomeSeed;

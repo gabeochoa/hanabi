@@ -14078,6 +14078,166 @@ CLASS: DUPLICATE → #112 / #458
 
 ---
 
+### #560 — Native application menus are outside afterhours' host contract
+
+**Exact mechanism.** The macOS backend creates and feeds an `NSApplication` and an `NSWindow`, but afterhours exposes no application-menu model. Its public input boundary starts at `graphics::is_key_pressed` and `input::InputSystem`; no `NSMenu`, responder-chain, role, or selector concept crosses that boundary.
+
+**Result.** A bundled afterhours app cannot declare File, Edit, View, Window, and Help menus through the framework. This is not a rendering-widget omission: those menus belong to the host application and must exist before the immediate-mode tree is involved.
+
+**Workaround.** Hanabi installs the native menu hierarchy in its Obj-C++ host seam only for a real bundled, windowed launch. The headless frame path never calls the installer.
+
+**Hanabi reference.** `src/menubar.mm::install_main_menu`, `src/main.cpp::app_frame`, and `src/menubar.h::menubar_diagnostics`; gates: `make app` and `make verify-app`.
+
+**Minimal upstream change.** None required. A small documented host hook after window creation would improve discoverability, but menu ownership remains application policy.
+
+CLASS: NOT A GAP / HOST RESPONSIBILITY
+
+---
+
+### #561 — AppKit consumes a menu key equivalent before afterhours sees the key
+
+**Exact mechanism.** AppKit resolves an `NSMenuItem.keyEquivalent` in `NSApplication` event dispatch. A matching event invokes the menu item's action instead of reaching the Sokol view's key handler, so `graphics::is_key_pressed` and every afterhours input wrapper correctly report no press.
+
+**Correctness failure.** Adding Cmd+F, Cmd+K, or Cmd+W to a native menu while leaving an unrelated app-side key handler creates two paths with different ownership; the bundled app runs the menu action and the developer executable runs the afterhours action. A menu chord with no routed action silently disables the existing shortcut.
+
+**Workaround.** Hanabi's menu items enqueue the same central command identifier that the keyboard matcher and command palette dispatch. There is one command definition and one request handler; the menu changes delivery, not meaning.
+
+**Hanabi reference.** `src/shortcuts.h::kDefinitions`, `src/ecs/command_system.h::dispatch`, `src/menubar.mm::HanabiMenuTarget::onCommand`, and `src/ecs/palette_system.h::run`; `tests/unit/test_shortcuts.cpp` guards mapping uniqueness and conflict behavior.
+
+**Minimal upstream change.** None inside afterhours can make AppKit deliver a consumed key. Document the host boundary and provide an optional command-dispatch hook for native shells.
+
+CLASS: PLATFORM / APP WORKAROUND
+
+---
+
+### #562 — The E2E parser records SUPER, but the key command never holds it
+
+**Exact mechanism.** `parse_key_combo` sets `KeyCombo::super` for `SUPER+`, `WIN+`, and `META+` in `vendor/afterhours/src/core/key_codes.h:285-332`. `HandleKeyCommand` in `vendor/afterhours/src/plugins/e2e_testing/command_handlers.h:52-136` holds and later releases only Ctrl, Shift, and Alt. It never calls `set_key_held(keys::LEFT_SUPER)` and has no pending-super release slot.
+
+**Measured failure.** `key SUPER+K` presses K with no modifier. Any product path that requires `MOD_SUPER` is unreachable from the scripted harness even though the parser accepts the spelling.
+
+**Workaround.** Hanabi tests command mapping and conflicts as pure data. Its E2E-only modifier read interprets the harness's Ctrl alias as Command, while shipping builds require the real Super state.
+
+**Hanabi reference.** `src/keys.h::shortcut_modifiers`, `tests/unit/test_shortcuts.cpp`, and `tests/ui/shortcut_recorder.e2e`.
+
+**Minimal upstream change.** Hold `LEFT_SUPER` when `combo.super` is true, add `pending_super`, and release it with the other modifiers.
+
+CLASS: MISSING / TESTING
+
+---
+
+### #563 — `CMD+` means Ctrl in scripts, not Command on macOS
+
+**Exact mechanism.** `parse_key_combo` maps the `CMD+` prefix to `KeyCombo::ctrl` at `vendor/afterhours/src/core/key_codes.h:299-303`. `HandleKeyCommand` then holds `keys::LEFT_CONTROL`. This is deliberate cross-platform aliasing, but it does not simulate the modifier named by the script on macOS.
+
+**Correctness failure.** A script that says `key CMD+P` proves a Ctrl chord unless the application adds a test-only alias. It cannot prove AppKit menu-key-equivalent routing or the real Super modifier.
+
+**Workaround.** Hanabi confines the alias to `AFTER_HOURS_ENABLE_E2E_TESTING`; production `shortcut_modifiers()` never treats Ctrl as Command. Native menu diagnostics remain a separate bundled-app check.
+
+**Hanabi reference.** `src/keys.h::shortcut_modifiers`, `src/menubar.mm::menubar_diagnostics`, and `tests/ui/shortcut_recorder.e2e`.
+
+**Minimal upstream change.** Make `CMD+` hold Super on macOS and reserve `CTRL+` for Control. Keep an explicit portable alias under a different spelling.
+
+CLASS: FOOTGUN / DUPLICATE → #256
+
+---
+
+### #564 — Synthetic input is intentionally absent from shipping builds
+
+**Exact mechanism.** The injector paths in `input_system.h`, `platform_test_input.h`, and the E2E runner are compiled under `AFTER_HOURS_ENABLE_E2E_TESTING`. A normal bundled binary has no supported API to push a synthetic key press into the input collector.
+
+**Result.** A native host bridge cannot call the test injector to make a clicked Edit menu item look like Cmd+C in production. Enabling the E2E plugin in a shipping app would expose test-only global state and is the wrong fix.
+
+**Workaround.** Hanabi's native responder bridge replays a local `NSEvent` directly to its own window. That enters the real Sokol/AppKit path and is used only after the standard responder selector has no native widget to handle it.
+
+**Hanabi reference.** `src/menubar.mm::HanabiEditBridge` and `replay_edit_key`; the production and E2E object directories remain separate in `makefile`.
+
+**Minimal upstream change.** None. Keeping synthetic injection test-only is correct.
+
+CLASS: NOT A GAP / SECURITY BOUNDARY
+
+---
+
+### #565 — Text editing has no imperative command surface for a native responder
+
+**Exact mechanism.** `handle_clipboard_and_undo` in `vendor/afterhours/src/plugins/ui/text_input/utils.h:514-594` exposes editing only as `ctx.pressed(InputAction::TextUndo/TextRedo/TextCopy/TextCut/TextPaste/TextSelectAll)`. The mutation helpers operate on `HasTextInputState`, but an outside system that mutates that state before the immediate widget runs is overwritten when the widget re-seeds from its bound `std::string`.
+
+**Correctness failure.** A native Edit menu cannot safely call `undo`, `paste`, or `select all` against the focused afterhours field. Mutating only the state appears to work for part of a frame and then restores the old bound string.
+
+**Workaround.** Hanabi first uses standard AppKit selectors through the responder chain. Its bridge is installed after the content view, so a real native text responder wins; only the unhandled afterhours case replays the corresponding local key event into the window, letting the widget update its state and bound string together.
+
+**Hanabi reference.** `src/menubar.mm::HanabiEditBridge`, `src/ecs/keyboard_focus.h::focused_text_field`, and `src/ecs/text_edit_chords_system.h`.
+
+**Minimal upstream change.** Expose imperative edit operations that take the state and its bound string together, or expose a focused-text command sink whose implementation runs inside the widget's synchronization point.
+
+CLASS: MISSING
+
+---
+
+### #566 — Native Edit capabilities still depend on magic enum names
+
+**Exact mechanism.** `handle_clipboard_and_undo` checks `magic_enum::enum_contains<InputAction>("TextUndo")` and the equivalent names for redo, copy, cut, paste, and select-all before compiling each branch. A responder bridge can replay the right key and still get no behavior if the app enum omitted the matching name.
+
+**Correctness failure.** The native menu looks complete and the key event reaches the widget, but one Edit item can remain inert with no compiler error or runtime diagnostic.
+
+**Workaround.** Hanabi keeps its text-action enum and mapping under direct unit coverage; standard AppKit responders remain independent of that enum.
+
+**Hanabi reference.** `src/input_mapping.h::InputAction`, `tests/unit/test_input_pipeline.cpp::test_enum_carries_the_names_afterhours_gates_on`, and the Edit menu in `src/menubar.mm::install_main_menu`.
+
+**Minimal upstream change.** Replace string-reflected opt-in with a declared text-action trait or static assertion listing unsupported actions.
+
+CLASS: FOOTGUN / DUPLICATE → #255
+
+---
+
+### #567 — Headless UI assertions cannot observe an AppKit menu hierarchy
+
+**Exact mechanism.** `assert_ui` reads afterhours' immediate-mode visible-text registry. An `NSMenu` is owned and rendered by AppKit, has no afterhours entity, and requires a real `NSApplication` plus window. Hanabi's headless screenshot path intentionally never calls the menu installer.
+
+**Result.** A headless screenshot or `.e2e` script cannot prove that File/Edit/View/Window/Help exist, inspect a native key equivalent, or invoke a standard selector. Attempting to install menus headlessly would add platform state to every test and violate the existing no-side-effect contract.
+
+**Workaround.** Hanabi tests the command/key/conflict model purely, exercises the recorder in the headless widget tree, and exposes a bundled-only one-line native diagnostic. The packaged app is the manual/permission-gated arm.
+
+**Hanabi reference.** `src/menubar.h::menubar_diagnostics`, `src/main.cpp` under `HANABI_NATIVE_MENU_DIAGNOSTIC`, `tests/unit/test_shortcuts.cpp`, and `tests/ui/shortcut_recorder.e2e`.
+
+**Minimal upstream change.** None in the renderer. A host-test adapter could serialize native menu metadata without installing it, but it cannot make `assert_ui` see AppKit objects.
+
+CLASS: PLATFORM-GATED / DUPLICATE → #308
+
+---
+
+### #568 — Modifier release state has no Super slot
+
+**Exact mechanism.** `key_release_detail` in `command_handlers.h:54-68` stores `pending_ctrl`, `pending_shift`, and `pending_alt`; `HandleKeyReleaseSystem` releases those three plus the primary key at lines 70-99. There is no `pending_super`, matching the missing hold path in #562.
+
+**Failure mode.** Adding only a Super hold to `HandleKeyCommand` would leave Command stuck for the rest of the script. The parser and injector already know the key; the frame-lifetime bookkeeping is the missing half.
+
+**Workaround.** Hanabi does not patch the vendor. Its E2E alias reuses the complete Ctrl hold/release path, and its pure tests carry the real production modifier bit.
+
+**Hanabi reference.** `src/keys.h::shortcut_modifiers` and `tests/unit/test_shortcuts.cpp::test_serialization_round_trips`.
+
+**Minimal upstream change.** Add `pending_super` to the release state, reset it, set it from `combo.super`, and release `keys::LEFT_SUPER` at the same countdown.
+
+CLASS: MISSING / TESTING
+
+---
+
+### #569 — The non-layered input map has no remapping method
+
+**Exact mechanism.** `ProvidesLayeredInputMapping::set_binding` and `clear_binding` are explicit runtime APIs at `vendor/afterhours/src/plugins/input_system.h:1253-1264`. The ordinary `ProvidesInputMapping` used by Hanabi exposes a public `std::map` field but no equivalent method, validation, conflict result, persistence hook, or change notification.
+
+**Result.** Directly mutating the map can change an action chord, but it cannot explain a conflict, update native menu metadata, or keep a persisted setting and palette hint in sync. It is storage, not a shortcut configuration contract.
+
+**Workaround.** Hanabi keeps customizable application commands in one pure definition table, validates and persists overrides in `Settings`, matches them in one command system, and refreshes AppKit menu equivalents from a revision counter. Low-level text editing remains in the stable afterhours action map.
+
+**Hanabi reference.** `src/shortcuts.h`, `src/settings.h`, `src/settings.cpp`, `src/ecs/command_system.h`, `src/ecs/shortcuts_system.h`, and `tests/unit/test_shortcuts.cpp`.
+
+**Minimal upstream change.** Add validated `set_binding`/`clear_binding` parity to `ProvidesInputMapping` plus an optional conflict query. Persistence and menu presentation remain application policy.
+
+CLASS: TEDIOUS / APP WORKAROUND
+
+---
+
 ### #580 — The system manager has no cancellable background-job primitive
 
 **Exact afterhours mechanism.** `SystemManager` owns three vectors of synchronous

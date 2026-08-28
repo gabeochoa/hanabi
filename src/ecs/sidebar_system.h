@@ -154,13 +154,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             !app->rowDrag.sessionId.empty())
             app->rowDrag = AppComponent::RowDrag{};
 
-        // Cmd+B toggles the sidebar.
-        bool cmdDown = hanabi::keys::cmd_down();
-        if (cmdDown && hanabi::keys::pressed(hanabi::keys::kB)) {
-            layout->sidebarCollapsed = !layout->sidebarCollapsed;
-            Settings::get().set_sidebar_collapsed(layout->sidebarCollapsed);
-        }
-
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const auto& r = layout->sidebar;
         bool folded = layout->sidebarCollapsed;

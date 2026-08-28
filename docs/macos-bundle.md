@@ -61,6 +61,36 @@ claim.
 executable has no bundle identity, does not request notification permission, and
 does not write to CoreSpotlight.
 
+## Native menus and shortcuts
+
+A real bundled, windowed launch installs native Application, File, Edit, View,
+Window, and Help menus. The bare developer executable and every headless path do
+not install an application menu. Menu labels use the generated application name,
+and their key equivalents read the persisted shortcut bindings.
+
+Application menu items enqueue the same central command ids used by keyboard
+input and the command palette. AppKit therefore consuming a menu key equivalent
+does not change the command's behavior. Standard Edit selectors stay on the
+responder chain so a native text control handles them first; the content-view
+bridge replays an unhandled edit chord into the app window for afterhours text
+fields.
+
+Settings opens the shortcut recorder. It requires Command for customizable app
+commands, rejects standard editing, macOS-reserved, desktop-hotkey, and duplicate
+chords with a visible explanation, and can restore every default. Composer send
+behavior remains the separate Return/Cmd+Return setting.
+
+A bundled diagnostic can verify installation without a backend:
+
+```bash
+HANABI_BACKEND=mock HANABI_NATIVE_MENU_DIAGNOSTIC=1 \
+  HANABI_QUIT_AFTER_FIRST_FRAME=1 \
+  "output/Hanabi.app/Contents/MacOS/hanabi"
+```
+
+The diagnostic reports bundle detection, main-menu installation, command-item
+count, responder-bridge installation, and recorder state.
+
 ## Install, update, and remove
 
 ```bash

@@ -47,6 +47,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseRename;
         else if (app->composerOpen)
             app->escape = EscapeIntent::CloseComposer;
+        else if (app->shortcutRecording >= 0)
+            app->escape = EscapeIntent::CancelShortcutRecording;
         else if (app->showShortcuts)
             app->escape = EscapeIntent::CloseShortcuts;
         else if (app->showSettings)
