@@ -103,6 +103,56 @@ static void external_transitions_wake_immediately() {
     }
 }
 
+static void fixed_ten_fps_prototype_adds_visible_input_latency() {
+    FrameActivityPolicy policy;
+    policy.rendered(0);
+    FrameSignals fixed;
+    fixed.timer = true;
+    std::uint64_t firstFrame = 0;
+    for (std::uint64_t now = 8333; now <= 110000; now += 8333) {
+        if (!policy.decide(now, fixed).render) continue;
+        firstFrame = now;
+        break;
+    }
+    CHECK(firstFrame >= 100000);
+
+    FrameActivityPolicy eventDriven;
+    eventDriven.rendered(0);
+    FrameSignals input;
+    input.key_input = true;
+    CHECK(eventDriven.decide(8333, input).render);
+}
+
+static void caret_thinking_scroll_and_stream_keep_their_cadence() {
+    FrameSignals caret;
+    caret.caret = true;
+    CHECK(run_for_one_second(caret) >= 10);
+
+    for (int kind = 0; kind < 3; ++kind) {
+        FrameSignals active;
+        if (kind == 0) active.thinking = true;
+        if (kind == 1) active.scrolling = true;
+        if (kind == 2) active.streaming = true;
+        const int frames = run_for_one_second(active);
+        CHECK(frames >= 59);
+        CHECK(frames <= 61);
+    }
+}
+
+static void split_and_native_notification_wake_in_one_callback() {
+    FrameActivityPolicy splitPolicy;
+    splitPolicy.rendered(0);
+    FrameSignals split;
+    split.split_change = true;
+    CHECK(splitPolicy.decide(8333, split).render);
+
+    FrameActivityPolicy notificationPolicy;
+    notificationPolicy.rendered(0);
+    FrameSignals notification;
+    notification.native_notification = true;
+    CHECK(notificationPolicy.decide(8333, notification).render);
+}
+
 static void legacy_mode_rebuilds_every_callback() {
     FrameActivityPolicy policy(false);
     int frames = 0;
@@ -123,6 +173,9 @@ int main() {
     active_work_stays_at_sixty_frames_per_second();
     periodic_work_stays_at_ten_frames_per_second();
     external_transitions_wake_immediately();
+    fixed_ten_fps_prototype_adds_visible_input_latency();
+    caret_thinking_scroll_and_stream_keep_their_cadence();
+    split_and_native_notification_wake_in_one_callback();
     legacy_mode_rebuilds_every_callback();
     if (failures == 0) {
         std::printf("OK\n");
