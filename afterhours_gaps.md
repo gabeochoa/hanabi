@@ -46,7 +46,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #25 `draw_rectangle_rounded` degenerate triangle on mixed round/sharp corners
 
 **Per-frame cost**
-- #27 immediate-mode clears + rebuilds the whole tree every frame (no retained/dirty layer — the idle-frame floor)
+- #27 immediate-mode clears + rebuilds the whole tree every admitted frame; Hanabi now retains the last frame while idle (#540), but the upstream dirty-layer gap remains
 - #200 every headless resize leaks five Metal render pipelines (4.8 MB per 1000 frames), so a resize scenario cannot gate anything
 - #340 every styled label re-wraps and re-allocates on the DRAW pass, uncached: 367 vector allocations/frame at one pane, the app's biggest single site
 - #341 (ours, unfixed) a second pane costs 1.42x frame CPU and 1.79x allocations; what the remaining 1.79x is and what fixing it would take
@@ -14470,4 +14470,183 @@ systems remain one aggregate remainder.
 **Minimal upstream change.** Optional named before/after callbacks around each
 system invocation, with no timing dependency when disabled.
 
+CLASS: MISSING=======
+---
+
+### #540 — NOT A GAP: a host can retain the last Metal frame by returning before the UI systems run
+
+**What was wanted.** Stop rebuilding and relaying out an unchanged immediate-mode tree without editing `vendor/afterhours`.
+
+**Measured result.** On the same ten-second Home fixture, the legacy path ran 1,200 full frames, 136.432 thread-CPU ms/s, and 71,044.3 allocations/s. Returning before `SystemManager::run` ran 20 full frames, 2.761 thread-CPU ms/s, and 1,774.1 allocations/s. A real windowed run fell from 105.576 to 20.896 CPU ms/s.
+
+**Workaround.** Hanabi owns `app_frame`, so it leaves the already-presented Metal layer intact on an idle callback. The old #27 claim considered skipping only the app's emit systems after `ClearUIComponentChildren`; skipping the entire framework frame is the missing seam.
+
+**Rejected ideas.** Skipping only user systems empties the tree. Rebuilding but skipping draw keeps most structural cost. Editing the submodule violates the vendor boundary.
+
+**Minimal upstream change.** None required for an app with its own host loop. A documented `should_render` callback would make the seam discoverable.
+
+**Hanabi reference.** `src/main.cpp::app_frame`, `src/frame_activity.h::FrameActivityPolicy`, `scripts/idle_gate.sh`, and `docs/perf/IDLE.md`. `make idle-gate` is verified red with `HANABI_IDLE_DISABLE=1`.
+
+CLASS: NOT A GAP / CORRECTION TO #27
+
+---
+
+### #541 — Metal ignores `RunConfig::target_fps`
+
+**What was wanted.** Prototype a lower idle frame rate through the public run configuration.
+
+**Measured result.** Hanabi sets `target_fps = 120`, but the Metal backend copies no such field into `sapp_desc`; callback rate follows `NSScreen.maximumFramesPerSecond / swap_interval`. The fixed-10-fps prototype therefore had to gate callbacks in app code. It produced 93 full frames in ten logical seconds and 11.401 CPU ms/s.
+
+**Workaround.** Hanabi treats the display callback as a cheap clock and schedules full frames itself.
+
+**Rejected ideas.** `graphics::set_target_fps(10)` is a documented no-op on this backend. A permanent 10 fps app-level gate saved CPU but added a measured 108 ms worst-case input wait.
+
+**Minimal upstream change.** Map `RunConfig::target_fps` to `MTKView.preferredFramesPerSecond`, and allow changing it at runtime.
+
+**Hanabi reference.** `src/main.cpp` sets the windowed `RunConfig`; `HANABI_IDLE_FIXED_10FPS` is the measured prototype; `tests/unit/test_frame_activity.cpp::fixed_ten_fps_prototype_adds_visible_input_latency` holds the rejection.
+
+CLASS: MISSING / PERFORMANCE
+
+---
+
+### #542 — The Metal host has no event-triggered request-frame primitive
+
+**What was wanted.** Run at a very low idle cadence while drawing immediately when input or background data arrives.
+
+**Measured result.** A fixed 10 fps policy reduced deterministic CPU from 136.432 to 11.401 ms/s but delayed an event arriving after a tick past 100 ms. Event-driven retention kept the same event to one display callback while lowering CPU further to 2.761 ms/s.
+
+**Workaround.** The display link keeps firing; Hanabi checks cheap wake signals every callback and returns before the full frame unless one is set.
+
+**Rejected ideas.** Lowering `preferredFramesPerSecond` alone loses one-frame input latency. Sleeping in `app_frame` blocks AppKit and makes the latency worse.
+
+**Minimal upstream change.** Expose `request_frame()` plus an idle/paused display-link mode whose event callback, worker completion, and window invalidation paths all request one frame.
+
+**Hanabi reference.** `src/frame_activity.h` separates immediate wake reasons from cadence reasons. `src/main.cpp::frame_input_activity` and `metal_take_window_activity` feed the policy.
+
+CLASS: MISSING / PERFORMANCE
+
+---
+
+### #543 — UI clear, emit, layout, input resolution, and draw are one indivisible frame
+
+**What was wanted.** Run cheap polling or input work without clearing and rebuilding the UI tree.
+
+**Measured result.** Current main's idle Home frame was 1.4855 ms of thread CPU and 811 allocations. `UIPluginPreUpdateBridge` clears every child list before app systems, and `UIPluginPostUpdateBridge` always rebuilds mapping, solves layout, resolves input, and cleans the collection.
+
+**Workaround.** Hanabi either runs the whole frame or none of it. Background readiness and input are inspected outside `SystemManager::run`; a positive result admits one complete frame.
+
+**Rejected ideas.** Running pre-update plus input without app emit leaves no tree. Running app emit without post-layout leaves stale rectangles. Partial registration duplicates the framework's required ordering.
+
+**Minimal upstream change.** Split polling/input collection from tree mutation, then expose a retained-tree pass that can resolve events against the last layout without clearing children.
+
+**Hanabi reference.** `src/frame_activity_collect.h` performs the outside-frame checks; `src/main.cpp::app_frame` gates the indivisible `systemManager->run(dt)` call. The pinned `vendor/afterhours/src/plugins/ui/utilities.h::UIPluginPreUpdateBridge` remains unchanged.
+
+CLASS: MISSING / ARCHITECTURE
+
+---
+
+### #544 — Input has no public, non-consuming “anything happened” snapshot
+
+**What was wanted.** Decide whether to run the expensive frame without consuming the key, character, pointer, button, or wheel event the UI frame must later process.
+
+**Measured result.** The backend stores all edges in `metal_detail::InputState`, but public reads are per-key/per-button and character reads consume the queue. Scanning the private state lets Hanabi wake on the same callback; the transition test holds pointer and key latency to one callback.
+
+**Workaround.** Hanabi's host translation unit reads the header-visible Metal state and reduces it to pointer/key activity bits before the framework clears edge state.
+
+**Rejected ideas.** Polling every possible public getter cannot see the character queue without consuming it. Remembering only mouse position misses clicks, keys, repeats, wheel, and paste.
+
+**Minimal upstream change.** Expose `input_activity()` with non-consuming pointer/key/text/window bit flags, or an event generation counter sampled by the host.
+
+**Hanabi reference.** `src/main.cpp::frame_input_activity` and `tests/unit/test_frame_activity.cpp::{pointer_input_wakes_on_the_next_callback,key_input_wakes_on_the_next_callback}`.
+
+CLASS: MISSING / FOOTGUN
+
+---
+
+### #545 — Window exposure and backing changes are hidden behind the Sokol event callback
+
+**What was wanted.** Preserve the retained frame across idle time without leaving an exposed, restored, resized, or Retina-changed window stale.
+
+**Measured result.** The backend's `sokol_event_cb` handles input only and is hardwired into `sapp_desc`; the app receives no event callback. Hanabi now turns AppKit resize, expose, key-window, miniaturize, deminiaturize, backing-property, and app-activation notifications into one-frame wakes.
+
+**Workaround.** An app-owned Objective-C observer in `src/sokol_impl.mm` publishes resize/exposure bits consumed by the next frame callback.
+
+**Rejected ideas.** Comparing width and height catches resize but not exposure, activation, restore, or backing-scale changes. Redrawing at 60 fps forever hides the bug by refusing to idle.
+
+**Minimal upstream change.** Forward platform lifecycle events to the host, or mark the frame dirty internally and expose that bit before `frame_cb`.
+
+**Hanabi reference.** `src/sokol_impl.mm::HanabiWindowActivityObserver`, `metal_take_window_activity`, and the `window_resize` / `window_exposure` transition tests in `test_frame_activity`.
+
 CLASS: MISSING
+
+---
+
+### #546 — Futures and SSE completions have no frame-wake contract
+
+**What was wanted.** Let network, disk, auth, settings, send, stream, and live-event work finish while the UI is idle, then paint the result on the next callback.
+
+**Measured result.** Loader futures are polled inside the full UI frame today. Without an outside-frame readiness check, a 2 fps idle policy adds up to 500 ms to a completed future. Hanabi checks every app and pane future plus each live-subscription dirty bit before deciding; `async_ready` and a changed SSE stamp wake immediately.
+
+**Workaround.** `collect_app_frame_signals` performs zero-time future polls and reads SSE atomics outside `SystemManager::run`.
+
+**Rejected ideas.** Keeping 60 fps whenever any future exists burns the full tree through slow network waits. A blind periodic poll violates one-frame completion latency.
+
+**Minimal upstream change.** Supply a thread-safe invalidation token or wake handle that futures and event sinks can signal, integrated with `request_frame()`.
+
+**Hanabi reference.** `src/frame_activity_collect.h::{frame_future_ready,collect_app_frame_signals}` covers both panes, superseded futures, list/send/stream/auth/settings work, and every live subscription.
+
+CLASS: MISSING / PERFORMANCE
+
+---
+
+### #547 — Timers cannot publish their next visual deadline
+
+**What was wanted.** Sleep fully between static frames while preserving caret blink, toast expiry, auth polling, theme rotation, settings debounce, outbox retry, and transient feedback.
+
+**Measured result.** Those deadlines live in unrelated systems or private fields. Hanabi conservatively gives timed work 10 full frames/s; deterministic idle stays at 2 frames/s. That is 93 frames/10 s for the timer prototype versus 20/10 s fully idle.
+
+**Workaround.** `FrameActivity::Timer`, `Caret`, and `PendingFuture` share a 100 ms periodic cadence. Continuous visual motion remains in the 60 fps class.
+
+**Rejected ideas.** A two-frame-per-second universal idle cadence makes a 500 ms blink visibly uneven and can delay a 1.5 s debounce. Keeping every timer at 60 fps gives back most of the power win.
+
+**Minimal upstream change.** Let systems return `next_frame_at` and merge deadlines in the host; animations request continuous cadence only until their terminal frame.
+
+**Hanabi reference.** `src/frame_activity.h::FrameCadence`, `collect_app_frame_signals`, and `tests/unit/test_frame_activity.cpp::caret_thinking_scroll_and_stream_keep_their_cadence`.
+
+CLASS: MISSING / PERFORMANCE
+
+---
+
+### #548 — Frame `dt` measures display callbacks, not time between frames the app actually ran
+
+**What was wanted.** Skip callbacks while idle without slowing simulated-time timers and easing by the same factor.
+
+**Measured result.** `graphics::get_frame_time()` remains one display interval even after ten callbacks were skipped. Feeding it unchanged makes a ten-second toast last roughly a minute at 10 fps. Hanabi instead passes elapsed time since the last full frame, capped at 100 ms; 60 fps motion receives its normal step and periodic timers keep wall cadence.
+
+**Workaround.** The host tracks the last admitted frame and derives `dt` from `CLOCK_MONOTONIC` time.
+
+**Rejected ideas.** Reusing callback `dt` slows timers. Passing an unbounded resume delta can complete a new animation in one frame after a long occlusion.
+
+**Minimal upstream change.** Distinguish callback delta from rendered-frame delta, or let the host provide simulation time explicitly when it admits a frame.
+
+**Hanabi reference.** `src/main.cpp::app_frame` derives and caps the admitted-frame `dt`; `run_idle_timing` uses the same rule in the deterministic probe.
+
+CLASS: SHARP EDGE
+
+---
+
+### #549 — The production frame callback has no headless cadence harness
+
+**What was wanted.** Gate idle work per second and transition cadence without opening a window or relying on a busy machine's wall clock.
+
+**Measured result.** Existing headless paths call `SystemManager::run` directly and bypass `app_frame`; existing perf gates therefore measure every requested frame, not whether the host should have requested it. The new 1,200-callback probe reports 20 full frames, 1.880 CPU ms/s, and 1,774.1 allocations/s, and fails at 1,200 / 128.412 / 71,044.1 with retention disabled.
+
+**Workaround.** Hanabi's headless probe runs the real system tree behind the same pure `FrameActivityPolicy` and measures thread CPU plus operator-new counts per logical second.
+
+**Rejected ideas.** Multiplying per-frame cost by an assumed FPS cannot test transitions or prove the policy ran. A windowed gate is nondeterministic and steals focus.
+
+**Minimal upstream change.** Provide a host-loop test driver with synthetic callback time, event injection, admitted-frame count, and retained-frame semantics.
+
+**Hanabi reference.** `src/main.cpp::run_idle_timing`, `scripts/idle_gate.sh`, `make idle-gate`, and `docs/perf/IDLE.md`.
+
+CLASS: TESTING / MISSING
