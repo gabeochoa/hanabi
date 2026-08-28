@@ -61,11 +61,7 @@ current instructions.
       (title+star+time) overflow the row content box at narrow widths. Fix the width math (gap #18
       no-flex-grow reserves) so columns fit; silence the warn spam. (This is ALSO a perf drag — every
       overflow triggers solve_violations.)
-- [ ] JANK (measured): idle frame = flat 8.6ms EVERY frame (app never idles, ~111fps, zero headroom) →
-      sidebar-close animation + scroll feel janky. ROOT: afterhours rebuilds every widget + full-tree
-      solve_violations layout EVERY frame unconditionally + our sidebar re-sorts distinct_folders every
-      frame. FIX (T7): dirty-flag skip-rebuild when nothing changed; cache distinct_folders; kill per-
-      frame allocs. Biggest perf lever. (afterhours wishlist B.)
+- [x] JANK (T7): retain the last completed Metal frame and skip the full immediate-mode rebuild when no explicit `FrameActivity` reason is live. Current main re-measured at 1.4855 ms thread CPU and 811 allocations per idle frame; the event-driven policy cuts the matched ten-second level from 136.432 to 2.761 CPU ms/s and 71,044.3 to 1,774.1 allocations/s while preserving one-callback input wake and 60 fps motion. See `docs/perf/IDLE.md`, afterhours #540-#549, and `make idle-gate`.
 
 ## SCHEDULED SUBAGENT WORK (Gabe asked to schedule)
 - [ ] Subagent: INPUT BOX + MESSAGE QUEUING — the composer send flow, queue messages while a
