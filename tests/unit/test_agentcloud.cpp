@@ -848,6 +848,53 @@ static void test_unreadable_greeting_is_empty_not_a_crash() {
     CHECK(!u.stale);
 }
 
+static void test_fork_wire_contract_and_child_catalog() {
+    const auto fork =
+        nlohmann::json::parse(api::agentcloud::fork_command_json("source-1"));
+    CHECK(fork["cmd"] == "fork");
+    CHECK(fork["source_session_id"] == "source-1");
+    CHECK(!fork.contains("before_seq"));
+
+    const auto btw =
+        nlohmann::json::parse(api::agentcloud::fork_with_prompt_command_json(
+            "source-1", "why?", "BTW: why?"));
+    CHECK(btw["cmd"] == "fork_with_prompt");
+    CHECK(btw["source_session_id"] == "source-1");
+    CHECK(btw["prompt"] == "why?");
+    CHECK(btw["title"] == "BTW: why?");
+    CHECK(!btw.contains("input"));
+
+    CHECK(api::agentcloud::parse_created_session_id(
+              R"({"type":"created","session":{"session_id":"fork-1"}})") ==
+          "fork-1");
+    CHECK(api::agentcloud::parse_created_session_id("{}") == "");
+    CHECK(api::agentcloud::hello_has_capability(
+        R"({"capabilities":["rename_v1","fork_with_prompt_v1"]})",
+        "fork_with_prompt_v1"));
+    CHECK(!api::agentcloud::hello_has_capability(
+        R"({"capabilities":["rename_v1"]})", "fork_with_prompt_v1"));
+    CHECK(!api::agentcloud::hello_has_capability("{}", "fork_with_prompt_v1"));
+
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"root","last_seq":9},
+      {"session_id":"run","title":"active child","last_seq":8,
+       "parent":"root","running":true},
+      {"session_id":"fail","title":"failed child","last_seq":7,
+       "parent":"root","status":{"state":"failed"}},
+      {"session_id":"done","title":"done child","last_seq":6,
+       "parent":"root","status":{"state":"done"}}
+    ]})";
+    const auto children = api::agentcloud::parse_subagents_reply(reply, 2);
+    CHECK(children.size() == 2);
+    if (children.size() == 2) {
+        CHECK(children[0].id == "run");
+        CHECK(children[0].parent_id == "root");
+        CHECK(children[0].state == api::ThreadState::Running);
+        CHECK(children[1].id == "fail");
+        CHECK(children[1].tag == api::ThreadTag::Failed);
+    }
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -898,6 +945,7 @@ int main() {
     test_unreadable_greeting_is_empty_not_a_crash();
     test_rename_echo_folds_into_the_title();
     test_only_a_rename_frame_touches_the_title();
+    test_fork_wire_contract_and_child_catalog();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

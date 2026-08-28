@@ -659,8 +659,16 @@ static void test_slash_parsing() {
 
     CHECK(sl::find("rename") == nullptr);
     for (const auto& c : sl::all())
-        CHECK(c.runnable ==
-              (c.name == "new" || c.name == "model" || c.name == "effort"));
+        CHECK(c.runnable == (c.name == "new" || c.name == "model" ||
+                             c.name == "effort" || c.name == "btw"));
+
+    CHECK(sl::btw_title("why?") == "BTW: why?");
+    CHECK(sl::btw_title("  why   now?  ") == "BTW: why now?");
+    CHECK(sl::btw_title("\xE2\x80\x8B\xE2\x80\xAE\n") == "BTW: Question");
+    CHECK(sl::btw_title("what about \xF0\x9F\x94\xA5?") ==
+          "BTW: what about \xF0\x9F\x94\xA5?");
+    std::string longPrompt(240, 'a');
+    CHECK(sl::btw_title(longPrompt).size() == 200);
 }
 
 // --- the model menu -------------------------------------------------------
@@ -687,6 +695,59 @@ static void test_model_menu() {
     CHECK(mm::index_of("fast") == mm::all().size());
 }
 
+static void test_mock_forks_and_subagent_catalog() {
+    std::printf("test_mock_forks_and_subagent_catalog\n");
+    api::MockClient mock;
+    const auto sourceBefore = mock.get_session("t2");
+    CHECK(sourceBefore.ok);
+    const std::size_t sourceMessages =
+        sourceBefore.ok ? sourceBefore.value.messages.size() : 0;
+
+    const auto fork = mock.fork_with_prompt("t2", "why did it refuse?",
+                                            "BTW: why did it refuse?");
+    CHECK(fork.ok);
+    if (fork.ok) {
+        const auto destination = mock.get_session(fork.value);
+        CHECK(destination.ok);
+        if (destination.ok) {
+            CHECK(destination.value.summary.forked_from == "t2");
+            CHECK(destination.value.summary.title == "BTW: why did it refuse?");
+            CHECK(destination.value.messages.size() == sourceMessages + 1);
+            CHECK(destination.value.messages.back().role == api::Role::User);
+            CHECK(destination.value.messages.back().text ==
+                  "why did it refuse?");
+            CHECK(destination.value.sub_agents.empty());
+            CHECK(destination.value.summary.state == api::ThreadState::Running);
+        }
+    }
+    const auto sourceAfter = mock.get_session("t2");
+    CHECK(sourceAfter.ok);
+    if (sourceAfter.ok)
+        CHECK(sourceAfter.value.messages.size() == sourceMessages);
+
+    const auto bare = mock.fork_session("t2");
+    CHECK(bare.ok);
+    if (bare.ok) {
+        const auto destination = mock.get_session(bare.value);
+        CHECK(destination.ok);
+        if (destination.ok)
+            CHECK(destination.value.messages.size() == sourceMessages);
+        CHECK(destination.value.sub_agents.empty());
+        CHECK(destination.value.summary.title ==
+              sourceBefore.value.summary.title);
+    }
+
+    const auto children = mock.list_subagents(2);
+    CHECK(children.ok);
+    if (children.ok) {
+        CHECK(children.value.size() == 2);
+        for (const auto& child : children.value)
+            CHECK(!child.parent_id.empty());
+        if (!children.value.empty())
+            CHECK(mock.get_session(children.value.front().id).ok);
+    }
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -703,6 +764,7 @@ int main() {
     test_day_boundaries_and_labels();
     test_find_occurrences();
     test_slash_parsing();
+    test_mock_forks_and_subagent_catalog();
     test_model_menu();
     if (g_failures == 0) {
         std::printf("OK\n");

@@ -22,6 +22,7 @@ using json = nlohmann::json;
 // couple of round trips before that. Generous, but bounded: a hung socket must
 // not hang the loader thread forever.
 constexpr int kReplyTimeoutSecs = 30;
+constexpr int kForkTimeoutSecs = 60;
 
 // A turn is bounded by SILENCE, not by total time: tool rounds and model calls
 // legitimately take minutes, but a socket that has said nothing for this long
@@ -245,6 +246,22 @@ void apply_state(const json& s, SessionSummary& out) {
     }
 }
 
+SessionSummary summary_from_row(const json& s) {
+    SessionSummary sum;
+    sum.id = str_or(s, "session_id", "");
+    if (sum.id.empty()) return sum;
+    sum.title = str_or(s, "title", "");
+    if (sum.title.empty())
+        sum.title = str_or(obj_at(s, "status"), "subject", "");
+    if (sum.title.empty()) sum.title = "(untitled)";
+    const std::string workspace = str_or(s, "workspace", "");
+    sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
+    sum.parent_id = str_or(s, "parent", "");
+    sum.forked_from = str_or(obj_at(s, "forked_from"), "session_id", "");
+    apply_state(s, sum);
+    return sum;
+}
+
 // hello.state.tokens -> ContextUsage.
 //
 //   tokens.context   = { budget, window }
@@ -274,13 +291,17 @@ ContextUsage context_usage_from_state(const json& state) {
 AgentcloudClient::AgentcloudClient(agentcloud::AuthConfig cfg)
     : auth_(std::move(cfg)) {}
 
+AgentcloudClient::AgentcloudClient(agentcloud::AuthConfig cfg,
+                                   agentcloud::Token token)
+    : auth_(std::move(cfg), std::move(token)) {}
+
 AgentcloudClient::~AgentcloudClient() = default;
 
 std::string AgentcloudClient::backend_label() const { return "agentcloud"; }
 
 std::string AgentcloudClient::round_trip(const std::string& payload_json,
                                          const std::string& expect_type,
-                                         std::string* error) {
+                                         std::string* error, int timeout_secs) {
     const auto fail = [&](const std::string& why) {
         if (error != nullptr) *error = why;
         return std::string();
@@ -320,13 +341,13 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
     std::string reply, closed;
     {
         std::unique_lock<std::mutex> lock(waiter.m);
-        const bool got = waiter.cv.wait_for(
-            lock, std::chrono::seconds(kReplyTimeoutSecs),
-            [&] { return waiter.done; });
+        const bool got =
+            waiter.cv.wait_for(lock, std::chrono::seconds(timeout_secs),
+                               [&] { return waiter.done; });
         if (!got) {
             lock.unlock();
             ws_close(conn);
-            return fail("timed out after " + std::to_string(kReplyTimeoutSecs) +
+            return fail("timed out after " + std::to_string(timeout_secs) +
                         "s waiting for '" + expect_type + "'");
         }
         reply = waiter.reply;
@@ -405,32 +426,8 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
         // parent is not in this reply too: it is still a sub-agent, and the
         // sidebar showing it as a root thread was the thing being fixed.
         if (!str_or(s, "parent", "").empty()) continue;
-        SessionSummary sum;
-        sum.id = str_or(s, "session_id", "");
-        if (sum.id.empty()) continue;  // unaddressable; nothing could open it
-        // 40 of 2066 live rows have title:null. A blank row is unclickable in
-        // practice -- the reader cannot tell one from the next -- so fall back
-        // to the model's own subject line, then to a marker.
-        sum.title = str_or(s, "title", "");
-        if (sum.title.empty())
-            sum.title = str_or(obj_at(s, "status"), "subject", "");
-        if (sum.title.empty()) sum.title = "(untitled)";
-        // NO TIMESTAMP EXISTS ON THIS WIRE. Not "we do not read it" -- the row
-        // carries last_seq, a monotonic sequence, and nothing clock-like at
-        // all. updated_at stays 0, which the UI already reads as "unknown", so
-        // rows sort correctly by recency but cannot say "40m ago". Fixing that
-        // needs either a server field or a timestamp mined from the session's
-        // own events at attach.
-        sum.updated_at = 0;
-        // Same field name the other backend uses for folders -- but NOT the
-        // same meaning. Most workspaces here are scratch directories the
-        // server made per session, named after the session: 2054 of 2066 live
-        // rows carry their own id in the path, so grouping on it verbatim
-        // yields ~2055 folders of one and a useless sidebar. A path containing
-        // its session's id is machine-generated, not a place someone chose.
-        const std::string workspace = str_or(s, "workspace", "");
-        sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
-        apply_state(s, sum);
+        SessionSummary sum = summary_from_row(s);
+        if (sum.id.empty()) continue;
         if (auto it = tally.find(sum.id); it != tally.end()) {
             sum.sub_agent_count = it->second.total;
             sum.sub_agent_running_count = it->second.running;
@@ -438,6 +435,59 @@ std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json) {
         out.push_back(std::move(sum));
     }
     return out;
+}
+
+std::vector<SessionSummary> parse_subagents_reply(const std::string& msg_json,
+                                                  std::size_t limit) {
+    json msg = json::parse(msg_json, nullptr, false);
+    if (msg.is_discarded() || !msg.contains("sessions") ||
+        !msg["sessions"].is_array() || limit == 0)
+        return {};
+    std::vector<json> rows(msg["sessions"].begin(), msg["sessions"].end());
+    std::stable_sort(rows.begin(), rows.end(), by_last_seq_desc);
+    std::vector<SessionSummary> out;
+    out.reserve(std::min(limit, rows.size()));
+    for (const json& row : rows) {
+        if (str_or(row, "parent", "").empty()) continue;
+        SessionSummary child = summary_from_row(row);
+        if (child.id.empty()) continue;
+        out.push_back(std::move(child));
+        if (out.size() == limit) break;
+    }
+    return out;
+}
+
+std::string fork_command_json(const std::string& source_session_id) {
+    return json{{"cmd", "fork"}, {"source_session_id", source_session_id}}
+        .dump();
+}
+
+std::string fork_with_prompt_command_json(const std::string& source_session_id,
+                                          const std::string& prompt,
+                                          const std::string& title) {
+    return json{{"cmd", "fork_with_prompt"},
+                {"source_session_id", source_session_id},
+                {"prompt", prompt},
+                {"title", title}}
+        .dump();
+}
+
+std::string parse_created_session_id(const std::string& msg_json) {
+    const json msg = json::parse(msg_json, nullptr, false);
+    if (msg.is_discarded()) return {};
+    return str_or(obj_at(msg, "session"), "session_id", "");
+}
+
+bool hello_has_capability(const std::string& hello_json,
+                          const std::string& capability) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded() || !hello.contains("capabilities") ||
+        !hello["capabilities"].is_array())
+        return false;
+    for (const auto& value : hello["capabilities"])
+        if (value.is_string() && value.get<std::string>() == capability)
+            return true;
+    return false;
 }
 
 ContextUsage parse_context_usage(const std::string& hello_json) {
@@ -460,6 +510,55 @@ Result<std::vector<SessionSummary>> AgentcloudClient::list_sessions() {
         return Result<std::vector<SessionSummary>>::failure(
             "sessions reply had no readable sessions");
     return Result<std::vector<SessionSummary>>::success(std::move(rows));
+}
+
+Result<std::vector<SessionSummary>> AgentcloudClient::list_subagents(
+    std::size_t limit) {
+    std::string error;
+    const std::string msg_json =
+        round_trip(R"({"cmd":"list"})", "sessions", &error);
+    if (msg_json.empty())
+        return Result<std::vector<SessionSummary>>::failure(error);
+    return Result<std::vector<SessionSummary>>::success(
+        agentcloud::parse_subagents_reply(msg_json, limit));
+}
+
+Result<std::string> AgentcloudClient::fork_session(
+    const std::string& session_id) {
+    std::string error;
+    const std::string reply =
+        round_trip(agentcloud::fork_command_json(session_id), "created", &error,
+                   kForkTimeoutSecs);
+    if (reply.empty()) return Result<std::string>::failure(error);
+    const std::string id = agentcloud::parse_created_session_id(reply);
+    if (id.empty())
+        return Result<std::string>::failure(
+            "created reply had no destination session id");
+    return Result<std::string>::success(id);
+}
+
+Result<std::string> AgentcloudClient::fork_with_prompt(
+    const std::string& session_id, const std::string& prompt,
+    const std::string& title) {
+    std::string capability_error;
+    Session source;
+    const std::string hello =
+        attach_and_page(session_id, 1, &source, &capability_error);
+    if (hello.empty()) return Result<std::string>::failure(capability_error);
+    if (!agentcloud::hello_has_capability(hello, "fork_with_prompt_v1"))
+        return Result<std::string>::failure(
+            "this session does not support BTW forks");
+
+    std::string error;
+    const std::string reply = round_trip(
+        agentcloud::fork_with_prompt_command_json(session_id, prompt, title),
+        "created", &error, kForkTimeoutSecs);
+    if (reply.empty()) return Result<std::string>::failure(error);
+    const std::string id = agentcloud::parse_created_session_id(reply);
+    if (id.empty())
+        return Result<std::string>::failure(
+            "created reply had no destination session id");
+    return Result<std::string>::success(id);
 }
 
 namespace agentcloud {

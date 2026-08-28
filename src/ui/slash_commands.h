@@ -22,12 +22,16 @@
 //     verb at all — only the compaction BUDGET the context meter measures
 //     against.
 //
-// `/new` opens the new-task sheet. `/model` and `/effort` open the same live
-// pickers as the composer chips. `/btw` and `/compact` remain visible but
-// explicitly unavailable because this client has neither wire operation.
+// `/btw` uses the server's atomic `fork_with_prompt` control command. It never
+// falls through to a normal input, so an unsupported backend leaves the exact
+// draft in place and reports the limitation. `/compact` remains visible but
+// explicitly unavailable because this client has no compact operation.
 // ---------------------------------------------------------------------------
 
 #include <branding.h>
+
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -52,8 +56,7 @@ inline const std::vector<Command>& all() {
         {"new", "", "start a new conversation", true, ""},
         {"model", "", "choose the default model", true, ""},
         {"effort", "", "choose the thinking effort", true, ""},
-        {"btw", "<question>", "fork this thread", false,
-         std::string(product_branding::kAppName) + " has no fork call yet"},
+        {"btw", "<question>", "fork this thread", true, ""},
         {"compact", "", "compact the context now", false,
          std::string(product_branding::kAppName) + " has no compact call yet"},
     };
@@ -129,6 +132,58 @@ inline std::string completion(const Command& c) {
     std::string text = "/" + std::string(c.name);
     if (!c.arg.empty()) text += " ";
     return text;
+}
+
+inline std::string btw_title(std::string_view prompt) {
+    constexpr size_t kMaxSummary = 195;
+    std::string summary;
+    summary.reserve(std::min(prompt.size(), kMaxSummary));
+    size_t codepoints = 0;
+    bool pendingSpace = false;
+    for (size_t i = 0; i < prompt.size() && codepoints < kMaxSummary;) {
+        const unsigned char lead = static_cast<unsigned char>(prompt[i]);
+        size_t width = 1;
+        uint32_t cp = lead;
+        if ((lead & 0xe0) == 0xc0 && i + 1 < prompt.size()) {
+            width = 2;
+            cp = ((lead & 0x1f) << 6) |
+                 (static_cast<unsigned char>(prompt[i + 1]) & 0x3f);
+        } else if ((lead & 0xf0) == 0xe0 && i + 2 < prompt.size()) {
+            width = 3;
+            cp = ((lead & 0x0f) << 12) |
+                 ((static_cast<unsigned char>(prompt[i + 1]) & 0x3f) << 6) |
+                 (static_cast<unsigned char>(prompt[i + 2]) & 0x3f);
+        } else if ((lead & 0xf8) == 0xf0 && i + 3 < prompt.size()) {
+            width = 4;
+            cp = ((lead & 0x07) << 18) |
+                 ((static_cast<unsigned char>(prompt[i + 1]) & 0x3f) << 12) |
+                 ((static_cast<unsigned char>(prompt[i + 2]) & 0x3f) << 6) |
+                 (static_cast<unsigned char>(prompt[i + 3]) & 0x3f);
+        }
+        const bool control = cp < 0x20 || (cp >= 0x7f && cp <= 0x9f);
+        const bool hostile = cp == 0x2028 || cp == 0x2029 ||
+                             (cp >= 0x200b && cp <= 0x200f) ||
+                             (cp >= 0x202a && cp <= 0x202e) ||
+                             (cp >= 0x2066 && cp <= 0x2069) || cp == 0xfeff;
+        if (!control && !hostile) {
+            if (cp == 0x20) {
+                pendingSpace = !summary.empty();
+            } else {
+                if (pendingSpace && codepoints < kMaxSummary) {
+                    summary.push_back(' ');
+                    ++codepoints;
+                }
+                if (codepoints < kMaxSummary) {
+                    summary.append(prompt.substr(i, width));
+                    ++codepoints;
+                }
+                pendingSpace = false;
+            }
+        }
+        i += width;
+    }
+    if (summary.empty()) summary = "Question";
+    return "BTW: " + summary;
 }
 
 }  // namespace hanabi::slash

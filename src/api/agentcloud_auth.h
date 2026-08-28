@@ -67,6 +67,8 @@ Token mint_token(const AuthConfig& cfg, std::string* error);
 class TokenCache {
    public:
     explicit TokenCache(AuthConfig cfg) : cfg_(std::move(cfg)) {}
+    TokenCache(AuthConfig cfg, Token token)
+        : cfg_(std::move(cfg)), token_(std::move(token)) {}
 
     // Cached token, minting if absent or near expiry. Empty on failure.
     Token get(std::string* error);

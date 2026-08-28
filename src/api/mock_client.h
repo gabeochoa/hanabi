@@ -110,6 +110,23 @@ class MockClient : public Client {
                 return Result<Session>::success(s);
             }
         }
+        const auto children = list_subagents(2000);
+        if (children.ok) {
+            for (const auto& child : children.value) {
+                if (child.id != id) continue;
+                Session session;
+                session.summary = child;
+                Message message;
+                message.id = id + "-status";
+                message.role = Role::Assistant;
+                message.text = child.preview.empty()
+                                   ? std::string("Sub-agent session")
+                                   : child.preview;
+                message.created_at = child.updated_at;
+                session.messages.push_back(std::move(message));
+                return Result<Session>::success(std::move(session));
+            }
+        }
         return Result<Session>::failure("no such session: " + id);
     }
 
@@ -157,6 +174,110 @@ class MockClient : public Client {
         }
         created_.push_back(std::move(s));
         return Result<std::string>::success(id);
+    }
+
+    bool supports_fork() const override { return true; }
+
+    Result<std::string> fork_session(const std::string& session_id) override {
+        auto source = get_session(session_id);
+        if (!source.ok) return Result<std::string>::failure(source.error);
+        Session fork = std::move(source.value);
+        const std::string id = "fork" + std::to_string(++fork_count_);
+        fork.summary.id = id;
+        fork.summary.forked_from = session_id;
+        fork.summary.parent_id.clear();
+        fork.summary.updated_at = mock_now();
+        fork.summary.status = "idle";
+        fork.summary.state = ThreadState::Parked;
+        fork.summary.tag = ThreadTag::None;
+        fork.summary.preview.clear();
+        fork.summary.starred = false;
+        fork.summary.archive_override.reset();
+        fork.summary.muted = false;
+        fork.sub_agents.clear();
+        created_.push_back(std::move(fork));
+        return Result<std::string>::success(id);
+    }
+
+    Result<std::string> fork_with_prompt(const std::string& session_id,
+                                         const std::string& prompt,
+                                         const std::string& title) override {
+        if (prompt.empty())
+            return Result<std::string>::failure("a fork needs a prompt");
+        auto source = get_session(session_id);
+        if (!source.ok) return Result<std::string>::failure(source.error);
+        Session fork = std::move(source.value);
+        const std::string id = "fork" + std::to_string(++fork_count_);
+        fork.summary.id = id;
+        fork.summary.title = title;
+        fork.summary.forked_from = session_id;
+        fork.summary.parent_id.clear();
+        fork.summary.updated_at = mock_now();
+        fork.summary.status = "active";
+        fork.summary.state = ThreadState::Running;
+        fork.summary.tag = ThreadTag::None;
+        fork.summary.preview = prompt;
+        fork.summary.starred = false;
+        fork.summary.archive_override.reset();
+        fork.summary.muted = false;
+        fork.sub_agents.clear();
+        Message seed;
+        seed.id = id + "-seed";
+        seed.role = Role::User;
+        seed.text = prompt;
+        seed.created_at = mock_now();
+        fork.messages.push_back(std::move(seed));
+        created_.push_back(std::move(fork));
+        return Result<std::string>::success(id);
+    }
+
+    bool supports_subagents() const override { return true; }
+
+    Result<std::vector<SessionSummary>> list_subagents(
+        std::size_t limit) override {
+        std::vector<SessionSummary> out;
+        if (limit == 0)
+            return Result<std::vector<SessionSummary>>::success(std::move(out));
+        const auto append = [&](const Session& parent) {
+            for (const auto& sa : parent.sub_agents) {
+                if (out.size() == limit) return;
+                SessionSummary child;
+                child.id = sa.id;
+                child.title = sa.title;
+                child.preview = sa.note;
+                child.parent_id = parent.summary.id;
+                if (sa.state == SubAgentState::Running) {
+                    child.state = ThreadState::Running;
+                    child.status = "working";
+                } else if (sa.state == SubAgentState::Failed) {
+                    child.state = ThreadState::Attention;
+                    child.tag = ThreadTag::Failed;
+                    child.status = "failed";
+                } else if (sa.state == SubAgentState::Blocked) {
+                    child.state = ThreadState::Attention;
+                    child.tag = ThreadTag::Blocked;
+                    child.status = "blocked";
+                } else {
+                    child.state = ThreadState::Ready;
+                    child.tag = ThreadTag::Done;
+                    child.status = "done";
+                }
+                out.push_back(std::move(child));
+            }
+        };
+        for (const auto& parent : created_) {
+            append(parent);
+            if (out.size() == limit) break;
+        }
+        if (out.size() < limit) {
+            const SeedPtr seeds = seed_ptr();
+            for (const auto& parent : *seeds) {
+                if (is_overridden(parent.summary.id)) continue;
+                append(parent);
+                if (out.size() == limit) break;
+            }
+        }
+        return Result<std::vector<SessionSummary>>::success(std::move(out));
     }
 
     // The mock supports replies (this is the demo story): the composer becomes
@@ -509,6 +630,7 @@ class MockClient : public Client {
     // Sessions created via the composer during this run (mock is otherwise
     // stateless). Merged into list_sessions/get_session above.
     std::vector<Session> created_;
+    std::size_t fork_count_ = 0;
 
     // In-memory sink for the settings-write path (see update_settings). Lets
     // the periodic-sync story run + be asserted offline with zero config.
@@ -1000,7 +1122,7 @@ class MockClient : public Client {
                  mins_ago(12), ""},
             };
             s.sub_agents = {
-                {"r7s1", "the shard that died", SubAgentState::Blocked,
+                {"r7s1", "the shard that died", SubAgentState::Failed,
                  "OOM at 4.1GB, no retry"},
             };
             v.push_back(std::move(s));

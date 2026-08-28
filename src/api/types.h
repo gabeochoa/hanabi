@@ -270,6 +270,9 @@ struct SessionSummary {
     // reports no parentage and leaves both at 0, which renders as no column.
     int sub_agent_count = 0;
     int sub_agent_running_count = 0;
+
+    std::string parent_id;
+    std::string forked_from;
 };
 
 // A sub-agent (child worker) running under a session. The transcript's
@@ -279,6 +282,7 @@ enum class SubAgentState {
     Running,
     Done,
     Blocked,
+    Failed,
 };
 
 struct SubAgent {

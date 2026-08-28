@@ -7,10 +7,8 @@
 // so this is a sibling adapter rather than another set of config values. See
 // ws_socket.h for the socket and agentcloud_auth.h for the credential.
 //
-// THIS SLICE IMPLEMENTS list_sessions() AND NOTHING ELSE. Everything past the
-// session list needs the fold, which is its own piece of work; those overrides
-// are deliberately left on Client's defaults (unsupported) rather than stubbed
-// to something that looks like it works.
+// The adapter implements catalog, transcript, turn, rename, and native fork
+// control commands. Unsupported lifecycle operations stay on Client defaults.
 //
 // WHY A SOCKET PER CALL. `list` is a pre-attach control command on a short-
 // lived connection that the reference client closes immediately, and the
@@ -32,6 +30,7 @@ namespace api {
 class AgentcloudClient : public Client {
    public:
     explicit AgentcloudClient(agentcloud::AuthConfig cfg);
+    AgentcloudClient(agentcloud::AuthConfig cfg, agentcloud::Token token);
     ~AgentcloudClient() override;
 
     Result<std::vector<SessionSummary>> list_sessions() override;
@@ -53,6 +52,16 @@ class AgentcloudClient : public Client {
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override;
 
+    bool supports_fork() const override { return ready(); }
+    Result<std::string> fork_session(const std::string& session_id) override;
+    Result<std::string> fork_with_prompt(const std::string& session_id,
+                                         const std::string& prompt,
+                                         const std::string& title) override;
+
+    bool supports_subagents() const override { return ready(); }
+    Result<std::vector<SessionSummary>> list_subagents(
+        std::size_t limit) override;
+
     void send_message_streaming(const std::string& session_id,
                                 const std::string& prompt,
                                 const StreamSink& sink) override;
@@ -71,8 +80,8 @@ class AgentcloudClient : public Client {
     // One request/reply over a short-lived socket on the control channel.
     // Returns the decoded `msg` object as raw JSON text, or empty with *error.
     std::string round_trip(const std::string& payload_json,
-                           const std::string& expect_type,
-                           std::string* error);
+                           const std::string& expect_type, std::string* error,
+                           int timeout_secs = 30);
 
     // attach, then input, then read the turn out as it arrives. `apply` is
     // required on the wire -- there is no server-side default.
@@ -99,6 +108,15 @@ namespace agentcloud {
 //
 // Returns empty for anything it cannot read; never throws.
 std::vector<SessionSummary> parse_sessions_reply(const std::string& msg_json);
+std::vector<SessionSummary> parse_subagents_reply(const std::string& msg_json,
+                                                  std::size_t limit);
+std::string fork_command_json(const std::string& source_session_id);
+std::string fork_with_prompt_command_json(const std::string& source_session_id,
+                                          const std::string& prompt,
+                                          const std::string& title);
+std::string parse_created_session_id(const std::string& msg_json);
+bool hello_has_capability(const std::string& hello_json,
+                          const std::string& capability);
 
 // A `page` reply's frames -> transcript messages, oldest first.
 //

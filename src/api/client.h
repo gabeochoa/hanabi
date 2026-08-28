@@ -536,6 +536,33 @@ class Client {
             "this backend does not support creating sessions");
     }
 
+    virtual Result<std::string> fork_session(const std::string& session_id) {
+        (void) session_id;
+        return Result<std::string>::failure(
+            "this backend does not support forking sessions");
+    }
+
+    virtual Result<std::string> fork_with_prompt(const std::string& session_id,
+                                                 const std::string& prompt,
+                                                 const std::string& title) {
+        (void) session_id;
+        (void) prompt;
+        (void) title;
+        return Result<std::string>::failure(
+            "this backend does not support fork-with-prompt");
+    }
+
+    virtual bool supports_fork() const { return false; }
+
+    virtual Result<std::vector<SessionSummary>> list_subagents(
+        std::size_t limit) {
+        (void) limit;
+        return Result<std::vector<SessionSummary>>::failure(
+            "this backend does not expose child sessions");
+    }
+
+    virtual bool supports_subagents() const { return false; }
+
     // Continue an OPEN session: send a user prompt into `session_id` and return
     // the assistant reply. Default impl reports the backend doesn't support
     // replies, so adapters opt in incrementally (mirrors create_session). The
