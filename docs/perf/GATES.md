@@ -29,6 +29,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | soak | `make soak-gate` | yes | ~3 s |
 | allocation | `make alloc-gate` | yes | ~20 s |
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
+| transcript-memory scaling | `make memory-scaling-gate` | yes | ~90 s |
 | scroll | `make scroll-gate` | yes | ~6 s |
 | source checks | `make source-checks` | yes | <1 s |
 | screenshot subset | `make validate-screenshots-fast` | yes | ~11 s |

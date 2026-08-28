@@ -1233,6 +1233,20 @@ static void test_transcript_cache() {
     CHECK(!resolve_transcript(app2, client2, "t2"));  // miss -> fetch
     CHECK(client2.getSessionCalls == 7);
     CHECK(app2.transcriptCache.contains("t2"));
+
+    ecs::model::TranscriptCache hotCache;
+    std::set<std::string> open;
+    for (int i = 0; i < 8; ++i) {
+        api::Session s;
+        s.summary.id = "hot-" + std::to_string(i);
+        hotCache.put(std::move(s));
+        open.insert("hot-" + std::to_string(i));
+    }
+    const auto hot = hotCache.live_hot_set(open, {"hot-0", "hot-7"});
+    CHECK(hot.size() == ecs::model::kCacheMaxThreads);
+    CHECK(std::find(hot.begin(), hot.end(), "hot-0") != hot.end());
+    CHECK(std::find(hot.begin(), hot.end(), "hot-7") != hot.end());
+    CHECK(std::find(hot.begin(), hot.end(), "hot-1") == hot.end());
 }
 
 // ---------------------------------------------------------------------------

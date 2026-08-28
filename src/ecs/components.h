@@ -209,20 +209,32 @@ struct Pane {
     std::future<std::optional<api::Session>> diskReadFuture;
     bool diskReadPending = false;
     std::string diskReadId;  // the thread the disk read targets
+    std::uint64_t diskReadEpoch = 0;
     std::vector<std::future<std::optional<api::Session>>>
         supersededDiskReadFutures;
+
+    bool accepts_disk_read(const std::string& id,
+                           std::uint64_t completedEpoch,
+                           std::uint64_t currentEpoch) const {
+        return selectedId == id && completedEpoch == currentEpoch;
+    }
+
+    void supersede_disk_read() {
+        if (diskReadFuture.valid())
+            supersededDiskReadFutures.push_back(std::move(diskReadFuture));
+        diskReadPending = false;
+        diskReadId.clear();
+        diskReadEpoch = 0;
+    }
 
     void supersede_transcript_loads() {
         if (transcriptFuture.valid())
             supersededTranscriptFutures.push_back(std::move(transcriptFuture));
-        if (diskReadFuture.valid())
-            supersededDiskReadFutures.push_back(std::move(diskReadFuture));
+        supersede_disk_read();
         if (loadOlderFuture.valid())
             supersededLoadOlderFutures.push_back(std::move(loadOlderFuture));
         transcriptPending = false;
         transcriptPendingId.clear();
-        diskReadPending = false;
-        diskReadId.clear();
         requestLoadOlder = false;
         loadingOlder = false;
         loadOlderPendingId.clear();
@@ -377,11 +389,10 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // --- Live events (SSE) — MULTI-thread background subscriptions --------
     // When the backend supports_events(), the loader keeps a POOL of live
-    // subscriptions — one per OPEN TAB (not just the focused thread) — so every
-    // open thread keeps live-reading in the background and its fresh transcript
-    // is written straight to the disk cache. Switching to a tab then shows the
-    // already-fresh content instantly instead of waiting to fetch once you land
-    // on it. Each pool entry owns its subscription handle + its own atomic
+    // subscriptions — one per thread in the transcript LRU hot set, with visible
+    // panes admitted first — so inactive tabs do not keep one worker/socket each.
+    // Fresh transcript data is written straight to the disk cache; switching to
+    // a cold tab starts the existing async disk/network reload. Each pool entry owns its subscription handle + its own atomic
     // dirty flag (flipped by that thread's SSE worker) + last-event stamp; the
     // loader polls the flags on the UI thread, debounces, and refetches the
     // dirty thread(s) on worker futures. Subscriptions are opened when a tab
@@ -408,6 +419,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // flash); on a MISS it takes the async get_session path and inserts the
     // result. Bounds RAM: the 20x5 cap is the only growth point.
     model::TranscriptCache transcriptCache;
+    bool cacheWipeReported = false;
+    std::uint64_t cacheWipeReclaimedBytes = 0;
+
+    void clear_transcript_cache() {
+        transcriptCache.clear();
+        for (auto& pane : panes) pane.supersede_disk_read();
+    }
 
     // Set by the list system to request a (re)load; consumed by loader.
     bool requestListRefresh = true;

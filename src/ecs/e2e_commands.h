@@ -286,6 +286,58 @@ struct HandleExpectOutboxCommand
     }
 };
 
+struct HandleSeedCacheCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("seed_cache")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("seed_cache requires session id and text");
+            return;
+        }
+        api::Session session;
+        session.summary.id = cmd.arg(0);
+        api::Message message;
+        message.id = "seed-message";
+        message.role = api::Role::User;
+        message.text = joined_args(cmd, 1);
+        session.messages.push_back(std::move(message));
+        api::disk_cache::save_transcript(session);
+        api::disk_cache::save_draft(cmd.arg(0), "draft survives wipe");
+        api::disk_cache::outbox_add(cmd.arg(0), "outbox survives wipe");
+        cmd.consume();
+    }
+};
+
+struct HandleExpectCacheWipedCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_cache_wiped")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_cache_wiped requires session id");
+            return;
+        }
+        const std::string& id = cmd.arg(0);
+        const auto outbox = api::disk_cache::outbox_list(id);
+        const bool ok = api::disk_cache::total_bytes() == 0 &&
+                        !api::disk_cache::load_transcript(id).has_value() &&
+                        api::disk_cache::load_draft(id) == "draft survives wipe" &&
+                        outbox.size() == 1 && outbox[0] == "outbox survives wipe";
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail("cache wipe removed protected data or left transcript bytes");
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
@@ -293,6 +345,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleResetClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxCommand>());
+    sm.register_update_system(std::make_unique<HandleSeedCacheCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
 }
 
 }  // namespace hanabi::e2e

@@ -129,7 +129,7 @@ current instructions.
       list fetch blocks?). Instrument app_init phases, find the cost, cut it. (Note: windowed Startup log
       showed 1164-1464ms on real-backend cold launch — likely the synchronous list/auth on the UI thread.)
 - [ ] LOCAL MOCK SERVER (tooling): REST + SSE, drives send-message e2e + easier iteration.
-- [ ] /tmp file cache for thread info (memory-footprint reduction; complements newest-N loading).
+- [x] Disk-backed transcript cache is the durable tier; the in-memory owner is the existing 5-thread × 20-message LRU. Cold opens reload from disk and network asynchronously.
 
 ## OPEN ASKS — batch 6 (2026-08-02, live testing during provider hiccups — NOT STARTED)
 - [x] TRANSCRIPT: jump-to-bottom button and follow latch (`3316179`, `5ae33ee`, merge `cb47404`).
@@ -138,13 +138,11 @@ current instructions.
 - [x] ARCHIVED uses the real Lucide `archive` sprite (`0c99ec7`); the generated atlas, map and header
       all carry it. The U+25A4 value remains only as the generic atlas-load fallback path.
 - [x] TOOL CALL detail: collapsed rows show real name, node, command, duration and status; expansion preserves each call and output (`feat/message-actions`).
-- [ ] THREAD SWITCH super slow / BEACHBALL: switching threads blocks the UI thread. Make the switch
-      async (spinner while loading), keep UI interactive. ALL API calls on the API/worker thread, never
-      UI thread. (Overlaps loader async + the jank/idle-cost work.)
+- [x] THREAD SWITCH: cached hits are synchronous and cold disk/network loads are worker futures with pane-local skeleton/loading state. Superseded and pre-wipe disk results are rejected before apply.
 - [x] TABS: horizontal tab-strip scrolling was already built; this pass added native horizontal
       trackpad deltas and kept vertical-wheel-over-strip plus Shift+wheel semantics.
-- [ ] SETTINGS: button to WIPE the on-disk cache + show current cache storage size used.
-- [ ] MEMORY: lazy-load transcript text from disk when needed (/tmp file cache), don't keep all in RAM.
+- [x] SETTINGS: cache usage, limit and wipe are live. Wipe reports net reclaimed bytes, preserves config/token/drafts/outbox and keeps visible panes intact.
+- [x] MEMORY: transcript text has durable disk backing and one bounded RAM owner (5 threads × 20 messages); two visible panes may additionally hold their current windows. Find and item caches are pane/thread bounded.
 - [ ] SIDEBAR SCROLL BUG (re-confirmed via screenshot): scrolling down, row TEXT disappears but rows
       remain clickable — text not drawn past a scroll offset. ADD E2E TESTS. (dup of batch-4 bug, still open.)
 - [ ] STARTUP: profile + fix (Gabe: do the profiling IN A SUBAGENT). Windowed cold launch 1164-1464ms on

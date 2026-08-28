@@ -14075,3 +14075,239 @@ roles; `tests/ui/new_task_focus_escape.e2e`,
 and dismissal. Native accessibility remains unresolved.
 
 CLASS: DUPLICATE → #112 / #458
+
+---
+
+### #580 — The system manager has no cancellable background-job primitive
+
+**Exact afterhours mechanism.** `SystemManager` owns three vectors of synchronous
+`SystemBase` instances and runs each one inline in `tick`, `fixed_tick`, and
+`render` (`vendor/afterhours/src/core/system.h:432-581`). It has no executor,
+result mailbox, cancellation token, or replace-by-key operation.
+
+**Hanabi reference.** `src/ecs/components.h::Pane` owns transcript, disk-read,
+and load-older futures plus three superseded-future vectors.
+`src/ecs/loader_system.h::service_pane` polls them because a switch cannot wait
+for disk or network.
+
+**Rejected.** Destroying the old `std::future` on each switch can join the
+`std::async` worker and put the beachball back on the UI thread. Detaching one
+thread per click loses shutdown ownership and can outlive the client.
+
+**Remaining cost.** Superseded work still runs to completion and its future stays
+resident until a later frame reaps it. The cost is bounded by switch rate times
+the backend timeout, not by the transcript LRU.
+
+**Minimal upstream change.** A keyed background job queue with cancellation,
+latest-generation delivery, and a non-blocking completion drain in the update
+phase.
+
+CLASS: MISSING
+
+---
+
+### #581 — A system has no deactivate or hidden-transition hook
+
+**Exact afterhours mechanism.** `SystemBase` exposes frame callbacks
+(`should_run`, `once`, iteration hooks, `after`) but no transition callback when
+a system stops being applicable (`vendor/afterhours/src/core/system.h:91-116`).
+
+**Hanabi reference.** `src/ecs/session_search_system.h::release_corpus` is called
+when the search panel becomes closed so its full-text corpus is released. The
+app has to remember `wasOpen_` solely to detect that transition.
+
+**Rejected.** Keeping the corpus until the panel is opened again makes a closed
+surface retain every indexed transcript body twice. Rebuilding every frame
+releases nothing and repeats disk work.
+
+**Remaining cost.** Every conditional system that owns non-entity state needs
+its own previous-active bit and teardown branch.
+
+**Minimal upstream change.** Add `on_activate` and `on_deactivate` hooks around
+`should_run` transitions.
+
+CLASS: MISSING
+
+---
+
+### #582 — NOT A GAP: transcript payload ownership belongs above the ECS
+
+**Exact afterhours mechanism.** Components are arbitrary application values;
+`Entity` and `SystemManager` do not prescribe persistence or payload caching.
+Nothing in afterhours creates or retains `api::Session` or `api::Message`.
+
+**Hanabi reference.** `src/ecs/transcript_cache.h::TranscriptCache` is the one
+RAM owner for inactive transcript payloads: five threads, twenty messages each.
+`src/api/disk_cache.h` and `src/api/disk_cache.cpp` are the durable tier, and
+`src/ecs/loader_system.h` reloads misses asynchronously.
+
+**Rejected.** Adding a second framework LRU would duplicate recency, eviction,
+and stale-result policy. Keeping one `Session` per tab would make memory linear
+in every tab ever left open.
+
+**Remaining cost.** Two visible panes hold their current newest-message windows
+in addition to the five-entry hot set. That is intentional and bounded by two.
+
+CLASS: NOT A GAP
+
+---
+
+### #583 — NOT A GAP: the entity pool exposes its retained high-water count
+
+**Exact afterhours mechanism.** Cleanup moves entities into `entity_pool_` only
+while it is below `max_pool_size_`, and `pool_size()` exposes the retained count
+(`vendor/afterhours/src/core/entity_collection.h:53-80,347-400`).
+
+**Hanabi reference.** `src/util/mem_ladder.h` reads live malloc blocks and bytes;
+`src/main.cpp::hold_note` reports live entities separately. The churn audit uses
+both rather than calling a pooled entity a live leak.
+
+**Rejected.** Clearing the pool after every tab close trades a stable high-water
+mark for allocator churn. Treating `get_entities().size()` as total retained
+memory misses the pool but is an instrumentation error, not missing ownership.
+
+**Remaining cost.** The pool keeps its configured high-water allocation until
+process exit; callers that reserve too high still pay that level.
+
+CLASS: NOT A GAP
+
+---
+
+### #584 — NOT A GAP: the shared text-measure cache is bounded and observable
+
+**Exact afterhours mechanism.** `TextMeasureCache` has a 4,096-entry default,
+LRU eviction, age pruning, `clear`, `size`, hit/miss counters and a configurable
+cap (`vendor/afterhours/src/core/text_cache.h:29-140`).
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::render_cache` owns the
+separate transcript render cache because it stores app-specific display bodies,
+heights and hugged widths rather than font measurements.
+
+**Rejected.** Moving transcript `MsgRender` values into `TextMeasureCache` would
+mix incompatible keys and still leave item geometry and markdown state with no
+owner.
+
+**Remaining cost.** Styled text still rebuilds its own wrapped run layout every
+frame; that is the existing #340 family, not a new cache-lifetime gap.
+
+CLASS: DUPLICATE → #340
+
+---
+
+### #585 — The ECS has no retained-byte attribution by system or component
+
+**Exact afterhours mechanism.** `EntityCollection` exposes vectors and the pool
+count, and `Arena` exposes its own used/capacity/peak counters, but no API walks
+component payloads or attributes heap bytes to a system
+(`vendor/afterhours/src/core/entity_collection.h:33-80`,
+`vendor/afterhours/src/memory/arena.h:50-169`).
+
+**Hanabi reference.** `src/util/mem_ladder.h` combines process RSS with a malloc
+heap walk, while `src/main.cpp::hold_note` manually prints every container whose
+entry count matters.
+
+**Rejected.** RSS alone cannot say which owner retained bytes. `sizeof(Component)`
+misses strings, vectors, futures and shared ownership, so it would print a precise
+wrong answer.
+
+**Remaining cost.** Every new cache must add its own count to Hanabi's hold note
+or it is invisible until a heap stack walk names it.
+
+**Minimal upstream change.** Optional per-component retained-size callbacks and
+a SystemManager snapshot that reports live, pooled and externally-owned bytes
+separately.
+
+CLASS: MISSING
+
+---
+
+### #586 — The framework has no memory-pressure or cache-purge event
+
+**Exact afterhours mechanism.** The system lifecycle is frame-only and the
+platform layer exposes no memory-pressure callback. The UI and texture caches
+can be cleared explicitly, but nothing coordinates that with OS pressure.
+
+**Hanabi reference.** `src/ecs/transcript_cache.h`,
+`src/ecs/transcript_render_cache.h`, `src/ecs/transcript_item_index.h`, and
+`src/search/find_memo.h` each own an independent bounded cache with `clear`.
+
+**Rejected.** Polling RSS every frame is expensive, lagging, and cannot tell
+reclaimable cache from live state. Clearing every cache on every tab switch
+recreates the split-pane thrash measured in `docs/perf/MEMORY.md`.
+
+**Remaining cost.** Bounds prevent runaway growth, but a pressured machine
+cannot ask all reclaimable caches to shrink before the OS compresses or kills
+the process.
+
+**Minimal upstream change.** A platform memory-pressure event distributed once
+through `SystemManager`, with app-owned handlers deciding what can be discarded.
+
+CLASS: MISSING
+
+---
+
+### #587 — Background completions have no frame-safe mailbox
+
+**Exact afterhours mechanism.** Systems run serially over the live entity
+collection; there is no queue for worker-produced values to be committed at a
+known point in the frame (`vendor/afterhours/src/core/system.h:464-581`).
+
+**Hanabi reference.** `src/ecs/loader_system.h` manually polls every future with
+`wait_for(0)` and applies results only after checking pane id and cache epoch.
+`src/ecs/components.h::Pane::accepts_disk_read` is the stale-result fence.
+
+**Rejected.** Letting worker callbacks mutate ECS state races rendering. Applying
+by session id alone fails on A→B→A because the old A result has the right id and
+the wrong generation.
+
+**Remaining cost.** Each async feature repeats pending flags, target ids,
+futures, superseded storage and poll code.
+
+**Minimal upstream change.** A typed main-thread mailbox whose envelopes carry a
+replace key and generation.
+
+CLASS: MISSING
+
+---
+
+### #588 — NOT A GAP: skeleton and stale metadata are ordinary app UI states
+
+**Exact afterhours mechanism.** Immediate-mode elements can draw any loading
+state the application describes; the framework does not own a data model or
+know whether content is stale.
+
+**Hanabi reference.** `src/ecs/components.h::Pane` carries `LoadState`, selected
+and loading ids, while `src/ecs/main_pane_system.h::render_transcript` paints the
+skeleton only when no matching stale transcript is available.
+
+**Rejected.** A generic framework skeleton would still need application-defined
+geometry and freshness semantics, while hiding whether the stale transcript is
+safe for the selected pane.
+
+**Remaining cost.** Hanabi owns the spinner and metadata copy. The UI-thread
+switch path remains a small model mutation plus async dispatch.
+
+CLASS: NOT A GAP
+
+---
+
+### #589 — SystemManager has no per-system CPU accounting seam
+
+**Exact afterhours mechanism.** `tick`, `fixed_tick`, and `render` invoke systems
+directly with no before/after timing callback or stable system name
+(`vendor/afterhours/src/core/system.h:464-581`).
+
+**Hanabi reference.** `src/util/prof.h` supplies app-owned
+`CLOCK_THREAD_CPUTIME_ID` scopes, and `tests/e2e/test_perf.cpp` measures cached,
+uncached and async-dispatch switch CPU on that clock.
+
+**Rejected.** Wall-clock frame thresholds on a shared Mac reverse conclusions
+under contention. Timing the whole frame cannot identify which system moved.
+
+**Remaining cost.** Every hot path needs a manual scope, and uninstrumented
+systems remain one aggregate remainder.
+
+**Minimal upstream change.** Optional named before/after callbacks around each
+system invocation, with no timing dependency when disabled.
+
+CLASS: MISSING

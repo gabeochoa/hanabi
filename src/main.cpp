@@ -1168,7 +1168,14 @@ static void apply_test_knobs(ecs::AppComponent* app) {
 // individually is that a teardown rung that does not return its bytes is a
 // question ("what is still held?") until this line answers it.
 static std::string hold_note(const ecs::AppComponent& app) {
-    char buf[640];
+    char buf[768];
+    std::size_t findEntries = 0;
+    for (const auto& pane : app.panes) findEntries += pane.findMemo.entries();
+    std::size_t tabs = 0;
+    auto tabsQ = afterhours::EntityQuery({.force_merge = true})
+                     .whereHasComponent<ecs::Tab>()
+                     .gen();
+    tabs = tabsQ.size();
     // GPU bytes are reported as the device's own total, because the estimate
     // beside it is an estimate: nothing in afterhours will say how many bytes
     // a texture is (afterhours_gaps.md #126), so the two columns are "what
@@ -1185,13 +1192,19 @@ static std::string hold_note(const ecs::AppComponent& app) {
         std::snprintf(gpu, sizeof(gpu), "gpu=not measured poolFail=%zu",
                       hanabi::decode_to_fit::pool_exhaustions());
     std::snprintf(buf, sizeof(buf),
-                  "sessions=%zu lru=%zu paneStates=%zu(drafts %zu) "
-                  "liveSubs=%zu rowOrder=%zu expandedPiles=%zu entities=%zu "
+                  "sessions=%zu tabs=%zu lru=%zu paneStates=%zu(drafts %zu) "
+                  "liveSubs=%zu find=%zu itemIndex=%zu/%zu outbox=%zu "
+                  "sendQueue=%zu stream=%zu/%zuB entities=%zu "
                   "images=%zu(%zu KB) %s",
-                  app.sessions.size(), app.transcriptCache.size(),
+                  app.sessions.size(), tabs, app.transcriptCache.size(),
                   ecs::model::pane_states().size(),
                   ecs::model::pane_states().drafts(), app.liveSubs.size(),
-                  app.rowOrder.size(), app.expandedPiles.size(),
+                  findEntries, ecs::model::transcript_item_index().slots(),
+                  ecs::model::transcript_item_index().total_items(),
+                  app.outboxRetry.size(), app.pendingSendQueue.size(),
+                  app.streamQueue.size() -
+                      std::min(app.streamCursor, app.streamQueue.size()),
+                  app.streamBuffer.size(),
                   afterhours::EntityHelper::get_entities().size(),
                   hanabi::inline_image::cached_count(),
                   hanabi::inline_image::cached_bytes() / 1024, gpu);
@@ -1243,17 +1256,36 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
 
     // 1. The catalog.
     app->requestListRefresh = true;
+    for (int guard = 0;
+         guard < 300 && (app->sessions.empty() || app->listPending); ++guard)
+        pump(1);
     ladder.mark("+ catalog loaded, sidebar drawing it");
     const size_t catalogSize = app->sessions.size();
+    std::vector<std::string> ladderIds;
+    ladderIds.reserve(app->sessions.size());
+    for (const auto& session : app->sessions) {
+        if (std::find(ladderIds.begin(), ladderIds.end(), session.id) ==
+            ladderIds.end())
+            ladderIds.push_back(session.id);
+    }
 
     // 2. One thread. The first open pays for every lazy thing a transcript
     // touches, so it is its own rung — averaging it into the next one would
     // make the per-thread cost look several times larger than it is.
     const auto open_nth = [&](size_t i) {
-        if (app->sessions.empty()) return;
-        app->requestOpenTab = app->sessions[i % app->sessions.size()].id;
+        if (ladderIds.empty()) return;
+        auto* strip = strip_now();
+        if (strip == nullptr) return;
+        ecs::model::open_session_in_tab(
+            *strip, *app, ladderIds[i % ladderIds.size()], true);
         app->view = ecs::SmartView::Chat;
-        pump(8);
+        pump(1);
+        for (int guard = 0;
+             guard < 7 &&
+             (!app->pane().requestOpenId.empty() ||
+              app->pane().transcriptPending || app->pane().diskReadPending);
+             ++guard)
+            pump(1);
     };
     open_nth(0);
     ladder.mark("+ the FIRST thread open");
@@ -1261,6 +1293,47 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
     // 3. The rest, all left open, which is what a tab strip is.
     for (int k = 1; k < want; ++k) open_nth(static_cast<size_t>(k));
     ladder.mark("+ many threads open at once");
+
+    if (app->sessions.size() > 1) {
+        app->requestSplitOpen = app->sessions[1].id;
+        pump(8);
+    }
+    for (std::size_t i = 0; i < app->active_pane_count(); ++i) {
+        app->panes[i].findOpen = true;
+        app->panes[i].findQuery = "retry";
+    }
+    app->outboxRetry.adopt("held-outbox", std::string(4096, 'o'));
+    if (app->panes[0].openSession &&
+        !app->panes[0].openSession->messages.empty()) {
+        app->streamActive = true;
+        app->streamDemoHold = true;
+        app->streamSessionId = app->panes[0].selectedId;
+        app->streamPaneIndex = 0;
+        app->streamPhase = ecs::AppComponent::StreamPhase::Streaming;
+        app->streamMsgIndex = app->panes[0].openSession->messages.size() - 1;
+        app->streamBuffer.assign(64 * 1024, 's');
+        app->streamQueue.assign(128, std::string(256, 'q'));
+    }
+    app->sessionSearchOpen = true;
+    pump(static_cast<int>((catalogSize + hanabi::search::kDeepenPerFrame - 1) /
+                          hanabi::search::kDeepenPerFrame) + 4);
+    ladder.mark("+ two panes, find, index, outbox and streaming");
+
+    app->sessionSearchOpen = false;
+    for (auto& pane : app->panes) {
+        pane.findOpen = false;
+        pane.findQuery.clear();
+        pane.findMemo.clear();
+    }
+    app->outboxRetry.restore({});
+    app->streamActive = false;
+    app->streamDemoHold = false;
+    app->streamSessionId.clear();
+    app->streamBuffer.clear();
+    app->streamQueue.clear();
+    app->requestSplitClose = true;
+    pump(8);
+    ladder.mark("- transient holders released");
 
     // 4. Scrolled: the dial that realizes rows the virtualiser had skipped.
     for (int k = 0; k < 240; ++k) {

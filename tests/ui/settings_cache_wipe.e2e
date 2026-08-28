@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+seed_cache wipe-proof a transcript payload large enough to produce visible cache usage
+click_ui sb_settings
+wait_frames 8
+expect_text "On-disk cache"
+expect_text "on disk"
+click_ui settings_cache_clear
+wait_frames 8
+expect_text "0 B on disk"
+expect_text reclaimed
+expect_cache_wiped wipe-proof

@@ -2,6 +2,7 @@
 #include <branding.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +24,7 @@ using json = nlohmann::json;
 // Per-backend cache namespace (see set_namespace). Empty = flat layout.
 namespace {
 std::string g_namespace;
+std::atomic<std::uint64_t> g_epoch{1};
 
 // Short, filesystem-safe, stable token derived from an arbitrary key (e.g. a
 // base URL). A tiny FNV-1a hash rendered hex — enough to separate distinct
@@ -59,6 +61,7 @@ namespace { void invalidate_cache_size_estimate(); }
 
 void set_namespace(const std::string& key) {
     invalidate_content_index();  // a different namespace is a different corpus
+    g_epoch.fetch_add(1, std::memory_order_relaxed);
     g_namespace = key.empty() ? std::string() : ns_token(key);
     invalidate_cache_size_estimate();
     if (g_namespace.empty()) return;
@@ -520,6 +523,7 @@ bool scan_transcript(const std::string& id, const std::string& lowerQuery) {
 }  // namespace
 
 void invalidate_content_index() { ++g_corpus_gen; }
+std::uint64_t content_generation() { return g_corpus_gen; }
 
 bool content_matches(const std::string& id, const std::string& lowerQuery) {
     if (lowerQuery.empty()) return false;
@@ -578,12 +582,18 @@ std::uint64_t total_bytes() {
     return total;
 }
 
-std::size_t wipe_all() {
+std::uint64_t epoch() {
+    return g_epoch.load(std::memory_order_relaxed);
+}
+
+WipeResult wipe_all_report() {
+    g_epoch.fetch_add(1, std::memory_order_relaxed);
     invalidate_content_index();  // the corpus changed under the search memo
+    const std::uint64_t before = total_bytes();
     const std::string dir = cache_dir();
-    if (dir.empty()) return 0;
+    if (dir.empty()) return WipeResult{0, 0, before};
     std::error_code ec;
-    if (!fs::exists(dir, ec)) return 0;
+    if (!fs::exists(dir, ec)) return WipeResult{0, 0, before};
     // Collect first, then delete — deleting during iteration is undefined.
     std::vector<fs::path> victims;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
@@ -597,11 +607,12 @@ std::size_t wipe_all() {
         std::error_code rm;
         if (fs::remove(p, rm) && !rm) ++removed;
     }
-    // The estimate counts bytes written and never bytes removed, so a wipe
-    // leaves it wildly high. Drop it; the next trim_to_cap does a real scan.
     invalidate_cache_size_estimate();
-    return removed;
+    const std::uint64_t after = total_bytes();
+    return WipeResult{removed, before > after ? before - after : 0, after};
 }
+
+std::size_t wipe_all() { return wipe_all_report().files_removed; }
 
 // ---- crash-safe draft / queue persistence --------------------------------
 // A single drafts.json in the active namespace holds every key's in-progress

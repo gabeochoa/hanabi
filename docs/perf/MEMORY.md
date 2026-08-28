@@ -519,6 +519,61 @@ the two `wrap_text` families track the widget high-water mark and
 
 ---
 
+## 9. Transcript memory and cache ownership, reconciled
+
+The three open asks in `todo.md` were stale: the disk transcript cache, the
+five-thread × twenty-message RAM LRU, and worker-thread disk/network reload all
+already existed on current `main`. This pass kept those owners and closed the
+remaining lifetime holes instead of adding another cache.
+
+The ladder now opens real kept tabs, then activates two panes, both find memos,
+the transcript item index, one durable outbox entry, a 64 KB stream buffer with
+128 queued chunks, and cross-session search. The prior ladder used preview tabs,
+so its “N tabs” rung held one tab; those old numbers are retained as a rejected
+baseline rather than presented as comparable evidence.
+
+| opened/switched threads | RSS with full holder set | retained heap | tabs | transcript LRU | pane states | item-index slots |
+|---:|---:|---:|---:|---:|---:|---:|
+| 20 | 51,888 KB | 38,639 KB | 20 | 5 | 22 | 4 |
+| 100 | 52,656 KB | 39,229 KB | 100 | 5 | 64 | 4 |
+| 500 | 53,856 KB | 39,989 KB | 500 | 5 | 64 | 4 |
+
+From 20 to 500 opened tabs, RSS is 1.038× and retained heap is 1.035× while
+the transcript and geometry owners stay at their fixed bounds. The tab entities
+and their id/title strings are the remaining count-linear cost. Closing the
+transient surfaces returns both find memos to zero, the outbox to zero and the
+stream buffer/queue to zero; the item index remains at four slots by design.
+
+| ownership edge | before | after |
+|---|---|---|
+| inactive transcript payloads | already bounded at 5 × 20 messages | unchanged; no duplicate cache |
+| live subscriptions for 500 kept tabs | up to 500 workers/sockets | the existing transcript LRU chooses at most 5 hot subscriptions, visible panes first |
+| cross-session search after Cmd+Shift+F toggles closed | retained every indexed body twice until the next open | releases the corpus on the close transition |
+| disk read crossing a cache wipe | an already-open future could paint the deleted stale transcript | cache epoch rejects the pre-wipe completion |
+| clear-cache feedback | displayed only the next size | displays net bytes actually reclaimed and the remaining size |
+
+`tests/e2e/test_perf.cpp` now uses `CLOCK_THREAD_CPUTIME_ID` for the switch
+path. On this Mac the 160-message disk miss measured **0.5909 ms** when parsed
+synchronously and **0.0091 ms** to dispatch asynchronously, **0.015×** UI-thread
+CPU. Cached switching measured **0.0006 ms** per switch.
+
+A 10,000-frame long `churn` soak opened 844 threads and completed 843 close
+cycles. The fitted slopes were **RSS +0.0 KB/1,000 frames**, **retained heap
+−2.2 KB/1,000**, **heap blocks −6.7/1,000**, and **GPU +0.0 KB/1,000**; the arm
+passed every budget.
+
+`make memory-scaling-gate` runs the 20/100/500 ladder and gates RSS and retained
+heap by the 500/20 ratios, not wall time or absolute shared-box values. It also
+requires the requested tab count, LRU ≤ 5, pane-state store ≤ 64, item-index
+slots ≤ 4, live subscriptions ≤ 5, and zero find/outbox/stream residue after
+those transient surfaces close.
+
+The remaining deliberate costs are the two visible transcript windows,
+user-created tabs, unsent outbox text, and the cross-session search corpus while
+the panel is open. None keeps inactive `Session` or `Message` objects alive.
+
+---
+
 ## How to check a change against this
 
 ```bash

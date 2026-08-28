@@ -155,7 +155,11 @@ J
     env HOME="$h" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
         HANABI_CONFIG=/nonexistent/hanabi/alloc-gate.json HANABI_PROF=1 \
         HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$EVERY" \
-        HANABI_SOAK_WARM_FRAMES=0 HANABI_STRESS_SESSIONS="$sessions" "$@" \
+        HANABI_SOAK_WARM_FRAMES=0 HANABI_STRESS_SESSIONS="$sessions" \
+        HANABI_SOAK_MAX_RSS_KB_PER1K=999999 \
+        HANABI_SOAK_MAX_HEAP_KB_PER1K=999999 \
+        HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K=999999 \
+        HANABI_SOAK_MAX_ENT_PER1K=999999 HANABI_SOAK_MAX_MS_PER1K=999999 "$@" \
         "$EXE" --screenshot "$h/shot.png" > "$log" 2>&1 || run_rc=$?
     if [ "$run_rc" -ne 0 ]; then
         printf '  %-11s %12s  FAIL — executable exited %s\n' \

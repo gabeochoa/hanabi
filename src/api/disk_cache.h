@@ -87,19 +87,23 @@ bool content_matches(const std::string& id, const std::string& lowerQuery);
 // says; content_matches cannot see a write and will otherwise answer from
 // before it. Every writer in this file already does.
 void invalidate_content_index();
+std::uint64_t content_generation();
 
 // --- Introspection / maintenance (for the settings screen) --------------
 // total_bytes(): sum of the byte sizes of every cache file under cache_dir()
 // (sessions.json + every tx_*.json in the ACTIVE namespace). Cheap stat walk,
 // no parsing. 0 when the dir doesn't exist. The settings UI shows this so the
 // user can see how much disk the on-disk transcript cache is using (feature #2).
-std::uint64_t total_bytes();
+struct WipeResult {
+    std::size_t files_removed = 0;
+    std::uint64_t bytes_reclaimed = 0;
+    std::uint64_t bytes_remaining = 0;
+};
 
-// wipe_all(): delete every cache file in the ACTIVE namespace (sessions.json +
-// tx_*.json), so the settings "clear cache" button can reclaim disk + force a
-// cold refetch. Best-effort; returns the number of files removed. Does NOT
-// touch other namespaces or non-cache files.
+std::uint64_t total_bytes();
+WipeResult wipe_all_report();
 std::size_t wipe_all();
+std::uint64_t epoch();
 
 // --- Crash-safe draft / queue persistence (local-first) -----------------
 // WHY: while the user is drafting a prompt (or has queued unsent prompts) a

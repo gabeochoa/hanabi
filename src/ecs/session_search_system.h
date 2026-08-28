@@ -57,6 +57,7 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
             indexed_ = false;
         }
         if (!app->sessionSearchOpen) {
+            if (wasOpen_) release_corpus();
             wasOpen_ = false;
             return;
         }
@@ -84,9 +85,11 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
         // typing rather than stacked on the one that opens the panel. Coverage
         // climbs as they type, and coverage_note is already the sentence that
         // says how far it has got.
-        if (!indexed_) {
+        const std::uint64_t generation = api::disk_cache::content_generation();
+        if (!indexed_ || generation_ != generation) {
             corpus_.begin(collect_rows(*app));
             indexed_ = true;
+            generation_ = generation;
         }
         corpus_.deepen(hanabi::search::kDeepenPerFrame,
                        [](const std::string& id) {
@@ -305,21 +308,21 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
   private:
     hanabi::search::CorpusBuilder corpus_;
     bool indexed_ = false;
+    std::uint64_t generation_ = 0;
     bool wasOpen_ = false;
     int focusFrames_ = 0;
+
+    void release_corpus() {
+        indexed_ = false;
+        generation_ = 0;
+        corpus_ = hanabi::search::CorpusBuilder{};
+    }
 
     void close(AppComponent& app) {
         app.sessionSearchOpen = false;
         app.sessionSearchQuery.clear();
         app.sessionSearchIndex = 0;
-        indexed_ = false;
-        // And drop the corpus. The index holds every indexed body TWICE — the
-        // doc and a pre-lowered copy (session_index.h, Index::add) — so a
-        // panel that has been opened once over a large cache and closed was
-        // holding the app's whole transcript history, doubled, for the life of
-        // the process. It is rebuilt on the next open regardless (indexed_ is
-        // false above), so nothing is lost by letting it go.
-        corpus_ = hanabi::search::CorpusBuilder{};
+        release_corpus();
     }
 
     // Open the thread and hand the query to find-in-conversation, so the match

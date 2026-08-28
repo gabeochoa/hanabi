@@ -26,15 +26,15 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **240** |
-| Distinct numeric gap numbers | **231** (seven numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **250** |
+| Distinct numeric gap numbers | **241** (seven numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **248** — includes 11 index-only identifiers; #366–#373 remain unindexed |
-| Standalone live asks | **141** |
-| Live but subsumed into a family canonical | **53** (§3) |
+| **Rows in the triage table (§6)** | **258** — includes 11 index-only identifiers; #366–#373 remain unindexed |
+| Standalone live asks | **147** |
+| Live but subsumed into a family canonical | **54** (§3) |
 | Already fixed upstream | **9** |
-| Deliberate NEGATIVE results — do not promote | **18** (§4) |
-| hanabi/platform-owned, not afterhours' | **22** |
+| Deliberate NEGATIVE results — do not promote | **21** (§4) |
+| hanabi/platform-owned, not afterhours' | **24** |
 | **Rows explicitly marked wrong** | **5** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
@@ -797,6 +797,16 @@ correction narrows them rather than closing them.
 | 525 | Closed popovers still resolve and retain a UI entity | PERFORMANCE | MED | XS | live |
 | 526 | Synthetic right-click misses direct button polling | MISSING | MED | XS | live |
 | 527 | Secondary controls lack native accessibility semantics | MISSING | HIGH | M | dup→#112/#458 |
+| 580 | No cancellable background-job primitive | MISSING | HIGH | M | live |
+| 581 | No deactivate hook for conditional systems | MISSING | HIGH | S | live |
+| 582 | Transcript payload ownership belongs above the ECS | NOT A GAP | — | — | neg |
+| 583 | Entity pool exposes its retained high-water count | NOT A GAP | — | — | neg |
+| 584 | Text-measure cache is bounded and observable | DUPLICATE | — | — | dup→#340 |
+| 585 | No retained-byte attribution by system/component | MISSING | MED | M | live |
+| 586 | No memory-pressure/cache-purge event | MISSING | MED | M | live |
+| 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live |
+| 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
+| 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
 
 ---
 

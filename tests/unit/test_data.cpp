@@ -9,6 +9,8 @@
 // simple predicate over the same helpers, exercised here without the ECS).
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <unistd.h>
 
@@ -20,6 +22,7 @@
 #include "../../src/api/disk_cache.h"
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
+#include "../../src/ecs/pane_state.h"
 #include "../../src/util/format.h"
 #include "../../src/util/textscan.h"
 #include "../../src/ui/slash_commands.h"
@@ -102,13 +105,33 @@ static void test_disk_cache_total_and_wipe() {
     CHECK(restored && restored->messages.size() == 1);
     CHECK(restored && restored->messages[0].tool_status == "failed");
 
-    // wipe_all removes exactly our cache files (sessions.json + 3 transcripts).
-    std::size_t removed = api::disk_cache::wipe_all();
-    CHECK(removed == 4);
-    CHECK(api::disk_cache::total_bytes() == 0);
-    // After a wipe the transcript is gone (forces a cold refetch).
-    CHECK(!api::disk_cache::load_transcript("sess-a").has_value());
+    api::disk_cache::save_draft("sess-a", "half typed");
+    api::disk_cache::outbox_add("sess-b", "send after restart");
+    {
+        std::ofstream(dir + "/config.json") << "config";
+        std::ofstream(dir + "/token.json") << "token";
+        std::ofstream(dir + "/keep.me") << "owned by someone else";
+        std::ofstream(dir + "/tx_corrupt.json") << "{";
+    }
+    CHECK(!api::disk_cache::load_transcript("corrupt").has_value());
 
+    const std::uint64_t beforeWipe = api::disk_cache::total_bytes();
+    const std::uint64_t epochBefore = api::disk_cache::epoch();
+    const auto wiped = api::disk_cache::wipe_all_report();
+    CHECK(wiped.files_removed == 5);
+    CHECK(wiped.bytes_reclaimed == beforeWipe);
+    CHECK(wiped.bytes_remaining == 0);
+    CHECK(api::disk_cache::total_bytes() == 0);
+    CHECK(api::disk_cache::epoch() != epochBefore);
+    CHECK(!api::disk_cache::load_transcript("sess-a").has_value());
+    CHECK(api::disk_cache::load_draft("sess-a") == "half typed");
+    const auto held = api::disk_cache::outbox_list("sess-b");
+    CHECK(held.size() == 1 && held[0] == "send after restart");
+    CHECK(std::filesystem::exists(dir + "/config.json"));
+    CHECK(std::filesystem::exists(dir + "/token.json"));
+    CHECK(std::filesystem::exists(dir + "/keep.me"));
+
+    std::filesystem::remove_all(dir);
     unsetenv("HANABI_CACHE_DIR");
 }
 
@@ -293,6 +316,60 @@ static void test_content_search_matches_values_not_the_document() {
 
     api::disk_cache::wipe_all();
     unsetenv("HANABI_CACHE_DIR");
+}
+
+static void test_cache_wipe_keeps_visible_panes_and_rejects_old_reads() {
+    std::printf("test_cache_wipe_keeps_visible_panes_and_rejects_old_reads\n");
+    ecs::AppComponent app;
+    api::Session left;
+    left.summary.id = "left";
+    left.messages.push_back(api::Message{"m1", api::Role::User, "draft context"});
+    api::Session right;
+    right.summary.id = "right";
+    right.messages.push_back(api::Message{"m2", api::Role::Assistant, "visible reply"});
+    app.panes[0].selectedId = left.summary.id;
+    app.panes[0].openSession = left;
+    app.panes[0].findOpen = true;
+    app.panes[0].findQuery = "draft";
+    app.panes[1].selectedId = right.summary.id;
+    app.panes[1].openSession = right;
+    app.expandedPiles.insert("tool-pile");
+    app.expandedMsgs.insert("long-message");
+    app.expandedThinking.insert("thinking-message");
+    ecs::model::pane_states().clear();
+    auto& state = ecs::model::pane_states().touch(
+        ecs::model::pane_key(0, left.summary.id));
+    state.replyDraft = "unsent reply";
+    state.unreadComputed = true;
+    state.unreadFirst = 1;
+    state.latch.follow = false;
+    app.transcriptCache.put(left);
+    app.transcriptCache.put(right);
+
+    const std::uint64_t oldEpoch = api::disk_cache::epoch();
+    app.panes[0].diskReadPending = true;
+    app.panes[0].diskReadId = left.summary.id;
+    app.panes[0].diskReadEpoch = oldEpoch;
+    app.clear_transcript_cache();
+    api::disk_cache::wipe_all();
+
+    CHECK(app.transcriptCache.empty());
+    CHECK(app.panes[0].openSession.has_value());
+    CHECK(app.panes[1].openSession.has_value());
+    CHECK(app.panes[0].openSession->messages[0].text == "draft context");
+    CHECK(app.panes[1].openSession->messages[0].text == "visible reply");
+    CHECK(app.panes[0].findOpen && app.panes[0].findQuery == "draft");
+    CHECK(app.expandedPiles.count("tool-pile") == 1);
+    CHECK(app.expandedMsgs.count("long-message") == 1);
+    CHECK(app.expandedThinking.count("thinking-message") == 1);
+    const auto* kept = ecs::model::pane_states().peek(
+        ecs::model::pane_key(0, left.summary.id));
+    CHECK(kept != nullptr && kept->replyDraft == "unsent reply");
+    CHECK(kept != nullptr && kept->unreadComputed && kept->unreadFirst == 1);
+    CHECK(kept != nullptr && !kept->latch.follow);
+    CHECK(!app.panes[0].diskReadPending);
+    CHECK(!app.panes[0].accepts_disk_read("left", oldEpoch,
+                                         api::disk_cache::epoch()));
 }
 
 // --- (2) message-send queue: ordering + per-session draining --------------
@@ -613,6 +690,7 @@ static void test_model_menu() {
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
+    test_cache_wipe_keeps_visible_panes_and_rejects_old_reads();
     test_message_queue_ordering();
     test_sending_for_covers_stream();
     test_newest_n_window();

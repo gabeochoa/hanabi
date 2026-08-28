@@ -45,7 +45,20 @@ def require_red(result: subprocess.CompletedProcess[str], label: str) -> None:
     raise SystemExit(1)
 
 
+def vendor_revision() -> subprocess.CompletedProcess[str]:
+    if (VENDOR / ".hg").exists():
+        return run(["sl", "log", "-r", ".", "-T", "{node}\\n"], cwd=VENDOR)
+    return run(["git", "rev-parse", "HEAD"], cwd=VENDOR)
+
+
 def export_base(destination: Path) -> None:
+    if (VENDOR / ".hg").exists():
+        shutil.copytree(
+            VENDOR,
+            destination,
+            ignore=shutil.ignore_patterns(".hg", ".git"),
+        )
+        return
     destination.mkdir(parents=True)
     archive = subprocess.Popen(
         ["git", "-C", str(VENDOR), "archive", BASE], stdout=subprocess.PIPE
@@ -153,7 +166,7 @@ def verify_patch(temp: Path, base_tree: Path, contract: Path, patch_name: str, k
 
 
 def main() -> int:
-    actual = run(["git", "rev-parse", "HEAD"], cwd=VENDOR)
+    actual = vendor_revision()
     require_ok(actual, "read vendor revision")
     if actual.stdout.strip() != BASE:
         sys.stderr.write(f"vendor revision is {actual.stdout.strip()}, expected {BASE}\n")

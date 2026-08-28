@@ -685,6 +685,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) soak-gate
 	@$(MAKE) alloc-gate
 	@$(MAKE) scaling-gate
+	@$(MAKE) memory-scaling-gate
 	@$(MAKE) scroll-gate
 	@$(MAKE) retire-gate
 	@$(MAKE) digest-gate
@@ -712,6 +713,10 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 #                      the RATIO between them, never on an absolute
 #                      millisecond figure — this box is shared, and an
 #                      absolute would flake. In `make test`.
+#   make memory-scaling-gate ~90 s. Opens and switches 20, 100 and 500 kept
+#                      tabs, then adds two panes, find, the item index, outbox
+#                      and streaming state. Gates retained-byte/RSS ratios and
+#                      exact cache counts, never elapsed wall time. In `make test`.
 #   make scroll-gate   ~6 s.  The sidebar's list EXPANDED and swept, which is
 #                      what the bug report described. Two arms: the entity
 #                      count must not track the catalog (the level), and the
@@ -756,6 +761,9 @@ soak-gate: $(MAIN_EXE) copy-resources
 
 scaling-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scaling_gate.sh
+
+memory-scaling-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/memory_scaling_gate.sh
 
 scroll-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scroll_gate.sh
@@ -865,7 +873,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	if bash scripts/measure_launch.sh --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
-.PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate scroll-gate \
+.PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate memory-scaling-gate scroll-gate \
 	retire-gate alloc-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke

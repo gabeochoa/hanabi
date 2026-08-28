@@ -694,11 +694,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_cache_row"));
 
-        // Current on-disk usage (cheap stat walk of the active namespace).
-        const std::string usage = human_bytes(api::disk_cache::total_bytes());
+        const std::uint64_t bytes = api::disk_cache::total_bytes();
+        std::string usage = human_bytes(bytes) + " on disk";
+        if (app.cacheWipeReported)
+            usage += " · " + human_bytes(app.cacheWipeReclaimedBytes) +
+                     " reclaimed";
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_label(usage + " on disk")
+                .with_label(usage)
                 .with_size(ComponentSize{children(), pixels(20)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
@@ -723,7 +726,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.35f)
                 .with_debug_name("settings_cache_clear"));
         if (clear) {
-            api::disk_cache::wipe_all();
+            app.clear_transcript_cache();
+            const auto result = api::disk_cache::wipe_all_report();
+            app.cacheWipeReclaimedBytes = result.bytes_reclaimed;
+            app.cacheWipeReported = true;
         }
     }
 

@@ -179,6 +179,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 if (disk_cache_enabled(app)) {
                     pane.diskReadPending = true;
                     pane.diskReadId = id;
+                    pane.diskReadEpoch = api::disk_cache::epoch();
                     pane.diskReadFuture = std::async(std::launch::async, [id] {
                         return api::disk_cache::load_transcript(id);
                     });
@@ -204,7 +205,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             auto disk = pane.diskReadFuture.get();
             pane.diskReadPending = false;
             pane.diskReadId.clear();
-            if (disk && pane.selectedId == completedId &&
+            const std::uint64_t completedEpoch = pane.diskReadEpoch;
+            pane.diskReadEpoch = 0;
+            if (disk && pane.accepts_disk_read(
+                            completedId, completedEpoch,
+                            api::disk_cache::epoch()) &&
                 disk->summary.id == completedId &&
                 // Don't clobber a fresh network result that already landed.
                 pane.transcriptState != LoadState::Loaded) {
@@ -1234,13 +1239,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // already bound to this id. The subscription's worker callback ONLY flips
     // the atomic eventRefetch flag — it never touches the ECS, so it's safe to
     // fire from another thread; the loader services it on the UI-poll thread.
-    // Keep the live-subscription POOL in sync with the OPEN TABS: open a
-    // subscription for any open tab that lacks one, and reap (off the UI
-    // thread) any subscription whose tab has closed. So every open thread keeps
-    // live-reading in the background — its fresh transcript is written to disk
-    // by drive_live_events — and switching tabs shows already-fresh content.
-    // Bounded by the number of open tabs (the user controls that). No-op when
-    // the backend doesn't support events (mock / unconfigured http).
+    // Keep the live-subscription pool in sync with the existing transcript LRU.
+    // Visible panes are admitted first, then recently used open tabs. Cold tabs
+    // stay durable on disk and take the existing async reload path when opened.
+    // The same five-thread bound therefore owns transcript RAM and live workers;
+    // there is no second recency policy to drift.
     void sync_subscriptions(AppComponent& app) {
         if (!app.client || !app.client->supports_events()) {
             // Backend can't stream: drop any stale pool (e.g. after a backend
@@ -1254,7 +1257,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // when you opened it, and holding a live subscription open behind every
         // row you glanced at is exactly the cost the preview is there to avoid.
         // Keeping the tab (a second click) subscribes it on the next tick.
-        std::set<std::string> openIds;
+        std::set<std::string> keptOpenIds;
         bool selectedIsPreview = false;
         if (auto* strip = find_singleton<TabStripComponent>()) {
             for (auto tabId : strip->tabOrder) {
@@ -1267,15 +1270,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             selectedIsPreview = true;
                         continue;
                     }
-                    openIds.insert(tab.sessionId);
+                    keptOpenIds.insert(tab.sessionId);
                 }
             }
         }
-        // Always keep the focused thread subscribed even if (transiently) it
-        // has no tab entity yet — unless the tab it does have is a preview,
-        // which would put the live stream back behind the frozen one.
         if (!app.pane().selectedId.empty() && !selectedIsPreview)
-            openIds.insert(app.pane().selectedId);
+            keptOpenIds.insert(app.pane().selectedId);
+
+        std::vector<std::string> visible;
+        visible.reserve(app.active_pane_count());
+        for (std::size_t i = 0; i < app.active_pane_count(); ++i)
+            visible.push_back(app.panes[i].selectedId);
+        const auto hot = app.transcriptCache.live_hot_set(keptOpenIds, visible);
+        std::set<std::string> openIds(hot.begin(), hot.end());
 
         // Reap subscriptions whose tab closed (detach so stop()/join is off the
         // UI thread — the blocking SSE read can sit up to the read timeout).

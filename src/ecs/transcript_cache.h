@@ -20,11 +20,14 @@
 // authoritative (no revalidation needed). The seam is `stale()` / a future
 // revalidation hook; we don't over-build it here.
 
+#include <algorithm>
 #include <cstddef>
 #include <list>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "../api/types.h"
 
@@ -104,6 +107,23 @@ class TranscriptCache {
     void touch(const std::string& id) {
         auto it = map_.find(id);
         if (it != map_.end()) touch_locked(it);
+    }
+
+    std::vector<std::string> live_hot_set(
+        const std::set<std::string>& open,
+        const std::vector<std::string>& visible) const {
+        std::vector<std::string> out;
+        out.reserve(kCacheMaxThreads);
+        const auto add = [&](const std::string& id) {
+            if (id.empty() || open.count(id) == 0 ||
+                std::find(out.begin(), out.end(), id) != out.end() ||
+                out.size() >= kCacheMaxThreads)
+                return;
+            out.push_back(id);
+        };
+        for (const auto& id : visible) add(id);
+        for (const auto& id : order_) add(id);
+        return out;
     }
 
     std::size_t size() const { return map_.size(); }
