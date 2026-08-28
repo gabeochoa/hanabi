@@ -841,6 +841,11 @@ void native_filedrop_install(void) {
     }
 }
 
+bool native_dropped_image_pending(void) {
+    std::lock_guard<std::mutex> lk(g_drop_mu);
+    return !g_pending_drops.empty();
+}
+
 bool native_take_dropped_image(char* out, int cap) {
     if (out == nullptr || cap <= 0) return false;
     std::string path;
