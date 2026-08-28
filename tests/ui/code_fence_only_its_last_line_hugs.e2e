@@ -31,8 +31,8 @@ require_thread r9
 
 assert_ui code_block hidden=false
 
-# The LAST line hugs: 42px of surface for seven mono glyphs.
-assert_ui_text "exit 65" w=42
+# The LAST line hugs: 48px of surface for seven mono glyphs.
+assert_ui_text "exit 65" w=48
 
 # Every line before it does not. 638 is the block's content width -- the same
 # number whatever the line says -- and it is fifteen times the last line's.

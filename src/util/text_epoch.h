@@ -3,16 +3,12 @@
 // ---------------------------------------------------------------------------
 // The generation counter every text memo has to watch.
 //
-// THE BUG THIS EXISTS FOR. hanabi lets the reader pick a font -- Settings ->
-// Standard / Hyperlegible -- and applying it swaps the FACE loaded under
-// afterhours' `UIComponent::DEFAULT_FONT`:
-//
-//     fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT, path);
-//
-// The handle does not change. The name does not change. The size does not
-// change. Every measurement of every string is now different, and every cache
-// keyed by (text, font NAME, size) still holds the old numbers and is certain
-// they are current -- there is no input to any of those keys that moved.
+// THE BUG THIS EXISTS FOR. Hanabi can replace the face and emphasis mapping
+// behind afterhours' `UIComponent::DEFAULT_FONT` through the font-system
+// settings. The handle does not change. The name does not change. The size does
+// not change. Every measurement of every string can now be different, and every
+// cache keyed by (text, font NAME, size) still holds the old numbers and is
+// certain they are current — there is no input to any of those keys that moved.
 //
 // That is four caches in this app: the transcript's per-message render memo,
 // its hug memo, the sidebar's ellipsis memo and the line-count memo, plus

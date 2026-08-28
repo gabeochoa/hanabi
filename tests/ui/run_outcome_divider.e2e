@@ -20,8 +20,8 @@ expect_text "That is the Autograph key"
 expect_text "failed"
 
 # Centred in the reading column, with a rule either side. The label box is the
-# word plus 8px of Puffin's HStack spacing a side (21 + 16 = 37); the rules take
+# word plus 8px of Puffin's HStack spacing a side (24 + 16 = 40); the rules take
 # half of what is left each, so the three add up to the column and the word
 # sits on its centre line.
 assert_ui run_outcome_divider w=736 h=22
-assert_ui run_outcome_label w=37
+assert_ui run_outcome_label w=40

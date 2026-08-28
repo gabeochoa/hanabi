@@ -10,6 +10,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -22,6 +23,18 @@ namespace hanabi {
 // The two send-key choices, as they are written into settings.json.
 inline constexpr const char* kSendKeyReturn = "return";
 inline constexpr const char* kSendKeyCmdReturn = "cmd-return";
+
+inline std::string normalize_font_choice(std::string_view value) {
+    if (value == "hyperlegible" || value == "system" || value == "optimistic")
+        return std::string(value);
+    return "default";
+}
+
+inline std::string normalize_font_weight(std::string_view value) {
+    if (value == "medium" || value == "semibold" || value == "bold")
+        return std::string(value);
+    return "regular";
+}
 
 // What an Enter keypress MEANS, given the configured send key and whether Cmd
 // was held at the moment of the press. This is the whole of the decision, in
@@ -117,13 +130,12 @@ struct Settings {
     const std::string& get_theme() const;
     void set_theme(const std::string& mode);
 
-    // UI font choice: "default" (Roboto, default) or "hyperlegible" (Atkinson
-    // Hyperlegible). Client-local only — NOT an API preference; the web app has
-    // no font field in PUT /api/user/preferences (theme + font are both purely
-    // client-side). Persisted like theme so a choice survives relaunch.
-    // Auto-persists (mirrors set_theme).
+    // UI font family and emphasis weight. Client-local only; persisted like
+    // theme so both survive relaunch.
     const std::string& get_font_choice() const;
     void set_font_choice(const std::string& font);  // auto-persists
+    const std::string& get_font_weight() const;
+    void set_font_weight(const std::string& weight);
 
     // Custom colours: which NAMED swatch the accent family and the find
     // highlight use ("default" = the palette's own colour). A key, not a hex
@@ -353,6 +365,7 @@ struct Settings {
         hanabi::shortcuts::Shortcut shortcut);
     void reset_shortcuts();
     std::uint64_t shortcut_revision() const;
+    std::uint64_t font_revision() const;
 
     // ── Backend-sync bookkeeping. Any preference change flips settings_dirty_;
     // the loader debounces + pushes to the backend (best-effort) via
@@ -379,6 +392,7 @@ struct Settings {
     int split_focused_pane_ = 0;
     std::string split_panes_[2];
     std::string font_choice_ = "default";
+    std::string font_weight_ = "regular";
     std::string accent_choice_ = "default";
     std::string highlight_choice_ = "default";
     std::string export_dir_;  // empty = the built-in default
@@ -425,6 +439,7 @@ struct Settings {
                hanabi::shortcuts::kDefinitions.size()>
         custom_shortcuts_{};
     std::uint64_t shortcut_revision_ = 0;
+    std::uint64_t font_revision_ = 0;
     // In-memory only: set on any preference change, cleared by the loader
     // after a successful (or best-effort) backend push.
     bool settings_dirty_ = false;

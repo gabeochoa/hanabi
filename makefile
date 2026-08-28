@@ -47,7 +47,7 @@ ifeq ($(UNAME_S),Darwin)
     CXX := $(CCACHE) clang++
     EXT := .exe
     FRAMEWORKS := -framework CoreFoundation -framework CoreServices \
-        -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore \
+        -framework CoreText -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore \
         -framework Carbon -framework CoreSpotlight -framework UniformTypeIdentifiers \
         -framework UserNotifications
 else ifeq ($(OS),Windows_NT)
@@ -639,7 +639,7 @@ test-agentcloud-local: $(TEST_DIR)/test_agentcloud_local
 $(TEST_DIR)/test_native_extras: tests/unit/test_native_extras.mm src/native_extras.mm src/native_extras.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_native_extras..."
 	$(CXX) -ObjC++ $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_native_extras.mm \
-		src/native_extras.mm -framework AppKit -framework Carbon -framework CoreSpotlight \
+		src/native_extras.mm -framework AppKit -framework Carbon -framework CoreText -framework CoreSpotlight \
 		-framework UniformTypeIdentifiers -framework UserNotifications -framework MetalKit -o $@
 
 $(TEST_DIR)/test_spotlight_catalog: tests/unit/test_spotlight_catalog.cpp src/util/spotlight_catalog.h $(TEST_HDRS) | $(TEST_DIR)

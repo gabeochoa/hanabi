@@ -4202,7 +4202,7 @@ CLASS: FOOTGUN
 
 ---
 
-### #77 — There is no bold face bundled (the "fails silently" half is FIXED)
+### #77 — Weight loading works; Hanabi had no safe source for the face bytes
 
 **Correction, measured on the pinned submodule (428047e), feat/bold-face.**
 The "fails silently" half of this entry is stale. `resolve_weighted` calls
@@ -4277,9 +4277,9 @@ CLASS: WORKAROUND
 
 
 
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry correctly calls out that its original silent-failure half is stale; under the allowed source scope there are no live with_font_weight call sites.
+**POSTSCRIPT 2026-08-28 (font-system audit).** The resource statement remains true and is no longer the product blocker. Hanabi now resolves installed Roboto, Atkinson Hyperlegible, SF Pro Text, and Optimistic weight files through CoreText, loads them under afterhours' existing weighted-name convention, and deterministically falls back to the bundled regular faces for headless tests or missing files. No font binary was added. Current call sites use `with_font_weight` for chrome headings and the active tab; the transcript remains regular.
 
-**Hanabi reference.** Current code: `docs/visual-parity/FRICTION_LOG.md` (`resolve_weighted has called warn_once`) — records that the silent-fallback subclaim was fixed upstream and the current issue is asset availability/metric fit. `src/ecs/sidebar_system.h` (`The reference also draws it semibold; that half is gap #77 and not available to us`) — current source still treats semibold as unavailable for selected view labels. Measurement/gate: `docs/visual-parity/FRICTION_LOG.md` (`Bold / semibold face (feat/bold-face)`) — contains the measured regular-vs-semibold comparison and warning correction.
+**Hanabi reference.** `src/native_extras.mm::native_font_faces`, `src/ui/font_system.cpp::apply`, and `tests/ui/system_font_and_weight_picker.e2e`. Measurements and fallback limits: `docs/font-system-audit.md`.
 
 ---
 
@@ -4416,7 +4416,7 @@ The class drops from WORKAROUND to a live but much smaller ask: make the
 ellipsis path use the same measure and the same inset as everything else.
 Verified by reading the vendored source, not by running it.
 
-### #82 — Text cannot be measured at a weight, so every weighted string is ellipsized against the wrong metrics
+### #82 — App-side global advance measurement cannot name a weight; renderer measurement can
 
 **What was wanted.** Ellipsize a semibold session-list title to its column.
 `fit_to_width` (see #79) already does this for regular text by measuring the
@@ -4451,13 +4451,9 @@ registered, at which point every measured-and-ellipsized string in the app is
 silently wrong at once. The three existing measure-per-frame sites in hanabi all
 inherit it.
 
-**Workaround.** None taken. Correct would be to thread the weight to every
-`theme::text_px` call site and have that helper resolve a weighted `Font`
-through the FontManager singleton, which means `theme.h` — a pure colour/size
-header — acquiring an ECS dependency.
+**Correction 2026-08-28.** Current immediate and batched renderers resolve the component or span weight before both measurement and drawing, so the claim about every weighted string is stale. The remaining gap is narrower: `measure_text_internal(text, size)` has no font/weight parameter and uses the backend global, so app-owned advance measurement needs its own explicit-face seam (#574).
 
-
-**Hanabi reference.** None — no app-side workaround is implemented.
+**Hanabi reference.** `src/ui/font_system.cpp::measure_advance` resolves the requested weighted `Font` before measuring. `src/ui/theme.h::text_px` carries weight in both the resolver and bounded cache key.
 
 
 **Minimal upstream fix.** Give `measure_text_internal` a
@@ -4677,12 +4673,12 @@ anywhere. The app now owns a second implementation of the layout engine's most
 subtle function, and cannot stop owning it.
 
 Pinned by `tests/ui/user_turn_hugs_the_right_edge.e2e`, which asserts the
-bubble's computed width is its text's (412) and not the cap (644) or the column
+bubble's computed width is its text's (460) and not the cap (644) or the column
 (736) — because a hand-computed literal is exactly the kind of number that rots
 without a test.
 
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`UserBox user_box`) — computes user bubble width from wrapped text and cap in app code. `src/ecs/transcript_render_cache.h` (`user_box() asks at the bubble's MAXIMUM text width`) — documents the two-width memoization shape caused by app-side hug measurement. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`assert_ui user_bubble x=646 w=412 h=35`) — pins a right-aligned shrink-to-fit user bubble rather than a cap-width or column-width bubble.
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`UserBox user_box`) — computes user bubble width from wrapped text and cap in app code. `src/ecs/transcript_render_cache.h` (`user_box() asks at the bubble's MAXIMUM text width`) — documents the two-width memoization shape caused by app-side hug measurement. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`assert_ui user_bubble x=598 w=460 h=35`) — pins a right-aligned shrink-to-fit user bubble rather than a cap-width or column-width bubble.
 
 
 **Minimal upstream fix.** Give `get_text_size_for_axis` the max constraint that
@@ -8158,7 +8154,7 @@ visible, and it gets worse in exactly the direction every app moves — more
 measurement memoized, for longer.
 
 
-**Hanabi reference.** `src/util/text_epoch.h::bump_font_epoch()` — Hanabi maintains its own font generation counter when a font name's face changes. `src/ecs/settings_system.h::tmc->clear()` — The settings font swap bumps the app epoch and clears afterhours' TextMeasureCache. Measurement/gate: `docs/perf/TEXT.md` (`live swap and a cold start in Hyperlegible produce frames 0.02% apart`) — The perf report records that the stale-cache fix is correctness-driven despite minimal visible pixel difference on fixtures.
+**Hanabi reference.** `src/util/text_epoch.h::bump_font_epoch()` — Hanabi maintains its own font generation counter when a font name's face changes. `src/ui/font_system.cpp::apply` bumps the app epoch and clears afterhours' TextMeasureCache for family and emphasis changes. Measurement/gate: `docs/font-system-audit.md` records the selected-face advance/ink checks and fallback matrix.
 
 
 **Minimal upstream fix.** A generation counter on `FontManager`, bumped by
@@ -14238,6 +14234,103 @@ CLASS: TEDIOUS / APP WORKAROUND
 
 ---
 
+### #570 — A fontstash size is not a native point size
+
+At 13, fontstash reports a 13.0 logical-pixel line for every face. CoreText reports 15.234 for Roboto, 16.120 for Atkinson Hyperlegible, 15.514 for SF Pro Text, and 16.750 for Optimistic. The role values were right; the face-specific point conversion was missing.
+
+**Hanabi reference.** `src/ui/theme.h::type::set_point_scale` converts the point tokens without scaling layout geometry. `src/ui/font_system.cpp::apply` supplies the selected face's ratio. Measurements: `docs/font-system-audit.md`.
+
+CLASS: MISSING / WORKAROUND
+
+---
+
+### #571 — afterhours has no installed-font catalog
+
+`FontManager` loads a path but cannot list installed families, resolve a PostScript face, or discover weight files. A desktop app otherwise has to bundle every selectable face.
+
+**Hanabi reference.** `src/native_extras.mm::native_font_faces` resolves a bounded allowlist through CoreText behind the app's ObjC++ seam. No font binary was added.
+
+CLASS: MISSING
+
+---
+
+### #572 — Path-only loading cannot select a face inside a collection
+
+The macOS system descriptor maps regular through bold to one `SFNS.ttf` path. `load_font_from_file` accepts no collection face index or PostScript name, so those requests would select the same face.
+
+**Hanabi reference.** `src/native_extras.mm` offers System only when separate `SFProText-*.otf` paths resolve; otherwise the app falls back to bundled Roboto.
+
+CLASS: MISSING / FOOTGUN
+
+---
+
+### #573 — `FontManager::load_font` stores failure as a valid-looking key
+
+The backend logs a failed `fonsAddFont`, but `load_font` returns the manager and stores `FONS_INVALID`. A later map lookup succeeds and the failure appears only at render time.
+
+**Hanabi reference.** `src/ui/font_system.cpp::load_face` checks `is_font_loaded` after registration and falls back deterministically.
+
+CLASS: FOOTGUN
+
+---
+
+### #574 — `measure_text_internal` ignores `FontManager::active_font`
+
+It always sets the backend-global `g_active_font`, which is initialized by the first successful load and is not changed by `FontManager::set_active` or by replacing `FontManager["__default"]`. A live face switch can draw one face and measure another.
+
+**Hanabi reference.** `src/ui/font_system.cpp::measure_advance` resolves the selected default and weight, sets that explicit font ID, and returns pen advance. `src/ui/theme.h::text_px` uses it.
+
+CLASS: FOOTGUN / CRITICAL
+
+---
+
+### #575 — Advance and ink bounds are different answers under similar APIs
+
+At point-correct 13-point samples, fontstash's ink width was 1-2 logical pixels wider than pen advance. `measure_text_internal` returns advance; `measure_text` discards it and computes `bounds[2]-bounds[0]`. Layout needs advance and density analysis needs ink.
+
+**Hanabi reference.** `src/ui/font_system.cpp::measure_advance` keeps advance semantics. `docs/font-system-audit.md` reports both numbers. This narrows #137.
+
+CLASS: DUPLICATE → #137
+
+---
+
+### #576 — Weighted renderer measurement already works
+
+The pinned vendor resolves `<base>@<weight>` in `FontManager::resolve_weighted`, and both renderers select that face before measuring and drawing. The broad #82 claim is stale; only app code calling `measure_text_internal` directly has that failure.
+
+**Hanabi reference.** `src/ecs/tab_bar_system.h` and `src/ecs/settings_system.h` use `with_font_weight` after `src/ui/font_system.cpp` registers the emphasis alias.
+
+CLASS: NOT A GAP; CORRECTS #82
+
+---
+
+### #577 — Loaded font IDs cannot be unloaded and cap at sixteen
+
+The sokol backend appends successful loads to `g_font_ids[MAX_FONTS]`; `FontManager` has no unload or replacement-aware registration API. Re-loading on every picker change grows renderer state.
+
+**Hanabi reference.** `src/ui/font_system.cpp` loads each family/weight under one stable name, aliases existing `Font` values on switches, and statically bounds the reachable set at 14.
+
+CLASS: PERFORMANCE / FOOTGUN
+
+---
+
+### #578 — Headless 2x layout zoom is not Retina rasterization
+
+Windowed text multiplies fontstash size by `sapp_dpi_scale()` and scales the draw matrix back. Headless hardcodes `dpi_scale()` to 1; `HANABI_UI_SCALE=2` doubles adaptive layout before downsampling. On the matched System Bold frame, 1x and 2x differed in 10.64% of pixels and the 2x sidebar score worsened from 12.73% to 14.75%.
+
+**Hanabi reference.** `src/test_hooks.h::ui_scale`, `scripts/shoot_hanabi.sh`, and `docs/font-system-audit.md`. This is the font-specific measurement of #101.
+
+CLASS: DUPLICATE → #101
+
+---
+
+### #579 — A font replacement has no generation in the measurement cache key
+
+`TextMeasureCache` keys text, font name, size, and spacing. Replacing a face under the same name moves none of them, and visible strings never age out because hits refresh their generation.
+
+**Hanabi reference.** `src/util/text_epoch.h`, `src/util/text_cache.h`, and `src/ui/font_system.cpp::apply` bump the app epoch and clear afterhours' cache after every effective family or emphasis change. This completes Hanabi's workaround for #190.
+
+CLASS: DUPLICATE → #190
 ### #580 — The system manager has no cancellable background-job primitive
 
 **Exact afterhours mechanism.** `SystemManager` owns three vectors of synchronous

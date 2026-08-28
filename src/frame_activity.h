@@ -101,18 +101,21 @@ struct FrameDecision {
 class FrameActivityTransitions {
   public:
     FrameSignals observe(bool search_open, std::uint64_t cache_epoch,
-                         std::uint64_t shortcut_revision = 0) {
+                         std::uint64_t shortcut_revision = 0,
+                         std::uint64_t font_revision = 0) {
         FrameSignals signals;
         signals.animation = search_open;
         if (initialized_) {
             signals.state_request = (search_open_ && !search_open) ||
                                     cache_epoch_ != cache_epoch ||
-                                    shortcut_revision_ != shortcut_revision;
+                                    shortcut_revision_ != shortcut_revision ||
+                                    font_revision_ != font_revision;
         }
         initialized_ = true;
         search_open_ = search_open;
         cache_epoch_ = cache_epoch;
         shortcut_revision_ = shortcut_revision;
+        font_revision_ = font_revision;
         return signals;
     }
 
@@ -121,6 +124,7 @@ class FrameActivityTransitions {
     bool search_open_ = false;
     std::uint64_t cache_epoch_ = 0;
     std::uint64_t shortcut_revision_ = 0;
+    std::uint64_t font_revision_ = 0;
 };
 
 class FrameActivityPolicy {

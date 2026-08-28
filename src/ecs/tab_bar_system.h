@@ -481,6 +481,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                           .right = pixels(0)})
                     .with_custom_text_color(txt)
                     .with_font_size(theme::type::ROW)
+                    .with_font_weight(
+                        isActive ? theme::type::EMPHASIS
+                                 : afterhours::colors::FontWeight::Regular)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_render_layer(baseLayer)

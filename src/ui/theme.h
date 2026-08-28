@@ -14,6 +14,7 @@
 #include "../util/atlas_guard.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
+#include "font_system.h"
 #include <afterhours/src/drawing_helpers.h>
 
 #include <bitset>
@@ -570,26 +571,56 @@ inline Color scrim() { return Color{0, 0, 0, 140}; }
 }  // namespace theme
 
 // ---------------------------------------------------------------------------
-// Typography — the ALLOWED font-size scale (docs/spec-metrics.md "Type scale").
-// Every with_font_size(<px>) in the systems must use one of these named sizes,
-// so a size is defined once here instead of repeated as a raw float literal and
-// so we never "invent" an off-scale size. Values match the spec exactly.
+// Typography — the allowed native point-size ramp. The role values match the
+// product spec; set_point_scale converts them to the selected face's fontstash
+// pixel height without changing layout geometry.
 namespace theme {
 namespace type {
-constexpr float H1 = 20.0f;          // smart-view h1
-constexpr float SPOTLIGHT = 17.0f;   // spotlight/kickoff input
-constexpr float LG = 14.0f;          // transcript h2 / large labels
-constexpr float TITLE = 13.5f;       // digest card title
-constexpr float BODY = 13.0f;        // smart-view row label
-constexpr float ROW = 12.5f;         // thread-row title, tab label
-constexpr float LIST_ROW = 13.0f;   // navigation/session row title
-constexpr float MD = 12.0f;          // folder name, section body
-constexpr float SUBROW = 11.5f;      // sub-agent sub-row title
-constexpr float SM = 11.0f;          // counts, status bar, sub-labels
-constexpr float LABEL = 10.5f;       // section labels (VIEWS/FOLDERS)
-constexpr float XS = 10.0f;          // smallest body
-constexpr float CHIP = 9.5f;         // tag chip text
-constexpr float MICRO = 9.0f;        // glyph-adjacent micro text
+constexpr float H1_PT = 20.0f;
+constexpr float SPOTLIGHT_PT = 17.0f;
+constexpr float LG_PT = 14.0f;
+constexpr float TITLE_PT = 13.5f;
+constexpr float BODY_PT = 13.0f;
+constexpr float ROW_PT = 12.5f;
+constexpr float LIST_ROW_PT = 13.0f;
+constexpr float MD_PT = 12.0f;
+constexpr float SUBROW_PT = 11.5f;
+constexpr float SM_PT = 11.0f;
+constexpr float LABEL_PT = 10.5f;
+constexpr float XS_PT = 10.0f;
+constexpr float CHIP_PT = 9.5f;
+constexpr float MICRO_PT = 9.0f;
+inline float H1 = H1_PT;
+inline float SPOTLIGHT = SPOTLIGHT_PT;
+inline float LG = LG_PT;
+inline float TITLE = TITLE_PT;
+inline float BODY = BODY_PT;
+inline float ROW = ROW_PT;
+inline float LIST_ROW = LIST_ROW_PT;
+inline float MD = MD_PT;
+inline float SUBROW = SUBROW_PT;
+inline float SM = SM_PT;
+inline float LABEL = LABEL_PT;
+inline float XS = XS_PT;
+inline float CHIP = CHIP_PT;
+inline float MICRO = MICRO_PT;
+constexpr auto EMPHASIS = afterhours::colors::FontWeight::SemiBold;
+inline void set_point_scale(float scale) {
+    H1 = H1_PT * scale;
+    SPOTLIGHT = SPOTLIGHT_PT * scale;
+    LG = LG_PT * scale;
+    TITLE = TITLE_PT * scale;
+    BODY = BODY_PT * scale;
+    ROW = ROW_PT * scale;
+    LIST_ROW = LIST_ROW_PT * scale;
+    MD = MD_PT * scale;
+    SUBROW = SUBROW_PT * scale;
+    SM = SM_PT * scale;
+    LABEL = LABEL_PT * scale;
+    XS = XS_PT * scale;
+    CHIP = CHIP_PT * scale;
+    MICRO = MICRO_PT * scale;
+}
 }  // namespace type
 
 namespace chrome {
@@ -648,44 +679,33 @@ inline Color attention_fill(Color backdrop) {
 // the text, and the status activity dot floated in the gutter left of the
 // count. Falls back to a conservative per-glyph estimate only if the font
 // context isn't ready yet (very first frame / headless before font load).
-inline float text_px(const char* s, float px) {
+inline float text_px(
+    const char* s, float px,
+    afterhours::colors::FontWeight weight =
+        afterhours::colors::FontWeight::Regular) {
     if (!s || !*s) return 0.0f;
-    // MEASURED, MEMOIZED, AND NOT THE LIBRARY'S CACHE -- afterhours_gaps.md
-    // #137. afterhours ships a TextMeasureCache wired up as a singleton, and
-    // it is unusable from here: it caches `measure_text`, which returns the
-    // INK BOUNDING BOX, while this returns `measure_text_internal`, the pen
-    // ADVANCE. Probed in-app on the same string in the same frame the two
-    // differ by 2 px, consistently, and the advance is the number every
-    // layout constant in this app was tuned against -- so routing through the
-    // shared cache widens every hugged bubble by two pixels, which against a
-    // frozen pixel reference is a regression rather than an optimisation.
-    //
-    // So the app keeps its own, over its own semantics. Bounded (LRU, see
-    // src/util/text_cache.h) and dropped when the face behind DEFAULT_FONT
-    // changes, which is the failure mode a measurement memo has and a
-    // measurement call does not.
-    //
-    // The fallback below is deliberately NOT cached: it fires before the font
-    // context exists, and one bad frame's estimates would otherwise be served
-    // for the life of the process.
     constexpr std::size_t kAdvanceEntries = 1024;
     static hanabi::text::TextKeyCache<float> memo(kAdvanceEntries);
-    if (const float* hit = memo.find(s, px, 0.0f)) {
+    const float weightKey = static_cast<float>(static_cast<int>(weight));
+    if (const float* hit = memo.find(s, px, weightKey)) {
         hanabi::prof::tick("cache.advance_hit");
         return *hit;
     }
     hanabi::prof::tick("text.text_px_uncached");
-    float w = hanabi::atlas::check(s, px, afterhours::measure_text_internal(s, px));
+    float w = hanabi::atlas::check(
+        s, px, hanabi::fonts::measure_advance(s, px, weight));
     if (w > 0.0f) {
-        memo.put(s, px, 0.0f, w);
+        memo.put(s, px, weightKey, w);
         hanabi::prof::gauge("cache.advance_entries", memo.size());
         return w;
     }
-    // Fallback: ~0.5em per glyph (only hit before the font context exists).
     return static_cast<float>(std::char_traits<char>::length(s)) * px * 0.5f;
 }
-inline float text_px(const std::string& s, float px) {
-    return text_px(s.c_str(), px);
+inline float text_px(
+    const std::string& s, float px,
+    afterhours::colors::FontWeight weight =
+        afterhours::colors::FontWeight::Regular) {
+    return text_px(s.c_str(), px, weight);
 }
 
 // The one shared corner radius for chat surfaces (user prompt bubble + tool

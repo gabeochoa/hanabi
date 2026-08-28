@@ -174,9 +174,16 @@ static void lazy_cache_and_search_transitions_wake() {
     CHECK(cacheWiped.state_request);
     CHECK(!transitions.observe(false, 8, 0).state_request);
 
-    auto shortcutChanged = transitions.observe(false, 8, 1);
+    auto shortcutChanged = transitions.observe(false, 8, 1, 0);
     CHECK(shortcutChanged.state_request);
-    CHECK(!transitions.observe(false, 8, 1).state_request);
+    CHECK(!transitions.observe(false, 8, 1, 0).state_request);
+
+    auto fontChanged = transitions.observe(false, 8, 1, 1);
+    CHECK(fontChanged.state_request);
+    FrameActivityPolicy fontPolicy;
+    fontPolicy.rendered(0);
+    CHECK(fontPolicy.decide(8333, fontChanged).render);
+    CHECK(!transitions.observe(false, 8, 1, 1).state_request);
 }
 
 static void lifecycle_transitions_wake_without_idle_delay() {

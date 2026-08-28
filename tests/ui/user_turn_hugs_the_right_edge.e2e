@@ -6,12 +6,12 @@
 # have to hold at once and any one of them can rot on its own.
 #
 #   1. RIGHT-ALIGNED. The bubble's right edge is the column's right edge:
-#      646 + 412 == 322 + 736 == 1058. This is the whole of what
+#      598 + 460 == 322 + 736 == 1058. This is the whole of what
 #      JustifyContent::FlexEnd buys — there is no spacer sibling holding the
 #      bubble over, so if the justification is lost the bubble slides left to
 #      348 (the column, plus the avatar and its gap) and every number below
 #      moves at once.
-#   2. SHRINK-TO-FIT, CAPPED. 412 is this message's own wrapped width, not the
+#   2. SHRINK-TO-FIT, CAPPED. 460 is this message's own wrapped width, not the
 #      column's. A bubble that stopped hugging its text would be 644 (the cap,
 #      kBubbleCap) or 736 (the column). afterhours cannot express "as wide as
 #      my text but no wider than N" — see afterhours_gaps.md #87 — so this
@@ -38,12 +38,12 @@ expect_text "Reconcile this cycle's Stars payouts"
 assert_ui user_row x=322 w=736
 
 # Flush right, and narrower than the column.
-assert_ui user_bubble x=646 w=412 h=35
+assert_ui user_bubble x=598 w=460 h=35
 
 # Beside the bubble, 6px clear of it and 6px down from its top.
 # The two y's moved 4px down with the transcript's top inset (8 -> 12, which is
 # Puffin's own `EdgeInsets(top: 12, ...)`) on feat/vis-fixture; the 6px
 # relationship between them is what this pair is actually asserting and it is
 # unchanged.
-assert_ui user_avatar x=620 y=141 w=20 h=20
+assert_ui user_avatar x=572 y=141 w=20 h=20
 assert_ui user_bubble y=135

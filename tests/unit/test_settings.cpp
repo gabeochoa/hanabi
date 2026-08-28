@@ -600,6 +600,29 @@ static void test_shortcuts_round_trip_and_reset() {
           definition(Command::OpenPalette).shortcut);
 }
 
+static void test_font_preferences_round_trip_and_reject_unknown_values() {
+    std::printf("test_font_preferences_round_trip_and_reject_unknown_values\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    s.set_font_choice("optimistic");
+    const auto familyRevision = s.font_revision();
+    CHECK(familyRevision > 0);
+    s.set_font_weight("bold");
+    CHECK(s.font_revision() > familyRevision);
+    s.load_save_file();
+    CHECK(s.get_font_choice() == "optimistic");
+    CHECK(s.get_font_weight() == "bold");
+    s.set_font_choice("untrusted-font-path");
+    const auto fallbackFamilyRevision = s.font_revision();
+    s.set_font_weight("black");
+    CHECK(s.font_revision() > fallbackFamilyRevision);
+    CHECK(s.get_font_choice() == "default");
+    CHECK(s.get_font_weight() == "regular");
+    s.load_save_file();
+    CHECK(s.get_font_choice() == "default");
+    CHECK(s.get_font_weight() == "regular");
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -615,6 +638,7 @@ int main() {
     test_mute_round_trips();
     test_finished_subagents_round_trips();
     test_subagent_sidebar_toggle_round_trips();
+    test_font_preferences_round_trip_and_reject_unknown_values();
     test_tabs_and_pins_round_trip();
     // Last: it writes five thousand entries and reloads the file, so anything
     // after it would be asserting against a settings file this test authored.

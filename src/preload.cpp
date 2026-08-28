@@ -17,6 +17,7 @@
 #endif
 
 #include "input_mapping.h"
+#include "ui/font_system.h"
 #include "ui/focus_visible.h"
 #include "util/atlas_guard.h"
 #include "rl.h"
@@ -90,28 +91,9 @@ Preload& Preload::make_singleton() {
         }
     }
 
-    // Load fonts
-    std::string ui_font_path =
-        files::get_resource_path("fonts", "Roboto-Regular.ttf").string();
-    std::string mono_font_path =
-        files::get_resource_path("fonts", "JetBrainsMono-Regular.ttf").string();
-    // Atkinson Hyperlegible: an alternate UI font offered in Settings
-    // (Appearance -> Font). Loaded under a stable name here; the settings
-    // control / startup restore swaps it into DEFAULT_FONT live via
-    // FontManager.load_font. Client-local choice only (no API field).
-    std::string hyperlegible_font_path =
-        files::get_resource_path("fonts", "AtkinsonHyperlegible-Regular.ttf")
-            .string();
-
     auto& fontMgr =
         EntityHelper::get_singleton_cmp_enforce<ui::FontManager>();
-
-    fontMgr.load_font(ui::UIComponent::DEFAULT_FONT,
-                      ui_font_path.c_str());
-    fontMgr.load_font(ui::UIComponent::SYMBOL_FONT,
-                      ui_font_path.c_str());
-    fontMgr.load_font("mono", mono_font_path.c_str());
-    fontMgr.load_font("hyperlegible", hyperlegible_font_path.c_str());
+    hanabi::fonts::preload(fontMgr);
 
     // From here a zero-width measurement is a FAULT, not a not-ready. Before
     // this line measure_text_internal legitimately returns 0 (no font context,

@@ -354,6 +354,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(titlePx)
+                .with_font_weight(theme::type::EMPHASIS)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("main_title"));

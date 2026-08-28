@@ -1,7 +1,10 @@
 #include <branding.h>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "../../src/native_extras.h"
 
@@ -48,6 +51,30 @@ int main() {
     native_integration_status(status, sizeof(status));
     CHECK(std::strstr(status, "notifications=non-bundled") != nullptr);
     CHECK(std::strstr(status, "spotlight=non-bundled") != nullptr);
+
+    const int face_count = native_font_faces(nullptr, 0);
+    CHECK(face_count > 0);
+    std::vector<NativeFontFace> faces(static_cast<std::size_t>(face_count));
+    CHECK(native_font_faces(faces.data(), face_count) == face_count);
+    std::set<std::string> keys;
+    bool system_regular = false;
+    bool system_bold = false;
+    for (const auto& face : faces) {
+        CHECK(face.family[0] != '\0');
+        CHECK(face.weight[0] != '\0');
+        CHECK(face.path[0] == '/');
+        CHECK(face.point_scale > 1.0f && face.point_scale < 2.0f);
+        CHECK(std::filesystem::is_regular_file(face.path));
+        CHECK(keys.insert(std::string(face.family) + "/" + face.weight).second);
+        if (std::strcmp(face.family, "system") == 0 &&
+            std::strcmp(face.weight, "regular") == 0)
+            system_regular = true;
+        if (std::strcmp(face.family, "system") == 0 &&
+            std::strcmp(face.weight, "bold") == 0)
+            system_bold = true;
+    }
+    CHECK(system_regular);
+    CHECK(system_bold);
 
     if (failures == 0) {
         std::printf("OK\n");

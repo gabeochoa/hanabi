@@ -31,7 +31,7 @@
 //   Appearance · Theme  (Light/Dark/System)   — client-local (theme::set_mode).
 //   Appearance · Rotate theme (Off/15m/30m/1h) — client-local; the interval
 //     persists, the palette it lands on does not (theme_rotation_system.h).
-//   Appearance · Font   (Default/Hyperlegible) — client-local (FontManager).
+//   Appearance · Font family + emphasis — client-local (FontManager/CoreText).
 //   Custom colours · Accent + Find highlight (named swatches) — client-local;
 //     layered over whichever palette is active (src/ui/theme.h).
 //   Behavior · Yap level (No yapping/A little/Full).
@@ -64,7 +64,7 @@
 #include "../version.h"
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
-#include "../util/text_epoch.h"
+#include "../ui/font_system.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
 
@@ -117,8 +117,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float pw = kPanelW;
         const float ctrlRow = kRowNameFoot + kThemeRowH;
         const float leftH =
-            (kGroupH + ctrlRow * 3.0f) +
-            (kGroupH + ctrlRow * 6.0f) +
+            (kGroupH + ctrlRow * 4.0f) +
+            (kGroupH + ctrlRow * 5.0f) +
             (kGroupH + ctrlRow * 2.0f);
         const float rightH =
             (kGroupH + ctrlRow * 2.0f) +
@@ -126,7 +126,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             (kGroupH + (kRowNameFoot + kCacheRowH) +
              (kRowNameFoot + kLimitRowH) +
              (kRowNameFoot + kExportRowH)) +
-            (kGroupH + kAccountRowH);
+            (kGroupH + kAccountRowH + ctrlRow);
         const float contentH =
             std::max(leftH, rightH) + (kFootnoteGap + kFootnoteH) + 8.0f;
         const float idealPh = kPadV * 2.0f + kHeaderH + contentH;
@@ -231,12 +231,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_theme_row(ctx, L, *app);
             render_theme_rotate_row(ctx, L, *app);
             render_font_row(ctx, L, *app);
+            render_font_weight_row(ctx, L, *app);
             group_label(ctx, L, 3, "Behavior", "settings_grp_behavior");
             render_yap_row(ctx, L, *app);
             render_autoarchive_row(ctx, L, *app);
             render_memory_backend_row(ctx, L, *app);
             render_send_key_row(ctx, L, *app);
-            render_shortcut_editor_row(ctx, L, *app);
             render_subagents_row(ctx, L, *app);
 
             group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
@@ -260,6 +260,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_export_row(ctx, R, *app);
             group_label(ctx, R, 8, "Account", "settings_grp_account");
             render_account_row(ctx, R, *app);
+            render_shortcut_editor_row(ctx, R, *app);
         }
         active_col_w_ = 0.0f;  // reset to full-width for the spanning footnote
 
@@ -365,6 +366,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Large)
+                .with_font_weight(theme::type::EMPHASIS)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_title"));
@@ -414,6 +416,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
                 .with_font_size(FontSize::Medium)
+                .with_font_weight(theme::type::EMPHASIS)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name(dbg));
@@ -543,20 +546,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // Appearance group -> Font. A 2-way segmented control mirroring the theme
-    // control's edge-hugging gutter math. Selecting a choice swaps the active
-    // UI font live via FontManager.load_font(DEFAULT_FONT, path) and persists
-    // it through Settings::set_font_choice (auto-saves). WIRED + functional.
-    // NOTE: client-local only (not an API setting) — the web PUT
-    // /api/user/preferences has no font field; font is a pure client choice.
     void render_font_row(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app) {
         (void)app;
-        // Clarify this is the APP's UI typeface (a hanabi-local preference — the
-        // web schema has no font field), and label the options by what they
-        // actually are: the standard UI font vs Atkinson Hyperlegible (an
-        // accessibility face). Gabe: "font setting doesn't make sense" — the
-        // bare "Default / Hyperlegible" pair read as arbitrary.
         row_name(ctx, parent, 6, "App font", "settings_font_label");
 
         auto row = div(ctx, mk(parent, 7),
@@ -569,22 +561,60 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_font_row"));
 
-        // Same gutter math as render_theme_row: content_w(), minus one
-        // inter-segment gap, split 2 ways.
+        const auto& options = hanabi::fonts::families();
         constexpr float kSegGap = 6.0f;
-        const float content = content_w();
-        const float segW = (content - kSegGap) / 2.0f;
-        font_choice_btn(ctx, row.ent(), 1, "Standard", "default", segW, true);
-        font_choice_btn(ctx, row.ent(), 2, "Hyperlegible", "hyperlegible", segW,
-                        false);
+        const float segW = (content_w() - kSegGap *
+            static_cast<float>(options.size() > 0 ? options.size() - 1 : 0)) /
+            static_cast<float>(std::max<std::size_t>(options.size(), 1));
+        for (std::size_t i = 0; i < options.size(); ++i) {
+            const auto& option = options[i];
+            font_choice_btn(ctx, row.ent(), static_cast<int>(i) + 1,
+                            option.label, option.key, segW,
+                            i + 1 < options.size());
+        }
     }
 
-    // One segmented font button. Selected = accent fill; others = secondary.
-    // On click: swap DEFAULT_FONT live via FontManager and persist the choice.
+    void render_font_weight_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 8, "Emphasis", "settings_font_weight_label");
+
+        auto row = div(ctx, mk(parent, 9),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_font_weight_row"));
+
+        const std::string family = hanabi::fonts::effective_family(
+            Settings::get().get_font_choice());
+        std::size_t availableCount = 0;
+        for (const auto& option : hanabi::fonts::weights())
+            if (hanabi::fonts::weight_available(family, option.key))
+                ++availableCount;
+        constexpr float kSegGap = 6.0f;
+        const float segW = (content_w() - kSegGap *
+            static_cast<float>(availableCount > 0 ? availableCount - 1 : 0)) /
+            static_cast<float>(std::max<std::size_t>(availableCount, 1));
+        std::size_t shown = 0;
+        for (const auto& option : hanabi::fonts::weights()) {
+            if (!hanabi::fonts::weight_available(family, option.key)) continue;
+            const std::size_t index = shown++;
+            font_weight_btn(ctx, row.ent(), static_cast<int>(index) + 1,
+                            option.label, option.key, segW,
+                            index + 1 < availableCount);
+        }
+    }
+
     void font_choice_btn(UIContext<InputAction>& ctx, Entity& parent, int id,
                          const std::string& label, const std::string& value,
                          float segW, bool trailingGap) {
-        const bool selected = (Settings::get().get_font_choice() == value);
+        const bool selected =
+            hanabi::fonts::effective_family(Settings::get().get_font_choice()) ==
+            value;
         auto btn = button(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_label(label)
@@ -604,58 +634,61 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.35f)
                 .with_debug_name("settings_font_" + value));
-        if (btn) apply_font(value);
+        if (!btn) return;
+        auto& settings = Settings::get();
+        settings.set_font_choice(value);
+        if (!hanabi::fonts::weight_available(value, settings.get_font_weight()))
+            settings.set_font_weight("regular");
+        queue_font_apply();
     }
 
-    // Apply a font choice: persist it and swap DEFAULT_FONT live so the whole
-    // UI re-renders in the new face this frame. Roboto = "default" (the font
-    // loaded at DEFAULT_FONT in preload); "hyperlegible" = Atkinson
-    // Hyperlegible loaded under the "hyperlegible" name in preload.cpp.
-    static void apply_font(const std::string& value) {
-        auto& s = Settings::get();
-        if (s.get_font_choice() == value) return;  // no-op
-        s.set_font_choice(value);  // auto-persists
-        // Defer the actual FontManager.load_font to frame-top (see
-        // apply_pending_font) so we never swap the DEFAULT_FONT handle while
-        // this frame is still rendering text with it.
-        pending_font() = value;
+    void font_weight_btn(UIContext<InputAction>& ctx, Entity& parent, int id,
+                         const std::string& label, const std::string& value,
+                         float segW, bool trailingGap) {
+        const std::string family = hanabi::fonts::effective_family(
+            Settings::get().get_font_choice());
+        const bool selected = hanabi::fonts::effective_weight(
+                                  family, Settings::get().get_font_weight()) ==
+                              value;
+        auto btn = button(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
+                .with_margin(Margin{.right = pixels(trailingGap ? 6.0f : 0.0f)})
+                .with_custom_background(selected ? theme::button_primary()
+                                                 : theme::button_secondary())
+                .with_custom_hover_bg(selected ? theme::button_primary()
+                                               : theme::hover_bg())
+                .with_custom_text_color(selected ? theme::window_bg()
+                                                 : theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("settings_font_weight_" + value));
+        if (!btn) return;
+        Settings::get().set_font_weight(value);
+        queue_font_apply();
     }
 
-    // The pending font choice to apply at frame-top (empty = nothing pending).
-    static std::string& pending_font() {
-        static std::string p;
-        return p;
+    static bool& pending_font() {
+        static bool pending = false;
+        return pending;
     }
 
-    // Apply a deferred font swap (called at frame-top, before any text render).
+    static void queue_font_apply() { pending_font() = true; }
+
     static void apply_pending_font() {
-        std::string& p = pending_font();
-        if (p.empty()) return;
-        const std::string value = p;
-        p.clear();
+        if (!pending_font()) return;
+        pending_font() = false;
         auto& fontMgr =
             afterhours::EntityHelper::get_singleton_cmp_enforce<
                 afterhours::ui::FontManager>();
-        const char* file = (value == "hyperlegible")
-                               ? "AtkinsonHyperlegible-Regular.ttf"
-                               : "Roboto-Regular.ttf";
-        const std::string path =
-            afterhours::files::get_resource_path("fonts", file).string();
-        fontMgr.load_font(afterhours::ui::UIComponent::DEFAULT_FONT,
-                          path.c_str());
-
-        // The glyphs behind DEFAULT_FONT just changed and NOTHING ELSE DID:
-        // the font's name, its handle and every size in the app are the same
-        // as they were, so every cache keyed by (text, font name, size) is
-        // now holding measurements of a face that is not on screen and has no
-        // reason to suspect it. Two of them are hanabi's and watch this
-        // counter (src/util/text_epoch.h); the third is afterhours' own
-        // TextMeasureCache, which has no invalidation hook finer than clear()
-        // -- filed as afterhours_gaps.md #190.
-        hanabi::text::bump_font_epoch();
-        if (auto* tmc = afterhours::EntityHelper::get_singleton_cmp<
-                afterhours::ui::TextMeasureCache>())
-            tmc->clear();
+        hanabi::fonts::apply(fontMgr, Settings::get().get_font_choice(),
+                             Settings::get().get_font_weight());
     }
 
     // Human-readable byte size: B / KB / MB.

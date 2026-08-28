@@ -1084,16 +1084,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     enum class SidebarGlyph { Running, Blocked, Done, Idle };
     static constexpr float kCountTextPad = 6.0f;
     static constexpr float kAhTextInset = 5.0f;
-    static constexpr float kCountFontPx = theme::type::SM;
+    static float count_font_px() { return theme::type::SM; }
     static constexpr float kBadgeD = 16.0f;
-    static constexpr float kBadgeFontPx = theme::type::SM;
+    static float badge_font_px() { return theme::type::SM; }
     static constexpr float kBadgeLift = 2.0f;
     static constexpr float kBadgePadX = 5.0f;
-    static constexpr float kViewLabelPx = theme::type::BODY;
+    static float view_label_px() { return theme::type::BODY; }
     static constexpr float kViewIconPx = 15.0f;
     static constexpr float kViewLabelGap = theme::chrome::SPACE_2;
-    static constexpr float kViewsHeadPx = theme::type::LABEL;
-    static constexpr float kSearchPx = theme::type::ROW;
+    static float views_head_px() { return theme::type::LABEL; }
+    static float search_px() { return theme::type::ROW; }
     static constexpr float kBadgeRightPad = theme::chrome::SPACE_3;
 
     static SidebarGlyph sidebar_glyph(const api::SessionSummary& s) {
@@ -1458,7 +1458,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(labelW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(tint)
-                .with_font_size(kViewsHeadPx)
+                .with_font_size(views_head_px())
                 .with_letter_spacing(0.8f)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -1941,7 +1941,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
                                                  : theme::text_secondary())
-                .with_font_size(kSearchPx)
+                .with_font_size(search_px())
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 // "Search", not "Search conversations": the reference's own
@@ -2163,7 +2163,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(labelW), pixels(22)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
-                .with_font_size(kViewLabelPx)
+                .with_font_size(view_label_px())
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
@@ -2346,7 +2346,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(svLabelW), pixels(22)})
                 .with_transparent_bg()
                 .with_custom_text_color(txt)
-                .with_font_size(kViewLabelPx)
+                .with_font_size(view_label_px())
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sv_label"));
@@ -2365,7 +2365,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                         .left = pixels(0.0f)})
                     .with_transparent_bg()
                     .with_custom_text_color(countColor)
-                    .with_font_size(kBadgeFontPx)
+                    .with_font_size(badge_font_px())
                     .with_alignment(TextAlignment::Center)
                     .with_roundness(0.0f)
                     .with_debug_name("sv_count"));
@@ -3199,7 +3199,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         float countW = 0.0f;
         if (!countLabel.empty()) {
             countW = std::ceil(theme::text_px(countLabel.c_str(),
-                                              kCountFontPx)) +
+                                              count_font_px())) +
                      kAhTextInset;
             if ((rowContent - kGlyphW - kTitleMin -
                  (showBell ? kBellW : 0.0f)) < countW)
@@ -3361,7 +3361,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{pixels(countW), pixels(20)})
                     .with_transparent_bg()
                     .with_custom_text_color(countColor)
-                    .with_font_size(kCountFontPx)
+                    .with_font_size(count_font_px())
                     // LEFT, not Right — see kAhTextInset. The slot is sized to
                     // the text plus that inset, so left-aligning puts the
                     // digits flush against the slot's (and the row's) right

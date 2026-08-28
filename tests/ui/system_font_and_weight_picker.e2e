@@ -1,0 +1,20 @@
+# env: HANABI_ALLOW_SYSTEM_FONTS_HEADLESS=1 HANABI_FONT_AUDIT=1
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","font":"default","font_weight":"regular"}
+
+click_ui sb_settings
+wait_frames 8
+expect_text "System"
+expect_text "Optimistic"
+expect_text "Regular"
+click_ui settings_font_system
+wait_frames 4
+expect_text "Semibold"
+expect_text "Bold"
+click_ui settings_font_weight_bold
+wait_frames 4
+click_ui settings_close
+wait_frames 4
+click_ui sb_settings
+wait_frames 4
+expect_text "System"
+expect_text "Bold"

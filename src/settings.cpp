@@ -69,7 +69,10 @@ bool Settings::load_save_file() {
             if (leftMatches != rightMatches)
                 split_focused_pane_ = rightMatches ? 1 : 0;
         }
-        font_choice_ = j.value("font", font_choice_);
+        font_choice_ = hanabi::normalize_font_choice(
+            j.value("font", font_choice_));
+        font_weight_ = hanabi::normalize_font_weight(
+            j.value("font_weight", font_weight_));
         accent_choice_ = j.value("theme_accent", accent_choice_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
         export_dir_ = j.value("export_dir", export_dir_);
@@ -192,6 +195,7 @@ void Settings::write_save_file() {
     j["pinned_tabs"] = pinned_tabs_;
     j["theme"] = theme_;
     j["font"] = font_choice_;
+    j["font_weight"] = font_weight_;
     j["theme_accent"] = accent_choice_;
     j["theme_highlight"] = highlight_choice_;
     j["export_dir"] = export_dir_;
@@ -298,10 +302,18 @@ void Settings::set_theme(const std::string& mode) {
 
 const std::string& Settings::get_font_choice() const { return font_choice_; }
 void Settings::set_font_choice(const std::string& font) {
-    if (font == font_choice_) return;  // no change — skip the write
-    font_choice_ = font;
-    // Persist immediately (mirrors set_theme) so the font choice survives
-    // relaunch. Client-local only — never sent to the backend.
+    const std::string normalized = hanabi::normalize_font_choice(font);
+    if (normalized == font_choice_) return;
+    font_choice_ = normalized;
+    ++font_revision_;
+    if (auto_save_enabled) write_save_file();
+}
+const std::string& Settings::get_font_weight() const { return font_weight_; }
+void Settings::set_font_weight(const std::string& weight) {
+    const std::string normalized = hanabi::normalize_font_weight(weight);
+    if (normalized == font_weight_) return;
+    font_weight_ = normalized;
+    ++font_revision_;
     if (auto_save_enabled) write_save_file();
 }
 
@@ -668,6 +680,8 @@ void Settings::reset_shortcuts() {
 std::uint64_t Settings::shortcut_revision() const {
     return shortcut_revision_;
 }
+
+std::uint64_t Settings::font_revision() const { return font_revision_; }
 
 void Settings::set_default_effort(const std::string& effort) {
     if (effort == default_effort_) return;

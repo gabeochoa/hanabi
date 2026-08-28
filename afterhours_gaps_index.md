@@ -386,7 +386,7 @@ the same shape as the two entries that went wrong.
 
 ## 3. Duplicates and families
 
-**Fourteen families cover 135 of the 238 indexed headings.** Fix the canonical one and the
+**Fourteen families cover 135 of the 248 indexed headings.** Fix the canonical one and the
 rest either close or shrink to a footnote — 51 of them are subsumed outright
 (the `dup→` rows in §6) and the remainder get smaller. Where the members were
 filed by different agents from different features, that is noted: it is the
@@ -396,7 +396,7 @@ to fix.
 | Family | Canonical | Also filed as | The one mechanism |
 |---|---|---|---|
 | **Widget lifetime** | **#115** | #171, #162, #163, #220, #146, #160, AN-9 | Nothing retires an entity, so identity is the slot, the library's own entities are invisible, a scroll view clamps against children that are not there, and an exit animation has nothing to animate. #160 is the *cost* of the fix; #146 is how you would gate it. |
-| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42, #435, #436, #437, #450 | No content sizing and no reusable draw-layout artifact, so every consumer re-derives metrics and byte geometry the renderer already has. `tab_container` adds the policy form: it asks for ellipsis and then makes text the minimum width (#450). |
+| **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #42, #435, #436, #437, #450, #570, #574, #575, #576, #579 | No content sizing and no reusable draw-layout artifact, plus no point-size contract or font generation. Apps otherwise re-derive metrics and can measure the backend-global face after drawing another. |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
 | **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
 | **Virtualization** | **#326 / #420** | #23, #170, #31a, #224, #220, #147, #455 | `virtual_list` divides by one row height and has no retained prefix-height index or range invalidation. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. #455 carries the current busy-event CPU and allocation measurements; #420 carries the retained index workaround and range-invalidation ask. |
@@ -405,7 +405,7 @@ to fix.
 | **Scripted-test addressing** | **#51** | #55, #61, #73, #59, #104, #117, #232, #285, #86, #147, #308, #337, #437, #456, #457, #483 | A script can address a named element or a raw coordinate, and nothing in between — no text run, no colour, no absence, no scope, no gesture-by-name. #337 is #147 with a second pane: a debug name stops naming ONE widget the moment the app renders the same code twice. #483 measures the screenshot tax of the missing colour properties. |
 | **Accessibility semantics** | **#112** | #458 | Icon-only controls have debug names and pixels but no platform role, accessible name, description, or value. #458 is the message/tool proof and downstream visible-label cost. |
 | **Per-frame allocation** | **#180** | #181, #183, #221, #325, #138, #44, #438 | Strings and node allocations minted per widget per frame in code that already has the data: a hashed rendering of a source location, three config copies, a `std::set` rebuilt every frame, `const std::string&` where a view would do. #438 records the visible rich-text remainder after find collection stopped scaling with the thread. |
-| **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60, #465–#474 | afterhours is a game framework; hanabi is the first native desktop app on it, so appearance, menu bar, notifications, hotkeys, deep links, bundling, resource paths, font enumeration and drag-and-drop are all app-side `.mm`. **#32a is the one that breaks a shipped app** (`get_resource_path` resolves from CWD, and a launched `.app` has CWD `/`). #465–#474 are the verified bundle/LaunchServices/UserNotifications/CoreSpotlight follow-up, including its measured costs and platform-gated proof. |
+| **OS integration** | **#33a** | #1, #5, #16, #28a, #31b, #32a, #34a, #35a, #36, #60, #465–#474, #571, #572 | afterhours is a game framework; hanabi is a native desktop app, so appearance, menus, notifications, hotkeys, deep links, bundling, resource paths, installed-font discovery and collection-face selection are app-side `.mm`. |
 | **GPU accounting** | **#210** | #126, #125, #212, #145, #200 | Fixed pools nobody can size or query, no byte accounting, deferred frees, no frame scope. Every one of them fails quietly. |
 | **Glyph atlas** | **#351** | #211, #350, #352, #353 | One fixed 2048² atlas, one unregistered fontstash callback, and a `measure_text` that returns a plausible wrong number when it fills. #211 is the origin entry and carries the measurements; #351 is the fix. #352 is the same `graphics::Config` request as #210's pool sizes. |
 | **e2e runner determinism** | **#223** | #231, #39, #40, #113, #161, #192, #259, #380, #381, #457 | The runner's budgets are seconds fed by the host's `dt`, its verdict is not observed on the last command, its evidence is truncated, its best diagnostic is unregistered, custom commands lose quoted arguments (#457), a handler cannot own its own timeout message (#380 — and #113 is that same overwrite from the other side), and the directory mode runs a whole suite in one process with no reset between scripts (#381). #223 and #231 are **the same finding filed twice**, by two agents, four hours apart. |
@@ -599,7 +599,7 @@ correction narrows them rather than closing them.
 | 33b | No Shift+Enter newline in `text_input` | — | MED | M | dup→#67 |
 | 34a | No URL-scheme / deep-link handling | — | LOW | M | dup→#33a |
 | 34b | `text_input` does not wrap or clip long text | — | MED | M | dup→#67 |
-| 35a | No "list installed system fonts" primitive | — | LOW | S | live |
+| 35a | No "list installed system fonts" primitive | WORKAROUND | LOW | S | dup→#571 |
 | 35b | No Escape-to-clear on `text_input` | — | LOW | XS | dup→#57 |
 | 36 | No app cache dir distinct from config dir | — | LOW | XS | live |
 | 37 | No text selection on read-only text | — | HIGH | L | live |
@@ -642,12 +642,12 @@ correction narrows them rather than closing them.
 | 74 | The resolved layout tree cannot be walked | — | HIGH | M | live |
 | 75 | Text is inset by a hardcoded 5px no caller can turn off | WORKAROUND | HIGH | S | dup→#85 |
 | 76 | An unpadded element silently gets a fraction of the SCREEN | FOOTGUN | HIGH | XS | live |
-| 77 | No bold face bundled (the silent half is FIXED) | WORKAROUND | MED | S | live |
+| 77 | No bold face bundled; installed faces now unblock Hanabi | WORKAROUND | MED | S | app fixed |
 | 78 | `draw_circle_v` truncates its centre to whole pixels | — | MED | XS | live |
 | 79 | A label cannot be told to fit a width | — | — | — | wrong |
 | 80 | Every box rasterizes 1px bigger and 1px up-left | WORKAROUND | HIGH | S | live |
 | 81 | Per-corner rounding bits are named for the OPPOSITE corner | FOOTGUN | HIGH | XS | live |
-| 82 | Text cannot be measured at a weight | FOOTGUN | HIGH | XS | dup→#136 |
+| 82 | Renderer measurement is weight-aware; global app measure is not | FOOTGUN | HIGH | XS | wrong→#574 |
 | 83 | The focus ring paints at rest; no `:focus-visible` | WORKAROUND | HIGH | S | **live — top 10** |
 | 84 | Right-aligned text can never sit flush to its box | — | MED | XS | dup→#85 |
 | 85 | Padding on a label-only element is silently ignored | — | HIGH | S | **proof rejected — coupled pixel contract** |
@@ -701,7 +701,7 @@ correction narrows them rather than closing them.
 | 180 | `mk()` builds a stringstream + 200-char string per widget | PERFORMANCE | HIGH | XS | live |
 | 181 | A `ComponentConfig` is copied three times on the way in | PERFORMANCE | HIGH | S | live |
 | 183 | The focusable set is a `std::set` rebuilt every frame | PERFORMANCE | MED | XS | live |
-| 190 | `TextMeasureCache` is keyed by a font's NAME | FOOTGUN | HIGH | XS | dup→#136 |
+| 190 | `TextMeasureCache` is keyed by a font's NAME | FOOTGUN | HIGH | XS | dup→#579 |
 | 191 | `wrap_text` gives the LINES or nothing | PERFORMANCE | HIGH | S | dup→#136 |
 | 192 | `dump_ui` is written, unregistered, reported as a typo | TEDIOUS | HIGH | XS | **proof patch — 113-161-192** |
 | 200 | A headless resize leaks five Metal pipelines a frame | BLOCKING | HIGH | S | live |
@@ -817,6 +817,16 @@ correction narrows them rather than closing them.
 | 567 | Headless UI assertions cannot observe AppKit menus | PLATFORM | MED | — | dup→#308 |
 | 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live |
 | 569 | Non-layered input mapping has no remapping method | TEDIOUS | MED | XS | app workaround |
+| 570 | Fontstash size is not native point size | WORKAROUND | HIGH | S | app fixed |
+| 571 | No installed-font catalog | MISSING | MED | S | app workaround |
+| 572 | Path-only font loading cannot select collection faces | FOOTGUN | HIGH | S | app workaround |
+| 573 | Font load failure is stored as an invalid handle | FOOTGUN | HIGH | XS | app workaround |
+| 574 | `measure_text_internal` ignores `FontManager::active_font` | FOOTGUN | CRIT | S | app fixed |
+| 575 | Advance and ink bounds are different APIs | FOOTGUN | HIGH | XS | dup→#137 |
+| 576 | Weighted renderer measurement already works | NOT A GAP | — | — | neg; corrects #82 |
+| 577 | Loaded font IDs cannot be unloaded and cap at sixteen | FOOTGUN | HIGH | S | app workaround |
+| 578 | Headless 2x zoom is not Retina rasterization | IMPOSSIBLE | HIGH | M | dup→#101 |
+| 579 | Font replacement has no cache generation | FOOTGUN | CRIT | XS | dup→#190 |
 | 580 | No cancellable background-job primitive | MISSING | HIGH | M | live |
 | 581 | No deactivate hook for conditional systems | MISSING | HIGH | S | live |
 | 582 | Transcript payload ownership belongs above the ECS | NOT A GAP | — | — | neg |

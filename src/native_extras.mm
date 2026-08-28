@@ -11,10 +11,12 @@
 
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>   // RegisterEventHotKey, kVK_ANSI_N, event handler
+#import <CoreText/CoreText.h>
 #import <CoreSpotlight/CoreSpotlight.h>          // CSSearchableIndex/Item (bundled Spotlight)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>  // UTTypeText
 #import <UserNotifications/UserNotifications.h>
 #include <branding.h>
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -1003,4 +1005,64 @@ void native_open_url(const char* url) {
     NSURL* u = [NSURL URLWithString:s];
     if (u == nil) return;
     [[NSWorkspace sharedWorkspace] openURL:u];
+}
+
+static NSString* native_font_path(NSString* postscript_name,
+                                  float* point_scale) {
+    NSFont* font = [NSFont fontWithName:postscript_name size:13.0];
+    if (font == nil) return nil;
+    if (point_scale != nullptr)
+        *point_scale = static_cast<float>(
+            (font.ascender - font.descender + font.leading) / font.pointSize);
+    CTFontRef ct = (__bridge CTFontRef)font;
+    CFURLRef value = (CFURLRef)CTFontCopyAttribute(ct, kCTFontURLAttribute);
+    if (value == nullptr) return nil;
+    NSString* path = [(__bridge NSURL*)value path];
+    NSString* result = path.length > 0 &&
+            [[NSFileManager defaultManager] isReadableFileAtPath:path]
+        ? [path copy]
+        : nil;
+    CFRelease(value);
+    return result;
+}
+
+static void native_font_add(std::vector<NativeFontFace>& out,
+                            const char* family, const char* label,
+                            const char* weight, NSString* postscript_name) {
+    float point_scale = 1.0f;
+    NSString* path = native_font_path(postscript_name, &point_scale);
+    if (path == nil) return;
+    NativeFontFace face{};
+    std::snprintf(face.family, sizeof(face.family), "%s", family);
+    std::snprintf(face.label, sizeof(face.label), "%s", label);
+    std::snprintf(face.weight, sizeof(face.weight), "%s", weight);
+    std::snprintf(face.path, sizeof(face.path), "%s", path.UTF8String);
+    face.point_scale = point_scale;
+    out.push_back(face);
+}
+
+int native_font_faces(NativeFontFace* out, int cap) {
+    @autoreleasepool {
+        static const std::vector<NativeFontFace> faces = [] {
+            std::vector<NativeFontFace> value;
+            native_font_add(value, "system", "System", "regular", @"SFProText-Regular");
+            native_font_add(value, "system", "System", "medium", @"SFProText-Medium");
+            native_font_add(value, "system", "System", "semibold", @"SFProText-Semibold");
+            native_font_add(value, "system", "System", "bold", @"SFProText-Bold");
+            native_font_add(value, "optimistic", "Optimistic", "regular", @"Optimistic-Regular");
+            native_font_add(value, "optimistic", "Optimistic", "medium", @"Optimistic-Medium");
+            native_font_add(value, "optimistic", "Optimistic", "semibold", @"Optimistic-SemiBold");
+            native_font_add(value, "optimistic", "Optimistic", "bold", @"Optimistic-Bold");
+            native_font_add(value, "default", "Standard", "medium", @"Roboto-Medium");
+            native_font_add(value, "default", "Standard", "bold", @"Roboto-Bold");
+            native_font_add(value, "hyperlegible", "Hyperlegible", "bold", @"AtkinsonHyperlegible-Bold");
+            return value;
+        }();
+        if (out != nullptr && cap > 0) {
+            const int n = std::min(cap, static_cast<int>(faces.size()));
+            for (int i = 0; i < n; ++i)
+                out[i] = faces[static_cast<std::size_t>(i)];
+        }
+        return static_cast<int>(faces.size());
+    }
 }
