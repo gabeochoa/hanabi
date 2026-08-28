@@ -698,6 +698,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/find_gate.sh
 	@$(MAKE) soak-gate
 	@$(MAKE) alloc-gate
+	@$(MAKE) idle-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) memory-scaling-gate
 	@$(MAKE) scroll-gate
@@ -789,6 +790,8 @@ retire-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/retire_gate.sh
 alloc-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/alloc_gate.sh
+idle-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/idle_gate.sh
 digest-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/digest_gate.sh
 
@@ -888,7 +891,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate memory-scaling-gate scroll-gate \
-	retire-gate alloc-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
+	retire-gate alloc-gate idle-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

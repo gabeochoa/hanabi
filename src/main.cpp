@@ -1697,6 +1697,76 @@ static int run_atlas_stress() {
 // Headless one-shot: render the real UI to an offscreen texture and write a
 // PNG, with no window and no screen-recording permission. Used for docs and
 // smoke tests. Returns process exit code.
+static void run_idle_timing(afterhours::SystemManager& sm) {
+    const char* value = std::getenv("HANABI_IDLE_TIMING");
+    if (value == nullptr || *value == '\0') return;
+    int callbacks = std::atoi(value);
+    if (callbacks < 120) callbacks = 1200;
+
+    const bool disabled = [] {
+        const char* v = std::getenv("HANABI_IDLE_DISABLE");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    const bool fixedTenFps = [] {
+        const char* v = std::getenv("HANABI_IDLE_FIXED_10FPS");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    hanabi::FrameActivityPolicy policy(!disabled);
+    const unsigned long long cpuStart = hanabi::prof::cpu_nanos();
+    const unsigned long long allocStart = hanabi::prof::alloc_count();
+    int rendered = 0;
+    constexpr std::uint64_t kCallbackUs = 8333;
+
+    for (int i = 0; i < callbacks; ++i) {
+        hanabi::FrameSignals signals;
+        auto query = afterhours::EntityQuery({.force_merge = true})
+                         .whereHasComponent<ecs::AppComponent>()
+                         .gen();
+        if (!query.empty())
+            signals = hanabi::collect_app_frame_signals(
+                query[0].get().get<ecs::AppComponent>());
+        hanabi::collect_ui_frame_signals(signals);
+        if (fixedTenFps) {
+            signals = {};
+            signals.timer = true;
+        }
+
+        const std::uint64_t nowUs = static_cast<std::uint64_t>(i) * kCallbackUs;
+        const auto decision = policy.decide(nowUs, signals);
+        if (!decision.render) continue;
+        float dt = 1.0f / 120.0f;
+        if (policy.started()) {
+            dt = static_cast<float>(nowUs - policy.last_frame_us()) / 1000000.0f;
+            dt = std::min(dt, 0.1f);
+        }
+        policy.rendered(nowUs);
+        const hanabi::AutoreleaseFrame framePool;
+        afterhours::graphics::begin_frame();
+        afterhours::graphics::clear_background(theme::window_bg());
+        sm.run(dt);
+        afterhours::graphics::end_frame();
+        ++rendered;
+    }
+
+    const double logicalSeconds =
+        static_cast<double>(callbacks) * static_cast<double>(kCallbackUs) /
+        1000000.0;
+    const double cpuMs = static_cast<double>(hanabi::prof::cpu_nanos() - cpuStart) /
+                         1000000.0;
+    const unsigned long long allocations =
+        hanabi::prof::alloc_count() - allocStart;
+    std::printf("IdleTiming: callbacks=%d frames=%d logical_seconds=%.3f "
+                "cpu_ms_per_sec=%.3f allocs_per_sec=%.1f "
+                "cpu_ms_per_frame=%.4f allocs_per_frame=%.1f\n",
+                callbacks, rendered, logicalSeconds, cpuMs / logicalSeconds,
+                static_cast<double>(allocations) / logicalSeconds,
+                rendered == 0 ? 0.0 : cpuMs / static_cast<double>(rendered),
+                rendered == 0 ? 0.0
+                              : static_cast<double>(allocations) /
+                                    static_cast<double>(rendered));
+    std::fflush(stdout);
+}
+
 static int run_headless_screenshot(const std::string& path, int w, int h) {
     using namespace afterhours;
 
@@ -2235,6 +2305,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                      app.sessions.size(), (int)app.listState);
         }
     }
+
+    run_idle_timing(sm);
 
     // Perf affordance: HANABI_FRAME_TIMING=<N> runs N extra frames after warmup
     // and reports the per-frame sm.run() cost (min / median / mean / max) so we
