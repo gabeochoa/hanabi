@@ -281,7 +281,11 @@ mock-server:
 	python3 tools/mock_server/server.py --port $(MOCK_PORT)
 
 .PHONY: all clean clean-all deps copy-resources output run run-mock bundle app verify-app \
-	register-app unregister-app install-app uninstall-app launch-app mock-server
+	register-app unregister-app install-app uninstall-app launch-app mock-server \
+	verify-vendor-patches
+
+verify-vendor-patches:
+	@python3 scripts/verify_vendor_patches.py
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)

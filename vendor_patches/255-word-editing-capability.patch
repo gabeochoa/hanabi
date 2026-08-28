@@ -1,0 +1,33 @@
+From ab2567c29f07fcb942157799af3e8458c729c032 Mon Sep 17 00:00:00 2001
+From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
+Date: Thu, 27 Aug 2026 22:14:35 -0400
+Subject: [PATCH] feat(text-input): expose word-editing capability
+
+Pinned base: 428047e3c92442e0ded3a0d473315e9636a451ac
+
+Expose a constexpr capability that consumers can static_assert or report. It makes the four enum names that opt into word movement and deletion explicit without breaking intentionally smaller action enums.
+---
+ src/plugins/ui/text_input/utils.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/plugins/ui/text_input/utils.h b/src/plugins/ui/text_input/utils.h
+index e6c3de0..6ed18f5 100644
+--- a/src/plugins/ui/text_input/utils.h
++++ b/src/plugins/ui/text_input/utils.h
+@@ -14,6 +14,13 @@
+ namespace afterhours {
+ namespace text_input {
+ 
++template <typename InputAction>
++inline constexpr bool supports_word_editing =
++    magic_enum::enum_contains<InputAction>("TextWordLeft") &&
++    magic_enum::enum_contains<InputAction>("TextWordRight") &&
++    magic_enum::enum_contains<InputAction>("TextDeleteWordBack") &&
++    magic_enum::enum_contains<InputAction>("TextDeleteWordForward");
++
+ // Canonical definition lives in ui/text_selection.h; selection geometry needs
+ // it and must not depend on the editing module.
+ using afterhours::ui::utf8_char_length;
+-- 
+2.50.1
+

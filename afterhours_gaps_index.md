@@ -101,6 +101,11 @@ it. That is a fifty-line workaround for a six-line library change, in every app
 that vendors afterhours, and it can only ever detect the condition, never
 prevent it.
 
+**Proof patch:** `vendor_patches/351-report-font-atlas-exhaustion.patch` (+12)
+registers and reports the callback once. `tests/vendor_probes/source_contract_probe.cpp`
+and `sokol_backend_smoke.mm` prove red-before/green-after through
+`make verify-vendor-patches`.
+
 ### 2. #115 — nothing retires a widget, so every system walks the union of every screen the app has ever shown
 
 **The largest measured cost in the file, and the mechanism under six other
@@ -129,6 +134,11 @@ returns a struct with a real width, a real height, valid ids and
 as success. **Sixty textures of silent wrongness.** Check the sampler, and put
 the pool sizes on `graphics::Config`.
 
+**Proof patch:** `vendor_patches/210-reject-unsamplable-textures.patch` (+7)
+implements and verifies the correctness half now. Pool sizing is explicitly
+deferred in `vendor_patches/README.md` because it crosses the public config and
+both setup paths.
+
 ### 4. #137 + #136 + #340 + #116 + #135 — text: the cache answers a different question than the app can ask, nothing hugs its own text, and the draw path re-wraps every frame
 
 Text metrics have been called the number-one papercut in this file since day
@@ -143,7 +153,9 @@ correctness decision, a sizing feature, a cache and three overloads:
   string, same font, same frame: a consistent 2 px apart. The consequence is that
   the one cache the library ships for exactly this purpose is *unusable* by the
   app that needs it most, because adopting it moves every bubble 2 px. Pick one,
-  use it in both, document which.
+  use it in both, document which. **Proof-patch decision:** rejected in
+  `vendor_patches/README.md`; the edit is one line but is not pixel-safe without
+  an upstream choice between advance and ink semantics.
 * **The feature (#136).** `ComponentSize{fit_content(max), ...}`. Nothing sizes a
   box to its own text, so the universal chat-bubble layout costs a wrap plus a
   measure per line in app code, and forces every memo of it to hold two widths.
@@ -229,6 +241,11 @@ and make padding on a label-only element a **warn-once** instead of silence.
 Honouring the padding is the wrong fix — it would silently move nine live labels
 in this app alone. Silence is what made this cost days.
 
+**Proof-patch decision:** rejected in `vendor_patches/README.md`. The same 5px
+contract is coupled to multiple 5px/10px calculations across plain, wrapped,
+styled, immediate, batched, ellipsis, and text-input paths; a partial patch
+would create divergent pixels.
+
 ### 8. #255 — an editing feature is opted into by ENUMERATOR NAME, and opting out is silent
 
 `if constexpr (magic_enum::enum_contains<InputAction>("TextWordLeft"))` — verified,
@@ -243,6 +260,10 @@ This is the discoverability failure that costs a consumer features permanently
 and invisibly, and any of three cheap fixes closes it: a documented list of the
 names, a startup warning naming each action that resolved to nothing, or a
 `static_assert`-able trait so the consumer opts out on purpose.
+
+**Proof patch:** `vendor_patches/255-word-editing-capability.patch` (+7) exposes
+that trait; `tests/vendor_probes/word_editing_capability_probe.cpp` is a compile
+failure before and classifies complete/incomplete enums after.
 
 ### 9. #83 + #265 + #266 + #267 + #72 + #46 — the focus ring
 
@@ -267,6 +288,11 @@ lines, and the distinction already exists on `FocusSource`); gate the two
 contrast edges independently; let a widget carry its own ring offset the way
 `HasRoundedCorners` already overrides its radius.
 
+**Proof patch:** `vendor_patches/265-focus-ring-contrast-toggle.patch`
+(+17/-12) implements the independent edge gate while preserving the three-line
+default in both renderers; `tests/vendor_probes/focus_ring_contrast_probe.cpp`
+proves three outlines by default and one with contrast disabled.
+
 ### 10. #192 + #161 + #113 — `dump_ui` is fully written, is not registered, and reports itself as a typo
 
 **Two lines.** `HandleDumpUICommand` is ~100 lines of working code that walks the
@@ -283,6 +309,12 @@ different failures in one session printed *identical bytes* (#161); and the one
 failure that means "it is not there" — the timeout — is the one failure that is
 never told which element it was about (#113). Three fixes, all under ten lines,
 that between them shorten the investigation behind half the entries in this file.
+
+**Proof patch:** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch`
+(+7/-3) covers all three. `tests/vendor_probes/e2e_diagnostics_probe.cpp`
+proves registration, timeout subject, and evidence after byte 200. New source
+check: the runner's generic fallback already forwards `dump_ui` arguments, so
+#192 needs one registration line, not the previously claimed parser-table line.
 
 ---
 
@@ -618,7 +650,7 @@ correction narrows them rather than closing them.
 | 82 | Text cannot be measured at a weight | FOOTGUN | HIGH | XS | dup→#136 |
 | 83 | The focus ring paints at rest; no `:focus-visible` | WORKAROUND | HIGH | S | **live — top 10** |
 | 84 | Right-aligned text can never sit flush to its box | — | MED | XS | dup→#85 |
-| 85 | Padding on a label-only element is silently ignored | — | HIGH | S | **live — top 10** |
+| 85 | Padding on a label-only element is silently ignored | — | HIGH | S | **proof rejected — coupled pixel contract** |
 | 86 | A capture emits pixels and no geometry | TEDIOUS | HIGH | S | live |
 | 87 | `Dim::Text` measures unwrapped; `max_width` clamps nothing | WORKAROUND | HIGH | S | dup→#136 |
 | 88 | A row cannot baseline-align its children | FOOTGUN | MED | M | live |
@@ -644,7 +676,7 @@ correction narrows them rather than closing them.
 | 110 | Nothing rounds a widget's ORIGIN | SURPRISING | HIGH | S | live |
 | 111 | A hover highlight IS the hit rectangle | MISSING | MED | XS | live |
 | 112 | No tooltip and no accessible name | MISSING | HIGH | M | live |
-| 113 | The timeout is the one failure not told its element | FOOTGUN | HIGH | XS | **live — top 10** |
+| 113 | The timeout is the one failure not told its element | FOOTGUN | HIGH | XS | **proof patch — 113-161-192** |
 | 114 | A sprite's rendered INK extent is not derivable | TEDIOUS | — | — | app |
 | 115 | Nothing retires a widget | WORKAROUND | CRIT | M | **live — top 10** |
 | 116 | No way to ask how much of a string fits in a width | WORKAROUND | HIGH | S | **live — top 10** |
@@ -653,14 +685,14 @@ correction narrows them rather than closing them.
 | 126 | Nothing says how many GPU bytes are held | IMPOSSIBLE | MED | XS | live |
 | 135 | `wrap_text` is O(words) measures and O(words) strings | PERFORMANCE | HIGH | S | **live — top 10** |
 | 136 | Nothing sizes a box to its own text | PERFORMANCE | CRIT | M | **live — top 10** |
-| 137 | The cached measure and the app's measure disagree | FOOTGUN | CRIT | XS | **live — top 10** |
+| 137 | The cached measure and the app's measure disagree | FOOTGUN | CRIT | XS | **proof rejected — pixel-unsafe choice** |
 | 138 | ~4.6 heap allocations per widget per frame | PERFORMANCE | HIGH | M | dup→#180 |
 | 145 | No frame SCOPE, so Metal autoreleases have no drain | FOOTGUN | HIGH | XS | live |
 | 146 | Nothing reports the size of the tree just built | WORKAROUND | MED | XS | live |
 | 147 | A scroll view is addressable only by DEBUG NAME | — | MED | S | live |
 | 155 | The first draws cost 5-8x and there is no pre-warm | PERFORMANCE | MED | S | live |
 | 160 | A component is two cache misses to write four bytes | TEDIOUS | MED | S | dup→#115 |
-| 161 | A failed assertion truncates its evidence to 200 chars | TEDIOUS | HIGH | XS | **live — top 10** |
+| 161 | A failed assertion truncates its evidence to 200 chars | TEDIOUS | HIGH | XS | **proof patch — 113-161-192** |
 | 162 | An app cannot see the widgets the LIBRARY built | TEDIOUS | MED | XS | dup→#115 |
 | 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live |
 | 170 | `Overflow::Scroll` clips; there is no way to build less | MISSING | HIGH | M | **live — top 10** |
@@ -671,12 +703,12 @@ correction narrows them rather than closing them.
 | 183 | The focusable set is a `std::set` rebuilt every frame | PERFORMANCE | MED | XS | live |
 | 190 | `TextMeasureCache` is keyed by a font's NAME | FOOTGUN | HIGH | XS | dup→#136 |
 | 191 | `wrap_text` gives the LINES or nothing | PERFORMANCE | HIGH | S | dup→#136 |
-| 192 | `dump_ui` is written, unregistered, reported as a typo | TEDIOUS | HIGH | XS | **live — top 10** |
+| 192 | `dump_ui` is written, unregistered, reported as a typo | TEDIOUS | HIGH | XS | **proof patch — 113-161-192** |
 | 200 | A headless resize leaks five Metal pipelines a frame | BLOCKING | HIGH | S | live |
-| 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | CRIT | XS | **live — top 10** |
+| 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | CRIT | XS | **proof patch — validation half** |
 | 211 | Fixed glyph atlas; overflow corrupts `measure_text` | — | CRIT | XS | **live — top 10** |
 | 350 | Nothing can be asked of the atlas, not even "was that measure complete" | MISSING | CRIT | XS | **live — top 10** |
-| 351 | `fonsSetErrorCallback` exists and is never registered | MISSING | CRIT | XS | **live — top 10** |
+| 351 | `fonsSetErrorCallback` exists and is never registered | MISSING | CRIT | XS | **proof patch — report overflow** |
 | 352 | The 2048² atlas is a build-time constant of the library | MISSING | HIGH | XS | **live — top 10** |
 | 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** |
 | 365 | Find-in-conversation normalized every loaded message every frame | PERFORMANCE | HIGH | M | app (fixed) |
@@ -691,7 +723,7 @@ correction narrows them rather than closing them.
 | 232 | A coordinate test cannot state its own precondition | TEDIOUS | MED | S | live |
 | 240 | Coloured runs are first-class | NOT A GAP | — | — | neg |
 | 241 | `imm::mk` hashes the SOURCE LOCATION | NOT A GAP | — | — | neg |
-| 255 | A feature is opted into by ENUMERATOR NAME, silently | FOOTGUN | CRIT | S | **live — top 10** |
+| 255 | A feature is opted into by ENUMERATOR NAME, silently | FOOTGUN | CRIT | S | **proof patch — capability trait** |
 | 256 | Correction to #49: `CMD+` means Ctrl, `SUPER+` is dropped | FOOTGUN | MED | XS | live |
 | 257 | No action for delete-to-line-start | MISSING | MED | S | live |
 | 258 | `expect_input_text` cannot see a multiline field | WORKAROUND | HIGH | XS | live |
@@ -701,12 +733,12 @@ correction narrows them rather than closing them.
 | 262 | `text_area` hardcodes its field background | MISSING | MED | XS | dup→#67 |
 | 263 | `text_area` draws no focus ring | MISSING | MED | XS | dup→#67 |
 | 264 | `default_keymap()` is not macOS-correct | FOOTGUN | HIGH | S | live |
-| 265 | The ring is three outlines, not one | — | HIGH | XS | dup→#83 |
+| 265 | The ring is three outlines, not one | — | HIGH | XS | **proof patch — contrast toggle** |
 | 266 | The ring's offset is one number for the whole app | — | MED | S | dup→#83 |
 | 267 | The ring is drawn with no reference to whether focus moves | — | MED | XS | dup→#83 |
 | 275 | Nothing asks whether a widget is inside its PARENT | — | HIGH | S | **live — top 10** |
 | 276 | `Dim::Percent` ignores the child's own margin | FOOTGUN | HIGH | XS | live |
-| 277 | The 5px label inset is hard-coded and unqueryable | FOOTGUN | HIGH | S | **live — top 10** |
+| 277 | The 5px label inset is hard-coded and unqueryable | FOOTGUN | HIGH | S | **proof rejected — coupled pixel contract** |
 | 285 | Every element-addressed input command is a CLICK | TEDIOUS | MED | S | live |
 | 286 | A widget cannot know its own position on the frame built | — | MED | M | live |
 | 287 | There IS a drag primitive, unreachable from the config | — | HIGH | XS | live |

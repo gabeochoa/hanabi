@@ -1,10 +1,12 @@
 # Vendored afterhours patches (proven in hanabi, ready for the maintainer)
 
-`vendor/afterhours` is the afterhours submodule (gabeochoa/afterhours). These are
-fixes PROTOTYPED + PROVEN while building hanabi: each was applied to the
-submodule, verified to fix the real hanabi symptom (screenshot / behavior), and
-captured here as a ready-to-apply patch + rationale so landing it upstream is
-low-effort. Each corresponds to a numbered entry in `afterhours_gaps.md`.
+`vendor/afterhours` is the pinned afterhours submodule
+(`428047e3c92442e0ded3a0d473315e9636a451ac`). This directory contains both
+older Hanabi-proven fixes and proof patches that are applied only to temporary
+vendor copies by `make verify-vendor-patches`. The verifier checks the base,
+checks and applies each patch independently, compiles focused probes, and
+requires the intended failure before each fix and success after it. The pinned
+submodule is never edited.
 
 ## Applying (from the afterhours repo/submodule root)
 
@@ -19,11 +21,50 @@ If you only want the diff applied to the working tree (no commit), use:
     git apply ../../vendor_patches/<file>.patch        # working-tree only
     git apply --check ../../vendor_patches/<file>.patch # dry-run: verify it applies
 
-All are verified to apply cleanly against the pinned base (428047e for #305; edfe234 for the older three). Apply order
-is independent — the two patches touch different files (drawing_helpers.h vs
-rendering.h) and do not conflict. After landing upstream, bump hanabi's
-`vendor/afterhours` submodule pointer to the new commit and delete the applied
-patch from this folder.
+Every patch states its pinned base in the commit message. The proof-patch set
+below applies independently to `428047e`; the older patches retain their own
+bases. After a patch lands upstream, bump Hanabi's submodule pointer and remove
+the corresponding patch here.
+
+## Verified proof patches on 428047e
+
+| Patch | Gaps | Vendor delta | Focused proof |
+|---|---:|---:|---|
+| `351-report-font-atlas-exhaustion.patch` | #351 | +12 | The source contract is absent before and present after; the patched Sokol headers compile as Objective-C++. |
+| `210-reject-unsamplable-textures.patch` | #210 | +7 | The sampler validation/cleanup contract is absent before and present after; the patched Sokol headers compile. |
+| `113-161-192-complete-e2e-diagnostics.patch` | #113, #161, #192 | +7/-3 | A real `SystemManager` has no dump handler before and one after; timeout subjects and text beyond byte 200 are red before/green after. |
+| `265-focus-ring-contrast-toggle.patch` | #265 | +17/-12 | The none backend records three outlines by default in both renderers; disabling contrast records exactly one after the patch. |
+| `255-word-editing-capability.patch` | #255 | +7 | A consumer `static_assert` does not compile before; complete and incomplete action enums classify correctly after. |
+
+Run:
+
+    make verify-vendor-patches
+
+Expected runtime is about one minute on Apple Silicon. A pass ends with:
+
+    PASS all 5 vendor patches against 428047e3c92442e0ded3a0d473315e9636a451ac
+
+The probes live in `tests/vendor_probes/`; `scripts/verify_vendor_patches.py`
+exports the pinned revision, applies each patch to its own temporary copy, and
+deletes those copies on exit. These are maintainer-ready proposals, not claims
+of upstream acceptance.
+
+## Candidates deliberately not patched
+
+- **#137:** rejected as pixel-unsafe. The public path returns fontstash pen
+  advance while the shared cache/layout path returns ink bounds; Hanabi measured
+  a 2px delta on identical strings. A one-line change is possible, but either
+  direction moves an existing caller's pixels and needs an upstream semantics
+  decision.
+- **#85/#277:** rejected as not small or differential-safe. The 5px contract is
+  duplicated across plain, wrapped, styled, ellipsis, immediate, batched, and
+  text-input paths. Honoring element padding would move nine live Hanabi labels,
+  while merely naming one literal would leave the other 5px/10px calculations
+  divergent.
+- **#210 pool sizing:** deferred while shipping the correctness half. Pool sizes
+  cross the public graphics config, both Sokol setup paths, defaults, and backend
+  portability. Sampler validation is independent and prevents a successful
+  return from containing an unusable sampler now.
 
 ## Landed / proven
 - **25-rounded-corner-degenerate-triangle.patch** — `draw_rectangle_rounded`'s

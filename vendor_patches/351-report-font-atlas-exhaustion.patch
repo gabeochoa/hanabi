@@ -1,0 +1,48 @@
+From 953195116b2cf845610acd10c302cbd0a35cbc72 Mon Sep 17 00:00:00 2001
+From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
+Date: Thu, 27 Aug 2026 22:12:16 -0400
+Subject: [PATCH] fix(sokol): report font atlas exhaustion
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Pinned base: 428047e3c92442e0ded3a0d473315e9636a451ac
+
+Register fontstash’s existing error callback when the atlas is created and report FONS_ATLAS_FULL once. This turns silent glyph and advance loss into an actionable error without changing successful rendering.
+---
+ src/backends/sokol/backend.h | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/backends/sokol/backend.h b/src/backends/sokol/backend.h
+index c5cd585..5108039 100644
+--- a/src/backends/sokol/backend.h
++++ b/src/backends/sokol/backend.h
+@@ -82,6 +82,16 @@ inline RenderTextureType g_headless_rt{};
+ // which discarded every alpha byte. Opaque draws are unchanged (a=255).
+ inline sgl_pipeline g_blend_pip{};
+ 
++inline void handle_fontstash_error(void *, int error, int) {
++  if (error != FONS_ATLAS_FULL)
++    return;
++  static bool reported = false;
++  if (reported)
++    return;
++  reported = true;
++  log_error("font atlas full: glyphs and advances are being dropped");
++}
++
+ // sokol_gl + fontstash setup shared by the windowed (sokol_init_cb) and headless
+ // (metal_init) bootstraps. Assumes sg_setup() has already run.
+ inline void setup_sokol_gl_and_fonts() {
+@@ -107,6 +117,8 @@ inline void setup_sokol_gl_and_fonts() {
+   g_fons_ctx = sfons_create(&sfons_desc);
+   if (g_fons_ctx == nullptr) {
+     log_error("sfons_create failed (2048x2048 atlas); text rendering disabled");
++  } else {
++    fonsSetErrorCallback(g_fons_ctx, handle_fontstash_error, nullptr);
+   }
+ }
+ 
+-- 
+2.50.1
+
