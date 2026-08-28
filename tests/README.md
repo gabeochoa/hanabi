@@ -139,7 +139,7 @@ and restores it byte-for-byte on exit (trap), asserting an md5 match. Backend
 is forced to the zero-config mock (`HANABI_BACKEND=mock`) and runtime backend
 config is isolated (`HANABI_CONFIG=/tmp/none_$$`).
 
-**States captured (68):** the Home digest and smart views; transcript,
+**States captured (71):** the Home digest and smart views; transcript,
 loading, streaming, hover, selection, and tool-detail states; settings, new-task,
 shortcuts, and device authorization; command palette and full search (results and
 empty); model, effort, and slash pickers; row and tab context menus; toasts; and

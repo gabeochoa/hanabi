@@ -44,12 +44,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // both: a backend seeds its own starred flags on every list fetch and
     // knows nothing at all about this client's archive overlay, so without
     // this a star or an archive flipped in a prior launch is simply lost.
+    static void apply_local_overlay(api::SessionSummary& s) {
+        if (Settings::get().is_starred(s.id)) s.starred = true;
+        if (Settings::get().is_muted(s.id)) s.muted = true;
+        s.archive_override = Settings::get().get_archived(s.id);
+    }
+
     static void apply_local_overlays(std::vector<api::SessionSummary>& out) {
-        for (auto& s : out) {
-            if (Settings::get().is_starred(s.id)) s.starred = true;
-            if (Settings::get().is_muted(s.id)) s.muted = true;
-            s.archive_override = Settings::get().get_archived(s.id);
-        }
+        for (auto& s : out) apply_local_overlay(s);
     }
 
     // Persist a freshly-fetched transcript AND enforce the user's cache cap.
@@ -144,6 +146,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // round-trip, no Loading flash. Marks the thread most-recently-used
             // so "last 5 interacted with" stays accurate on every open/switch.
             if (auto hit = app.transcriptCache.get(id)) {
+                apply_local_overlay(hit->summary);
                 pane.openSession = std::move(*hit);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
@@ -214,6 +217,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // Don't clobber a fresh network result that already landed.
                 pane.transcriptState != LoadState::Loaded) {
                 app.transcriptCache.put(*disk);
+                apply_local_overlay(disk->summary);
                 pane.openSession = std::move(*disk);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
@@ -242,6 +246,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // (the user may have switched tabs during a slow fetch).
                     if (pane.selectedId == completedId &&
                         r.value.summary.id == completedId) {
+                        apply_local_overlay(r.value.summary);
                         pane.openSession = std::move(r.value);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
@@ -398,6 +403,49 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     else
                         app.listState = LoadState::Loaded;  // keep stale data
                 }
+            }
+        }
+
+        if (!app.subagentSidebarOpen) {
+            app.requestSubagentRefresh = false;
+            app.subagentSessions.clear();
+            app.subagentListState = LoadState::Idle;
+            app.subagentListError.clear();
+        } else if (app.requestSubagentRefresh && !app.subagentListPending) {
+            app.requestSubagentRefresh = false;
+            if (!app.client->supports_subagents()) {
+                app.subagentListState = LoadState::Error;
+                app.subagentListError =
+                    "This backend does not expose sub-agent sessions";
+            } else {
+                app.subagentListPending = true;
+                app.subagentListState = LoadState::Loading;
+                api::Client* c = app.client.get();
+                app.subagentListFuture = std::async(std::launch::async, [c] {
+                    return c->list_subagents(
+                        AppComponent::kMaxSubagentSessions);
+                });
+            }
+        }
+        if (app.subagentListPending && app.subagentListFuture.valid() &&
+            app.subagentListFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.subagentListFuture.get();
+            app.subagentListPending = false;
+            if (!app.subagentSidebarOpen) {
+                app.subagentSessions.clear();
+                app.subagentListState = LoadState::Idle;
+            } else if (r.ok) {
+                app.subagentSessions = std::move(r.value);
+                if (app.subagentSessions.size() >
+                    AppComponent::kMaxSubagentSessions)
+                    app.subagentSessions.resize(
+                        AppComponent::kMaxSubagentSessions);
+                app.subagentListState = LoadState::Loaded;
+                app.subagentListError.clear();
+            } else {
+                app.subagentListState = LoadState::Error;
+                app.subagentListError = r.error;
             }
         }
 
@@ -596,6 +644,41 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.renameError = r.error;
             }
             app.renameInFlightId.clear();
+        }
+
+        if (!app.requestForkSourceId.empty() && !app.forkFuture.valid()) {
+            const std::string source = app.requestForkSourceId;
+            const std::string prompt = app.requestForkPrompt;
+            const std::string title = app.requestForkTitle;
+            app.forkPending = true;
+            app.forkError.clear();
+            api::Client* c = app.client.get();
+            app.forkFuture =
+                std::async(std::launch::async, [c, source, prompt, title] {
+                    return prompt.empty()
+                               ? c->fork_session(source)
+                               : c->fork_with_prompt(source, prompt, title);
+                });
+        }
+        if (app.forkFuture.valid() &&
+            app.forkFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.forkFuture.get();
+            app.forkPending = false;
+            if (r.ok) {
+                app.requestListRefresh = true;
+                app.requestOpenTab = r.value;
+                app.requestOpenTabPane = std::clamp(app.requestForkPane, 0, 1);
+                app.requestOpenTabKeep = true;
+                app.forkError.clear();
+                app.forkRestoreDraft.clear();
+                app.forkRestoreSessionId.clear();
+            } else {
+                app.forkError = r.error;
+            }
+            app.requestForkSourceId.clear();
+            app.requestForkPrompt.clear();
+            app.requestForkTitle.clear();
         }
 
         // --- Reply (transcript composer "Send" -> continue the open thread) ---
@@ -1222,6 +1305,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             continue;
                         api::Session fresh = r.value;
                         reconcile_optimistic(pane, fresh);
+                        apply_local_overlay(fresh.summary);
                         pane.openSession = std::move(fresh);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;

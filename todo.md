@@ -826,21 +826,23 @@ backend serves live production data.
 
 - [x] Session rename (~80) `[APP]` — shipped, with the row context menu the
       rest of this section hangs off
-- [ ] Session fork, `/btw` (~70) `[APP]` — `/btw` is in the slash menu and
-      reports that this client cannot fork yet
+- [x] Session fork, `/btw` (~70) `[APP]` — the Agentcloud adapter uses the
+      real `fork` and atomic `fork_with_prompt` control commands; the mock and
+      UI flow preserve the source and open the durable destination
 - [x] Session archive (~60) `[APP]` — `feat/session-archive-ui`, with an undo toast
 - [x] Session pin / star (~50) `[APP]` — was already built; the gap was the
       undo, which `feat/undo-toast` closed
 - [x] Session mute (~40) `[APP]`
-- [ ] Sub-agent status panel — partial (~80) `[APP]`. The transcript rollup is
-      built (`render_sub_agent_panel`); what is missing is the sidebar toggle
+- [x] Sub-agent status panel (~80) `[APP]` — the persisted sidebar toggle
+      loads at most 2,000 real child sessions only while open, shows
+      active/completed/failed/blocked counts, and opens the child transcript
 - [ ] ~~Delete session~~ **BLOCKED** — no server verb exists
 
 ## Composer — `composer.md`
 
 - [x] History walk, Up/Down (~90) `[APP]`
-- [x] Slash command menu `[APP]` — `feat/slash-commands`. `/new` runs; the
-      rest say plainly what this client cannot do rather than reaching the agent
+- [x] Slash command menu `[APP]` — `feat/slash-commands`. `/new`, `/model`,
+      `/effort`, and `/btw` run; `/compact` states the missing client verb
 - [x] Model picker popover `[APP]` — the strip's chip named a model nothing set
 - [x] Effort level picker `[APP]` — local-only; nothing sends it yet
 - [x] Undo toast for archive/pin/mute `[APP]`
@@ -892,16 +894,16 @@ multi-line bubble.
 ## Sidebar & tabs — `sidebar-tabs.md`
 
 - [x] Home shelf collapse/expand (~50) `[APP]`
-- [ ] Muted sessions bell (~60) `[APP]`
+- [x] Muted sessions bell (~60) `[APP]` — muted rows carry a quiet crossed-ring
+      affordance, click-to-unmute, persisted state, undo, and native-event suppression
 - [x] Sub-agent visibility toggle `[APP]`
 - [x] Sidebar row drag-reorder (~110) `[APP]`
 - [x] Search snippet highlighting in rows `[APP-WORKAROUND]` — same no-text-rects problem as #8
 - [x] Tab drag-reorder (~90) `[APP]` — ALREADY BUILT: `model::reorder_tab`,
       driven from the drag in `tab_bar_system.h`. False gap
-- [x] Tab context menu: Copy Navi URL, Close others (~50) `[APP]` — ALREADY BUILT:
-      the menu, the real clipboard write and `model::close_others` were present. Fixed now:
-      exact label, pinned-tab survival, two-pane reconciliation and scripted clipboard coverage.
-      Only "close all" is genuinely missing.
+- [x] Tab context menu: Copy Navi URL, Close others, Close all (~50) `[APP]` —
+      the menu, clipboard write and `model::close_others` were present; Close all now
+      retires every tab, both pane states, split state, and the persisted tab set
 - [x] Tab preview mode (~65) `[APP]` — and it is the feature that helps at 2000 rows
 - [ ] ~~Space grouping~~ **BLOCKED** — sessions carry no Space; evidence above
 - [ ] ~~Folder collapse-all~~ **BLOCKED** — depends on Space grouping

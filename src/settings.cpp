@@ -83,6 +83,8 @@ bool Settings::load_save_file() {
         theme_rotate_secs_ = j.value("theme_rotate_secs", theme_rotate_secs_);
         show_finished_subagents_ =
             j.value("show_finished_subagents", show_finished_subagents_);
+        subagent_sidebar_open_ =
+            j.value("subagent_sidebar_open", subagent_sidebar_open_);
         show_date_dividers_ =
             j.value("show_date_dividers", show_date_dividers_);
         show_reasoning_ = j.value("show_reasoning", show_reasoning_);
@@ -201,6 +203,7 @@ void Settings::write_save_file() {
     j["show_timestamps"] = show_timestamps_;
     j["theme_rotate_secs"] = theme_rotate_secs_;
     j["show_finished_subagents"] = show_finished_subagents_;
+    j["subagent_sidebar_open"] = subagent_sidebar_open_;
     j["show_date_dividers"] = show_date_dividers_;
     j["show_reasoning"] = show_reasoning_;
     j["fold_long_messages"] = fold_long_messages_;
@@ -549,6 +552,14 @@ bool Settings::get_show_finished_subagents() const {
 void Settings::set_show_finished_subagents(bool on) {
     if (on == show_finished_subagents_) return;
     show_finished_subagents_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_subagent_sidebar_open() const {
+    return subagent_sidebar_open_;
+}
+void Settings::set_subagent_sidebar_open(bool on) {
+    if (on == subagent_sidebar_open_) return;
+    subagent_sidebar_open_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

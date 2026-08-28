@@ -681,16 +681,27 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             int action;
             const char* debugName;
         };
-        static constexpr std::array<Item, 5> kItems{{
+        static constexpr std::array<Item, 7> kItems{{
             {"Rename\xe2\x80\xa6", 3, "tab_menu_rename"},
+            {"Fork session", 6, "tab_menu_fork"},
             {nullptr, 4, "tab_menu_pin"},
             {"Copy Navi URL", 0, "tab_menu_copy"},
             {"Open in split", 2, "tab_menu_split"},
             {"Close others", 1, "tab_menu_close_others"},
+            {"Close all tabs", 5, "tab_menu_close_all"},
         }};
-        const int firstItem =
-            app.client && app.client->supports_rename() ? 0 : 1;
-        const int nItems = static_cast<int>(kItems.size()) - firstItem;
+        std::vector<const Item*> items;
+        items.reserve(kItems.size());
+        for (const auto& item : kItems) {
+            if (item.action == 3 &&
+                !(app.client && app.client->supports_rename()))
+                continue;
+            if (item.action == 6 &&
+                !(app.client && app.client->supports_fork()))
+                continue;
+            items.push_back(&item);
+        }
+        const int nItems = static_cast<int>(items.size());
 
         const float menuW = 184.0f;
         const float headerH = 28.0f;
@@ -728,7 +739,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
         bool clickedItem = false;
         for (int k = 0; k < nItems; ++k) {
-            const Item& item = kItems[static_cast<size_t>(firstItem + k)];
+            const Item& item = *items[static_cast<size_t>(k)];
             const char* itemLabel = item.action == 4
                                         ? (tab.pinned ? "Unpin tab" : "Pin tab")
                                         : item.label;
@@ -736,7 +747,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             bool itemHovered = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos,
                 RectangleType{mx + 4.0f, iy, menuW - 8.0f, itemH});
-            const bool destructive = kItems[k].action == 1;
+            const bool destructive = item.action == 5;
             const theme::Color base = destructive
                                           ? hanabi::surface::destructive_surface()
                                           : theme::panel_bg();
@@ -779,6 +790,15 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.renameDraft = sum != nullptr ? sum->title : tab.label;
                     app.renameError.clear();
                     app.renameSubmit = false;
+                } else if (item.action == 6) {
+                    if (!app.forkPending && app.requestForkSourceId.empty()) {
+                        app.requestForkSourceId = keepId;
+                        app.requestForkPrompt.clear();
+                        app.requestForkTitle.clear();
+                        app.requestForkPane = app.focusedPane;
+                    }
+                } else if (item.action == 5) {
+                    model::close_all(strip, app);
                 } else {
                     model::close_others(strip, app, keepId);
                 }
@@ -823,7 +843,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 struct TabFlowSystem : afterhours::System<AppComponent> {
     void for_each_with(Entity&, AppComponent& app, float) override {
         // Restore persisted tabs once the session list is available.
-        if (!app.restoreDone && app.listState == LoadState::Loaded) {
+        const bool waitingForSubagents =
+            app.subagentSidebarOpen &&
+            app.subagentListState != LoadState::Loaded &&
+            app.subagentListState != LoadState::Error;
+        if (!app.restoreDone && app.listState == LoadState::Loaded &&
+            !waitingForSubagents) {
             app.restoreDone = true;
             auto* strip = find_singleton<TabStripComponent>();
             if (strip && !app.restoreTabIds.empty()) {
@@ -912,12 +937,30 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
 
         if (app.requestOpenTab.empty()) return;
         std::string id = app.requestOpenTab;
+        const bool keep = app.requestOpenTabKeep;
+        int targetPane = app.requestOpenTabPane;
         app.requestOpenTab.clear();
+        app.requestOpenTabKeep = false;
+        app.requestOpenTabPane = -1;
         auto* strip = find_singleton<TabStripComponent>();
         if (!strip) return;
-        // A sidebar row clicked once is a look, not a commitment: it opens as a
-        // PREVIEW and reuses whatever preview tab is already there.
-        TabBarSystem::open_session_in_tab(*strip, app, id, /*keep=*/false);
+        const int originalPane = app.focusedPane;
+        const std::string originalId = app.pane().selectedId;
+        if (!app.splitOpen || targetPane < 0 || targetPane > 1)
+            targetPane = originalPane;
+        app.focusedPane = targetPane;
+        TabBarSystem::open_session_in_tab(*strip, app, id, keep);
+        if (targetPane != originalPane) {
+            app.focusedPane = originalPane;
+            for (auto tabId : strip->tabOrder) {
+                auto tab = EntityHelper::getEntityForID(tabId);
+                if (!tab.valid() || !tab->has<Tab>() ||
+                    tab->get<Tab>().sessionId != originalId)
+                    continue;
+                TabBarSystem::switch_to_tab(app, tab.asE());
+                break;
+            }
+        }
     }
 };
 

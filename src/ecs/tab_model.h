@@ -426,6 +426,18 @@ inline void close_others(TabStripComponent& strip, AppComponent& app,
     reconcile_panes_with_tabs(strip, app, keepId);
 }
 
+inline void close_all(TabStripComponent& strip, AppComponent& app) {
+    for (auto tabId : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (opt.valid()) opt.asE().cleanup = true;
+    }
+    strip.tabOrder.clear();
+    for (auto& pane : app.panes) reset_pane_to(pane, "");
+    app.splitOpen = false;
+    app.focusedPane = 0;
+    app.view = SmartView::Home;
+}
+
 // The web session URL for a thread — used by the tab context menu's "Copy Navi
 // URL" action. Kept here (pure, testable) so the exact URL shape is asserted by
 // a unit test rather than only formed inline at the call site. The base comes

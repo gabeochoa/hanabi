@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","subagent_sidebar_open":false}
+
+click_ui sb_subagents_toggle
+wait_frames 30
+expect_text "SUB-AGENTS"
+expect_text "active 3  ·  completed 5  ·  failed 1  ·  blocked 1"
+expect_text "Ledger diff scan"
+screenshot /tmp/hanabi_subagent_sidebar.png
+click_ui subagent_row_t2s1
+wait_frames 24
+require_thread t2s1
+expect_text "comparing 4,812 rows against the ledger"

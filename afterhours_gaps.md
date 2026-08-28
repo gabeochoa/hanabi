@@ -14470,7 +14470,8 @@ systems remain one aggregate remainder.
 **Minimal upstream change.** Optional named before/after callbacks around each
 system invocation, with no timing dependency when disabled.
 
-CLASS: MISSING=======
+CLASS: MISSING
+
 ---
 
 ### #540 — NOT A GAP: a host can retain the last Metal frame by returning before the UI systems run
@@ -14650,3 +14651,11 @@ CLASS: SHARP EDGE
 **Hanabi reference.** `src/main.cpp::run_idle_timing`, `scripts/idle_gate.sh`, `make idle-gate`, and `docs/perf/IDLE.md`.
 
 CLASS: TESTING / MISSING
+
+---
+
+**Range note.** #550-#559 are intentionally unassigned after the session-lifecycle audit. The work needed no new afterhours primitive: the sidebar panel uses the existing scroll, button, clipping, and draw callbacks; the tab menu uses the existing secondary-surface pattern; and fork plus notification behavior lives below or above the UI framework. The only framework constraints encountered are already recorded as #112/#458 (no native accessibility semantics for the icon-only sidebar toggle) and #326/#420 (fixed-height application windowing for a bounded variable catalog).
+
+**Hanabi references.** `src/ecs/sidebar_system.h::render_subagent_sidebar` is the bounded, open-only panel; `src/ecs/tab_model.h::close_all` owns pane-safe tab teardown; `src/util/notify_events.h::native_event` owns muted native-notification suppression; and `tests/ui/sidebar_subagents.e2e`, `tests/ui/tab_close_all.e2e`, and `tests/ui/session_btw_fork.e2e` are the live UI evidence. `vendor/afterhours` remains unchanged.
+
+**Remaining measured cost.** Closed panel: zero child-session requests and zero child-row builds; the persistent toggle itself adds six steady-state allocations per frame (`home20` 811 → 817). Open panel: one catalog request capped at 2,000 child summaries, one O(n) status/filter pass, and 29 of 410 matching child rows built in the 2,000-session stress fixture. Close-all is O(open tabs); fork is one capability read plus one control-lane request for `/btw`, or one control-lane request for a bare fork.

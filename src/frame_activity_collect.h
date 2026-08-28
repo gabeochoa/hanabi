@@ -58,21 +58,18 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
         s.async_ready = s.async_ready || pane_has_ready_future(pane);
     }
 
-    s.state_request = s.state_request || app.requestListRefresh ||
-                      !app.requestOpenTab.empty() ||
-                      !app.requestSplitOpen.empty() || app.requestSplitClose ||
-                      app.requestSplitToggle || !app.requestToggleStar.empty() ||
-                      !app.requestToggleArchive.empty() ||
-                      !app.requestToggleMute.empty() ||
-                      !app.requestResetRowOrder.empty() || app.requestNewTask ||
-                      !app.requestKickoffPrompt.empty() ||
-                      !app.requestSendPrompt.empty() ||
-                      !app.requestRetryPrompt.empty() ||
-                      !app.composerSubmit.empty() ||
-                      !app.requestStreamPrompt.empty() ||
-                      app.requestAuthCancel || !app.requestRenameId.empty() ||
-                      app.renameSubmit || app.requestSettings ||
-                      !app.pendingSendQueue.empty() || app.refocusComposer;
+    s.state_request =
+        s.state_request || app.requestListRefresh ||
+        !app.requestOpenTab.empty() || !app.requestSplitOpen.empty() ||
+        app.requestSplitClose || app.requestSplitToggle ||
+        !app.requestToggleStar.empty() || !app.requestToggleArchive.empty() ||
+        !app.requestResetRowOrder.empty() || app.requestNewTask ||
+        !app.requestKickoffPrompt.empty() || !app.requestSendPrompt.empty() ||
+        !app.requestRetryPrompt.empty() || !app.composerSubmit.empty() ||
+        !app.requestStreamPrompt.empty() || app.requestAuthCancel ||
+        !app.requestRenameId.empty() || app.renameSubmit ||
+        app.requestSettings || !app.pendingSendQueue.empty() ||
+        app.refocusComposer;
     s.split_change = app.splitDragging || app.requestSplitClose ||
                      app.requestSplitToggle || !app.requestSplitOpen.empty();
     s.dragging = s.dragging || app.splitDragging || app.rowDrag.live;
@@ -80,10 +77,10 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
     s.thinking = app.streamCollecting ||
                  app.streamPhase == ecs::AppComponent::StreamPhase::Thinking;
 
-    s.pending_future = s.pending_future || app.listPending || app.kickoffPending ||
-                       app.steerPending || app.sendPending ||
-                       app.streamCollecting || app.authBeginPending ||
-                       app.renamePending || app.settingsPending;
+    s.pending_future =
+        s.pending_future || app.listPending || app.kickoffPending ||
+        app.steerPending || app.sendPending || app.streamCollecting ||
+        app.authBeginPending || app.renamePending || app.settingsPending;
     s.async_ready = s.async_ready || frame_future_ready(app.listFuture) ||
                     frame_future_ready(app.kickoffFuture) ||
                     frame_future_ready(app.steerFuture) ||
@@ -93,15 +90,34 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
                     frame_future_ready(app.renameFuture) ||
                     frame_future_ready(app.settingsFuture);
 
+    const FrameSignals lifecycle = lifecycle_frame_signals({
+        .fork_request = !app.requestForkSourceId.empty(),
+        .fork_pending = app.forkPending,
+        .fork_ready = frame_future_ready(app.forkFuture),
+        .subagent_request = app.requestSubagentRefresh,
+        .subagent_pending = app.subagentListPending,
+        .subagent_ready = frame_future_ready(app.subagentListFuture),
+        .mute_toggle = !app.requestToggleMute.empty(),
+        .toast_active = !app.toastMessage.empty(),
+    });
+    s.state_request = s.state_request || lifecycle.state_request;
+    s.pending_future = s.pending_future || lifecycle.pending_future;
+    s.async_ready = s.async_ready || lifecycle.async_ready;
+    s.timer = s.timer || lifecycle.timer;
+
     for (auto& [id, live] : app.liveSubs) {
         (void)id;
-        s.timer = s.timer || live.dirty->load();
+        const bool dirty = live.dirty->load();
+        const FrameSignals lifecycleDirty =
+            lifecycle_frame_signals({.sse_dirty = dirty});
+        s.sse_event = s.sse_event || lifecycleDirty.sse_event;
+        s.timer = s.timer || lifecycleDirty.timer;
         s.pending_future = s.pending_future || live.pending;
         s.async_ready = s.async_ready || frame_future_ready(live.future);
     }
 
-    s.timer = s.timer || app.showAuth || !app.toastMessage.empty() ||
-              !app.outboxRetry.empty() || Settings::get().is_settings_dirty() ||
+    s.timer = s.timer || app.showAuth || !app.outboxRetry.empty() ||
+              Settings::get().is_settings_dirty() ||
               Settings::get().get_theme_rotate_secs() > 0;
     s.caret = ecs::any_text_field_focused();
     return s;

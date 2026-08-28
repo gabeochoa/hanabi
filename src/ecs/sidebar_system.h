@@ -73,6 +73,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // a change that touched only the sidebar (gap #90).
         ctx.theme.font_muted = theme::text_secondary();
 
+        if (!app->subagentSidebarSeeded) {
+            app->subagentSidebarOpen =
+                Settings::get().get_subagent_sidebar_open();
+            app->requestSubagentRefresh = app->subagentSidebarOpen;
+            app->subagentSidebarSeeded = true;
+        }
+
         // Apply a pending star-toggle request (set by a row's star affordance).
         // The mutation lives HERE so this owned system is the single writer of
         // the sessions vector's starred flag — flipping it updates the Starred
@@ -80,14 +87,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!app->requestToggleStar.empty()) {
             for (auto& s : app->sessions) {
                 if (s.id == app->requestToggleStar) {
-                    s.starred = !s.starred;
+                    const bool starred = !s.starred;
+                    app->apply_starred(s.id, starred);
                     // Persist so the star survives relaunch (Settings is the
                     // durable source of truth; the loader re-applies it to
                     // freshly-fetched sessions on the next launch).
-                    Settings::get().set_starred(s.id, s.starred);
-                    app->raise_toast(s.starred ? "Session starred"
-                                               : "Session unstarred",
-                                     s.id, AppComponent::ToastUndo::Star);
+                    Settings::get().set_starred(s.id, starred);
+                    app->raise_toast(
+                        starred ? "Session starred" : "Session unstarred", s.id,
+                        AppComponent::ToastUndo::Star);
                     break;
                 }
             }
@@ -102,7 +110,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             for (auto& s : app->sessions) {
                 if (s.id == app->requestToggleArchive) {
                     const bool nowArchived = !model::is_archived(s);
-                    s.archive_override = nowArchived;
+                    app->apply_archived(s.id, nowArchived);
                     Settings::get().set_archived(s.id, nowArchived);
                     app->raise_toast(nowArchived ? "Session archived"
                                                  : "Session unarchived",
@@ -119,11 +127,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!app->requestToggleMute.empty()) {
             for (auto& s : app->sessions) {
                 if (s.id == app->requestToggleMute) {
-                    s.muted = !s.muted;
-                    Settings::get().set_muted(s.id, s.muted);
-                    app->raise_toast(s.muted ? "Session muted"
-                                             : "Session unmuted",
-                                     s.id, AppComponent::ToastUndo::Mute);
+                    const bool muted = !s.muted;
+                    app->apply_muted(s.id, muted);
+                    Settings::get().set_muted(s.id, muted);
+                    app->raise_toast(
+                        muted ? "Session muted" : "Session unmuted", s.id,
+                        AppComponent::ToastUndo::Mute);
                     break;
                 }
             }
@@ -263,10 +272,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         int viewportRows = static_cast<int>(scrollH / kRowHeight);
         int fillCap = viewportRows * 2;
         if (fillCap < kBucketCap) fillCap = kBucketCap;
-        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
-                               *app, q, r.width, /*archived=*/false,
-                               /*catchAll=*/true, /*headerless=*/true,
-                               /*cap=*/fillCap);
+        if (app->subagentSidebarOpen) {
+            shown +=
+                render_subagent_sidebar(ctx, scroll.ent(), *app, q, r.width);
+        } else {
+            shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
+                                   *app, q, r.width, /*archived=*/false,
+                                   /*catchAll=*/true, /*headerless=*/true,
+                                   /*cap=*/fillCap);
+        }
 
 // (Archived is a smart VIEW in the Views section above, not a list
         // section. Sending a message to an archived thread unarchives it,
@@ -365,7 +379,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("sb_widget_audit"));
 
         // No-results empty state (only meaningful with a non-empty query).
-        if (!q.empty() && shown == 0) {
+        if (!q.empty() && shown == 0 && !app->subagentSidebarOpen) {
             div(ctx, mk(scroll.ent(), 900),
                 ComponentConfig{}
                     .with_label("No matches for \"" + app->searchQuery + "\"")
@@ -387,6 +401,187 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
+   int render_subagent_sidebar(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app, const std::string& q,
+                               float panelW) {
+       if (app.subagentListState == LoadState::Loading) {
+           div(ctx, mk(parent, 8700),
+               ComponentConfig{}
+                   .with_label("Loading sub-agents\xe2\x80\xa6")
+                   .with_size(ComponentSize{
+                       pixels(panelW - kSbInset - kCountRightPad), pixels(34)})
+                   .with_margin(Margin{.left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_secondary())
+                   .with_font_size(theme::type::MD)
+                   .with_alignment(TextAlignment::Left)
+                   .with_debug_name("subagents_loading"));
+           return 0;
+       }
+       if (app.subagentListState == LoadState::Error) {
+           div(ctx, mk(parent, 8701),
+               ComponentConfig{}
+                   .with_label(app.subagentListError)
+                   .with_size(ComponentSize{
+                       pixels(panelW - kSbInset - kCountRightPad), pixels(44)})
+                   .with_margin(Margin{.left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::destructive())
+                   .with_font_size(theme::type::SM)
+                   .with_alignment(TextAlignment::Left)
+                   .with_debug_name("subagents_error"));
+           return 0;
+       }
+
+       subagentMembers_.clear();
+       int active = 0;
+       int completed = 0;
+       int blocked = 0;
+       int failed = 0;
+       for (const auto& child : app.subagentSessions) {
+           const auto* parentSummary = app.find_summary(child.parent_id);
+           const std::string parentTitle =
+               parentSummary == nullptr ? std::string{} : parentSummary->title;
+           if (!q.empty() && !title_matches(child.title, q) &&
+               !title_matches(parentTitle, q))
+               continue;
+           subagentMembers_.push_back(&child);
+           if (child.state == api::ThreadState::Running)
+               ++active;
+           else if (child.tag == api::ThreadTag::Failed)
+               ++failed;
+           else if (child.tag == api::ThreadTag::Blocked)
+               ++blocked;
+           else
+               ++completed;
+       }
+
+       auto head =
+           div(ctx, mk(parent, 8710),
+               ComponentConfig{}
+                   .with_size(ComponentSize{percent(1.0f), pixels(48)})
+                   .with_flex_direction(FlexDirection::Column)
+                   .with_flex_wrap(FlexWrap::NoWrap)
+                   .with_padding(Padding{.top = pixels(5),
+                                         .right = pixels(kCountRightPad),
+                                         .bottom = pixels(3),
+                                         .left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_debug_name("subagents_summary"));
+       div(ctx, mk(head.ent(), 1),
+           ComponentConfig{}
+               .with_label("SUB-AGENTS")
+               .with_size(ComponentSize{percent(1.0f), pixels(18)})
+               .with_transparent_bg()
+               .with_custom_text_color(theme::text_faint())
+               .with_font_size(theme::type::MICRO)
+               .with_letter_spacing(0.8f)
+               .with_alignment(TextAlignment::Left));
+       div(ctx, mk(head.ent(), 2),
+           ComponentConfig{}
+               .with_label("active " + std::to_string(active) +
+                           "  \xc2\xb7  completed " +
+                           std::to_string(completed) + "  \xc2\xb7  failed " +
+                           std::to_string(failed) + "  \xc2\xb7  blocked " +
+                           std::to_string(blocked))
+               .with_size(ComponentSize{percent(1.0f), pixels(18)})
+               .with_transparent_bg()
+               .with_custom_text_color(theme::text_secondary())
+               .with_font_size(theme::type::SM)
+               .with_alignment(TextAlignment::Left)
+               .with_debug_name("subagents_counts"));
+
+       const int total = static_cast<int>(subagentMembers_.size());
+       if (total == 0) {
+           div(ctx, mk(parent, 8720),
+               ComponentConfig{}
+                   .with_label(q.empty() ? "No sub-agents"
+                                         : "No matching sub-agents")
+                   .with_size(ComponentSize{
+                       pixels(panelW - kSbInset - kCountRightPad), pixels(32)})
+                   .with_margin(Margin{.left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_faint())
+                   .with_font_size(theme::type::MD)
+                   .with_alignment(TextAlignment::Left)
+                   .with_debug_name("subagents_empty"));
+           rowsRendered_ = rowsMatched_ = rowsFirst_ = 0;
+           return 0;
+       }
+
+       const RowWindow window = row_window(parent, total, true);
+       render_row_spacer(ctx, parent, 8721, window.above);
+       for (int i = window.first; i < window.last; ++i) {
+           const api::SessionSummary& child = *subagentMembers_[i];
+           const auto* parentSummary = app.find_summary(child.parent_id);
+           const std::string parentTitle =
+               parentSummary == nullptr
+                   ? std::string("unknown parent")
+                   : fmtutil::ellipsize(parentSummary->title, 26);
+           auto row = button(
+               ctx, mk(parent, 8730 + i),
+               ComponentConfig{}
+                   .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
+                   .with_flex_direction(FlexDirection::Row)
+                   .with_flex_wrap(FlexWrap::NoWrap)
+                   .with_align_items(AlignItems::Center)
+                   .with_padding(Padding{.right = pixels(kCountRightPad),
+                                         .left = pixels(kSbInset)})
+                   .with_custom_background(theme::chrome::sidebar())
+                   .with_custom_hover_bg(
+                       theme::hover_over(theme::chrome::sidebar()))
+                   .with_click_activation(ClickActivationMode::Press)
+                   .with_roundness(0.0f)
+                   .with_debug_name("subagent_row_" + child.id));
+           div(ctx, mk(row.ent(), 1),
+               ComponentConfig{}
+                   .with_label(" ")
+                   .with_size(ComponentSize{pixels(16), pixels(24)})
+                   .with_transparent_bg()
+                   .with_on_draw_fg(
+                       [glyph = sidebar_glyph(child)](RectangleType rect) {
+                           draw_mark(rect, glyph, theme::chrome::sidebar());
+                       }));
+           auto text =
+               div(ctx, mk(row.ent(), 2),
+                   ComponentConfig{}
+                       .with_size(ComponentSize{
+                           pixels(std::max(40.0f, panelW - kSbInset -
+                                                      kCountRightPad - 16.0f)),
+                           pixels(kRowHeight)})
+                       .with_flex_direction(FlexDirection::Column)
+                       .with_flex_wrap(FlexWrap::NoWrap)
+                       .with_transparent_bg());
+           div(ctx, mk(text.ent(), 1),
+               ComponentConfig{}
+                   .with_label(fmtutil::ellipsize(child.title, 30))
+                   .with_size(ComponentSize{percent(1.0f), pixels(17)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_primary())
+                   .with_font_size(theme::type::SM)
+                   .with_alignment(TextAlignment::Left));
+           div(ctx, mk(text.ent(), 2),
+               ComponentConfig{}
+                   .with_label(parentTitle)
+                   .with_size(ComponentSize{percent(1.0f), pixels(13)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_faint())
+                   .with_font_size(theme::type::MICRO)
+                   .with_alignment(TextAlignment::Left));
+           if (row) {
+               app.requestOpenTab = child.id;
+               app.requestOpenTabPane = app.focusedPane;
+               app.requestOpenTabKeep = false;
+               app.view = SmartView::Chat;
+           }
+       }
+       render_row_spacer(ctx, parent, 8722, window.below);
+       rowsRendered_ = window.last - window.first;
+       rowsMatched_ = total;
+       rowsFirst_ = window.first;
+       return rowsRendered_;
+   }
+
     // ---- drop-zone line (drag-to-reorder) ----
     // One absolutely-positioned hairline for the WHOLE list, drawn only while a
     // drag is live — not a per-row affordance. Its y was computed from the
@@ -430,7 +625,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        enum class Action { Rename, Archive, Mute, ResetOrder };
+        enum class Action { Rename, Fork, Archive, Mute, ResetOrder };
         struct Item {
             const char* label;
             const char* name;
@@ -440,6 +635,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (app.client && app.client->supports_rename())
             items.push_back({"Rename\xe2\x80\xa6", "row_menu_rename",
                              Action::Rename});
+        if (app.client && app.client->supports_fork())
+            items.push_back({"Fork session", "row_menu_fork", Action::Fork});
         items.push_back({model::is_archived(*target) ? "Unarchive" : "Archive",
                          "row_menu_archive", Action::Archive});
         items.push_back({target->muted ? "Unmute" : "Mute", "row_menu_mute",
@@ -533,6 +730,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     app.renameDraft = target->title;
                     app.renameError.clear();
                     app.renameSubmit = false;
+                    break;
+                case Action::Fork:
+                    if (!app.forkPending && app.requestForkSourceId.empty()) {
+                        app.requestForkSourceId = targetId;
+                        app.requestForkPrompt.clear();
+                        app.requestForkTitle.clear();
+                        app.requestForkPane = app.focusedPane;
+                    }
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;
@@ -1245,7 +1450,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_views_chevron"));
         // Fixed pixel width (gap #18: no flex-grow) so the toggle that follows
         // lands on the measured right edge instead of packing mid-strip.
-        float labelW = panelW - 7.0f - 5.0f - 10.0f - 24.0f;
+        float labelW = panelW - 7.0f - 5.0f - 10.0f - 48.0f;
         if (labelW < 20.0f) labelW = 20.0f;
         div(ctx, mk(strip.ent(), 2),
             ComponentConfig{}
@@ -1258,14 +1463,38 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_views_label"));
+        auto subagentsBtn =
+            button(ctx, mk(strip.ent(), 3),
+                   ComponentConfig{}
+                       .with_label(" ")
+                       .with_size(ComponentSize{pixels(24), pixels(20)})
+                       .with_custom_background(app.subagentSidebarOpen
+                                                   ? theme::selected_bg()
+                                                   : theme::chrome::sidebar())
+                       .with_custom_hover_bg(
+                           theme::hover_over(theme::chrome::sidebar()))
+                       .with_cursor(afterhours::ui::CursorType::Pointer)
+                       .with_click_activation(ClickActivationMode::Press)
+                       .with_skip_tabbing(true)
+                       .with_roundness(0.3f)
+                       .with_on_draw_fg(
+                           hanabi::icons::draw_fg("brand", "*", tint, 15.0f))
+                       .with_debug_name("sb_subagents_toggle"));
+        if (subagentsBtn) {
+            app.subagentSidebarOpen = !app.subagentSidebarOpen;
+            Settings::get().set_subagent_sidebar_open(app.subagentSidebarOpen);
+            app.requestSubagentRefresh = app.subagentSidebarOpen;
+            if (!app.subagentSidebarOpen) app.subagentSessions.clear();
+        }
         // Panel toggle: the collapse affordance the removed brand row carried.
-        auto collapseBtn = button(ctx, mk(strip.ent(), 3),
+        auto collapseBtn = button(
+            ctx, mk(strip.ent(), 4),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(24), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(
-                    theme::chrome::sidebar()))
+                .with_custom_hover_bg(
+                    theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
@@ -1806,6 +2035,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // one buffer is enough; if a second group is ever rendered in the same
     // frame this must become one buffer per nesting level, not one shared.
     std::vector<const api::SessionSummary*> members_;
+    std::vector<const api::SessionSummary*> subagentMembers_;
     // Buffer for more_key(); see the note there.
     std::string moreKeyScratch_;
     // What the last rendered group drew, and out of how many. Test-only

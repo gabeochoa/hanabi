@@ -88,6 +88,10 @@
       "threshold_pct": 0.0,
       "note": "Sidebar folded to the icon rail."
     },
+    "14b_subagent_sidebar_dark": {
+      "threshold_pct": 0.0,
+      "note": "Persisted sub-agent sidebar with active, completed, failed, and blocked counts."
+    },
     "15_settings_dark": {
       "threshold_pct": 0.0,
       "note": "Settings overlay, dark. Every preference control on one sheet."

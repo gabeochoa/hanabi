@@ -179,6 +179,39 @@ static void lazy_cache_and_search_transitions_wake() {
     CHECK(!transitions.observe(false, 8, 1).state_request);
 }
 
+static void lifecycle_transitions_wake_without_idle_delay() {
+    for (int kind = 0; kind < 8; ++kind) {
+        hanabi::LifecycleFrameState state;
+        if (kind == 0) state.fork_request = true;
+        if (kind == 1) state.fork_pending = true;
+        if (kind == 2) state.fork_ready = true;
+        if (kind == 3) state.subagent_request = true;
+        if (kind == 4) state.subagent_pending = true;
+        if (kind == 5) state.subagent_ready = true;
+        if (kind == 6) state.sse_dirty = true;
+        if (kind == 7) state.mute_toggle = true;
+        const FrameSignals signals = hanabi::lifecycle_frame_signals(state);
+        FrameActivityPolicy policy;
+        policy.rendered(0);
+        if (state.fork_pending || state.subagent_pending) {
+            CHECK(signals.pending_future);
+            CHECK(policy.decide(8333, signals).cadence ==
+                  FrameCadence::Periodic);
+        } else {
+            CHECK(policy.decide(8333, signals).render);
+        }
+    }
+
+    const FrameSignals toast =
+        hanabi::lifecycle_frame_signals({.toast_active = true});
+    CHECK(toast.timer);
+    FrameActivityPolicy actionPolicy;
+    actionPolicy.rendered(0);
+    FrameSignals pointer;
+    pointer.pointer_input = true;
+    CHECK(actionPolicy.decide(8333, pointer).render);
+}
+
 static void legacy_mode_rebuilds_every_callback() {
     FrameActivityPolicy policy(false);
     int frames = 0;
@@ -203,6 +236,7 @@ int main() {
     caret_thinking_scroll_and_stream_keep_their_cadence();
     split_and_native_notification_wake_in_one_callback();
     lazy_cache_and_search_transitions_wake();
+    lifecycle_transitions_wake_without_idle_delay();
     legacy_mode_rebuilds_every_callback();
     if (failures == 0) {
         std::printf("OK\n");

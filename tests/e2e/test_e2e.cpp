@@ -23,8 +23,8 @@
 #define AFTER_HOURS_ENTITY_HELPER
 #define AFTER_HOURS_ENTITY_QUERY
 #define AFTER_HOURS_SYSTEM
+// clang-format off
 #include "../../vendor/afterhours/src/ecs.h"
-
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/load_older_model.h"
@@ -32,6 +32,8 @@
 #include "../../src/ecs/thread_model.h"
 #include "../../src/ecs/transcript_cache.h"
 #include "../../src/ui/find_operators.h"
+#include "../../src/util/notify_events.h"
+// clang-format on
 
 // afterhours UI layout engine (headless: no graphics backend linked — the
 // `none` backend's draw_* are no-ops, and autolayout is pure geometry). Used
@@ -1627,6 +1629,98 @@ static void test_find_operators() {
     CHECK(rows_kept(s, "backoff is:assistant has:tool") == 2);
 }
 
+static void test_tab_close_all_reconciles_both_panes() {
+    std::printf("test_tab_close_all_reconciles_both_panes\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+    ecs::model::open_session_in_tab(strip, app, "t1", true, true);
+    ecs::model::open_session_in_tab(strip, app, "t4");
+    ecs::model::open_session_in_tab(strip, app, "t5");
+    app.splitOpen = true;
+    app.focusedPane = 1;
+    app.panes[0].selectedId = "t4";
+    app.panes[0].requestOpenId = "t4";
+    app.panes[1].selectedId = "t5";
+    app.panes[1].requestOpenId = "t5";
+
+    ecs::model::close_all(strip, app);
+    CHECK(strip.tabOrder.empty());
+    CHECK(!app.splitOpen);
+    CHECK(app.focusedPane == 0);
+    CHECK(app.view == ecs::SmartView::Home);
+    for (const auto& pane : app.panes) {
+        CHECK(pane.selectedId.empty());
+        CHECK(pane.requestOpenId.empty());
+        CHECK(!pane.openSession.has_value());
+    }
+}
+
+static void test_child_session_enters_bounded_hot_set_and_stays_muted() {
+    std::printf("test_child_session_enters_bounded_hot_set_and_stays_muted\n");
+    api::MockClient mock;
+    const auto children = mock.list_subagents(1);
+    CHECK(children.ok);
+    CHECK(children.value.size() == 1);
+    if (!children.ok || children.value.empty()) return;
+
+    const std::string childId = children.value.front().id;
+    const auto child = mock.get_session(childId);
+    CHECK(child.ok);
+    if (!child.ok) return;
+
+    ecs::model::TranscriptCache cache;
+    cache.put(child.value);
+    std::set<std::string> open{childId};
+    for (const char* id : {"t1", "t2", "t4", "t5", "t6", "t7"}) {
+        const auto session = mock.get_session(id);
+        CHECK(session.ok);
+        if (!session.ok) continue;
+        cache.put(session.value);
+        open.insert(id);
+    }
+    const auto hot = cache.live_hot_set(open, {childId});
+    CHECK(hot.size() == ecs::model::kCacheMaxThreads);
+    CHECK(std::find(hot.begin(), hot.end(), childId) != hot.end());
+
+    using hanabi::notify::Activity;
+    const auto before = hanabi::notify::snapshot({{childId, Activity::Other}});
+    const std::map<std::string, std::string> titles{
+        {childId, children.value.front().title}};
+    CHECK(!hanabi::notify::native_event(before, {{childId, Activity::Blocked}},
+                                        titles, {childId})
+               .has_value());
+}
+
+static void test_session_overlays_reach_both_panes() {
+    std::printf("test_session_overlays_reach_both_panes\n");
+    CHECK(ecs::AppComponent::kMaxSubagentSessions == 2000);
+    auto& app = setup_app_with_sessions();
+    api::Session left;
+    left.summary.id = "t2";
+    api::Session right;
+    right.summary.id = "t2";
+    app.panes[0].openSession = left;
+    app.panes[1].openSession = right;
+
+    app.apply_starred("t2", true);
+    app.apply_archived("t2", true);
+    app.apply_muted("t2", true);
+    app.apply_renamed_title("t2", "Renamed in both panes");
+    for (const auto& pane : app.panes) {
+        CHECK(pane.openSession->summary.starred);
+        CHECK(pane.openSession->summary.archive_override.value_or(false));
+        CHECK(pane.openSession->summary.muted);
+        CHECK(pane.openSession->summary.title == "Renamed in both panes");
+    }
+    const auto* summary = app.find_summary("t2");
+    CHECK(summary != nullptr);
+    if (summary != nullptr) {
+        CHECK(summary->starred);
+        CHECK(summary->archive_override.value_or(false));
+        CHECK(summary->muted);
+    }
+}
+
 int main() {
     std::printf("=== test_e2e ===\n");
     test_list_loads_sorted_and_has_samples();
@@ -1650,6 +1744,9 @@ int main() {
     test_tab_wheel_semantics();
     test_tab_drag_across_scrolled_overflow();
     test_tab_close_others();
+    test_tab_close_all_reconciles_both_panes();
+    test_child_session_enters_bounded_hot_set_and_stays_muted();
+    test_session_overlays_reach_both_panes();
     test_pinning_keeps_and_restores_tabs();
     test_navi_url_shape();
     test_backend_agnostic_defaults();

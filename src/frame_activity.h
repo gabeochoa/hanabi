@@ -68,6 +68,30 @@ struct FrameSignals {
     bool pending_future = false;
 };
 
+struct LifecycleFrameState {
+    bool fork_request = false;
+    bool fork_pending = false;
+    bool fork_ready = false;
+    bool subagent_request = false;
+    bool subagent_pending = false;
+    bool subagent_ready = false;
+    bool sse_dirty = false;
+    bool mute_toggle = false;
+    bool toast_active = false;
+};
+
+constexpr FrameSignals lifecycle_frame_signals(
+    const LifecycleFrameState& state) {
+    FrameSignals signals;
+    signals.state_request =
+        state.fork_request || state.subagent_request || state.mute_toggle;
+    signals.pending_future = state.fork_pending || state.subagent_pending;
+    signals.async_ready = state.fork_ready || state.subagent_ready;
+    signals.sse_event = state.sse_dirty;
+    signals.timer = state.sse_dirty || state.toast_active;
+    return signals;
+}
+
 struct FrameDecision {
     bool render = false;
     FrameCadence cadence = FrameCadence::Idle;

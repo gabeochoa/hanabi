@@ -628,6 +628,14 @@ $(TEST_DIR)/test_menubar: tests/unit/test_menubar.mm src/menubar.mm src/menubar.
 		src/menubar.mm src/settings.cpp vendor/afterhours/src/plugins/files.cpp \
 		-framework AppKit -framework Carbon -o $@
 
+$(TEST_DIR)/test_agentcloud_local: tests/e2e/test_agentcloud_local.cpp src/api/agentcloud_auth.cpp src/api/agentcloud_client.cpp src/ws_socket.mm $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_agentcloud_local..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) -fobjc-arc $(filter-out %.h,$^) \
+	    -framework Foundation -framework CFNetwork -o $@
+
+test-agentcloud-local: $(TEST_DIR)/test_agentcloud_local
+	@bash scripts/test_agentcloud_local.sh
+
 $(TEST_DIR)/test_native_extras: tests/unit/test_native_extras.mm src/native_extras.mm src/native_extras.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_native_extras..."
 	$(CXX) -ObjC++ $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_native_extras.mm \
@@ -685,6 +693,7 @@ perf: $(PERF_TEST_EXES) $(MAIN_EXE)
 test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running unit + e2e tests..."
 	$(call RUN_TESTS,$(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES))
+	@$(MAKE) test-agentcloud-local
 	@$(MAKE) uitest
 	@$(MAKE) harness-gate
 	@$(MAKE) tab-persistence-gate
@@ -890,7 +899,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	if bash scripts/measure_launch.sh --selftest; then :; else rc=1; fi; \
 	exit $$rc
 
-.PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate memory-scaling-gate scroll-gate \
+.PHONY: test unit-e2e e2e perf test-real test-agentcloud-real test-agentcloud-local soak soak-gate scaling-gate memory-scaling-gate scroll-gate \
 	retire-gate alloc-gate idle-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
@@ -1017,7 +1026,7 @@ SHOT_FAILURES := test-failures
 # composer with its focus ring — the exact widget gap #262's grey-interior
 # regression edited. Anything that moves the theme, the fonts, the roundness
 # or the layout shows up in these.
-SHOT_FAST := 01_home_dark 02_home_light 03_transcript_dark 14_sidebar_folded_dark \
+SHOT_FAST := 01_home_dark 02_home_light 03_transcript_dark 14_sidebar_folded_dark 14b_subagent_sidebar_dark \
              15_settings_dark 18_auth_dark 22_split_view_dark 28_composer_focus_dark
 
 # --only takes one comma-separated value; make has no join, so build the

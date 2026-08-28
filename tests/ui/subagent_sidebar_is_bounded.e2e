@@ -1,0 +1,7 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","subagent_sidebar_open":true}
+# env: HANABI_STRESS_SESSIONS=2000 HANABI_ROW_AUDIT=1
+
+wait_frames 40
+expect_text "SUB-AGENTS"
+expect_text "sidebar rows"
+expect_text "of 410"

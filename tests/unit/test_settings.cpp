@@ -444,6 +444,19 @@ static void test_star_and_mute_index_agrees_with_the_stored_list() {
     CHECK(s.is_muted("m2"));
 }
 
+static void test_subagent_sidebar_toggle_round_trips() {
+    std::printf("test_subagent_sidebar_toggle_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    CHECK(!s.get_subagent_sidebar_open());
+    s.set_subagent_sidebar_open(true);
+    s.load_save_file();
+    CHECK(s.get_subagent_sidebar_open());
+    s.set_subagent_sidebar_open(false);
+    s.load_save_file();
+    CHECK(!s.get_subagent_sidebar_open());
+}
+
 static void test_tabs_and_pins_round_trip() {
     std::printf("test_tabs_and_pins_round_trip\n");
     isolate_settings();
@@ -457,6 +470,13 @@ static void test_tabs_and_pins_round_trip() {
     CHECK((s.get_open_tabs() == std::vector<std::string>{"t1", "t4", "t5"}));
     CHECK(s.get_active_tab() == "t4");
     CHECK((s.get_pinned_tabs() == std::vector<std::string>{"t1", "t4"}));
+
+    s.set_open_tabs({}, "", {});
+    s.write_save_file();
+    s.load_save_file();
+    CHECK(s.get_open_tabs().empty());
+    CHECK(s.get_active_tab().empty());
+    CHECK(s.get_pinned_tabs().empty());
 }
 
 static void test_legacy_split_focus_inference() {
@@ -594,6 +614,7 @@ int main() {
     test_archive_overlay_round_trips();
     test_mute_round_trips();
     test_finished_subagents_round_trips();
+    test_subagent_sidebar_toggle_round_trips();
     test_tabs_and_pins_round_trip();
     // Last: it writes five thousand entries and reloads the file, so anything
     // after it would be asserting against a settings file this test authored.

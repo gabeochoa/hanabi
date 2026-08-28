@@ -25,11 +25,11 @@ Total gaps to address: **4 real, 2 partial.** See below for details.
   and `render_tab_menu`), so 1a was an addition to an existing menu on the tab
   side and new only on the sidebar side.
 
-### 2. Session fork (/btw) ✓ Missing
+### 2. Session fork (/btw) ✓ Shipped
 - **Gap source claim**: `/btw Why did X fail?` creates new session with title "BTW: Why did X fail?" and opens in new tab
-- **Hanabi verify**: No `/btw` command parser, no fork wire call, no fork UI.
-- **Backend support**: ✓ Available. agentcloud-asks.md (§6) notes `/btw` is on the wire (the one mistaken-as-missing three times). No payload shape is documented in the asks file, but the reference client's SlashCommands.swift would hold it.
-- **Status**: **REAL GAP**
+- **Hanabi verify**: `Client` exposes bare fork and atomic fork-with-prompt; Agentcloud encodes the documented control commands, and the mock preserves the source transcript.
+- **Backend support**: ✓ `fork` and `fork_with_prompt`; `/btw` checks `fork_with_prompt_v1` before sending.
+- **Status**: **SHIPPED** — see `docs/session-lifecycle-next.md`.
 
 ### 3. Session archive ⚠ Partially built
 - **Gap source claim**: Right-click → "Archive" removes from main list, moves to "Archived" shelf. Undo toast. Can unarchive. Server-synced via InboxState API.
@@ -60,7 +60,8 @@ Total gaps to address: **4 real, 2 partial.** See below for details.
   - Sub-agents in MAIN PANE: no code found for a dedicated panel below the composer.
   - Status DOT: thread_model.h has glyph mapping for session states (active/idle/archived/parked) but applies to top-level sessions, not sub-agents.
 - **Backend support**: ✓ Partially. hello.state.children is on the wire (agentcloud-asks.md §12 table), but per-child status requires looking up the child's own catalog row (workaround mentioned in §3 of asks).
-- **Status**: **PARTIAL — sidebar works, main-pane panel not built, status needs catalog join**
+- **Status**: **SHIPPED** — the transcript rollup remains, and the persisted
+  sidebar panel loads the bounded real child catalog only while open.
 
 ### 7. Delete session ✗ Blocked
 - **Gap source claim**: Right-click → "Delete" removes session server-side. No undo.

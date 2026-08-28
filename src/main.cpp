@@ -938,28 +938,22 @@ static void app_frame() {
                 if (s.muted) muted.insert(s.id);
             }
 
-            const auto events =
-                hanabi::notify::transitions(lastSeen, now, titles, muted);
-            if (!events.empty() && !in_quiet_hours_now()) {
+            const auto event =
+                hanabi::notify::native_event(lastSeen, now, titles, muted);
+            if (event.has_value() && !in_quiet_hours_now()) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||
                     nowSec - lastNotifyAt >= kNotifyMinGapSecs) {
-                    const hanabi::notify::Event* pick = &events.front();
-                    for (const auto& e : events)
-                        if (e.kind == hanabi::notify::Event::Kind::Blocked) {
-                            pick = &e;
-                            break;
-                        }
                     const bool isBlocked =
-                        pick->kind == hanabi::notify::Event::Kind::Blocked;
+                        event->kind == hanabi::notify::Event::Kind::Blocked;
                     // Carry the thread's id so CLICKING the notification opens
                     // it (native_extras routes it through the same open-thread
                     // slot the deep-link uses).
-                    native_notify(isBlocked ? "A thread needs you"
-                                            : "A run finished",
-                                  pick->title.c_str(), pick->id.c_str(),
-                                  Settings::get().get_notification_sound());
+                    native_notify(
+                        isBlocked ? "A thread needs you" : "A run finished",
+                        event->title.c_str(), event->id.c_str(),
+                        Settings::get().get_notification_sound());
                     lastNotifyAt = nowSec;
                 }
             }

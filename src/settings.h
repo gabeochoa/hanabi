@@ -300,6 +300,8 @@ struct Settings {
     // off hides chips, never the fact that the work happened. Auto-persists.
     bool get_show_finished_subagents() const;
     void set_show_finished_subagents(bool on);  // auto-persists
+    bool get_subagent_sidebar_open() const;
+    void set_subagent_sidebar_open(bool on);
     // The day row above the first message of each new local calendar day.
     // Default true. A reader who works one thread all day sees a divider that
     // never tells them anything, so it is theirs to turn off.
@@ -409,6 +411,7 @@ struct Settings {
     bool show_timestamps_ = true;
     int theme_rotate_secs_ = 0;
     bool show_finished_subagents_ = false;
+    bool subagent_sidebar_open_ = false;
     bool show_date_dividers_ = true;
     bool show_reasoning_ = true;
     bool fold_long_messages_ = true;

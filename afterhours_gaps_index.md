@@ -827,6 +827,7 @@ correction narrows them rather than closing them.
 | 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live |
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
+| 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 
 ## How to keep this useful

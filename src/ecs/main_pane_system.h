@@ -1901,6 +1901,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::SubAgentState::Running: return SubGlyph::Working;
             case api::SubAgentState::Done: return SubGlyph::Done;
             case api::SubAgentState::Blocked: return SubGlyph::Blocked;
+            case api::SubAgentState::Failed:
+                return SubGlyph::Blocked;
         }
         return SubGlyph::Working;
     }
@@ -1962,7 +1964,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         int done = 0, blocked = 0;
         for (const auto& sa : subs) {
             if (sa.state == api::SubAgentState::Done) ++done;
-            if (sa.state == api::SubAgentState::Blocked) ++blocked;
+            if (sa.state == api::SubAgentState::Blocked ||
+                sa.state == api::SubAgentState::Failed)
+                ++blocked;
         }
         std::string verdict = blocked ? "blocked"
                               : (done == static_cast<int>(count) ? "done"
@@ -5528,6 +5532,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // there is something that can write to it. The widget keeps its own
         // storage, so clearing replyDraft up there is not enough.
         if (clearFieldAfterSubmit) set_field("");
+        if (app.forkRestoreSessionId == openId && !app.forkError.empty()) {
+            set_field(app.forkRestoreDraft);
+            app.slashNotice = app.forkError;
+            app.forkRestoreDraft.clear();
+            app.forkRestoreSessionId.clear();
+            app.forkError.clear();
+        }
 
         // Carry out a parsed command. Only /new has somewhere to go today; the
         // rest report what is missing rather than reaching the agent as text.
@@ -5553,6 +5564,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.effortPopoverOpen = true;
                 app.modelPopoverOpen = false;
                 app.slashNotice.clear();
+                set_field("");
+                return;
+            }
+            if (cmd->name == "btw") {
+                if (p.args.empty()) {
+                    app.slashNotice = "Type a question after /btw.";
+                    set_field(typed);
+                    return;
+                }
+                if (openId.empty()) {
+                    app.slashNotice =
+                        "Open a writable session before using /btw.";
+                    set_field(typed);
+                    return;
+                }
+                if (!app.client || !app.client->supports_fork()) {
+                    app.slashNotice =
+                        "This backend does not support BTW forks.";
+                    set_field(typed);
+                    return;
+                }
+                if (app.forkPending || !app.requestForkSourceId.empty()) {
+                    app.slashNotice = "A fork is already being created.";
+                    set_field(typed);
+                    return;
+                }
+                app.requestForkSourceId = openId;
+                app.requestForkPrompt = p.args;
+                app.requestForkTitle = hanabi::slash::btw_title(p.args);
+                app.requestForkPane = app.focusedPane;
+                app.forkRestoreDraft = typed;
+                app.forkRestoreSessionId = openId;
+                app.slashNotice = "Creating BTW fork\xe2\x80\xa6";
                 set_field("");
                 return;
             }

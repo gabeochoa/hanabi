@@ -257,6 +257,7 @@ MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","
 NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
 NARROW_MANY='{"window_width":760,"window_height":620,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
 FOLDED='{"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}'
+SUBAGENTS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","subagent_sidebar_open":true}'
 
 # --- Home digest ------------------------------------------------------------
 capture 01_home_dark  "$NOTABS_DARK"
@@ -298,6 +299,7 @@ capture 13c_empty_transcript_light "$TABS_LIGHT" HANABI_EMPTY_TRANSCRIPT_DEMO=1
 
 # --- Sidebar folded to the icon rail (persisted setting, no Cmd+B needed).
 capture 14_sidebar_folded_dark "$FOLDED"
+capture 14b_subagent_sidebar_dark "$SUBAGENTS_DARK"
 
 # --- Overlays that are otherwise keypress-only.
 capture 15_settings_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=settings

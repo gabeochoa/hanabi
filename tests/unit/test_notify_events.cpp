@@ -149,6 +149,20 @@ static void test_muting_an_unknown_thread_is_harmless() {
     CHECK(ev.size() == 1);
 }
 
+static void test_native_delivery_is_suppressed_for_muted_threads() {
+    std::printf("test_native_delivery_is_suppressed_for_muted_threads\n");
+    const auto before = snapshot({{"a", Activity::Other}});
+    const Rows blocked = {{"a", Activity::Blocked}};
+    CHECK(!hanabi::notify::native_event(before, blocked, kTitles, Muted{"a"})
+               .has_value());
+    const auto event = hanabi::notify::native_event(before, blocked, kTitles);
+    CHECK(event.has_value());
+    if (event.has_value()) {
+        CHECK(event->id == "a");
+        CHECK(event->kind == Event::Kind::Blocked);
+    }
+}
+
 int main() {
     std::printf("=== test_notify_events ===\n");
     test_first_sight_is_never_news();
@@ -161,6 +175,7 @@ int main() {
     test_a_muted_thread_says_nothing();
     test_unmuting_does_not_replay_what_was_missed();
     test_muting_an_unknown_thread_is_harmless();
+    test_native_delivery_is_suppressed_for_muted_threads();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

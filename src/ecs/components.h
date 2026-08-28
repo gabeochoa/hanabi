@@ -433,9 +433,23 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set by the sidebar when a row is clicked (a thread to open in a tab);
     // consumed by TabFlowSystem which opens/focuses the tab.
     std::string requestOpenTab;
+    int requestOpenTabPane = -1;
+    bool requestOpenTabKeep = false;
+    bool subagentSidebarOpen = false;
+    bool subagentSidebarSeeded = false;
+    bool requestSubagentRefresh = false;
+    bool subagentListPending = false;
+    LoadState subagentListState = LoadState::Idle;
+    std::string subagentListError;
+    std::vector<api::SessionSummary> subagentSessions;
+    std::future<api::Result<std::vector<api::SessionSummary>>>
+        subagentListFuture;
+    static constexpr std::size_t kMaxSubagentSessions = 2000;
     // Look up a summary by id (for tab labels, row rendering).
     const api::SessionSummary* find_summary(const std::string& id) const {
         for (const auto& s : sessions)
+            if (s.id == id) return &s;
+        for (const auto& s : subagentSessions)
             if (s.id == id) return &s;
         return nullptr;
     }
@@ -910,6 +924,16 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string renameInFlightId;
     std::future<api::Result<std::string>> renameFuture;
 
+    std::string requestForkSourceId;
+    std::string requestForkPrompt;
+    std::string requestForkTitle;
+    int requestForkPane = 0;
+    bool forkPending = false;
+    std::string forkError;
+    std::string forkRestoreDraft;
+    std::string forkRestoreSessionId;
+    std::future<api::Result<std::string>> forkFuture;
+
     // Apply a settled title everywhere it shows: the session list (sidebar
     // rows) and the open transcript. Tab captions are derived from the summary
     // every frame, so they follow with no work here.
@@ -919,6 +943,30 @@ struct AppComponent : public afterhours::BaseComponent {
         for (Pane& p : panes)
             if (p.openSession && p.openSession->summary.id == id)
                 p.openSession->summary.title = title;
+    }
+
+    void apply_starred(const std::string& id, bool starred) {
+        for (auto& s : sessions)
+            if (s.id == id) s.starred = starred;
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                p.openSession->summary.starred = starred;
+    }
+
+    void apply_archived(const std::string& id, bool archived) {
+        for (auto& s : sessions)
+            if (s.id == id) s.archive_override = archived;
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                p.openSession->summary.archive_override = archived;
+    }
+
+    void apply_muted(const std::string& id, bool muted) {
+        for (auto& s : sessions)
+            if (s.id == id) s.muted = muted;
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                p.openSession->summary.muted = muted;
     }
 
     // ==== Feature #4: settings read from the API =========================

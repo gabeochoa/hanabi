@@ -22,6 +22,7 @@
 // ---------------------------------------------------------------------------
 
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -73,6 +74,18 @@ inline std::vector<Event> transitions(
             out.push_back({Event::Kind::Finished, id, label});
     }
     return out;
+}
+
+inline std::optional<Event> native_event(
+    const Snapshot& previous,
+    const std::vector<std::pair<std::string, Activity>>& current,
+    const std::map<std::string, std::string>& titles,
+    const std::set<std::string>& muted = {}) {
+    const auto events = transitions(previous, current, titles, muted);
+    if (events.empty()) return std::nullopt;
+    for (const auto& event : events)
+        if (event.kind == Event::Kind::Blocked) return event;
+    return events.front();
 }
 
 inline Snapshot snapshot(
