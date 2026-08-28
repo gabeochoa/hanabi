@@ -170,9 +170,13 @@ static void lazy_cache_and_search_transitions_wake() {
     CHECK(!searchReleased.animation);
     CHECK(!transitions.observe(false, 7).state_request);
 
-    auto cacheWiped = transitions.observe(false, 8);
+    auto cacheWiped = transitions.observe(false, 8, 0);
     CHECK(cacheWiped.state_request);
-    CHECK(!transitions.observe(false, 8).state_request);
+    CHECK(!transitions.observe(false, 8, 0).state_request);
+
+    auto shortcutChanged = transitions.observe(false, 8, 1);
+    CHECK(shortcutChanged.state_request);
+    CHECK(!transitions.observe(false, 8, 1).state_request);
 }
 
 static void legacy_mode_rebuilds_every_callback() {

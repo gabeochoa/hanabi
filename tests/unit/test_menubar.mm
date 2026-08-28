@@ -37,10 +37,13 @@ int main() {
         CHECK(((modifiers & NSEventModifierFlagShift) != 0) == item.shift);
     }
     int command = -1;
+    CHECK(!menubar_command_pending());
     CHECK(!menubar_take_command(&command));
     menubar_simulate_command(6);
+    CHECK(menubar_command_pending());
     CHECK(menubar_take_command(&command));
     CHECK(command == 6);
+    CHECK(!menubar_command_pending());
     CHECK(!menubar_take_command(&command));
     menubar_simulate_command(-1);
     CHECK(!menubar_take_command(&command));

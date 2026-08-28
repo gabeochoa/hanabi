@@ -10,7 +10,7 @@ Hanabi retains the last completed Metal frame and returns before `SystemManager:
 | periodic | 10 fps | caret, toast/auth/theme timers, pending futures, settings debounce, outbox retry |
 | idle | 2 fps | safety pulse only |
 
-Immediate wake sources ignore those cadence limits: pointer input, key input, resize, exposure, native menu/notification/deep-link/drop work, ready futures, SSE activity, app requests, split changes, cache-generation changes, and search release transitions. Search stays active while its lazy corpus is deepening, and pending disk reads remain periodic until their ready edge wakes immediately.
+Immediate wake sources ignore those cadence limits: pointer input, key input, resize, exposure, native menu/notification/deep-link/drop work, ready futures, SSE activity, app requests, split changes, cache-generation changes, shortcut-revision changes, and search release transitions. Native menu commands and shortcut-recorder deliveries expose non-consuming pending probes, so frame admission never steals the queue item from `CommandSystem` or `ShortcutsSystem`. The native Edit bridge replays an ordinary key event and therefore uses the same immediate key-input wake. Search stays active while its lazy corpus is deepening, and pending disk reads remain periodic until their ready edge wakes immediately.
 
 `vendor/afterhours` is unchanged. The viable seam is one level above the framework: returning from Hanabi's `app_frame` before `begin_drawing` and `SystemManager::run` retains the already-presented Metal layer and avoids `ClearUIComponentChildren`, full immediate-mode rebuild, autolayout, and draw.
 
@@ -53,6 +53,7 @@ The fixed-10-fps prototype was rejected. It saves work, but a key arriving just 
 5. Fully idle work falls to two full frames per second.
 6. The fixed-10-fps prototype demonstrates its 100+ ms input delay.
 7. Lazy disk reload completion, cache-epoch changes, and search close/release transitions cannot be starved by idle retention.
+8. Native command queues, shortcut-recorder deliveries, Edit-bridge key replay, and shortcut-revision refreshes all wake without consuming their payload during admission.
 
 `make idle-gate` runs the real UI tree and gates the absolute per-second level. With retention disabled it was verified red at 1,200 full frames, 128.412 CPU ms/s, and 71,044.1 allocations/s. With retention enabled it passed at 20 full frames, 1.880 CPU ms/s, and 1,774.1 allocations/s.
 

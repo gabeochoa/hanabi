@@ -660,7 +660,9 @@ static void app_frame() {
     // are drained by AttachmentIntakeSystem, which runs in the scripted-UI
     // loop as well as this one.
     native_filedrop_install();
-    nativeWake = nativeWake || native_dropped_image_pending();
+    nativeWake = nativeWake || native_dropped_image_pending() ||
+                 menubar_command_pending() ||
+                 menubar_recorded_shortcut_pending();
 
     static hanabi::FrameActivityPolicy framePolicy = [] {
         const char* disabled = std::getenv("HANABI_IDLE_DISABLE");
