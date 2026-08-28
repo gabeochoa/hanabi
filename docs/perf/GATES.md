@@ -28,6 +28,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | --- | --- | --- | --- |
 | soak | `make soak-gate` | yes | ~3 s |
 | allocation | `make alloc-gate` | yes | ~20 s |
+| idle activity | `make idle-gate` | yes | ~2 s |
 | catalog scaling | `make scaling-gate` | yes | ~9 s |
 | transcript-memory scaling | `make memory-scaling-gate` | yes | ~90 s |
 | scroll | `make scroll-gate` | yes | ~6 s |
@@ -145,6 +146,7 @@ told the gate.
 | **soak_gate** · heap blocks | `new char[24]` × 4 per frame, retained | `heap blocks +3985.6  budget 100  FAIL` — and at the budget of 1000 it was set at, a 512-byte-per-frame leak read exactly `+1000.0  ok` |
 | **soak_gate** · entities | sidebar folder base id keyed on `epoch / 25`, so the set grows without bound, `HANABI_RETIRE=0` | `entities +2680.0  budget 25  FAIL 107.2x over budget` |
 | **soak_gate** · cpu time | a per-frame walk over a vector that grows by one each frame | `cpu time +3.5 ms  budget 1.0  FAIL 3.5x over` (2.4 → 7.7 ms/frame across the run) |
+| **idle_gate** · full-frame level | disable `FrameActivityPolicy` with `HANABI_IDLE_DISABLE=1` | `full frames 1200 ceiling 30`, `thread CPU 128.412 ms/s ceiling 8.0`, `allocations 71044.1/s ceiling 3000` |
 | **scaling_gate** · widgets | the sidebar's cap AND its row window both removed | `widgets 373 → 6618 = 17.74x  budget 1.50x  FAIL` |
 | **scaling_gate** · frame time | same | `min ms/f 1.44 → 16.55 = 11.49x  budget 2.50x  FAIL` |
 | **scroll_gate** · level (entities) | `row_window()` returns the whole list | `entities, list expanded 381 → 6626 = 17.39x  budget 1.60x  FAIL` |
