@@ -74,6 +74,27 @@ struct FrameDecision {
     FrameActivity activity = FrameActivity::None;
 };
 
+class FrameActivityTransitions {
+  public:
+    FrameSignals observe(bool search_open, std::uint64_t cache_epoch) {
+        FrameSignals signals;
+        signals.animation = search_open;
+        if (initialized_) {
+            signals.state_request =
+                (search_open_ && !search_open) || cache_epoch_ != cache_epoch;
+        }
+        initialized_ = true;
+        search_open_ = search_open;
+        cache_epoch_ = cache_epoch;
+        return signals;
+    }
+
+  private:
+    bool initialized_ = false;
+    bool search_open_ = false;
+    std::uint64_t cache_epoch_ = 0;
+};
+
 class FrameActivityPolicy {
   public:
     static constexpr std::uint64_t kActiveIntervalUs = 16666;

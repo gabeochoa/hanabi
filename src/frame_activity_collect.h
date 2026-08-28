@@ -4,6 +4,7 @@
 #include <cmath>
 #include <future>
 
+#include "api/disk_cache.h"
 #include "ecs/components.h"
 #include "ecs/keyboard_focus.h"
 #include "settings.h"
@@ -46,7 +47,9 @@ inline bool pane_has_ready_future(ecs::Pane& pane) {
 }
 
 inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
-    FrameSignals s;
+    static FrameActivityTransitions transitions;
+    FrameSignals s = transitions.observe(app.sessionSearchOpen,
+                                         api::disk_cache::epoch());
     for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
         auto& pane = app.panes[i];
         s.state_request = s.state_request || pane_has_request(pane);

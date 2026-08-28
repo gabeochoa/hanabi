@@ -153,6 +153,28 @@ static void split_and_native_notification_wake_in_one_callback() {
     CHECK(notificationPolicy.decide(8333, notification).render);
 }
 
+static void lazy_cache_and_search_transitions_wake() {
+    hanabi::FrameActivityTransitions transitions;
+    auto initial = transitions.observe(false, 7);
+    CHECK(!initial.state_request);
+    CHECK(!initial.animation);
+
+    auto searchOpen = transitions.observe(true, 7);
+    CHECK(searchOpen.animation);
+    auto searchStillOpen = transitions.observe(true, 7);
+    CHECK(searchStillOpen.animation);
+    CHECK(!searchStillOpen.state_request);
+
+    auto searchReleased = transitions.observe(false, 7);
+    CHECK(searchReleased.state_request);
+    CHECK(!searchReleased.animation);
+    CHECK(!transitions.observe(false, 7).state_request);
+
+    auto cacheWiped = transitions.observe(false, 8);
+    CHECK(cacheWiped.state_request);
+    CHECK(!transitions.observe(false, 8).state_request);
+}
+
 static void legacy_mode_rebuilds_every_callback() {
     FrameActivityPolicy policy(false);
     int frames = 0;
@@ -176,6 +198,7 @@ int main() {
     fixed_ten_fps_prototype_adds_visible_input_latency();
     caret_thinking_scroll_and_stream_keep_their_cadence();
     split_and_native_notification_wake_in_one_callback();
+    lazy_cache_and_search_transitions_wake();
     legacy_mode_rebuilds_every_callback();
     if (failures == 0) {
         std::printf("OK\n");
