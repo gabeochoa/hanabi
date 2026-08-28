@@ -23,7 +23,9 @@ bool menubar_take_show(void);
 bool menubar_take_new_task(void);
 void menubar_refresh_shortcuts(void);
 void menubar_set_shortcut_recording(int command);
+bool menubar_command_pending(void);
 bool menubar_take_command(int* command);
+bool menubar_recorded_shortcut_pending(void);
 bool menubar_take_recorded_shortcut(int* key, unsigned char* modifiers);
 void menubar_diagnostics(char* out, int cap);
 bool menubar_edit_binding(const char* selector, unsigned short* key_code,

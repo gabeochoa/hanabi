@@ -582,7 +582,7 @@ correction narrows them rather than closing them.
 | 24 | Wrapped text ignores hard `\n` | — | HIGH | S | fixed |
 | 25 | Degenerate triangle on mixed round/sharp corners | — | MED | XS | live |
 | 26 | `HasScrollView` has no built-in scrollbar | — | MED | M | fixed |
-| 27a | Immediate mode rebuilds the tree every frame | — | MED | XL | live |
+| 27a | Immediate mode rebuilds the tree every admitted frame | — | MED | XL | app fixed→#540; upstream live |
 | 27b | `spawn_status` overflows `spawn_card` | — | — | — | app |
 | 28a | No OS window-focus / frontmost query | — | MED | M | live |
 | 28b | 2nd child of a custom-bg div did not render | — | — | — | fixed |
@@ -797,6 +797,16 @@ correction narrows them rather than closing them.
 | 525 | Closed popovers still resolve and retain a UI entity | PERFORMANCE | MED | XS | live |
 | 526 | Synthetic right-click misses direct button polling | MISSING | MED | XS | live |
 | 527 | Secondary controls lack native accessibility semantics | MISSING | HIGH | M | dup→#112/#458 |
+| 540 | Host can retain the last Metal frame above the framework | NOT A GAP | — | — | app fix / #27 correction |
+| 541 | Metal ignores `RunConfig::target_fps` | MISSING / PERF | HIGH | S | live |
+| 542 | No event-triggered request-frame primitive | MISSING / PERF | CRIT | M | live |
+| 543 | Clear, emit, layout, input, and draw are indivisible | MISSING | HIGH | L | live |
+| 544 | No public non-consuming input-activity snapshot | MISSING | HIGH | S | live |
+| 545 | Window exposure/backing changes are hidden from the host | MISSING | HIGH | S | live |
+| 546 | Futures and SSE have no frame-wake contract | MISSING / PERF | CRIT | M | live |
+| 547 | Timers cannot publish their next visual deadline | MISSING / PERF | HIGH | M | live |
+| 548 | `dt` is callback time, not admitted-frame time | SHARP EDGE | HIGH | S | live |
+| 549 | No headless cadence harness for the production host loop | TESTING / MISSING | HIGH | M | live |
 | 560 | Native application menus are outside afterhours' host contract | NOT A GAP | — | — | host |
 | 561 | AppKit consumes menu key equivalents before afterhours sees them | PLATFORM | HIGH | S | app workaround |
 | 562 | E2E parses SUPER but never holds it | MISSING | HIGH | XS | live |
@@ -817,7 +827,6 @@ correction narrows them rather than closing them.
 | 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live |
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
-
 ---
 
 ## How to keep this useful

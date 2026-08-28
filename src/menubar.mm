@@ -483,6 +483,10 @@ void menubar_set_shortcut_recording(int command) {
     menubar_refresh_shortcuts();
 }
 
+bool menubar_command_pending(void) {
+    return g_command.load() >= 0;
+}
+
 bool menubar_take_command(int* command) {
     const int value = g_command.exchange(-1);
     if (value < 0 || command == nullptr) return false;
@@ -495,6 +499,10 @@ void menubar_simulate_command(int command) {
         command >= static_cast<int>(hanabi::shortcuts::Command::Count))
         return;
     g_command.store(command);
+}
+
+bool menubar_recorded_shortcut_pending(void) {
+    return g_recorded_key.load() != 0;
 }
 
 bool menubar_take_recorded_shortcut(int* key, unsigned char* modifiers) {

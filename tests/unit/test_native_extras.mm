@@ -29,6 +29,14 @@ int main() {
     native_simulate_open_url("https://example.invalid/thread/nope");
     CHECK(!native_take_open_thread(thread, sizeof(thread)));
 
+    char dropped[256] = {};
+    CHECK(!native_dropped_image_pending());
+    native_simulate_file_drop("/tmp/idle-wake.png");
+    CHECK(native_dropped_image_pending());
+    CHECK(native_take_dropped_image(dropped, sizeof(dropped)));
+    CHECK(std::strcmp(dropped, "/tmp/idle-wake.png") == 0);
+    CHECK(!native_dropped_image_pending());
+
     char status[512] = {};
     native_integration_status(status, sizeof(status));
     CHECK(std::strstr(status, "bundle=") != nullptr);

@@ -562,6 +562,10 @@ $(TEST_DIR)/test_minimap_scrub: tests/unit/test_minimap_scrub.cpp src/ui/minimap
 # machine over the scroll offset and the wheel's target, and the four ways it
 # can be wrong are indistinguishable on screen - see the header for the one
 # that shipped and ate every wheel event in the app.
+$(TEST_DIR)/test_frame_activity: tests/unit/test_frame_activity.cpp src/frame_activity.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_frame_activity..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_frame_activity.cpp -o $@
+
 $(TEST_DIR)/test_follow_latch: tests/unit/test_follow_latch.cpp src/ecs/follow_latch.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_follow_latch..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_follow_latch.cpp -o $@
@@ -634,7 +638,7 @@ $(TEST_DIR)/test_spotlight_catalog: tests/unit/test_spotlight_catalog.cpp src/ut
 	@echo "Compiling test_spotlight_catalog..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_spotlight_catalog.cpp -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo
+UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -694,6 +698,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@bash scripts/find_gate.sh
 	@$(MAKE) soak-gate
 	@$(MAKE) alloc-gate
+	@$(MAKE) idle-gate
 	@$(MAKE) scaling-gate
 	@$(MAKE) memory-scaling-gate
 	@$(MAKE) scroll-gate
@@ -785,6 +790,8 @@ retire-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/retire_gate.sh
 alloc-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/alloc_gate.sh
+idle-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/idle_gate.sh
 digest-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/digest_gate.sh
 
@@ -884,7 +891,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real test-agentcloud-real soak soak-gate scaling-gate memory-scaling-gate scroll-gate \
-	retire-gate alloc-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
+	retire-gate alloc-gate idle-gate events-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

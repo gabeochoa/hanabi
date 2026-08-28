@@ -32,6 +32,7 @@
 #include "util/autorelease.h"
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
+#include "frame_activity_collect.h"
 #include "util/gpu_mem.h"
 #include "util/launch_curve.h"
 #include "util/prewarm.h"
@@ -92,6 +93,24 @@ extern "C" void metal_activate_app(void);
 // The real NSWindow resize, for the windowed GPU watch below (#200).
 extern "C" void metal_set_window_size(int width, int height);
 extern "C" void metal_constrain_window_to_screen(void);
+extern "C" void metal_frame_activity_install(void);
+extern "C" unsigned metal_take_window_activity(void);
+
+static unsigned frame_input_activity() {
+    namespace md = afterhours::graphics::metal_detail;
+    auto& input = md::input_state();
+    unsigned activity = 0;
+    if (input.mouse_dx != 0.0f || input.mouse_dy != 0.0f ||
+        input.scroll_x != 0.0f || input.scroll_y != 0.0f)
+        activity |= 1u;
+    for (int i = 0; i < md::MAX_MOUSE_BUTTONS; ++i)
+        if (input.mouse_pressed[i] || input.mouse_released[i]) activity |= 1u;
+    for (int i = 0; i < md::MAX_KEYS; ++i)
+        if (input.key_pressed[i] || input.key_released[i] || input.key_repeat[i])
+            activity |= 2u;
+    if (input.char_queue_head != input.char_queue_tail) activity |= 2u;
+    return activity;
+}
 
 namespace app_state {
 afterhours::SystemManager* systemManager = nullptr;
@@ -496,6 +515,40 @@ static void app_init() {
     fflush(stdout);
 }
 
+static void record_idle_diagnostic(bool rendered, std::uint64_t nowUs) {
+    static const int seconds = [] {
+        const char* value = std::getenv("HANABI_IDLE_DIAG_SECS");
+        return value != nullptr && *value != '\0' ? std::atoi(value) : 0;
+    }();
+    if (seconds <= 0) return;
+
+    static const std::uint64_t startUs = nowUs;
+    static const unsigned long long startCpu = hanabi::prof::cpu_nanos();
+    static const unsigned long long startAllocs = hanabi::prof::alloc_count();
+    static unsigned long long callbacks = 0;
+    static unsigned long long frames = 0;
+    ++callbacks;
+    if (rendered) ++frames;
+
+    const double elapsed = static_cast<double>(nowUs - startUs) / 1000000.0;
+    if (elapsed < static_cast<double>(seconds)) return;
+    const double cpuMs = static_cast<double>(hanabi::prof::cpu_nanos() - startCpu) /
+                         1000000.0;
+    const unsigned long long allocations =
+        hanabi::prof::alloc_count() - startAllocs;
+    std::printf("IdleActivity: wall=%.3fs callbacks=%llu frames=%llu "
+                "cpu_ms_per_sec=%.3f allocs_per_sec=%.1f "
+                "cpu_ms_per_frame=%.4f allocs_per_frame=%.1f\n",
+                elapsed, callbacks, frames, cpuMs / elapsed,
+                static_cast<double>(allocations) / elapsed,
+                frames == 0 ? 0.0 : cpuMs / static_cast<double>(frames),
+                frames == 0 ? 0.0
+                            : static_cast<double>(allocations) /
+                                  static_cast<double>(frames));
+    std::fflush(stdout);
+    afterhours::graphics::request_quit();
+}
+
 static void app_frame() {
     // Every frame gets a pool, because Metal hands back autoreleased objects
     // and a render loop is not a Cocoa run loop: six per frame, ~2.5 KB, never
@@ -524,6 +577,7 @@ static void app_frame() {
         // tapped Spotlight result (hanabi://thread/<id>) opens that thread.
         // Windowed-only + install-once, same as the hotkey.
         native_openurl_install();
+        metal_frame_activity_install();
         menubarInstalled = true;
         // Ensure the window fits ON-SCREEN: a restored/dragged frame taller
         // than the display pushes the bottom (composer + status bar) below the
@@ -563,11 +617,13 @@ static void app_frame() {
     // the composer (via requestNewTask, mirrored below into composerOpen).
     // The global hotkey (Cmd+Shift+N) folds into the SAME activate+new-task
     // path, so a press behaves exactly like the "New task" menu item.
+    bool nativeWake = false;
     {
         bool hotkey = native_hotkey_take_triggered();
         const bool paletteHotkey = native_palette_hotkey_take_triggered();
         bool wantShow = menubar_take_show() || hotkey || paletteHotkey;
         bool wantNewTask = menubar_take_new_task() || hotkey;
+        nativeWake = hotkey || paletteHotkey || wantShow || wantNewTask;
         if (wantShow) metal_activate_app();
         if (wantNewTask) {
             auto q = afterhours::EntityQuery({.force_merge = true})
@@ -587,6 +643,7 @@ static void app_frame() {
         // uses (requestOpenTab), so the tab loader fetches + focuses it.
         char openId[256];
         if (native_take_open_thread(openId, sizeof(openId))) {
+            nativeWake = true;
             auto q = afterhours::EntityQuery({.force_merge = true})
                          .whereHasComponent<ecs::AppComponent>()
                          .gen();
@@ -603,8 +660,80 @@ static void app_frame() {
     // are drained by AttachmentIntakeSystem, which runs in the scripted-UI
     // loop as well as this one.
     native_filedrop_install();
+    nativeWake = nativeWake || native_dropped_image_pending() ||
+                 menubar_command_pending() ||
+                 menubar_recorded_shortcut_pending();
+
+    static hanabi::FrameActivityPolicy framePolicy = [] {
+        const char* disabled = std::getenv("HANABI_IDLE_DISABLE");
+        return hanabi::FrameActivityPolicy(
+            disabled == nullptr || *disabled == '\0' ||
+            std::string_view(disabled) == "0");
+    }();
+    const auto now = std::chrono::steady_clock::now();
+    const auto nowUs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            now.time_since_epoch())
+            .count());
+    hanabi::FrameSignals frameSignals;
+    const unsigned inputActivity = frame_input_activity();
+    frameSignals.pointer_input = (inputActivity & 1u) != 0;
+    frameSignals.key_input = (inputActivity & 2u) != 0;
+    const unsigned windowActivity = metal_take_window_activity();
+    frameSignals.window_resize = (windowActivity & 1u) != 0;
+    frameSignals.window_exposure = (windowActivity & 2u) != 0;
+    frameSignals.native_notification = nativeWake;
+
+    auto appQuery = afterhours::EntityQuery({.force_merge = true})
+                        .whereHasComponent<ecs::AppComponent>()
+                        .gen();
+    if (!appQuery.empty()) {
+        auto& app = appQuery[0].get().get<ecs::AppComponent>();
+        hanabi::FrameSignals appSignals = hanabi::collect_app_frame_signals(app);
+        frameSignals.pointer_input = frameSignals.pointer_input ||
+                                     appSignals.pointer_input;
+        frameSignals.key_input = frameSignals.key_input || appSignals.key_input;
+        frameSignals.native_notification = frameSignals.native_notification ||
+                                           appSignals.native_notification;
+        frameSignals.async_ready = appSignals.async_ready;
+        frameSignals.state_request = appSignals.state_request;
+        frameSignals.split_change = appSignals.split_change;
+        frameSignals.animation = appSignals.animation;
+        frameSignals.streaming = appSignals.streaming;
+        frameSignals.thinking = appSignals.thinking;
+        frameSignals.scrolling = appSignals.scrolling;
+        frameSignals.dragging = appSignals.dragging;
+        frameSignals.caret = appSignals.caret;
+        frameSignals.timer = appSignals.timer;
+        frameSignals.pending_future = appSignals.pending_future;
+        static long long lastEventMs = 0;
+        const long long eventMs = app.lastEventMs.load();
+        frameSignals.sse_event = eventMs != 0 && eventMs != lastEventMs;
+        lastEventMs = eventMs;
+    }
+    hanabi::collect_ui_frame_signals(frameSignals);
+
+    static const bool fixedTenFps = [] {
+        const char* value = std::getenv("HANABI_IDLE_FIXED_10FPS");
+        return value != nullptr && *value != '\0' &&
+               std::string_view(value) != "0";
+    }();
+    if (fixedTenFps) {
+        frameSignals = {};
+        frameSignals.timer = true;
+    }
+
+    const hanabi::FrameDecision frameDecision =
+        framePolicy.decide(nowUs, frameSignals);
+    record_idle_diagnostic(frameDecision.render, nowUs);
+    if (!frameDecision.render) return;
 
     float dt = afterhours::graphics::get_frame_time();
+    if (framePolicy.started()) {
+        dt = static_cast<float>(nowUs - framePolicy.last_frame_us()) / 1000000.0f;
+        dt = std::min(dt, 0.1f);
+    }
+    framePolicy.rendered(nowUs);
     afterhours::graphics::begin_drawing();
     afterhours::graphics::clear_background(theme::window_bg());
     app_state::systemManager->run(dt);
@@ -1570,6 +1699,76 @@ static int run_atlas_stress() {
 // Headless one-shot: render the real UI to an offscreen texture and write a
 // PNG, with no window and no screen-recording permission. Used for docs and
 // smoke tests. Returns process exit code.
+static void run_idle_timing(afterhours::SystemManager& sm) {
+    const char* value = std::getenv("HANABI_IDLE_TIMING");
+    if (value == nullptr || *value == '\0') return;
+    int callbacks = std::atoi(value);
+    if (callbacks < 120) callbacks = 1200;
+
+    const bool disabled = [] {
+        const char* v = std::getenv("HANABI_IDLE_DISABLE");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    const bool fixedTenFps = [] {
+        const char* v = std::getenv("HANABI_IDLE_FIXED_10FPS");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    hanabi::FrameActivityPolicy policy(!disabled);
+    const unsigned long long cpuStart = hanabi::prof::cpu_nanos();
+    const unsigned long long allocStart = hanabi::prof::alloc_count();
+    int rendered = 0;
+    constexpr std::uint64_t kCallbackUs = 8333;
+
+    for (int i = 0; i < callbacks; ++i) {
+        hanabi::FrameSignals signals;
+        auto query = afterhours::EntityQuery({.force_merge = true})
+                         .whereHasComponent<ecs::AppComponent>()
+                         .gen();
+        if (!query.empty())
+            signals = hanabi::collect_app_frame_signals(
+                query[0].get().get<ecs::AppComponent>());
+        hanabi::collect_ui_frame_signals(signals);
+        if (fixedTenFps) {
+            signals = {};
+            signals.timer = true;
+        }
+
+        const std::uint64_t nowUs = static_cast<std::uint64_t>(i) * kCallbackUs;
+        const auto decision = policy.decide(nowUs, signals);
+        if (!decision.render) continue;
+        float dt = 1.0f / 120.0f;
+        if (policy.started()) {
+            dt = static_cast<float>(nowUs - policy.last_frame_us()) / 1000000.0f;
+            dt = std::min(dt, 0.1f);
+        }
+        policy.rendered(nowUs);
+        const hanabi::AutoreleaseFrame framePool;
+        afterhours::graphics::begin_frame();
+        afterhours::graphics::clear_background(theme::window_bg());
+        sm.run(dt);
+        afterhours::graphics::end_frame();
+        ++rendered;
+    }
+
+    const double logicalSeconds =
+        static_cast<double>(callbacks) * static_cast<double>(kCallbackUs) /
+        1000000.0;
+    const double cpuMs = static_cast<double>(hanabi::prof::cpu_nanos() - cpuStart) /
+                         1000000.0;
+    const unsigned long long allocations =
+        hanabi::prof::alloc_count() - allocStart;
+    std::printf("IdleTiming: callbacks=%d frames=%d logical_seconds=%.3f "
+                "cpu_ms_per_sec=%.3f allocs_per_sec=%.1f "
+                "cpu_ms_per_frame=%.4f allocs_per_frame=%.1f\n",
+                callbacks, rendered, logicalSeconds, cpuMs / logicalSeconds,
+                static_cast<double>(allocations) / logicalSeconds,
+                rendered == 0 ? 0.0 : cpuMs / static_cast<double>(rendered),
+                rendered == 0 ? 0.0
+                              : static_cast<double>(allocations) /
+                                    static_cast<double>(rendered));
+    std::fflush(stdout);
+}
+
 static int run_headless_screenshot(const std::string& path, int w, int h) {
     using namespace afterhours;
 
@@ -2108,6 +2307,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                      app.sessions.size(), (int)app.listState);
         }
     }
+
+    run_idle_timing(sm);
 
     // Perf affordance: HANABI_FRAME_TIMING=<N> runs N extra frames after warmup
     // and reports the per-frame sm.run() cost (min / median / mean / max) so we

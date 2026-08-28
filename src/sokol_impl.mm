@@ -31,9 +31,55 @@
 // header-only backend). Must be included from the SOKOL_IMPL .mm after the
 // sokol headers.
 #include <afterhours/src/backends/sokol/capture_impl.h>
+#include <atomic>
 
-// Screenshot support (macOS screencapture via window ID)
 #import <AppKit/AppKit.h>
+
+static std::atomic<bool> g_hanabi_window_resize{true};
+static std::atomic<bool> g_hanabi_window_exposure{true};
+static id g_hanabi_window_activity_observer = nil;
+
+@interface HanabiWindowActivityObserver : NSObject
+@end
+
+@implementation HanabiWindowActivityObserver
+- (void)resized:(NSNotification*)note {
+    (void)note;
+    g_hanabi_window_resize.store(true);
+}
+- (void)exposed:(NSNotification*)note {
+    (void)note;
+    g_hanabi_window_exposure.store(true);
+}
+@end
+
+extern "C" void metal_frame_activity_install(void) {
+    if (g_hanabi_window_activity_observer != nil) return;
+    HanabiWindowActivityObserver* observer =
+        [[HanabiWindowActivityObserver alloc] init];
+    NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+    [center addObserver:observer selector:@selector(resized:)
+                   name:NSWindowDidResizeNotification object:nil];
+    for (NSNotificationName name in @[
+             NSWindowDidExposeNotification,
+             NSWindowDidBecomeKeyNotification,
+             NSWindowDidMiniaturizeNotification,
+             NSWindowDidDeminiaturizeNotification,
+             NSWindowDidChangeBackingPropertiesNotification,
+             NSApplicationDidBecomeActiveNotification]) {
+        [center addObserver:observer selector:@selector(exposed:)
+                       name:name object:nil];
+    }
+    g_hanabi_window_activity_observer = observer;
+}
+
+extern "C" unsigned metal_take_window_activity(void) {
+    unsigned activity = 0;
+    if (g_hanabi_window_resize.exchange(false)) activity |= 1u;
+    if (g_hanabi_window_exposure.exchange(false)) activity |= 2u;
+    return activity;
+}
+
 
 extern "C" void metal_set_window_size(int width, int height) {
     @autoreleasepool {

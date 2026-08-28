@@ -153,6 +153,7 @@ void native_filedrop_install(void);
 // nothing is pending. Drops arrive one path per call — a multi-file drop
 // queues them, so a caller that keeps asking until it answers false drains the
 // whole drop.
+bool native_dropped_image_pending(void);
 bool native_take_dropped_image(char* out, int cap);
 
 // TEST SEAM. Pushes `path` into the same pending-drop queue a real AppKit drop
