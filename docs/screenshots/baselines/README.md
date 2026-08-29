@@ -65,7 +65,7 @@ conditions, and only the first three are pinned by the harness itself.
 | resolution | 1100x760, 8-bit RGBA, **1x** | `scripts/screens.sh` rejects any other size |
 | machine | `gabeochoa-mac-GRQ7Y259H4`, Apple M4 Max, macOS 26.6 (25G72) | **not pinned** |
 | renderer | Metal via sokol, headless offscreen target, no supersampling | **not pinned** |
-| build | `-O2`, `HANABI_TLS` off | **not pinned** |
+| build | `-O2`, TLS auto-enabled when OpenSSL is present | **not pinned** |
 | comparison | Pillow 11.3.0, or ImageMagick 7 as a fallback | **not pinned** |
 
 The first four make the images independent of *when* they are captured. The

@@ -806,7 +806,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float viewH = 0.0f, offsetY = 0.0f, targetY = 0.0f;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            viewH = sv.viewport_size.y;
+            viewH = sv.viewport_or_zero().y;
             offsetY = sv.scroll_offset.y;
             targetY = sv.scroll_target.y;
         }
@@ -1342,7 +1342,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!scrollEnt.has<afterhours::ui::HasScrollView>()) return;
         auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
         const float viewH =
-            (sv.viewport_size.y > 1.0f) ? sv.viewport_size.y : listH;
+            (sv.viewport_or_zero().y > 1.0f) ? sv.viewport_or_zero().y : listH;
         const float top = listCursorY_;
         const float bot = listCursorY_ + listCursorH_;
         float off = sv.scroll_offset.y;
@@ -2441,7 +2441,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_align_items(AlignItems::Center)
                     .with_margin(Margin{.bottom = pixels(8)})
                     .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_debug_name("welcome_chip"));
+                    .with_debug_name("welcome_chip_" + std::to_string(i)));
             if (chip) {
                 // Seed the LANDING composer's kickoff draft (below) instead of
                 // opening the modal overlay — the composer picks up welcomeSeed
@@ -3808,7 +3808,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
             scrollY = sv.scroll_offset.y;
-            if (sv.viewport_size.y > 1.0f) viewH = sv.viewport_size.y;
+            if (sv.viewport_or_zero().y > 1.0f)
+                viewH = sv.viewport_or_zero().y;
         }
 
         // ---- Load-older: scroll-anchor + trigger + prefetch ---------------
@@ -4191,8 +4192,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               const std::string& currentModel) {
         if (!app.modelPopoverOpen && !modelPopoverWasOpen_) return;
         auto popRoot = mk(parent, 3200);
-        const RectangleType anchor =
+        RectangleType anchor =
             anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
         if (!app.modelPopoverOpen) {
             afterhours::ui::imm::popover(
                 ctx, popRoot, anchor, app.modelPopoverOpen,
@@ -4201,17 +4203,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         modelPopoverWasOpen_ = true;
-        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        constexpr float kRowH = 28.0f;
         constexpr float kPopW = 252.0f;
         constexpr float kHeadH = 44.0f;
         const auto& models = hanabi::models::all();
+        const auto rowMetrics = afterhours::ui::imm::measure_config(
+            hanabi::surface::option_row(kPopW - 8.0f, kRowH, false, 8),
+            kPopW - 8.0f, kRowH);
         const float popH =
-            kHeadH + kRowH * static_cast<float>(models.size()) + 8.0f;
+            kHeadH + rowMetrics.pitch().y * static_cast<float>(models.size()) +
+            8.0f;
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
         auto pop = afterhours::ui::imm::popover(
             ctx, popRoot, anchor, app.modelPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
             hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("model_popover"));
+        ctx.theme.surface = previousSurface;
         if (!pop) return;
         div(ctx, mk(pop.ent(), 900),
             ComponentConfig{}
@@ -4234,26 +4243,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.left = pixels(8)})
                 .with_debug_name("model_popover_subtitle"));
         for (size_t i = 0; i < models.size(); ++i) {
-            const auto& m = models[i];
-            const bool selected = m.id == currentModel;
-            auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
+            const auto& model = models[i];
+            const bool selected = model.id == currentModel;
+            auto row = button(
+                ctx, mk(pop.ent(), static_cast<int>(i)),
                 hanabi::surface::option_row(kPopW - 8.0f, kRowH,
-                                            selected, 8)
-                    .with_label(std::string(m.name))
+                                            selected, 8,
+                                            theme::panel_bg_2())
+                    .with_margin(Margin{.left = pixels(4.0f),
+                                        .right = pixels(4.0f)})
+                    .with_label(std::string(model.name))
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(30)})
                     .with_on_draw_fg([selected](RectangleType r) {
-                        // The mark is drawn, not typed: Roboto has no
-                        // geometric shapes and would paint nothing (gap #48).
                         hanabi::glyph::radio(
-                            RectangleType{r.x + 8.0f, r.y, 12.0f, r.height},
-                            selected, selected ? theme::accent()
-                                               : theme::text_faint());
+                            RectangleType{r.x + 9.0f, r.y, 12.0f, r.height},
+                            selected,
+                            selected ? theme::accent() : theme::text_faint());
                     })
                     .with_debug_name("model_row_" + std::to_string(i)));
+            row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
+                Vector2Type{28.0f, 0.0f});
+            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
             if (row) {
-                Settings::get().set_default_model(std::string(m.id));
+                Settings::get().set_default_model(std::string(model.id));
                 app.modelPopoverOpen = false;
             }
         }
@@ -4282,8 +4295,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                const std::string& currentEffort) {
         if (!app.effortPopoverOpen && !effortPopoverWasOpen_) return;
         auto popRoot = mk(parent, 3300);
-        const RectangleType anchor =
+        RectangleType anchor =
             anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
         if (!app.effortPopoverOpen) {
             afterhours::ui::imm::popover(
                 ctx, popRoot, anchor, app.effortPopoverOpen,
@@ -4292,17 +4306,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         effortPopoverWasOpen_ = true;
-        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        constexpr float kRowH = 34.0f;
         constexpr float kPopW = 286.0f;
         constexpr float kHeadH = 44.0f;
         const auto& levels = hanabi::effort::all();
         const float popH = kHeadH +
                            kRowH * static_cast<float>(levels.size()) + 8.0f;
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
         auto pop = afterhours::ui::imm::popover(
             ctx, popRoot, anchor, app.effortPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
             hanabi::surface::menu(kPopW, popH, 7)
                 .with_debug_name("effort_popover"));
+        ctx.theme.surface = previousSurface;
         if (!pop) return;
         div(ctx, mk(pop.ent(), 900),
             ComponentConfig{}
@@ -4325,27 +4342,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.left = pixels(8)})
                 .with_debug_name("effort_popover_subtitle"));
         for (size_t i = 0; i < levels.size(); ++i) {
-            const auto& lv = levels[i];
-            const bool selected = lv.id == currentEffort;
-            auto row = button(ctx, mk(pop.ent(), static_cast<int>(i)),
+            const auto& level = levels[i];
+            const bool selected = level.id == currentEffort;
+            auto row = button(
+                ctx, mk(pop.ent(), static_cast<int>(i)),
                 hanabi::surface::option_row(kPopW - 8.0f, kRowH,
-                                            selected, 8)
-                    .with_label(std::string(lv.name) + "   \xc2\xb7   " +
-                                std::string(lv.note))
+                                            selected, 8,
+                                            theme::panel_bg_2())
+                    .with_margin(Margin{.left = pixels(4.0f),
+                                        .right = pixels(4.0f)})
+                    .with_label(std::string(level.name) + "   \xc2\xb7   " +
+                                std::string(level.note))
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(30)})
                     .with_on_draw_fg([selected](RectangleType r) {
-                        // Drawn, not typed: Roboto has no geometric shapes and
-                        // a codepoint it lacks paints nothing (gap #48).
                         hanabi::glyph::radio(
-                            RectangleType{r.x + 8.0f, r.y, 12.0f, r.height},
+                            RectangleType{r.x + 9.0f, r.y, 12.0f, r.height},
                             selected,
-                            selected ? theme::accent() : theme::text_faint());
+                            selected ? theme::accent()
+                                     : theme::text_faint());
                     })
                     .with_debug_name("effort_row_" + std::to_string(i)));
+            row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
+                Vector2Type{28.0f, 0.0f});
+            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
             if (row) {
-                Settings::get().set_default_effort(std::string(lv.id));
+                Settings::get().set_default_effort(std::string(level.id));
                 app.effortPopoverOpen = false;
             }
         }

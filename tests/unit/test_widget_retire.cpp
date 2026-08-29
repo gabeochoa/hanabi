@@ -48,18 +48,18 @@ static afterhours::EntityCollection& ui() {
 
 // Two distinct call sites. They have to be distinct TEXTUALLY, not just
 // logically: the hash is (parent id, index, file, line, column, function).
-static EntityID build_a(Entity& parent) { return we::mk(parent).first.get().id; }
-static EntityID build_b(Entity& parent) { return we::mk(parent).first.get().id; }
+static EntityID build_a(Entity& parent) { return hanabi::ui::mk(parent).first.get().id; }
+static EntityID build_b(Entity& parent) { return hanabi::ui::mk(parent).first.get().id; }
 
 // One frame, in the order the app runs it: the epoch opens and the sweep runs
 // before anything is built (ecs::WidgetRetireSystem), and afterhours merges and
 // cleans up at the end of the update phase.
 template <typename Build>
 static void frame(unsigned grace, Build build) {
-    we::begin_epoch();
-    we::retire_stale(grace);
+    afterhours::ui::imm::ui_retire_grace_frames = grace;
     build();
     ui().merge_entity_arrays();
+    afterhours::ui::imm::retire_unbuilt_ui_elements();
     ui().cleanup();
 }
 
@@ -71,8 +71,8 @@ static bool alive(EntityID id) {
 
 static size_t map_entries_for(EntityID id) {
     size_t n = 0;
-    for (const auto& [hash, entity] : afterhours::ui::imm::existing_ui_elements)
-        if (entity == id) ++n;
+    for (const auto& [hash, record] : afterhours::ui::imm::existing_ui_elements)
+        if (record.id == id) ++n;
     return n;
 }
 
@@ -157,8 +157,8 @@ static void the_map_never_points_at_a_dead_entity() {
     for (int i = 0; i < 8; ++i)
         frame(2, [&] { reissued.insert(build_b(root)); });
 
-    for (const auto& [hash, id] : afterhours::ui::imm::existing_ui_elements)
-        CHECK(alive(id));
+    for (const auto& [hash, record] : afterhours::ui::imm::existing_ui_elements)
+        CHECK(alive(record.id));
 
     // And the call site that was retired builds itself a NEW entity rather
     // than being handed whatever now holds its old id.
@@ -166,8 +166,8 @@ static void the_map_never_points_at_a_dead_entity() {
     frame(2, [&] { again = build_a(root); });
     CHECK(alive(again));
     CHECK(reissued.count(again) == 0 || again != *reissued.begin());
-    for (const auto& [hash, id] : afterhours::ui::imm::existing_ui_elements)
-        CHECK(alive(id));
+    for (const auto& [hash, record] : afterhours::ui::imm::existing_ui_elements)
+        CHECK(alive(record.id));
 }
 
 // An entity the LIBRARY made for itself never came through hanabi's `mk`, is

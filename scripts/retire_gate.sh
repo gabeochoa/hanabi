@@ -96,7 +96,7 @@ trap cleanup EXIT
 # screen inside the grace here.
 env HOME="$HOME_DIR" HANABI_BACKEND=mock HANABI_CONFIG=/tmp/hanabi_retire_gate_no_config \
     HANABI_STRESS=views HANABI_STRESS_SESSIONS="$SESSIONS" \
-    HANABI_RETIRE_GRACE=2 HANABI_RETIRE_EVERY=1 \
+    HANABI_RETIRE_GRACE=2 \
     HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY=$((FRAMES / 3)) HANABI_SOAK_CENSUS=1 \
     "$EXE" --screenshot "$HOME_DIR/shot.png" >"$LOG" 2>&1
 rc=$?
@@ -114,12 +114,9 @@ if [ -z "$CENSUS" ]; then
     exit 2
 fi
 
-# The epoch is checked FIRST and it is not a perf number: it is the guard
-# against the gate's own blind spot. If ecs::WidgetRetireSystem stops being
-# registered — the likeliest shape of this regression — the epoch never
-# advances, every widget's stamp stays current, and "stale" reads 0 for the
-# best possible reason and the worst possible cause. An epoch below the frame
-# count means the frame boundary is gone.
+# The epoch is checked FIRST and it is not a perf number: it guards against a
+# run that never reached Afterhours' post-layout retirement boundary. If the
+# bridge stops advancing, every stamp reads as current and stale reads zero.
 EPOCH="$(sed -E 's/.*epoch ([0-9]+).*/\1/' <<<"$CENSUS")"
 LIVE="$(sed -E 's/.*widgets: ([0-9]+) live.*/\1/' <<<"$CENSUS")"
 BUILT="$(sed -E 's/.*live, ([0-9]+) built.*/\1/' <<<"$CENSUS")"
@@ -146,10 +143,7 @@ if [ "${EPOCH:-0}" -lt "$FRAMES" ]; then
     FAIL=1
     echo
     echo "  FAIL: the widget epoch is ${EPOCH} after ${FRAMES} frames." >&2
-    echo "        The epoch advances once per frame in ecs::WidgetRetireSystem." >&2
-    echo "        If it did not, that system is no longer registered in" >&2
-    echo "        build_systems() — and then every stamp reads as current," >&2
-    echo "        'stale' reads 0, and nothing below this line means anything." >&2
+    echo "        Afterhours' post-layout retirement bridge did not advance." >&2
 fi
 if [ "$STALE" -gt "$STALE_BUDGET" ]; then
     FAIL=1
@@ -158,9 +152,7 @@ if [ "$STALE" -gt "$STALE_BUDGET" ]; then
     echo "        These are widgets imm::mk() still owns, that nothing has" >&2
     echo "        built for longer than the grace, and that the sweep did not" >&2
     echo "        take. Every UI system walks each of them every frame." >&2
-    echo "        Look at src/ecs/widget_retire_system.h (is it still" >&2
-    echo "        registered in build_systems?) and at the \`mk\` in" >&2
-    echo "        src/ecs/ui_imports.h (is it still hanabi's?)." >&2
+    echo "        Check the upstream retirement bridge and Hanabi's grace adapter." >&2
 fi
 if awk -v r="$RATIO" -v c="$HELD_RATIO_CEILING" 'BEGIN{exit !(r > c)}'; then
     FAIL=1

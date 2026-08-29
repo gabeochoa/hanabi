@@ -74,8 +74,10 @@ inline afterhours::ui::imm::EntityParent mk(
     auto& live = afterhours::ui::imm::existing_ui_elements;
     if (const auto it = live.find(hash); it != live.end()) {
         try {
+            it->second.last_built_frame =
+                afterhours::ui::imm::ui_build_frame;
             return {afterhours::ui::UICollectionHolder::getEntityForIDEnforce(
-                        it->second),
+                        it->second.id),
                     parent};
         } catch (const std::bad_optional_access&) {
             log_error("Entity ID conflict detected! mk() was called more than "
@@ -89,7 +91,8 @@ inline afterhours::ui::imm::EntityParent mk(
     }
     afterhours::Entity& entity =
         afterhours::ui::UICollectionHolder::get().collection.createEntity();
-    live[hash] = entity.id;
+    live[hash] = afterhours::ui::imm::UIElementRecord{
+        entity.id, afterhours::ui::imm::ui_build_frame, 0};
     return {entity, parent};
 }
 

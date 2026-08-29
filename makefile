@@ -16,6 +16,8 @@ BRANDING_KEY := $(shell /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CO
 BRANDING_DIR := output/branding/$(BRANDING_KEY)
 BRANDING_HEADER := $(BRANDING_DIR)/branding.h
 BRANDING_PLIST := $(BRANDING_DIR)/Info.plist
+BUILD_STAMP_HEADER := $(BRANDING_DIR)/build_stamp.h
+BUILD_STAMP_VALUE := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 $(BRANDING_HEADER): $(BRANDING_CONFIG) $(BRANDING_TEMPLATE) $(BRANDING_TOOL)
 	@mkdir -p "$(BRANDING_DIR)"
@@ -25,6 +27,15 @@ $(BRANDING_HEADER): $(BRANDING_CONFIG) $(BRANDING_TEMPLATE) $(BRANDING_TOOL)
 $(BRANDING_PLIST): $(BRANDING_HEADER)
 	@test -f "$@" || /usr/bin/python3 $(BRANDING_TOOL) --config $(BRANDING_CONFIG) generate \
 		$(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)"
+
+.PHONY: FORCE
+FORCE:
+
+$(BUILD_STAMP_HEADER): FORCE
+	@mkdir -p "$(BRANDING_DIR)"
+	@printf '%s\n' '#pragma once' '#define HANABI_BUILD_STAMP "$(BUILD_STAMP_VALUE)"' > "$@.tmp"
+	@cmp -s "$@.tmp" "$@" || mv "$@.tmp" "$@"
+	@rm -f "$@.tmp"
 
 # --- Build-speed: parallel by default -----------------------------------------
 # Bare `make` used to run serially (~22s clean). Default to all cores so a plain
@@ -78,22 +89,16 @@ CXXFLAGS_SUPPRESS := -Wno-deprecated-volatile -Wno-missing-field-initializers \
     -Wno-deprecated-literal-operator
 
 CXXFLAGS := $(CXXSTD) $(CXXFLAGS_BASE) $(CXXFLAGS_SUPPRESS) \
-    -DAFTER_HOURS_UI_SINGLE_COLLECTION \
-    -DAFTER_HOURS_USE_METAL \
-    -DHANABI_GPU_ACCOUNTING \
-    -DFMT_HEADER_ONLY \
-    -DHANABI_BUILD_STAMP=\"$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)\"
+    -include src/build_config.h
 
 INCLUDES := -isystem vendor/ -isystem vendor/afterhours/vendor/ -I$(BRANDING_DIR)
 LDFLAGS := -L. $(FRAMEWORKS)
 
-# Optional TLS/HTTPS support for the http backend. OFF by default so the
-# zero-config mock build has NO extra dependencies. Enable with `make HANABI_TLS=1`
-# (needs OpenSSL). Without it, the http adapter only speaks plain http://; a
-# real https:// backend requires this. Nothing about any endpoint is baked in —
-# this only adds the TLS transport so a runtime-configured https URL can connect.
+# HTTPS is a Hanabi default whenever OpenSSL is installed. `HANABI_TLS=0`
+# remains only for dependency-free portability builds and the offline test lane.
+OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3 2>/dev/null)
+HANABI_TLS ?= $(if $(strip $(OPENSSL_PREFIX)),1,0)
 ifeq ($(HANABI_TLS),1)
-    OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3 2>/dev/null)
     CXXFLAGS += -DHANABI_ENABLE_TLS -I$(OPENSSL_PREFIX)/include
     LDFLAGS += -L$(OPENSSL_PREFIX)/lib -lssl -lcrypto
     ifeq ($(UNAME_S),Darwin)
@@ -153,6 +158,8 @@ $(MAIN_EXE): $(MAIN_OBJS) $(EXE_MODE_MARKER) | $(OUTPUT_DIR)/.stamp
 	@echo "Built $(MAIN_EXE)"
 
 -include $(MAIN_DEPS)
+
+$(OBJ_DIR)/main/main.o: $(BUILD_STAMP_HEADER)
 
 $(OBJ_DIR)/main/%.o: src/%.cpp $(BRANDING_HEADER) | $(OBJ_DIR)/main
 	@echo "Compiling $<..."
@@ -948,6 +955,8 @@ UITEST_DEPS := $(UITEST_OBJS:.o=.d)
 UITEST_EXE := $(OUTPUT_DIR)/hanabi_uitest$(EXT)
 
 -include $(UITEST_DEPS)
+
+$(UITEST_OBJ_DIR)/main.o: $(BUILD_STAMP_HEADER)
 
 $(UITEST_OBJ_DIR)/%.o: src/%.cpp $(BRANDING_HEADER)
 	@echo "Compiling (uitest) $<..."

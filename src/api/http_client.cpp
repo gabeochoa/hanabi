@@ -11,8 +11,8 @@
 
 // cpp-httplib is header-only. We keep the implementation macro local to this
 // translation unit so the rest of the app never pulls in networking headers.
-// TLS support is opt-in at build time (define HANABI_ENABLE_TLS and link
-// OpenSSL) so the default build has zero extra dependencies.
+// TLS support is selected at build time and defaults on when OpenSSL is
+// available; dependency-free portability builds can disable it explicitly.
 #ifdef HANABI_ENABLE_TLS
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #endif

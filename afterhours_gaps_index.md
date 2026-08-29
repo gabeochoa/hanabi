@@ -106,7 +106,7 @@ registers and reports the callback once. `tests/vendor_probes/source_contract_pr
 and `sokol_backend_smoke.mm` prove red-before/green-after through
 `make verify-vendor-patches`.
 
-### 2. #115 — nothing retires a widget, so every system walks the union of every screen the app has ever shown
+### 2. #115 — widget retirement landed upstream; Hanabi now uses the library sweep
 
 **The largest measured cost in the file, and the mechanism under six other
 entries.** `imm::mk()` keeps a permanent map and hands back the same entity
@@ -293,7 +293,7 @@ contrast edges independently; let a widget carry its own ring offset the way
 default in both renderers; `tests/vendor_probes/focus_ring_contrast_probe.cpp`
 proves three outlines by default and one with contrast disabled.
 
-### 10. #192 + #161 + #113 — `dump_ui` is fully written, is not registered, and reports itself as a typo
+### 10. #192 + #161 + #113 — diagnostics landed upstream in `2caf525`
 
 **Two lines.** `HandleDumpUICommand` is ~100 lines of working code that walks the
 tree and emits XML with every element's name, rect and text. Twenty-five sibling
@@ -310,7 +310,7 @@ failure that means "it is not there" — the timeout — is the one failure that
 never told which element it was about (#113). Three fixes, all under ten lines,
 that between them shorten the investigation behind half the entries in this file.
 
-**Proof patch:** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch`
+**Resolved upstream:** `2caf525` registers `dump_ui`, includes the timeout subject, and removes the evidence truncation. Hanabi consumes the implementation from the `fc4d625` vendor pin; no proof patch remains.
 (+7/-3) covers all three. `tests/vendor_probes/e2e_diagnostics_probe.cpp`
 proves registration, timeout subject, and evidence after byte 200. New source
 check: the runner's generic fallback already forwards `dump_ui` arguments, so
@@ -640,7 +640,7 @@ correction narrows them rather than closing them.
 | 72 | A focus ring is painted at rest | — | HIGH | S | dup→#83 |
 | 73 | `assert_ui_text` matches ANY element with that label | — | HIGH | S | live |
 | 74 | The resolved layout tree cannot be walked | — | HIGH | M | live |
-| 75 | Text is inset by a hardcoded 5px no caller can turn off | WORKAROUND | HIGH | S | dup→#85 |
+| 75 | Text is inset by a hardcoded 5px margin that no caller can turn off | WORKAROUND | HIGH | S | partial→#590 |
 | 76 | An unpadded element silently gets a fraction of the SCREEN | FOOTGUN | HIGH | XS | live |
 | 77 | No bold face bundled; installed faces now unblock Hanabi | WORKAROUND | MED | S | app fixed |
 | 78 | `draw_circle_v` truncates its centre to whole pixels | — | MED | XS | live |
@@ -649,8 +649,8 @@ correction narrows them rather than closing them.
 | 81 | Per-corner rounding bits are named for the OPPOSITE corner | FOOTGUN | HIGH | XS | live |
 | 82 | Renderer measurement is weight-aware; global app measure is not | FOOTGUN | HIGH | XS | wrong→#574 |
 | 83 | The focus ring paints at rest; no `:focus-visible` | WORKAROUND | HIGH | S | **live — top 10** |
-| 84 | Right-aligned text can never sit flush to its box | — | MED | XS | dup→#85 |
-| 85 | Padding on a label-only element is silently ignored | — | HIGH | S | **proof rejected — coupled pixel contract** |
+| 84 | Right-aligned text can never sit flush to its box | — | MED | XS | partial→#590 |
+| 85 | Padding on a label-only element is silently ignored | — | HIGH | S | partial→#590 |
 | 86 | A capture emits pixels and no geometry | TEDIOUS | HIGH | S | live |
 | 87 | `Dim::Text` measures unwrapped; `max_width` clamps nothing | WORKAROUND | HIGH | S | dup→#136 |
 | 88 | A row cannot baseline-align its children | FOOTGUN | MED | M | live |
@@ -676,9 +676,9 @@ correction narrows them rather than closing them.
 | 110 | Nothing rounds a widget's ORIGIN | SURPRISING | HIGH | S | live |
 | 111 | A hover highlight IS the hit rectangle | MISSING | MED | XS | live |
 | 112 | No tooltip and no accessible name | MISSING | HIGH | M | live |
-| 113 | The timeout is the one failure not told its element | FOOTGUN | HIGH | XS | **proof patch — 113-161-192** |
+| 113 | The timeout is the one failure not told its element | FOOTGUN | HIGH | XS | **resolved upstream — 2caf525** |
 | 114 | A sprite's rendered INK extent is not derivable | TEDIOUS | — | — | app |
-| 115 | Nothing retires a widget | WORKAROUND | CRIT | M | **live — top 10** |
+| 115 | Nothing retires a widget | WORKAROUND | CRIT | M | **resolved upstream — c682382** |
 | 116 | No way to ask how much of a string fits in a width | WORKAROUND | HIGH | S | **live — top 10** |
 | 117 | A script pins coordinates and goes stale silently | TEDIOUS | MED | S | wrong |
 | 125 | `load_texture` has no max dimension | WORKAROUND | MED | XS | live |
@@ -692,7 +692,7 @@ correction narrows them rather than closing them.
 | 147 | A scroll view is addressable only by DEBUG NAME | — | MED | S | live |
 | 155 | The first draws cost 5-8x and there is no pre-warm | PERFORMANCE | MED | S | live |
 | 160 | A component is two cache misses to write four bytes | TEDIOUS | MED | S | dup→#115 |
-| 161 | A failed assertion truncates its evidence to 200 chars | TEDIOUS | HIGH | XS | **proof patch — 113-161-192** |
+| 161 | A failed assertion truncates its evidence to 200 chars | TEDIOUS | HIGH | XS | **resolved upstream — 2caf525** |
 | 162 | An app cannot see the widgets the LIBRARY built | TEDIOUS | MED | XS | dup→#115 |
 | 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live |
 | 170 | `Overflow::Scroll` clips; there is no way to build less | MISSING | HIGH | M | **live — top 10** |
@@ -703,7 +703,7 @@ correction narrows them rather than closing them.
 | 183 | The focusable set is a `std::set` rebuilt every frame | PERFORMANCE | MED | XS | live |
 | 190 | `TextMeasureCache` is keyed by a font's NAME | FOOTGUN | HIGH | XS | dup→#579 |
 | 191 | `wrap_text` gives the LINES or nothing | PERFORMANCE | HIGH | S | dup→#136 |
-| 192 | `dump_ui` is written, unregistered, reported as a typo | TEDIOUS | HIGH | XS | **proof patch — 113-161-192** |
+| 192 | `dump_ui` is written, unregistered, reported as a typo | TEDIOUS | HIGH | XS | **resolved upstream — 2caf525** |
 | 200 | A headless resize leaks five Metal pipelines a frame | BLOCKING | HIGH | S | live |
 | 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | CRIT | XS | **proof patch — validation half** |
 | 211 | Fixed glyph atlas; overflow corrupts `measure_text` | — | CRIT | XS | **live — top 10** |
@@ -713,7 +713,7 @@ correction narrows them rather than closing them.
 | 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** |
 | 365 | Find-in-conversation normalized every loaded message every frame | PERFORMANCE | HIGH | M | app (fixed) |
 | 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live |
-| 220 | A scroll view's viewport is zero on frame one | SHARP EDGE | MED | XS | wrong |
+| 220 | A scroll view's viewport is zero on frame one | SHARP EDGE | MED | XS | **resolved upstream — 2ccc38e** |
 | 221 | `with_label` takes `const std::string&` | TEDIOUS | MED | XS | dup→#180 |
 | 222 | An absolute child is still counted in its parent's flow | SHARP EDGE | MED | XS | live |
 | 223 | The retry budget is seconds fed by the host's `dt` | SHARP EDGE | MED | XS | live |
@@ -837,6 +837,7 @@ correction narrows them rather than closing them.
 | 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live |
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
+| 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

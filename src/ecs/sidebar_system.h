@@ -2480,7 +2480,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!uniformHeight) return w;
         if (!parent.has<afterhours::ui::HasScrollView>()) return w;
         const auto& sv = parent.get<afterhours::ui::HasScrollView>();
-        const float viewH = sv.viewport_size.y;
+        const float viewH = sv.viewport_or_zero().y;
         // Frame one: nothing has been measured yet. Build the lot; the cap
         // still bounds it, and by frame two there is a viewport to read.
         if (viewH <= 0.0f) return w;

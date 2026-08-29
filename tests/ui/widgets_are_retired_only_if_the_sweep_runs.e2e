@@ -10,7 +10,7 @@
 # and the audit can see when it does not.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
-# env: HANABI_WIDGET_AUDIT=1 HANABI_RETIRE_GRACE=2 HANABI_RETIRE_EVERY=1 HANABI_RETIRE=0
+# env: HANABI_WIDGET_AUDIT=1 HANABI_RETIRE_GRACE=2 HANABI_RETIRE=0
 
 expect_text "Home"
 

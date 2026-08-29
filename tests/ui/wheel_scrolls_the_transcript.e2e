@@ -29,12 +29,8 @@
 # asserted at the top of the script as well as after the round trip, so a layout
 # change fails as "the pinned position moved" rather than as "the wheel broke".
 #
-# 766 is 646 + 120, and the 120 is 3 notches x 20 px x TWO frames: the e2e
-# injector deliberately lets a wheel delta survive one reset_frame, because its
-# reader can run before the command that sets it, so one `scroll_wheel` command
-# is read on two consecutive frames. That is the harness, not the app — a real
-# notch is 60 px here. If that survival rule ever changes, this is the number
-# that moves.
+# 706 is 646 + 60, and the 60 is 3 notches x 20 px. The injector
+# now delivers a wheel edge exactly once, matching a real wheel event.
 #
 # HERMETIC: opens its own thread through HANABI_OPEN and starts from no tabs, so
 # it neither inherits a thread from an earlier script nor leaves one behind.
@@ -57,7 +53,7 @@ assert_ui transcript_bottom_pad y=646
 scroll_wheel 0 3
 wait_frames 25
 assert_ui jump_to_bottom hidden=false
-assert_ui transcript_bottom_pad y=766
+assert_ui transcript_bottom_pad y=706
 
 # 3. Scrolling up broke the follow-latch — which is what the jump-to-bottom
 #    affordance above means, since it is drawn only when the pane is NOT

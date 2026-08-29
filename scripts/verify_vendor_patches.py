@@ -15,11 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
 BASE = "428047e3c92442e0ded3a0d473315e9636a451ac"
+PIN = "fc4d6253b5b77ead77ad79f589fbd1ee0662aade"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 PATCHES = {
     "351-report-font-atlas-exhaustion.patch": "atlas",
     "210-reject-unsamplable-textures.patch": "sampler",
-    "113-161-192-complete-e2e-diagnostics.patch": "e2e",
     "265-focus-ring-contrast-toggle.patch": "focus",
     "255-word-editing-capability.patch": "word",
 }
@@ -168,8 +168,8 @@ def verify_patch(temp: Path, base_tree: Path, contract: Path, patch_name: str, k
 def main() -> int:
     actual = vendor_revision()
     require_ok(actual, "read vendor revision")
-    if actual.stdout.strip() != BASE:
-        sys.stderr.write(f"vendor revision is {actual.stdout.strip()}, expected {BASE}\n")
+    if actual.stdout.strip() != PIN:
+        sys.stderr.write(f"vendor revision is {actual.stdout.strip()}, expected {PIN}\n")
         return 1
 
     with tempfile.TemporaryDirectory(prefix="hanabi-vendor-patches-") as raw_temp:

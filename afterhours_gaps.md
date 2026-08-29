@@ -149,12 +149,10 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #308 `assert_ui` understands x/y/w/h/hidden/text and nothing about colour, so 106 scripted UI tests passed straight through both #262 and #263
 
 **Resolved / corrected**
-- #115 (a widget that stops being built is never retired) is **worked around
-  app-side**, and the entry was wrong about why it could not be:
-  `existing_ui_elements` is a public inline global, not private. See the
-  postscript on the entry itself. The gap stands -- it is fifty lines of app
-  code every vendoring app has to write, and it cannot reach the library's own
-  entities (#162).
+- #115 (a widget that stops being built is never retired) is **fixed upstream**
+  by `2393fe3` + `c682382`; Hanabi now consumes the library's frame stamp,
+  ordered cleanup, and retirement sweep directly. Its allocation-free `mk`
+  key remains only for the separate cost in #180.
 - #29 (a hoverable child steals the parent row's hover fill) is **fixed** —
   `ctx.mouse_was_in_subtree(id)` is exactly the primitive, verified against a
   real pointer; hanabi's hand-rolled workaround is deleted.
@@ -6621,7 +6619,9 @@ script, count lines — is the reflex that made #104's missing assertion hard to
 notice in the first place.
 
 
-**Hanabi reference.** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch` preserves the timed-out command's first argument. `tests/vendor_probes/e2e_diagnostics_probe.cpp` drives the real cleanup system and is red before/green after through `make verify-vendor-patches`.
+**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2caf525` includes the timed-out command subject in every retry-timeout diagnostic. Hanabi now consumes that behavior directly from the `fc4d625` pin; the former proof patch and probe were removed.
+
+**Hanabi reference.** `tests/ui/composer_model_picker.e2e` and the rest of the scripted suite now receive subject-bearing timeout diagnostics from the vendored runner without a local patch.
 
 
 **Minimal upstream fix.** When a command times out and has args, append them. Three lines, and it makes every
@@ -7396,7 +7396,9 @@ who visits one big screen still pays for it for the rest of the session.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's original claim that app-side deletion was impossible is stale; the postscript and current source show the public map plus mk shadowing workaround shipped.
 
-**Hanabi reference.** `src/ui/widget_epoch.h` (`EntityID -> the epoch that last built it. 0 == not ours.`) — Hanabi stamps widgets created through its mk wrapper and tracks built/live/stale/unstamped counts. `src/ecs/widget_retire_system.h::retire_stale(hanabi::widget_epoch::grace_frames())` — A frame-top system advances the epoch and sweeps stale widgets. Tests: `tests/unit/test_widget_retire.cpp::the_map_never_points_at_a_dead_entity` — Unit coverage pins the two-part retire invariant: erase the mk map and destroy the entity. Measurement/gate: `scripts/retire_gate.sh` (`sweep on 168 159 0 1.06`) — Gate comments record the measured live/built separation with the sweep on and off.
+**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2393fe3` and `c682382` preserve survivor order, stamp every immediate widget, remove stale map entries, and retire unbuilt widgets after a configurable grace window. Hanabi now uses that lifecycle directly; its wrapper remains only to avoid the separate hot-path string construction in gap #180.
+
+**Hanabi reference.** `src/ui/mk.h` refreshes the upstream `UIElementRecord`; `src/ui/widget_epoch.h` is now a measurement/configuration adapter rather than a second retirement implementation. Tests: `tests/unit/test_widget_retire.cpp`, `tests/ui/widgets_of_a_screen_you_left_are_retired.e2e`, and `scripts/retire_gate.sh`.
 
 
 **Minimal upstream fix.** A frame stamp and a sweep. `mk()` already touches
@@ -7409,7 +7411,7 @@ weaker version that would still have caught this: expose the collection size
 and a per-frame "built" count so an app can see the two diverge -- hanabi had
 to add its own entity census to find that out.
 
-CLASS: WORKAROUND
+CLASS: RESOLVED UPSTREAM
 
 **POSTSCRIPT, 2026-08-25: fixed from the app side, and this entry was wrong
 about why it could not be.** The escape list above says:
@@ -8304,7 +8306,9 @@ maybe forty minutes for anyone who reads `ui_commands.h`, sees the command,
 and believes it is available.
 
 
-**Hanabi reference.** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch` registers the existing handler. `tests/vendor_probes/e2e_diagnostics_probe.cpp` finds zero registered dump handlers before and one after through `make verify-vendor-patches`. The runner's generic fallback already forwards every whitespace-delimited argument, so the earlier claim that an arg-shape table change was required was wrong; registration alone makes the existing one- or two-argument handler reachable.
+**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2caf525` registers `dump_ui`; Hanabi consumes it directly from the `fc4d625` pin and no longer carries the local diagnostics patch.
+
+**Hanabi reference.** `tests/ui/composer_model_picker.e2e` and targeted debugging scripts can invoke `dump_ui` through the ordinary upstream command registry.
 
 
 **Minimal upstream fix.** Register `HandleDumpUICommand` in
@@ -8436,7 +8440,9 @@ about a minute each, for three facts that were all sitting in a structure the
 harness already builds.
 
 
-**Hanabi reference.** `vendor_patches/113-161-192-complete-e2e-diagnostics.patch` removes the 200-character format cap. `tests/vendor_probes/e2e_diagnostics_probe.cpp` places a sentinel after byte 260 and proves it is absent before/present after through `make verify-vendor-patches`.
+**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2caf525` removes the 200-character cap and registers the full tree dump. Hanabi consumes both behaviors directly from the `fc4d625` pin.
+
+**Hanabi reference.** `scripts/verify_vendor_patches.py` now verifies only the four gaps that remain unlanded; scripted UI failures and `dump_ui` use upstream diagnostics.
 
 
 **Minimal upstream fix.** Drop the limit and let the reader scroll. Better still, print the registry on failure the way
@@ -9214,7 +9220,9 @@ nothing checks they agree; the day someone gives the scroll a `percent()`
 height instead of `pixels(listH)`, the fallback silently becomes a guess.
 
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`if (viewH <= 0.0f) viewH = listH;`) — The digest screen substitutes the pane's own requested list height on the first unmeasured frame. `src/ecs/digest_layout.h` (`CardWindow card_window(int n, Pitch&& pitch, float viewH`) — The shared card-window helper still treats zero view height as build-all, so callers must provide the fallback. Tests: `tests/ui/digest_is_windowed.e2e` (`expect_text "digest cards 16 of 81 @ 0"`) — The UI script asserts the digest screen builds a bounded visible window and follows scroll. Measurement/gate: `docs/perf/DIGEST.md` (`digest cards 16 of 81 @ 0`) — Digest docs record the card-audit signal used to verify windowing.
+**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2ccc38e` makes `viewport_size` optional, so an unmeasured first frame is distinct from a measured zero-sized viewport. Hanabi consumes that contract through `viewport_or_zero()` and keeps its requested-height fallback only for the explicitly unmeasured case.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`viewport_or_zero().y`) and `src/ecs/sidebar_system.h` use the new optional viewport contract. `tests/ui/digest_is_windowed.e2e` and `sidebar_show_all_is_still_virtualized.e2e` cover first-frame and scrolling behavior.
 
 
 **Minimal upstream fix.** Either would do it:
@@ -14752,3 +14760,20 @@ CLASS: TESTING / MISSING
 **Hanabi references.** `src/ecs/sidebar_system.h::render_subagent_sidebar` is the bounded, open-only panel; `src/ecs/tab_model.h::close_all` owns pane-safe tab teardown; `src/util/notify_events.h::native_event` owns muted native-notification suppression; and `tests/ui/sidebar_subagents.e2e`, `tests/ui/tab_close_all.e2e`, and `tests/ui/session_btw_fork.e2e` are the live UI evidence. `vendor/afterhours` remains unchanged.
 
 **Remaining measured cost.** Closed panel: zero child-session requests and zero child-row builds; the persistent toggle itself adds six steady-state allocations per frame (`home20` 811 → 817). Open panel: one catalog request capped at 2,000 child summaries, one O(n) status/filter pass, and 29 of 410 matching child rows built in the 2,000-session stress fixture. Close-all is O(open tabs); fork is one capability read plus one control-lane request for `/btw`, or one control-lane request for a bare fork.
+# Afterhours gap #590 — button variants drop per-widget text inset
+
+## Observation
+
+`ComponentConfig::with_text_inset()` is present but misses two paths used by Hanabi's immediate buttons. `ComponentConfig::apply_overrides()` does not copy `text_inset` when `button()` applies a visual variant, and `draw_text_in_rect()`'s immediate single-line branch still constructs `Vector2Type margin_px{5.f, 5.f}` instead of using the inset it received. A button configured with `.with_text_inset(28, 0)` therefore renders at five pixels.
+
+This is visible in Hanabi's model and effort pickers: the selection radio occupies x+9 through x+21 while the label starts at x+5 and paints through the mark.
+
+## Hanabi workaround
+
+`src/ecs/main_pane_system.h::render_model_popover` and `render_effort_popover` compensate the immediate renderer with `HasLabel::text_x_offset` after `button()` has applied its variant. `tests/ui/composer_model_picker.e2e` and `composer_effort_picker.e2e` exercise the rows; screenshot baselines `18j` through `18m` preserve the result.
+
+## Minimal upstream fix
+
+Copy a non-empty `overrides.text_inset` in `ComponentConfig::apply_overrides()`, pass the supplied inset into the immediate single-line `position_text_ex()` call, and add a button-variant test proving the configured inset survives the merge and changes the rendered origin. The existing plain/wrapped text-inset tests do not cover both paths.
+
+CLASS: FOOTGUN

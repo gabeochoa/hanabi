@@ -21,13 +21,7 @@ using afterhours::ui::imm::ComponentConfig;
 using afterhours::ui::imm::div;
 using afterhours::ui::imm::button;
 using afterhours::ui::imm::divider;
-// hanabi's `mk`, not afterhours', and this line is the whole seam. It forwards
-// to `imm::mk` (same call-site hash, same entity, same reuse) and stamps the
-// frame that built it, which is the one fact the library has and does not
-// record. Every widget in the app comes through here: nothing else in src/
-// names `mk`, and ADL cannot reach `afterhours::ui::imm::mk` on its own.
-// See src/ui/widget_epoch.h.
-using hanabi::widget_epoch::mk;
+using hanabi::ui::mk;
 using afterhours::ui::pixels;
 using afterhours::ui::h720;
 using afterhours::ui::w1280;
@@ -53,8 +47,8 @@ namespace ecs {
 // Find the first singleton component of type T (optionally requiring more).
 template <typename T, typename... Filters>
 inline T* find_singleton() {
-    auto q = EntityQuery({.force_merge = true}).whereHasComponent<T>();
-    (q.template whereHasComponent<Filters>(), ...);
+    auto q = EntityQuery({.force_merge = true})
+                 .template whereHasComponent<T, Filters...>();
     auto results = q.gen();
     if (results.empty()) return nullptr;
     return &results[0].get().template get<T>();
@@ -63,8 +57,8 @@ inline T* find_singleton() {
 // Find the first entity carrying component T (optionally plus filters).
 template <typename T, typename... Filters>
 inline Entity* find_singleton_entity() {
-    auto q = EntityQuery({.force_merge = true}).whereHasComponent<T>();
-    (q.template whereHasComponent<Filters>(), ...);
+    auto q = EntityQuery({.force_merge = true})
+                 .template whereHasComponent<T, Filters...>();
     auto results = q.gen();
     if (results.empty()) return nullptr;
     return &results[0].get();

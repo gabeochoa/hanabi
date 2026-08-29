@@ -17,11 +17,6 @@
 #pragma GCC diagnostic ignored "-Wdangling-reference"
 #endif
 
-// Backend: Metal
-#ifndef AFTER_HOURS_USE_METAL
-#define AFTER_HOURS_USE_METAL
-#endif
-
 #ifdef __clang__
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)

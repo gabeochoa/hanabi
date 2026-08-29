@@ -3,6 +3,6 @@
 
 expect_text "What can I help with?"
 expect_text "Start with a prompt or write your own below"
-click_ui welcome_chip
+click_ui welcome_chip_2
 wait_frames 6
 expect_input_text composer_reply_input "Draft a status update"

@@ -180,21 +180,20 @@ Every config key also has an env var, which overrides the file:
 If `http` is selected but no base URL is set, the app cleanly falls back to the
 `mock` backend.
 
-### HTTPS backends need a TLS build
+### HTTPS backends use TLS by default
 
-The default build has no networking dependencies and speaks plain `http://`
-only. For a real `https://` backend, either use the one-shot **`make run`**
-(auto-enables TLS when OpenSSL is installed) or build TLS explicitly:
+When Homebrew OpenSSL is installed, a plain `make` builds HTTPS support. Use
+`make HANABI_TLS=0` only for a dependency-free portability or offline build:
 
 ```bash
-make run               # builds (TLS auto-on if OpenSSL present) and launches
-# or:
-make HANABI_TLS=1      # explicit TLS build (needs: brew install openssl@3)
+make                    # TLS on when OpenSSL is present
+make HANABI_TLS=0       # explicit HTTP-only build
+make HANABI_TLS=1       # require an explicit TLS build
 ```
 
-`make run` records the last build mode and only recompiles when it changes, so
-repeat runs are fast. If OpenSSL isn't installed it still builds + launches, but
-an https config then shows a clean error instead of connecting (or crashing).
+The build records the last mode and only recompiles when it changes. Without
+OpenSSL, the default remains an HTTP-only build and an HTTPS configuration
+reports a clean error instead of connecting or crashing.
 
 Nothing about any endpoint or credential lives in this repository — real values
 stay in your local (git-ignored) `config.json` or your shell.

@@ -12,39 +12,39 @@ expect_text "New tab"
 mouse_move 400 48
 scroll_wheel 1 0
 wait_frames 3
-assert_ui tab_r4 x=307
+assert_ui tab_r4 x=263
 
 scroll_wheel 0 1
 wait_frames 3
-assert_ui tab_r1 x=307
+assert_ui tab_r2 x=263
 
 scroll_wheel 0 -0.5
 wait_frames 3
-assert_ui tab_r2 x=307
+assert_ui tab_r4 x=285
 
-mouse_down 310 48
+mouse_down 290 48
 mouse_move 530 48
-assert_ui tab_r2 x=527
+assert_ui tab_r4 x=525
 screenshot /tmp/hanabi_tab_drag_inflight.png
 mouse_up
 wait_frames 4
-assert_ui tab_r4 x=307
+assert_ui tab_r4 x=505
 
-right_click 310 48
+right_click 510 48
 wait_frames 3
 expect_text "Copy Navi URL"
 reset_clipboard_probe
 click_ui tab_menu_copy
 expect_clipboard "https://navi.test/session/r4"
 
-right_click 310 48
+right_click 510 48
 wait_frames 3
 expect_text "Pin tab"
 click_ui tab_menu_pin
 wait_frames 3
 expect_text "Pinned tab"
 
-right_click 310 48
+right_click 490 48
 wait_frames 3
 expect_text "Unpin tab"
 expect_text "Close others"

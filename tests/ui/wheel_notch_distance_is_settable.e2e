@@ -14,9 +14,8 @@
 # WHAT THIS PINS. That HANABI_SCROLL_SPEED reaches the transcript's scroll view
 # at all -- an env knob nothing asserts on is the class of thing that reads as
 # working and does nothing. tests/ui/wheel_scrolls_the_transcript.e2e pins the
-# same notch at the default 20 (766 = 646 + 3 x 20 x 2); this pins it at 10
-# (706 = 646 + 3 x 10 x 2). The x2 is the e2e injector letting one wheel delta
-# survive one reset_frame, so a scroll_wheel command is read on two frames.
+# same notch at the default 20 (706 = 646 + 3 x 20); this pins it at 10
+# (676 = 646 + 3 x 10). The injected wheel edge is consumed exactly once.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_SCROLL_SPEED=10
@@ -28,4 +27,4 @@ assert_ui transcript_bottom_pad y=646
 
 scroll_wheel 0 3
 wait_frames 25
-assert_ui transcript_bottom_pad y=706
+assert_ui transcript_bottom_pad y=676

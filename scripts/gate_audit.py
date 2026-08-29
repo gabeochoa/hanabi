@@ -148,10 +148,6 @@ DEFECTS = {
         patches=[(SB, "            const int rowId = base + 1 + (++i);",
                   "            const int rowId = base + 1 + idx;")]),
     # ---- retire_gate ----------------------------------------------------
-    "retire.epoch": dict(
-        gate="retire-gate", build="app",
-        patches=[(WR, "        hanabi::widget_epoch::begin_epoch();\n        if (!hanabi::widget_epoch::retire_enabled()) return;",
-                  "        if (!hanabi::widget_epoch::retire_enabled()) return;")]),
     "retire.stale": dict(gate="retire-gate", build="app", env={"HANABI_RETIRE": "0"}),
     # ---- composer_chrome_gate -------------------------------------------
     # The two regressions the multiline composer shipped over, one defect each.

@@ -32,7 +32,6 @@ the corresponding patch here.
 |---|---:|---:|---|
 | `351-report-font-atlas-exhaustion.patch` | #351 | +12 | The source contract is absent before and present after; the patched Sokol headers compile as Objective-C++. |
 | `210-reject-unsamplable-textures.patch` | #210 | +7 | The sampler validation/cleanup contract is absent before and present after; the patched Sokol headers compile. |
-| `113-161-192-complete-e2e-diagnostics.patch` | #113, #161, #192 | +7/-3 | A real `SystemManager` has no dump handler before and one after; timeout subjects and text beyond byte 200 are red before/green after. |
 | `265-focus-ring-contrast-toggle.patch` | #265 | +17/-12 | The none backend records three outlines by default in both renderers; disabling contrast records exactly one after the patch. |
 | `255-word-editing-capability.patch` | #255 | +7 | A consumer `static_assert` does not compile before; complete and incomplete action enums classify correctly after. |
 

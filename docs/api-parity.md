@@ -119,11 +119,10 @@ supplied entirely at runtime via env — nothing committed). Results:
   parse correctly.
 
 Two concrete things this live test surfaced and FIXED in the generic adapter:
-1. **HTTPS transport was off by default.** TLS is opt-in behind `HANABI_ENABLE_TLS`,
-   which the build didn't set — so an `https://` backend threw "scheme not supported"
-   at runtime. Added an opt-in `make HANABI_TLS=1` (links OpenSSL + the platform TLS
-   cert framework); the default zero-config/mock build stays dependency-free. Real
-   backends are HTTPS, so a real deployment builds with `HANABI_TLS=1`.
+1. **HTTPS transport was missing from ordinary builds.** `HANABI_ENABLE_TLS`
+   adds OpenSSL and platform certificate support. A plain `make` now enables it
+   whenever Homebrew OpenSSL is present; `HANABI_TLS=0` is the explicit
+   dependency-free portability lane.
 2. **Block-array transcripts.** Some backends carry message content in a
    `blocks:[{type,content}]` array instead of a flat text field, so transcript text
    came back empty. The adapter now concatenates text-type blocks (configurable via
