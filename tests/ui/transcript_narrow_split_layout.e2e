@@ -11,3 +11,12 @@ assert_ui composer_input_wrap x=76 w=276
 assert_ui composer_send x=361 w=19 h=19 hidden=false
 assert_ui event_row x=84 w=296
 assert_ui composer_reply_input hidden=false
+
+mouse_down 406 400
+mouse_move 100 400
+mouse_up
+wait_frames 10
+assert_ui split_left x=52 w=280
+assert_ui split_divider x=332
+assert_ui split_right x=337 w=423
+assert_ui composer_input_wrap x=76 w=204

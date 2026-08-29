@@ -307,6 +307,11 @@
       "threshold_pct": 0.0,
       "resolution": "600x500",
       "note": "Keyboard shortcuts stack customizable commands above the reference list on a narrow window."
+    },
+    "37_narrow_split_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "Narrow split view clamps both panes to usable widths and lets the unfocused transcript reach the window floor."
     }
   },
   "unbaselined": {}

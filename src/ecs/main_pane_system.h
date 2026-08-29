@@ -66,10 +66,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const auto& r = layout->main;
+        const bool splitView = app->view == SmartView::Chat && app->splitOpen;
+        const float contentH =
+            r.height + (splitView ? layout->composer.height : 0.0f);
 
         auto panel = div(ctx, mk(uiRoot, 2000),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(r.width), pixels(r.height)})
+                .with_size(ComponentSize{pixels(r.width), pixels(contentH)})
                 .with_absolute_position()
                 .with_translate(r.x, r.y)
                 .with_custom_background(theme::chrome::content())
@@ -152,8 +155,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("main_content"));
 
-        const float contentH = r.height;  // views size against the pane height
-
         // ---- The list's keyboard cursor -----------------------------------
         // Moved over the rows the PREVIOUS frame drew. That order is the one
         // the reader is looking at — sections, folds and caps already applied
@@ -183,8 +184,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         switch (app->view) {
             case SmartView::Chat:
-                if (app->splitOpen) {
-                    render_split(ctx, content.ent(), *app, r.width, contentH);
+                if (splitView) {
+                    render_split(ctx, content.ent(), *app, r.width, contentH,
+                                 layout->composer.height);
                 } else {
                     render_transcript(ctx, content.ent(), *app,
                                       app->panes[0], r.width, contentH);
@@ -231,10 +233,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // sits UNDER that pane: full-width under two panes gave no clue
             // which conversation you were typing into, and a composer nailed
             // to the left pane meant the right one could never be replied to.
-            const bool split = app->view == SmartView::Chat && app->splitOpen;
             float cw = cr.width;
             float cx = cr.x;
-            if (split) {
+            if (splitView) {
                 const RectangleType pr =
                     pane_screen_rect(*app, app->focusedPane);
                 cw = pr.width;
@@ -2467,9 +2468,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // does: the widget is rebuilt every frame, so the gesture cannot be.
     // The divider's WIDTH is its hit target; the line it paints is 1px.
     static constexpr float kDividerW = 5.0f;
+    static constexpr float kMinimumPaneW = 280.0f;
 
     void render_split(UIContext<InputAction>& ctx, Entity& parent,
-                      AppComponent& app, float paneW, float paneH) {
+                      AppComponent& app, float paneW, float paneH,
+                      float composerH) {
         const float usable = paneW - kDividerW;
         const float leftW = split_left_width(app, paneW);
         const float rightW = usable - leftW;
@@ -2483,9 +2486,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("split_row"));
 
-        pane_column(ctx, rowWrap.ent(), app, 0, leftW, paneH);
+        const float leftH = app.focusedPane == 0 ? paneH - composerH : paneH;
+        const float rightH = app.focusedPane == 1 ? paneH - composerH : paneH;
+        pane_column(ctx, rowWrap.ent(), app, 0, leftW, leftH);
         divider_bar(ctx, rowWrap.ent(), app, paneW);
-        pane_column(ctx, rowWrap.ent(), app, 1, rightW, paneH);
+        pane_column(ctx, rowWrap.ent(), app, 1, rightW, rightH);
         close_split_button(ctx, parent, app, paneW);
     }
 
@@ -2518,10 +2523,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // The left pane's width in pixels, from the persisted ratio, clamped so a
     // drag can never reduce either side to nothing.
+    static float clamped_split_left(float desired, float usable) {
+        if (usable <= 0.0f) return 0.0f;
+        if (usable < kMinimumPaneW * 2.0f) return std::round(usable * 0.5f);
+        return std::round(std::clamp(desired, kMinimumPaneW,
+                                     usable - kMinimumPaneW));
+    }
+
     static float split_left_width(const AppComponent& app, float paneW) {
         const float usable = paneW - kDividerW;
-        float w = usable * hanabi::clamp_split_ratio(app.splitRatio);
-        return std::round(w);
+        return clamped_split_left(usable * hanabi::clamp_split_ratio(app.splitRatio),
+                                  usable);
     }
 
     // ONE pane of the split. The debug name carries the pane index, and that
@@ -2584,10 +2596,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         if (layout == nullptr) return RectangleType{0, 0, 0, 0};
         const auto& r = layout->main;
+        const float paneH =
+            r.height + (index == app.focusedPane ? 0.0f : layout->composer.height);
         const float leftW = split_left_width(app, r.width);
-        if (index == 0) return RectangleType{r.x, r.y, leftW, r.height};
+        if (index == 0) return RectangleType{r.x, r.y, leftW, paneH};
         return RectangleType{r.x + leftW + kDividerW, r.y,
-                             r.width - leftW - kDividerW, r.height};
+                             r.width - leftW - kDividerW, paneH};
     }
 
     // The divider, and the drag along it.
@@ -2628,8 +2642,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!d) return;
         const float usable = paneW - kDividerW;
         if (usable <= 1.0f) return;
-        app.splitRatio = hanabi::clamp_split_ratio(
-            app.splitRatio + d.template as<float>() / usable);
+        const float delta = d.template as<float>();
+        const float nextLeft = split_left_width(app, paneW) + delta;
+        app.splitRatio = clamped_split_left(nextLeft, usable) / usable;
     }
 
     // ---------------- "New since you last looked" --------------------------
