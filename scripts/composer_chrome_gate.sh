@@ -191,11 +191,14 @@ else:
 
 # --- 3. the focus edge -----------------------------------------------------
 #
-# Accent rows inside the wrap: none at rest, and a matched pair (the field's
-# top and bottom) when the field has focus.
+# Focus belongs to the outlined input box, not to the shorter text-area child
+# inside it. A matched accent pair must replace the wrap's top and bottom
+# borders; the interior remains the window colour. The global keyboard ring is
+# suppressed while this text field owns focus because the caret and focused
+# edge already identify the destination.
 def accent_rows(px):
     out = []
-    for y in range(top + 1, bot):
+    for y in range(top, bot + 1):
         if all(px[x, y] == ACCENT for x in COLS):
             out.append(y)
     return out
@@ -205,42 +208,23 @@ focus_rows = accent_rows(fpx)
 
 if rest_rows:
     failures.append(
-        "an UNFOCUSED composer is drawing accent rows at y=%s -- the field's "
-        "focused edge must not be on when nothing is focused" % (rest_rows,))
+        "an UNFOCUSED composer is drawing accent rows at y=%s -- the focused "
+        "edge must not be on when nothing is focused" % (rest_rows,))
 else:
-    print("OK    rest: no accent rows inside the wrap")
+    print("OK    rest: no accent rows on the wrap")
 
 if len(focus_rows) < 2:
     failures.append(
-        "a FOCUSED composer draws %d accent row(s) %s inside the wrap; the "
-        "field's focused edge is its top AND its bottom, so this is a field "
-        "with no visible focus at all (afterhours_gaps.md #263)"
-        % (len(focus_rows), focus_rows))
+        "a FOCUSED composer draws %d accent row(s) %s on the wrap; the focused "
+        "edge needs both a top and bottom" % (len(focus_rows), focus_rows))
+elif focus_rows[0] != top or focus_rows[-1] != bot:
+    failures.append(
+        "the focused edge covers y=%s instead of the full wrap %d..%d"
+        % (focus_rows, top, bot))
 else:
-    field_h = focus_rows[-1] - focus_rows[0] + 1
-    print("OK    focus: accent rows y=%s, field %dpx" % (focus_rows, field_h))
-    # The edge belongs to the FIELD, not to the wrap. A ring painted on the
-    # wrap instead lands on the wrap's own border rows, which is a visibly
-    # bigger box around a visibly different rectangle.
-    if focus_rows[0] <= top or focus_rows[-1] >= bot:
-        failures.append(
-            "the focused edge is on the wrap (y=%s vs wrap %d..%d), not on "
-            "the field inside it" % (focus_rows, top, bot))
-
-    # The INTERIOR of the focused field, between its own two edges. Same
-    # question as arm 1 with the field's chrome excluded.
-    #
-    # RING_INSET, because the app's focus ring is three concentric outlines
-    # and the innermost one -- the contrast edge, drawn one pixel INSIDE the
-    # stack (ui/focus_visible.h, "inner_contrast one pixel inside it") -- can
-    # land on the row just inside the field's own accent edge, depending on
-    # whether the field's height rounds up. That is the ring doing its job,
-    # not a fill: a forced background covers the whole interior, so skipping
-    # a row at each end costs this check nothing and stops it reporting the
-    # ring as a defect.
-    RING_INSET = 2
+    print("OK    focus: accent edge spans the full wrap y=%d..%d" % (top, bot))
     fwrong = {}
-    for y in range(focus_rows[0] + 1 + RING_INSET, focus_rows[-1] - RING_INSET):
+    for y in range(top + 1, bot):
         for x in COLS:
             c = fpx[x, y]
             if c == WINDOW:
@@ -249,27 +233,11 @@ else:
     if fwrong:
         worst = sorted(fwrong.items(), key=lambda kv: -kv[1])[:3]
         failures.append(
-            "interior fill (focused): %s inside the field's own edges"
+            "interior fill/ring (focused): %s inside the wrap"
             % ", ".join("%s x%d" % (c, n) for c, n in worst))
     else:
         print("OK    interior (focus): all %s between the accent edges"
               % (WINDOW,))
-
-    # And the app's OWN :focus-visible ring, immediately outside that pair.
-    # It is not this gate's subject and its colour is derived rather than
-    # named (ui/focus_visible.h contrast-corrects the accent), so the check is
-    # that SOMETHING other than the plain background is drawn there -- enough
-    # to catch it vanishing, without pinning a value the policy may retune.
-    ring_above = fpx[PROBE, focus_rows[0] - 1]
-    ring_below = fpx[PROBE, focus_rows[-1] + 1]
-    if ring_above == WINDOW and ring_below == WINDOW:
-        failures.append(
-            "nothing is drawn immediately outside the field's focused edge -- "
-            "the app's :focus-visible ring (ui/focus_visible.h, armed by the "
-            "capture hook) has stopped rendering")
-    else:
-        print("OK    focus ring outside the edge: above %s, below %s"
-              % (ring_above, ring_below))
 
 # --- 4. focus changes NOTHING else ----------------------------------------
 #

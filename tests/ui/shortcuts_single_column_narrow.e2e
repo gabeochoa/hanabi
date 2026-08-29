@@ -1,0 +1,14 @@
+# settings: {"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=shortcuts
+
+resize 600 500
+wait_frames 8
+assert_ui shortcuts_panel x=24 y=24 w=552 h=452
+assert_ui shortcuts_cols x=48 y=96 w=504 h=360
+assert_ui shortcuts_commands x=48 y=96 w=504 h=404
+assert_ui shortcuts_reference x=48 y=500 w=504 h=454
+expect_text "CUSTOMIZABLE COMMANDS"
+mouse_move 300 300
+scroll_wheel 0 -4
+wait_frames 12
+expect_text "EDITING TEXT"

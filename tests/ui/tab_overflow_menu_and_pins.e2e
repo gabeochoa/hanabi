@@ -5,55 +5,55 @@
 require_thread r11
 require_thread r10
 
-assert_ui tab_active x=527
+assert_ui tab_active x=447
 expect_text "Tab: PSC daily post generator, active"
 expect_text "New tab"
 
 mouse_move 400 48
 scroll_wheel 1 0
 wait_frames 3
-assert_ui tab_r4 x=263
+assert_ui tab_r8 x=199
 
 scroll_wheel 0 1
 wait_frames 3
-assert_ui tab_r2 x=263
+assert_ui tab_r7 x=199
 
 scroll_wheel 0 -0.5
 wait_frames 3
-assert_ui tab_r4 x=285
+assert_ui tab_r8 x=261
 
-mouse_down 290 48
-mouse_move 530 48
-assert_ui tab_r4 x=525
+mouse_down 270 48
+mouse_move 520 48
+assert_ui tab_r8 x=447
 screenshot /tmp/hanabi_tab_drag_inflight.png
 mouse_up
 wait_frames 4
-assert_ui tab_r4 x=505
+assert_ui tab_r8 x=385
 
-right_click 510 48
+right_click 400 48
 wait_frames 3
 expect_text "Copy Navi URL"
 reset_clipboard_probe
 click_ui tab_menu_copy
-expect_clipboard "https://navi.test/session/r4"
+expect_clipboard "https://navi.test/session/r8"
 
-right_click 510 48
+right_click 400 48
 wait_frames 3
 expect_text "Pin tab"
 click_ui tab_menu_pin
 wait_frames 3
 expect_text "Pinned tab"
 
-right_click 490 48
+right_click 400 48
 wait_frames 3
 expect_text "Unpin tab"
 expect_text "Close others"
 click_ui tab_menu_close_others
 wait_frames 12
-require_thread r4
+require_thread r8
 
 assert_ui tab_t1 hidden=false
 assert_ui tab_active hidden=false
 expect_text "Tab: stickers broke — concluded, D113637134 on you, pinned"
-expect_text "Tab: oncall sweep finished — 3 rows need a look, pinned, active"
+expect_text "Tab: quota migration, week 3, pinned, active"
 expect_no_text "Tab: PSC daily post generator"

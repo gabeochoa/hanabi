@@ -1,0 +1,12 @@
+# Compact composer chrome keeps the controls that identify future work and drops
+# the optional tool-fold pill before hiding model or effort.
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t2
+wait_frames 12
+assert_ui composer_model hidden=false
+assert_ui composer_effort hidden=false
+expect_text "Server default"
+expect_text "(High)"
+expect_no_text "Tools: Folded"

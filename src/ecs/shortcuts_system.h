@@ -44,6 +44,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kPanelW = 900.0f;
     static constexpr float kPanelH = 590.0f;
     static constexpr float kColGap = 28.0f;
+    static constexpr float kTwoColumnMinPanelW = 700.0f;
     static constexpr float kPadH = hanabi::surface::kSheetPadH;
     static constexpr float kPadV = hanabi::surface::kSheetPadV;
     static constexpr float kHeaderH = hanabi::surface::kHeaderH;
@@ -55,6 +56,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
         if (app == nullptr || !app->showShortcuts) return;
+
+        ctx.theme.background = theme::panel_bg();
+        ctx.theme.font_muted = theme::text_secondary();
 
         if (app->escape == EscapeIntent::CancelShortcutRecording) {
             app->shortcutRecording = -1;
@@ -71,7 +75,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::viewport::width(), hanabi::viewport::height(), kPanelW,
             kPanelH);
         const float contentW = panelRect.width - kPadH * 2.0f;
-        const float colW = (contentW - kColGap) * 0.5f;
+        const bool twoColumns = panelRect.width >= kTwoColumnMinPanelW;
+        const float colW = twoColumns ? (contentW - kColGap) * 0.5f
+                                      : contentW;
 
         auto backdrop = button(
             ctx, mk(uiRoot, 8300),
@@ -98,7 +104,7 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(contentW),
                                          pixels(panelRect.height - kPadV * 2.0f -
                                                 kHeaderH)})
-                .with_flex_direction(FlexDirection::Row)
+                .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_overflow(Overflow::Scroll, Axis::Y)
                 .with_transparent_bg()
@@ -106,17 +112,29 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(11)
                 .with_debug_name("shortcuts_cols"));
 
-        auto left = div(ctx, mk(cols.ent(), 1),
+        auto content = div(
+            ctx, mk(cols.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(contentW), children()})
+                .with_flex_direction(twoColumns ? FlexDirection::Row
+                                                : FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_render_layer(11)
+                .with_debug_name("shortcuts_content"));
+
+        auto left = div(ctx, mk(content.ent(), 1),
                         ComponentConfig{}
                             .with_size(ComponentSize{pixels(colW), children()})
-                            .with_margin(Margin{.right = pixels(kColGap)})
+                            .with_margin(Margin{.right = pixels(twoColumns ? kColGap : 0.0f)})
                             .with_flex_direction(FlexDirection::Column)
                             .with_flex_wrap(FlexWrap::NoWrap)
                             .with_transparent_bg()
                             .with_roundness(0.0f)
                             .with_render_layer(11)
                             .with_debug_name("shortcuts_commands"));
-        auto right = div(ctx, mk(cols.ent(), 2),
+        auto right = div(ctx, mk(content.ent(), 2),
                          ComponentConfig{}
                              .with_size(ComponentSize{pixels(colW), children()})
                              .with_flex_direction(FlexDirection::Column)
@@ -200,7 +218,8 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(contentW - 190.0f), pixels(24)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(FontSize::Large)
+                .with_font_size(theme::type::H1)
+                .with_font_weight(theme::type::EMPHASIS)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("shortcuts_title"));

@@ -24,7 +24,7 @@
 
 namespace ecs::model {
 
-inline constexpr float kTabMinWidth = 40.0f;
+inline constexpr float kTabMinWidth = 120.0f;
 inline constexpr float kTabMaxWidth = 220.0f;
 inline constexpr float kTabGap = 4.0f;
 

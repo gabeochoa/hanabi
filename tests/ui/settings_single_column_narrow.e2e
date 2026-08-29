@@ -1,0 +1,16 @@
+# settings: {"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings
+
+resize 600 500
+wait_frames 8
+assert_ui settings_panel x=24 y=24 w=552 h=452
+assert_ui settings_cols x=48 y=104 w=504 h=1389
+assert_ui settings_col_left x=48 y=104 w=490
+assert_ui settings_col_right x=48 y=759 w=490
+assert_ui settings_theme_row w=490
+assert_ui settings_accent_row w=490
+expect_text "Appearance"
+mouse_move 300 300
+scroll_wheel 0 -30
+wait_frames 12
+expect_text "Custom colours"

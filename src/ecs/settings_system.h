@@ -4,13 +4,9 @@
 // full-window backdrop when AppComponent::showSettings is true. Closes on
 // Cmd+, (toggle), Esc, the ✕ close button, or clicking the backdrop.
 //
-// LAYOUT — a WIDE (kPanelW) two-column sheet so the whole section set fits a
-// normal window WITHOUT scrolling. Grouped the SAME way + order as the navi
-// web settings (Appearance / Behavior / Notifications / Data / Model /
-// Advanced / Account). Every content width derives from ONE panel-width
-// constant (kPanelW → content_w()/col_w()) so segmented-control gutters can't
-// drift. Left column: Appearance / Behavior / Notifications / Model. Right
-// column: Data / Advanced / Account. The footnote spans full width beneath.
+// LAYOUT — a wide two-column sheet at normal desktop widths, collapsing to a
+// single scrollable column before either column becomes cramped. Control widths
+// derive from the current panel width, so both modes retain the same gutters.
 //
 // ─── PERSISTENCE + SYNC ─────────────────────────────────────────────────────
 // Every WIRED control persists LOCALLY first: it writes through the Settings
@@ -87,6 +83,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         if (!app->showSettings) return;
 
+        ctx.theme.background = theme::panel_bg();
+        ctx.theme.font_muted = theme::text_secondary();
+
         // Fetch account/settings from the backend ONCE when the overlay opens
         // (so the user can verify setup). The loader services requestSettings on
         // a worker; we only kick it when idle + not already loaded. Read-only.
@@ -114,10 +113,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
-        const float pw = kPanelW;
+        const float wantedPw = kPanelW;
+        const bool twoColumns = sw >= kTwoColumnMinWindowW;
         const float ctrlRow = kRowNameFoot + kThemeRowH;
+        const bool showFontWeight = available_font_weight_count() > 1;
         const float leftH =
-            (kGroupH + ctrlRow * 4.0f) +
+            (kGroupH + ctrlRow * (showFontWeight ? 4.0f : 3.0f)) +
             (kGroupH + ctrlRow * 5.0f) +
             (kGroupH + ctrlRow * 2.0f);
         const float rightH =
@@ -128,10 +129,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
              (kRowNameFoot + kExportRowH)) +
             (kGroupH + kAccountRowH + ctrlRow);
         const float contentH =
-            std::max(leftH, rightH) + (kFootnoteGap + kFootnoteH) + 8.0f;
+            (twoColumns ? std::max(leftH, rightH) : leftH + rightH) +
+            (kFootnoteGap + kFootnoteH) + 8.0f;
         const float idealPh = kPadV * 2.0f + kHeaderH + contentH;
         const hanabi::surface::Rect panelRect =
-            hanabi::surface::centered(sw, sh, pw, idealPh);
+            hanabi::surface::centered(sw, sh, wantedPw, idealPh);
+        active_panel_w_ = panelRect.width;
         const float ph = panelRect.height;
         const float bodyViewH =
             std::max(40.0f, ph - kPadV * 2.0f - kHeaderH);
@@ -157,7 +160,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_backdrop"));
         if (backdrop) {
             const bool insidePanel = afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, RectangleType{px, py, pw, ph});
+                ctx.mouse.pos, RectangleType{px, py, panelRect.width, ph});
             if (!insidePanel) {
                 app->showSettings = false;
                 return;
@@ -190,16 +193,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_body_scroll"));
         Entity& b = body.ent();
 
-        // TWO-COLUMN layout (Task 1): the wider panel is split into two equal
-        // columns so the full section set fits a normal window WITHOUT
-        // scrolling. Left column = Appearance / Behavior / Notifications /
-        // Model; right column = Data / Advanced / Account. Each control sizes
-        // to its column via content_w() (set per column below). The footnote
-        // spans full width beneath both columns.
+        // Responsive columns: side by side while each control has enough room,
+        // stacked inside the same scroll view on narrower windows.
         auto cols = div(ctx, mk(b, 490),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
-                .with_flex_direction(FlexDirection::Row)
+                .with_flex_direction(twoColumns ? FlexDirection::Row
+                                                : FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -207,8 +207,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto leftCol = div(ctx, mk(cols.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(col_w()), children()})
-                .with_margin(Margin{.right = pixels(kColGap)})
+                .with_size(ComponentSize{
+                    pixels(twoColumns ? col_w() : full_content_w()), children()})
+                .with_margin(Margin{.right = pixels(twoColumns ? kColGap : 0.0f)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -216,7 +217,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_col_left"));
         auto rightCol = div(ctx, mk(cols.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(col_w()), children()})
+                .with_size(ComponentSize{
+                    pixels(twoColumns ? col_w() : full_content_w()), children()})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
@@ -224,14 +226,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_col_right"));
 
         // LEFT column: Appearance / Behavior / Notifications / Model.
-        active_col_w_ = col_w();
+        active_col_w_ = twoColumns ? col_w() : full_content_w();
         {
             Entity& L = leftCol.ent();
             group_label(ctx, L, 2, "Appearance", "settings_grp_appearance");
             render_theme_row(ctx, L, *app);
             render_theme_rotate_row(ctx, L, *app);
             render_font_row(ctx, L, *app);
-            render_font_weight_row(ctx, L, *app);
+            if (showFontWeight) render_font_weight_row(ctx, L, *app);
             group_label(ctx, L, 3, "Behavior", "settings_grp_behavior");
             render_yap_row(ctx, L, *app);
             render_autoarchive_row(ctx, L, *app);
@@ -276,7 +278,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // (segmented-control gutters etc.) derives from content_w() so they can't
     // drift. Widened from 360 → 600 so the whole section set fits WITHOUT
     // vertical scrolling on a normal window (Task 1).
-    static constexpr float kPanelW = 720.0f;    // panel width (single source)
+    static constexpr float kPanelW = 720.0f;    // maximum panel width
+    static constexpr float kTwoColumnMinWindowW = 720.0f;
     static constexpr float kPadH = hanabi::surface::kSheetPadH;
     // Usable content width inside the panel (both horizontal pads removed).
     // Usable content width for controls in the CURRENTLY-rendering column.
@@ -292,13 +295,12 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // the right column's last segment sits under the bar -- which is exactly
     // how "Amber", "Shown" and "Export all" came to be shaved.
     static constexpr float kScrollbarW = 14.0f;
-    static constexpr float full_content_w() {
-        return kPanelW - kPadH * 2.0f - kScrollbarW;
-    }
-    // Column geometry: two equal columns split from full_content_w() with a
-    // gutter between them.
     static constexpr float kColGap = 24.0f;
-    static constexpr float col_w() {
+    float full_content_w() const {
+        return active_panel_w_ - kPadH * 2.0f - kScrollbarW;
+    }
+    // Column geometry: two equal columns split from this frame's panel width.
+    float col_w() const {
         return (full_content_w() - kColGap) * 0.5f;
     }
     static constexpr float kPadV = hanabi::surface::kSheetPadV;
@@ -312,10 +314,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kLabelH = 18.0f;      // group header label height
     static constexpr float kLabelPadB = 3.0f;    // gap under a group label
     static constexpr float kGroupH = kGroupGap + kLabelH + kLabelPadB;
-    static constexpr float kRowNameH = 15.0f;    // compact per-row name label
-    static constexpr float kRowNameGap = 2.0f;   // gap under a row name
-    // One row name's total vertical footprint.
-    static constexpr float kRowNameFoot = kRowNameH + kRowNameGap;
+    static constexpr float kRowNameH = 15.0f;
+    static constexpr float kControlToNameGap = 7.0f;
+    static constexpr float kRowNameGap = 3.0f;
+    static constexpr float kRowNameFoot =
+        kControlToNameGap + kRowNameH + kRowNameGap;
     static constexpr float kThemeRowH = 30.0f;   // segmented control
     // A segment button is exactly its row, and this constant is why there is
     // one number rather than two. Five builders (theme_choice, rotate_choice,
@@ -365,7 +368,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(kTitleH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(FontSize::Large)
+                .with_font_size(theme::type::H1)
                 .with_font_weight(theme::type::EMPHASIS)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -415,7 +418,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(FontSize::Medium)
+                .with_font_size(theme::type::BODY)
                 .with_font_weight(theme::type::EMPHASIS)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -431,7 +434,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(text)
                 .with_size(ComponentSize{percent(1.0f), pixels(kRowNameH)})
-                .with_margin(Margin{.bottom = pixels(kRowNameGap)})
+                .with_margin(Margin{.top = pixels(kControlToNameGap),
+                                    .bottom = pixels(kRowNameGap)})
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
@@ -531,7 +535,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                                : theme::hover_bg())
                 .with_custom_text_color(selected ? theme::window_bg()
                                                  : theme::text_primary())
-                .with_font_size(theme::type::SM)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
@@ -574,6 +578,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    static std::size_t available_font_weight_count() {
+        const std::string family = hanabi::fonts::effective_family(
+            Settings::get().get_font_choice());
+        std::size_t count = 0;
+        for (const auto& option : hanabi::fonts::weights())
+            if (hanabi::fonts::weight_available(family, option.key)) ++count;
+        return count;
+    }
+
     void render_font_weight_row(UIContext<InputAction>& ctx, Entity& parent,
                                 AppComponent& app) {
         (void)app;
@@ -591,10 +604,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         const std::string family = hanabi::fonts::effective_family(
             Settings::get().get_font_choice());
-        std::size_t availableCount = 0;
-        for (const auto& option : hanabi::fonts::weights())
-            if (hanabi::fonts::weight_available(family, option.key))
-                ++availableCount;
+        const std::size_t availableCount = available_font_weight_count();
         constexpr float kSegGap = 6.0f;
         const float segW = (content_w() - kSegGap *
             static_cast<float>(availableCount > 0 ? availableCount - 1 : 0)) /
@@ -626,7 +636,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                                : theme::hover_bg())
                 .with_custom_text_color(selected ? theme::window_bg()
                                                  : theme::text_primary())
-                .with_font_size(theme::type::SM)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
@@ -661,7 +671,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                                : theme::hover_bg())
                 .with_custom_text_color(selected ? theme::window_bg()
                                                  : theme::text_primary())
-                .with_font_size(theme::type::SM)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
@@ -731,7 +741,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(usage)
                 .with_size(ComponentSize{children(), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -796,7 +806,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(left)
                 .with_size(ComponentSize{percent(1.0f), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_text_overflow(TextOverflow::Ellipsis)
@@ -947,7 +957,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                                    : theme::hover_bg())
                     .with_custom_text_color(selected ? theme::window_bg()
                                                      : theme::text_primary())
-                    .with_font_size(theme::type::SM)
+                    .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
@@ -1004,7 +1014,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                               : theme::hover_bg())
                     .with_custom_text_color(sel ? theme::window_bg()
                                                 : theme::text_primary())
-                    .with_font_size(theme::type::SM)
+                    .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
@@ -1237,7 +1247,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app) {
         std::string line;
-        theme::Color col = theme::text_faint();
+        theme::Color col = theme::text_secondary();
         if (app.settingsState == ecs::LoadState::Loading) {
             line = "checking\xe2\x80\xa6";
         } else if (app.settingsState == ecs::LoadState::Error) {
@@ -1289,7 +1299,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                                : theme::hover_bg())
                 .with_custom_text_color(selected ? theme::window_bg()
                                                  : theme::text_primary())
-                .with_font_size(FontSize::Medium)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
@@ -1422,7 +1432,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                                : theme::hover_bg())
                 .with_custom_text_color(selected ? theme::window_bg()
                                                  : theme::text_primary())
-                .with_font_size(theme::type::SM)
+                .with_font_size(theme::type::MD)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
@@ -1469,8 +1479,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     static float pw_title() { return 300.0f; }
 
-    // The width controls should size to this frame — set to col_w() per column
-    // by the render loop. 0 => fall back to the full panel content width.
+    // Widths resolved from this frame's actual panel and active column.
+    float active_panel_w_ = kPanelW;
     float active_col_w_ = 0.0f;
 };
 

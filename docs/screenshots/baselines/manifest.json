@@ -262,7 +262,7 @@
     },
     "28_composer_focus_dark": {
       "threshold_pct": 0.0,
-      "note": "Composer focused: caret and focus ring. Was byte-identical to 03_transcript_dark until the capture hook learned to arm :focus-visible (src/ui/focus_visible.h keeps the ring off until Tab is pressed, and a headless capture presses nothing)."
+      "note": "Composer focused: caret plus one accent perimeter around the complete input wrap; the redundant inner keyboard ring is suppressed while the text field owns focus."
     },
     "29_find_dark": {
       "threshold_pct": 0.0,
@@ -297,6 +297,16 @@
       "threshold_pct": 0.0,
       "resolution": "760x620",
       "note": "Narrow desktop window with ten tabs exercising the minimum tab width and horizontal overflow."
+    },
+    "35_settings_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "600x500",
+      "note": "Settings collapses from two columns to one scrollable column on a narrow desktop window."
+    },
+    "36_shortcuts_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "600x500",
+      "note": "Keyboard shortcuts stack customizable commands above the reference list on a narrow window."
     }
   },
   "unbaselined": {}

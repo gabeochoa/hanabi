@@ -1,4 +1,5 @@
-# Settings offers a quiet window, and it is reachable without scrolling.
+# Settings offers a quiet window, and the last row remains reachable through
+# the sheet's normal vertical scroll.
 #
 # What this can prove is that the control is there and rendered. Whether a
 # banner is actually suppressed at 3am is a wall-clock behaviour the scripted
@@ -14,4 +15,7 @@
 
 expect_text "Notifications"
 expect_text "Quiet hours"
+mouse_move 400 680
+scroll_wheel 0 -4
+wait_frames 8
 expect_text "10pm-8am"

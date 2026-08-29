@@ -4822,8 +4822,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // of at the content edge.
         const bool compactComposer = paneW < 560.0f;
         if (compactComposer) {
-            app.modelPopoverOpen = false;
-            app.effortPopoverOpen = false;
+            app.foldPopoverOpen = false;
         }
         auto meta = div(ctx, mk(bar.ent(), 3),
             ComponentConfig{}
@@ -4898,7 +4897,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //
         // No trailing room in the box: the effort run butts straight onto it,
         // and its own 5px inset is the word space between them.
-        if (!compactComposer) {
+        {
             const std::string currentModel = Settings::get().get_default_model();
             const std::string modelText = hanabi::models::display_name(currentModel);
             auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
@@ -4908,7 +4907,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                              pixels(18)})
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_secondary())
+                    .with_custom_text_color(theme::text_primary())
                     .with_font_size(theme::type::SM)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_alignment(TextAlignment::Left)
@@ -4939,7 +4938,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         pixels(run_box(effortText, kLabelInset)), pixels(18)})
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_faint())
+                    .with_custom_text_color(theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_alignment(TextAlignment::Left)
@@ -4971,7 +4970,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // exposes no setter for, so it is written after the widget exists. The
         // renderer adds its own 5px on top of the offset, which is why the
         // offset is the inset MINUS that. afterhours_gaps.md #91.
-        if (app.pane().openSession) {
+        if (app.pane().openSession && !compactComposer) {
             constexpr float kPillPad = 6.0f;
             constexpr float kPillIcon = 10.0f;
             constexpr float kPillIconGap = 3.0f;
@@ -5107,7 +5106,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         // the strip's 10 less that same inset.
                         .with_margin(Margin{.left = pixels(budget > 0 ? 0 : 5)})
                         .with_transparent_bg()
-                        .with_custom_text_color(theme::text_faint())
+                        .with_custom_text_color(theme::text_secondary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
                         .with_debug_name("composer_size"));
@@ -5198,7 +5197,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(inputW), pixels(kInputH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
-                .with_justify_content(JustifyContent::FlexStart)
+                .with_justify_content(JustifyContent::Center)
                 .with_margin(Margin{.right = pixels(kSendGap)})
                 // An OUTLINE on the strip colour, not a filled pill: Puffin's
                 // input interior is the window colour and only the 1px border
@@ -5337,14 +5336,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         const auto composerFieldId = focusable_field(inputRes.ent());
-        hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);
-        hanabi::ui::field_chrome::apply_focus_edge(
-            composerFieldId,
+        const bool composerFocused =
             inputRes.ent().has<afterhours::text_input::HasTextAreaState>() &&
-                inputRes.ent()
-                    .get<afterhours::text_input::HasTextAreaState>()
-                    .is_focused,
-            ctx.theme.accent);
+            inputRes.ent()
+                .get<afterhours::text_input::HasTextAreaState>()
+                .is_focused;
+        hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);
+        if (composerFocused) ctx.theme.focus_ring_thickness = 0.0f;
+        hanabi::ui::field_chrome::apply_focus_edge(
+            inputWrap.ent().id, composerFocused, ctx.theme.accent);
 
         // Faint hint text ON TOP of the empty field, via an absolutely
         // positioned on_draw_fg child -- the same pattern the sidebar search

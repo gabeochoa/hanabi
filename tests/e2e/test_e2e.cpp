@@ -841,10 +841,10 @@ static void test_tab_overflow_width() {
     CHECK(ecs::model::compute_tab_width(1200.0f, 2, minW, maxW, gap) == maxW);
 
     // Enough tabs that the uniform share drops below maxW but stays above minW:
-    // 10 tabs in 1000px -> ~(1000 - 27)/10 = 97.3px, between min and max.
-    float w10 = ecs::model::compute_tab_width(1000.0f, 10, minW, maxW, gap);
-    CHECK(w10 > minW && w10 < maxW);
-    CHECK(std::fabs(w10 - (1000.0f - gap * 9.0f) / 10.0f) < 0.01f);
+    // 5 tabs in 1000px -> ~(1000 - 16)/5 = 196.8px, between min and max.
+    float w5 = ecs::model::compute_tab_width(1000.0f, 5, minW, maxW, gap);
+    CHECK(w5 > minW && w5 < maxW);
+    CHECK(std::fabs(w5 - (1000.0f - gap * 4.0f) / 5.0f) < 0.01f);
 
     // Many tabs: the share would go below minW, so it CLAMPS at minW (Chrome
     // stops shrinking and scrolls instead). 40 tabs in 300px -> way under min.
