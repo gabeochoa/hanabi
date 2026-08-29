@@ -182,7 +182,8 @@ by value.
 frame, so every focusable widget costs a red-black-tree node malloc. Widgets
 count as focusable if they carry a click listener — which in hanabi included
 every transcript LINE (an empty listener, attached only to get hover and press
-plumbing for drag-select) and every minimap MARK.
+plumbing for drag-select) and, before the rail became one painted control,
+every minimap MARK.
 
 `with_skip_tabbing(true)` takes them out, and tabbing out of a long thread no
 longer walks several hundred stops to reach the composer — so the allocation

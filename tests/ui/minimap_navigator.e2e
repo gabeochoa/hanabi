@@ -5,12 +5,9 @@
 # The minimap draws one mark per item — the SAME item list the transcript
 # measured and virtualized from — and a click on a mark goes to that item.
 #
-# A drawn rail is invisible to a text assertion, so what is asserted here is
-# the BEHAVIOUR: the thread opens at its end, and each click lands the item
-# the mark stands for. The marks are named elements rather than pixels of a
-# painted strip, which is also why this clicks by name and not by coordinate.
-#
-# The fixture repeats question / answer / tool-pile, so mark N*3 is the Nth
+# The rail is a single painted control; deterministic coordinates target the
+# first and sixty-first item without creating one widget per mark.
+# The fixture repeats question / answer / tool-pile, so item N*3 is the Nth
 # question.
 #
 # NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
@@ -23,12 +20,12 @@ require_thread rbig
 
 expect_no_text #0:
 
-click_ui minimap_mark_0
+click 1089 77
 wait_frames 12
 expect_text "Follow-up question #0:"
 
 # A mark in the middle goes to the middle, and does not drift back.
-click_ui minimap_mark_60
+click 1089 366
 wait_frames 12
 expect_text "Follow-up question #20:"
 expect_no_text #0:

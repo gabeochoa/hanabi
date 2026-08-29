@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -2145,24 +2146,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     using Item = model::TranscriptItem;
 
     // ---- Minimap rail -----------------------------------------------------
-    // One slot per ITEM — the list the transcript measured and virtualized
-    // from, handed in rather than rebuilt, so the rail and the transcript can
-    // never disagree about what is in the thread or in which order (see
-    // src/ui/minimap.h).
-    //
-    // The slots are real elements, not a painted strip with arithmetic behind
-    // it: a click then lands on the item it is drawn over, and the jump uses
-    // that item's OWN measured top instead of a fraction of the rail. Each
-    // slot draws its own mark in on_draw_fg.
-    //
-    // Dragging along the rail is the other half of the same control and is
-    // deliberately NOT built out of the slots: see the gesture block below.
     void minimap_rail(UIContext<InputAction>& ctx, Entity& parent,
                       Entity& scrollEnt, const std::vector<Item>& items,
                       const std::vector<api::Message>& msgs, float subH,
                       float paneW, float railTopY, float listH, float totalH,
                       float viewH, float scrollY, bool& follow,
-                      hanabi::minimap::DragState& drag) {
+                      hanabi::minimap::DragState& drag, model::PaneState& state,
+                      bool itemsChanged) {
         // A gesture outlives the frame that started it; a rail does not. When
         // the rail stops being drawn under a held button — the thread shrank
         // below worth_showing, the reader switched tabs, the pane got narrow —
@@ -2198,12 +2188,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // ---- press, drag, release --------------------------------------
         // The whole gesture is arithmetic on ONE rectangle and the pointer.
-        // Not a question asked of every mark: the rail is a strip of N buttons
-        // and rebuilding one costs ~4.6 heap allocations a frame
-        // (afterhours_gaps.md #138), so a per-mark drag would have made the
-        // frame more expensive in precisely the situation — a held button,
-        // scrolling — where there is least room. Nothing between here and the
-        // end of this block scales with the number of messages.
         //
         // The rectangle is the rail's LAID-OUT rect, read back off the entity,
         // and not the railX/railY above. Those are what the config was given,
@@ -2257,100 +2241,93 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             scrollY = sv.scroll_offset.y;
         }
 
-        // Wider marks while the pointer is on the rail: the strip is thin
-        // enough to be easy to miss, and a rail that answers the cursor is how
-        // the reader learns it is a control at all. A live drag keeps them
-        // wide wherever the cursor has wandered to — the control is plainly
-        // still engaged, and having it go thin mid-scrub reads as a drop.
-        const bool hot = drag.live || ctx.mouse_was_in_subtree(rail.ent().id);
-
-        // The rail is the whole CONTENT, and the content starts with the
-        // sub-agent rollup rather than with items[0]. Without its share of the
-        // rail every mark below would sit high by that much, and the further
-        // down the thread the more of a lie the mark's position tells.
-        const float leadH = hanabi::minimap::slot_h(subH, totalH, railH);
-        if (leadH > 0.0f)
-            div(ctx, mk(rail.ent(), 900),
-                ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(leadH)})
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_debug_name("minimap_lead"));
-
-        float top = subH;  // content-y of the first item, as pass 2 walks it
-        // Group first: a rail cannot show more marks than it has pixels, and
-        // an ungrouped rail on a long thread is 2,263 overlapping dots and a
-        // widget for each (hanabi::minimap::group_marks, docs/perf/EVENTS.md).
-        // Below the density where marks would overlap this is one group per
-        // item and changes nothing at all.
-        std::vector<float> markH;
-        std::vector<hanabi::minimap::Mark> markKind;
-        markH.reserve(items.size());
-        markKind.reserve(items.size());
-        for (size_t i = 0; i < items.size(); ++i) {
-            const Item& it = items[i];
-            hanabi::minimap::Mark mark = hanabi::minimap::Mark::Note;
-            switch (it.kind) {
-                case Item::ToolPile:
-                case Item::ToolBlock:
-                    mark = hanabi::minimap::Mark::Machinery;
-                    break;
-                case Item::Spawn:
-                case Item::Delivery:
-                case Item::Event: mark = hanabi::minimap::Mark::Notice; break;
-                case Item::Bubble:
-                    mark = (it.lo < static_cast<int>(msgs.size()) &&
-                            msgs[static_cast<size_t>(it.lo)].role ==
-                                api::Role::User)
-                               ? hanabi::minimap::Mark::Ask
-                               : hanabi::minimap::Mark::Reply;
-                    break;
-                default: mark = hanabi::minimap::Mark::Note; break;
+        const bool hot = drag.live || onRail;
+        const bool rebuildSlots = itemsChanged || !state.minimapSlots ||
+                                  state.minimapTotalH != totalH ||
+                                  state.minimapRailH != railH ||
+                                  state.minimapLeadH != subH;
+        if (rebuildSlots) {
+            std::vector<float> heights;
+            std::vector<hanabi::minimap::Mark> kinds;
+            heights.reserve(items.size());
+            kinds.reserve(items.size());
+            for (const Item& it : items) {
+                hanabi::minimap::Mark mark = hanabi::minimap::Mark::Note;
+                switch (it.kind) {
+                    case Item::ToolPile:
+                    case Item::ToolBlock:
+                        mark = hanabi::minimap::Mark::Machinery;
+                        break;
+                    case Item::Spawn:
+                    case Item::Delivery:
+                    case Item::Event:
+                        mark = hanabi::minimap::Mark::Notice;
+                        break;
+                    case Item::Bubble:
+                        mark = (it.lo < static_cast<int>(msgs.size()) &&
+                                msgs[static_cast<size_t>(it.lo)].role ==
+                                    api::Role::User)
+                                   ? hanabi::minimap::Mark::Ask
+                                   : hanabi::minimap::Mark::Reply;
+                        break;
+                    default: break;
+                }
+                heights.push_back(it.height);
+                kinds.push_back(mark);
             }
-            markH.push_back(it.height);
-            markKind.push_back(mark);
+            state.minimapSlots =
+                std::make_shared<const std::vector<hanabi::minimap::Slot>>(
+                    hanabi::minimap::group_marks(heights, kinds, subH, totalH,
+                                                 railH));
+            hanabi::prof::tick("minimap.slot_rebuild");
+            state.minimapTotalH = totalH;
+            state.minimapRailH = railH;
+            state.minimapLeadH = subH;
+        } else {
+            hanabi::prof::tick("minimap.slot_cache_hit");
         }
-        const std::vector<hanabi::minimap::Slot> slots =
-            hanabi::minimap::group_marks(markH, markKind, top, totalH, railH);
-        // The bound, as a number a gate can read. `items` is what the rail
-        // WOULD have drawn one-for-one and `marks` is what it does draw; the
-        // pair is the whole claim of group_marks, and scripts/events_gate.sh
-        // gates the second against the rail rather than against the thread.
+        const auto slots = state.minimapSlots;
         hanabi::prof::gauge("minimap.items", items.size());
-        hanabi::prof::gauge("minimap.marks", slots.size());
+        hanabi::prof::gauge("minimap.marks", slots->size());
 
-        for (size_t i = 0; i < slots.size(); ++i) {
-            const auto& sl = slots[i];
-            const float h =
-                hanabi::minimap::slot_h(sl.height, totalH, railH);
-            if (h <= 0.0f) continue;
-            const hanabi::minimap::Mark mark = sl.mark;
-            auto slot = button(ctx, mk(rail.ent(), static_cast<int>(i) + 1),
-                ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(h)})
-                    .with_transparent_bg()
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    // A minimap is a map: every mark in the thread is on
-                    // screen at once by design, so putting them in the tab
-                    // order means tabbing past one dot per turn to reach the
-                    // composer. It also costs a std::set node per mark per
-                    // frame in afterhours' focusable set (gap #183).
-                    .with_skip_tabbing(true)
-                    .with_on_draw_fg([mark, hot](RectangleType r) {
-                        hanabi::minimap::draw_mark(r, mark, hot);
-                    })
-                    .with_debug_name("minimap_mark_" + std::to_string(i)));
-            if (slot) {
-                const float want = std::max(0.0f, sl.topY - 12.0f);
+        auto marks = button(ctx, mk(rail.ent(), 901),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{percent(1.0f), pixels(railH)})
+                .with_absolute_position()
+                .with_translate(0.0f, 0.0f)
+                .with_transparent_bg()
+                .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.0f)
+                .with_skip_tabbing(true)
+                .with_on_draw_fg([slots, totalH, hot](RectangleType r) {
+                    for (const auto& slot : *slots) {
+                        const float h = hanabi::minimap::slot_h(
+                            slot.height, totalH, r.height);
+                        if (h <= 0.0f) continue;
+                        const float y = r.y + hanabi::minimap::slot_h(
+                                                  slot.topY, totalH, r.height);
+                        hanabi::minimap::draw_mark(
+                            RectangleType{r.x, y, r.width, h}, slot.mark, hot);
+                    }
+                })
+                .with_debug_name("minimap_marks"));
+        if (marks && !slots->empty() && railRect.height > 0.0f) {
+            const float ratio = std::clamp(
+                (ctx.mouse.pos.y - railRect.y) / railRect.height, 0.0f, 1.0f);
+            const float contentY = ratio * totalH;
+            if (contentY >= slots->front().topY) {
+                const hanabi::minimap::Slot* selected = &slots->front();
+                for (const auto& slot : *slots) {
+                    if (slot.topY > contentY) break;
+                    selected = &slot;
+                }
+                const float want = std::max(0.0f, selected->topY - 12.0f);
                 sv.scroll_offset.y = want;
                 hanabi::set_scroll_target_y(sv, want);
                 sv.clamp_scroll();
-                // Going somewhere is leaving the bottom, the same as scrolling
-                // up by hand: without this the follow-latch drags the view
-                // straight back to the newest message.
                 follow = false;
             }
         }
@@ -4182,7 +4159,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::Scope _pm("transcript.minimap");
             minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
                          kHeaderH, listH, totalH, viewH, scrollY, s_follow,
-                         mem.minimapDrag);
+                         mem.minimapDrag, mem, itemView.rebuilt);
         }
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to

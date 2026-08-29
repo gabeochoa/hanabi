@@ -58,8 +58,8 @@
 # branch perf/post-merge, 1180x949, 400 frames, three runs each, zero spread:
 #
 #     turns      items   marks   widgets   allocs/f
-#        15         68      68       323     2326.0
-#       240       1123     241       498     2362.0
+#        15         69      69       261     2382.0
+#       240       1122     241       262     2361.0
 #
 # and against the two defects this gate is for, same fixture:
 #
@@ -96,10 +96,11 @@ FRAMES="${HANABI_EVENTS_FRAMES:-400}"
 BUCKET="$(( FRAMES / 2 ))"
 
 CEIL_MARKS="${HANABI_EVENTS_CEIL_MARKS:-400}"
-CEIL_WIDGETS="${HANABI_EVENTS_CEIL_WIDGETS:-700}"
+CEIL_WIDGETS="${HANABI_EVENTS_CEIL_WIDGETS:-350}"
 CEIL_ALLOCS="${HANABI_EVENTS_CEIL_ALLOCS:-2900}"
-CEIL_WIDGET_SLOPE="${HANABI_EVENTS_CEIL_WIDGET_SLOPE:-2.0}"
+CEIL_WIDGET_SLOPE="${HANABI_EVENTS_CEIL_WIDGET_SLOPE:-0.25}"
 CEIL_ALLOC_SLOPE="${HANABI_EVENTS_CEIL_ALLOC_SLOPE:-2.0}"
+CEIL_SLOT_REBUILDS="${HANABI_EVENTS_CEIL_SLOT_REBUILDS:-8}"
 
 SHOT="$(mktemp -t hanabi_events_XXXX).png"
 LOG="$(mktemp -t hanabi_events_XXXX).log"
@@ -129,6 +130,7 @@ run() {  # $1 = turns; leaves output in $LOG
 }
 
 gauge() { grep -E "^\[prof\] $1 " "$LOG" | awk '{print $NF}' | tail -1; }
+counter() { grep -E "^\[prof\] $1 " "$LOG" | awk '{print $3}' | tail -1; }
 widgets() { grep -oE 'widgets: [0-9]+' "$LOG" | tail -1 | awk '{print $2}'; }
 allocs() {
     grep -oE 'allocs +[0-9.]+ /f' "$LOG" | tail -1 | awk '{print $2}'
@@ -146,6 +148,8 @@ S_MARKS="$(gauge minimap.marks)"
 run "$LONG_TURNS"
 L_W="$(widgets)"; L_A="$(allocs)"; L_ITEMS="$(gauge items.total)"
 L_MARKS="$(gauge minimap.marks)"
+L_SLOT_HITS="$(counter minimap.slot_cache_hit)"
+L_SLOT_REBUILDS="$(counter minimap.slot_rebuild)"
 L_EV="$(gauge items.event)"; L_DE="$(gauge items.delivery)"
 L_SP="$(gauge items.spawn)"; L_TH="$(gauge items.thinking)"
 
@@ -153,7 +157,8 @@ L_SP="$(gauge items.spawn)"; L_TH="$(gauge items.thinking)"
 # killed or crashed process, and saying so is the difference between a
 # re-run and a bisect. (docs/perf/GATES.md: three outcomes, not two.)
 if [ -z "${S_W:-}" ] || [ -z "${L_W:-}" ] || [ -z "${S_A:-}" ] || \
-   [ -z "${L_A:-}" ] || [ -z "${L_MARKS:-}" ]; then
+   [ -z "${L_A:-}" ] || [ -z "${L_MARKS:-}" ] || \
+   [ -z "${L_SLOT_HITS:-}" ] || [ -z "${L_SLOT_REBUILDS:-}" ]; then
     echo "  INCOMPLETE: the app produced no [soak]/[prof] reading." >&2
     echo "        That is a crash or a killed run, not a regression. On this" >&2
     echo "        machine the usual cause is another worktree:" >&2
@@ -199,10 +204,20 @@ if [ "$v" = FAIL ]; then
     echo "        A rail cannot show more marks than it has pixels: at" >&2
     echo "        kMinDotH=2 every dot past railH/2 is drawn on top of its" >&2
     echo "        neighbour, so the minimap paints a solid stripe and stops" >&2
-    echo "        being a map — and each one is a button entity rebuilt every" >&2
-    echo "        frame with its own std::to_string debug name." >&2
-    echo "        Look at hanabi::minimap::group_marks and its guard." >&2
+    echo "        being a map. Look at hanabi::minimap::group_marks and its" >&2
+    echo "        guard." >&2
 fi
+
+v=ok
+if [ "$L_SLOT_REBUILDS" -gt "$CEIL_SLOT_REBUILDS" ] || \
+   [ "$L_SLOT_HITS" -eq 0 ]; then
+    v=FAIL
+    FAIL=1
+fi
+printf '  %-22s %10s %10s %10s %8s\n' "minimap slot rebuilds" "-" \
+    "$L_SLOT_REBUILDS" "$CEIL_SLOT_REBUILDS" "$v"
+printf '  %-22s %10s %10s %10s\n' "minimap slot cache hits" "-" \
+    "$L_SLOT_HITS" ">0"
 
 # ---- arm 2: widgets, level and per-turn ------------------------------------
 W_SLOPE="$(awk "BEGIN{printf \"%.2f\", ($L_W-$S_W)/($LONG_TURNS-$SHORT_TURNS)}")"

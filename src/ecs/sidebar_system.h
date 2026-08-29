@@ -430,6 +430,37 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
   private:
+    struct ParentIndexEntry {
+        std::string_view id;
+        const api::SessionSummary* summary = nullptr;
+        std::size_t precedence = 0;
+    };
+
+    void rebuild_parent_index(const AppComponent& app) {
+        hanabi::prof::Scope scope("sidebar.subagent_index");
+        parentIndex_.clear();
+        parentIndex_.reserve(app.sessions.size() + app.subagentSessions.size());
+        std::size_t precedence = 0;
+        for (const auto& summary : app.sessions)
+            parentIndex_.push_back({summary.id, &summary, precedence++});
+        for (const auto& summary : app.subagentSessions)
+            parentIndex_.push_back({summary.id, &summary, precedence++});
+        std::sort(parentIndex_.begin(), parentIndex_.end(),
+                  [](const ParentIndexEntry& a, const ParentIndexEntry& b) {
+                      return a.id == b.id ? a.precedence < b.precedence
+                                          : a.id < b.id;
+                  });
+    }
+
+    const api::SessionSummary* indexed_summary(std::string_view id) const {
+        const auto it = std::lower_bound(
+            parentIndex_.begin(), parentIndex_.end(), id,
+            [](const ParentIndexEntry& entry, std::string_view value) {
+                return entry.id < value;
+            });
+        return it != parentIndex_.end() && it->id == id ? it->summary : nullptr;
+    }
+
    int render_subagent_sidebar(UIContext<InputAction>& ctx, Entity& parent,
                                AppComponent& app, const std::string& q,
                                float panelW) {
@@ -462,13 +493,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
            return 0;
        }
 
+       rebuild_parent_index(app);
        subagentMembers_.clear();
        int active = 0;
        int completed = 0;
        int blocked = 0;
        int failed = 0;
+       {
+       hanabi::prof::Scope collectScope("sidebar.subagent_collect");
        for (const auto& child : app.subagentSessions) {
-           const auto* parentSummary = app.find_summary(child.parent_id);
+           const auto* parentSummary =
+               q.empty() ? nullptr : indexed_summary(child.parent_id);
            const std::string parentTitle =
                parentSummary == nullptr ? std::string{} : parentSummary->title;
            if (!q.empty() && !title_matches(child.title, q) &&
@@ -483,6 +518,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                ++blocked;
            else
                ++completed;
+       }
        }
 
        auto head =
@@ -542,7 +578,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
        render_row_spacer(ctx, parent, 8721, window.above);
        for (int i = window.first; i < window.last; ++i) {
            const api::SessionSummary& child = *subagentMembers_[i];
-           const auto* parentSummary = app.find_summary(child.parent_id);
+           const auto* parentSummary = indexed_summary(child.parent_id);
            const std::string parentTitle =
                parentSummary == nullptr
                    ? std::string("unknown parent")
@@ -2081,6 +2117,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // consumes it synchronously before the next group recollects it.
     std::vector<const api::SessionSummary*> members_;
     std::vector<const api::SessionSummary*> subagentMembers_;
+    std::vector<ParentIndexEntry> parentIndex_;
     std::vector<std::string> folderNames_;
     std::map<std::string, int> folderBases_;
     int nextFolderBase_ = 1000000;

@@ -270,15 +270,18 @@ that go around it.
 
 ## 6. What is left, and what measured as noise
 
-**Left, and linear:** the minimap, at ~4.6 heap allocations and ~0.86 µs per
-item per frame (0.13 ms and 572 allocations at 120 messages; 0.41 ms and 2,218
-at 480). It draws one mark per message by design — that is what a minimap is —
-so there is nothing to virtualize. Every way of making it cheaper either
-deletes the feature, moves pixels (`draw_mark` clamps each dot to `kMinDotH`
-and centres it, so merging two slots does not draw what two slots drew), or
-re-implements per-widget hover by hand. Documented as #138 and left alone; the
-slope gate's allocation limit is set at 12 per message specifically to leave
-room for it, and says so.
+**Fixed:** the minimap no longer rebuilds one widget per mark. Its grouped slots
+are cached with the transcript item index and painted by one rail control; click
+selection uses the same slot geometry. On the 960-message / 729-item arm:
+
+| metric | before | after |
+| --- | ---: | ---: |
+| frame CPU | 2.4395 ms | **2.0086 ms** |
+| `transcript.minimap` | 0.1128 ms | **0.0025 ms** |
+| allocated bytes/frame | 338,410 | **281,320** |
+
+That removes 98% of the minimap phase and 17% of transient allocated bytes
+without moving a pixel; the targeted screenshot comparison is byte-identical.
 
 **What the fix itself cost.** The two-slot cache stores the display body twice
 per message, because the body is built fresh on each cold miss and the slots do

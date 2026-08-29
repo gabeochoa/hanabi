@@ -62,10 +62,6 @@ inline float slot_h(float itemH, float totalH, float railH) {
 // The rail paints a solid stripe — it stops being a map, silently, and the
 // longer the thread the less it says, which is precisely backwards.
 //
-// It is also 2,263 button entities rebuilt every frame, each with its own
-// `std::to_string` debug name: 1.33 ms of a 8.14 ms frame, and the single
-// largest per-message cost left in this app (docs/perf/EVENTS.md).
-//
 // The bound is not tuned. A 2px dot needs 2px of rail, so `kMinDotH` is the
 // exact height at which marks begin to overlap, and a rail of `railH` pixels
 // can hold `railH / kMinDotH` of them and no more. Below that density every

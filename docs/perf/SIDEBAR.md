@@ -360,6 +360,26 @@ count is a smart view that says 6 and lists 5. 0.05 ms is not worth that.
 
 ---
 
+## Sub-agent parent lookup
+
+The sub-agent view used `AppComponent::find_summary()` once per child during
+collection and again for every visible row. With 2,000 parents and 400 children,
+that made the view quadratic in the catalog. A reusable sorted `string_view`
+index now turns those lookups into binary searches without retaining pointers
+across frames.
+
+| 2,000 parents / 400 children | before | after |
+| --- | ---: | ---: |
+| frame CPU | 2.1611 ms | **1.6743 ms** |
+| allocations/frame | 2,097.1 | **1,641.8** |
+| allocated bytes/frame | 253,864 | **233,145** |
+
+The index itself costs 0.2894 ms/frame; collection is 0.0018 ms/frame. The
+change removes 23% of frame CPU and 22% of allocation calls while keeping the
+sub-agent screenshot byte-identical.
+
+---
+
 ## How to measure this
 
 ```bash

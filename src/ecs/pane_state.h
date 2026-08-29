@@ -50,10 +50,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "../ui/minimap_marks.h"
 #include "../ui/minimap_scrub.h"
 #include "follow_latch.h"
 #include "transcript_item_index.h"
@@ -96,6 +98,10 @@ struct PaneState {
     // panes in split-view each have a rail and only one of them is being
     // dragged.
     hanabi::minimap::DragState minimapDrag;
+    std::shared_ptr<const std::vector<hanabi::minimap::Slot>> minimapSlots;
+    float minimapTotalH = -1.0f;
+    float minimapRailH = -1.0f;
+    float minimapLeadH = -1.0f;
 
     // ---- The composer -----------------------------------------------------
     // This thread's half-typed reply, restored from the crash-safe local draft

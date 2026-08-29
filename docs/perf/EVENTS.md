@@ -272,7 +272,7 @@ It is present as a WIDGET and CPU linearity, and that is the next section.
 
 ## 6. What is still slow, with the number attached
 
-### The minimap rail was 2,263 widgets and a solid stripe — FIXED, with a gate
+### The minimap rail was 2,263 widgets and a solid stripe — FIXED, then collapsed to one control
 
 Two things that are each correct alone. `minimap::slot_h` is exact and
 unclamped, because the slots must sum to the rail or every mark below a drift
@@ -310,6 +310,12 @@ too, which is a behaviour change at a density that works, and
 | `transcript.minimap` @ 3,672 | 1.330 ms | **0.198 ms** | 6.7x |
 | widgets @ 7,344 messages | — | **579** | bounded |
 | widgets @ 14,688 messages | — | **637** | bounded |
+
+The next pass removed the remaining per-mark widgets: grouped slots are cached
+with the pane state and painted by one hit-tested rail control. The event gate's
+15-turn and 240-turn arms now build **261 and 262 widgets** respectively, so its
+level ceiling is 350 and its per-turn ceiling is 0.25. The same four minimap
+screens remain byte-identical.
 
 Gated by `make events-gate`, unit-tested in
 `tests/unit/test_minimap_marks.cpp`. Both were made to fail against the
