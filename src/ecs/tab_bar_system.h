@@ -681,11 +681,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             int action;
             const char* debugName;
         };
-        static constexpr std::array<Item, 7> kItems{{
+        static constexpr std::array<Item, 8> kItems{{
             {"Rename\xe2\x80\xa6", 3, "tab_menu_rename"},
             {"Fork session", 6, "tab_menu_fork"},
             {nullptr, 4, "tab_menu_pin"},
-            {"Copy Navi URL", 0, "tab_menu_copy"},
+            {"Copy session link", 0, "tab_menu_copy"},
+            {"Copy session ID", 7, "tab_menu_copy_id"},
             {"Open in split", 2, "tab_menu_split"},
             {"Close others", 1, "tab_menu_close_others"},
             {"Close all tabs", 5, "tab_menu_close_all"},
@@ -771,11 +772,10 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             if (itemHovered && ctx.mouse.just_pressed) {
                 std::string keepId = tab.sessionId;
                 if (item.action == 0) {
-                    // Copy Navi URL — real clipboard write via the afterhours
-                    // sokol-backed clipboard seam. Base is config-driven
-                    // (host-neutral navi://session/<id> when unconfigured).
                     hanabi::clipboard::set_text(
                         model::navi_url_for(app.webBaseUrl, keepId));
+                } else if (item.action == 7) {
+                    hanabi::clipboard::set_text(keepId);
                 } else if (item.action == 2) {
                     // Open in split (I2): show this thread in the RIGHT pane
                     // beside the active one. No-op if it's the active thread.

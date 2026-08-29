@@ -32,10 +32,17 @@ assert_ui tab_r8 x=385
 
 right_click 400 48
 wait_frames 3
-expect_text "Copy Navi URL"
+expect_text "Copy session link"
+expect_text "Copy session ID"
 reset_clipboard_probe
 click_ui tab_menu_copy
 expect_clipboard "https://navi.test/session/r8"
+
+right_click 400 48
+wait_frames 3
+reset_clipboard_probe
+click_ui tab_menu_copy_id
+expect_clipboard "r8"
 
 right_click 400 48
 wait_frames 3

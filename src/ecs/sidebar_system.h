@@ -30,6 +30,7 @@
 
 #include "../test_hooks.h"
 #include "../settings.h"
+#include "../util/clipboard.h"
 #include "../util/prof.h"
 #include "../version.h"
 #include "../util/ellipsize.h"
@@ -42,6 +43,7 @@
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "thread_model.h"
+#include "tab_model.h"
 #include "sidebar_footer_status.h"
 #include "../keys.h"
 #include "ui_imports.h"
@@ -652,7 +654,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        enum class Action { Rename, Fork, Archive, Mute, ResetOrder };
+        enum class Action {
+            Rename,
+            Fork,
+            CopyLink,
+            CopyId,
+            Archive,
+            Mute,
+            ResetOrder,
+        };
         struct Item {
             const char* label;
             const char* name;
@@ -664,6 +674,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                              Action::Rename});
         if (app.client && app.client->supports_fork())
             items.push_back({"Fork session", "row_menu_fork", Action::Fork});
+        items.push_back({"Copy session link", "row_menu_copy_link",
+                         Action::CopyLink});
+        items.push_back({"Copy session ID", "row_menu_copy_id",
+                         Action::CopyId});
         items.push_back({model::is_archived(*target) ? "Unarchive" : "Archive",
                          "row_menu_archive", Action::Archive});
         items.push_back({target->muted ? "Unmute" : "Mute", "row_menu_mute",
@@ -765,6 +779,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         app.requestForkTitle.clear();
                         app.requestForkPane = app.focusedPane;
                     }
+                    break;
+                case Action::CopyLink:
+                    hanabi::clipboard::set_text(
+                        model::navi_url_for(app.webBaseUrl, targetId));
+                    break;
+                case Action::CopyId:
+                    hanabi::clipboard::set_text(targetId);
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;

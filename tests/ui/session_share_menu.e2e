@@ -1,0 +1,20 @@
+# Sidebar rows expose the same share primitives as open tabs.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WEB_BASE_URL=https://navi.test/session
+
+expect_text "needs a decision before it can go on"
+mouse_move 120 567
+right_click 120 567
+wait_frames 4
+expect_text "Copy session link"
+expect_text "Copy session ID"
+reset_clipboard_probe
+click_ui row_menu_copy_link
+expect_clipboard "https://navi.test/session/t2"
+
+mouse_move 120 567
+right_click 120 567
+wait_frames 4
+reset_clipboard_probe
+click_ui row_menu_copy_id
+expect_clipboard "t2"
