@@ -1,0 +1,11 @@
+# Workspace-backed sessions stay visible as collapsible sidebar groups.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_FOLDER_DEMO=1
+
+wait_frames 10
+expect_text "monetization"
+expect_text "subscriptions"
+expect_no_text "kicker-tick"
+click_ui folder_head_monetization
+wait_frames 8
+expect_text "kicker-tick"

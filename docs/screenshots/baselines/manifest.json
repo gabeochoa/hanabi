@@ -312,6 +312,10 @@
       "threshold_pct": 0.0,
       "resolution": "760x620",
       "note": "Narrow split view clamps both panes to usable widths and lets the unfocused transcript reach the window floor."
+    },
+    "38_workspace_groups_dark": {
+      "threshold_pct": 0.0,
+      "note": "Workspace-backed sessions appear as named collapsible groups instead of disappearing from the flat list."
     }
   },
   "unbaselined": {}

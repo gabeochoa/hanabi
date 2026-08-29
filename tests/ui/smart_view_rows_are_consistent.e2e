@@ -5,6 +5,7 @@ wait_frames 6
 assert_ui dc_tag hidden=false
 assert_ui dc_sub hidden=false
 assert_ui digest_card h=52
+expect_text "FAILED"
 click 58 183
 wait_frames 6
 assert_ui dc_tag hidden=false

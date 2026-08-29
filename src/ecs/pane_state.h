@@ -98,11 +98,11 @@ struct PaneState {
     hanabi::minimap::DragState minimapDrag;
 
     // ---- The composer -----------------------------------------------------
-    // This thread's half-typed reply, and the Up/Down history walk over what
-    // has been sent from this thread. In memory only: both die with the
-    // process, which is the deliberate simplification in
-    // docs/breakdown/composer.md.
+    // This thread's half-typed reply, restored from the crash-safe local draft
+    // store, and the Up/Down history walk over what has been sent from it.
     std::string replyDraft;
+    bool replyDraftLoaded = false;
+    std::string persistedReplyDraft;
     std::vector<std::string> sent;   // oldest first
     std::size_t walkIndex = 0;       // steps back from the live draft
     std::string stashedDraft;        // the draft the walk started from
@@ -204,6 +204,10 @@ inline std::string pane_key(int paneIndex, const std::string& id) {
     k.push_back('\x1f');
     k.append(id);
     return k;
+}
+
+inline std::string persisted_reply_key(int paneIndex, const std::string& id) {
+    return "reply:" + pane_key(paneIndex, id);
 }
 
 class PaneStateStore {

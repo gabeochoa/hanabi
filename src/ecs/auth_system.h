@@ -177,10 +177,29 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
         // Success needs no escape (main.cpp dismisses on success); everything
         // else offers the offline fallback so the user is never trapped.
         if (st == State::Success) return;
-        auto btn = button(ctx, mk(parent, 20),
+        auto actions = div(ctx, mk(parent, 19),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(38)})
+                .with_margin(Margin{.top = pixels(10)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_debug_name("auth_actions"));
+        if ((st == State::Failed || st == State::Expired) && app.authFlow) {
+            auto retry = button(ctx, mk(actions.ent(), 1),
+                hanabi::surface::action_button(128.0f, true, 13)
+                    .with_label("Try again")
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_font_size(FontSize::Medium)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_debug_name("auth_retry"));
+            if (retry) app.authNeedsBegin = true;
+        }
+        auto btn = button(ctx, mk(actions.ent(), 2),
             hanabi::surface::action_button(180.0f, false, 13)
                 .with_label("Continue offline")
-                .with_margin(Margin{.top = pixels(10)})
                 .with_font_size(FontSize::Medium)
                 .with_justify_content(JustifyContent::Center)
                 .with_debug_name("auth_use_offline"));

@@ -247,9 +247,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // computed from the panel's live HasScrollView metrics.
         // (scrollbar now drawn by afterhours)
 
-        // "FOLDERS" is gone: Puffin's list is FLAT, so every non-archived
-        // session lands in one activity-ordered list (see the commit message —
-        // this is a real loss of grouping).
+        // Workspace-backed folders are real navigation, not metadata: render
+        // each named group, then the unfiled catch-all. This mirrors Puffin's
+        // Space sections and prevents nonempty workspace rows from vanishing.
 
         // Live search filter: when the query is non-empty, only matching rows
         // render. Track whether ANY row survived so we can show a no-results
@@ -276,6 +276,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             shown +=
                 render_subagent_sidebar(ctx, scroll.ent(), *app, q, r.width);
         } else {
+            folderNames_.clear();
+            for (const auto& session : app->sessions) {
+                if (model::is_archived(session) ||
+                    !is_named_folder(session.folder))
+                    continue;
+                if (std::find(folderNames_.begin(), folderNames_.end(),
+                              session.folder) == folderNames_.end())
+                    folderNames_.push_back(session.folder);
+            }
+            std::sort(folderNames_.begin(), folderNames_.end(),
+                      [](const std::string& a, const std::string& b) {
+                          const std::string an = folder_display_name(a);
+                          const std::string bn = folder_display_name(b);
+                          return an == bn ? a < b : an < bn;
+                      });
+            if (!app->foldersDefaultCollapsedSeeded && !folderNames_.empty()) {
+                for (const auto& folder : folderNames_)
+                    app->collapsedFolders.insert(folder);
+                app->foldersDefaultCollapsedSeeded = true;
+            }
+            for (const auto& folder : folderNames_) {
+                shown += render_folder(
+                    ctx, scroll.ent(), folder_base(folder),
+                    folder_display_name(folder), folder, *app, q, r.width,
+                    /*archived=*/false, /*catchAll=*/false,
+                    /*headerless=*/false);
+            }
             shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                    *app, q, r.width, /*archived=*/false,
                                    /*catchAll=*/true, /*headerless=*/true,
@@ -2029,13 +2056,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
     SmartView lastListView_ = SmartView::Home;
 
-    // The group-membership scratch buffer, reused across frames so collecting
-    // a group's members costs no allocation once the catalog has been seen at
-    // its largest. Only one group renders per frame (the flat catch-all), so
-    // one buffer is enough; if a second group is ever rendered in the same
-    // frame this must become one buffer per nesting level, not one shared.
+    // Group-membership scratch reused sequentially across groups. render_folder
+    // consumes it synchronously before the next group recollects it.
     std::vector<const api::SessionSummary*> members_;
     std::vector<const api::SessionSummary*> subagentMembers_;
+    std::vector<std::string> folderNames_;
+    std::map<std::string, int> folderBases_;
+    int nextFolderBase_ = 1000000;
     // Buffer for more_key(); see the note there.
     std::string moreKeyScratch_;
     // What the last rendered group drew, and out of how many. Test-only
@@ -2382,6 +2409,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return !folder.empty() && folder != "recent";
     }
 
+    static std::string folder_display_name(const std::string& folder) {
+        size_t end = folder.size();
+        while (end > 0 && (folder[end - 1] == '/' || folder[end - 1] == '\\'))
+            --end;
+        if (end == 0) return folder;
+        const size_t slash = folder.find_last_of("/\\", end - 1);
+        return folder.substr(slash == std::string::npos ? 0 : slash + 1,
+                             end - (slash == std::string::npos ? 0 : slash + 1));
+    }
+
+    int folder_base(const std::string& key) {
+        const auto [it, inserted] = folderBases_.emplace(key, nextFolderBase_);
+        if (inserted) nextFolderBase_ += 1000;
+        return it->second;
+    }
+
     // Which rendered GROUP a session belongs to — the key its manual row order
     // is filed under. A named folder is its own group; everything else lands in
     // the headerless catch-all, which renders under the "recent" key.
@@ -2686,7 +2729,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.3f)
-                .with_debug_name("folder_head"));
+                .with_debug_name("folder_head_" + name));
 
         // Clicking the header toggles collapse for this key. Disabled while a
         // query is active (results stay pinned open).

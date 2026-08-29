@@ -29,6 +29,7 @@ wait_frames 4
 click_ui row_menu_mute
 wait_frames 6
 expect_text "Session muted"
+assert_ui toast y=600 h=50
 
 # The mark is on the row at rest, so the mute really landed and the toast is
 # not just wording.

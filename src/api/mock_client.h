@@ -788,7 +788,7 @@ class MockClient : public Client {
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
-        "HANABI_BIG_EVENTS",
+        "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
@@ -2080,6 +2080,13 @@ class MockClient : public Client {
                 }
                 v.push_back(std::move(s));
             }
+        }
+
+        if (const char* folders = std::getenv("HANABI_FOLDER_DEMO");
+            folders != nullptr && *folders != '\0' && v.size() >= 3) {
+            v[0].summary.folder = "/work/subscriptions";
+            v[1].summary.folder = "/work/subscriptions";
+            v[2].summary.folder = "/work/monetization";
         }
 
         return v;

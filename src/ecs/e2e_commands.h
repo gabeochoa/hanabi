@@ -53,6 +53,7 @@
 #include "../ui/link_detect.h"
 #include "../util/clipboard.h"
 #include "components.h"
+#include "pane_state.h"
 
 namespace hanabi::e2e {
 
@@ -338,6 +339,53 @@ struct HandleExpectCacheWipedCommand
     }
 };
 
+struct HandleSeedReplyDraftCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("seed_reply_draft")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("seed_reply_draft requires session id, pane, and text");
+            return;
+        }
+        const int pane = std::stoi(cmd.arg(1));
+        const std::string key = ecs::model::persisted_reply_key(pane, cmd.arg(0));
+        api::disk_cache::save_draft(key, joined_args(cmd, 2));
+        ecs::model::pane_states().forget(ecs::model::pane_key(pane, cmd.arg(0)));
+        cmd.consume();
+    }
+};
+
+struct HandleExpectReplyDraftCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_reply_draft")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("expect_reply_draft requires session id, pane, and text");
+            return;
+        }
+        const int pane = std::stoi(cmd.arg(1));
+        const std::string key =
+            ecs::model::persisted_reply_key(pane, cmd.arg(0));
+        const std::string actual = api::disk_cache::load_draft(key);
+        const std::string expected =
+            cmd.arg(2) == "<empty>" ? std::string() : joined_args(cmd, 2);
+        if (actual == expected) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("persisted reply draft '{}' did not match '{}'",
+                             actual, expected));
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
@@ -347,6 +395,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectOutboxCommand>());
     sm.register_update_system(std::make_unique<HandleSeedCacheCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
+    sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectReplyDraftCommand>());
 }
 
 }  // namespace hanabi::e2e

@@ -178,6 +178,7 @@ write_settings() {
     # $1 = json body
     local dir="$ISO_HOME/Library/Application Support/hanabi"
     mkdir -p "$dir"
+    rm -rf "$ISO_HOME/cache"
     printf '%s\n' "$1" > "$dir/settings.json"
 }
 
@@ -193,7 +194,7 @@ capture() {
     write_settings "$json"
 
     # build env array
-    local -a envv=(HOME="$ISO_HOME" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock)
+    local -a envv=(HOME="$ISO_HOME" HANABI_CACHE_DIR="$ISO_HOME/cache" HANABI_CONFIG="/tmp/none_$$" HANABI_BACKEND=mock)
     local kv
     for kv in "$@"; do envv+=("$kv"); done
 
@@ -373,6 +374,7 @@ capture_sized 34_narrow_many_tabs_dark "760 x 620" "$NARROW_MANY" HANABI_WIN_W=7
 capture_sized 35_settings_narrow_dark "600 x 500" "$SETTINGS_NARROW" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=settings
 capture_sized 36_shortcuts_narrow_dark "600 x 500" "$SETTINGS_NARROW" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=shortcuts
 capture_sized 37_narrow_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620
+capture 38_workspace_groups_dark "$NOTABS_DARK" HANABI_FOLDER_DEMO=1
 
 listing && exit 0
 

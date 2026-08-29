@@ -228,6 +228,30 @@ static void test_begin_transport_failure() {
 }
 
 // --- Not-configured guard: no base URL -> auth_ready() false ----------------
+static void test_begin_can_retry_after_failure() {
+    std::printf("test_begin_can_retry_after_failure\n");
+    api::Config c = auth_cfg();
+    int calls = 0;
+    api::AuthTransport fake = [&](const std::string&, const std::string&,
+                                  const std::string&, const std::string&) {
+        api::AuthResponse r;
+        ++calls;
+        if (calls == 1) {
+            r.ok = false;
+            r.error = "no response";
+        } else {
+            r.ok = true;
+            r.status = 200;
+            r.body = "{\"userCode\":\"RETRY1\",\"authUrl\":\"http://x/y\"}";
+        }
+        return r;
+    };
+    api::DeviceCodeFlow flow(c, fake);
+    CHECK(flow.begin(1000) == State::Failed);
+    CHECK(flow.begin(1001) == State::AwaitingUser);
+    CHECK(flow.user_code() == "RETRY1");
+}
+
 static void test_not_configured() {
     std::printf("test_not_configured\n");
     api::Config c;  // no base_url -> auth_ready() false (mock default)
@@ -336,6 +360,7 @@ int main() {
     test_failure_path();
     test_code_http_error();
     test_begin_transport_failure();
+    test_begin_can_retry_after_failure();
     test_not_configured();
     test_uuid_generation();
     test_authorized_missing_token();

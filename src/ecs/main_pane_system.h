@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../api/disk_cache.h"
 #include "../test_hooks.h"
 #include "../util/capture_clock.h"
 #include "../util/diff.h"
@@ -525,10 +526,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static void note(UIContext<InputAction>& ctx, Entity& parent,
-                     const std::string& text) {
+                     const std::string& text, float paneW, Pane& pane) {
+        const float cardW = std::max(200.0f, paneW - 48.0f);
         auto card = div(ctx, mk(parent, 80),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(104)})
+                .with_size(ComponentSize{pixels(cardW), pixels(104)})
                 .with_margin(Margin{.top = pixels(24), .right = pixels(24),
                                     .left = pixels(24)})
                 .with_padding(Padding{.top = pixels(14), .left = pixels(16),
@@ -548,17 +550,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::LG)
                 .with_alignment(TextAlignment::Left)
                 .with_debug_name("main_error_title"));
-        div(ctx, mk(card.ent(), 2),
+        auto details = div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
-                .with_label(text.empty() ? "Try again in a moment." : text)
                 .with_size(ComponentSize{percent(1.0f), pixels(40)})
                 .with_margin(Margin{.top = pixels(6)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_debug_name("main_error_details"));
+        div(ctx, mk(details.ent(), 1),
+            ComponentConfig{}
+                .with_label(text.empty() ? "Try again in a moment." : text)
+                .with_size(ComponentSize{pixels(std::max(60.0f, cardW - 126.0f)),
+                                         pixels(40)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
                 .with_text_overflow(TextOverflow::Wrap)
                 .with_alignment(TextAlignment::Left)
                 .with_debug_name("main_error_body"));
+        auto retry = button(ctx, mk(details.ent(), 2),
+            hanabi::surface::action_button(78.0f, false, 2)
+                .with_label("Try again")
+                .with_margin(Margin{.left = pixels(8)})
+                .with_font_size(theme::type::SM)
+                .with_justify_content(JustifyContent::Center)
+                .with_debug_name("main_error_retry"));
+        if (retry && !pane.selectedId.empty()) {
+            pane.transcriptError.clear();
+            pane.transcriptState = LoadState::Loading;
+            pane.requestOpenId = pane.selectedId;
+        }
     }
 
     // A representative glyph (drawn shape) for a smart view's empty state.
@@ -1207,6 +1230,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::ThreadTag::Blocked: return "BLOCKED";
             case api::ThreadTag::Review: return "REVIEW";
             case api::ThreadTag::Done: return "DONE";
+            case api::ThreadTag::Failed: return "FAILED";
             default: return "";
         }
     }    static theme::Color tag_fg(api::ThreadTag t) {
@@ -1214,6 +1238,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::ThreadTag::Blocked: return theme::tag_blocked_fg();
             case api::ThreadTag::Review: return theme::tag_ready_fg();
             case api::ThreadTag::Done: return theme::tag_done_fg();
+            case api::ThreadTag::Failed: return theme::destructive();
             default: return theme::text_faint();
         }
     }
@@ -1230,6 +1255,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 return theme::over(theme::tag_ready_bg(), surface);
             case api::ThreadTag::Done:
                 return theme::over(theme::tag_done_bg(), surface);
+            case api::ThreadTag::Failed:
+                return hanabi::surface::destructive_surface();
             default: return surface;
         }
     }
@@ -3442,7 +3469,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // parity (the commit message says what that costs a reader).
 
         if (pane.transcriptState == LoadState::Error) {
-            note(ctx, parent, pane.transcriptError);
+            note(ctx, parent, pane.transcriptError, paneW, pane);
             return;
         }
         if (!pane.openSession) {
@@ -3497,6 +3524,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         constexpr float kReadCol = 736.0f;
         float gutter = (paneW - kReadCol) * 0.5f;
         if (gutter < kContentInset) gutter = kContentInset;
+        const float findClearance = pane.findOpen ? 33.0f : 0.0f;
 
         auto scroll = div(ctx, mk(parent, 2),
             preset::ScrollPanel()
@@ -3510,7 +3538,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // 4px high against `ref/02_thread.png` — a constant offset
                 // applied to every row in the pane, and worth 1.45 structural
                 // points across the turns band on its own.
-                .with_padding(Padding{.top = pixels(12),
+                .with_padding(Padding{.top = pixels(12.0f + findClearance),
                                       .right = pixels(gutter),
                                       .bottom = pixels(10),
                                       .left = pixels(gutter)})
@@ -3863,7 +3891,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const int target =
                 (*matches)[static_cast<size_t>(pane.findIndex)].msg;
-            float y = subH;
+            float y = subH + findClearance;
             for (const auto& it : items) {
                 if (it.lo == target ||
                     (it.kind == Item::ToolPile && it.lo <= target &&
@@ -4626,9 +4654,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // pair is bounded instead of growing forever, one entry per thread the
         // composer ever rendered. Eviction refuses any entry holding an unsent
         // draft, so the bound costs typing nothing.
-        model::PaneState& composerState = model::pane_states().touch(
-            model::pane_key(app.focusedPane, draftKey));
+        const std::string composerStateKey =
+            model::pane_key(app.focusedPane, draftKey);
+        model::PaneState& composerState =
+            model::pane_states().touch(composerStateKey);
         std::string& replyDraft = composerState.replyDraft;
+        const std::string persistedDraftKey =
+            model::persisted_reply_key(app.focusedPane, draftKey);
+        if (!kickoff && !draftKey.empty() && !composerState.replyDraftLoaded) {
+            if (replyDraft.empty())
+                replyDraft = api::disk_cache::load_draft(persistedDraftKey);
+            composerState.persistedReplyDraft = replyDraft;
+            composerState.replyDraftLoaded = true;
+        }
         model::PaneState& history = composerState;
         const auto remember_sent = [&history](const std::string& text) {
             history.sent.push_back(text);
@@ -5954,6 +5992,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                              std::to_string(i)));
                 if (row) choose_slash(static_cast<int>(i));
             }
+        }
+        if (inputRes.ent().has<afterhours::text_input::HasTextAreaState>())
+            replyDraft = inputRes.ent()
+                             .get<afterhours::text_input::HasTextAreaState>()
+                             .text();
+        if (!kickoff && !draftKey.empty() &&
+            replyDraft != composerState.persistedReplyDraft) {
+            api::disk_cache::save_draft(persistedDraftKey, replyDraft);
+            composerState.persistedReplyDraft = replyDraft;
         }
         lastSlashDraft = replyDraft;
 

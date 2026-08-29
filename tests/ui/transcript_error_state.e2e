@@ -4,3 +4,8 @@
 require_thread t2
 expect_text "Couldn’t load this conversation"
 expect_text "The conversation could not be refreshed."
+assert_ui main_error x=304 w=772
+assert_ui main_error_retry hidden=false
+click_ui main_error_retry
+wait_frames 20
+expect_text "Reconcile this cycle's Stars payouts against the ledger"

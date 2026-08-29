@@ -1,0 +1,18 @@
+# A half-written reply survives a process restart in the pane-specific draft
+# slot and later keystrokes are mirrored back to disk.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+seed_reply_draft t2 0 "recovered after restart"
+wait_frames 8
+expect_input_text composer_reply_input "recovered after restart"
+click_ui composer_reply_input
+wait_frames 2
+type "!"
+wait_frames 8
+expect_input_text composer_reply_input "recovered after restart!"
+expect_reply_draft t2 0 "recovered after restart!"
+key ENTER
+wait_frames 20
+expect_input_text composer_reply_input ""
+expect_reply_draft t2 0 <empty>

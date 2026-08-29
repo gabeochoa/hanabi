@@ -7,6 +7,10 @@ assert_ui auth_panel y=24 h=312
 expect_text "Sign in to Agentcloud"
 expect_text "Sign-in failed."
 expect_text "The approval server rejected this request."
+assert_ui auth_retry hidden=false
+click_ui auth_retry
+wait_frames 6
+assert_ui auth_panel y=24 h=312
 key ESCAPE
 wait_frames 6
 expect_text "Sign in to Agentcloud"

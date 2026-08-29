@@ -40,7 +40,12 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
         const float barW = hanabi::surface::toast_width(
             sw, app->toastMessage.size(), undoable);
         const float barH = 50.0f;
-        const float y = std::max(12.0f, sh - barH - 44.0f);
+        const auto* layout = find_singleton<LayoutComponent>();
+        const float desiredY = layout == nullptr
+            ? sh - barH - 44.0f
+            : layout->composer.y - barH - 12.0f;
+        const float y =
+            std::clamp(desiredY, 12.0f, std::max(12.0f, sh - barH - 12.0f));
         const float actionW = undoable ? 76.0f : 0.0f;
         const float closeW = 28.0f;
         const float messageW =
