@@ -609,12 +609,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                 tab_colors::kCloseYBias))
                             .with_debug_name("tab_close"));
                     hanabi::a11y::set_name(closeBtn.ent(), closeAccessible);
-                    if (closeHovered && ctx.mouse.just_pressed) {
-                        // A press on × is a close, not a drag — drop any
-                        // candidate.
+                    if (closeBtn) {
                         strip.clear_drag();
                         close_tab(strip, app, tabId, i, isActive);
-                        ctx.mouse.just_pressed = false;
                         return;
                     }
                 }  // closeX in-bounds

@@ -50,3 +50,6 @@ assert_ui tab_close hidden=false
 assert_ui tab_close x=480
 assert_ui tab_close w=14
 assert_ui tab_close h=14
+click_ui tab_close
+wait_frames 8
+expect_no_text "Tab: PSC daily post generator"

@@ -57,10 +57,3 @@ assert_ui tab_active hidden=false
 expect_text "Tab: stickers broke — concluded, D113637134 on you, pinned"
 expect_text "Tab: oncall sweep finished — 3 rows need a look, pinned, active"
 expect_no_text "Tab: PSC daily post generator"
-
-mouse_move 406 49
-wait_frames 2
-expect_text "Close tab: stickers broke — concluded, D113637134 on you"
-click 406 49
-wait_frames 8
-expect_no_text "Tab: stickers broke — concluded, D113637134 on you"

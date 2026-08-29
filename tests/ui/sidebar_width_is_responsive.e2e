@@ -1,0 +1,12 @@
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t2
+wait_frames 24
+assert_ui sidebar w=220
+assert_ui composer_row x=220 w=540
+
+resize 1100 620
+wait_frames 24
+assert_ui sidebar w=280
+assert_ui composer_row x=280 w=820

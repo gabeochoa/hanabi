@@ -11,6 +11,16 @@ namespace ecs {
 // drives the sidebar collapse animation (width tweened with a smoothstep ease,
 // mirroring floatinghotel's approach — a CSS-transition feel in app code).
 struct LayoutSystem : afterhours::System<LayoutComponent> {
+    static constexpr float kMinimumExpandedSidebarWidth = 220.0f;
+    static constexpr float kExpandedSidebarFraction = 0.28f;
+
+    static float expanded_sidebar_width(float windowWidth,
+                                        float preferredWidth) {
+        return std::min(preferredWidth,
+                        std::max(kMinimumExpandedSidebarWidth,
+                                 windowWidth * kExpandedSidebarFraction));
+    }
+
     // smoothstep(0..1): ease-in-out, matches the mock's `.18s ease` feel.
     static float smoothstep(float x) {
         x = std::clamp(x, 0.0f, 1.0f);
@@ -22,8 +32,9 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         float h = hanabi::viewport::height();
 
         // --- Sidebar width animation ---
-        float target =
-            layout.sidebarCollapsed ? layout.sidebarRailWidth : layout.sidebarWidth;
+        float target = layout.sidebarCollapsed
+            ? layout.sidebarRailWidth
+            : expanded_sidebar_width(w, layout.sidebarWidth);
         if (std::abs(target - layout.sidebarAnimTarget) > 0.5f) {
             // A new toggle target: start a fresh tween from the current width.
             layout.sidebarAnimFrom = layout.sidebarAnimWidth;
