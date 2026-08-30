@@ -10,8 +10,8 @@
 #include <ctime>
 #include <future>
 
-#include "../api/disk_cache.h"
 #include "../settings.h"
+#include "../api/disk_cache.h"
 #include "load_older_model.h"
 #include "ui_imports.h"
 
@@ -210,9 +210,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             pane.diskReadId.clear();
             const std::uint64_t completedEpoch = pane.diskReadEpoch;
             pane.diskReadEpoch = 0;
-            if (disk &&
-                pane.accepts_disk_read(completedId, completedEpoch,
-                                       api::disk_cache::epoch()) &&
+            if (disk && pane.accepts_disk_read(
+                            completedId, completedEpoch,
+                            api::disk_cache::epoch()) &&
                 disk->summary.id == completedId &&
                 // Don't clobber a fresh network result that already landed.
                 pane.transcriptState != LoadState::Loaded) {
@@ -322,8 +322,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // to the existing immediate START below (no behavior change for the
         // common single-send case). drive_send_queue only ever re-sets the flag
         // when the session is free, so this intercept never re-captures it.
-        if (!app.pane().selectedId.empty() &&
-            app.sending_for(app.pane().selectedId)) {
+        if (!app.pane().selectedId.empty() && app.sending_for(app.pane().selectedId)) {
             if (!app.requestStreamPrompt.empty()) {
                 app.enqueue_send(app.pane().selectedId,
                                  std::move(app.requestStreamPrompt));
@@ -376,8 +375,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.replace_sessions(std::move(r.value));
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
-                    // Persist the fresh list for the next launch's instant
-                    // paint.
+                    // Persist the fresh list for the next launch's instant paint.
                     if (disk_cache_enabled(app))
                         api::disk_cache::save_sessions(app.sessions);
                     // Auto-open the first session if nothing selected yet.
@@ -561,23 +559,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::string userText = app.sendingPrompt;
                 app.sendingPrompt.clear();
                 if (r.ok) {
-                    // Append the user's steering message + the returned reply
-                    // to the open transcript, mirroring the reply path so the
+                    // Append the user's steering message + the returned reply to
+                    // the open transcript, mirroring the reply path so the
                     // transcript reads as a full turn, then refresh the cache.
                     if (app.pane().openSession &&
-                        app.pane().openSession->summary.id ==
-                            app.steerSessionId) {
+                        app.pane().openSession->summary.id == app.steerSessionId) {
                         api::Message um;
                         um.role = api::Role::User;
                         um.id = app.steerSessionId + "-u" +
-                                std::to_string(
-                                    app.pane().openSession->messages.size());
+                                std::to_string(app.pane().openSession->messages.size());
                         um.text = userText;
                         um.created_at = r.value.created_at;
                         const std::size_t first =
                             app.pane().openSession->messages.size();
-                        app.pane().openSession->messages.push_back(
-                            std::move(um));
+                        app.pane().openSession->messages.push_back(std::move(um));
                         app.pane().openSession->messages.push_back(r.value);
                         app.pane().note_transcript_append(first, 2);
                         app.transcriptCache.put(*app.pane().openSession);
@@ -685,8 +680,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.requestForkTitle.clear();
         }
 
-        // --- Reply (transcript composer "Send" -> continue the open thread)
-        // ---
+        // --- Reply (transcript composer "Send" -> continue the open thread) ---
         if (!app.requestSendPrompt.empty() && !app.sendPending &&
             !app.pane().selectedId.empty()) {
             std::string prompt = app.requestSendPrompt;
@@ -709,26 +703,24 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const bool fromOutbox = claim_outbox_dispatch(app, id, prompt);
             if (!fromOutbox) api::disk_cache::outbox_add(id, prompt);
             app.optimisticSendId.clear();
-            if (app.pane().openSession &&
-                app.pane().openSession->summary.id == id) {
+            if (app.pane().openSession && app.pane().openSession->summary.id == id) {
                 if (fromOutbox && adopt_local_bubble(app, prompt)) {
                     app.pane().scrollBottomPending = id;
                 } else {
                     api::Message um;
                     um.role = api::Role::User;
-                    um.id =
-                        id + "-u" +
-                        std::to_string(app.pane().openSession->messages.size());
+                    um.id = id + "-u" +
+                            std::to_string(app.pane().openSession->messages.size());
                     um.text = prompt;
-                    um.created_at = static_cast<int64_t>(std::time(nullptr));
+                    um.created_at =
+                        static_cast<int64_t>(std::time(nullptr));
                     um.sync = api::SyncState::Persisting;
                     app.optimisticSendId = um.id;
                     const std::size_t first =
                         app.pane().openSession->messages.size();
                     app.pane().openSession->messages.push_back(std::move(um));
                     app.pane().note_transcript_append(first, 1);
-                    app.pane().scrollBottomPending =
-                        id;  // keep the new bubble in view
+                    app.pane().scrollBottomPending = id;  // keep the new bubble in view
                 }
             }
             api::Client* c = app.client.get();
@@ -747,31 +739,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 if (r.ok) {
                     // The optimistic user bubble is ALREADY in the transcript
                     // (appended at dispatch with sync=Persisting). Flip it to
-                    // Synced, append the assistant reply, drop it from the
-                    // local outbox (confirmed on the server), and refresh the
-                    // cache.
+                    // Synced, append the assistant reply, drop it from the local
+                    // outbox (confirmed on the server), and refresh the cache.
                     if (app.pane().openSession &&
-                        app.pane().openSession->summary.id ==
-                            app.sendSessionId) {
+                        app.pane().openSession->summary.id == app.sendSessionId) {
                         mark_optimistic(app, api::SyncState::Synced);
                         // Fallback: if the optimistic bubble wasn't recorded
-                        // (e.g. the thread was switched at dispatch),
-                        // reconstruct the user turn so the transcript still
-                        // reads complete.
+                        // (e.g. the thread was switched at dispatch), reconstruct
+                        // the user turn so the transcript still reads complete.
                         const std::size_t first =
                             app.pane().openSession->messages.size();
                         if (app.optimisticSendId.empty()) {
                             api::Message um;
                             um.role = api::Role::User;
-                            um.id =
-                                app.sendSessionId + "-u" +
-                                std::to_string(
-                                    app.pane().openSession->messages.size());
+                            um.id = app.sendSessionId + "-u" +
+                                    std::to_string(
+                                        app.pane().openSession->messages.size());
                             um.text = userText;
                             um.created_at = r.value.created_at;
                             um.sync = api::SyncState::Synced;
-                            app.pane().openSession->messages.push_back(
-                                std::move(um));
+                            app.pane().openSession->messages.push_back(std::move(um));
                         }
                         app.pane().openSession->messages.push_back(r.value);
                         app.pane().note_transcript_append(
@@ -805,12 +792,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         drive_settings_sync(app);
     }
 
-   private:
+  private:
     // ---- Settings-sync state (see drive_settings_sync) -------------------
     // Debounce window: coalesce a burst of preference clicks into one push.
     static constexpr std::chrono::milliseconds kSyncDebounce{1500};
-    bool settings_sync_armed_ = false;    // debounce timer running
-    bool settings_sync_pending_ = false;  // a push is in flight
+    bool settings_sync_armed_ = false;   // debounce timer running
+    bool settings_sync_pending_ = false; // a push is in flight
     std::chrono::steady_clock::time_point settings_sync_deadline_{};
     std::future<bool> settings_sync_future_;
 
@@ -917,8 +904,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
             if (static_cast<int>(i) == ownerIndex) continue;
             Pane& pane = app.panes[i];
-            if (!pane.openSession || pane.selectedId != owner.selectedId)
-                continue;
+            if (!pane.openSession || pane.selectedId != owner.selectedId) continue;
             pane.openSession->messages = owner.openSession->messages;
             pane.note_transcript_reset();
         }
@@ -927,14 +913,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     static void sync_stream_message(AppComponent& app, int ownerIndex,
                                     std::size_t messageIndex) {
         Pane& owner = app.panes[static_cast<std::size_t>(ownerIndex)];
-        if (!owner.openSession ||
-            messageIndex >= owner.openSession->messages.size())
+        if (!owner.openSession || messageIndex >= owner.openSession->messages.size())
             return;
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
             if (static_cast<int>(i) == ownerIndex) continue;
             Pane& pane = app.panes[i];
-            if (!pane.openSession || pane.selectedId != owner.selectedId)
-                continue;
+            if (!pane.openSession || pane.selectedId != owner.selectedId) continue;
             if (pane.openSession->messages.size() !=
                 owner.openSession->messages.size()) {
                 pane.openSession->messages = owner.openSession->messages;
@@ -970,7 +954,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (!app.pane().openSession) return;
         const std::string id = app.pane().openSession->summary.id;
         if (app.outboxRetry.count_for(id) == 0) return;
-        const std::size_t firstAdded = app.pane().openSession->messages.size();
+        const std::size_t firstAdded =
+            app.pane().openSession->messages.size();
         for (const auto& e : app.outboxRetry.entries()) {
             if (e.sessionId != id) continue;
             bool present = false;
@@ -1036,15 +1021,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
         // A retry can only be dispatched into the OPEN thread, for the same
         // reason drive_send_queue's dispatch can: the send START blocks below
-        // read the focused pane's selectedId, so a prompt aimed anywhere else
-        // would land in the wrong transcript. An entry for a closed thread
-        // waits, durably, until it is opened.
-        const api::outbox::Entry* pick =
-            app.outboxRetry.next(now, [&app](const std::string& id) {
+        // read the focused pane's selectedId, so a prompt aimed anywhere else would land in
+        // the wrong transcript. An entry for a closed thread waits, durably,
+        // until it is opened.
+        const api::outbox::Entry* pick = app.outboxRetry.next(
+            now, [&app](const std::string& id) {
                 if (id != app.pane().selectedId) return false;
                 if (app.sending_for(id)) return false;
-                if (!app.pane().openSession ||
-                    app.pane().openSession->summary.id != id)
+                if (!app.pane().openSession || app.pane().openSession->summary.id != id)
                     return false;
                 if (!app.requestSendPrompt.empty()) return false;
                 if (!app.requestStreamPrompt.empty()) return false;
@@ -1077,16 +1061,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const std::string& id = it->sessionId;
             if (app.sending_for(id)) continue;  // busy: keep it queued
             // Don't stomp an un-consumed dispatch for this same session.
-            if (!app.requestSendPrompt.empty() && app.pane().selectedId == id)
-                continue;
+            if (!app.requestSendPrompt.empty() && app.pane().selectedId == id) continue;
             if (!app.requestStreamPrompt.empty() && app.pane().selectedId == id)
                 continue;
             // Dispatch this one. The existing reply/stream START blocks read
-            // requestSendPrompt/requestStreamPrompt for app.pane().selectedId,
-            // so a queued send only fires against the OPEN thread — which is
-            // the only thread the composer can target anyway. If the queued
-            // send is for a non-open thread, hold it until that thread is
-            // opened (keeps ordering; never sends into the wrong transcript).
+            // requestSendPrompt/requestStreamPrompt for app.pane().selectedId, so a
+            // queued send only fires against the OPEN thread — which is the
+            // only thread the composer can target anyway. If the queued send
+            // is for a non-open thread, hold it until that thread is opened
+            // (keeps ordering; never sends into the wrong transcript).
             if (app.pane().selectedId != id) continue;
             const std::string prompt = it->prompt;
             app.pendingSendQueue.erase(it);
@@ -1140,9 +1123,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Settings singleton auto-saves to disk) and flips Settings::mark_dirty().
     // This tick DEBOUNCES those changes and pushes a snapshot to the backend so
     // the web app matches — best-effort, non-blocking (std::async, like the
-    // read path). When the backend has no write path configured (the
-    // zero-config mock is the default) the push is a no-op that still clears
-    // the dirty flag, so local-only persistence works and NO error is surfaced.
+    // read path). When the backend has no write path configured (the zero-config
+    // mock is the default) the push is a no-op that still clears the dirty flag,
+    // so local-only persistence works and NO error is surfaced.
     //
     // Debounce: after the last change, wait kSyncDebounce before pushing (so a
     // burst of clicks coalesces into one push). The modal-close path can force
@@ -1156,12 +1139,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (settings_sync_pending_ && settings_sync_future_.valid() &&
             settings_sync_future_.wait_for(std::chrono::seconds(0)) ==
                 std::future_status::ready) {
-            (void) settings_sync_future_.get();  // best-effort: ignore result
+            (void)settings_sync_future_.get();  // best-effort: ignore result
             settings_sync_pending_ = false;
         }
 
-        if (!s.is_settings_dirty()) return;  // nothing changed
-        if (settings_sync_pending_) return;  // a push is already in flight
+        if (!s.is_settings_dirty()) return;    // nothing changed
+        if (settings_sync_pending_) return;    // a push is already in flight
         if (!app.client) return;
 
         // Debounce: start/refresh the timer on the first dirty observation.
@@ -1193,8 +1176,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
         api::Client* c = app.client.get();
         settings_sync_pending_ = true;
-        settings_sync_future_ = std::async(
-            std::launch::async, [c, snap] { return c->update_settings(snap); });
+        settings_sync_future_ = std::async(std::launch::async, [c, snap] {
+            return c->update_settings(snap);
+        });
     }
 
     // Serialize the client-syncable preference slots to a compact JSON object
@@ -1212,8 +1196,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         };
         std::string j = "{";
         j += "\"yapLevel\":" + std::to_string(s.get_yap_level());
-        j +=
-            ",\"autoArchiveDays\":" + std::to_string(s.get_auto_archive_days());
+        j += ",\"autoArchiveDays\":" +
+             std::to_string(s.get_auto_archive_days());
         j += ",\"notificationSound\":";
         j += (s.get_notification_sound() ? "true" : "false");
         j += ",\"memoryBackend\":\"" + esc(s.get_memory_backend()) + "\"";
@@ -1341,8 +1325,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Keep the live-subscription pool in sync with the existing transcript LRU.
     // Visible panes are admitted first, then recently used open tabs. Cold tabs
     // stay durable on disk and take the existing async reload path when opened.
-    // The same five-thread bound therefore owns transcript RAM and live
-    // workers; there is no second recency policy to drift.
+    // The same five-thread bound therefore owns transcript RAM and live workers;
+    // there is no second recency policy to drift.
     void sync_subscriptions(AppComponent& app) {
         if (!app.client || !app.client->supports_events()) {
             // Backend can't stream: drop any stale pool (e.g. after a backend
@@ -1419,8 +1403,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
         // The open thread is "live" iff it has an active subscription.
         app.openThreadLive =
-            !app.pane().selectedId.empty() &&
-            app.liveSubs.count(app.pane().selectedId) &&
+            !app.pane().selectedId.empty() && app.liveSubs.count(app.pane().selectedId) &&
             app.liveSubs.at(app.pane().selectedId).sub != nullptr;
     }
 
@@ -1469,8 +1452,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // reply is gathered. The sink captures deltas into a queue; a
         // non-streaming backend simply yields one delta.
         if (!app.requestStreamPrompt.empty() && !app.streamActive &&
-            !app.streamCollecting && !app.pane().selectedId.empty() &&
-            app.client && app.pane().openSession &&
+            !app.streamCollecting && !app.pane().selectedId.empty() && app.client &&
+            app.pane().openSession &&
             app.pane().openSession->summary.id == app.pane().selectedId) {
             std::string prompt = app.requestStreamPrompt;
             std::string id = app.pane().selectedId;
@@ -1493,8 +1476,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamPhase = AppComponent::StreamPhase::Thinking;
             app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
             api::Client* c = app.client.get();
-            app.streamCollectFuture =
-                std::async(std::launch::async, [c, id, prompt]() {
+            app.streamCollectFuture = std::async(
+                std::launch::async, [c, id, prompt]() {
                     AppComponent::StreamCollected out;
                     api::StreamSink sink;
                     sink.on_delta = [&out](const std::string& d) {
@@ -1535,8 +1518,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 note_outbox_failure(app, id, prompt);
             }
-            if (!streamPane.openSession ||
-                streamPane.openSession->summary.id != id) {
+            if (!streamPane.openSession || streamPane.openSession->summary.id != id) {
                 app.streamPhase = AppComponent::StreamPhase::Idle;
             } else if (!got.error.empty()) {
                 streamPane.transcriptError = got.error;
@@ -1566,8 +1548,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 assistant.text.clear();  // starts empty; fills as we drain.
                 streamPane.openSession->messages.push_back(assistant);
                 streamPane.note_transcript_append(first, 2);
-                app.streamMsgIndex =
-                    streamPane.openSession->messages.size() - 1;
+                app.streamMsgIndex = streamPane.openSession->messages.size() - 1;
                 sync_stream_transcript(app, ownerIndex);
 
                 app.streamActive = true;
@@ -1601,13 +1582,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // drain after K chunks so a headless capture can photograph a genuine
         // MID-STREAM bubble (partial text + caret). K=0 (explicitly set) HOLDS
         // at the THINKING phase (no chunks drained) so the thinking indicator
-        // can be captured. Ignored when unset; real rendered output, not a
-        // mock.
+        // can be captured. Ignored when unset; real rendered output, not a mock.
         static const bool kDemoCapSet = [] {
             const char* v = std::getenv("HANABI_STREAM_DEMO_MAXTOKENS");
             return v && *v;
         }();
-        static const size_t kDemoCap = []() -> size_t {
+        static const size_t kDemoCap = [] () -> size_t {
             if (const char* v = std::getenv("HANABI_STREAM_DEMO_MAXTOKENS");
                 v && *v) {
                 long n = std::atol(v);
@@ -1632,7 +1612,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             ++app.streamCursor;
             ++drained;
         }
-        if (drained > 0) app.streamPhase = AppComponent::StreamPhase::Streaming;
+        if (drained > 0)
+            app.streamPhase = AppComponent::StreamPhase::Streaming;
 
         api::Message& live =
             streamPane.openSession->messages[app.streamMsgIndex];

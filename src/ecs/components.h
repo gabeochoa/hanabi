@@ -18,8 +18,8 @@
 #include "../api/auth.h"
 #include "../api/client.h"
 #include "../api/outbox.h"
-#include "../search/find_memo.h"
 #include "../settings.h"
+#include "../search/find_memo.h"
 #include "transcript_cache.h"
 #include "transcript_item_index.h"
 
@@ -144,9 +144,8 @@ struct Pane {
     }
 
     void note_transcript_reset() {
-        note_transcript_mutation(
-            model::TranscriptMutationKind::Reset, 0,
-            openSession ? openSession->messages.size() : 0);
+        note_transcript_mutation(model::TranscriptMutationKind::Reset, 0,
+                                 openSession ? openSession->messages.size() : 0);
     }
 
     void note_transcript_append(std::size_t first, std::size_t count) {
@@ -215,7 +214,8 @@ struct Pane {
     std::vector<std::future<std::optional<api::Session>>>
         supersededDiskReadFutures;
 
-    bool accepts_disk_read(const std::string& id, std::uint64_t completedEpoch,
+    bool accepts_disk_read(const std::string& id,
+                           std::uint64_t completedEpoch,
                            std::uint64_t currentEpoch) const {
         return selectedId == id && completedEpoch == currentEpoch;
     }
@@ -304,8 +304,8 @@ struct Pane {
     // conversations, and one tally counting both would name a match the reader
     // cannot see.
     std::string findQuery;
-    int findIndex = 0;  // which match is current, 0-based
-    int findCount = 0;  // matches on the last rendered frame (for "3 of 12")
+    int findIndex = 0;    // which match is current, 0-based
+    int findCount = 0;    // matches on the last rendered frame (for "3 of 12")
     // Set when the current match changes; the transcript scrolls it into view
     // on the next frame it lays out, then clears this.
     bool findScrollPending = false;
@@ -374,7 +374,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // copies of a limit drift.
 
     Pane& pane() { return panes[static_cast<size_t>(focusedPane)]; }
-    const Pane& pane() const { return panes[static_cast<size_t>(focusedPane)]; }
+    const Pane& pane() const {
+        return panes[static_cast<size_t>(focusedPane)];
+    }
     Pane& other_pane() { return panes[focusedPane == 0 ? 1 : 0]; }
     // How many panes are actually showing: one, or two when split.
     size_t active_pane_count() const { return splitOpen ? 2u : 1u; }
@@ -388,11 +390,10 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // --- Live events (SSE) — MULTI-thread background subscriptions --------
     // When the backend supports_events(), the loader keeps a POOL of live
-    // subscriptions — one per thread in the transcript LRU hot set, with
-    // visible panes admitted first — so inactive tabs do not keep one
-    // worker/socket each. Fresh transcript data is written straight to the disk
-    // cache; switching to a cold tab starts the existing async disk/network
-    // reload. Each pool entry owns its subscription handle + its own atomic
+    // subscriptions — one per thread in the transcript LRU hot set, with visible
+    // panes admitted first — so inactive tabs do not keep one worker/socket each.
+    // Fresh transcript data is written straight to the disk cache; switching to
+    // a cold tab starts the existing async disk/network reload. Each pool entry owns its subscription handle + its own atomic
     // dirty flag (flipped by that thread's SSE worker) + last-event stamp; the
     // loader polls the flags on the UI thread, debounces, and refetches the
     // dirty thread(s) on worker futures. Subscriptions are opened when a tab
@@ -519,14 +520,14 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // The row drag in flight. Written only by the sidebar.
     struct RowDrag {
-        std::string sessionId;  // empty == nothing is being dragged
-        std::string folderKey;  // a drag never leaves its own folder
-        size_t fromIndex = 0;   // where the row sits in the rendered band
-        size_t dropIndex = 0;   // where it would land, recomputed each frame
+        std::string sessionId;   // empty == nothing is being dragged
+        std::string folderKey;   // a drag never leaves its own folder
+        size_t fromIndex = 0;    // where the row sits in the rendered band
+        size_t dropIndex = 0;    // where it would land, recomputed each frame
         // Screen y of the drop line, taken from the rendered band's geometry
         // so the line the user sees and the slot they get are one number.
         float lineY = 0.0f;
-        bool live = false;  // past the press-drag threshold
+        bool live = false;       // past the press-drag threshold
         // The group's rows in rendered order, captured while they render; the
         // drop rewrites this list rather than re-deriving it. Bounded by the
         // group's render cap, not by the folder's size.
@@ -536,9 +537,8 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // Transcript: which TOOL PILES are expanded. Consecutive tool-role messages
     // collapse into one "N tool calls" summary row (like the navi website); the
-    // set holds the pile keys (first tool msg id) the user has expanded.
-    // Default collapsed — keeps a tool-heavy thread scannable and bounds render
-    // cost.
+    // set holds the pile keys (first tool msg id) the user has expanded. Default
+    // collapsed — keeps a tool-heavy thread scannable and bounds render cost.
     std::set<std::string> expandedPiles;
 
     // Transcript: which tool rows the reader has explicitly CLOSED, against a
@@ -746,9 +746,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // the one send slot, and the flag that stops a retry writing a SECOND copy
     // of the same prompt into the store it came out of.
     api::outbox::Retry outboxRetry;
-    bool outboxRestored = false;     // the startup enumeration has run
-    bool outboxSuppressAdd = false;  // this dispatch came FROM the outbox
-    std::string outboxRetryId;       // the retry occupying the send slot
+    bool outboxRestored = false;      // the startup enumeration has run
+    bool outboxSuppressAdd = false;   // this dispatch came FROM the outbox
+    std::string outboxRetryId;        // the retry occupying the send slot
     std::string outboxRetryPrompt;
 
     // Phase STREAM: live token-by-token replies. When the active backend
@@ -761,9 +761,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // the live Assistant message's text. On done it finalizes + refreshes the
     // cache. Deterministic + offline for the mock: no worker thread, no timers.
     enum class StreamPhase { Idle, Thinking, Streaming, Done };
-    std::string requestStreamPrompt;  // reply into the OPEN session, streamed.
-    bool streamActive = false;        // a stream is in flight.
-    std::string streamSessionId;      // which session the stream targets.
+    std::string requestStreamPrompt;   // reply into the OPEN session, streamed.
+    bool streamActive = false;         // a stream is in flight.
+    std::string streamSessionId;       // which session the stream targets.
     int streamPaneIndex = 0;
     StreamPhase streamPhase = StreamPhase::Idle;
     // Wall-clock (seconds) when the current stream/thinking turn began, so the
@@ -776,9 +776,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // "thinking" state was unphotographable and unscriptable for months. Set
     // only by the headless knob in main.cpp; false in every real run.
     bool streamDemoHold = false;
-    std::string streamBuffer;  // the in-progress assistant text so far.
+    std::string streamBuffer;          // the in-progress assistant text so far.
     std::vector<std::string> streamQueue;  // remaining ordered text chunks.
-    size_t streamCursor = 0;               // index of the next chunk to drain.
+    size_t streamCursor = 0;           // index of the next chunk to drain.
     // Index of the live (in-progress) Assistant message inside
     // openSession->messages, so the loader can rewrite its text each frame.
     size_t streamMsgIndex = 0;
@@ -796,10 +796,10 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string error;
     };
     std::future<StreamCollected> streamCollectFuture;
-    bool streamCollecting = false;  // a worker is gathering the reply.
-    std::string
-        streamPendingPrompt;  // prompt being collected (for the User bubble).
-    std::string streamPendingSession;  // session the collection targets.
+    bool streamCollecting = false;      // a worker is gathering the reply.
+    std::string streamPendingPrompt;    // prompt being collected (for the User bubble).
+    std::string streamPendingSession;   // session the collection targets.
+
 
     // Phase AUTH (device-code login). The flow lives here as an optional so
     // the whole app is unchanged when auth is not configured (authFlow stays
@@ -933,9 +933,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set by Return in the field (the listener cannot decide anything — see the
     // composerSubmit note above); routed by the modal on the next frame.
     bool renameSubmit = false;
-    std::string requestRenameId;  // one-shot: what the loader should send
+    std::string requestRenameId;     // one-shot: what the loader should send
     std::string requestRenameTitle;
-    bool renamePending = false;  // in flight; the modal shows a spinner
+    bool renamePending = false;      // in flight; the modal shows a spinner
     std::string renameInFlightId;
     std::future<api::Result<std::string>> renameFuture;
 
@@ -1114,10 +1114,10 @@ struct TabStripComponent : public afterhours::BaseComponent {
     // real EntityIDs start small so this never collides.
     afterhours::EntityID dragCandidate =
         std::numeric_limits<afterhours::EntityID>::max();
-    bool dragging = false;     // promoted past the threshold this gesture
-    float dragStartX = 0.0f;   // cursor X at press (for threshold + delta)
-    float dragCurX = 0.0f;     // current cursor X while held
-    size_t dragFromIndex = 0;  // tabOrder index of the tab being dragged
+    bool dragging = false;      // promoted past the threshold this gesture
+    float dragStartX = 0.0f;    // cursor X at press (for threshold + delta)
+    float dragCurX = 0.0f;      // current cursor X while held
+    size_t dragFromIndex = 0;   // tabOrder index of the tab being dragged
 
     bool has_drag_candidate() const {
         return dragCandidate !=
@@ -1151,8 +1151,8 @@ struct TabStripComponent : public afterhours::BaseComponent {
     bool menuOpen = false;
     afterhours::EntityID menuTabId =
         std::numeric_limits<afterhours::EntityID>::max();
-    float menuX = 0.0f;  // cursor x at right-click (menu top-left)
-    float menuY = 0.0f;  // cursor y at right-click
+    float menuX = 0.0f;         // cursor x at right-click (menu top-left)
+    float menuY = 0.0f;         // cursor y at right-click
     void close_menu() {
         menuOpen = false;
         menuTabId = std::numeric_limits<afterhours::EntityID>::max();

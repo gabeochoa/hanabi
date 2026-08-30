@@ -18,8 +18,8 @@
 
 #include <algorithm>
 #include <bit>
-#include <cctype>
 #include <cmath>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -28,24 +28,25 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
-#include "../keys.h"
-#include "../settings.h"
 #include "../test_hooks.h"
-#include "../ui/icons.h"
-#include "../ui/secondary_surface.h"
-#include "../ui/snippet_highlight.h"
+#include "../settings.h"
 #include "../util/clipboard.h"
+#include "../util/prof.h"
+#include "../version.h"
 #include "../util/ellipsize.h"
 #include "../util/format.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
 #include "../util/text_epoch.h"
-#include "../version.h"
-#include "sidebar_footer_status.h"
+#include "../ui/icons.h"
+#include "../ui/secondary_surface.h"
+#include "../ui/snippet_highlight.h"
+#include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "subagent_parent_index.h"
-#include "tab_model.h"
 #include "thread_model.h"
+#include "tab_model.h"
+#include "sidebar_footer_status.h"
+#include "../keys.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -57,11 +58,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!layout || !app) return;
 
         // The immediate-mode text_input forces its field background to the UI
-        // theme's Secondary color and its text to theme.font (gap #17),
-        // ignoring per-widget colors. Point those at hanabi tokens so the
-        // search field's inner surface blends into its pill (panel_bg_2)
-        // instead of rendering as a jarring default dark-blue box, and its text
-        // uses our palette.
+        // theme's Secondary color and its text to theme.font (gap #17), ignoring
+        // per-widget colors. Point those at hanabi tokens so the search field's
+        // inner surface blends into its pill (panel_bg_2) instead of rendering
+        // as a jarring default dark-blue box, and its text uses our palette.
         ctx.theme.secondary = theme::chrome::raised();
         ctx.theme.surface = theme::chrome::raised();
         ctx.theme.font = theme::text_primary();
@@ -115,9 +115,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     const bool nowArchived = !model::is_archived(s);
                     app->apply_archived(s.id, nowArchived);
                     Settings::get().set_archived(s.id, nowArchived);
-                    app->raise_toast(
-                        nowArchived ? "Session archived" : "Session unarchived",
-                        s.id, AppComponent::ToastUndo::Archive);
+                    app->raise_toast(nowArchived ? "Session archived"
+                                                 : "Session unarchived",
+                                     s.id, AppComponent::ToastUndo::Archive);
                     break;
                 }
             }
@@ -170,18 +170,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const auto& r = layout->sidebar;
         bool folded = layout->sidebarCollapsed;
 
-        auto panel =
-            div(ctx, mk(uiRoot, 1000),
-                ComponentConfig{}
-                    .with_size(ComponentSize{pixels(r.width), pixels(r.height)})
-                    .with_absolute_position()
-                    .with_translate(r.x, r.y)
-                    .with_custom_background(theme::chrome::sidebar())
-                    .with_flex_direction(FlexDirection::Column)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_roundness(0.0f)
-                    .with_render_layer(1)
-                    .with_debug_name("sidebar"));
+        auto panel = div(ctx, mk(uiRoot, 1000),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(r.width), pixels(r.height)})
+                .with_absolute_position()
+                .with_translate(r.x, r.y)
+                .with_custom_background(theme::chrome::sidebar())
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_roundness(0.0f)
+                .with_render_layer(1)
+                .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
 
@@ -199,8 +198,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // view rows, rule, search, list, footer.
         views_header(ctx, panel.ent(), *app, *layout, r.width);
         const bool viewsOpen = app->collapsedFolders.count(kViewsKey) == 0;
-        if (viewsOpen)
-            render_smart_views(ctx, panel.ent(), *app, folded, r.width);
+        if (viewsOpen) render_smart_views(ctx, panel.ent(), *app, folded, r.width);
         section_rule(ctx, panel.ent());
         render_search(ctx, panel.ent(), *app, r.width);
         // The 4px the list is offset by, as a real child so the column keeps
@@ -211,8 +209,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         float used = scroll_top_offset(viewsOpen);
         float scrollH = r.height - used - kSbFooterH;
         if (scrollH < 40.0f) scrollH = 40.0f;
-        auto scroll = div(
-            ctx, mk(panel.ent(), 5),
+        auto scroll = div(ctx, mk(panel.ent(), 5),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(scrollH)})
                 // preset::ScrollPanel is a FlexDirection::Column but leaves
@@ -303,11 +300,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 app->foldersDefaultCollapsedSeeded = true;
             }
             for (const auto& folder : folderNames_) {
-                shown += render_folder(ctx, scroll.ent(), folder_base(folder),
-                                       folder_display_name(folder), folder,
-                                       *app, q, r.width,
-                                       /*archived=*/false, /*catchAll=*/false,
-                                       /*headerless=*/false);
+                shown += render_folder(
+                    ctx, scroll.ent(), folder_base(folder),
+                    folder_display_name(folder), folder, *app, q, r.width,
+                    /*archived=*/false, /*catchAll=*/false,
+                    /*headerless=*/false);
             }
             shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
                                    *app, q, r.width, /*archived=*/false,
@@ -315,7 +312,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                    /*cap=*/fillCap);
         }
 
-        // (Archived is a smart VIEW in the Views section above, not a list
+// (Archived is a smart VIEW in the Views section above, not a list
         // section. Sending a message to an archived thread unarchives it,
         // same as the backend behavior.)
 
@@ -333,8 +330,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             div(ctx, mk(panel.ent(), 7),
                 ComponentConfig{}
                     .with_label("snippet bands " + std::to_string(snippetBands))
-                    .with_size(
-                        ComponentSize{pixels(r.width - 20.0f), pixels(14)})
+                    .with_size(ComponentSize{pixels(r.width - 20.0f),
+                                             pixels(14)})
                     .with_absolute_position()
                     .with_translate(10.0f, r.height - 18.0f)
                     .with_transparent_bg()
@@ -365,12 +362,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (hanabi::test_hooks::row_audit())
             div(ctx, mk(panel.ent(), 8),
                 ComponentConfig{}
-                    .with_label("sidebar rows " +
-                                std::to_string(rowsRendered_) + " of " +
-                                std::to_string(rowsMatched_) + " @ " +
-                                std::to_string(rowsFirst_))
-                    .with_size(
-                        ComponentSize{pixels(r.width - 20.0f), pixels(14)})
+                    .with_label("sidebar rows " + std::to_string(rowsRendered_) +
+                                " of " + std::to_string(rowsMatched_) +
+                                " @ " + std::to_string(rowsFirst_))
+                    .with_size(ComponentSize{pixels(r.width - 20.0f),
+                                             pixels(14)})
                     .with_absolute_position()
                     .with_translate(10.0f, r.height - 34.0f)
                     .with_transparent_bg()
@@ -393,14 +389,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(
                         "stale widgets " +
-                        std::to_string(
-                            hanabi::widget_epoch::unretired_stale_count(
-                                hanabi::widget_epoch::grace_frames())) +
+                        std::to_string(hanabi::widget_epoch::
+                                           unretired_stale_count(
+                                               hanabi::widget_epoch::
+                                                   grace_frames())) +
                         " of " +
                         std::to_string(
                             afterhours::ui::imm::existing_ui_elements.size()))
-                    .with_size(
-                        ComponentSize{pixels(r.width - 20.0f), pixels(14)})
+                    .with_size(ComponentSize{pixels(r.width - 20.0f),
+                                             pixels(14)})
                     .with_absolute_position()
                     .with_translate(10.0f, r.height - 50.0f)
                     .with_transparent_bg()
@@ -417,8 +414,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label("No matches for \"" + app->searchQuery + "\"")
                     .with_size(ComponentSize{percent(1.0f), pixels(28)})
-                    .with_padding(Padding{.top = pixels(8),
-                                          .right = pixels(14),
+                    .with_padding(Padding{.top = pixels(8), .right = pixels(14),
                                           .bottom = pixels(4),
                                           .left = pixels(14)})
                     .with_transparent_bg()
@@ -434,7 +430,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         render_row_menu(ctx, uiRoot, *app);
     }
 
-   private:
+  private:
     void rebuild_parent_index(const AppComponent& app) {
         if (!parentIndex_.update(app.sessionCatalogRevision,
                                  app.subagentCatalogRevision, app.sessions,
@@ -449,193 +445,192 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return parentIndex_.find(id);
     }
 
-    int render_subagent_sidebar(UIContext<InputAction>& ctx, Entity& parent,
-                                AppComponent& app, const std::string& q,
-                                float panelW) {
-        if (app.subagentListState == LoadState::Loading) {
-            div(ctx, mk(parent, 8700),
-                ComponentConfig{}
-                    .with_label("Loading sub-agents\xe2\x80\xa6")
-                    .with_size(ComponentSize{
-                        pixels(panelW - kSbInset - kCountRightPad), pixels(34)})
-                    .with_margin(Margin{.left = pixels(kSbInset)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::MD)
-                    .with_alignment(TextAlignment::Left)
-                    .with_debug_name("subagents_loading"));
-            return 0;
-        }
-        if (app.subagentListState == LoadState::Error) {
-            div(ctx, mk(parent, 8701),
-                ComponentConfig{}
-                    .with_label(app.subagentListError)
-                    .with_size(ComponentSize{
-                        pixels(panelW - kSbInset - kCountRightPad), pixels(44)})
-                    .with_margin(Margin{.left = pixels(kSbInset)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::destructive())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left)
-                    .with_debug_name("subagents_error"));
-            return 0;
-        }
+   int render_subagent_sidebar(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app, const std::string& q,
+                               float panelW) {
+       if (app.subagentListState == LoadState::Loading) {
+           div(ctx, mk(parent, 8700),
+               ComponentConfig{}
+                   .with_label("Loading sub-agents\xe2\x80\xa6")
+                   .with_size(ComponentSize{
+                       pixels(panelW - kSbInset - kCountRightPad), pixels(34)})
+                   .with_margin(Margin{.left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_secondary())
+                   .with_font_size(theme::type::MD)
+                   .with_alignment(TextAlignment::Left)
+                   .with_debug_name("subagents_loading"));
+           return 0;
+       }
+       if (app.subagentListState == LoadState::Error) {
+           div(ctx, mk(parent, 8701),
+               ComponentConfig{}
+                   .with_label(app.subagentListError)
+                   .with_size(ComponentSize{
+                       pixels(panelW - kSbInset - kCountRightPad), pixels(44)})
+                   .with_margin(Margin{.left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::destructive())
+                   .with_font_size(theme::type::SM)
+                   .with_alignment(TextAlignment::Left)
+                   .with_debug_name("subagents_error"));
+           return 0;
+       }
 
-        rebuild_parent_index(app);
-        subagentMembers_.clear();
-        int active = 0;
-        int completed = 0;
-        int blocked = 0;
-        int failed = 0;
-        {
-            hanabi::prof::Scope collectScope("sidebar.subagent_collect");
-            for (const auto& child : app.subagentSessions) {
-                const auto* parentSummary =
-                    q.empty() ? nullptr : indexed_summary(child.parent_id);
-                const std::string parentTitle = parentSummary == nullptr
-                                                    ? std::string{}
-                                                    : parentSummary->title;
-                if (!q.empty() && !title_matches(child.title, q) &&
-                    !title_matches(parentTitle, q))
-                    continue;
-                subagentMembers_.push_back(&child);
-                if (child.state == api::ThreadState::Running)
-                    ++active;
-                else if (child.tag == api::ThreadTag::Failed)
-                    ++failed;
-                else if (child.tag == api::ThreadTag::Blocked)
-                    ++blocked;
-                else
-                    ++completed;
-            }
-        }
+       rebuild_parent_index(app);
+       subagentMembers_.clear();
+       int active = 0;
+       int completed = 0;
+       int blocked = 0;
+       int failed = 0;
+       {
+       hanabi::prof::Scope collectScope("sidebar.subagent_collect");
+       for (const auto& child : app.subagentSessions) {
+           const auto* parentSummary =
+               q.empty() ? nullptr : indexed_summary(child.parent_id);
+           const std::string parentTitle =
+               parentSummary == nullptr ? std::string{} : parentSummary->title;
+           if (!q.empty() && !title_matches(child.title, q) &&
+               !title_matches(parentTitle, q))
+               continue;
+           subagentMembers_.push_back(&child);
+           if (child.state == api::ThreadState::Running)
+               ++active;
+           else if (child.tag == api::ThreadTag::Failed)
+               ++failed;
+           else if (child.tag == api::ThreadTag::Blocked)
+               ++blocked;
+           else
+               ++completed;
+       }
+       }
 
-        auto head =
-            div(ctx, mk(parent, 8710),
-                ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(48)})
-                    .with_flex_direction(FlexDirection::Column)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_padding(Padding{.top = pixels(5),
-                                          .right = pixels(kCountRightPad),
-                                          .bottom = pixels(3),
-                                          .left = pixels(kSbInset)})
-                    .with_transparent_bg()
-                    .with_debug_name("subagents_summary"));
-        div(ctx, mk(head.ent(), 1),
-            ComponentConfig{}
-                .with_label("SUB-AGENTS")
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::MICRO)
-                .with_letter_spacing(0.8f)
-                .with_alignment(TextAlignment::Left));
-        div(ctx, mk(head.ent(), 2),
-            ComponentConfig{}
-                .with_label("active " + std::to_string(active) +
-                            "  \xc2\xb7  completed " +
-                            std::to_string(completed) + "  \xc2\xb7  failed " +
-                            std::to_string(failed) + "  \xc2\xb7  blocked " +
-                            std::to_string(blocked))
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_debug_name("subagents_counts"));
+       auto head =
+           div(ctx, mk(parent, 8710),
+               ComponentConfig{}
+                   .with_size(ComponentSize{percent(1.0f), pixels(48)})
+                   .with_flex_direction(FlexDirection::Column)
+                   .with_flex_wrap(FlexWrap::NoWrap)
+                   .with_padding(Padding{.top = pixels(5),
+                                         .right = pixels(kCountRightPad),
+                                         .bottom = pixels(3),
+                                         .left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_debug_name("subagents_summary"));
+       div(ctx, mk(head.ent(), 1),
+           ComponentConfig{}
+               .with_label("SUB-AGENTS")
+               .with_size(ComponentSize{percent(1.0f), pixels(18)})
+               .with_transparent_bg()
+               .with_custom_text_color(theme::text_faint())
+               .with_font_size(theme::type::MICRO)
+               .with_letter_spacing(0.8f)
+               .with_alignment(TextAlignment::Left));
+       div(ctx, mk(head.ent(), 2),
+           ComponentConfig{}
+               .with_label("active " + std::to_string(active) +
+                           "  \xc2\xb7  completed " +
+                           std::to_string(completed) + "  \xc2\xb7  failed " +
+                           std::to_string(failed) + "  \xc2\xb7  blocked " +
+                           std::to_string(blocked))
+               .with_size(ComponentSize{percent(1.0f), pixels(18)})
+               .with_transparent_bg()
+               .with_custom_text_color(theme::text_secondary())
+               .with_font_size(theme::type::SM)
+               .with_alignment(TextAlignment::Left)
+               .with_debug_name("subagents_counts"));
 
-        const int total = static_cast<int>(subagentMembers_.size());
-        hanabi::prof::gauge("sidebar.subagent_matches", total);
-        if (total == 0) {
-            div(ctx, mk(parent, 8720),
-                ComponentConfig{}
-                    .with_label(q.empty() ? "No sub-agents"
-                                          : "No matching sub-agents")
-                    .with_size(ComponentSize{
-                        pixels(panelW - kSbInset - kCountRightPad), pixels(32)})
-                    .with_margin(Margin{.left = pixels(kSbInset)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::MD)
-                    .with_alignment(TextAlignment::Left)
-                    .with_debug_name("subagents_empty"));
-            rowsRendered_ = rowsMatched_ = rowsFirst_ = 0;
-            return 0;
-        }
+       const int total = static_cast<int>(subagentMembers_.size());
+       hanabi::prof::gauge("sidebar.subagent_matches", total);
+       if (total == 0) {
+           div(ctx, mk(parent, 8720),
+               ComponentConfig{}
+                   .with_label(q.empty() ? "No sub-agents"
+                                         : "No matching sub-agents")
+                   .with_size(ComponentSize{
+                       pixels(panelW - kSbInset - kCountRightPad), pixels(32)})
+                   .with_margin(Margin{.left = pixels(kSbInset)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_faint())
+                   .with_font_size(theme::type::MD)
+                   .with_alignment(TextAlignment::Left)
+                   .with_debug_name("subagents_empty"));
+           rowsRendered_ = rowsMatched_ = rowsFirst_ = 0;
+           return 0;
+       }
 
-        const RowWindow window = row_window(parent, total, true);
-        render_row_spacer(ctx, parent, 8721, window.above);
-        for (int i = window.first; i < window.last; ++i) {
-            const api::SessionSummary& child = *subagentMembers_[i];
-            const auto* parentSummary = indexed_summary(child.parent_id);
-            const std::string parentTitle =
-                parentSummary == nullptr
-                    ? std::string("unknown parent")
-                    : fmtutil::ellipsize(parentSummary->title, 26);
-            auto row = button(
-                ctx, mk(parent, 8730 + i),
-                ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
-                    .with_flex_direction(FlexDirection::Row)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.right = pixels(kCountRightPad),
-                                          .left = pixels(kSbInset)})
-                    .with_custom_background(theme::chrome::sidebar())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::chrome::sidebar()))
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.0f)
-                    .with_debug_name("subagent_row_" + child.id));
-            div(ctx, mk(row.ent(), 1),
-                ComponentConfig{}
-                    .with_label(" ")
-                    .with_size(ComponentSize{pixels(16), pixels(24)})
-                    .with_transparent_bg()
-                    .with_on_draw_fg(
-                        [glyph = sidebar_glyph(child)](RectangleType rect) {
-                            draw_mark(rect, glyph, theme::chrome::sidebar());
-                        }));
-            auto text =
-                div(ctx, mk(row.ent(), 2),
-                    ComponentConfig{}
-                        .with_size(ComponentSize{
-                            pixels(std::max(40.0f, panelW - kSbInset -
-                                                       kCountRightPad - 16.0f)),
-                            pixels(kRowHeight)})
-                        .with_flex_direction(FlexDirection::Column)
-                        .with_flex_wrap(FlexWrap::NoWrap)
-                        .with_transparent_bg());
-            div(ctx, mk(text.ent(), 1),
-                ComponentConfig{}
-                    .with_label(fmtutil::ellipsize(child.title, 30))
-                    .with_size(ComponentSize{percent(1.0f), pixels(17)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_primary())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left));
-            div(ctx, mk(text.ent(), 2),
-                ComponentConfig{}
-                    .with_label(parentTitle)
-                    .with_size(ComponentSize{percent(1.0f), pixels(13)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::MICRO)
-                    .with_alignment(TextAlignment::Left));
-            if (row) {
-                app.requestOpenTab = child.id;
-                app.requestOpenTabPane = app.focusedPane;
-                app.requestOpenTabKeep = false;
-                app.view = SmartView::Chat;
-            }
-        }
-        render_row_spacer(ctx, parent, 8722, window.below);
-        rowsRendered_ = window.last - window.first;
-        rowsMatched_ = total;
-        rowsFirst_ = window.first;
-        return rowsRendered_;
-    }
+       const RowWindow window = row_window(parent, total, true);
+       render_row_spacer(ctx, parent, 8721, window.above);
+       for (int i = window.first; i < window.last; ++i) {
+           const api::SessionSummary& child = *subagentMembers_[i];
+           const auto* parentSummary = indexed_summary(child.parent_id);
+           const std::string parentTitle =
+               parentSummary == nullptr
+                   ? std::string("unknown parent")
+                   : fmtutil::ellipsize(parentSummary->title, 26);
+           auto row = button(
+               ctx, mk(parent, 8730 + i),
+               ComponentConfig{}
+                   .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
+                   .with_flex_direction(FlexDirection::Row)
+                   .with_flex_wrap(FlexWrap::NoWrap)
+                   .with_align_items(AlignItems::Center)
+                   .with_padding(Padding{.right = pixels(kCountRightPad),
+                                         .left = pixels(kSbInset)})
+                   .with_custom_background(theme::chrome::sidebar())
+                   .with_custom_hover_bg(
+                       theme::hover_over(theme::chrome::sidebar()))
+                   .with_click_activation(ClickActivationMode::Press)
+                   .with_roundness(0.0f)
+                   .with_debug_name("subagent_row_" + child.id));
+           div(ctx, mk(row.ent(), 1),
+               ComponentConfig{}
+                   .with_label(" ")
+                   .with_size(ComponentSize{pixels(16), pixels(24)})
+                   .with_transparent_bg()
+                   .with_on_draw_fg(
+                       [glyph = sidebar_glyph(child)](RectangleType rect) {
+                           draw_mark(rect, glyph, theme::chrome::sidebar());
+                       }));
+           auto text =
+               div(ctx, mk(row.ent(), 2),
+                   ComponentConfig{}
+                       .with_size(ComponentSize{
+                           pixels(std::max(40.0f, panelW - kSbInset -
+                                                      kCountRightPad - 16.0f)),
+                           pixels(kRowHeight)})
+                       .with_flex_direction(FlexDirection::Column)
+                       .with_flex_wrap(FlexWrap::NoWrap)
+                       .with_transparent_bg());
+           div(ctx, mk(text.ent(), 1),
+               ComponentConfig{}
+                   .with_label(fmtutil::ellipsize(child.title, 30))
+                   .with_size(ComponentSize{percent(1.0f), pixels(17)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_primary())
+                   .with_font_size(theme::type::SM)
+                   .with_alignment(TextAlignment::Left));
+           div(ctx, mk(text.ent(), 2),
+               ComponentConfig{}
+                   .with_label(parentTitle)
+                   .with_size(ComponentSize{percent(1.0f), pixels(13)})
+                   .with_transparent_bg()
+                   .with_custom_text_color(theme::text_faint())
+                   .with_font_size(theme::type::MICRO)
+                   .with_alignment(TextAlignment::Left));
+           if (row) {
+               app.requestOpenTab = child.id;
+               app.requestOpenTabPane = app.focusedPane;
+               app.requestOpenTabKeep = false;
+               app.view = SmartView::Chat;
+           }
+       }
+       render_row_spacer(ctx, parent, 8722, window.below);
+       rowsRendered_ = window.last - window.first;
+       rowsMatched_ = total;
+       rowsFirst_ = window.first;
+       return rowsRendered_;
+   }
 
     // ---- drop-zone line (drag-to-reorder) ----
     // One absolutely-positioned hairline for the WHOLE list, drawn only while a
@@ -674,8 +669,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.close_row_menu();
             return;
         }
-        const api::SessionSummary* target =
-            app.find_summary(app.rowMenuSessionId);
+        const api::SessionSummary* target = app.find_summary(app.rowMenuSessionId);
         if (target == nullptr) {
             app.close_row_menu();
             return;
@@ -697,24 +691,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         };
         std::vector<Item> items;
         if (app.client && app.client->supports_rename())
-            items.push_back(
-                {"Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename});
+            items.push_back({"Rename\xe2\x80\xa6", "row_menu_rename",
+                             Action::Rename});
         if (app.client && app.client->supports_fork())
             items.push_back({"Fork session", "row_menu_fork", Action::Fork});
-        items.push_back(
-            {"Copy session link", "row_menu_copy_link", Action::CopyLink});
-        items.push_back(
-            {"Copy session ID", "row_menu_copy_id", Action::CopyId});
+        items.push_back({"Copy session link", "row_menu_copy_link",
+                         Action::CopyLink});
+        items.push_back({"Copy session ID", "row_menu_copy_id",
+                         Action::CopyId});
         items.push_back({model::is_archived(*target) ? "Unarchive" : "Archive",
                          "row_menu_archive", Action::Archive});
-        items.push_back(
-            {target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute});
+        items.push_back({target->muted ? "Unmute" : "Mute", "row_menu_mute",
+                         Action::Mute});
         // Only for a folder that has actually been hand-arranged: on every
         // other row this would be an item that undoes nothing.
         const std::string orderKey = group_key_for(*target);
         if (app.rowOrder.count(orderKey) != 0)
-            items.push_back(
-                {"Reset order", "row_menu_reset_order", Action::ResetOrder});
+            items.push_back({"Reset order", "row_menu_reset_order",
+                             Action::ResetOrder});
 
         const float menuW = 176.0f;
         const float headerH = 28.0f;
@@ -735,20 +729,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // An invisible full-window eater under the menu. Without it a click
         // meant to dismiss the menu lands on whatever row is beneath it and
         // opens that thread on the way out.
-        auto eater =
-            button(ctx, mk(uiRoot, 8899),
-                   ComponentConfig{}
-                       .with_label(" ")
-                       .with_size(ComponentSize{pixels(ctx.screen_width),
-                                                pixels(ctx.screen_height)})
-                       .with_absolute_position()
-                       .with_translate(0.0f, 0.0f)
-                       .with_transparent_bg()
-                       .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
-                       .with_click_activation(ClickActivationMode::Press)
-                       .with_roundness(0.0f)
-                       .with_render_layer(kMenuLayer - 1)
-                       .with_debug_name("row_menu_eater"));
+        auto eater = button(ctx, mk(uiRoot, 8899),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(ctx.screen_width),
+                                         pixels(ctx.screen_height)})
+                .with_absolute_position()
+                .with_translate(0.0f, 0.0f)
+                .with_transparent_bg()
+                .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.0f)
+                .with_render_layer(kMenuLayer - 1)
+                .with_debug_name("row_menu_eater"));
 
         auto menuConfig = hanabi::surface::menu(menuW, menuH, kMenuLayer);
         menuConfig.with_absolute_position()
@@ -758,8 +751,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(uiRoot, 8998),
             ComponentConfig{}
                 .with_label("CONVERSATION")
-                .with_size(
-                    ComponentSize{pixels(menuW - 16.0f), pixels(headerH)})
+                .with_size(ComponentSize{pixels(menuW - 16.0f), pixels(headerH)})
                 .with_absolute_position()
                 .with_translate(mx + 8.0f, my + 4.0f)
                 .with_transparent_bg()
@@ -772,24 +764,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         const std::string targetId = target->id;
         for (size_t k = 0; k < items.size(); ++k) {
-            const bool destructive = items[k].action == Action::Archive &&
-                                     !model::is_archived(*target);
+            const bool destructive =
+                items[k].action == Action::Archive &&
+                !model::is_archived(*target);
             auto rowConfig = hanabi::surface::option_row(
                 menuW - 8.0f, itemH, false, kMenuLayer + 1,
                 destructive ? hanabi::surface::destructive_surface()
                             : theme::panel_bg());
             rowConfig.with_label(items[k].label)
                 .with_absolute_position()
-                .with_translate(mx + 4.0f, my + 4.0f + headerH +
-                                               itemH * static_cast<float>(k))
+                .with_translate(mx + 4.0f,
+                                my + 4.0f + headerH +
+                                    itemH * static_cast<float>(k))
                 .with_custom_text_color(destructive ? theme::destructive()
                                                     : theme::text_primary())
                 .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_padding(Padding{.left = pixels(10)})
                 .with_debug_name(items[k].name);
-            auto hit =
-                button(ctx, mk(uiRoot, 8901 + static_cast<int>(k)), rowConfig);
+            auto hit = button(ctx, mk(uiRoot, 8901 + static_cast<int>(k)),
+                              rowConfig);
             if (!hit) continue;
             switch (items[k].action) {
                 case Action::Rename:
@@ -898,7 +892,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // the glyph's centre at x=15.5 and the title's first ink at x=28, so the
     // slot is 13 wide from kSbInset.
     static constexpr float kRowLeftInset = kSbInset;
-    static constexpr float kGlyphW = 13.0f;  // leading status glyph slot
+    static constexpr float kGlyphW = 13.0f;   // leading status glyph slot
     // kRowTitlePad DOES NOT PLACE THE TITLE, and it is no longer asked to.
     // afterhours draws a label's text from the ELEMENT's own rect plus its
     // private 5px text margin and ignores the element's padding entirely
@@ -908,8 +902,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // nothing else, the `.with_padding` that used to sit on the title element
     // is GONE rather than left in as decoration (it would have moved every
     // title six pixels right the day #85 is fixed upstream), and the title's
-    // first ink lands at kRowLeftInset + kGlyphW + kAhTextInset +
-    // kRowTitleLead.
+    // first ink lands at kRowLeftInset + kGlyphW + kAhTextInset + kRowTitleLead.
     //
     // Without the lead that is 27, and the reference's is 28. That one pixel,
     // uniform across all nineteen visible rows, was the whole of the list
@@ -984,7 +977,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const std::string owned{text};
         std::string fitted = hanabi::text::fit_to_width(
             owned, maxW, [px](const char* s) { return theme::text_px(s, px); });
-        const std::string& out = cache.put(text, px, maxW, std::move(fitted));
+        const std::string& out =
+            cache.put(text, px, maxW, std::move(fitted));
         hanabi::prof::gauge("cache.fit_entries", cache.size());
         return out;
     }
@@ -1006,6 +1000,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                kSbRuleH + kSbSearchH + kSbListGap;
     }
     // ---- text helpers ----
+
 
     // Compact right-aligned per-row timestamp derived from `updated_at`
     // (relative to `now`). Recent rows read as a relative age ("now","5m",
@@ -1178,7 +1173,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (s.state == api::ThreadState::Running ||
             s.state == api::ThreadState::Working)
             return SidebarGlyph::Running;
-        if (s.tag == api::ThreadTag::Done || s.tag == api::ThreadTag::Review ||
+        if (s.tag == api::ThreadTag::Done ||
+            s.tag == api::ThreadTag::Review ||
             s.state == api::ThreadState::Ready)
             return SidebarGlyph::Done;
         return SidebarGlyph::Idle;
@@ -1186,14 +1182,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     static theme::Color mark_color(SidebarGlyph glyph) {
         switch (glyph) {
-            case SidebarGlyph::Running:
-                return theme::accent();
-            case SidebarGlyph::Blocked:
-                return theme::status_blocked();
-            case SidebarGlyph::Done:
-                return theme::status_review();
-            case SidebarGlyph::Idle:
-                return theme::text_faint();
+            case SidebarGlyph::Running: return theme::accent();
+            case SidebarGlyph::Blocked: return theme::status_blocked();
+            case SidebarGlyph::Done: return theme::status_review();
+            case SidebarGlyph::Idle: return theme::text_faint();
         }
         return theme::text_faint();
     }
@@ -1205,8 +1197,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Sits toward the slot's right with a gap before the star, matching how
         // the star insets itself from the timestamp.
         const float cx = rect.x + rect.width - hanabi::viewport::px(12.0f);
-        const float cy =
-            rect.y + rect.height * 0.5f - hanabi::viewport::px(1.0f);
+        const float cy = rect.y + rect.height * 0.5f - hanabi::viewport::px(1.0f);
         const float r = hanabi::viewport::px(5.0f);
         afterhours::draw_circle_lines(static_cast<int>(cx),
                                       static_cast<int>(cy), r, c);
@@ -1260,10 +1251,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // than this assuming the sidebar's.
     static void draw_mark(RectangleType rect, SidebarGlyph glyph,
                           theme::Color bg) {
-        const float cx =
-            rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
-        const float cy =
-            rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
+        const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
+        const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
         const theme::Color c = mark_color(glyph);
         switch (glyph) {
             case SidebarGlyph::Running: {
@@ -1278,14 +1267,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // of straight up. Angles run clockwise from three o'clock, so
                 // that is -49 to 240.
                 //
-                // Puffin's source cannot settle this.
-                // `SessionRowView.statusDot` in the v0.5.2 checkout is a 7pt
-                // filled `Circle()` -- the five shapes arrived after it
-                // (REFERENCE.md), so the frozen PNG is the only authority for
-                // the arc's geometry and every number above comes off it.
-                afterhours::draw_ring_segment(
-                    cx, cy, hanabi::viewport::px(kArcInner),
-                    hanabi::viewport::px(kArcOuter), -49.0f, 240.0f, 28, c);
+                // Puffin's source cannot settle this. `SessionRowView.statusDot`
+                // in the v0.5.2 checkout is a 7pt filled `Circle()` -- the five
+                // shapes arrived after it (REFERENCE.md), so the frozen PNG is
+                // the only authority for the arc's geometry and every number
+                // above comes off it.
+                afterhours::draw_ring_segment(cx, cy, hanabi::viewport::px(kArcInner), hanabi::viewport::px(kArcOuter),
+                                              -49.0f, 240.0f, 28, c);
                 break;
             }
             case SidebarGlyph::Idle: {
@@ -1293,8 +1281,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // at this size lands the dot half a pixel off and reads as a
                 // lumpy polygon. A zero-inner-radius ring segment is the same
                 // shape with a float centre.
-                afterhours::draw_ring_segment(cx, cy, 0.0f,
-                                              hanabi::viewport::px(kDotR), 0.0f,
+                afterhours::draw_ring_segment(cx, cy, 0.0f, hanabi::viewport::px(kDotR), 0.0f,
                                               360.0f, 28, c);
                 break;
             }
@@ -1316,22 +1303,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 const float half = kBangT * 0.5f * u;
                 hanabi::glyph::rect_aa(cx - half, cy - kBangTop * u, cx + half,
                                        cy + kBangBot * u, c, bg);
-                hanabi::glyph::rect_aa(
-                    cx - half, cy + kBangDotY * u - kBangDotH * 0.5f * u,
-                    cx + half, cy + kBangDotY * u + kBangDotH * 0.5f * u, c,
-                    bg);
+                hanabi::glyph::rect_aa(cx - half, cy + kBangDotY * u - kBangDotH * 0.5f * u,
+                                       cx + half,
+                                       cy + kBangDotY * u + kBangDotH * 0.5f * u,
+                                       c, bg);
                 break;
             }
             case SidebarGlyph::Done: {
                 const float u = hanabi::viewport::px(1.0f);
                 afterhours::draw_line_ex(
                     afterhours::vec2{cx - 4.0f * u, cy},
-                    afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u}, kCheckT * u,
-                    c);
+                    afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u},
+                    kCheckT * u, c);
                 afterhours::draw_line_ex(
                     afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u},
-                    afterhours::vec2{cx + 5.0f * u, cy - 4.0f * u}, kCheckT * u,
-                    c);
+                    afterhours::vec2{cx + 5.0f * u, cy - 4.0f * u},
+                    kCheckT * u, c);
                 break;
             }
         }
@@ -1349,8 +1336,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const float cx = rect.x + rect.width * 0.5f;
         const float cy = rect.y + rect.height * 0.5f;
         const float dp = hanabi::viewport::px(px);
-        const float hw = dp * 0.5f;   // half-width of the triangle base
-        const float hh = dp * 0.44f;  // half-height (apex above center)
+        const float hw = dp * 0.5f;          // half-width of the triangle base
+        const float hh = dp * 0.44f;         // half-height (apex above center)
         const afterhours::vec2 apex{cx, cy - hh};
         const afterhours::vec2 bl{cx - hw, cy + hh};
         const afterhours::vec2 br{cx + hw, cy + hh};
@@ -1442,8 +1429,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             spacer(ctx, parent, 1, kSbTitlebarH);
             return;
         }
-        auto header = div(
-            ctx, mk(parent, 1),
+        auto header = div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(40)})
                 .with_flex_direction(FlexDirection::Column)
@@ -1453,8 +1439,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // the smart-view icons below, forming one flush-left column.
                 .with_align_items(AlignItems::FlexStart)
                 .with_justify_content(JustifyContent::FlexStart)
-                .with_padding(Padding{.top = pixels(7),
-                                      .right = pixels(8),
+                .with_padding(Padding{.top = pixels(7), .right = pixels(8),
                                       .bottom = pixels(5),
                                       .left = pixels(kRailIconInset)})
                 .with_transparent_bg()
@@ -1463,8 +1448,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Folded rail: a single expand toggle in the header column.
         auto collapseBtn = button(ctx, mk(header.ent(), 4),
-                                  icon_btn_sprite("sidebar_open", "\xc2\xbb")
-                                      .with_debug_name("sb_collapse"));
+            icon_btn_sprite("sidebar_open", "\xc2\xbb")
+                .with_debug_name("sb_collapse"));
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
             Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
@@ -1485,8 +1470,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                       AppComponent& app, LayoutComponent& layout,
                       float panelW) {
         const bool collapsed = app.collapsedFolders.count(kViewsKey) > 0;
-        auto strip = div(
-            ctx, mk(parent, 2),
+        auto strip = div(ctx, mk(parent, 2),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kSbStripH)})
                 .with_flex_direction(FlexDirection::Row)
@@ -1496,10 +1480,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // chevron sits further left than every row below it. Measured
                 // -- the reference's chevron spans x9..16 where a 9px inset
                 // puts hanabi's at x12..18.
-                .with_padding(Padding{.right = pixels(5), .left = pixels(7)})
+                .with_padding(Padding{.right = pixels(5),
+                                      .left = pixels(7)})
                 .with_custom_background(theme::chrome::sidebar())
-                .with_custom_hover_bg(
-                    theme::hover_over(theme::chrome::sidebar()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Clickable but NOT a keyboard-focus stop: afterhours parks
                 // initial focus on the first focusable element and paints its
@@ -1511,10 +1495,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         strip.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (pointer_click(ctx, strip.ent())) {
-            if (collapsed)
-                app.collapsedFolders.erase(kViewsKey);
-            else
-                app.collapsedFolders.insert(kViewsKey);
+            if (collapsed) app.collapsedFolders.erase(kViewsKey);
+            else app.collapsedFolders.insert(kViewsKey);
         }
 
         // The strip's ink is the same blue-tinted grey as the view labels
@@ -1665,7 +1647,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!opt.valid()) return "";
         const Entity& e = opt.asE();
         if (e.has<afterhours::ui::HasLabel>()) {
-            const std::string& text = e.get<afterhours::ui::HasLabel>().label;
+            const std::string& text =
+                e.get<afterhours::ui::HasLabel>().label;
             // Non-BLANK, not non-empty: a row's first labelled child is its
             // glyph slot, whose label is a single space, and taking that as
             // the answer reported every row as " ".
@@ -1785,37 +1768,31 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         };
         for (int k = 0; k < 3; ++k) {
             const float cx = r.width - 70.0f + 24.0f * static_cast<float>(k);
-            auto hit =
-                button(ctx, mk(parent, btns[k].id),
-                       ComponentConfig{}
-                           .with_label(" ")
-                           .with_size(ComponentSize{pixels(22), pixels(22)})
-                           .with_absolute_position()
-                           .with_translate(cx - 11.0f, top + 3.0f)
-                           .with_transparent_bg()
-                           .with_custom_hover_bg(
-                               theme::hover_over(theme::chrome::sidebar()))
-                           .with_cursor(afterhours::ui::CursorType::Pointer)
-                           .with_click_activation(ClickActivationMode::Press)
-                           .with_skip_tabbing(true)
-                           .with_roundness(0.3f)
-                           .with_render_layer(2)
-                           .with_on_draw_fg(hanabi::icons::draw_fg(
-                               btns[k].icon, btns[k].fallback,
-                               theme::text_faint(), btns[k].px))
-                           .with_debug_name(btns[k].name));
+            auto hit = button(ctx, mk(parent, btns[k].id),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(22), pixels(22)})
+                    .with_absolute_position()
+                    .with_translate(cx - 11.0f, top + 3.0f)
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_skip_tabbing(true)
+                    .with_roundness(0.3f)
+                    .with_render_layer(2)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        btns[k].icon, btns[k].fallback, theme::text_faint(),
+                        btns[k].px))
+                    .with_debug_name(btns[k].name));
             if (!hit) continue;
-            if (k == 0)
-                app.composerOpen = true;
-            else if (k == 1)
-                app.paletteOpen = true;
-            else
-                app.showSettings = true;
+            if (k == 0) app.composerOpen = true;
+            else if (k == 1) app.paletteOpen = true;
+            else app.showSettings = true;
         }
 
         // The live cluster — activity light + session count — where hanabi's
-        // deleted bottom strip's information now lives.
-        // sidebar_footer_status.h.
+        // deleted bottom strip's information now lives. sidebar_footer_status.h.
         footer_status::render(ctx, parent, app, r.width, top + 1.0f,
                               kSbFooterH - 1.0f);
     }
@@ -1832,7 +1809,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // get one continuous rule instead of three segments that have to agree.
     void render_rail_divider(UIContext<InputAction>& ctx, Entity& uiRoot,
                              LayoutComponent& layout) {
-        const float h = hanabi::viewport::height();
+        const float h =
+            hanabi::viewport::height();
         const float x = layout.sidebar.x + layout.sidebar.width - 1.0f;
         div(ctx, mk(uiRoot, 1900),
             ComponentConfig{}
@@ -1895,25 +1873,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                        AppComponent& app, float panelW) {
         // Wrap in a full-width padded row so the search field itself never
         // extends past the sidebar (margins on a percent(1.0) child overflow).
-        auto wrap =
-            div(ctx, mk(parent, 4),
-                ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(kSbSearchH)})
-                    .with_flex_direction(FlexDirection::Row)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_align_items(AlignItems::Center)
-                    // -1: the pill lands on the reference's y270 rather than
-                    // 271. Taken off the wrap's own top padding rather than off
-                    // kSbSearchH, which also sets where the session list starts
-                    // -- twenty rows are not worth one.
-                    .with_padding(
-                        Padding{.top = pixels(kSbSearchH - kSbFieldH - 1.0f),
-                                .right = pixels(kSbInset),
-                                .bottom = pixels(0),
-                                .left = pixels(kSbInset)})
-                    .with_transparent_bg()
-                    .with_roundness(0.0f)
-                    .with_debug_name("sb_search_wrap"));
+        auto wrap = div(ctx, mk(parent, 4),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbSearchH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                // -1: the pill lands on the reference's y270 rather than 271.
+                // Taken off the wrap's own top padding rather than off
+                // kSbSearchH, which also sets where the session list starts --
+                // twenty rows are not worth one.
+                .with_padding(Padding{
+                    .top = pixels(kSbSearchH - kSbFieldH - 1.0f),
+                    .right = pixels(kSbInset),
+                    .bottom = pixels(0),
+                    .left = pixels(kSbInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("sb_search_wrap"));
         // Search field: a row-flex pill holding a magnifier sprite slot + an
         // editable text_input. HOVER + FOCUS states (Gabe: "you still didnt
         // address the hover state for the input for search"): the pill lifts on
@@ -1963,21 +1940,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // which is what centres its glyph on the reference's 266.5.
         float fieldW = panelW - 2.0f * kSbInset;
         if (fieldW < 60.0f) fieldW = 60.0f;
-        auto field = div(
-            ctx, mk(wrap.ent(), 1),
+        auto field = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(fieldW), pixels(kSbFieldH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.top = pixels(3),
-                                      .right = pixels(4),
-                                      .bottom = pixels(3),
-                                      .left = pixels(4)})
+                .with_padding(Padding{.top = pixels(3), .right = pixels(4),
+                                      .bottom = pixels(3), .left = pixels(4)})
                 .with_custom_background(fieldFill)
-                .with_custom_hover_bg(
-                    theme::hover_over(theme::chrome::raised()))
-                .with_border(fieldBorder, pixels(searchFocused ? 1.5f : 1.0f))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::raised()))
+                .with_border(fieldBorder,
+                             pixels(searchFocused ? 1.5f : 1.0f))
                 .with_corner_radius(theme::chrome::RADIUS)
                 .with_debug_name("sb_search"));
         s_searchFieldId = field.ent().id;
@@ -2000,9 +1974,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 // 11px, not 13: the reference's magnifier is 10px wide
                 // (x 17..26) where hanabi's was 12.
-                .with_on_draw_fg(
-                    hanabi::icons::draw_fg("search", "\xf0\x9f\x94\x8d",
-                                           theme::text_faint(), 12.0f, -1.0f))
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 12.0f,
+                    -1.0f))
                 .with_debug_name("sb_search_icon"));
 
         // Editable field bound to app.searchQuery. text_input() reads/writes
@@ -2049,14 +2023,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Clear affordance (only when a query is present): an ✕ that empties
         // the query and restores the full tree.
         if (hasQuery) {
-            auto clr = button(
-                ctx, mk(field.ent(), 3),
+            auto clr = button(ctx, mk(field.ent(), 3),
                 ComponentConfig{}
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(18), pixels(20)})
                     .with_transparent_bg()
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::chrome::sidebar()))
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::LG)
                     .with_alignment(TextAlignment::Center)
@@ -2079,14 +2051,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // rides the collapsedFolders sentinel set for the same reason the VIEWS
         // fold does — AppComponent is shared and this is one boolean.
         spacer_x(ctx, field.ent(), 4, 4.0f);
-        auto filt = button(
-            ctx, mk(field.ent(), 5),
+        auto filt = button(ctx, mk(field.ent(), 5),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(24), pixels(20)})
                 .with_transparent_bg()
-                .with_custom_hover_bg(
-                    theme::hover_over(theme::chrome::sidebar()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_skip_tabbing(true)
@@ -2107,10 +2077,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 })
                 .with_debug_name("sb_search_filter"));
         if (filt) {
-            if (hidingAuto)
-                app.collapsedFolders.erase(kHideAutoKey);
-            else
-                app.collapsedFolders.insert(kHideAutoKey);
+            if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
+            else app.collapsedFolders.insert(kHideAutoKey);
         }
     }
 
@@ -2149,8 +2117,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_smart_views(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, bool folded, float panelW) {
         const SmartView lit = lit_view(app);
-        auto container = div(
-            ctx, mk(parent, 3),
+        auto container = div(ctx, mk(parent, 3),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), children()})
                 .with_flex_direction(FlexDirection::Column)
@@ -2159,11 +2126,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // column is flush-left in one vertical line. Unfolded: rows are
                 // FULL-BLEED (Puffin's selected row runs edge to edge), so the
                 // inset lives on the row's own padding, not here.
-                .with_padding(
-                    Padding{.top = pixels(folded ? 0.0f : kSbViewsTopPad),
-                            .right = pixels(folded ? 4.0f : 0.0f),
-                            .bottom = pixels(0),
-                            .left = pixels(folded ? kRailIconInset : 0.0f)})
+                .with_padding(Padding{.top = pixels(folded ? 0.0f
+                                                           : kSbViewsTopPad),
+                                      .right = pixels(folded ? 4.0f : 0.0f),
+                                      .bottom = pixels(0),
+                                      .left = pixels(folded ? kRailIconInset
+                                                            : 0.0f)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("smart_views"));
@@ -2184,13 +2152,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    SmartView::Home, blocked + review, app, folded, panelW, lit);
         // Settings sits between Home and Blocked in Puffin. It is a sheet, not
         // a view, so it carries no count and never reads as selected.
-        if (!folded) settings_item(ctx, container.ent(), 2, app, panelW);
+        if (!folded)
+            settings_item(ctx, container.ent(), 2, app, panelW);
         // "hand", not "blocked": the atlas' `blocked` is Lucide's ban sign, a
         // circle-slash that reads as "forbidden" rather than "waiting on you".
         // The reference uses SF `hand.raised` (SmartViewSidebar.systemImage),
         // and the atlas now carries Lucide's hand, which is the same drawing.
-        smart_item(ctx, container.ent(), 3, "hand", "\xe2\x9b\x94", "Blocked",
-                   SmartView::Blocked, blocked, app, folded, panelW, lit);
+        smart_item(ctx, container.ent(), 3, "hand", "\xe2\x9b\x94",
+                   "Blocked", SmartView::Blocked, blocked, app, folded, panelW,
+                   lit);
         // The reference's Review glyph is SF `checkmark.circle` -- the check
         // is INSIDE a ring. The atlas' `review` is a bare check.
         smart_item(ctx, container.ent(), 4, "check_circle", "\xe2\x9c\x93",
@@ -2208,8 +2178,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // two are different things wearing one glyph here until now.
         smart_item(ctx, container.ent(), 5, "pin", "\xf0\x9f\x93\x8c", "Pinned",
                    SmartView::Starred, -1, app, folded, panelW, lit);
-        smart_item(ctx, container.ent(), 6, "archive", "", "Archived",
-                   SmartView::Archived, -1, app, folded, panelW, lit);
+        smart_item(ctx, container.ent(), 6, "archive", "",
+                   "Archived", SmartView::Archived, -1, app, folded,
+                   panelW, lit);
     }
 
     // A view-shaped row that opens the Settings sheet. Same geometry as
@@ -2218,8 +2189,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // that control still reaches it.
     void settings_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
                        AppComponent& app, float panelW) {
-        auto row = div(
-            ctx, mk(parent, 100 + idx),
+        auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kSbViewRowH)})
                 .with_flex_direction(FlexDirection::Row)
@@ -2230,8 +2200,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(5),
                                       .left = pixels(kSbInset)})
                 .with_custom_background(theme::chrome::sidebar())
-                .with_custom_hover_bg(
-                    theme::hover_over(theme::chrome::sidebar()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_settings"));
@@ -2248,16 +2217,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // kViewIconFg, not `txt`: same split as smart_item's, and
                 // for the same reason -- a blit reaches its colour, the label
                 // beside it does not.
-                .with_on_draw_fg(hanabi::icons::draw_fg("gear", "\xe2\x9a\x99",
-                                                        theme::text_faint(),
-                                                        kViewIconPx, -1.0f))
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "gear", "\xe2\x9a\x99", theme::text_faint(), kViewIconPx, -1.0f))
                 .with_debug_name("sv_icon"));
         // Same geometry as smart_item's label, for the same measured reasons:
         // a real spacer rather than an inert padding (gap #85), the reference's
         // 16.8px rather than BODY, and its blue-tinted ink.
         spacer_x(ctx, row.ent(), 7, kViewLabelGap);
-        float labelW =
-            panelW - kSbInset - kCountRightPad - 16.0f - kViewLabelGap;
+        float labelW = panelW - kSbInset - kCountRightPad - 16.0f -
+                       kViewLabelGap;
         if (labelW < 20.0f) labelW = 20.0f;
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
@@ -2273,14 +2241,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     void smart_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
                     const std::string& icon_name,
-                    const std::string& fallback_glyph, const std::string& label,
-                    SmartView view, int count, AppComponent& app, bool folded,
-                    float panelW, SmartView lit) {
+                    const std::string& fallback_glyph,
+                    const std::string& label, SmartView view, int count,
+                    AppComponent& app, bool folded, float panelW,
+                    SmartView lit) {
         bool active = lit == view;
         const theme::Color selectedFill =
             theme::chrome::selected_on(theme::chrome::sidebar());
-        auto row = div(
-            ctx, mk(parent, 100 + idx),
+        auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
                 // Unfolded: the FILL is shorter than the row's pitch. The
                 // reference's selected fill is 29px inside a 32px pitch, so it
@@ -2298,29 +2266,31 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // (kRailIconSlot, == the header toggle box) makes the centered
                 // glyph land on the same vertical line as the toggle above.
                 // Unfolded: kSbInset is the ONE left inset the whole sidebar
-                // shares, and kCountRightPad puts every count on one right
-                // edge. 6/4, not 4/5. The fill lost 3px of height above, and
-                // the row's content is centred inside what is left, so the
-                // whole row rode up with it. Re-derived by sweep against the
+                // shares, and kCountRightPad puts every count on one right edge.
+                // 6/4, not 4/5. The fill lost 3px of height above, and the
+                // row's content is centred inside what is left, so the whole
+                // row rode up with it. Re-derived by sweep against the
                 // reference's own label rows: at 6/4 Blocked lands 142..152
                 // and Review 174..184, both exact.
                 .with_padding(Padding{.top = pixels(kSvPadTop),
                                       .right = pixels(kBadgeRightPad),
                                       .bottom = pixels(folded ? 4.0f : 4.0f),
-                                      .left = pixels(folded ? 0.0f : kSbInset)})
-                .with_margin(Margin{
-                    .top = pixels(kSvFillTop),
-                    .right = pixels(0),
-                    // Whatever the pitch has left under the
-                    // fill once its top margin is taken.
-                    .bottom =
-                        pixels(folded ? 1.0f : kSbViewFillInset - kSvFillTop),
-                    .left = pixels(0)})
+                                      .left = pixels(folded ? 0.0f
+                                                            : kSbInset)})
+                .with_margin(Margin{.top = pixels(kSvFillTop),
+                                    .right = pixels(0),
+                                    // Whatever the pitch has left under the
+                                    // fill once its top margin is taken.
+                                    .bottom = pixels(folded
+                                                         ? 1.0f
+                                                         : kSbViewFillInset -
+                                                               kSvFillTop),
+                                    .left = pixels(0)})
                 .with_custom_background(active ? selectedFill
                                                : theme::chrome::sidebar())
-                .with_custom_hover_bg(
-                    active ? selectedFill
-                           : theme::hover_over(theme::chrome::sidebar()))
+                .with_custom_hover_bg(active ? selectedFill
+                                             : theme::hover_over(
+                                                   theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Puffin's selected row runs the full width -- x0..278, the
                 // whole sidebar -- but its corners are ROUNDED, not square:
@@ -2332,10 +2302,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 // min(w,h) * 0.5 * roundness, so on a 29px-tall fill 5px is
                 // 5/14.5. Expressed as that division rather than as 0.34, so
                 // it still means 5px if the row height ever changes.
-                .with_roundness(
-                    folded ? 0.3f
-                           : kSbViewFillRadius /
-                                 ((kSbViewRowH - kSbViewFillInset) * 0.5f))
+                .with_roundness(folded ? 0.3f
+                                       : kSbViewFillRadius /
+                                             ((kSbViewRowH - kSbViewFillInset) *
+                                              0.5f))
                 .with_debug_name("smart_item"));
 
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
@@ -2353,8 +2323,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // colour. theme::text_primary reads 224 at its peak against the
         // reference's 251. (The reference also draws it semibold; that half is
         // gap #77 and not available to us.)
-        theme::Color txt =
-            active ? theme::text_primary() : theme::text_secondary();
+        theme::Color txt = active ? theme::text_primary() : theme::text_secondary();
 
         // Folded rail: a smart view whose count > 0 gets a small attention dot
         // at the icon's top-right corner (Blocked = red, others = accent), so
@@ -2373,20 +2342,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // is gone and the row draws its sprite like every other row.
         const bool useAttentionIcon = false;
         const float iconPx = folded ? 18.0f : 16.0f;
-        const theme::Color iconInk =
-            active ? theme::accent() : theme::text_faint();
+        const theme::Color iconInk = active ? theme::accent() : theme::text_faint();
         auto attnColor = iconInk;
         auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph,
                                                iconInk, kViewIconPx, -1.0f);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(folded ? kRailIconSlot : 16.0f),
-                                         pixels(22)})
+                .with_size(ComponentSize{
+                    pixels(folded ? kRailIconSlot : 16.0f), pixels(22)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_on_draw_fg([iconDraw, attnColor, iconPx, railDot,
-                                  dotColor](RectangleType rect) {
+                .with_on_draw_fg([iconDraw, attnColor, iconPx,
+                                  railDot, dotColor](RectangleType rect) {
                     if (useAttentionIcon)
                         draw_attention_icon(rect, attnColor, iconPx);
                     else
@@ -2407,9 +2375,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // pushed flush to the row's right edge (afterhours has no flex-grow, so
         // a percent label would leave the count packed mid-row, not aligned).
         // Row content = panelW − row pad (kSbInset + kCountRightPad).
-        // label = content − icon(16) − the count's own width. Puffin puts the
-        // label ink at x=37: kSbInset 9 + icon 16 + a 12px pad on the label
-        // = 37.
+        // label = content − icon(16) − the count's own width. Puffin puts the label
+        // ink at x=37: kSbInset 9 + icon 16 + a 12px pad on the label = 37.
         //
         // No-overflow (defect: layout-warn spam): if icon+label+count exceed
         // the row content the NoWrap row overflows every frame (warn +
@@ -2434,9 +2401,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // square would clip it. One digit works out to the measured 17x17.
         float svBadgeW = kBadgeD;
         if (count > 9)
-            svBadgeW =
-                std::ceil(theme::text_px(countText.c_str(), theme::type::SM)) +
-                2.0f * kBadgePadX;
+            svBadgeW = std::ceil(theme::text_px(countText.c_str(),
+                                                theme::type::SM)) +
+                       2.0f * kBadgePadX;
         bool svShowCount =
             count > 0 && (kSvContent - 16.0f - kSvLabelMin) >= svBadgeW;
         float svLabelW = kSvContent - 16.0f - kViewLabelGap -
@@ -2456,8 +2423,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         if (svShowCount) {
             theme::Color countColor = theme::accent();
-            if (view == SmartView::Blocked)
-                countColor = theme::status_blocked();
+            if (view == SmartView::Blocked) countColor = theme::status_blocked();
             if (view == SmartView::Review) countColor = theme::status_review();
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
@@ -2492,9 +2458,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             --end;
         if (end == 0) return folder;
         const size_t slash = folder.find_last_of("/\\", end - 1);
-        return folder.substr(
-            slash == std::string::npos ? 0 : slash + 1,
-            end - (slash == std::string::npos ? 0 : slash + 1));
+        return folder.substr(slash == std::string::npos ? 0 : slash + 1,
+                             end - (slash == std::string::npos ? 0 : slash + 1));
     }
 
     int folder_base(const std::string& key) {
@@ -2620,8 +2585,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             std::min(kFlingOverscanRows,
                      static_cast<int>(pending / kRowHeight) + 1);
 
-        int first =
-            static_cast<int>(sv.scroll_offset.y / kRowHeight) - overscan;
+        int first = static_cast<int>(sv.scroll_offset.y / kRowHeight) - overscan;
         if (first < 0) first = 0;
         int span = static_cast<int>(viewH / kRowHeight) + 2 + 2 * overscan;
         if (span > kMaxWindowRows) span = kMaxWindowRows;
@@ -2795,23 +2759,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Header row. Right pad is kCountRightPad so the count's right edge
         // lines up with the smart-view / other-group counts (unified column).
-        auto head =
-            div(ctx, mk(parent, base),
-                ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f), pixels(26)})
-                    .with_flex_direction(FlexDirection::Row)
-                    .with_flex_wrap(FlexWrap::NoWrap)
-                    .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.top = pixels(4),
-                                          .right = pixels(kCountRightPad),
-                                          .bottom = pixels(4),
-                                          .left = pixels(10)})
-                    .with_custom_background(theme::chrome::sidebar())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::chrome::sidebar()))
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_roundness(0.3f)
-                    .with_debug_name("folder_head_" + name));
+        auto head = div(ctx, mk(parent, base),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(4),
+                                      .right = pixels(kCountRightPad),
+                                      .bottom = pixels(4), .left = pixels(10)})
+                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("folder_head_" + name));
 
         // Clicking the header toggles collapse for this key. Disabled while a
         // query is active (results stay pinned open).
@@ -2863,8 +2824,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             std::ceil(theme::text_px(headCountText.c_str(), theme::type::SM)) +
             kAhTextInset;
         bool headShowCount = (kHeadContent - 16.0f - 30.0f) >= headCountW;
-        float headNameW = headShowCount ? (kHeadContent - 16.0f - headCountW)
-                                        : (kHeadContent - 16.0f);
+        float headNameW = headShowCount
+                              ? (kHeadContent - 16.0f - headCountW)
+                              : (kHeadContent - 16.0f);
         if (headNameW < 16.0f) headNameW = 16.0f;
         div(ctx, mk(head.ent(), 4),
             ComponentConfig{}
@@ -2877,16 +2839,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("folder_name"));
         if (headShowCount)
-            div(ctx, mk(head.ent(), 2),
-                ComponentConfig{}
-                    .with_label(headCountText)
-                    .with_size(ComponentSize{pixels(headCountW), pixels(18)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
-                    .with_font_size(theme::type::SM)
-                    .with_alignment(TextAlignment::Left)
-                    .with_roundness(0.0f)
-                    .with_debug_name("folder_count"));
+        div(ctx, mk(head.ent(), 2),
+            ComponentConfig{}
+                .with_label(headCountText)
+                .with_size(ComponentSize{pixels(headCountW), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("folder_count"));
 
         return collapsed;
     }
@@ -2910,8 +2872,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             theme::Color headColor =
                 archived ? theme::text_faint() : theme::text_secondary();
             bool collapsed = render_group_header(
-                ctx, parent, base, name, key, static_cast<int>(members.size()),
-                headColor, app, q, panelW);
+                ctx, parent, base, name, key,
+                static_cast<int>(members.size()), headColor, app, q, panelW);
             // Collapsed: header only, no body rows.
             if (collapsed) return static_cast<int>(members.size());
         }
@@ -2974,10 +2936,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // reorder records where a row sits among its peers, so it needs
             // the absolute index -- but an id derived from that index would
             // mint a fresh entity for every row scrolled past and never retire
-            // one (#115), which is the leak this change exists to avoid,
-            // dressed up as a fix. Keying on the window slot means the same
-            // handful of entities are re-used as the list moves under them,
-            // which is what an immediate-mode row is.
+            // one (#115), which is the leak this change exists to avoid, dressed
+            // up as a fix. Keying on the window slot means the same handful of
+            // entities are re-used as the list moves under them, which is what
+            // an immediate-mode row is.
             const int slot = idx;
             const int rowId = base + 1 + (++i);
             // While searching, a row carries the line it matched on, with the
@@ -2993,16 +2955,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 rowEnt = render_chat_row(ctx, parent, rowId, *s, app, archived,
                                          panelW);
             } else {
-                auto wrap =
-                    div(ctx, mk(parent, rowId),
-                        ComponentConfig{}
-                            .with_size(ComponentSize{
-                                percent(1.0f), pixels(kRowHeight + kSnippetH)})
-                            .with_flex_direction(FlexDirection::Column)
-                            .with_flex_wrap(FlexWrap::NoWrap)
-                            .with_transparent_bg()
-                            .with_roundness(0.0f)
-                            .with_debug_name("sb_result"));
+                auto wrap = div(ctx, mk(parent, rowId),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{percent(1.0f),
+                                                 pixels(kRowHeight + kSnippetH)})
+                        .with_flex_direction(FlexDirection::Column)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_debug_name("sb_result"));
                 rowEnt = render_chat_row(ctx, wrap.ent(), 1, *s, app, archived,
                                          panelW);
                 render_snippet(ctx, wrap.ent(), snip, q, panelW);
@@ -3010,7 +2971,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             renderedIds.push_back(s->id);
             if (!haveBand) {
                 auto opt = EntityHelper::getEntityForID(rowEnt);
-                if (opt.valid() && opt->has<afterhours::ui::UIComponent>()) {
+                if (opt.valid() &&
+                    opt->has<afterhours::ui::UIComponent>()) {
                     bandY = opt->get<afterhours::ui::UIComponent>().rect().y;
                     haveBand = true;
                 }
@@ -3046,8 +3008,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 ctx.mouse.pos.y, bandY, kRowHeight, renderedIds.size());
             // The line sits on the leading edge of the slot being dropped into,
             // which is where the row will actually come to rest.
-            drag.lineY =
-                bandY + kRowHeight * static_cast<float>(drag.dropIndex);
+            drag.lineY = bandY + kRowHeight * static_cast<float>(drag.dropIndex);
         }
 
         // Drop. The manual order is sidebar-owned state (not the shared
@@ -3067,11 +3028,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // body row id (base + 1 .. base + total).
         if (!expandedMore && total > cap) {
             const int hidden = total - cap;
-            auto more = div(
-                ctx, mk(parent, base + kMoreRowIdOffset),
+            auto more = div(ctx, mk(parent, base + kMoreRowIdOffset),
                 ComponentConfig{}
-                    .with_label("Show " + std::to_string(hidden) +
-                                " more\xe2\x80\xa6")
+                    .with_label("Show " + std::to_string(hidden) + " more\xe2\x80\xa6")
                     .with_size(ComponentSize{percent(1.0f), pixels(24)})
                     // V7: align the "Show N more…" label with the thread-row
                     // TITLE text above it, not the row's left edge. A thread
@@ -3081,14 +3040,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     // flush under the glyph column instead of under the titles;
                     // matching 22 + kGlyphW lands "Show N more…" directly under
                     // the thread titles so it reads as part of the same list.
-                    .with_padding(Padding{
-                        .top = pixels(2),
-                        .right = pixels(8),
-                        .bottom = pixels(2),
-                        .left = pixels(kRowLeftInset + kGlyphW + kRowTitlePad)})
+                    .with_padding(Padding{.top = pixels(2), .right = pixels(8),
+                                          .bottom = pixels(2),
+                                          .left = pixels(kRowLeftInset + kGlyphW +
+                                                         kRowTitlePad)})
                     .with_custom_background(theme::chrome::sidebar())
-                    .with_custom_hover_bg(
-                        theme::hover_over(theme::chrome::sidebar()))
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::ROW)
                     .with_alignment(TextAlignment::Left)
@@ -3104,6 +3061,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return total;
     }
 
+
+
     // ---- search snippets -------------------------------------------------
     // The line a matching row matched ON. Preference order is "the sentence
     // the user would recognise": a transcript we are already holding in memory
@@ -3117,14 +3076,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (q.empty()) return std::string();
         if (const api::Session* held = app.transcriptCache.peek(s.id)) {
             for (const auto& m : held->messages) {
-                if (m.role != api::Role::User && m.role != api::Role::Assistant)
+                if (m.role != api::Role::User &&
+                    m.role != api::Role::Assistant)
                     continue;
                 const std::string sn =
                     hanabi::snippet_highlight::extract(m.text, q);
                 if (!sn.empty()) return sn;
             }
         }
-        const std::string sn = hanabi::snippet_highlight::extract(s.preview, q);
+        const std::string sn =
+            hanabi::snippet_highlight::extract(s.preview, q);
         // A title match has nothing lit in it; the preview is still the most
         // useful line to put under the title, so it renders plain.
         return sn.empty() ? s.preview : sn;
@@ -3172,16 +3133,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // The trailing star is a real clickable child of the row, and hot is a
         // single entity: the moment the pointer crosses from the row body onto
         // the star, hot flips to the star, is_hot(row) goes false, and the row
-        // drops its hover wash for exactly those frames — the whole row
-        // flashes. The wash is therefore baked into the row's BASE fill, asking
-        // about the whole subtree rather than the row entity alone, so the fill
-        // is identical no matter which of {row, star} currently owns hot. An
-        // unhovered row stays plain.
+        // drops its hover wash for exactly those frames — the whole row flashes.
+        // The wash is therefore baked into the row's BASE fill, asking about the
+        // whole subtree rather than the row entity alone, so the fill is
+        // identical no matter which of {row, star} currently owns hot.
+        // An unhovered row stays plain.
 
         // Row height is the MEASURED Puffin pitch (kRowHeight = 32). Full
         // bleed, square corners: the hover wash runs edge to edge.
-        auto row = div(
-            ctx, mk(parent, id),
+        auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
                 .with_flex_direction(FlexDirection::Row)
@@ -3192,8 +3152,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(6),
                                       .left = pixels(kRowLeftInset)})
                 .with_custom_background(theme::chrome::sidebar())
-                .with_custom_hover_bg(
-                    theme::hover_over(theme::chrome::sidebar()))
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 // Open on RELEASE, not press. afterhours withholds a click
                 // whose press moved past the drag threshold, but only on the
@@ -3205,15 +3164,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         bool rowHot = false;
         // Bake the hover wash into the row's BASE fill whenever the pointer is
-        // anywhere in the row's subtree, so the fill never flickers as hot
-        // moves between the row and its star (see note above).
+        // anywhere in the row's subtree, so the fill never flickers as hot moves
+        // between the row and its star (see note above).
         {
             rowHot = ctx.mouse_in_subtree(row.ent().id) ||
                      ctx.mouse_was_in_subtree(row.ent().id);
             if (rowHot) {
                 if (row.ent().has<afterhours::HasColor>())
-                    row.ent().get<afterhours::HasColor>().set(
-                        theme::hover_over(theme::chrome::sidebar()));
+                    row.ent()
+                        .get<afterhours::HasColor>()
+                        .set(theme::hover_over(theme::chrome::sidebar()));
             }
         }
 
@@ -3236,9 +3196,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_on_draw_fg([mark, rowHot](RectangleType rect) {
                     draw_mark(rect, mark,
-                              rowHot
-                                  ? theme::hover_over(theme::chrome::sidebar())
-                                  : theme::chrome::sidebar());
+                              rowHot ? theme::hover_over(theme::chrome::sidebar())
+                                     : theme::chrome::sidebar());
                 })
                 .with_debug_name("row_glyph"));
 
@@ -3299,9 +3258,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // child cannot move its siblings, which is a stronger guarantee than
         // the reserved slot gave.
         const float kRowPad = kRowLeftInset + kCountRightPad;
-        const float kStarW = 18.0f;     // the floating star's own box
-        const float kBellW = 18.0f;     // trailing mute slot, left of the star
-        const float kTitleMin = 40.0f;  // title floor before dropping columns
+        const float kStarW = 18.0f;       // the floating star's own box
+        const float kBellW = 18.0f;       // trailing mute slot, left of the star
+        const float kTitleMin = 40.0f;    // title floor before dropping columns
         float rowContent = panelW - kRowPad;
         if (rowContent < kGlyphW + 10.0f) rowContent = kGlyphW + 10.0f;
         bool showStar = (rowContent - kGlyphW - kTitleMin) >= kStarW;
@@ -3310,7 +3269,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // ~18px off every title in the list for an affordance almost no row
         // uses. Muting is on the row's context menu instead, so nothing appears
         // on hover and no row reflows; a muted row pays for its own mark.
-        bool showBell = s.muted && (rowContent - kGlyphW - kTitleMin) >= kBellW;
+        bool showBell =
+            s.muted && (rowContent - kGlyphW - kTitleMin) >= kBellW;
         // The sub-agent count is claimed only by a thread that HAS sub-agents,
         // and it is measured to its own text rather than given a fixed column
         // — the same bargain the mute mark strikes, for the same reason. A
@@ -3324,9 +3284,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const std::string countLabel = ecs::model::sub_agent_label(s);
         float countW = 0.0f;
         if (!countLabel.empty()) {
-            countW =
-                std::ceil(theme::text_px(countLabel.c_str(), count_font_px())) +
-                kAhTextInset;
+            countW = std::ceil(theme::text_px(countLabel.c_str(),
+                                              count_font_px())) +
+                     kAhTextInset;
             if ((rowContent - kGlyphW - kTitleMin -
                  (showBell ? kBellW : 0.0f)) < countW)
                 countW = 0.0f;
@@ -3341,12 +3301,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // lets the text use the full column instead of ellipsizing early.
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fit_to_width(
-                    display_title_view(s.title), theme::type::LIST_ROW,
-                    rowTitleW - kRowTitlePad -
-                        (showCount ? kCountTextPad : 0.0f)))
+                .with_label(fit_to_width(display_title_view(s.title),
+                                         theme::type::LIST_ROW,
+                                         rowTitleW - kRowTitlePad -
+                                             (showCount ? kCountTextPad : 0.0f)))
                 .with_size(ComponentSize{pixels(rowTitleW - kRowTitleLead),
-                                         pixels(20)})
+                                        pixels(20)})
                 .with_margin(Margin{.left = pixels(kRowTitleLead)})
                 .with_transparent_bg()
                 .with_custom_text_color(titleColor)
@@ -3359,16 +3319,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // ("2h","3d","Jul 28"). Now the RIGHTMOST column (star sits to its
         // left â star/time swapped per Gabe). Fixed-width slot sized in
         // pixels (gap #18). Empty label (unknown/future updated_at) => the slot
-        // renders blank but still reserves its width, keeping row layout
-        // stable. Star affordance: shown when the row is HOVERED, or always
-        // when the thread is already starred (so starred state stays visible at
-        // rest). Uses was_hot (previous frame's hot id) since the current
-        // frame's hot state isn't resolved until after this render pass. A
-        // starred row shows a filled accent star; a hovered-unstarred row shows
-        // a faint hollow star to toggle; an unhovered-unstarred row shows
-        // nothing. Subtree, not the row entity alone: the star child owns hot
-        // while the pointer is on it, and the affordance must not blink out
-        // from under the cursor.
+        // renders blank but still reserves its width, keeping row layout stable.
+        // Star affordance: shown when the row is HOVERED, or always when the
+        // thread is already starred (so starred state stays visible at rest).
+        // Uses was_hot (previous frame's hot id) since the current frame's hot
+        // state isn't resolved until after this render pass. A starred row shows
+        // a filled accent star; a hovered-unstarred row shows a faint hollow
+        // star to toggle; an unhovered-unstarred row shows nothing.
+        // Subtree, not the row entity alone: the star child owns hot while the
+        // pointer is on it, and the affordance must not blink out from under
+        // the cursor.
         bool rowHovered = ctx.mouse_was_in_subtree(row.ent().id) ||
                           ctx.mouse_in_subtree(row.ent().id) ||
                           // Test-only: force one row's hover (e.g. to capture
@@ -3382,26 +3342,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool bellClicked = false;
         if (showBell) {
             const std::string mid = s.id;
-            auto bell =
-                button(ctx, mk(row.ent(), 5),
-                       ComponentConfig{}
-                           .with_label(" ")
-                           .with_size(ComponentSize{pixels(18), pixels(20)})
-                           .with_transparent_bg()
-                           .with_cursor(afterhours::ui::CursorType::Pointer)
-                           .with_click_activation(ClickActivationMode::Press)
-                           .with_roundness(0.0f)
-                           .with_on_draw_fg([](RectangleType r) {
-                               draw_mute_mark(r, theme::text_secondary());
-                           })
-                           .with_debug_name("row_muted"));
+            auto bell = button(ctx, mk(row.ent(), 5),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(18), pixels(20)})
+                    .with_transparent_bg()
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([](RectangleType r) {
+                        draw_mute_mark(r, theme::text_secondary());
+                    })
+                    .with_debug_name("row_muted"));
             if (bell.ent().has<afterhours::HasColor>())
                 bell.ent().get<afterhours::HasColor>().skip_hover_override =
                     true;
             if (bell) {
                 app.requestToggleMute = mid;
-                bellClicked =
-                    true;  // suppress the row's open-thread this frame
+                bellClicked = true;  // suppress the row's open-thread this frame
             }
         }
 
@@ -3421,12 +3379,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 s.starred ? theme::accent() : theme::text_faint();
             const bool rowHot = ctx.mouse_in_subtree(row.ent().id) ||
                                 ctx.mouse_was_in_subtree(row.ent().id);
-            const theme::Color chip =
-                rowHot ? theme::hover_over(theme::chrome::sidebar())
-                       : theme::chrome::sidebar();
+            const theme::Color chip = rowHot
+                ? theme::hover_over(theme::chrome::sidebar())
+                : theme::chrome::sidebar();
             std::string sid = s.id;
-            auto star = button(
-                ctx, mk(row.ent(), 3),
+            auto star = button(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(kStarW), pixels(20)})
@@ -3451,11 +3408,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         // (Gabe: "add padding between the star and time").
                         const float cx = r.x + r.width - 13.0f;
                         const float cy = r.y + r.height * 0.5f - 1.0f;
-                        if (!hanabi::icons::draw_at("star", cx, cy, 12.0f,
-                                                    starColor)) {
-                            afterhours::draw_text(
-                                st ? "\xe2\x98\x85" : "\xe2\x98\x86", cx - 6.0f,
-                                cy - 6.0f, 12.0f, starColor);
+                        if (!hanabi::icons::draw_at(
+                                "star", cx, cy, 12.0f, starColor)) {
+                            afterhours::draw_text(st ? "\xe2\x98\x85"
+                                                     : "\xe2\x98\x86",
+                                                  cx - 6.0f, cy - 6.0f, 12.0f,
+                                                  starColor);
                         }
                     })
                     .with_debug_name("row_star"));
@@ -3466,8 +3424,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     true;
             if (star) {
                 app.requestToggleStar = sid;
-                starClicked =
-                    true;  // suppress the row's open-thread this frame
+                starClicked = true;  // suppress the row's open-thread this frame
             }
         }
 
@@ -3482,8 +3439,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // steals hot from it (the star already costs one).
         if (showCount) {
             const bool live = ecs::model::sub_agents_live(s);
-            theme::Color countColor =
-                live ? theme::accent() : theme::text_faint();
+            theme::Color countColor = live ? theme::accent() : theme::text_faint();
             if (archived) countColor = theme::text_faint();
             div(ctx, mk(row.ent(), 6),
                 ComponentConfig{}
@@ -3513,9 +3469,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.rowMenuY = ctx.mouse.pos.y;
         }
 
-        // Apply the deferred row-open: open the thread on a row click UNLESS
-        // the star was what got clicked (starring must not also open the
-        // thread).
+        // Apply the deferred row-open: open the thread on a row click UNLESS the
+        // star was what got clicked (starring must not also open the thread).
         if (rowClicked && !starClicked && !bellClicked) {
             app.requestOpenTab = s.id;
         }
