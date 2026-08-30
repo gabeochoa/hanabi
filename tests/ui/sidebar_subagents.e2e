@@ -5,6 +5,16 @@ wait_frames 30
 expect_text "SUB-AGENTS"
 expect_text "active 3  ·  completed 5  ·  failed 1  ·  blocked 1"
 expect_text "Ledger diff scan"
+
+# A child is also searchable through its parent title; this exercises the
+# warmed parent index rather than only child-title matching.
+click 140 58
+wait_frames 3
+type "decision"
+wait_frames 8
+expect_text "Ledger diff scan"
+expect_text "active 1  ·  completed 1  ·  failed 0  ·  blocked 0"
+
 screenshot /tmp/hanabi_subagent_sidebar.png
 click_ui subagent_row_t2s1
 wait_frames 24

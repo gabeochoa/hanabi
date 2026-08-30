@@ -1702,10 +1702,35 @@ static void test_session_overlays_reach_both_panes() {
     app.panes[0].openSession = left;
     app.panes[1].openSession = right;
 
+    const auto revision = app.sessionCatalogRevision;
     app.apply_starred("t2", true);
+    CHECK(app.sessionCatalogRevision == revision + 1);
+    app.apply_starred("t2", true);
+    CHECK(app.sessionCatalogRevision == revision + 1);
     app.apply_archived("t2", true);
+    CHECK(app.sessionCatalogRevision == revision + 2);
     app.apply_muted("t2", true);
+    CHECK(app.sessionCatalogRevision == revision + 3);
     app.apply_renamed_title("t2", "Renamed in both panes");
+    CHECK(app.sessionCatalogRevision == revision + 4);
+    app.apply_muted("missing", true);
+    CHECK(app.sessionCatalogRevision == revision + 4);
+    auto replacement = app.sessions;
+    app.replace_sessions(std::move(replacement));
+    CHECK(app.sessionCatalogRevision == revision + 5);
+
+    const auto subagentRevision = app.subagentCatalogRevision;
+    api::SessionSummary child;
+    child.id = "child";
+    app.replace_subagent_sessions({child});
+    CHECK(app.subagentCatalogRevision == subagentRevision + 1);
+    app.apply_renamed_title("child", "Renamed child");
+    CHECK(app.subagentCatalogRevision == subagentRevision + 2);
+    CHECK(app.subagentSessions.front().title == "Renamed child");
+    app.clear_subagent_sessions();
+    CHECK(app.subagentCatalogRevision == subagentRevision + 3);
+    app.clear_subagent_sessions();
+    CHECK(app.subagentCatalogRevision == subagentRevision + 3);
     for (const auto& pane : app.panes) {
         CHECK(pane.openSession->summary.starred);
         CHECK(pane.openSession->summary.archive_override.value_or(false));

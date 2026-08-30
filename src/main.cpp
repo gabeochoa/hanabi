@@ -1243,7 +1243,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // Loading and would never capture it. No network; render-only.
     if (const char* d = std::getenv("HANABI_SKELETON_DEMO"); d && *d &&
         std::string(d) != "0") {
-        app->sessions.clear();
+        app->replace_sessions({});
         app->listState = ecs::LoadState::Loading;
         app->view = ecs::SmartView::Home;
         app->pane().selectedId.clear();

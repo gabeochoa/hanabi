@@ -374,9 +374,21 @@ across frames.
 | allocations/frame | 2,097.1 | **1,641.8** |
 | allocated bytes/frame | 253,864 | **233,145** |
 
-The index itself costs 0.2894 ms/frame; collection is 0.0018 ms/frame. The
-change removes 23% of frame CPU and 22% of allocation calls while keeping the
-sub-agent screenshot byte-identical.
+The index itself initially cost 0.2894 ms/frame. A second pass made it
+change-driven: session and sub-agent replacements now advance explicit catalog
+revisions, local rename/star/archive/mute changes advance the session revision,
+and the sorted index rebuilds only when either revision changes.
+
+| indexed implementation | every frame | change-driven |
+| --- | ---: | ---: |
+| frame CPU | 1.6743 ms | **1.3629 ms** |
+| index CPU | 0.2894 ms | **0.0003 ms** |
+| index rebuilds / 1,000 measured frames | 1,123 | **2** |
+| allocations/frame | 1,641.8 | **1,642.9** |
+
+The second pass removes another 19% of frame CPU. Allocation calls are flat;
+this is a sorting/lookup win, not an allocator claim. `make subagent-index-gate`
+requires cache hits, bounds rebuilds, and caps the 2,000-parent/400-child frame.
 
 ---
 
