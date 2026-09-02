@@ -383,3 +383,104 @@ git worktree add /tmp/base --detach <rev> && cd /tmp/base \
 
 Read the allocation count first, the entity count second, and the frame time
 last. The first two are exact and the third is a shared laptop.
+
+---
+
+## 5. Home, the screen this file left capped
+
+**What was still true after everything above.** The four digest screens became
+windowed and Home did not. Home kept the `perf/sidebar-scaling` answer — a CAP,
+`kMaxSection = 20`, applied to each of its four sections — and a cap is a
+different thing from a window: it bounds the column at eighty cards and then
+builds all eighty, every frame, whatever the viewport holds. `render_digest`'s
+own preamble says the quiet part: *"eight times what Home builds beside it, and
+Home is capped."* Sixty of those eighty cards were off screen.
+
+Measured 2026-09-02 on `boulder-KF74T3NW36`, against `main` at `14312fe`,
+1180×949, mock backend, 600-frame headless runs. `cache.cardtitle_hit` is one
+call per built card, so it is the card count directly:
+
+| | before | after | |
+| --- | ---: | ---: | --- |
+| digest cards built / frame (2000 sessions, Home) | 75.7 | **16.8** | 4.5× |
+| `DigestCards: built` of `matched` (2000 sessions) | 63 of 63 | **11 of 63** | |
+| Home frame (CPU) | 1.2445 ms | **0.9576 ms** | −23% |
+
+And the allocation gate's five arms — the three that open Home moved, the two
+that do not are unchanged to the allocation:
+
+| arm | 14312fe | this branch | | ceiling |
+| --- | ---: | ---: | ---: | ---: |
+| home20 | 740.0 | **556.0** | −24.9% | 670 |
+| home2000 | 1034.0 | **608.0** | −41.2% | 730 |
+| tabs20 | 640.0 | 640.0 | — | 770 |
+| thread480 | 2599.0 | 2599.0 | — | 3120 |
+| draft6 | 955.0 | **766.0** | −19.8% | 920 |
+
+Every figure reproduced to the unit across three repetitions of the whole
+gate. There is no spread to report because there is none: this is a count of
+`operator new` calls, and `docs/perf/ALLOCATIONS.md` explains why that is the
+instrument on a shared box.
+
+### It is the same window, not a second one
+
+Home is a column of four sections with a header between them, so the one thing
+it needs that `render_digest` did not is a section's own origin. That is
+`digest::section_window`, which is `card_window` with the viewport shifted into
+the section's coordinates and nothing else — one line, so the arithmetic that
+decides what Blocked builds is the arithmetic that decides what Home builds.
+
+`tests/unit/test_digest_layout.cpp` pins the equivalence rather than trusting
+it: `test_section_windows_agree_with_one_whole_column` drives a four-section
+column at sixty scroll offsets, with and without a pending ease, and asserts
+that windowing section by section builds **exactly** the card indices one
+window over the concatenated column would, and that the spacers plus the built
+cards still sum to the column's real height. Drop the `sectionY` shift and it
+fails 40 assertions.
+
+The rest follows `render_digest` exactly: the cursor walk visits every row
+built or not (so arrowing off the window scrolls to a card the next frame
+builds), `digest_card` is told `trackCursor=false` so it cannot count a row
+twice, and card ids are keyed on the window SLOT rather than the row index —
+gap #115, nothing retires a widget, so index keys would mint four entities per
+card ever scrolled past.
+
+The cap stays. It bounds `matched`, which is why Home's arm in
+`scripts/digest_gate.sh` has a matched floor of 60 where the digest views have
+100. Removing the cap is still the product decision it always was; this change
+is only about not building what is not on screen.
+
+### The gate
+
+Home is the fifth arm of `make digest-gate`, reading the same
+`DigestCards: built=… matched=…` line the other four do. Rehearsed by real
+revert, not by a lowered threshold — `scripts/gate_audit.py digest.home_window`
+un-windows `render_home` and the arm reads:
+
+```
+  home             63       63       431       428    0.99x
+  FAIL: 'home' built 63 cards of 63, over 40.
+```
+
+431 widgets against 217, on the same catalog. `scripts/gate_audit.py
+alloc.home_window` turns the allocation gate red on the same defect —
+`home20 740.0 / 670 = 110%`, `home2000 1034.0 / 730 = 142%`,
+`draft6 955.0 / 920 = 104%` — which is the previous behaviour reproducing its
+own baseline to the allocation.
+
+### How to measure this one
+
+```bash
+make digest-gate                     # five arms now, Home is the fifth
+make alloc-gate                      # the three Home arms moved
+
+HANABI_BACKEND=mock HANABI_VIEW=home HANABI_STRESS_SESSIONS=2000 \
+  HANABI_STRESS_PINNED=10 HANABI_STRESS_ARCHIVED=10 HANABI_FRAME_TIMING=60 \
+  output/hanabi.exe --screenshot /tmp/o.png | grep -E 'FrameTiming|DigestCards'
+
+# cards built per frame, and the Home frame's CPU
+HANABI_BACKEND=mock HANABI_PROF=1 HANABI_SOAK=600 HANABI_SOAK_EVERY=600 \
+  HANABI_STRESS=idle HANABI_STRESS_SESSIONS=2000 \
+  output/hanabi.exe --screenshot /tmp/o.png |
+  grep -E 'cardtitle_hit|FRAME \(cpu\)|ALLOCATIONS'
+```

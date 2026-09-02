@@ -54,12 +54,27 @@
 # afterhours instead of handing it an lvalue for the by-value parameter to
 # copy (docs/perf/ALLOCATIONS.md, tests/unit/test_div_move.cpp):
 #
-#   arm          97c567e    this branch   ceiling   headroom
+#   arm          97c567e    that branch   ceiling   headroom
 #   home20          829.0         740.0       890      +20%
 #   home2000       1181.0        1034.0      1250      +21%
 #   tabs20          680.0         640.0       770      +20%
 #   thread480      2707.0        2599.0      3120      +20%
 #   draft6         1044.0         955.0      1150      +20%
+#
+# Current set, measured 2026-09-02 on boulder-KF74T3NW36, same 600-frame runs,
+# reproduced to the unit over three repetitions, against main at 14312fe. What
+# moved is render_home: Home's four capped sections are now WINDOWED, so the
+# pane builds the cards a viewport holds instead of every card the cap allows
+# (docs/perf/DIGEST.md, scripts/digest_gate.sh's home arm). Home built 75.7
+# cards a frame and now builds 16.8; the three arms that open Home move and
+# the two that do not are unchanged, to the allocation:
+#
+#   arm           14312fe    this branch   ceiling   headroom
+#   home20          740.0         556.0       670      +20%
+#   home2000       1034.0         608.0       730      +20%
+#   tabs20          640.0         640.0       770      unchanged arm
+#   thread480      2599.0        2599.0      3120      unchanged arm
+#   draft6          955.0         766.0       920      +20%
 #
 # ~20% of headroom over the measured value on each arm. The number is exact,
 # so headroom is not for noise — there is none. It is for the honest drift of
@@ -110,8 +125,8 @@ EXE="${HANABI_ALLOC_EXE:-$ROOT/output/hanabi.exe}"
 
 FRAMES="${HANABI_ALLOC_GATE_FRAMES:-600}"
 EVERY="${HANABI_ALLOC_GATE_EVERY:-200}"
-CEIL_HOME20="${HANABI_ALLOC_CEIL_HOME20:-890}"
-CEIL_HOME2000="${HANABI_ALLOC_CEIL_HOME2000:-1250}"
+CEIL_HOME20="${HANABI_ALLOC_CEIL_HOME20:-670}"
+CEIL_HOME2000="${HANABI_ALLOC_CEIL_HOME2000:-730}"
 CEIL_THREAD480="${HANABI_ALLOC_CEIL_THREAD480:-3120}"
 CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-770}"
 # The composer holding a SIX-LINE DRAFT, standing still.
@@ -130,7 +145,7 @@ CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-770}"
 # moves, this ceiling should come down with it. Leaving it high is
 # what stops the number growing further in the meantime; it is not an
 # endorsement of it.
-CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-1150}"
+CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-920}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then

@@ -30,6 +30,7 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "../api/types.h"
 #include "../util/format.h"
@@ -282,6 +283,13 @@ CardWindow card_window(int n, Pitch&& pitch, float viewH, float offsetY,
     w.above = yFirst;
     w.below = y - yLast;
     return w;
+}
+
+template <typename Pitch>
+CardWindow section_window(int n, Pitch&& pitch, float viewH, float offsetY,
+                          float targetY, float sectionY) {
+    return card_window(n, std::forward<Pitch>(pitch), viewH,
+                       offsetY - sectionY, targetY - sectionY);
 }
 
 }  // namespace ecs::digest

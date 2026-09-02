@@ -822,6 +822,7 @@ alloc-gate: $(MAIN_EXE) copy-resources
 idle-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/idle_gate.sh
 digest-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/digest_gate.sh --selftest
 	@bash scripts/digest_gate.sh
 
 subagent-index-gate: $(MAIN_EXE) copy-resources

@@ -90,6 +90,26 @@ DEFECTS = {
                   '                               900000 + 40 * static_cast<int>(\n'
                   '                                   hanabi::widget_epoch::epoch() / 25u),\n'
                   '                               "", "recent",')]),
+    "digest.home_window": dict(
+        gate="digest-gate", build="app",
+        patches=[(MP, """        const digest::CardWindow win = digest::section_window(""",
+                  """        digest::CardWindow win = digest::section_window(""")
+                 ,(MP, """        const int base = homeMatched_;""",
+                  """        win.first = 0;
+        win.last = static_cast<int>(n);
+        win.above = 0.0f;
+        win.below = 0.0f;
+        const int base = homeMatched_;""")]),
+    "alloc.home_window": dict(
+        gate="alloc-gate", build="app",
+        patches=[(MP, """        const digest::CardWindow win = digest::section_window(
+            static_cast<int>(n),
+            [this](int k) { return pitches_[static_cast<size_t>(k)]; }, viewH,
+            offsetY, targetY, sectionY);""",
+                  """        const digest::CardWindow win = digest::card_window(
+            static_cast<int>(n),
+            [this](int k) { return pitches_[static_cast<size_t>(k)]; }, 0.0f,
+            0.0f, 0.0f);""")]),
     "transcript.wrap": dict(
         gate="slope", build="app",
         patches=[(MP, "        if (const int* hit = memo.find(text, widthPx, fontPx)) {",
@@ -211,6 +231,8 @@ GATE_CMD = {
     "text": ["bash", "scripts/perf_text_gate.sh"],
     "chrome-gate": ["bash", "scripts/composer_chrome_gate.sh"],
     "slope": ["bash", "scripts/perf_transcript_slope.sh"],
+    "digest-gate": ["bash", "scripts/digest_gate.sh"],
+    "alloc-gate": ["bash", "scripts/alloc_gate.sh"],
     "launch": ["bash", "scripts/measure_launch.sh"],
     # The screenshot subset `make test` runs. It captures and compares, so it
     # needs the built app and the machine to itself, like the UI suite.

@@ -22,6 +22,7 @@
 //   'ecs::digest'" -- and the height was a five-line expression inside
 //   digest_card() with no name and no caller but itself.
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -268,6 +269,96 @@ static void test_unmeasured_viewport_builds_everything() {
     CHECK(z.total == 0.0f);
 }
 
+static void test_section_windows_agree_with_one_whole_column() {
+    std::printf("test_section_windows_agree_with_one_whole_column\n");
+    const std::vector<std::vector<float>> sections = {
+        {60.0f, 42.0f, 42.0f, 60.0f, 42.0f},
+        {42.0f, 42.0f, 60.0f},
+        {60.0f, 60.0f, 42.0f, 42.0f, 42.0f, 42.0f},
+        {42.0f},
+    };
+    std::vector<float> flat;
+    for (const auto& sec : sections)
+        for (const float h : sec) flat.push_back(h);
+    const int n = static_cast<int>(flat.size());
+    const auto flatPitch = [&](int k) { return flat[static_cast<size_t>(k)]; };
+
+    for (float offset = 0.0f; offset <= 900.0f; offset += 31.0f) {
+        for (const float target : {offset, offset + 400.0f}) {
+            const dg::CardWindow whole =
+                dg::card_window(n, flatPitch, 300.0f, offset, target);
+            std::vector<int> wholeBuilt;
+            for (int k = whole.first; k < whole.last; ++k)
+                wholeBuilt.push_back(k);
+
+            std::vector<int> sectionBuilt;
+            float sectionY = 0.0f;
+            float accounted = 0.0f;
+            int flatIndex = 0;
+            for (const auto& sec : sections) {
+                const auto pitch = [&](int k) {
+                    return sec[static_cast<size_t>(k)];
+                };
+                const dg::CardWindow w = dg::section_window(
+                    static_cast<int>(sec.size()), pitch, 300.0f, offset,
+                    target, sectionY);
+                for (int k = w.first; k < w.last; ++k) {
+                    sectionBuilt.push_back(flatIndex + k);
+                    accounted += sec[static_cast<size_t>(k)];
+                }
+                accounted += w.above + w.below;
+                for (const float h : sec) sectionY += h;
+                flatIndex += static_cast<int>(sec.size());
+            }
+
+            CHECK(sectionBuilt == wholeBuilt);
+            CHECK(std::fabs(accounted - whole.total) < 0.01f);
+        }
+    }
+}
+
+static void test_a_tall_column_builds_a_viewport() {
+    std::printf("test_a_tall_column_builds_a_viewport\n");
+    std::vector<std::vector<float>> sections(4, std::vector<float>(20, 42.0f));
+    int built = 0;
+    int walked = 0;
+    float sectionY = 0.0f;
+    for (const auto& sec : sections) {
+        const auto pitch = [&](int k) { return sec[static_cast<size_t>(k)]; };
+        const dg::CardWindow w = dg::section_window(
+            static_cast<int>(sec.size()), pitch, 800.0f, 0.0f, 0.0f, sectionY);
+        built += w.built();
+        walked += static_cast<int>(sec.size());
+        for (const float h : sec) sectionY += h;
+    }
+    CHECK(walked == 80);
+    CHECK(built < 40);
+    CHECK(built >= 800.0f / 42.0f);
+}
+
+static void test_a_scrolled_column_builds_its_tail() {
+    std::printf("test_a_scrolled_column_builds_its_tail\n");
+    std::vector<std::vector<float>> sections(4, std::vector<float>(20, 42.0f));
+    const float columnH = 80.0f * 42.0f;
+    const float offset = columnH - 800.0f;
+    int built = 0;
+    int firstBuilt = -1;
+    int flatIndex = 0;
+    float sectionY = 0.0f;
+    for (const auto& sec : sections) {
+        const auto pitch = [&](int k) { return sec[static_cast<size_t>(k)]; };
+        const dg::CardWindow w =
+            dg::section_window(static_cast<int>(sec.size()), pitch, 800.0f,
+                               offset, offset, sectionY);
+        if (w.built() > 0 && firstBuilt < 0) firstBuilt = flatIndex + w.first;
+        built += w.built();
+        flatIndex += static_cast<int>(sec.size());
+        for (const float h : sec) sectionY += h;
+    }
+    CHECK(built < 40);
+    CHECK(firstBuilt > 40);
+}
+
 int main() {
     std::printf("=== digest layout tests ===\n");
     test_sub_line_shapes();
@@ -277,6 +368,9 @@ int main() {
     test_window_over_mixed_heights();
     test_window_covers_a_pending_scroll();
     test_unmeasured_viewport_builds_everything();
+    test_section_windows_agree_with_one_whole_column();
+    test_a_tall_column_builds_a_viewport();
+    test_a_scrolled_column_builds_its_tail();
     if (g_failures == 0) {
         std::printf("ALL DIGEST LAYOUT TESTS PASSED\n");
         return 0;

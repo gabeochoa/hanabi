@@ -907,9 +907,53 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("digest_spacer"));
     }
 
+    void home_cards(UIContext<InputAction>& ctx, Entity& wrap,
+                    AppComponent& app,
+                    const std::vector<const api::SessionSummary*>& rows,
+                    size_t cap, float cardW, bool emphasizeMeta, bool grouped,
+                    int spacerBase, int& shown, float viewH, float offsetY,
+                    float targetY) {
+        const size_t n = std::min(rows.size(), cap);
+        if (n == 0) return;
+        pitches_.clear();
+        pitches_.reserve(n);
+        for (size_t k = 0; k < n; ++k)
+            pitches_.push_back(
+                digest::card_pitch(*rows[k], grouped, subScratch_));
+
+        const float sectionY = listY_ - kListTopPad;
+        for (size_t k = 0; k < n; ++k) {
+            const float h = pitches_[k];
+            listRows_.push_back(rows[k]->id);
+            if (!app.listCursorId.empty() && rows[k]->id == app.listCursorId) {
+                listCursorY_ = listY_;
+                listCursorH_ = h;
+            }
+            list_extent(h);
+        }
+
+        const digest::CardWindow win = digest::section_window(
+            static_cast<int>(n),
+            [this](int k) { return pitches_[static_cast<size_t>(k)]; }, viewH,
+            offsetY, targetY, sectionY);
+
+        const int base = homeMatched_;
+        homeMatched_ += static_cast<int>(n);
+        if (win.built() > 0 && homeFirstBuilt_ < 0)
+            homeFirstBuilt_ = base + win.first;
+
+        card_spacer(ctx, wrap, spacerBase, win.above);
+        for (int k = win.first; k < win.last; ++k)
+            digest_card(ctx, wrap, ++shown, *rows[static_cast<size_t>(k)], app,
+                        emphasizeMeta, cardW, grouped, false);
+        card_spacer(ctx, wrap, spacerBase + 1, win.below);
+    }
+
     // Reused across frames so the pitch pass costs no allocation once the
     // catalog has been seen at its largest. clear() keeps the capacity.
     std::vector<float> pitches_;
+    int homeMatched_ = 0;
+    int homeFirstBuilt_ = -1;
     std::vector<const api::SessionSummary*> digestRows_;
     std::vector<const api::SessionSummary*> homeWaiting_, homeFinished_,
         homeRunning_, homeRecent_;
@@ -1555,6 +1599,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
 
+        float homeViewH = 0.0f, homeOffsetY = 0.0f, homeTargetY = 0.0f;
+        if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+            const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            homeViewH = sv.viewport_or_zero().y;
+            homeOffsetY = sv.scroll_offset.y;
+            homeTargetY = sv.scroll_target.y;
+        }
+        if (homeViewH <= 0.0f) homeViewH = listH;
+        homeMatched_ = 0;
+        homeFirstBuilt_ = -1;
+
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
         const float cardW = wrap_width(paneW);
 
@@ -1631,9 +1686,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             first = false;
             // Actionable rows: emphasize the "waiting on you \xc2\xb7 8m" metadata.
             if (!folded)
-                for (size_t k = 0; k < waiting.size() && k < kMaxSection; ++k)
-                    digest_card(ctx, wrap, ++shown, *waiting[k], app, true,
-                                cardW, true);
+                home_cards(ctx, wrap, app, waiting, kMaxSection, cardW, true,
+                           true, 7100, shown, homeViewH, homeOffsetY,
+                           homeTargetY);
         }
         if (!finished.empty()) {
             const bool folded = section_label(
@@ -1643,9 +1698,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 first, theme::tag_done_fg(), app, "finished");
             first = false;
             if (!folded)
-                for (size_t k = 0; k < finished.size() && k < kMaxSection; ++k)
-                    digest_card(ctx, wrap, ++shown, *finished[k], app, false,
-                                cardW, true);
+                home_cards(ctx, wrap, app, finished, kMaxSection, cardW, false,
+                           true, 7102, shown, homeViewH, homeOffsetY,
+                           homeTargetY);
         }
         // Self-running work: a real section with real cards (title + relative
         // age), headed "SELF-RUNNING (N)" like the mock. Rendering the actual
@@ -1658,10 +1713,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 first, theme::status_review(), app, "self_running");
             first = false;
             if (!folded)
-                for (size_t k = 0; k < selfRunning.size() && k < kMaxSection;
-                     ++k)
-                    digest_card(ctx, wrap, ++shown, *selfRunning[k], app, false,
-                                cardW, true);
+                home_cards(ctx, wrap, app, selfRunning, kMaxSection, cardW,
+                           false, true, 7104, shown, homeViewH, homeOffsetY,
+                           homeTargetY);
         }
 
         // Recent / all conversations. A calm backend (e.g. the generic http
@@ -1723,10 +1777,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                               "recent");
             constexpr size_t kMaxRecent = kMaxSection;
             if (!folded)
-                for (size_t k = 0; k < recent.size() && k < kMaxRecent; ++k)
-                    digest_card(ctx, wrap, ++shown, *recent[k], app, false,
-                                cardW);
+                home_cards(ctx, wrap, app, recent, kMaxRecent, cardW, false,
+                           false, 7106, shown, homeViewH, homeOffsetY,
+                           homeTargetY);
         }
+        hanabi::test_hooks::card_audit_counts() = {
+            shown, homeMatched_,
+            homeFirstBuilt_ < 0 ? 0 : homeFirstBuilt_};
         scroll_cursor_into_view(scroll.ent(), listH);
     }
 

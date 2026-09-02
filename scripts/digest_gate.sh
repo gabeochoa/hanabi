@@ -6,9 +6,12 @@
 # of them can see these four screens:
 #
 #   scaling_gate.sh  opens ONE screen (Home, the landing view) at two catalog
-#                    sizes and never navigates. Home has been capped since
-#                    perf/sidebar-scaling, so the gate has been green over a
-#                    Blocked screen building 506 cards the whole time.
+#                    sizes and never navigates. Home was capped (not windowed)
+#                    since perf/sidebar-scaling, so the gate has been green
+#                    over a Blocked screen building 506 cards the whole time.
+#                    Home is windowed now and is the fifth arm below: its cap
+#                    still bounds MATCHED at four sections of twenty, so its
+#                    matched floor is 60 where the digest views' is 100.
 #   scroll_gate.sh   expands the SIDEBAR's list and sweeps it. Different pane,
 #                    different question.
 #   soak_gate.sh     measures a slope. This was never a slope: a digest screen
@@ -62,6 +65,14 @@
 #   Starred              200      13           511 ->  508   0.99x
 #   Archived             200      13           511 ->  508   0.99x
 #
+# Home, measured 2026-09-02 on boulder-KF74T3NW36, same flags:
+#
+#   Home                  63      11           214 ->  214   1.00x
+#
+# Home's MATCHED is its four capped sections, not the catalog, so 63 is what a
+# 2000-session catalog puts in the column and 11 is what the viewport holds.
+# Before the window it built all 63, which is the rehearsal below.
+#
 # built is 13 on every one of them, at every catalog size above a viewport,
 # because 13 is what a viewport holds. The ceiling is 40 rather than 13: the
 # window widens to cover a scroll that is about to happen (up to
@@ -78,6 +89,8 @@
 #
 #   render_digest's window removed (main's behaviour before perf/digest)
 #       built 13 -> 506 on Blocked, and 2472 widgets, 6.40x.
+#   render_home's window removed (main's behaviour at 14312fe)
+#       built 11 -> 63 on Home, over the 40 ceiling.
 #   the window kept but the frame-one fallback left as "build everything"
 #       built stays 13 and WIDGETS stay 2473 -- nothing retires a widget
 #       (gap #115), so one uncapped frame is a permanent plateau. This is why
@@ -97,15 +110,76 @@ cd "$ROOT"
 EXE="$ROOT/output/hanabi.exe"
 SHOT="$(mktemp -t hanabi_digest_XXXX).png"
 LOG="$(mktemp -t hanabi_digest_XXXX).log"
+HOME_DIR="$(mktemp -d)"
 RUN_TIMEOUT=120
 
 kill_own_runs() { pkill -9 -f "^$EXE" >/dev/null 2>&1 || true; }
-cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG"; }
+cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG"; rm -rf "$HOME_DIR"; }
 trap cleanup EXIT
+
+# The gate runs against ITS OWN settings, never the invoking user's.
+#
+# Home's four sections are foldable, and a folded shelf renders no cards at
+# all -- so a developer who had collapsed them, or any HOME carrying a
+# hanabi settings.json, made the Home arm read `built=0 matched=0` and the
+# gate exit 2 without ever measuring the window. The four digest views do not
+# fold, which is why this went unnoticed until Home became the fifth arm.
+# `collapsed_shelves` is therefore stated EMPTY rather than merely omitted:
+# the value the gate depends on is the one it should say out loud.
+mkdir -p "$HOME_DIR/Library/Application Support/hanabi"
+printf '%s\n' '{"window_width":1180,"window_height":949,"open_tabs":[],"active_tab":"","theme":"dark","collapsed_shelves":[]}' \
+    > "$HOME_DIR/Library/Application Support/hanabi/settings.json"
+export HOME="$HOME_DIR"
 
 if [ ! -x "$EXE" ]; then
     echo "digest_gate: $EXE not found — run 'make' first." >&2
     exit 2
+fi
+
+VIEWS="${HANABI_DIGEST_ONLY:-blocked review starred archived home}"
+for v in $VIEWS; do
+    case "$v" in
+        blocked|review|starred|archived|home) ;;
+        *)
+            echo "digest_gate: unknown HANABI_DIGEST_ONLY '$v'" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# `scripts/digest_gate.sh --selftest` proves the isolation above, by running
+# the gate under the exact HOME that used to break it: every Home shelf
+# collapsed. A folded shelf builds no cards, so before the fix this read
+# `built=0 matched=0` and exited 2 -- a gate reporting a failure it had not
+# measured. Restricted to the Home arm, which is the only one that folds, so
+# it costs two runs rather than ten. Run by `make digest-gate` ahead of the
+# gate itself, which is where its subject is and where the binary it needs
+# already exists -- `make source-checks` takes no binary and must not grow
+# one.
+if [ "${1:-}" = "--selftest" ]; then
+    dirty="$(mktemp -d)"
+    mkdir -p "$dirty/Library/Application Support/hanabi"
+    printf '%s\n' '{"window_width":640,"window_height":480,"theme":"light","collapsed_shelves":["waiting","finished","self_running","recent"]}' \
+        > "$dirty/Library/Application Support/hanabi/settings.json"
+    echo "digest_gate --selftest: the gate ignores the caller's settings"
+    out="$(env HOME="$dirty" HANABI_DIGEST_ONLY=home bash "$0" 2>&1)"
+    rc=$?
+    rm -rf "$dirty"
+    row="$(printf '%s' "$out" | grep -E '^  home ' || true)"
+    built="$(printf '%s' "$row" | awk '{print $2}')"
+    matched="$(printf '%s' "$row" | awk '{print $3}')"
+    if [ "$rc" -ne 0 ] || [ -z "${built:-}" ] || [ "${built:-0}" -le 0 ]; then
+        echo "  FAIL  every shelf collapsed in HOME -> home built='${built:-}'" >&2
+        echo "        matched='${matched:-}' rc=$rc" >&2
+        echo "        The gate is reading the caller's settings.json, so a" >&2
+        echo "        folded shelf makes it report a failure it never" >&2
+        echo "        measured. It must seed its own HOME." >&2
+        printf '%s\n' "$out" | sed 's/^/        /' >&2
+        exit 1
+    fi
+    echo "  ok    home built=$built matched=$matched rc=$rc"
+    echo "digest_gate --selftest: PASS"
+    exit 0
 fi
 
 export HANABI_BACKEND=mock
@@ -157,7 +231,9 @@ printf '  %-10s %8s %8s %9s %9s %8s\n' \
     "screen" "built" "matched" "w@$SMALL" "w@$BIG" "ratio"
 
 FAIL=0
-for view in blocked review starred archived; do
+for view in $VIEWS; do
+    MATCH_FLOOR=100
+    if [ "$view" = "home" ]; then MATCH_FLOOR=60; fi
     read -r W_SMALL S_BUILT S_MATCHED <<<"$(measure "$view" "$SMALL")"
     measured_or_die "$SMALL" "$view" "$S_BUILT" "$S_MATCHED"
     read -r W_BIG BUILT MATCHED <<<"$(measure "$view" "$BIG")"
@@ -182,9 +258,10 @@ for view in blocked review starred archived; do
     # An empty screen proves nothing, and reads exactly like a bounded one.
     # This is the check that would have caught Starred and Archived passing
     # the scaling gate while holding nothing at all.
-    if [ "$MATCHED" -lt 100 ]; then
+    if [ "$MATCHED" -lt "$MATCH_FLOOR" ]; then
         echo "" >&2
-        echo "  FAIL: '$view' matched only $MATCHED sessions at $BIG." >&2
+        echo "  FAIL: '$view' matched only $MATCHED sessions at $BIG," >&2
+        echo "        under its floor of $MATCH_FLOOR." >&2
         echo "        A digest view with nothing in it is not bounded, it is" >&2
         echo "        empty, and an empty screen passes every arm below for" >&2
         echo "        the wrong reason. Check HANABI_STRESS_PINNED /" >&2
