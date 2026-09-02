@@ -392,6 +392,89 @@ requires cache hits, bounds rebuilds, and caps the 2,000-parent/400-child frame.
 
 ---
 
+## The panel walked the whole catalog once per folder, every frame
+
+`render_folder` collected its own members, so the sidebar walked
+`app.sessions` end to end **once per folder**, once for the Recent catch-all,
+and once more to discover which folders exist — `(F+2)` full traversals a
+frame to draw the ~29 rows a viewport holds. Both folders in the fixture are
+COLLAPSED by default, so two of those traversals existed to produce the number
+in a header. (The disk-cache probe was *not* one of the costs, though this
+section claimed it was until the change was reviewed: `content_matches` sat
+behind `match &&`, so a session was probed in its own group's pass and nowhere
+else — once a frame then, once a frame now.)
+
+`ecs::model::SidebarBuckets` walks once and files each session where it
+belongs. Then it keeps the answer: with no query the buckets are a pure
+function of the catalog, and `AppComponent::sessionCatalogRevision` already
+says when the catalog moved — the same counter `SubagentParentIndex` has
+depended on since perf/subagent-index, which is also what makes caching
+`SessionSummary*` safe (a reallocation implies a mutation implies a bump). A
+query always rebuilds, because the disk cache publishes no revision and a memo
+keyed on the catalog would answer stale after a transcript landed.
+
+Measured on boulder-KF74T3NW36 against `ac6ea0f`, headless 1180x949, Home with
+no thread open, `idle`. Frame CPU is the MINIMUM bucket of an 800-frame run
+(contention only ever makes a bucket slower), median of 7 interleaved runs per
+column:
+
+| frame CPU | before | after | |
+| --- | ---: | ---: | ---: |
+| idle, 2,020 sessions, no folders | 0.902 ms | **0.887 ms** | 1.017x |
+| idle, 2,020 sessions, two folders | 0.923 ms | **0.906 ms** | 1.019x |
+| idle, 20,020 sessions, no folders | 1.235 ms | **1.137 ms** | 1.086x |
+| idle, 20,020 sessions, two folders | 1.324 ms | **1.133 ms** | 1.169x |
+| `search`, 2,020, no folders | 1.304 ms | **1.291 ms** | 1.010x |
+| `search`, 2,020, two folders | 1.316 ms | **1.306 ms** | 1.008x |
+
+The two `search` rows are medians of **15** interleaved runs, not 7. At seven
+they read 0.980x and 0.992x — a regression — and at seven on an earlier build
+of the same change they read 1.020x and 1.017x. The saving there is one
+traversal against a ~1.3 ms frame, which is under this box's spread, so the
+sign of the seven-run answer is noise and the number to quote is the count.
+
+The count is the exact half of that, and it is what the gate reads. Session
+visits per frame, 600-frame run:
+
+| catalog visits / frame, COLLECTION | before | after |
+| --- | ---: | ---: |
+| 2,020 sessions, no folders | 4,040 | **0** |
+| 2,020 sessions, two folders | 8,080 | **0** |
+| 20,020 sessions, two folders | 80,080 | **0** |
+| collections over the whole 600-frame run | 600 per folder | **2** |
+
+Zero, not "fewer": after the catalog settles the sidebar collects twice for the
+whole run and reuses the answer 722 times. Those rows are the COLLECTION, and
+they are not the panel's whole relationship with the catalog — `view_counts`
+still walks it once a frame for the two smart-view badges, deliberately and for
+the reason written where it is defined. `sidebar.collect` reads 0.0001 ms/f
+at 2,020 — but note its extent MOVED in this change. It used to be declared at
+the top of `render_folder` and so covered the row build as well as the scan,
+which is why the number it reported barely tracked the catalog (0.0533 ms/f at
+220 sessions against 0.0654 at 2,020: ~6.4 ns/session of real scan under ~44 µs
+of row building). It now covers the collection and nothing else.
+
+`sidebar.sort` is what is left and it is now the largest sidebar phase:
+0.0507 ms/f at 20,020, a `partial_sort` over the whole Recent bucket to pick
+the ~38 rows a viewport shows, re-run every frame. It is the same shape of
+defect one level down and it is not fixed here.
+
+`make sidebar-scan-gate` has five COUNT arms — rows drawn, collections per run,
+reuse over rebuilds, retained buckets against live folders, and the
+two-folder/no-folder visit ratio — and `scripts/gate_audit.py
+sidebar.per_folder_scan` / `sidebar.no_memo` turn different rows of it red.
+
+That gate is not sufficient by itself and the review of this change said so:
+every counter in it is published by `SidebarBuckets` about itself, so a raw
+loop over `app.sessions` put back inside `render_folder` — a loop that never
+enters `SidebarBuckets` — leaves all five arms green over a panel walking the
+catalog (F+2) times a frame. `scripts/check_sidebar_scan.py`, in `make
+source-checks`, is the other half: the per-folder and per-row functions may not
+name the catalog, and every other walk in the file is a listed baseline.
+`scripts/gate_audit.py sidebar.raw_rescan` is its defect.
+
+---
+
 ## How to measure this
 
 ```bash

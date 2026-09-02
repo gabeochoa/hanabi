@@ -42,6 +42,7 @@
 #include "../ui/secondary_surface.h"
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
+#include "sidebar_buckets.h"
 #include "subagent_parent_index.h"
 #include "thread_model.h"
 #include "tab_model.h"
@@ -279,15 +280,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             shown +=
                 render_subagent_sidebar(ctx, scroll.ent(), *app, q, r.width);
         } else {
-            folderNames_.clear();
-            for (const auto& session : app->sessions) {
-                if (model::is_archived(session) ||
-                    !is_named_folder(session.folder))
-                    continue;
-                if (std::find(folderNames_.begin(), folderNames_.end(),
-                              session.folder) == folderNames_.end())
-                    folderNames_.push_back(session.folder);
-            }
+            buckets_.rebuild(
+                app->sessionCatalogRevision, app->sessions, q,
+                app->collapsedFolders.count(kHideAutoKey) > 0,
+                [](const std::string& id, const std::string& needle) {
+                    return api::disk_cache::content_matches(id, needle);
+                });
+            folderNames_ = buckets_.folders();
             std::sort(folderNames_.begin(), folderNames_.end(),
                       [](const std::string& a, const std::string& b) {
                           const std::string an = folder_display_name(a);
@@ -302,12 +301,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             for (const auto& folder : folderNames_) {
                 shown += render_folder(
                     ctx, scroll.ent(), folder_base(folder),
-                    folder_display_name(folder), folder, *app, q, r.width,
-                    /*archived=*/false, /*catchAll=*/false,
+                    folder_display_name(folder), folder,
+                    buckets_.members(folder), *app, q, r.width,
+                    /*archivedStyle=*/false, /*catchAll=*/false,
                     /*headerless=*/false);
             }
             shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
-                                   *app, q, r.width, /*archived=*/false,
+                                   buckets_.recent(), *app, q, r.width,
+                                   /*archivedStyle=*/false,
                                    /*catchAll=*/true, /*headerless=*/true,
                                    /*cap=*/fillCap);
         }
@@ -490,8 +491,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                q.empty() ? nullptr : indexed_summary(child.parent_id);
            const std::string parentTitle =
                parentSummary == nullptr ? std::string{} : parentSummary->title;
-           if (!q.empty() && !title_matches(child.title, q) &&
-               !title_matches(parentTitle, q))
+           if (!q.empty() && !model::title_matches(child.title, q) &&
+               !model::title_matches(parentTitle, q))
                continue;
            subagentMembers_.push_back(&child);
            if (child.state == api::ThreadState::Running)
@@ -1071,31 +1072,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // screen. An opt-in filter is the honest form of the same idea: the reader
     // says "not now", rather than the client deciding some threads matter less.
     //
-    // Heuristic (kept deliberately small + conservative so it can't over-match
-    // a real conversation title): a session is "automated" if its title starts
-    // with "Schedule:" OR ends with "-tick". These are structural naming
-    // conventions of scheduled jobs, not content words, so a human thread is
-    // very unlikely to trip them. No company/endpoint/product strings — purely
-    // shape-based. If this ever over-matches, tighten (don't broaden) the list.
-    static bool is_automated(const std::string& title) {
-        if (title.rfind("Schedule:", 0) == 0) return true;  // "Schedule: ..."
-        // ends-with "-tick"
-        const std::string suf = "-tick";
-        if (title.size() >= suf.size() &&
-            title.compare(title.size() - suf.size(), suf.size(), suf) == 0)
-            return true;
-        return false;
-    }
-
+    // The heuristic itself is `ecs::model::is_automated_title` (sidebar_buckets
+    // .h), which is where the collection that applies it now lives.
+    //
     // ASCII-lowercase a copy (search is case-insensitive; titles are UTF-8 but
     // case-folding only the ASCII range is sufficient for these labels).
     static std::string lower(const std::string& s) {
         return fmtutil::to_lower(s);
-    }
-    // Does `haystack` (already lowercased) contain the lowercased `needle`?
-    static bool title_matches(const std::string& title, const std::string& q) {
-        if (q.empty()) return true;
-        return lower(title).find(q) != std::string::npos;
     }
 
     // Draw a small folder chevron: pointing DOWN when expanded, RIGHT when
@@ -2101,6 +2084,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // Group-membership scratch reused sequentially across groups. render_folder
     // consumes it synchronously before the next group recollects it.
     std::vector<const api::SessionSummary*> members_;
+    model::SidebarBuckets buckets_;
     std::vector<const api::SessionSummary*> subagentMembers_;
     model::SubagentParentIndex parentIndex_;
     std::vector<std::string> folderNames_;
@@ -2442,16 +2426,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // Is `key` one of the explicitly-named folders (not the Recent catch-all)?
-    // A session whose folder matches one of these belongs to that named
-    // folder; anything else falls through to the Recent catch-all.
-    // A folder is "named" (rendered as its own section, excluded from the
-    // Recent catch-all) iff it's a real, non-empty folder value from the API.
-    // Unfoldered sessions (folder=="") fall through to the catch-all.
-    static bool is_named_folder(const std::string& folder) {
-        return !folder.empty() && folder != "recent";
-    }
-
+    // What a named folder IS (its own section, excluded from the Recent
+    // catch-all) is `ecs::model::is_named_folder`, next to the collection that
+    // sorts sessions into one or the other.
     static std::string folder_display_name(const std::string& folder) {
         size_t end = folder.size();
         while (end > 0 && (folder[end - 1] == '/' || folder[end - 1] == '\\'))
@@ -2472,7 +2449,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // is filed under. A named folder is its own group; everything else lands in
     // the headerless catch-all, which renders under the "recent" key.
     static std::string group_key_for(const api::SessionSummary& s) {
-        return is_named_folder(s.folder) ? s.folder : std::string("recent");
+        return model::is_named_folder(s.folder) ? s.folder
+                                               : std::string("recent");
     }
 
     static const std::string& more_key(const std::string& key,
@@ -2624,52 +2602,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- folder group ----
-    // Renders a collapsible folder. Returns the number of chat rows actually
-    // rendered (used by the caller to drive the search no-results state).
-    // `q` is the already-lowercased search query ("" = no filter).
-    // `catchAll`: when true (the Recent folder), also gathers any non-archived
-    // session whose folder is NOT a named folder (folder="" or unknown) — so a
-    // real backend's unfoldered sessions are browsable instead of hidden.
+    // Renders a collapsible folder from the members `SidebarBuckets` filed
+    // under this key in its single pass over the catalog. Returns the number
+    // of chat rows actually rendered (used by the caller to drive the search
+    // no-results state). `q` is the already-lowercased search query.
+    //
+    // `archivedStyle` is a COLOUR, not a filter. It used to select the members
+    // too (`match = is_archived(s)`), and renaming it is how a future caller
+    // finds that out before passing true and getting whatever bucket it was
+    // handed.
     int render_folder(UIContext<InputAction>& ctx, Entity& parent, int base,
                       const std::string& name, const std::string& key,
+                      const std::vector<const api::SessionSummary*>& collected,
                       AppComponent& app, const std::string& q, float panelW,
-                      bool archived = false, bool catchAll = false,
+                      bool archivedStyle = false, bool catchAll = false,
                       bool headerless = false, int cap = kBucketCap) {
-        // Collect member threads, honoring the live search filter.
-        const bool hideAutomated = app.collapsedFolders.count(kHideAutoKey) > 0;
-        // Reused across frames so the collection costs no allocation once the
-        // catalog has been seen at its largest. clear() keeps the capacity;
-        // the old local vector malloc'd and freed one pointer per matching
-        // session on EVERY frame, which at 2000 sessions is a 16 KB round trip
-        // sixty times a second to render forty rows.
+        // A copy, because the sort and the manual row order below mutate it
+        // and the bucket is kept across frames. Reused so the copy costs no
+        // allocation once the catalog has been seen at its largest.
         std::vector<const api::SessionSummary*>& members = members_;
-        members.clear();
-        hanabi::prof::Scope _pcollect("sidebar.collect");
-        for (const auto& s : app.sessions) {
-            bool match;
-            if (archived) {
-                match = model::is_archived(s);
-            } else if (catchAll) {
-                // Recent = its own key OR any unfoldered/unknown-folder session
-                // that isn't archived. Named-folder sessions are excluded so a
-                // session shows in exactly one place.
-                match = !model::is_archived(s) &&
-                        (s.folder == key || !is_named_folder(s.folder));
-            } else {
-                match = (s.folder == key && !model::is_archived(s));
-            }
-            // Match on TITLE or, failing that, on cached CONVERSATION CONTENT
-            // (local-first idea #3): the sidebar search now finds threads by
-            // what was SAID in them, not just their title — using only the
-            // local transcript cache (instant, offline). Content is only
-            // checked when there's a query and the title didn't already match.
-            // The search row's filter toggle: hide automated / cron rows.
-            if (match && hideAutomated && is_automated(s.title)) continue;
-            if (match &&
-                (title_matches(s.title, q) ||
-                 (!q.empty() && api::disk_cache::content_matches(s.id, q))))
-                members.push_back(&s);
-        }
+        members.assign(collected.begin(), collected.end());
         // Hide a folder with no (matching) members. With an active query this
         // is what drops non-matching folders out of the tree.
         if (members.empty()) {
@@ -2737,7 +2689,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 model::apply_row_order(members, it->second);
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
-                            panelW, archived, headerless, cap, limit,
+                            panelW, archivedStyle, headerless, cap, limit,
                             row_window(parent, limit, q.empty()));
     }
 
@@ -3127,6 +3079,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                          const api::SessionSummary& s,
                                          AppComponent& app, bool archived,
                                          float panelW) {
+        hanabi::prof::tick("sidebar.rows_built");
         const SidebarGlyph mark = sidebar_glyph(s);
 
         // ---- STABLE row hover (fixes the "star hover flashes the whole row")

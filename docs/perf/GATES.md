@@ -39,6 +39,7 @@ apology for the numbers; it is the reason several of them are ratios.
 | soak report | `make soak-report` | **no** | ~60 s |
 | widget retirement | `make retire-gate` | yes | ~3 s |
 | event transcript | `make events-gate` | yes | ~8 s |
+| sidebar catalog scan | `make sidebar-scan-gate` | yes | ~35 s |
 | transcript slope | `scripts/perf_transcript_slope.sh` | yes | ~10 s |
 | text measurement | `scripts/perf_text_gate.sh` | yes | ~14 s |
 | find level | `scripts/find_gate.sh` | yes | ~12 s |
@@ -167,6 +168,9 @@ told the gate.
 | **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, so the set SATURATES, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL`, with every slope row above it reading `ok` |
 | **digest_gate** · Home built vs matched | `render_home`'s section window removed, so every capped card is built (`scripts/gate_audit.py digest.home_window`) | **added by this branch** — `home 63 63 431 428 0.99x`, `FAIL: 'home' built 63 cards of 63, over 40` — and 431 widgets against 217 on the same catalog |
 | **alloc_gate** · the three Home arms | the same defect (`scripts/gate_audit.py alloc.home_window`) | **added by this branch** — `home20 740.0 / 670 = 110% FAIL`, `home2000 1034.0 / 730 = 142% FAIL`, `draft6 955.0 / 920 = 104% FAIL`; `tabs20` and `thread480` stay `ok`, which is the defect reproducing `14312fe`'s own baseline to the allocation |
+| **sidebar_scan_gate** · folder ratio (trend) | the collection run again for every folder, defeated per frame by the widget epoch — the scan this refactor replaced (`scripts/gate_audit.py sidebar.per_folder_scan`) | **added by this branch** — `folder scan ratio (B/A) 1444.000  ceiling 1.20  FAIL`, with `arm B collected 1445 times over 600 frames, over 8`; arm A has no folders and stays green, which is the row saying WHICH defect this is |
+| **sidebar_scan_gate** · rebuilds + reuse (level) | the kept answer disabled, so one pass runs every frame (`scripts/gate_audit.py sidebar.no_memo`) | **added by this branch** — `A/B collected 724 times over 600 frames, over 8` and `reused the collection 0 times against 724 rebuilds`, in all three arms; the ratio arm stays `1.000`, so the two defects are told apart by which rows move |
+| **check_sidebar_scan** | a raw `for (… : app.sessions)` walk put back inside `render_folder` — the regression `sidebar_scan_gate` is structurally blind to, since a loop that never enters `SidebarBuckets` publishes no counter (`scripts/gate_audit.py sidebar.raw_rescan`) | **added by this branch** — `check_sidebar_scan: src/ecs/sidebar_system.h:2631: render_folder() names the session catalog`, `make: *** [source-checks] Error 1`; the four counter arms of `sidebar-scan-gate` stay green against the same defect, which is why both exist |
 | **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |
 | **validate-screenshots-fast** · composer fill | the composer field given a `(57,57,68)` background (gap #262 in hanabi; vendor is read-only) | `6 of 8 FAIL, 1.1551%-2.4837% differs` — every screen with a composer in frame; `15_settings_dark` and `18_auth_dark` stay green |
 | **validate-screenshots-fast** · focus ring | `theme.focus_ring_thickness` forced to 0 in `FocusVisibleSystem` (gap #263) | `28_composer_focus_dark FAIL 0.5289% differs`, and only it |

@@ -46,6 +46,7 @@ OUT = "/tmp/hanabi_gate_audit"
 os.makedirs(OUT, exist_ok=True)
 
 SB = "src/ecs/sidebar_system.h"
+SBB = "src/ecs/sidebar_buckets.h"
 MP = "src/ecs/main_pane_system.h"
 WR = "src/ecs/widget_retire_system.h"
 TH = "src/ui/theme.h"
@@ -90,6 +91,25 @@ DEFECTS = {
                   '                               900000 + 40 * static_cast<int>(\n'
                   '                                   hanabi::widget_epoch::epoch() / 25u),\n'
                   '                               "", "recent",')]),
+    # The regression the COUNTER gate is blind to: a raw walk of the catalog
+    # inside render_folder, which never enters SidebarBuckets and so is never
+    # counted by it. Caught in the source instead (scripts/check_sidebar_scan
+    # .py), which is why this defect's gate is source-checks and not the gate.
+    "sidebar.raw_rescan": dict(
+        gate="source-checks", build="none",
+        patches=[(SB, '        // Hide a folder with no (matching) members. With an active query this\n        // is what drops non-matching folders out of the tree.\n        if (members.empty()) {', '        for (const auto& s : app.sessions) {\n            if (s.folder == key) members.push_back(&s);\n        }\n        // Hide a folder with no (matching) members. With an active query this\n        // is what drops non-matching folders out of the tree.\n        if (members.empty()) {')]),
+    # ---- sidebar_scan_gate ----------------------------------------------
+    # The scan the one-pass collection replaced: collect again for every
+    # folder, defeating the kept answer with the frame epoch. The RATIO arm is
+    # the one this must turn red -- arm A has no folders and stays green.
+    "sidebar.per_folder_scan": dict(
+        gate="sidebar-scan-gate", build="app",
+        patches=[(SB, '            for (const auto& folder : folderNames_) {\n                shown += render_folder(', '            for (const auto& folder : folderNames_) {\n                buckets_.rebuild(\n                    app->sessionCatalogRevision +\n                        hanabi::widget_epoch::epoch(),\n                    app->sessions, q,\n                    app->collapsedFolders.count(kHideAutoKey) > 0,\n                    [](const std::string& id, const std::string& needle) {\n                        return api::disk_cache::content_matches(id, needle);\n                    });\n                shown += render_folder(')]),
+    # The kept answer alone: one pass, but on every frame. Only the LEVEL arms
+    # (rebuilds, reuse) can see this one; the ratio stays 1.0.
+    "sidebar.no_memo": dict(
+        gate="sidebar-scan-gate", build="app",
+        patches=[(SBB, '        if (valid_ && q.empty() && query_.empty() &&\n            revision_ == catalogRevision && hideAutomated_ == hideAutomated) {', '        if (false && valid_ && q.empty() && query_.empty() &&\n            revision_ == catalogRevision && hideAutomated_ == hideAutomated) {')]),
     "digest.home_window": dict(
         gate="digest-gate", build="app",
         patches=[(MP, """        const digest::CardWindow win = digest::section_window(""",
@@ -232,6 +252,8 @@ GATE_CMD = {
     "chrome-gate": ["bash", "scripts/composer_chrome_gate.sh"],
     "slope": ["bash", "scripts/perf_transcript_slope.sh"],
     "digest-gate": ["bash", "scripts/digest_gate.sh"],
+    "sidebar-scan-gate": ["bash", "scripts/sidebar_scan_gate.sh"],
+    "source-checks": ["make", "source-checks"],
     "alloc-gate": ["bash", "scripts/alloc_gate.sh"],
     "launch": ["bash", "scripts/measure_launch.sh"],
     # The screenshot subset `make test` runs. It captures and compares, so it
