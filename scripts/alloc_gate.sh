@@ -105,12 +105,47 @@
 # ceilings hold a LEVEL that no longer scales with the catalog at all. The
 # same two arms at a 20,020-session catalog read 20514.7 -> 2504.8 and
 # 20689.0 -> 674.0; they are gated at 2,020 because that costs 8 s instead of
-# 40 s and the defect is just as loud there (192% and 341% of ceiling).
+# 40 s and the defect is just as loud there (247% and 341% of ceiling, both
+# measured against the tightened search ceiling below).
 #
 # `gate_audit.py alloc.ci_copies_haystack` reads 2656.0 on the palette arm
 # rather than the 2658.0 above, and the two allocations are worth knowing:
 # the defect restores the HAYSTACK copy only, while this branch also stopped
 # lowering the needle once per candidate. Same arm, two different defects.
+#
+# The search arm moved again on 2026-09-02 on boulder-KF74T3NW36, against
+# main at e26324e. The A/B evidence behind it is 800-frame runs, 12
+# interleaved repetitions per side, each figure reproduced to the tenth on
+# every run; the 943.0 the ceiling is set against is what THIS gate reads at
+# its own 600 frames. The two frame counts agree to the tenth, which is the
+# only reason a figure taken at one can set a ceiling read at the other.
+# Two changes, both in the sidebar's SNIPPET path — which only the search arm
+# builds, so the other six arms are unchanged to the allocation:
+#
+#   change                                    search2000   ceiling
+#   e26324e (base)                                1380.1      1660
+#   snippet draw state parked on its entity       1009.8         -
+#   + snippet cut into a reused buffer             943.0      1130
+#
+# The first is docs/perf/ALLOCATIONS.md entry 4's rule applied to the one
+# remaining by-value string capture in the app: the snippet's on_draw_bg
+# captured `text` and `q`, which afterhours then cloned with each of its three
+# ComponentConfig copies. The second is entry 7's carve-out closed:
+# snippet_text::extract lowered a copy of the haystack per message scanned and
+# returned a fresh string per row, and now folds in place through
+# fmtutil::find_lower and writes into the caller's buffer.
+#
+# 1130 is the measured 943.0 plus the same ~20% headroom the other six arms
+# carry. It bites a REVERT OF THE FIRST change on its own — gate_audit.py
+# alloc.snippet_captures_strings reads 1313.4, 116% of it — and any regression
+# that puts more than 187 allocations a frame back into the search frame. At
+# the old 1660 that same revert was 79% and green, so the tightening is what
+# gates the first change at all. A revert of the SECOND change alone reads
+# 1009.8, which is 89% of the ceiling and passes it, so that one is gated
+# directly and exactly by tests/unit/test_snippet_text.cpp instead, whose
+# allocation arm reads 0 for extract_into against 1413 for the spelling it
+# replaced, over the same 512 lines (gate_audit.py alloc.snippet_copies_line
+# puts that spelling back and reads the test red).
 #
 # ~20% of headroom over the measured value on each arm. The number is exact,
 # so headroom is not for noise — there is none. It is for the honest drift of
@@ -182,7 +217,7 @@ CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-770}"
 # what stops the number growing further in the meantime; it is not an
 # endorsement of it.
 CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-920}"
-CEIL_SEARCH2000="${HANABI_ALLOC_CEIL_SEARCH2000:-1660}"
+CEIL_SEARCH2000="${HANABI_ALLOC_CEIL_SEARCH2000:-1130}"
 CEIL_PALETTE2000="${HANABI_ALLOC_CEIL_PALETTE2000:-780}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 

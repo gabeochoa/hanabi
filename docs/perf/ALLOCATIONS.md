@@ -285,7 +285,9 @@ index cannot make a catalog smaller.
 
 Gated by `alloc_gate.sh`'s `search2000` and `palette2000` arms;
 `scripts/gate_audit.py alloc.ci_copies_haystack` puts the copy back and reads
-192% and 341% of ceiling with the other five arms green. Pinned at unit level
+247% and 341% of ceiling with the other five arms green (the search figure is
+against the tightened 1130 ceiling entry 8 sets; it read 192% against the 1660
+this entry originally set). Pinned at unit level
 by `tests/unit/test_contains_lower.cpp`, which is a differential against the
 exact expression it replaced (432 pairs) plus an allocation count: 0 for
 `contains_lower` over 512 titles against 512 for `to_lower().find()`.
@@ -301,6 +303,69 @@ session in the catalog, and nothing in the repo measures it. Giving it an
 offset-returning variant is a second primitive for a cost with no reading
 behind it; the honest note is that the bound here is "few rows", not "few
 calls".
+
+---
+
+### 8. The sidebar SNIPPET: a draw callback that captured two strings, and a cut that copied its line
+
+Entry 4's rule — *in a per-widget draw callback, capture ≤ 24 bytes or capture a
+pointer to somewhere that outlives the frame; never capture a string by value* —
+was applied to the transcript and not to the sidebar. `render_snippet`'s
+`on_draw_bg` captured `text` and `q`, so the function itself was a malloc, the
+two strings inside it were two more, and afterhours cloned all of it with each
+of its three `ComponentConfig` copies. It is the last by-value string capture in
+a draw callback in the app; a grep over `src/` finds no other.
+
+Entry 7 closed the two FILTERS and said so explicitly about what it left:
+"Still copying, deliberately: `hanabi::snippet_text::extract` lowercases both
+sides… nothing in the repo measures it." Something does now. Over a 2,020-session
+catalog with a live query, `extract` is reached ~35 times a frame — once per
+message of every held transcript the sidebar scans until one hits — and each
+call built a lowercased copy of the whole message and returned a fresh string.
+
+Both live on the SNIPPET path, which only a row carrying a search result builds,
+so the other six `alloc_gate.sh` arms are untouched to the allocation.
+
+| | before | after | |
+| --- | ---: | ---: | --- |
+| sidebar search, 2,020 sessions — draw state on the entity | 1,380.1 | **1,009.8** | −26.8% |
+| …and the cut into a reused buffer | 1,009.8 | **943.0** | −6.6% |
+| both, against `e26324e` | 1,380.1 | **943.0** | −31.7% |
+
+Measured on `boulder-KF74T3NW36`, 2026-09-02, 800-frame runs at buckets of 200,
+each figure the median of the last three buckets, 12 interleaved repetitions per
+side. Every repetition read the same value to the tenth; the allocation counter
+is exact, which is the property entry 1 relies on too.
+
+**Frame CPU did not move, and the honest reason is that this instrument cannot
+see a move that small.** A NULL CONTROL — the same binary A/B'd against itself,
+12 balanced repetitions — reported −2.37% on the search arm's thread-clock
+min-of-bucket. Every CPU delta measured for these two changes (−1.6% to +2.5%,
+across arms whose allocation counts did not move at all) is inside that. What
+these changes buy is malloc traffic, not milliseconds: at 60 fps the search
+frame went from 82,806 mallocs a second to 56,580.
+
+`ecs::LineDrawState` is reused rather than copied — it is what a line's draw
+callbacks need parked on the line's entity, and a snippet is a line.
+`fmtutil::find_lower` is `contains_lower`'s offset-returning sibling, and
+`contains_lower` is now expressed in terms of it so there is one scan and not
+two. `snippet_text::extract_into` writes into the caller's buffer;
+`snippet_text::extract` is kept as the value-returning spelling the unit test
+drives.
+
+Gated two ways, because one ceiling could not bite both:
+`alloc_gate.sh`'s `search2000` ceiling comes down 1660 → 1130, and a revert of
+the capture (`gate_audit.py alloc.snippet_captures_strings`) then reads 1,313.4
+— 116%, red. The tightening is what gates experiment 1 at all: that same
+revert against the old 1660 ceiling is 79%, green. And `tests/unit/test_snippet_text.cpp`
+gains a differential (3,584 (line, query) pairs agree with the copying
+spelling) plus an allocation arm that reads 0 for `extract_into` against 1,413
+for the body it replaced, over the same 512 lines. That second gate is not
+decoration: reverting the cut ALONE reads 1,009.8 against the 1,130 ceiling —
+89%, green — so no frame-level ceiling can hold it.
+`gate_audit.py alloc.snippet_copies_line` puts the copying cut back and the
+test goes red at 512 allocations against 0, with its differential still green,
+which is the proof that the two defects are separable and both are held.
 
 ---
 

@@ -43,6 +43,7 @@
 #include "../ui/snippet_highlight.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "sidebar_buckets.h"
+#include "line_draw_state.h"
 #include "subagent_parent_index.h"
 #include "thread_model.h"
 #include "tab_model.h"
@@ -2092,6 +2093,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     int nextFolderBase_ = 1000000;
     // Buffer for more_key(); see the note there.
     std::string moreKeyScratch_;
+    std::string snippetScratch_;
+    std::string queryLower_;
     // What the last rendered group drew, and out of how many. Test-only
     // (HANABI_ROW_AUDIT=1) -- read by the label at the foot of the panel.
     int rowsRendered_ = 0;
@@ -2901,9 +2904,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // snippet needs no id range of its own (the row ids are already
             // dense, and a second series would collide with a long result
             // list).
-            const std::string snip = snippet_for(*s, app, q);
+            snippet_for(*s, app, q, snippetScratch_);
             afterhours::EntityID rowEnt;
-            if (snip.empty()) {
+            if (snippetScratch_.empty()) {
                 rowEnt = render_chat_row(ctx, parent, rowId, *s, app, archived,
                                          panelW);
             } else {
@@ -2918,7 +2921,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("sb_result"));
                 rowEnt = render_chat_row(ctx, wrap.ent(), 1, *s, app, archived,
                                          panelW);
-                render_snippet(ctx, wrap.ent(), snip, q, panelW);
+                render_snippet(ctx, wrap.ent(), snippetScratch_, q, panelW);
             }
             renderedIds.push_back(s->id);
             if (!haveBand) {
@@ -3023,24 +3026,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // frame, and this runs inside the render loop; a row that matched on
     // cached content it cannot afford to re-read falls back to its preview
     // (see the REPORT).
-    std::string snippet_for(const api::SessionSummary& s, AppComponent& app,
-                            const std::string& q) {
-        if (q.empty()) return std::string();
+    void snippet_for(const api::SessionSummary& s, AppComponent& app,
+                     const std::string& q, std::string& out) {
+        out.clear();
+        if (q.empty()) return;
+        queryLower_.assign(q);
+        for (char& c : queryLower_) c = fmtutil::lower_ch(c);
         if (const api::Session* held = app.transcriptCache.peek(s.id)) {
             for (const auto& m : held->messages) {
                 if (m.role != api::Role::User &&
                     m.role != api::Role::Assistant)
                     continue;
-                const std::string sn =
-                    hanabi::snippet_highlight::extract(m.text, q);
-                if (!sn.empty()) return sn;
+                if (hanabi::snippet_highlight::extract_into(out, m.text,
+                                                            queryLower_))
+                    return;
             }
         }
-        const std::string sn =
-            hanabi::snippet_highlight::extract(s.preview, q);
+        if (hanabi::snippet_highlight::extract_into(out, s.preview,
+                                                    queryLower_))
+            return;
         // A title match has nothing lit in it; the preview is still the most
         // useful line to put under the title, so it renders plain.
-        return sn.empty() ? s.preview : sn;
+        out.assign(s.preview);
     }
 
     // The snippet line itself. NO padding: the highlight bands are placed from
@@ -3053,7 +3060,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const float indent = kRowLeftInset + kGlyphW + kRowTitlePad;
         float w = panelW - indent - 12.0f;
         if (w < 40.0f) w = 40.0f;
-        div(ctx, mk(parent, 2),
+        const auto ep = mk(parent, 2);
+        auto& sd = ep.first.get().addComponentIfMissing<ecs::LineDrawState>();
+        sd.text = text;
+        sd.query = q;
+        ecs::LineDrawState* sdp = &sd;
+        div(ctx, ep,
             ComponentConfig{}
                 .with_label(text)
                 .with_size(ComponentSize{pixels(w), pixels(kSnippetH)})
@@ -3063,8 +3075,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_on_draw_bg([text, q](RectangleType r) {
-                    hanabi::snippet_highlight::draw(r, text, q,
+                .with_on_draw_bg([sdp](RectangleType r) {
+                    hanabi::snippet_highlight::draw(r, sdp->text, sdp->query,
                                                     theme::type::SM);
                 })
                 .with_debug_name("sb_snippet"));

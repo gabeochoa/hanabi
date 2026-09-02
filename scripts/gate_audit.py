@@ -56,6 +56,7 @@ WR = "src/ecs/widget_retire_system.h"
 TH = "src/ui/theme.h"
 FC = "src/ui/field_chrome.h"
 FMT = "src/util/format.h"
+ST = "src/ui/snippet_text.h"
 
 LEAK_ANCHOR = """    void once(float) override {
         hanabi::widget_epoch::configure_retirement();"""
@@ -184,22 +185,59 @@ DEFECTS = {
             static_cast<int>(n),
             [this](int k) { return pitches_[static_cast<size_t>(k)]; }, 0.0f,
             0.0f, 0.0f);""")]),
-    # The case-insensitive substring test put back the way it was spelled
+    # The case-insensitive substring scan put back the way it was spelled
     # everywhere before contains_lower: build a lowercased copy of the
     # HAYSTACK, then find() in it. One malloc per candidate per frame, which
     # both filter arms of alloc-gate read as a level that scales with the
     # catalog. Nothing else changes and no answer changes; the differential
     # arm of tests/unit/test_contains_lower.cpp stays green against it, which
     # is why the gate and the test are both here.
+    #
+    # It anchors on find_lower rather than contains_lower because the offset-
+    # returning form is now the one scan both spellings share; contains_lower
+    # is expressed in terms of it. The anchor moved when that happened and was
+    # not updated, so apply() aborted the whole run at this entry and silently
+    # skipped the 21 defects after it.
     "alloc.ci_copies_haystack": dict(
         gate="alloc-gate", build="app",
-        patches=[(FMT, """    if (lowerNeedle.empty()) return true;
-    if (lowerNeedle.size() > hay.size()) return false;
+        patches=[(FMT, """    if (lowerNeedle.empty()) return 0;
+    if (lowerNeedle.size() > hay.size()) return std::string_view::npos;
     const char first = lowerNeedle.front();""",
-                  """    if (lowerNeedle.empty()) return true;
-    if (lowerNeedle.size() > hay.size()) return false;
-    return to_lower(std::string(hay)).find(lowerNeedle) != std::string::npos;
+                  """    if (lowerNeedle.empty()) return 0;
+    if (lowerNeedle.size() > hay.size()) return std::string_view::npos;
+    return to_lower(std::string(hay)).find(lowerNeedle);
     const char first = lowerNeedle.front();""")]),
+    # The snippet's CUT, put back the way it was spelled before extract_into:
+    # lower a copy of the whole line, then find() in that. One malloc per
+    # message scanned per frame.
+    #
+    # Its gate is the unit test and NOT alloc-gate, which is the whole reason
+    # it is a separate entry: reverting this alone reads 1009.8 on the
+    # search2000 arm against a 1130 ceiling — 89%, green. A frame-level
+    # ceiling cannot hold a property this size, and the honest place to gate
+    # it is where the cut is measured directly.
+    "alloc.snippet_copies_line": dict(
+        gate="snippet-alloc", build="none",
+        patches=[(ST, "    const size_t at = fmtutil::find_lower(text, lowerQuery);",
+                  "    const size_t at = "
+                  "fmtutil::to_lower(std::string(text)).find(lowerQuery);")]),
+    "alloc.snippet_captures_strings": dict(
+        gate="alloc-gate", build="app",
+        patches=[(SB, """        const auto ep = mk(parent, 2);
+        auto& sd = ep.first.get().addComponentIfMissing<ecs::LineDrawState>();
+        sd.text = text;
+        sd.query = q;
+        ecs::LineDrawState* sdp = &sd;
+        div(ctx, ep,""",
+                  """        div(ctx, mk(parent, 2),"""),
+                 (SB, """                .with_on_draw_bg([sdp](RectangleType r) {
+                    hanabi::snippet_highlight::draw(r, sdp->text, sdp->query,
+                                                    theme::type::SM);
+                })""",
+                  """                .with_on_draw_bg([text, q](RectangleType r) {
+                    hanabi::snippet_highlight::draw(r, text, q,
+                                                    theme::type::SM);
+                })""")]),
     "transcript.wrap": dict(
         gate="slope", build="app",
         patches=[(MP, "        if (const int* hit = memo.find(text, widthPx, fontPx)) {",
@@ -340,6 +378,13 @@ GATE_CMD = {
     "sidebar-scan-gate": ["bash", "scripts/sidebar_scan_gate.sh"],
     "source-checks": ["make", "source-checks"],
     "alloc-gate": ["bash", "scripts/alloc_gate.sh"],
+    # The snippet cut, measured directly. No frame-level ceiling can hold this
+    # property (see alloc.snippet_copies_line), so its gate is the unit test.
+    # The binary depends on every header, so make rebuilds it after a patch —
+    # and a build failure exits 2, which the audit never accepts as a red.
+    "snippet-alloc": ["bash", "-c",
+                      "make output/tests/test_snippet_text && "
+                      "output/tests/test_snippet_text"],
     "launch": ["bash", "scripts/measure_launch.sh"],
     # The screenshot subset `make test` runs. It captures and compares, so it
     # needs the built app and the machine to itself, like the UI suite.

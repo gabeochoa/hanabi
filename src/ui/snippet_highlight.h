@@ -30,6 +30,7 @@
 namespace hanabi::snippet_highlight {
 
 using snippet_text::extract;
+using snippet_text::extract_into;
 using snippet_text::kContext;
 
 // Bands painted since the last read. Its own counter, deliberately not find's
