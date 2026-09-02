@@ -28,6 +28,7 @@
 #include "command_system.h"
 #include "keyboard_focus.h"
 #include "../util/format.h"
+#include "../util/prof.h"
 #include "components.h"
 #include "ui_imports.h"
 
@@ -239,23 +240,16 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         app.paletteIndex = 0;
     }
 
-    static bool contains_ci(const std::string& haystack,
-                            const std::string& needle) {
-        if (needle.empty()) return true;
-        const std::string h = fmtutil::to_lower(haystack);
-        const std::string n = fmtutil::to_lower(needle);
-        return h.find(n) != std::string::npos;
-    }
-
     // Actions first, then threads: an action is a fixed short list the user
     // can learn, and burying it under 2000 thread titles would make the
     // palette a thread switcher with some commands hidden at the bottom.
     static std::vector<Row> build_rows(const AppComponent& app) {
-        const std::string& q = app.paletteQuery;
+        const std::string q = fmtutil::to_lower(app.paletteQuery);
         std::vector<Row> out;
+        unsigned long long considered = 0;
 
         for (const auto& item : hanabi::shortcuts::kDefinitions) {
-            if (!item.in_palette || !contains_ci(std::string(item.title), q))
+            if (!item.in_palette || !fmtutil::contains_lower(item.title, q))
                 continue;
             out.push_back({std::string(item.title),
                            hanabi::shortcuts::display(
@@ -265,10 +259,17 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
 
         for (const auto& s : app.sessions) {
             if (out.size() >= kMaxRows) break;
-            if (s.title.empty() || !contains_ci(s.title, q)) continue;
+            ++considered;
+            if (s.title.empty() || !fmtutil::contains_lower(s.title, q))
+                continue;
             out.push_back({s.title, fmtutil::relative_time(s.updated_at),
                            std::nullopt, s.id});
         }
+        // What the filter actually looked at. alloc_gate's palette2000 arm
+        // gates a per-candidate cost, so it needs to know the fixture produced
+        // candidates: a palette that failed to open allocates nothing and
+        // would pass the arm while measuring an empty room.
+        hanabi::prof::tick("palette.candidates", considered);
         return out;
     }
 

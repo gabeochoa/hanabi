@@ -88,7 +88,7 @@ inline bool is_automated_title(const std::string& title) {
 
 inline bool title_matches(const std::string& title, const std::string& q) {
     if (q.empty()) return true;
-    return fmtutil::to_lower(title).find(q) != std::string::npos;
+    return fmtutil::contains_lower(title, q);
 }
 
 class SidebarBuckets {
@@ -110,6 +110,20 @@ class SidebarBuckets {
         hanabi::prof::Scope _pcollect("sidebar.collect");
         hanabi::prof::tick("sidebar.scan_rebuild");
         hanabi::prof::tick("sidebar.scan_visits", sessions.size());
+        // Visits made with a LIVE QUERY, which is the only kind that pays the
+        // per-title filter. The count above cannot say that: an empty query
+        // still rebuilds whenever the revision or the automated flag moves,
+        // so a gate flooring `scan_visits` would pass over a search field
+        // that had stopped being typed into. alloc_gate's search2000 arm
+        // floors on this one.
+        //
+        // The label is kept under 22 characters on purpose. prof::tick indexes
+        // an unordered_map<std::string, Entry> with a const char*, so a longer
+        // label builds a heap-allocated key on EVERY tick -- an instrument
+        // that moves the allocation count it exists to guard. At 25 characters
+        // this arm read 1381.0 instead of 1380.1.
+        if (!q.empty())
+            hanabi::prof::tick("sidebar.query_visits", sessions.size());
         hanabi::prof::gauge("sidebar.catalog", sessions.size());
         revision_ = catalogRevision;
         query_ = q;

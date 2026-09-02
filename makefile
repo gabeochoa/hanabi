@@ -482,6 +482,10 @@ $(TEST_DIR)/test_sidebar_buckets: tests/unit/test_sidebar_buckets.cpp src/ecs/si
 	@echo "Compiling test_sidebar_buckets..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_sidebar_buckets.cpp -o $@
 
+$(TEST_DIR)/test_contains_lower: tests/unit/test_contains_lower.cpp src/util/format.h src/ecs/sidebar_buckets.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_contains_lower..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_contains_lower.cpp -o $@
+
 $(TEST_DIR)/test_session_index: tests/unit/test_session_index.cpp src/search/session_index.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_session_index..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_session_index.cpp -o $@
@@ -669,7 +673,7 @@ $(TEST_DIR)/test_div_move: tests/unit/test_div_move.cpp src/ui/div.h src/ui/mk.h
 	@echo "Compiling test_div_move..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_div_move.cpp -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_subagent_parent_index $(TEST_DIR)/test_sidebar_buckets $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_md_spans $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo $(TEST_DIR)/test_div_move
+UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_subagent_parent_index $(TEST_DIR)/test_sidebar_buckets $(TEST_DIR)/test_contains_lower $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_md_spans $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo $(TEST_DIR)/test_div_move
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 

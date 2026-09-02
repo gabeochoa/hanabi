@@ -233,6 +233,77 @@ compare and no allocation at all.
 
 ---
 
+### 7. A case-insensitive filter that copies its haystack: ~1/session/frame
+
+`to_lower(haystack).find(needle)` is how every case-insensitive substring test
+that runs PER CANDIDATE in a UI filter was spelled. (The two corpus scanners,
+`hanabi::search::json_field_contains` and `search::session_index`, were never
+spelled that way — they scan bytes that are already lowered.) It builds a
+lowercased copy of the haystack and frees it, and a FILTER runs it once per
+candidate — so a filter over the catalog pays one malloc per session per frame,
+for as long as the filter is on screen.
+
+Two filters do that, and both had gone unmeasured because every arm in
+`alloc_gate.sh` had an EMPTY query, which is the one state of a filter that
+costs nothing:
+
+| arm | before | after | |
+| --- | ---: | ---: | --- |
+| sidebar search, 2,020 sessions | 3,190.0 | **1,380.1** | −57% |
+| sidebar search, 20,020 sessions | 20,514.7 | **2,504.8** | −88% |
+| palette, 2,020 sessions, no match | 2,658.0 | **643.0** | −76% |
+| palette, 20,020 sessions, no match | 20,689.0 | **674.0** | −97% |
+
+The palette rows are the shape of the whole entry: with the filter open over a
+20,020-session catalog the frame allocated 20,689 times, and with it closed it
+allocated 640. Opening a text field multiplied the app's malloc traffic by
+thirty-two, and the two figures after it are 674 and 640.
+
+`fmtutil::contains_lower` folds the haystack a byte at a time against an
+already-lowered needle and never builds a string. The needle is lowered once
+per frame by the caller rather than once per candidate, which is where
+`PaletteSystem::build_rows`'s second `to_lower` went.
+
+Frame CPU, thread clock, min-of-bucket over 600 frames, median of 5 to 7
+interleaved runs on `boulder-KF74T3NW36`:
+
+| | before | after | |
+| --- | ---: | ---: | --- |
+| `sidebar.collect`, search @ 2,020 | 0.2401 ms/f | **0.1572 ms/f** | 1.53x |
+| `sidebar.collect`, search @ 20,020 | 2.4351 ms/f | **1.6721 ms/f** | 1.46x |
+| whole frame, search @ 20,020 | 3.255 ms/f | **2.652 ms/f** | 1.23x |
+| whole frame, palette @ 20,020 | 1.854 ms/f | **1.421 ms/f** | 1.30x |
+
+**A pre-lowercased title index was measured and rejected.** Keeping every
+title's lowercased bytes in one packed buffer, rebuilt on
+`sessionCatalogRevision`, so the scan could use libc++'s own `find`: 0.997x at
+2,020 sessions and 1.033x at 20,020, for ~800 KB of duplicated titles and a
+second index to invalidate. That is inside this box's spread, and the reason
+is the useful part — what is left in `sidebar.collect` after the allocation
+goes is the WALK over `SessionSummary`, not the case folding, and a title
+index cannot make a catalog smaller.
+
+Gated by `alloc_gate.sh`'s `search2000` and `palette2000` arms;
+`scripts/gate_audit.py alloc.ci_copies_haystack` puts the copy back and reads
+192% and 341% of ceiling with the other five arms green. Pinned at unit level
+by `tests/unit/test_contains_lower.cpp`, which is a differential against the
+exact expression it replaced (432 pairs) plus an allocation count: 0 for
+`contains_lower` over 512 titles against 512 for `to_lower().find()`.
+
+**Still copying, deliberately:** `hanabi::snippet_text::extract` lowercases both
+sides, because it needs the match OFFSET and not a yes/no. It is reached only
+for a row whose transcript is already held in memory, and `snippet_for`
+(`sidebar_system.h`) walks that transcript's messages until one hits — so a
+single row on a long held thread can pay hundreds of copies, not one. It is
+still two orders of magnitude off this entry, because the rows that enter that
+loop are the handful on screen with a cached transcript rather than every
+session in the catalog, and nothing in the repo measures it. Giving it an
+offset-returning variant is a second primitive for a cost with no reading
+behind it; the honest note is that the bound here is "few rows", not "few
+calls".
+
+---
+
 ## Where the remaining 2,740 goes (480-message thread)
 
 | | allocs/frame | whose |

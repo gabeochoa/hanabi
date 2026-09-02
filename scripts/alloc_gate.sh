@@ -33,6 +33,20 @@
 #              branch measures 640/f after removing render/menu vectors,
 #              caching semantic labels, and moving the ComponentConfig into
 #              each widget. The 770 ceiling keeps 20% headroom.
+#   search2000 the sidebar's SEARCH FILTER live over the 2000-session catalog.
+#              Every arm above has an EMPTY query, and an empty query is the
+#              one state of this filter that costs nothing: SidebarBuckets
+#              reuses its kept answer and visits no session at all. With a
+#              query it rescans the catalog every frame by design (the disk
+#              cache publishes no revision), so this is the arm that gates what
+#              ONE VISIT costs — and a visit that allocates is a malloc per
+#              session per frame.
+#   palette2000 the command palette open over the same catalog with a query
+#              that matches nothing, so build_rows walks every session instead
+#              of stopping at kMaxRows. Same filter shape as the row above and
+#              a different call site; the two moved together and are gated
+#              together, because a primitive with one guarded caller grows a
+#              second unguarded one.
 #
 # ---------------------------------------------------------------------------
 # WHERE THE CEILINGS COME FROM
@@ -75,6 +89,28 @@
 #   tabs20          640.0         640.0       770      unchanged arm
 #   thread480      2599.0        2599.0      3120      unchanged arm
 #   draft6          955.0         766.0       920      +20%
+#
+# The two FILTER arms, added 2026-09-02 on boulder-KF74T3NW36 against main at
+# 1e3626c, same 600-frame runs, each figure reproduced to the tenth over three
+# repetitions. What moved is fmtutil::contains_lower: a case-insensitive
+# substring test that folds the haystack IN PLACE instead of building and
+# freeing a lowercased copy of it per candidate (docs/perf/ALLOCATIONS.md
+# entry 7, tests/unit/test_contains_lower.cpp):
+#
+#   arm           1e3626c    this branch   ceiling   headroom
+#   search2000     3190.0        1380.1      1660      +20%
+#   palette2000    2658.0         643.0       780      +21%
+#
+# Both are ~1 allocation per session per frame before and ~0 after, so the
+# ceilings hold a LEVEL that no longer scales with the catalog at all. The
+# same two arms at a 20,020-session catalog read 20514.7 -> 2504.8 and
+# 20689.0 -> 674.0; they are gated at 2,020 because that costs 8 s instead of
+# 40 s and the defect is just as loud there (192% and 341% of ceiling).
+#
+# `gate_audit.py alloc.ci_copies_haystack` reads 2656.0 on the palette arm
+# rather than the 2658.0 above, and the two allocations are worth knowing:
+# the defect restores the HAYSTACK copy only, while this branch also stopped
+# lowering the needle once per candidate. Same arm, two different defects.
 #
 # ~20% of headroom over the measured value on each arm. The number is exact,
 # so headroom is not for noise — there is none. It is for the honest drift of
@@ -146,6 +182,8 @@ CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-770}"
 # what stops the number growing further in the meantime; it is not an
 # endorsement of it.
 CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-920}"
+CEIL_SEARCH2000="${HANABI_ALLOC_CEIL_SEARCH2000:-1660}"
+CEIL_PALETTE2000="${HANABI_ALLOC_CEIL_PALETTE2000:-780}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then
@@ -161,7 +199,7 @@ trap kill_own_runs EXIT
 fail=0
 ONLY="${HANABI_ALLOC_ONLY:-}"
 case "$ONLY" in
-    ""|home20|home2000|tabs20|thread480|draft6) ;;
+    ""|home20|home2000|tabs20|thread480|draft6|search2000|palette2000) ;;
     *)
         echo "alloc_gate: unknown HANABI_ALLOC_ONLY '$ONLY'" >&2
         exit 2
@@ -169,8 +207,18 @@ case "$ONLY" in
 esac
 
 # run_arm <name> <sessions> <ceiling> <open_tabs-json> <active-json> [extra env...]
+#
+# ARM_LIVE_COUNTER / ARM_LIVE_FLOOR, set immediately before a call, make the
+# arm say whether its FIXTURE happened. Every arm here gates a per-something
+# cost, and a fixture that produced no somethings allocates nothing and passes
+# — the failure mode docs/perf/GATES.md section 0 found four times. The two
+# filter arms are the ones exposed to it: a search field that stopped being
+# typed into, or a palette that stopped opening, is a green arm measuring an
+# empty room.
 run_arm() {
     local name=$1 sessions=$2 ceiling=$3 tabs=$4 active=$5
+    local liveCounter="${ARM_LIVE_COUNTER:-}" liveFloor="${ARM_LIVE_FLOOR:-0}"
+    ARM_LIVE_COUNTER=""; ARM_LIVE_FLOOR=0
     shift 5
     [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || return 0
     local h
@@ -239,6 +287,27 @@ J
         verdict="FAIL"
         fail=1
     fi
+
+    # The fixture check, BEFORE the number is believed. HANABI_PROF prints one
+    # counter row per label as `[prof] <label> <calls> <calls/f>`; the floor is
+    # on calls per frame.
+    if [ -n "$liveCounter" ]; then
+        local live
+        live=$(awk -v k="$liveCounter" '$2==k {print $4}' "$log" | tail -1)
+        if [ -z "$live" ] ||
+           awk -v v="$live" -v f="$liveFloor" 'BEGIN{exit !(v+0 < f+0)}'; then
+            printf '  %-11s %12s %10s %8s   NOT MEASURED — %s %s, floor %s/f\n' \
+                "$name" "$allocs" "$ceiling" "$pct%" \
+                "$liveCounter" \
+                "${live:+$live/f}${live:-never counted}" "$liveFloor"
+            echo "        The arm ran and allocated little, because its FIXTURE" >&2
+            echo "        did not happen — not because the cost went away." >&2
+            rm -rf "$h"
+            fail=1
+            return
+        fi
+    fi
+
     printf '  %-11s %12s %10s %7s%%   %s\n' "$name" "$allocs" "$ceiling" \
         "$pct" "$verdict"
 
@@ -265,6 +334,18 @@ line three
 line four
 line five
 line six"
+
+# The sidebar filter with a live query, and the palette filter with one that
+# matches nothing. Both walk the whole catalog every frame on purpose; what is
+# gated is that walking it does not allocate per session. Each carries a floor
+# on the counter that says the walk HAPPENED WITH A QUERY IN IT — see run_arm.
+# `sidebar.scan_visits` would NOT do: an empty query still rebuilds when the
+# catalog revision moves, so flooring that one passes over the empty room it
+# is supposed to catch.
+ARM_LIVE_COUNTER=sidebar.query_visits ARM_LIVE_FLOOR=1000 \
+    run_arm search2000  2000 "$CEIL_SEARCH2000"  '[]' '""' HANABI_STRESS=search
+ARM_LIVE_COUNTER=palette.candidates ARM_LIVE_FLOOR=1000 \
+    run_arm palette2000 2000 "$CEIL_PALETTE2000" '[]' '""' HANABI_PALETTE_DEMO=zzq
 
 if [ "$fail" -ne 0 ] && [ "$REPORT_ONLY" != "1" ]; then
     cat >&2 <<'MSG'

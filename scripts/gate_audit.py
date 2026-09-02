@@ -52,6 +52,7 @@ WR = "src/ecs/widget_retire_system.h"
 TH = "src/ui/theme.h"
 FV = "src/ecs/focus_visible_system.h"
 FC = "src/ui/field_chrome.h"
+FMT = "src/util/format.h"
 
 LEAK_ANCHOR = """    void once(float) override {
         hanabi::widget_epoch::begin_epoch();"""
@@ -130,6 +131,22 @@ DEFECTS = {
             static_cast<int>(n),
             [this](int k) { return pitches_[static_cast<size_t>(k)]; }, 0.0f,
             0.0f, 0.0f);""")]),
+    # The case-insensitive substring test put back the way it was spelled
+    # everywhere before contains_lower: build a lowercased copy of the
+    # HAYSTACK, then find() in it. One malloc per candidate per frame, which
+    # both filter arms of alloc-gate read as a level that scales with the
+    # catalog. Nothing else changes and no answer changes; the differential
+    # arm of tests/unit/test_contains_lower.cpp stays green against it, which
+    # is why the gate and the test are both here.
+    "alloc.ci_copies_haystack": dict(
+        gate="alloc-gate", build="app",
+        patches=[(FMT, """    if (lowerNeedle.empty()) return true;
+    if (lowerNeedle.size() > hay.size()) return false;
+    const char first = lowerNeedle.front();""",
+                  """    if (lowerNeedle.empty()) return true;
+    if (lowerNeedle.size() > hay.size()) return false;
+    return to_lower(std::string(hay)).find(lowerNeedle) != std::string::npos;
+    const char first = lowerNeedle.front();""")]),
     "transcript.wrap": dict(
         gate="slope", build="app",
         patches=[(MP, "        if (const int* hit = memo.find(text, widthPx, fontPx)) {",

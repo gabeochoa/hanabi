@@ -23,6 +23,35 @@ inline std::string to_lower(std::string s) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
     return s;
 }
+inline char lower_ch(char c) {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+}
+
+// Case-insensitive substring test that ALLOCATES NOTHING. `lowerNeedle` is
+// already lowercased by the caller, because a filter lowercases its query once
+// and its candidates once each -- the sidebar's search and the command
+// palette both do exactly that.
+//
+// The obvious spelling, to_lower(hay).find(needle), builds and frees a
+// lowercased copy of the HAYSTACK per candidate. A filter over a catalog pays
+// that per row per frame: docs/perf/ALLOCATIONS.md entry 7 measures the
+// sidebar's at one malloc per session per frame, 57% of everything the frame
+// allocated at 2,020 sessions and 88% at 20,020.
+inline bool contains_lower(std::string_view hay,
+                           std::string_view lowerNeedle) {
+    if (lowerNeedle.empty()) return true;
+    if (lowerNeedle.size() > hay.size()) return false;
+    const char first = lowerNeedle.front();
+    const size_t last = hay.size() - lowerNeedle.size();
+    for (size_t i = 0; i <= last; ++i) {
+        if (lower_ch(hay[i]) != first) continue;
+        size_t j = 1;
+        for (; j < lowerNeedle.size(); ++j)
+            if (lower_ch(hay[i + j]) != lowerNeedle[j]) break;
+        if (j == lowerNeedle.size()) return true;
+    }
+    return false;
+}
 // ASCII Title Case: upper-case the first letter of each word (word boundaries
 // are space / '-' / '_'). Locale-independent, ASCII-only (same rationale as
 // to_upper/to_lower). Shared so the sidebar's folder-name display and any other

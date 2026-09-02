@@ -168,6 +168,8 @@ told the gate.
 | **soak_gate** · entity level | sidebar folder base id keyed on the epoch mod 400, so the set SATURATES, `HANABI_RETIRE=0` | **added by this branch** — `entity level 27001  ceiling 4000  FAIL`, with every slope row above it reading `ok` |
 | **digest_gate** · Home built vs matched | `render_home`'s section window removed, so every capped card is built (`scripts/gate_audit.py digest.home_window`) | **added by this branch** — `home 63 63 431 428 0.99x`, `FAIL: 'home' built 63 cards of 63, over 40` — and 431 widgets against 217 on the same catalog |
 | **alloc_gate** · the three Home arms | the same defect (`scripts/gate_audit.py alloc.home_window`) | **added by this branch** — `home20 740.0 / 670 = 110% FAIL`, `home2000 1034.0 / 730 = 142% FAIL`, `draft6 955.0 / 920 = 104% FAIL`; `tabs20` and `thread480` stay `ok`, which is the defect reproducing `14312fe`'s own baseline to the allocation |
+| **alloc_gate** · the two filter arms | the case-insensitive substring test spelled `to_lower(haystack).find(needle)` again, so a filter copies its haystack per candidate (`scripts/gate_audit.py alloc.ci_copies_haystack`) | **added by this branch** — `search2000 3190.0 / 1660 = 192% FAIL`, `palette2000 2656.0 / 780 = 341% FAIL`; `home20`, `home2000`, `tabs20`, `thread480` and `draft6` all stay `ok`, because every one of them has an EMPTY query and an empty query is the one state of a filter that allocates nothing. The palette figure is 2 BELOW `1e3626c`'s own 2658.0, and the two allocations are the point: this defect restores only the haystack copy, while the branch also stopped lowering the NEEDLE once per candidate |
+| **alloc_gate** · the two filter arms · fixture liveness | the arms pointed at a dead fixture — `HANABI_STRESS=idle` instead of `search`, and the palette knob renamed so it never opens | **added by this branch** — `search2000 608.0 / 1660 = 37% NOT MEASURED — sidebar.query_visits never counted` and `palette2000 608.0 / 780 = 78% NOT MEASURED — palette.candidates never counted`. Both would have read `ok` on the allocation number alone, which is the whole reason the floors are there. The search floor is on `sidebar.query_visits` and not on `sidebar.scan_visits`: an empty query still rebuilds when the catalog revision moves, so the plain visit count reads 3.4/f here instead of `never counted` and a floor on it would have passed over exactly the empty room this catches |
 | **sidebar_scan_gate** · folder ratio (trend) | the collection run again for every folder, defeated per frame by the widget epoch — the scan this refactor replaced (`scripts/gate_audit.py sidebar.per_folder_scan`) | **added by this branch** — `folder scan ratio (B/A) 1444.000  ceiling 1.20  FAIL`, with `arm B collected 1445 times over 600 frames, over 8`; arm A has no folders and stays green, which is the row saying WHICH defect this is |
 | **sidebar_scan_gate** · rebuilds + reuse (level) | the kept answer disabled, so one pass runs every frame (`scripts/gate_audit.py sidebar.no_memo`) | **added by this branch** — `A/B collected 724 times over 600 frames, over 8` and `reused the collection 0 times against 724 rebuilds`, in all three arms; the ratio arm stays `1.000`, so the two defects are told apart by which rows move |
 | **check_sidebar_scan** | a raw `for (… : app.sessions)` walk put back inside `render_folder` — the regression `sidebar_scan_gate` is structurally blind to, since a loop that never enters `SidebarBuckets` publishes no counter (`scripts/gate_audit.py sidebar.raw_rescan`) | **added by this branch** — `check_sidebar_scan: src/ecs/sidebar_system.h:2631: render_folder() names the session catalog`, `make: *** [source-checks] Error 1`; the four counter arms of `sidebar-scan-gate` stay green against the same defect, which is why both exist |
@@ -1040,6 +1042,25 @@ workaround for a measurement that moves; this one does not move.
 ~20% of headroom on each. Not for noise — there is none. For a feature that
 legitimately adds a widget or a label, which should cost a few allocations and
 not five hundred.
+
+Two arms were added on 2026-09-02, and the reason is this section's own blind
+spot rather than a new cost: **every arm above has an EMPTY query, and an empty
+query is the one state of a filter that costs nothing.** The sidebar reuses its
+kept buckets and visits no session; the palette is closed. So a filter that
+allocated once per session per frame sat under all five of them.
+
+| arm | 1e3626c | after | ceiling |
+| --- | ---: | ---: | ---: |
+| `search2000` — the sidebar filter, query live, 2000 sessions | 3,190.0 | 1,380.1 | 1,660 |
+| `palette2000` — the palette open on a query that matches nothing | 2,658.0 | 643.0 | 780 |
+
+Both are gated at 2,020 sessions rather than 20,020 because that costs 8 s
+instead of 40 s and the defect is just as loud there. Each also carries a FLOOR
+on the counter that says its fixture happened — `sidebar.scan_visits` for the
+search arm, `palette.candidates` for the palette one — because an arm that
+gates a per-candidate cost passes trivially when there were no candidates.
+Pointed at a dead fixture the two read 37% and 78% of ceiling and would both
+have said `ok`. `docs/perf/ALLOCATIONS.md` entry 7.
 
 Text measurement is deliberately NOT gated here even though it is a large share
 of the total: `scripts/perf_text_gate.sh` gates it directly, and two gates on
