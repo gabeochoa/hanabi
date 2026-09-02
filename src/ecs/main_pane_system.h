@@ -32,6 +32,7 @@
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
 #include "../ui/link_detect.h"
+#include "../ui/md_spans.h"
 #include "../ui/minimap.h"
 #include "../ui/find_operators.h"
 #include "../ui/text_select.h"
@@ -1072,65 +1073,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // primary. Returns the VISIBLE text (markers removed) + the color runs; the
     // visible text is what BOTH measure and render use for wrap/height, so the
     // virtualization mirror stays exact (markers never affect layout).
-    struct InlineParse {
-        std::string visible;                       // marker-free text
-        std::vector<afterhours::ui::TextSpan> spans;  // colored runs
-    };
+    using InlineParse = hanabi::md::Spans;
     static InlineParse md_to_spans(const std::string& line) {
-        InlineParse p;
-        const theme::Color base = theme::text_primary();
-        const theme::Color codeC = theme::accent();
-        const theme::Color strongC = theme::text_primary();
-        auto push = [&](const std::string& t, theme::Color c) {
-            if (t.empty()) return;
-            p.visible += t;
-            // Merge with the previous run if same color (fewer runs).
-            if (!p.spans.empty() && p.spans.back().color.r == c.r &&
-                p.spans.back().color.g == c.g && p.spans.back().color.b == c.b &&
-                p.spans.back().color.a == c.a)
-                p.spans.back().text += t;
-            else
-                p.spans.push_back(afterhours::ui::TextSpan{t, c});
-        };
-        size_t i = 0;
-        const size_t n = line.size();
-        while (i < n) {
-            // inline code `...`
-            if (line[i] == '`') {
-                size_t close = line.find('`', i + 1);
-                if (close != std::string::npos && close > i + 1) {
-                    push(line.substr(i + 1, close - i - 1), codeC);
-                    i = close + 1;
-                    continue;
-                }
-            }
-            // **bold** / __bold__
-            for (const char* d : {"**", "__"}) {
-                if (line.compare(i, 2, d) == 0) {
-                    size_t close = line.find(d, i + 2);
-                    if (close != std::string::npos && close > i + 2) {
-                        push(line.substr(i + 2, close - i - 2), strongC);
-                        i = close + 2;
-                        goto next;
-                    }
-                }
-            }
-            // *italic* / _italic_ (single delimiter; require non-space inner)
-            for (char d : {'*', '_'}) {
-                if (line[i] == d && i + 1 < n && line[i + 1] != ' ') {
-                    size_t close = line.find(d, i + 1);
-                    if (close != std::string::npos && close > i + 1) {
-                        push(line.substr(i + 1, close - i - 1), strongC);
-                        i = close + 1;
-                        goto next;
-                    }
-                }
-            }
-            push(std::string(1, line[i]), base);
-            ++i;
-        next:;
-        }
-        return p;
+        hanabi::prof::tick("text.md_spans");
+        hanabi::prof::tick("text.md_bytes", line.size());
+        return hanabi::md::inline_spans(
+            line, hanabi::md::Palette{theme::text_primary(), theme::accent(),
+                                      theme::text_primary()});
     }
     // Visible (marker-free) length of a line, for wrap/height math. MUST match
     // md_to_spans(line).visible.size() so measure and render agree.

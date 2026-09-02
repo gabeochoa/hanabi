@@ -3,6 +3,10 @@
 #
 #   scripts/perf_curve.sh [scenario] [reps] [frames]
 #   env: BIN=<binary>  SIZES="0 100 500 1000 2000"  TAB=<active tab id>
+#        TURNS=<n>  seeds the long-transcript fixture (tab id `rbig`) at n
+#        turns, which is the only way to put a long thread on screen: the
+#        synthetic catalog's own threads are short, so a curve taken without
+#        it says nothing about the transcript.
 #
 # WHY THIS IS IN THE REPO. Two reasons, both learned the hard way in the
 # session that added it.
@@ -36,6 +40,7 @@ FR=${3:-800}
 BIN=${BIN:-output/hanabi.exe}
 SIZES=${SIZES:-"0 100 500 1000 2000"}
 TAB=${TAB:-r9}
+TURNS=${TURNS:-}
 
 [ -x "$BIN" ] || { echo "no such binary: $BIN" >&2; exit 1; }
 
@@ -54,6 +59,7 @@ run_once() {
         HANABI_CONFIG=/tmp/hanabi_perf_curve_no_config \
         HANABI_SOAK="$FR" HANABI_SOAK_EVERY=100 HANABI_STRESS="$SC" \
         HANABI_STRESS_SESSIONS="$n" \
+        ${TURNS:+HANABI_BIG_TRANSCRIPT=1} ${TURNS:+HANABI_BIG_TURNS=$TURNS} \
         "$BIN" --screenshot "$home/shot.png" 2>&1 | grep 'ms/f'
     rm -rf "$home"
 }

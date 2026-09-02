@@ -168,6 +168,101 @@ memoized:
   chasing a report.
 - **Class** — `FOOTGUN` (#190)
 
+## 6. The inline-markdown parser walked one character at a time
+
+- **What I wanted** — after `73a0790`, the largest remaining cost in the
+  transcript frame that this repository is allowed to change.
+- **What happened** — a `sample` profile of the 240-turn fixture says the frame
+  is not ours to fix: 45% of the main thread is `afterhours::measure_text` —
+  `fonsTextBounds` → `stbtt_GetGlyphKernAdvance`, re-measuring every drawn
+  string at draw time — and another ~14% is `__dynamic_cast` and the
+  `strcmp` under `std::type_info::operator==`, from
+  `run_systems_on_ui_entities` testing every UI entity against every UI
+  system. Both are inside `vendor/afterhours`, which is off-limits here. What
+  IS ours is `transcript.pass2_build`, 0.2532 ms of a 2.67 ms scrolling frame,
+  and the largest single thing inside it was `md_to_spans`.
+- **Why it cost what it did** — the parser's fallback for an ordinary
+  character was `push(std::string(1, line[i]), base)`. Every byte of every
+  visible line built a one-character `std::string`, appended it to
+  `visible`, and appended it again to the current run's text. A 4 KB
+  paragraph paid 4,096 calls and two strings' worth of geometric regrowth to
+  produce one span. Measured on the 240-turn fixture: 44 calls and 1,732 bytes
+  per idle frame, 116 calls and 4,543 bytes per frame while scrolling.
+- **Fix** — `src/ui/md_spans.h`. Same grammar, same output byte for byte, but
+  the scan jumps to the next delimiter with `find_first_of` and pushes the run
+  between them in one append, and `visible` is reserved once. The parser is
+  now a pure function of (line, palette) with no dependency on the theme, the
+  ECS or a font, which is what lets `tests/unit/test_md_spans.cpp` exist at
+  all.
+- **Measured**, 240-turn fixture at 1180x949, 900 frames, medians of three
+  runs, `73a0790` against this commit:
+
+  | | idle | | read (scrolling) | |
+  |---|---:|---:|---:|---:|
+  | | before | after | before | after |
+  | `transcript.pass2_build` (ms) | 0.0938 | **0.0696** | 0.2532 | **0.1836** |
+  | frame CPU (ms) | 1.9946 | **1.9652** | 2.6703 | **2.5889** |
+  | allocations / frame | 3,060.4 | **3,027.2** | 4,530.2 | **4,443.4** |
+
+  The build pass is 26–27% cheaper. The frame numbers are the ones to be
+  careful with, so they were taken twice with different instruments:
+  `HANABI_PROF=1` over 900 frames says −1.5% idle and −3.0% scrolling with no
+  overlap between the three runs on either side, and `scripts/perf_ab.sh`
+  (interleaved, no profiler, median of 15) says **1.01x** idle and **1.03x**
+  scrolling. Two instruments, the same direction, the same size.
+- **The instrument was the first thing that had to go** — an early version put
+  a `prof::Scope` inside `md_to_spans`. At 116 calls a frame, two
+  `CLOCK_THREAD_CPUTIME_ID` reads per call cost ~0.1 ms/frame, and the
+  profiled frame came out 4% SLOWER after a change that made it faster. That
+  is `prof.h`'s own rule arriving the hard way: a timer on a call this small
+  measures the timer. It is a `tick` now, and `transcript.pass2_build` is the
+  timer that reports it.
+- **Class** — `FOOTGUN` (ours, not the library's)
+
+## 7. What was tried on the way and thrown away
+
+- **Sending uniform-coloured lines down the plain text path.** In the app's
+  palette `base` and `strong` are both `text_primary`, so a line with only
+  `**bold**` in it merges to ONE span whose colour is exactly the
+  `with_custom_text_color` already on the widget — which means dropping
+  `with_styled_label` for those lines is colour-identical by construction, and
+  it takes them off afterhours' `draw_runs_in_rect` / `wrap_runs_to_width`
+  path, which is 18% of the frame. It made things WORSE and the counter said
+  so immediately: allocations went from 3,027 to 3,707 per idle frame and from
+  4,443 to 4,644 while scrolling, with no frame-time change. The plain path
+  allocates more per draw than the span path does, so the whole premise was
+  backwards. Reverted; the three lines are not in this commit.
+- **Memoizing `md_to_spans` on the line text.** The obvious next move after
+  the memos in entries 1–4, and it does not pay here. `colour_links` MUTATES
+  the parse before the widget sees it, so a cached entry has to be copied on
+  every hit — and the copy is the same two string allocations the parse now
+  costs. A memo would buy the scan, which after this commit is the cheap half.
+- **`strip_inline_markers`, which has the identical per-character shape.** Left
+  alone deliberately: it is the USER-bubble path, and no arm here calls it
+  often enough to measure. Named so the next person does not have to find it
+  twice.
+
+---
+
+## Where the transcript frame actually goes
+
+Taken with `sample` on the 240-turn fixture so the next person does not have
+to; percentages are of main-thread samples, and everything named here except
+the last two rows is inside the vendored submodule.
+
+| | idle | read |
+|---|---:|---:|
+| `afterhours::measure_text` (all callers) | 45.3% | 37.5% |
+| — of which `stbtt_GetGlyphKernAdvance`, self | 28.4% | 22.4% |
+| `__dynamic_cast` under `run_systems_on_ui_entities` | 10.2% | 17.7% |
+| `MainPaneSystem::for_each_with` (the build pass) | 6.0% | 9.7% |
+| `SidebarSystem::for_each_with` | 3.5% | 2.8% |
+
+Text measurement at DRAW time is the frame. It is #135's other half: the
+memos in this document removed hanabi's own measuring, and the library still
+re-measures every string it draws, every frame, with kerning. Nothing in
+`src/` can reach it.
+
 ---
 
 ## The gates, and one that had gone blind
@@ -192,6 +287,22 @@ it watched read 0.03 calls a frame and could not move. It sums both rows now.
 That is the general hazard, and it is the most transferable thing here: **a
 perf fix that routes work through a new function silently retires every gate
 watching the old one.** Nothing warns you. The gate keeps passing.
+
+`tests/unit/test_md_spans.cpp` guards entry 6, and it is two gates in one
+binary. The first is differential, for the same reason `test_wrap_count.cpp`
+is: the parser decides what text gets WRAPPED, so a byte it drops or keeps
+changes a line count and therefore a box height, and "these twelve cases look
+right" is not the property. The reference is the per-character implementation
+this commit replaced, kept verbatim in the test, and the two are compared over
+3,840 generated lines — matched and unmatched delimiters, adjacent ones,
+multi-byte text, and the `a_b_c` shapes real prose is full of.
+
+The second is a COUNT, and it is the one that fails if anyone writes the old
+loop again: over 1–4 KB plain lines the run-based parser allocates 3.00 times
+per line and the per-character one 15.00, so the ceiling is 6 and the floor
+under the reference is 12. Rehearsed by pointing the test's own subject at the
+reference — `15.00 allocations/line, FAIL` — rather than by lowering the
+ceiling until it went red.
 
 ---
 
@@ -231,6 +342,16 @@ Blunt, in the house style.
 ```bash
 # The three scenarios, counts only.
 scripts/perf_text.sh
+
+# Entry 6: the same fixture through two instruments. The first is the phase
+# table (counts and CPU per phase); the second is the interleaved A/B, which
+# runs no profiler at all.
+HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_TURNS=240 HANABI_PROF=1 \
+  HANABI_SOAK=900 HANABI_STRESS=read output/hanabi.exe --screenshot /tmp/s.png
+SIZES=0 TAB=rbig TURNS=240 scripts/perf_ab.sh <old.exe> <new.exe> read 15 800
+
+# Where the frame goes, when the phase table says it is not in our code.
+sample <pid of a soak run> 12 -file /tmp/hanabi.sample
 
 # The gate (also in `make test`).
 scripts/perf_text_gate.sh

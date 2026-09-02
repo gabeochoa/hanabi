@@ -2,7 +2,7 @@
 # A/B two binaries on the same curve, interleaved run for run.
 #
 #   scripts/perf_ab.sh <binA> <binB> [scenario] [reps] [frames]
-#   env: SIZES="..."  TAB=<active tab id>
+#   env: SIZES="..."  TAB=<active tab id>  TURNS=<long-transcript turns>
 #
 # WHY INTERLEAVED. This Mac is shared. Running all of A and then all of B means
 # a load spike during A's block is indistinguishable from B being faster --
