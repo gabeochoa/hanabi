@@ -30,18 +30,33 @@
 #              is where the per-frame text work lives, and it is the arm that
 #              the wrap memo moved most.
 #   tabs20     twenty open tabs in overflow. HEAD e249747 measured 774/f; this
-#              branch measures 762/f after removing render/menu vectors and
-#              caching semantic labels. The 920 ceiling keeps 20% headroom.
+#              branch measures 640/f after removing render/menu vectors,
+#              caching semantic labels, and moving the ComponentConfig into
+#              each widget. The 770 ceiling keeps 20% headroom.
 #
 # ---------------------------------------------------------------------------
-# WHERE THE CEILINGS COME FROM (measured 2026-08-25 on gabeochoa-mac-GRQ7Y259H4,
-# each figure the steady-state bucket of a 600-frame run, reproduced across
-# runs to the unit)
+# WHERE THE CEILINGS COME FROM
 #
-#   arm         main @ ddb391c   this branch    ceiling   headroom
-#   home20              2550.0         827.0       1000      +21%
-#   home2000            3535.0        1197.0       1450      +21%
-#   thread480           6687.0        2740.0       3300      +20%
+# First set, measured 2026-08-25 on gabeochoa-mac-GRQ7Y259H4, each figure the
+# steady-state bucket of a 600-frame run, reproduced across runs to the unit:
+#
+#   arm         main @ ddb391c   that branch
+#   home20              2550.0         827.0
+#   home2000            3535.0        1197.0
+#   thread480           6687.0        2740.0
+#
+# Current set, measured 2026-09-02 on boulder-KF74T3NW36, same 600-frame runs,
+# reproduced to the unit, against a frozen base binary built at 97c567e. What
+# moved is src/ui/div.h: the app's div now MOVES its ComponentConfig into
+# afterhours instead of handing it an lvalue for the by-value parameter to
+# copy (docs/perf/ALLOCATIONS.md, tests/unit/test_div_move.cpp):
+#
+#   arm          97c567e    this branch   ceiling   headroom
+#   home20          829.0         740.0       890      +20%
+#   home2000       1181.0        1034.0      1250      +21%
+#   tabs20          680.0         640.0       770      +20%
+#   thread480      2707.0        2599.0      3120      +20%
+#   draft6         1044.0         955.0      1150      +20%
 #
 # ~20% of headroom over the measured value on each arm. The number is exact,
 # so headroom is not for noise — there is none. It is for the honest drift of
@@ -92,10 +107,10 @@ EXE="${HANABI_ALLOC_EXE:-$ROOT/output/hanabi.exe}"
 
 FRAMES="${HANABI_ALLOC_GATE_FRAMES:-600}"
 EVERY="${HANABI_ALLOC_GATE_EVERY:-200}"
-CEIL_HOME20="${HANABI_ALLOC_CEIL_HOME20:-1000}"
-CEIL_HOME2000="${HANABI_ALLOC_CEIL_HOME2000:-1450}"
-CEIL_THREAD480="${HANABI_ALLOC_CEIL_THREAD480:-3300}"
-CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-920}"
+CEIL_HOME20="${HANABI_ALLOC_CEIL_HOME20:-890}"
+CEIL_HOME2000="${HANABI_ALLOC_CEIL_HOME2000:-1250}"
+CEIL_THREAD480="${HANABI_ALLOC_CEIL_THREAD480:-3120}"
+CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-770}"
 # The composer holding a SIX-LINE DRAFT, standing still.
 #
 # The other four arms have an empty composer, and an empty composer is the one
@@ -106,13 +121,13 @@ CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-920}"
 # draft nobody is touching. Measured here: 811/f empty, 1025/f with six short
 # lines in it, 1007/f with one 130-character line that does not even wrap.
 #
-# 1250 is where the PINNED vendor puts it plus the same ~20% headroom the other
-# three carry. vendor_patches/305-text-area-wraps-every-frame.patch takes the
+# 1150 is where the PINNED vendor puts it plus the same ~20% headroom the other
+# four carry. vendor_patches/305-text-area-wraps-every-frame.patch takes the
 # same arm to 847/f, and when that lands upstream and the submodule pointer
-# moves, this ceiling should come down to ~1050 with it. Leaving it high is
+# moves, this ceiling should come down with it. Leaving it high is
 # what stops the number growing further in the meantime; it is not an
 # endorsement of it.
-CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-1250}"
+CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-1150}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then

@@ -5,6 +5,7 @@
 #include "../../vendor/afterhours/src/core/system.h"
 #include "../input_mapping.h"
 #include "../rl.h"
+#include "../ui/div.h"
 #include "../ui/presets.h"
 #include "../ui/theme.h"
 #include "../ui/viewport.h"
@@ -18,7 +19,6 @@ using afterhours::EntityHelper;
 using afterhours::EntityQuery;
 using afterhours::ui::UIContext;
 using afterhours::ui::imm::ComponentConfig;
-using afterhours::ui::imm::div;
 using afterhours::ui::imm::button;
 using afterhours::ui::imm::divider;
 using hanabi::ui::mk;
@@ -43,6 +43,8 @@ using afterhours::ui::ClickActivationMode;
 using afterhours::ui::resolve_to_pixels;
 
 namespace ecs {
+
+using hanabi::ui::div;
 
 // Find the first singleton component of type T (optionally requiring more).
 template <typename T, typename... Filters>

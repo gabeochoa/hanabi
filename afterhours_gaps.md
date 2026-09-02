@@ -9097,6 +9097,19 @@ largest remaining allocation source on the Home view and there is no app-side
 lever on it.
 
 
+**POSTSCRIPT 2026-09-02 (`fix/div-move`).** One of the copies WAS app-side, and
+this entry missed it. The first line of the trace above — `div(ctx, ep,
+ComponentConfig config)` — takes the config by value so a caller can move into
+it, but the fluent builder returns `ComponentConfig&`, so every inline
+`ComponentConfig{}.with_label(...)` chain in hanabi was an lvalue and that
+parameter was copy-constructed. `src/ui/div.h` moves instead and
+`src/ecs/ui_imports.h` binds the ECS call sites to it, worth 89 allocations per
+frame on Home at 20 sessions and 147 at 2000 (`scripts/alloc_gate.sh`,
+`docs/perf/ALLOCATIONS.md`). The remaining three copies are made inside
+`init_component` from whatever it is handed, and those are still upstream's:
+the gap stands, at three per widget rather than four.
+
+
 **Hanabi reference.** Hanabi-owned performance finding: `scripts/alloc_gate.sh` (`home20 2550.0 827.0`) — The allocation gate records the remaining per-frame allocation ceiling after surrounding reductions.
 
 

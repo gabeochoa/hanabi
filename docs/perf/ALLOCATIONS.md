@@ -125,13 +125,14 @@ different reason (stamping the frame that built each widget, for retirement).
 Two seams on the same function: one makes the key cheap, the other records when
 it was used.
 
-### 2. `ComponentConfig` is copied three times per widget: ~472/frame, and unfixable from here
+### 2. `ComponentConfig` is copied four times per widget; one of the four was ours
 
 ```
-div(ctx, ep, ComponentConfig config)                     # by value
+div(ctx, ep, ComponentConfig config)                     # BY VALUE  -> copy  <- ours
   init_component(ctx, ep, config, ...)                   # by reference
     config = overwrite_defaults(ctx, config, ...)        # BY VALUE  -> copy
       config = merge_with_defaults(...)                  #   result = config -> copy
+    add_missing_components(ctx, e, p, config, ...)       # BY VALUE  -> copy
 ```
 
 Every `std::string`, `std::vector<TextSpan>` and `std::function` the config
@@ -140,9 +141,31 @@ allocations a frame, and the label is the content — it cannot be shortened
 under libc++'s 22-character small-string buffer without changing what is on
 screen.
 
-**There is no app-side workaround.** Everything around it was removed instead —
-the derivation of the strings, the identity hash, the wrap measurement — and
-this is what is left. It is now the largest single source on the Home view.
+**The first copy was hanabi's own, and it was invisible.** afterhours takes the
+config by value precisely so a caller can move into it — but the fluent builder
+returns `ComponentConfig&`, so an inline `ComponentConfig{}.with_label(...)`
+chain is an LVALUE and the parameter is copy-constructed. `src/ui/div.h` moves
+instead; `src/ecs/ui_imports.h` binds every ECS call site to it and not one of
+the 318 call sites changed. Measured against a frozen base binary built at
+`97c567e`, 600-frame runs, reproduced to the unit:
+
+| arm | before | after | |
+| --- | ---: | ---: | --- |
+| 20 sessions, Home | 829.0 | **740.0** | −10.7% |
+| 2000 sessions, Home | 1,181.0 | **1,034.0** | −12.4% |
+| 20 tabs in overflow | 680.0 | **640.0** | −5.9% |
+| 2000 sessions, 480-message thread | 2,707.0 | **2,599.0** | −4.0% |
+| six-line draft in the composer | 1,044.0 | **955.0** | −8.5% |
+
+`tests/unit/test_div_move.cpp` pins it at exactly one allocation per widget
+through the real `imm::div` path, and shows the same loop with a small-string
+label saving nothing — which is why a sub-line that is just an age was never
+worth touching. `scripts/check_div_routing.py` guards the one `using` that
+binds it, because deleting that line changes no pixel and no other check sees
+it.
+
+**The other three copies are upstream's**, and there is no app-side lever on
+them: they are made inside `init_component`, from whatever it is handed.
 `afterhours_gaps.md` **#181**.
 
 ### 3. A disabled probe's ARGUMENTS: 153/frame, and 0.34 ms
@@ -217,6 +240,9 @@ compare and no allocation at all.
 **Two thirds of what is left is inside the library**, and #180, #181 and #183
 are the three asks that would move it. That is a different position from where
 this started, where two thirds of it was hanabi's.
+
+Since that table was taken, `src/ui/div.h` removed the one copy in the #181 row
+that was ours: this arm reads 2,599 and the row is ~360.
 
 ---
 
