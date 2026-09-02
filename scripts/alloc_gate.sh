@@ -37,13 +37,16 @@
 # ---------------------------------------------------------------------------
 # WHERE THE CEILINGS COME FROM
 #
-# First set, measured 2026-08-25 on gabeochoa-mac-GRQ7Y259H4, each figure the
-# steady-state bucket of a 600-frame run, reproduced across runs to the unit:
+# First set, SUPERSEDED and kept only for provenance: home20, home2000 and
+# thread480 — tabs20 and draft6 are not in it. Measured 2026-08-25 on
+# gabeochoa-mac-GRQ7Y259H4, each figure the steady-state bucket of a 600-frame
+# run, reproduced across runs to the unit. The ceilings it set are the ones the
+# current set below replaces:
 #
-#   arm         main @ ddb391c   that branch
-#   home20              2550.0         827.0
-#   home2000            3535.0        1197.0
-#   thread480           6687.0        2740.0
+#   arm         main @ ddb391c   that branch   ceiling then
+#   home20              2550.0         827.0           1000
+#   home2000            3535.0        1197.0           1450
+#   thread480           6687.0        2740.0           3300
 #
 # Current set, measured 2026-09-02 on boulder-KF74T3NW36, same 600-frame runs,
 # reproduced to the unit, against a frozen base binary built at 97c567e. What

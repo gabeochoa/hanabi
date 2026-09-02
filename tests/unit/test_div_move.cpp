@@ -172,12 +172,38 @@ static void a_named_config_is_delivered_intact() {
     REQUIRE(el.ent().get<afterhours::ui::HasLabel>().label == label);
 }
 
+static void a_named_config_is_consumed_by_div() {
+    std::printf("a_named_config_is_consumed_by_div\n");
+    const std::string label(kRichSub);
+    REQUIRE(label.size() > 22);
+
+    ui_test::ImmTestHarness h;
+    auto& ctx = h.context();
+    auto& root = h.root();
+
+    auto cfg = ComponentConfig{}.with_label(label).with_size(
+        ComponentSize{pixels(320), pixels(16)});
+
+    auto first = hanabi::ui::div(ctx, hanabi::ui::mk(root, 5), cfg);
+    REQUIRE(first.ent().has<afterhours::ui::HasLabel>());
+    REQUIRE(first.ent().get<afterhours::ui::HasLabel>().label == label);
+
+    REQUIRE(cfg.label.empty());
+
+    auto second = hanabi::ui::div(ctx, hanabi::ui::mk(root, 6), cfg);
+    const bool second_carries_the_label =
+        second.ent().has<afterhours::ui::HasLabel>() &&
+        second.ent().get<afterhours::ui::HasLabel>().label == label;
+    REQUIRE(!second_carries_the_label);
+}
+
 int main() {
     std::printf("=== test_div_move ===\n");
     heap_label_saves_exactly_one_copy_per_widget();
     sso_label_saves_nothing();
     moved_config_still_delivers_the_whole_label();
     a_named_config_is_delivered_intact();
+    a_named_config_is_consumed_by_div();
     if (g_failures == 0) {
         std::printf("test_div_move: PASS\n");
         return 0;

@@ -146,7 +146,7 @@ config by value precisely so a caller can move into it — but the fluent builde
 returns `ComponentConfig&`, so an inline `ComponentConfig{}.with_label(...)`
 chain is an LVALUE and the parameter is copy-constructed. `src/ui/div.h` moves
 instead; `src/ecs/ui_imports.h` binds every ECS call site to it and not one of
-the 318 call sites changed. Measured against a frozen base binary built at
+the 326 call sites changed. Measured against a frozen base binary built at
 `97c567e`, 600-frame runs, reproduced to the unit:
 
 | arm | before | after | |
@@ -160,9 +160,13 @@ the 318 call sites changed. Measured against a frozen base binary built at
 `tests/unit/test_div_move.cpp` pins it at exactly one allocation per widget
 through the real `imm::div` path, and shows the same loop with a small-string
 label saving nothing — which is why a sub-line that is just an age was never
-worth touching. `scripts/check_div_routing.py` guards the one `using` that
-binds it, because deleting that line changes no pixel and no other check sees
-it.
+worth touching. It also pins what a NAMED config costs: `div` moves one too, so
+the variable is consumed and a second `div` with it renders blank.
+`scripts/check_div_routing.py` guards all of that — the one `using` that binds
+the wrapper, an unqualified `div()` in a file that does not include
+`src/ecs/ui_imports.h` (ADL finds the library's `div` with no error and no pixel
+changed), and any of the 12 named-config call sites growing a second use or
+hoisting its config out of the block that hands it over.
 
 **The other three copies are upstream's**, and there is no app-side lever on
 them: they are made inside `init_component`, from whatever it is handed.
@@ -242,7 +246,11 @@ are the three asks that would move it. That is a different position from where
 this started, where two thirds of it was hanabi's.
 
 Since that table was taken, `src/ui/div.h` removed the one copy in the #181 row
-that was ours: this arm reads 2,599 and the row is ~360.
+that was ours. The two figures are on different bases and do not subtract: the
+2,740 above is the 2026-08-25 measurement on `GRQ7Y259H4`, while on the frozen
+base binary at `97c567e` this same arm reads 2,707. `src/ui/div.h` takes that
+2,707 to **2,599** — 108 allocations a frame, all of them off the #181 row,
+which leaves that row at **~360**.
 
 ---
 
