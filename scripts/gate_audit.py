@@ -8,11 +8,13 @@ scaling_gate.sh asserted nothing at all for a while after sidebar
 virtualization landed. A gate that cannot fail is worse than no gate -- it
 occupies the slot, it costs the wall clock, and it is read as evidence.
 
-So this is the audit, as a program rather than as an afternoon. Each entry
-below is a DEFECT: a one-line patch to a source file (or an env var), the gate
-it should turn red, and nothing else. The harness applies it, rebuilds, runs
-the gate, records the output under /tmp/hanabi_gate_audit/, and puts the source
-back.
+So this is the audit, as a program rather than as an afternoon. Most entries
+below are DEFECTS: a one-line patch to a source file (or an env var), the gate
+it must turn red, and nothing else. Three structured scaling blind spots instead
+expect rc 0 and record the separate gate that covers the missing property. Rc 1
+is a caught defect; rc 2 is incomplete infrastructure and never passes. The
+harness applies each mutation, force-rebuilds, records output under
+`/tmp/hanabi_gate_audit/`, restores source, and force-rebuilds again.
 
     scripts/gate_audit.py --list
     scripts/gate_audit.py                 # everything, ~25 minutes
@@ -47,15 +49,16 @@ os.makedirs(OUT, exist_ok=True)
 
 SB = "src/ecs/sidebar_system.h"
 SBB = "src/ecs/sidebar_buckets.h"
+HB = "src/ecs/home_buckets.h"
+COMP = "src/ecs/components.h"
 MP = "src/ecs/main_pane_system.h"
 WR = "src/ecs/widget_retire_system.h"
 TH = "src/ui/theme.h"
-FV = "src/ecs/focus_visible_system.h"
 FC = "src/ui/field_chrome.h"
 FMT = "src/util/format.h"
 
 LEAK_ANCHOR = """    void once(float) override {
-        hanabi::widget_epoch::begin_epoch();"""
+        hanabi::widget_epoch::configure_retirement();"""
 
 DEFECTS = {
     # ---- soak_gate ------------------------------------------------------
@@ -80,6 +83,12 @@ DEFECTS = {
                   '                               "", "recent",')]),
     "cover.scaling_entities": dict(
         gate="scaling-gate", build="app", env={"HANABI_RETIRE": "0"},
+        expected_rc=0,
+        blind_spot=dict(
+            missed="a catalog-independent bounded widget plateau",
+            rationale="catalog scaling compares two catalog sizes, so the same plateau divides out",
+            covered_by="soak-gate entity level and retire-gate stale/live counts",
+        ),
         patches=[(SB, '        shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",',
                   '        shown += render_folder(ctx, scroll.ent(),\n'
                   '                               900000 + 100 * static_cast<int>(\n'
@@ -94,10 +103,9 @@ DEFECTS = {
                   '                               "", "recent",')]),
     # The regression the COUNTER gate is blind to: a raw walk of the catalog
     # inside render_folder, which never enters SidebarBuckets and so is never
-    # counted by it. Caught in the source instead (scripts/check_sidebar_scan
-    # .py), which is why this defect's gate is source-checks and not the gate.
+    # counted by it. Caught directly by check_sidebar_scan.py.
     "sidebar.raw_rescan": dict(
-        gate="source-checks", build="none",
+        gate="sidebar-source", build="none",
         patches=[(SB, '        // Hide a folder with no (matching) members. With an active query this\n        // is what drops non-matching folders out of the tree.\n        if (members.empty()) {', '        for (const auto& s : app.sessions) {\n            if (s.folder == key) members.push_back(&s);\n        }\n        // Hide a folder with no (matching) members. With an active query this\n        // is what drops non-matching folders out of the tree.\n        if (members.empty()) {')]),
     # ---- sidebar_scan_gate ----------------------------------------------
     # The scan the one-pass collection replaced: collect again for every
@@ -111,6 +119,51 @@ DEFECTS = {
     "sidebar.no_memo": dict(
         gate="sidebar-scan-gate", build="app",
         patches=[(SBB, '        if (valid_ && q.empty() && query_.empty() &&\n            revision_ == catalogRevision && hideAutomated_ == hideAutomated) {', '        if (false && valid_ && q.empty() && query_.empty() &&\n            revision_ == catalogRevision && hideAutomated_ == hideAutomated) {')]),
+    "home.no_memo": dict(
+        gate="home-scan-gate", build="app",
+        patches=[(HB, '        if (valid_ && revision_ == catalogRevision) {',
+                  '        if (false && valid_ && revision_ == catalogRevision) {')]),
+    "home.raw_rescan": dict(
+        gate="home-source", build="none",
+        patches=[(MP, '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);',
+                  '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);\n'
+                  '        for (const auto& session : app.sessions)\n'
+                  '            if (session.id.empty()) homeMatched_ += 0;')]),
+    "home.inline_mutation": dict(
+        gate="home-source", build="none",
+        patches=[(MP, '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);',
+                  '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);\n'
+                  '        app.replace_sessions(app.sessions);')]),
+    "home.helper_alias_walk": dict(
+        gate="home-source", build="none",
+        patches=[(MP, '    // ---------------- Home digest ------------------------------------------',
+                  '    void audit_home_catalog_helper(AppComponent& owner) {\n'
+                  '        const auto& catalog = owner.sessions;\n'
+                  '        for (const auto& session : catalog) (void)session;\n'
+                  '    }\n\n'
+                  '    // ---------------- Home digest ------------------------------------------'),
+                 (MP, '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);',
+                  '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);\n'
+                  '        audit_home_catalog_helper(app);')]),
+    "home.alias_new_mutator": dict(
+        gate="home-source", build="none",
+        patches=[(COMP, '    void replace_sessions(std::vector<api::SessionSummary> replacement) {',
+                  '    void audit_touch_catalog() {\n'
+                  '        sessions.clear();\n'
+                  '        mark_session_catalog_changed();\n'
+                  '    }\n\n'
+                  '    void replace_sessions(std::vector<api::SessionSummary> replacement) {'),
+                 (MP, '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);',
+                  '        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);\n'
+                  '        auto& owner = app;\n'
+                  '        owner.audit_touch_catalog();')]),
+    "home.unversioned_mutator": dict(
+        gate="home-source", build="none",
+        patches=[(COMP, '    void replace_sessions(std::vector<api::SessionSummary> replacement) {',
+                  '    void audit_unversioned_catalog_mutation() {\n'
+                  '        sessions.clear();\n'
+                  '    }\n\n'
+                  '    void replace_sessions(std::vector<api::SessionSummary> replacement) {')]),
     "digest.home_window": dict(
         gate="digest-gate", build="app",
         patches=[(MP, """        const digest::CardWindow win = digest::section_window(""",
@@ -171,7 +224,12 @@ DEFECTS = {
             for (int v : g_walk) g_sink += v;""")]),
     # ---- scaling_gate ---------------------------------------------------
     "scaling.widgets": dict(
-        gate="scaling-gate", build="app",
+        gate="scaling-gate", build="app", expected_rc=0,
+        blind_spot=dict(
+            missed="removing the sidebar cap while row virtualization remains",
+            rationale="the window still bounds built rows, so scaling remains flat",
+            covered_by="scroll-gate level arm directly removes row virtualization",
+        ),
         patches=[(SB, "        return (expandedMore || total <= cap) ? total : cap;",
                   "        (void)expandedMore; (void)cap; return total;")]),
     "scaling.both": dict(
@@ -181,7 +239,12 @@ DEFECTS = {
                  (SB, "        if (!uniformHeight) return w;",
                   "        if (true) return w;\n        if (!uniformHeight) return w;")]),
     "scaling.virt_only": dict(
-        gate="scaling-gate", build="app",
+        gate="scaling-gate", build="app", expected_rc=0,
+        blind_spot=dict(
+            missed="removing row virtualization while the product cap remains",
+            rationale="the cap still bounds built rows, so scaling remains flat",
+            covered_by="scroll-gate expands the list and fails when row_window is bypassed",
+        ),
         patches=[(SB, "        if (!uniformHeight) return w;",
                   "        if (true) return w;\n        if (!uniformHeight) return w;")]),
     # ---- scroll_gate ----------------------------------------------------
@@ -224,7 +287,7 @@ DEFECTS = {
                   "        if (const int* hit = (const int*)nullptr) {")]),
     "text.advance_rate": dict(
         gate="text", build="app",
-        patches=[(TH, "    if (const float* hit = memo.find(s, px, 0.0f)) {",
+        patches=[(TH, "    if (const float* hit = memo.find(s, px, weightKey)) {",
                   "    if (const float* hit = (const float*)nullptr) {")]),
     "text.memo_bound": dict(
         gate="text", build="app",
@@ -233,7 +296,7 @@ DEFECTS = {
     # ---- perf_transcript_slope ------------------------------------------
     "transcript.render_cache": dict(
         gate="slope", build="app",
-        patches=[(MP, "            if (const auto* hit = render_cache().get(key, textW)) {",
+        patches=[(MP, "            if (const auto* hit = render_cache().get(key, textW, m.text)) {",
                   "            if (const auto* hit = (const ecs::model::MsgRender*)nullptr) {")]),
     # ---- measure_launch -------------------------------------------------
     "launch.rss": dict(
@@ -256,8 +319,10 @@ DEFECTS = {
                 .with_custom_background(theme::Color{57, 57, 68, 255})""")]),
     "shots.focus_ring": dict(
         gate="shots", build="app",
-        patches=[(FV, "        ctx.theme.focus_ring_thickness = fv::ring_thickness();",
-                  "        ctx.theme.focus_ring_thickness = 0.0f;")]),
+        patches=[(MP, """        hanabi::ui::field_chrome::apply_focus_edge(
+            inputWrap.ent().id, composerFocused, ctx.theme.accent);""",
+                  """        hanabi::ui::field_chrome::apply_focus_edge(
+            inputWrap.ent().id, false, ctx.theme.accent);""")]),
 }
 
 GATE_CMD = {
@@ -269,6 +334,9 @@ GATE_CMD = {
     "chrome-gate": ["bash", "scripts/composer_chrome_gate.sh"],
     "slope": ["bash", "scripts/perf_transcript_slope.sh"],
     "digest-gate": ["bash", "scripts/digest_gate.sh"],
+    "home-scan-gate": ["bash", "scripts/home_scan_gate.sh"],
+    "home-source": ["/usr/bin/python3", "scripts/check_home_scan.py"],
+    "sidebar-source": ["/usr/bin/python3", "scripts/check_sidebar_scan.py"],
     "sidebar-scan-gate": ["bash", "scripts/sidebar_scan_gate.sh"],
     "source-checks": ["make", "source-checks"],
     "alloc-gate": ["bash", "scripts/alloc_gate.sh"],
@@ -276,6 +344,12 @@ GATE_CMD = {
     # The screenshot subset `make test` runs. It captures and compares, so it
     # needs the built app and the machine to itself, like the UI suite.
     "shots": ["make", "validate-screenshots-fast"],
+}
+
+KNOWN_BLIND_SPOTS = {
+    "cover.scaling_entities",
+    "scaling.widgets",
+    "scaling.virt_only",
 }
 
 
@@ -288,11 +362,71 @@ def run(cmd, env=None, timeout=1200):
     return p.returncode, p.stdout + p.stderr
 
 
+def run_gate(gate, env=None):
+    summary = os.path.join(ROOT, "test-failures", "summary-fast.json")
+    if gate == "shots" and os.path.exists(summary):
+        os.unlink(summary)
+    raw_rc, out = run(GATE_CMD[gate], env)
+    if gate != "shots" or raw_rc == 0:
+        return raw_rc, out
+    try:
+        data = json.load(open(summary))
+    except (OSError, ValueError):
+        return 2, out + f"\n[audit] raw rc={raw_rc}; no valid screenshot summary\n"
+    if data.get("failed", 0) > 0 or data.get("unbaselined_new"):
+        return 1, out + f"\n[audit] raw rc={raw_rc}; normalized to rc=1 from screenshot evidence\n"
+    return 2, out + f"\n[audit] raw rc={raw_rc}; summary did not prove a visual rejection\n"
+
+
+def rc_matches(actual, expected):
+    return actual in (0, 1) and actual == expected
+
+
+def audit_selftest():
+    checks = [
+        (1, 1, True),
+        (0, 0, True),
+        (0, 1, False),
+        (1, 0, False),
+        (2, 1, False),
+        (2, 0, False),
+        (3, 1, False),
+    ]
+    failed = False
+    for actual, expected, want in checks:
+        got = rc_matches(actual, expected)
+        observed = "accepted" if got else "rejected"
+        wanted = "accepted" if want else "rejected"
+        print(f"  rc={actual} expected_rc={expected}: {observed}; "
+              f"wanted {wanted} — {'PASS' if got == want else 'FAIL'}")
+        failed |= got != want
+    blind = {name for name, defect in DEFECTS.items()
+             if defect.get("expected_rc", 1) == 0}
+    missing = sorted(name for name in blind if "blind_spot" not in DEFECTS[name])
+    if missing:
+        print("  missing blind_spot metadata: " + ", ".join(missing))
+        failed = True
+    if blind != KNOWN_BLIND_SPOTS:
+        print("  expected-green set differs: " + ", ".join(sorted(blind)))
+        failed = True
+    if any(defect.get("expected_rc", 1) not in (0, 1)
+           for defect in DEFECTS.values()):
+        print("  expected_rc may only be 0 or 1")
+        failed = True
+    if failed:
+        print("gate-audit --selftest: FAIL")
+        return 1
+    print("gate-audit --selftest: PASS — rc=2 is never accepted")
+    return 0
+
+
 def build(kind):
     if kind == "none":
         return True, ""
-    tgt = "uitest-build" if kind == "uitest" else "-j8"
-    rc, out = run(["make", tgt] if kind == "uitest" else ["make", "-j8"])
+    if kind == "uitest":
+        rc, out = run(["make", "-B", "uitest-build"])
+    else:
+        rc, out = run(["make", "-B", "-j8"])
     return rc == 0, out[-2000:]
 
 
@@ -317,34 +451,55 @@ def restore(saved):
 
 
 def main():
+    if "--selftest" in sys.argv:
+        return audit_selftest()
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     if "--list" in sys.argv:
-        for k, v in DEFECTS.items():
-            print(f"{k:28s} -> {v['gate']}")
-        return
+        for name, defect in DEFECTS.items():
+            expected = defect.get("expected_rc", 1)
+            suffix = " known-blind-spot" if expected == 0 else ""
+            print(f"{name:28s} -> {defect['gate']} rc={expected}{suffix}")
+        return 0
     names = args or list(DEFECTS)
     results = {}
+    failed = []
     for name in names:
         d = DEFECTS[name]
+        expected_rc = d.get("expected_rc", 1)
         print(f"=== {name}", flush=True)
         saved = apply(d.get("patches", []))
         try:
             ok, blog = build(d["build"])
             if not ok:
-                results[name] = {"build": "FAILED", "log": blog}
+                results[name] = {"build": "FAILED", "log": blog,
+                                 "passed": False}
+                failed.append(name)
                 print("  BUILD FAILED\n" + blog)
                 continue
-            rc, out = run(GATE_CMD[d["gate"]], d.get("env"))
-            results[name] = {"rc": rc, "out": out}
+            rc, out = run_gate(d["gate"], d.get("env"))
+            passed = rc_matches(rc, expected_rc)
+            results[name] = {"rc": rc, "expected_rc": expected_rc,
+                             "passed": passed, "out": out}
+            if "blind_spot" in d:
+                results[name]["blind_spot"] = d["blind_spot"]
             open(f"{OUT}/{name}.log", "w").write(out)
-            print(f"  rc={rc}")
+            print(f"  rc={rc} expected_rc={expected_rc} "
+                  f"{'PASS' if passed else 'FAIL'}")
+            if not passed:
+                failed.append(name)
         finally:
             restore(saved)
             # Rebuild on the way out. Leaving a defective binary in output/ is
             # how the next clean run reads as a catastrophic regression.
             build(d["build"] if d["build"] != "none" else "app")
     open(f"{OUT}/results.json", "w").write(json.dumps(results, indent=1))
+    if failed:
+        print("gate-audit: FAIL — " + ", ".join(failed))
+        return 1
+    print(f"gate-audit: PASS — {len(names)}/{len(names)} defects matched "
+          "their expected outcomes")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

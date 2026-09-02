@@ -212,58 +212,54 @@ collapse:
 The card count stays perfectly right in the broken case, which is what this
 class of defect looks like from every other assertion in the suite.
 
-## 6. Home was not building too much; it was deciding too much
+## 6. Home's catalog work is revision-driven
 
-Home has been capped since `perf/sidebar-scaling` and its entity count is flat
-— 346 / 452 / 481 across a 1000x catalog. What the cap does not bound is the
-work Home does to decide WHICH eighty cards, which is four full walks of the
-catalog plus a full sort of it, every frame:
+At `a6f9542`, before this change, Home partitioned the catalog and collected
+Recent on every frame, then partially sorted Recent to choose twenty cards.
+Five 800-frame profiles at 20,020 sessions measured:
 
-| phase | 2000 sessions | 20,000 | allocations/frame @2000 |
+| phase | median ms/frame | range | standard deviation |
 | --- | ---: | ---: | ---: |
-| `home.recent` | 0.0124 ms | 0.0933 | 15.7 |
-| `home.partition` | 0.0105 | 0.0780 | 30.0 |
-| `home.sort` | 0.0094 | 0.1980 | 0 |
+| `home.partition` | 0.0376 | 0.0374–0.0391 | 0.0007 |
+| `home.recent` | 0.0504 | 0.0496–0.0512 | 0.0006 |
+| `home.sort` | 0.0178 | 0.0176–0.0179 | 0.0001 |
 
-The four vectors are reused now (**45.7 → 0.09 allocations a frame**), and the
-sort is a `partial_sort` over `kMaxSection`. Interleaved in one binary,
-alternating on an env var so the arms cannot be a block apart, five runs each:
+`ecs::model::HomeBuckets` now performs one combined pass when
+`sessionCatalogRevision` changes, computes the Recent prefix once, and reuses
+those four lists on unchanged frames. The replacement counter is
+`home.collect`; over five matching profiles it read 0.0001 ms/frame in every
+run because its one cold pass is amortized across the measured frames.
 
-```
-  2000     sort 0.0095 0.0094 0.0093 0.0094 0.0093
-           part 0.0053 0.0054 0.0052 0.0053 0.0054    1.77x
-  20,000   sort 0.1884 0.2057 0.2002 0.1955 0.2065
-           part 0.0415 0.0409 0.0427 0.0429 0.0422    4.72x
-```
+The uninstrumented comparison used the frozen `a6f9542` binary and the
+candidate binary, 120 settle frames plus 800 measured frames, minimum
+100-frame CPU bucket, eleven interleaved repetitions:
 
-At 2000 that is four microseconds and not worth a commit for the time. It is
-here for the SHAPE, which the 20,000 column makes visible: 0.198 ms is 6% of
-that frame spent choosing twenty rows out of twenty thousand.
+| catalog | baseline median | candidate median | absolute | percent | variability (SD) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 2,020 | 0.887 ms | 0.867 ms | −0.020 ms | −2.25% | 0.0180 / 0.0143 ms |
+| 20,020 | 1.116 ms | 1.038 ms | −0.078 ms | **−6.99%** | 0.0301 / 0.0363 ms |
 
-**The one thing that is not a pure win.** `std::sort` and `std::partial_sort`
-are both unstable and break ties differently, so two sessions stamped at the
-same second can swap places between builds. Nothing in the fixtures ties, so
-nothing moves; a real backend could. The honest fix is a total order
-(tie-break on id) and it belongs with a test that has two threads at one
-timestamp. Recorded rather than assumed — and recorded because I spent an hour
-bisecting a UI-suite failure onto this commit before finding it was section
-7's problem instead.
+At 20,020 sessions the candidate was faster in all eleven paired runs (paired
+median −0.086 ms/frame, −7.49%). At 2,020 it was faster in nine of eleven
+pairs, but the result remains close to the machine's noise floor; the gate
+therefore asserts exact rebuild, reuse, refresh, and visit counts instead of
+elapsed time.
+
+**Known Recent tie remains.** The production comparator still orders Recent
+only by `updated_at`. Two sessions stamped in the same second are equivalent to
+`std::partial_sort`, so their relative order is unspecified and can differ from
+a full sort or another standard-library build. The differential fixture uses
+`100000 - i * 997` deliberately: every timestamp is unique, so it proves the
+cache preserves the prior ordering without quietly inventing an ID tie-break.
+Choosing a stable tie order remains a separate product/correctness change.
 
 ## 7. What is left, priced
 
-| phase | ms/frame @2000 | note |
-| --- | ---: | --- |
-| `sidebar.collect` | 0.1245 | SCROLL.md §7's finding, still the biggest named phase |
-| `digest.build` | 0.0855 | bounded by the window; 611 allocations, gap #221 |
-| `digest.pitch` | 0.0228 | catalog-linear, allocation-free |
-| `digest.collect` | 0.0047 | catalog-linear, 0.02 allocations |
-| FRAME (cpu) | 1.365 | |
-
-`digest.collect` and `digest.pitch` are both O(catalog) and both stay, for the
-reason `SIDEBAR.md` §5 gives about `sidebar.collect`: removing the walk means
-an index invalidated by every writer of the sessions vector, and a stale index
-is a Blocked screen listing a thread that is not blocked. 0.0275 ms of the two
-together is 2% of the frame.
+On the five 20,020-session instrumented profiles above, `sidebar.sort` was the
+largest named Hanabi phase at a 0.0510 ms/frame median while `home.collect`
+was 0.0001 ms/frame amortized. The remaining dominant work in the sampled
+frame is Afterhours rendering and vendor text measurement, outside this
+change's scope.
 
 **One thing I could not account for, and it is not on any screen.** At 20,000
 sessions the app allocates 7,644 times a frame against 5,065 at 2,000 — and

@@ -64,6 +64,7 @@ The additions cost about **twenty seconds** on a `make test` that runs
 | widget retirement | `make retire-gate` | yes | ~3 s |
 
 | digest screens | `make digest-gate` | yes | ~9 s |
+| Home catalog scan | `make home-scan-gate` | yes | ~5 s |
 | autorelease source check | `make source-checks` | yes | <1 s |
 | long soak | `make soak` | **no** — before a release | ~33 s |
 
@@ -172,14 +173,40 @@ told the gate.
 | **alloc_gate** · the two filter arms · fixture liveness | the arms pointed at a dead fixture — `HANABI_STRESS=idle` instead of `search`, and the palette knob renamed so it never opens | **added by this branch** — `search2000 608.0 / 1660 = 37% NOT MEASURED — sidebar.query_visits never counted` and `palette2000 608.0 / 780 = 78% NOT MEASURED — palette.candidates never counted`. Both would have read `ok` on the allocation number alone, which is the whole reason the floors are there. The search floor is on `sidebar.query_visits` and not on `sidebar.scan_visits`: an empty query still rebuilds when the catalog revision moves, so the plain visit count reads 3.4/f here instead of `never counted` and a floor on it would have passed over exactly the empty room this catches |
 | **sidebar_scan_gate** · folder ratio (trend) | the collection run again for every folder, defeated per frame by the widget epoch — the scan this refactor replaced (`scripts/gate_audit.py sidebar.per_folder_scan`) | **added by this branch** — `folder scan ratio (B/A) 1444.000  ceiling 1.20  FAIL`, with `arm B collected 1445 times over 600 frames, over 8`; arm A has no folders and stays green, which is the row saying WHICH defect this is |
 | **sidebar_scan_gate** · rebuilds + reuse (level) | the kept answer disabled, so one pass runs every frame (`scripts/gate_audit.py sidebar.no_memo`) | **added by this branch** — `A/B collected 724 times over 600 frames, over 8` and `reused the collection 0 times against 724 rebuilds`, in all three arms; the ratio arm stays `1.000`, so the two defects are told apart by which rows move |
+| **home_scan_gate** · rebuilds + invalidation | the revision hit disabled (`scripts/gate_audit.py home.no_memo`) | `frozen 722 rebuilds, 0 reuses, 14,454,440 visits`; the same gate separately requires one explicit catalog replacement to add exactly one rebuild and one catalog walk |
+| **check_home_scan** | direct and helper-called catalog walks (`home.raw_rescan`, `home.helper_alias_walk`), direct and aliased versioned mutation (`home.inline_mutation`, `home.alias_new_mutator`), and a new writer that omits the revision (`home.unversioned_mutator`) | the whole-file access/walk census rejects both direct and practical aliases; Home's reachable call graph rejects revision-derived mutators; the `AppComponent` analysis rejects any session writer that cannot reach a revision writer |
 | **check_sidebar_scan** | a raw `for (… : app.sessions)` walk put back inside `render_folder` — the regression `sidebar_scan_gate` is structurally blind to, since a loop that never enters `SidebarBuckets` publishes no counter (`scripts/gate_audit.py sidebar.raw_rescan`) | **added by this branch** — `check_sidebar_scan: src/ecs/sidebar_system.h:2631: render_folder() names the session catalog`, `make: *** [source-checks] Error 1`; the four counter arms of `sidebar-scan-gate` stay green against the same defect, which is why both exist |
 | **run_ui_tests** · a script's assertion | the tracker host check removed from `link_hotspot` | `[E2E ERROR] expect_no_text (line 18): 'Opened' IS visible but should not be` |
 | **validate-screenshots-fast** · composer fill | the composer field given a `(57,57,68)` background (gap #262 in hanabi; vendor is read-only) | `6 of 8 FAIL, 1.1551%-2.4837% differs` — every screen with a composer in frame; `15_settings_dark` and `18_auth_dark` stay green |
-| **validate-screenshots-fast** · focus ring | `theme.focus_ring_thickness` forced to 0 in `FocusVisibleSystem` (gap #263) | `28_composer_focus_dark FAIL 0.5289% differs`, and only it |
+| **validate-screenshots-fast** · focus edge | the focused composer's field edge bypassed (`scripts/gate_audit.py shots.focus_ring`) | `28_composer_focus_dark` fails at 0.1804% changed, and only it |
 | **check_autorelease** | one `AutoreleaseFrame` use deleted from `src/main.cpp` | *(see below)* |
 | **check_label_padding** | a label given a padding the baseline does not allow | *(see below)* |
 | **check_watchdogs** | an unredirected backgrounded `sleep` added to a script | *(see below)* |
 | **compare.py --selftest** | the exclusion arithmetic altered | *(see below)* |
+
+### Expected-green audit rows
+
+Three mutations deliberately survive `scaling-gate`; they are blind-spot
+records, not caught defects. `scripts/gate_audit.py` marks each with
+`expected_rc=0` plus structured `blind_spot` metadata. Every other mutation
+expects rc 1. Rc 2 always means incomplete infrastructure and fails the audit.
+
+| audit defect | missed behavior | why rc 0 is correct | remaining evidence |
+| --- | --- | --- | --- |
+| `cover.scaling_entities` | a catalog-independent, bounded widget plateau with retirement disabled | comparing 20 and 2,000 sessions divides out a plateau of the same size | `soak-gate` bounds the absolute entity level; `retire-gate` checks stale/live widget counts |
+| `scaling.widgets` | removing the product cap while row virtualization remains | the window still bounds how many rows are built, so catalog scaling stays flat | `scroll-gate` directly bypasses `row_window` in its expanded-list level arm |
+| `scaling.virt_only` | removing row virtualization while the product cap remains | the cap still bounds how many rows are built, so catalog scaling stays flat | `scroll-gate` expands the list before checking the row-window level |
+
+The Home source check is an exact whole-file census over
+`main_pane_system.h`: catalog accesses are `render_digest=1` and
+`render_home=2`; the sole raw walk is `render_digest=1`. It recognizes a
+catalog bound through a local alias, follows the member-function call graph
+from `render_home`, and derives catalog mutators from `AppComponent` itself.
+Any non-const `AppComponent` method that touches `sessions` must reach a writer
+of `sessionCatalogRevision`; no method-name allowlist is involved.
+
+The audit selftest exercises rc 0, 1, 2, and 3 explicitly and proves rc 2 is
+never accepted for either a guarded defect or an expected-green row.
 
 One row is worth reading twice. The **entities** injection above was first
 built with no bound at all — a fresh set of widgets every frame — and the run

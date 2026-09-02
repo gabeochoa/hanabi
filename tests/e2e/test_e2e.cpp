@@ -257,7 +257,7 @@ static ecs::AppComponent& setup_app_with_sessions() {
     auto& appE = afterhours::EntityHelper::createEntity();
     auto& app = appE.addComponent<ecs::AppComponent>();
     api::MockClient m;
-    app.sessions = m.list_sessions().value;  // so find_summary works for labels
+    app.replace_sessions(m.list_sessions().value);  // so find_summary works for labels
     auto& stripE = afterhours::EntityHelper::createEntity();
     stripE.addComponent<ecs::TabStripComponent>();
     return app;

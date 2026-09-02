@@ -22,6 +22,7 @@
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
+#include "home_buckets.h"
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
@@ -955,8 +956,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     int homeMatched_ = 0;
     int homeFirstBuilt_ = -1;
     std::vector<const api::SessionSummary*> digestRows_;
-    std::vector<const api::SessionSummary*> homeWaiting_, homeFinished_,
-        homeRunning_, homeRecent_;
+    model::HomeBuckets homeBuckets_{kMaxSection};
     std::string subScratch_;
 
     // The cards this frame BUILT, against the sessions that matched, and the
@@ -1583,6 +1583,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // ---------------- Home digest ------------------------------------------
     void render_home(UIContext<InputAction>& ctx, Entity& parent,
                      AppComponent& app, float paneW, float paneH) {
+        hanabi::prof::tick("home.frames");
         header(ctx, parent, "Home", "", theme::type::H1);
 
         // The composer is rendered ONCE at the pane level (always visible), so
@@ -1627,34 +1628,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // Partition the sessions into the attention buckets ONCE so we know
-        // whether each section is non-empty BEFORE rendering its header. An
-        // empty section renders nothing at all (no orphaned header, no void) —
-        // on a calm/real backend the attention buckets are all empty, so Home
-        // must lead straight with an "all caught up" line + RECENT rather than
-        // three dead headers stacked above the list.
-        // Reused across frames, like the digest's own collect and the
-        // sidebar's members_: these were four locals that malloc'd their way
-        // up from empty on every frame of a screen that shows eighty cards.
-        std::vector<const api::SessionSummary*>& waiting = homeWaiting_;
-        std::vector<const api::SessionSummary*>& finished = homeFinished_;
-        std::vector<const api::SessionSummary*>& selfRunning = homeRunning_;
-        waiting.clear();
-        finished.clear();
-        selfRunning.clear();
-        {
-        hanabi::prof::Scope _tpart("home.partition");
-        hanabi::prof::AllocScope _apart("home.partition.allocs");
-        for (const auto& s : app.sessions) {
-            if (s.state == api::ThreadState::Attention) {
-                if (s.tag == api::ThreadTag::Blocked)
-                    waiting.push_back(&s);
-                else
-                    finished.push_back(&s);
-            }
-            if (s.state == api::ThreadState::Running) selfRunning.push_back(&s);
-        }
-        }
+        homeBuckets_.update(app.sessionCatalogRevision, app.sessions);
+        const auto& waiting = homeBuckets_.waiting();
+        const auto& finished = homeBuckets_.finished();
+        const auto& selfRunning = homeBuckets_.running();
+        const auto& recent = homeBuckets_.recent();
         const bool anyAttention =
             !waiting.empty() || !finished.empty() || !selfRunning.empty();
 
@@ -1718,48 +1696,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            homeTargetY);
         }
 
-        // Recent / all conversations. A calm backend (e.g. the generic http
-        // adapter, which leaves every thread's high-signal state at its default
-        // and files nothing into a folder) produces NO attention/finished/
-        // running rows — so the buckets above are all empty and skipped. In
-        // that case lead with a tasteful "all caught up" line so Home reads as
-        // intentionally calm, then the RECENT list keeps every loaded thread
-        // reachable straight from the landing view. Capped so a huge list
-        // doesn't build hundreds of cards on the home pane (the sidebar's
-        // Recent folder holds the full set). Skip archived AND anything already
-        // surfaced in a section above (Attention/Running), so a [P]/done/running
-        // card isn't shown twice.
-        std::vector<const api::SessionSummary*>& recent = homeRecent_;
-        recent.clear();
-        {
-        hanabi::prof::Scope _trec("home.recent");
-        hanabi::prof::AllocScope _arec("home.recent.allocs");
-        for (const auto& s : app.sessions) {
-            if (ecs::model::is_archived(s)) continue;
-            if (s.state == api::ThreadState::Attention ||
-                s.state == api::ThreadState::Running)
-                continue;
-            recent.push_back(&s);
-        }
-        }
-        {
-        // Recent shows at most kMaxSection cards, so the ordering that has to
-        // be RIGHT is the ordering of the first twenty -- and a full sort of
-        // the whole catalog to find them is the same shape as building a card
-        // per session to show twenty of them, one line down instead of one
-        // pane over. partial_sort is O(n log k) where the sort was
-        // O(n log n), and it leaves the tail unordered, which is exactly the
-        // part nothing reads.
-        hanabi::prof::Scope _tsort("home.sort");
-        const auto by_recency = [](const api::SessionSummary* a,
-                                   const api::SessionSummary* b) {
-            return a->updated_at > b->updated_at;
-        };
-        const size_t keep = std::min(recent.size(), kMaxSection);
-        std::partial_sort(recent.begin(),
-                          recent.begin() + static_cast<long>(keep),
-                          recent.end(), by_recency);
-        }
         if (!anyAttention) {
             list_extent(2.0f + 30.0f + 6.0f);
             div(ctx, mk(wrap, 800),

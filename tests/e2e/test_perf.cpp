@@ -58,7 +58,7 @@ int main() {
     auto& appE = afterhours::EntityHelper::createEntity();
     auto& app = appE.addComponent<ecs::AppComponent>();
     api::MockClient client;
-    app.sessions = client.list_sessions().value;
+    app.replace_sessions(client.list_sessions().value);
     auto& stripE = afterhours::EntityHelper::createEntity();
     stripE.addComponent<ecs::TabStripComponent>();
     auto stripQ = afterhours::EntityQuery({.force_merge = true})

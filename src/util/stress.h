@@ -95,6 +95,7 @@ enum struct Scenario {
     Mixed,
     Views,
     Digest,
+    HomeRefresh,
 };
 
 inline Scenario scenario() {
@@ -115,6 +116,7 @@ inline Scenario scenario() {
         if (name == "mixed") return Scenario::Mixed;
         if (name == "views") return Scenario::Views;
         if (name == "digest") return Scenario::Digest;
+        if (name == "home-refresh") return Scenario::HomeRefresh;
         return Scenario::None;
     }();
     return s;
@@ -148,6 +150,7 @@ inline const char* name(Scenario s) {
         case Scenario::Mixed: return "mixed";
         case Scenario::Views: return "views";
         case Scenario::Digest: return "digest";
+        case Scenario::HomeRefresh: return "home-refresh";
         case Scenario::None: return "none";
     }
     return "none";
@@ -173,6 +176,7 @@ struct Driver {
     int baseW = 0;
     int baseH = 0;
     int resizes = 0;
+    int catalogRefreshes = 0;
     std::string moreKeyScratch;
 
     // The scroll, in pixels per frame. Sixty frames down, sixty up: a full
@@ -328,6 +332,15 @@ struct Driver {
                 // it is a scenario that silently measures Home the day
                 // something else does.
                 app.view = ecs::SmartView::Blocked;
+                break;
+            }
+
+            case Scenario::HomeRefresh: {
+                app.view = ecs::SmartView::Home;
+                if (frame == 300) {
+                    app.replace_sessions(app.sessions);
+                    ++catalogRefreshes;
+                }
                 break;
             }
 
@@ -647,9 +660,9 @@ struct Driver {
         char buf[256];
         std::snprintf(buf, sizeof(buf),
                       "threads_opened=%d kept_tabs=%d churn_cycles=%d "
-                      "resizes=%d tabs_now=%d",
+                      "resizes=%d catalog_refreshes=%d tabs_now=%d",
                       threadCursor, keptTabs, churnCycles, resizes,
-                      live_tab_count());
+                      catalogRefreshes, live_tab_count());
         return std::string(buf);
     }
 
@@ -667,6 +680,9 @@ struct Driver {
                 return churnCycles == 0 ? "no tab was ever closed" : "";
             case Scenario::Resize:
                 return resizes == 0 ? "the window was never resized" : "";
+            case Scenario::HomeRefresh:
+                return catalogRefreshes == 0 ? "the catalog was never refreshed"
+                                             : "";
             case Scenario::Threads:
             case Scenario::Tabs:
                 return threadCursor == 0 ? "no thread was ever opened" : "";
