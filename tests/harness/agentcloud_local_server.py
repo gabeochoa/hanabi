@@ -3,6 +3,10 @@ import argparse
 import base64
 import hashlib
 import json
+import threading
+
+_served_lock = threading.Lock()
+_served_threads = []
 
 
 session_of_sub = {}
@@ -56,6 +60,14 @@ def serve_connection(listener):
         conn, _ = listener.accept()
     except socket.timeout:
         return False
+    thread = threading.Thread(target=_serve, args=(conn,), daemon=True)
+    thread.start()
+    with _served_lock:
+        _served_threads.append(thread)
+    return True
+
+
+def _serve(conn):
     with conn:
         request = b""
         while b"\r\n\r\n" not in request:
@@ -75,14 +87,22 @@ def serve_connection(listener):
             "Connection: Upgrade\r\n"
             f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
         ).encode())
+        attached = False
         while True:
             try:
                 envelope = read_frame(conn)
             except EOFError:
-                return True
+                return
             sub = envelope.get("sub", 0)
             command = envelope.get("payload", {})
             kind = command.get("cmd")
+            if kind == "attach":
+                if attached:
+                    send_frame(conn, {"sub": 0, "msg": {
+                        "type": "error",
+                        "message": "already attached; open another connection"}})
+                    continue
+                attached = True
             if kind == "input":
                 if session_of_sub.get(sub) == "turn-retract":
                     send_frame(conn, {"sub": sub, "msg": {

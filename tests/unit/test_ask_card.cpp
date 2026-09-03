@@ -353,6 +353,31 @@ static void test_who_owns_the_cards_keys() {
 
 static void test_a_draft_survives_a_refresh() {
     std::printf("a typed answer survives a re-adopt\n");
+    {
+        ask::State st;
+        api::PendingAsk a;
+        a.owner_session = "s1";
+        a.seq = 41;
+        api::PendingAsk b;
+        b.owner_session = "s1";
+        b.seq = 42;
+
+        st.adopt({a, b}, {});
+        st.answers[a.id()].text["q1"] = "half a sentence";
+        st.answers[b.id()].text["q1"] = "the other one";
+
+        st.adopt({a, b}, {a, b});
+        CHECK(st.answers[a.id()].text["q1"] == "half a sentence");
+        CHECK(st.answers[b.id()].text["q1"] == "the other one");
+
+        st.adopt({a}, {a, b});
+        CHECK(st.answers[a.id()].text["q1"] == "half a sentence");
+        CHECK(st.answers.count(b.id()) == 0);
+
+        st.adopt({}, {a});
+        CHECK(st.answers.empty());
+    }
+
     ask::State state;
     api::PendingAsk a;
     a.owner_session = "s1";

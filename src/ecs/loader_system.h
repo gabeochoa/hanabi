@@ -793,6 +793,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 app.askState.errorId = askId;
                 app.askState.errorText = r.error;
+                app.askState.errorWasDecline =
+                    app.requestAskAction == api::AskAction::Decline;
             }
         }
 

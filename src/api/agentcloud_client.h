@@ -100,6 +100,11 @@ class AgentcloudClient : public Client {
     // attach + page on ONE socket: attach binds the principal for the
     // subscription and page inherits it, so splitting them would re-attach for
     // nothing. Fills `out` and returns the hello `msg` JSON, or empty + *error.
+    bool read_pending_asks(const std::string& id,
+                           std::vector<PendingAsk>* out);
+
+    void resolve_child_questions(std::vector<PendingAsk>& asks);
+
     std::string attach_and_page(const std::string& id, int limit, Session* out,
                                 std::string* error);
 

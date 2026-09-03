@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <ctime>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -44,6 +46,7 @@ struct State {
     std::string busyId;
     std::string errorId;
     std::string errorText;
+    bool errorWasDecline = false;
 
     std::map<std::string, int64_t> seenAt;
     std::uint64_t loadSeq = 0;
@@ -59,6 +62,16 @@ struct State {
 
     api::AskAnswer& answer_for(const std::string& id) { return answers[id]; }
     Cursor& cursor_for(const std::string& id) { return cursors[id]; }
+
+    void adopt(const std::vector<api::PendingAsk>& live,
+               const std::vector<api::PendingAsk>& known) {
+        std::set<std::string> alive;
+        for (const auto& a : live) alive.insert(a.id());
+        for (const auto& a : known)
+            if (alive.count(a.id()) == 0) forget(a.id());
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        for (const auto& a : live) seenAt.insert_or_assign(a.id(), now);
+    }
 
     void forget(const std::string& id) {
         answers.erase(id);
@@ -129,7 +142,20 @@ inline float question_h(const api::AskQuestion& q,
 
 inline bool has_draft(const api::PendingAsk& ask,
                       const api::AskAnswer& answer) {
-    return api::elicitation::answer_has_content(ask, answer);
+    for (const auto& q : ask.questions) {
+        const auto pick = answer.picks.find(q.key);
+        if (pick != answer.picks.end() && !pick->second.empty()) return true;
+        const auto at = answer.text.find(q.key);
+        if (at != answer.text.end() &&
+            !api::elicitation::trimmed(at->second).empty())
+            return true;
+        if (q.free_text_key.empty()) continue;
+        const auto other = answer.text.find(q.free_text_key);
+        if (other != answer.text.end() &&
+            !api::elicitation::trimmed(other->second).empty())
+            return true;
+    }
+    return false;
 }
 
 inline bool submit_blocked(const api::PendingAsk& ask,

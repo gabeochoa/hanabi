@@ -733,14 +733,10 @@ struct AppComponent : public afterhours::BaseComponent {
 
     void apply_attach_asks(const std::string& id,
                            const std::vector<api::PendingAsk>& asks) {
-        std::set<std::string> live;
-        for (const auto& a : asks) live.insert(a.id());
         const auto known = attachAsks.find(id);
-        if (known != attachAsks.end())
-            for (const auto& a : known->second)
-                if (live.count(a.id()) == 0) askState.forget(a.id());
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
-        for (const auto& a : asks) askState.seenAt.emplace(a.id(), now);
+        static const std::vector<api::PendingAsk> kNone;
+        askState.adopt(asks,
+                       known == attachAsks.end() ? kNone : known->second);
         if (asks.empty()) attachAsks.erase(id);
         else attachAsks[id] = asks;
     }
@@ -1336,7 +1332,7 @@ struct TabStripComponent : public afterhours::BaseComponent {
 // something the reader cannot see, so every key owner asks this first.
 inline bool overlay_up(const AppComponent& app) {
     return app.renameOpen || app.composerOpen || app.showShortcuts ||
-           app.showSettings || app.showAuth;
+           app.showSettings || app.showAuth || app.paletteOpen;
 }
 
 inline bool ask_keys_live(const AppComponent& app, bool tabMenuOpen) {

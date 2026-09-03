@@ -4396,10 +4396,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     static constexpr const char* kAskFileHint =
         "A file cannot be attached from hanabi.";
+    static constexpr const char* kAskChildUnknownHint =
+        "Couldn't reach the sub-agent — answer this in its own thread.";
     static constexpr const char* kAskChildFileHint =
         "This one may take a file — answer it in the sub-agent's thread.";
     static constexpr float kComposerReadCol = 768.0f;
     static constexpr float kComposerColInset = 12.0f;
+
+    static theme::Color ask_disabled_ink_predarkened() {
+        const theme::Color c = theme::text_secondary();
+        const auto up = [](unsigned char v) {
+            const int t = static_cast<int>(v) * 2;
+            return static_cast<unsigned char>(t > 255 ? 255 : t);
+        };
+        return theme::Color{up(c.r), up(c.g), up(c.b), c.a};
+    }
 
     static float ask_action_w(const AppComponent& app) {
         const float inner = ask_text_w(app);
@@ -4626,6 +4637,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void submit_ask(AppComponent& app, const api::PendingAsk& ask,
                     api::AskAction action) {
+        if (ask_expired(app, ask)) return;
         if (!app.askState.busyId.empty()) return;
         if (!app.pane().openSession) return;
         if (!app.client || !app.client->supports_resolve_ask()) return;
@@ -4945,7 +4957,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ComponentConfig{}
                         .with_label(ask.child_session.empty()
                                         ? kAskFileHint
-                                        : kAskChildFileHint)
+                                        : (ask.child_keys_unknown
+                                               ? kAskChildUnknownHint
+                                               : kAskChildFileHint))
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kNoteH)})
                         .with_transparent_bg()
@@ -5100,7 +5114,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ink = theme::status_blocked();
             } else if (!app.askState.errorText.empty() &&
                        app.askState.errorId == askId) {
-                note = app.askState.errorText + " — press " + submitLabel +
+                note = app.askState.errorText + " — press " +
+                       (app.askState.errorWasDecline ? declineLabel
+                                                     : submitLabel) +
                        " to try again.";
                 ink = theme::status_blocked();
             } else if (tooShort) {
@@ -5150,8 +5166,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                   : theme::accent())
                 .with_border(submitOff ? theme::border() : theme::accent(),
                              pixels(1.0f))
-                .with_custom_text_color(submitOff ? theme::text_faint()
-                                                  : theme::window_bg())
+                .with_custom_text_color(submitOff
+                                            ? ask_disabled_ink_predarkened()
+                                            : theme::window_bg())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_corner_radius(6.0f)
@@ -5173,8 +5190,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_custom_text_color(answerable ? theme::text_secondary()
-                                                   : theme::text_faint())
+                .with_custom_text_color(
+                    (busy || !answerable || !inputLive || expired)
+                        ? ask_disabled_ink_predarkened()
+                        : theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_corner_radius(6.0f)

@@ -8,5 +8,6 @@ focus_ui ask_decline
 expect_focused ask_decline
 key ENTER
 wait_frames 20
-expect_text "decline — press Approve to try again."
+expect_text "decline — press Deny to try again."
 expect_no_text "accept — press Approve to try again."
+expect_no_text "decline — press Approve to try again."

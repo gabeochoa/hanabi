@@ -7,8 +7,10 @@
 #include <limits>
 #include <vector>
 #include <mutex>
+#include <future>
 #include <set>
 #include <unordered_map>
+#include <utility>
 #include <string>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -1250,33 +1252,77 @@ bool fold_session_renamed(const std::string& msg_json, SessionSummary& summary) 
 
 }  // namespace agentcloud
 
-static void resolve_child_file_keys(ws_conn* conn, FrameQueue& q,
-                                    std::vector<PendingAsk>& asks) {
+bool AgentcloudClient::read_pending_asks(const std::string& id,
+                                         std::vector<PendingAsk>* out) {
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return false;
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return false;
+    struct Closer {
+        ws_conn* c;
+        ~Closer() { ws_close(c); }
+    } closer{conn};
+
+    const json attach = {{"cmd", "attach"},
+                         {"session_id", id},
+                         {"auth", {{"cat", {{"payload", token.value}}}}}};
+    const json env = {{"sub", 1}, {"payload", attach}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size())) return false;
+
+    const json hello = q.wait_for_type("hello", kOwnSettleTimeoutSecs);
+    if (hello.is_discarded()) return false;
+    if (str_or(hello, "type", "") != "hello") return false;
+    if (out != nullptr)
+        *out = elicitation::asks_from_state(obj_at(hello, "state"), id);
+    return true;
+}
+
+void AgentcloudClient::resolve_child_questions(
+    std::vector<PendingAsk>& asks) {
     std::set<std::string> kids;
     for (const PendingAsk& a : asks)
         if (!a.child_session.empty() && a.has_file_question())
             kids.insert(a.child_session);
     if (kids.empty()) return;
 
-    int sub = 40;
-    for (const std::string& kid : kids) {
-        const json env = {
-            {"sub", sub},
-            {"payload", {{"cmd", "attach"}, {"session_id", kid}}}};
-        const std::string wire = env.dump();
-        ++sub;
-        if (!ws_send_text(conn, wire.data(), wire.size())) return;
-        const json hello = q.wait_for_type("hello", kOwnSettleTimeoutSecs);
-        if (hello.is_discarded()) continue;
-        const auto truth =
-            elicitation::asks_from_state(obj_at(hello, "state"), kid);
+    std::vector<std::string> ids(kids.begin(), kids.end());
+    std::vector<std::future<std::pair<bool, std::vector<PendingAsk>>>> probes;
+    probes.reserve(ids.size());
+    for (const std::string& kid : ids)
+        probes.push_back(std::async(std::launch::async, [this, kid] {
+            std::vector<PendingAsk> live;
+            const bool ok = read_pending_asks(kid, &live);
+            return std::make_pair(ok, live);
+        }));
+
+    for (std::size_t i = 0; i < probes.size(); ++i) {
+        auto got = probes[i].get();
         for (PendingAsk& a : asks) {
-            if (a.child_session != kid) continue;
-            for (const PendingAsk& real : truth) {
-                if (real.seq != a.seq) continue;
-                a.questions = real.questions;
-                break;
+            if (a.child_session != ids[i]) continue;
+            if (!got.first) {
+                a.child_keys_unknown = true;
+                continue;
             }
+            for (const PendingAsk& real : got.second)
+                if (real.seq == a.seq) {
+                    a.questions = real.questions;
+                    break;
+                }
         }
     }
 }
@@ -1340,7 +1386,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     apply_brakes_from_state(state, *out);
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
     agentcloud::parse_pending_asks(hello.dump(), *out);
-    resolve_child_file_keys(conn, q, out->pending_asks);
+    resolve_child_questions(out->pending_asks);
 
     // Page BACKWARD from the newest until the server says done.
     //
@@ -1622,22 +1668,6 @@ Result<std::string> AgentcloudClient::rename_session(
     }
 }
 
-static bool still_pending_now(ws_conn* conn, FrameQueue& q,
-                              const std::string& session_id,
-                              const PendingAsk& ask) {
-    const json attach_env = {
-        {"sub", 2},
-        {"payload", {{"cmd", "attach"}, {"session_id", session_id}}}};
-    const std::string wire = attach_env.dump();
-    if (!ws_send_text(conn, wire.data(), wire.size())) return true;
-    const json hello = q.wait_for_type("hello", kOwnSettleTimeoutSecs);
-    if (hello.is_discarded()) return true;
-    for (const PendingAsk& live :
-         elicitation::asks_from_state(obj_at(hello, "state"), session_id))
-        if (live.id() == ask.id()) return true;
-    return false;
-}
-
 Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
                                                   const PendingAsk& ask,
                                                   AskAction action,
@@ -1715,10 +1745,14 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
         if (msg.is_discarded()) {
             if (q.is_closed())
                 return fail(q.closed_note("no settlement for this question"));
-            if (!still_pending_now(conn, q, session_id, ask))
-                return Result<std::string>::success(
-                    std::string(elicitation::action_word(action)));
-            return fail("no settlement for this question");
+            std::vector<PendingAsk> live;
+            if (!read_pending_asks(session_id, &live))
+                return fail("no settlement for this question");
+            for (const PendingAsk& p : live)
+                if (p.id() == ask.id())
+                    return fail("no settlement for this question");
+            return Result<std::string>::success(
+                std::string(elicitation::action_word(action)));
         }
         if (str_or(msg, "type", "") == "error")
             return fail(str_or(msg, "message", "the answer was refused"));
