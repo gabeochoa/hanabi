@@ -4379,15 +4379,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kComposerBaseH = 98.0f;
     static constexpr float kAskMinTranscriptH = 120.0f;
     static constexpr float kAskMinCardW = 240.0f;
+    static constexpr float kAskActionW = 96.0f;
+    static constexpr float kAskActionGap = 8.0f;
+    static constexpr float kAskActionMinW = 44.0f;
     static constexpr float kAskScrollbarW = 10.0f;
     static constexpr float kAskArityW = 64.0f;
     static constexpr float kAskOptionInset = 26.0f;
+
+    static float ask_option_text_w(float bodyTextW) {
+        return bodyTextW - kAskOptionInset * 2.0f;
+    }
     static constexpr const char* kAskFileHint =
         "A file cannot be attached from hanabi.";
     static constexpr const char* kAskChildFileHint =
         "This one may take a file — answer it in the sub-agent's thread.";
     static constexpr float kComposerReadCol = 768.0f;
     static constexpr float kComposerColInset = 12.0f;
+
+    static float ask_action_w(const AppComponent& app) {
+        const float inner = ask_text_w(app);
+        const float pair = (inner - kAskActionGap) * 0.5f;
+        if (pair >= kAskActionW) return kAskActionW;
+        return pair < kAskActionMinW ? kAskActionMinW : pair;
+    }
 
     static float ask_card_w(const AppComponent& app) {
         const float paneW = app.lastComposerPaneW > 0.0f
@@ -4396,8 +4410,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float gutter = (paneW - kComposerReadCol) * 0.5f + kComposerColInset;
         if (gutter < kContentInset) gutter = kContentInset;
         const float w = paneW - gutter * 2.0f;
-        const float floor = paneW - kContentInset * 2.0f;
-        const float want = kAskMinCardW < floor ? kAskMinCardW : floor;
+        const float widest = paneW - kContentInset * 2.0f;
+        const float want = kAskMinCardW < widest ? kAskMinCardW : widest;
         return w < want ? want : w;
     }
 
@@ -4486,7 +4500,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             m.option_lines.reserve(q.options.size());
             for (const api::AskOption& o : q.options)
                 m.option_lines.push_back(hanabi::ask::clamp_option_lines(
-                    count_lines(ask_option_text(o), textW - kAskOptionInset,
+                    count_lines(ask_option_text(o), ask_option_text_w(textW),
                                 theme::type::SM)));
             out.push_back(std::move(m));
         }
@@ -4643,9 +4657,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void drive_ask_keyboard(UIContext<InputAction>& ctx, AppComponent& app,
                             const api::PendingAsk& ask, Entity* body,
-                            bool widgetOwnsEnter) {
-        if (!app.askFocused) return;
-        if (ecs::overlay_up(app)) return;
+                            bool widgetOwnsEnter, bool keysLive) {
+        if (!keysLive) return;
         if (hanabi::keys::cmd_down() || hanabi::keys::shift_down() ||
             hanabi::keys::ctrl_down() || hanabi::keys::option_down())
             return;
@@ -4978,10 +4991,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (optLines > 1) {
                     auto wrapCol = div(ctx, mk(row.ent(), 1),
                         ComponentConfig{}
-                            .with_size(ComponentSize{
-                                pixels(bodyTextW - kAskOptionInset),
-                                pixels(hanabi::ask::option_row_h(optLines))})
-                            .with_margin(Margin{.left = pixels(kAskOptionInset)})
+                            .with_size(ComponentSize{percent(1.0f),
+                                                     percent(1.0f)})
                             .with_flex_direction(FlexDirection::Column)
                             .with_flex_wrap(FlexWrap::NoWrap)
                             .with_transparent_bg()
@@ -4989,7 +5000,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                              std::to_string(oi)));
                     render_ask_wrapped(ctx, wrapCol.ent(), 1,
                                        ask_option_text(option), optLines,
-                                       bodyTextW - kAskOptionInset,
+                                       ask_option_text_w(bodyTextW),
                                        hanabi::ask::kOptionLineH,
                                        on ? theme::text_primary()
                                           : theme::text_secondary(),
@@ -5084,7 +5095,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitLabel)
-                .with_size(ComponentSize{pixels(96), pixels(28)})
+                .with_size(ComponentSize{pixels(ask_action_w(app)),
+                                         pixels(28)})
                 .with_custom_background(submitOff ? theme::panel_bg_2()
                                                   : theme::accent())
                 .with_border(submitOff ? theme::border() : theme::accent(),
@@ -5104,8 +5116,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto decline = button(ctx, mk(actions.ent(), 2),
             ComponentConfig{}
                 .with_label(approval ? "Deny" : "Decline")
-                .with_size(ComponentSize{pixels(96), pixels(28)})
-                .with_margin(Margin{.left = pixels(8)})
+                .with_size(ComponentSize{pixels(ask_action_w(app)),
+                                         pixels(28)})
+                .with_margin(Margin{.left = pixels(kAskActionGap)})
                 .with_transparent_bg()
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
@@ -5122,23 +5135,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
-        bool widgetOwnsEnter =
+        const auto* strip = find_singleton<TabStripComponent>();
+        const bool keysLive =
+            ecs::ask_keys_live(app, strip != nullptr && strip->menuOpen);
+
+        const bool actionFocused =
             ctx.has_focus(submit.ent().id) || ctx.has_focus(decline.ent().id);
-        for (const AskRowId& row : askRowIds_)
-            if (ctx.has_focus(row.id)) {
-                widgetOwnsEnter = true;
-                auto& cur = app.askState.cursor_for(ask.id());
-                if (cur.question != *row.question ||
-                    cur.option != *row.option) {
+        bool widgetOwnsEnter = actionFocused;
+        auto& cur = app.askState.cursor_for(ask.id());
+        if (keysLive) {
+            if (actionFocused) {
+                cur.question.clear();
+                cur.option.clear();
+            }
+            for (const AskRowId& row : askRowIds_)
+                if (ctx.has_focus(row.id)) {
+                    widgetOwnsEnter = true;
                     cur.question = *row.question;
                     cur.option = *row.option;
                 }
-            }
-        if (app.escape == EscapeIntent::DeclineAsk && !busy && answerable) {
+        }
+        if (keysLive && app.escape == EscapeIntent::DeclineAsk && !busy &&
+            answerable) {
             submit_ask(app, ask, api::AskAction::Decline);
             app.askFocused = false;
         }
-        drive_ask_keyboard(ctx, app, ask, &body.ent(), widgetOwnsEnter);
+        drive_ask_keyboard(ctx, app, ask, &body.ent(), widgetOwnsEnter,
+                           keysLive);
     }
 
     // A chip per pasted/dropped image, and one line saying plainly that they

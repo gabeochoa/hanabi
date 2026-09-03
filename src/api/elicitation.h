@@ -483,8 +483,8 @@ inline bool fold_ask_resolved(const std::string& frame_json,
 
 inline bool fold_child_update(const std::string& frame_json,
                               std::string* session, std::uint64_t* seq,
-                              std::uint64_t* cause, bool* pending,
-                              json* entry) {
+                              std::uint64_t* cause, bool* causeKnown,
+                              bool* pending, json* entry) {
     const json root = json::parse(frame_json, nullptr, false);
     if (root.is_discarded()) return false;
     const json* wrapped = detail::object_field(root, "event");
@@ -500,8 +500,14 @@ inline bool fold_child_update(const std::string& frame_json,
         *seq = static_cast<std::uint64_t>(
             detail::int_field(event, "elicitation", 0));
     if (cause != nullptr)
-        *cause =
-            static_cast<std::uint64_t>(detail::int_field(event, "cause", 0));
+        *cause = event.is_object() && event.contains("cause") &&
+                         event.at("cause").is_number_integer()
+                     ? static_cast<std::uint64_t>(
+                           detail::int_field(event, "cause", 0))
+                     : 0;
+    const bool hasCause = event.is_object() && event.contains("cause") &&
+                          event.at("cause").is_number_integer();
+    if (causeKnown != nullptr) *causeKnown = hasCause;
     const json* held = detail::object_field(event, "pending");
     if (pending != nullptr) *pending = held != nullptr;
     if (entry != nullptr && held != nullptr) {

@@ -325,6 +325,32 @@ static void test_a_reserved_note_costs_exactly_one_note() {
     CHECK(withNote >= without);
 }
 
+static void test_who_owns_the_cards_keys() {
+    std::printf("one policy owns the card's keys\n");
+    ask::KeyOwnership own;
+    CHECK(!ask::keys_live(own));
+    own.cardFocused = true;
+    CHECK(ask::keys_live(own));
+
+    own.modalSheet = true;
+    CHECK(!ask::keys_live(own));
+    own.modalSheet = false;
+
+    own.transientUi = true;
+    CHECK(!ask::keys_live(own));
+    own.transientUi = false;
+    CHECK(ask::keys_live(own));
+
+    own.recordingShortcut = true;
+    CHECK(!ask::keys_live(own));
+    own.recordingShortcut = false;
+
+    own.cardFocused = false;
+    own.modalSheet = false;
+    own.transientUi = false;
+    CHECK(!ask::keys_live(own));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -335,6 +361,7 @@ int main() {
     test_budget_pays_the_composer_first();
     test_a_stale_load_cannot_resurrect();
     test_a_reserved_note_costs_exactly_one_note();
+    test_who_owns_the_cards_keys();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

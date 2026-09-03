@@ -1104,7 +1104,8 @@ SHOT_FAILURES := test-failures
 # regression edited. Anything that moves the theme, the fonts, the roundness
 # or the layout shows up in these.
 SHOT_FAST := 01_home_dark 02_home_light 03_transcript_dark 14_sidebar_folded_dark 14b_subagent_sidebar_dark \
-             15_settings_dark 18_auth_dark 22_split_view_dark 28_composer_focus_dark
+             15_settings_dark 18_auth_dark 22_split_view_dark 28_composer_focus_dark \
+             63_ask_unanswerable_backend_dark
 
 # --only takes one comma-separated value; make has no join, so build the
 # separators by hand.

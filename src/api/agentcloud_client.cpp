@@ -1178,23 +1178,26 @@ bool LiveTurn::fold_child_update(const std::string& frame_json) {
     std::uint64_t cause = 0;
     bool pending = false;
     json entry;
+    bool causeKnown = false;
     if (!elicitation::fold_child_update(frame_json, &session, &seq, &cause,
-                                        &pending, &entry))
+                                        &causeKnown, &pending, &entry))
         return false;
 
     const auto key = std::make_pair(session, seq);
     const auto seen = childCause_.find(key);
-    if (seen != childCause_.end() && cause <= seen->second) return false;
-    childCause_[key] = cause;
+    if (causeKnown) {
+        if (seen != childCause_.end() && cause <= seen->second) return false;
+        childCause_[key] = cause;
+    }
     json kept = json::array();
     bool changed = false;
     for (const json& row : children_) {
         const json* held = detail_child_entry(row);
         const bool same =
-            row.value("session", std::string()) == session &&
+            elicitation::detail::str_field(row, "session") == session &&
             held != nullptr &&
-            static_cast<std::uint64_t>(held->value("elicitation",
-                                                   int64_t{0})) == seq;
+            static_cast<std::uint64_t>(elicitation::detail::int_field(
+                *held, "elicitation", 0)) == seq;
         if (same) {
             changed = true;
             continue;

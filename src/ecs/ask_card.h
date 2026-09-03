@@ -186,6 +186,18 @@ inline int message_lines_for(const api::PendingAsk& ask, int messageLines,
     return lines;
 }
 
+struct KeyOwnership {
+    bool cardFocused = false;
+    bool modalSheet = false;   // rename, composer, shortcuts, settings, auth
+    bool transientUi = false;  // find bar, menus, popovers, session search
+    bool recordingShortcut = false;
+};
+
+inline bool keys_live(const KeyOwnership& own) {
+    return own.cardFocused && !own.modalSheet && !own.transientUi &&
+           !own.recordingShortcut;
+}
+
 inline float irreducible_h(const api::PendingAsk& ask) {
     return chrome_h(ask, 0, true);
 }
