@@ -156,39 +156,88 @@ static void test_return_intent() {
           ask::ReturnIntent::Submit);
 }
 
+static std::vector<ask::QuestionMetrics> flat_metrics(const PendingAsk& a) {
+    std::vector<ask::QuestionMetrics> m;
+    for (const auto& q : a.questions) {
+        ask::QuestionMetrics qm;
+        qm.option_lines.assign(q.options.size(), 1);
+        m.push_back(qm);
+    }
+    return m;
+}
+
 static void test_geometry() {
     std::printf("card geometry\n");
     const PendingAsk a = demo_form();
-    const float one = ask::card_h(a, 1, false);
-    const float two = ask::card_h(a, 2, false);
-    CHECK(two - one == ask::kMessageH);
-    CHECK(ask::card_h(a, 1, true) - one == ask::kNoteH);
-    CHECK(one > ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH);
+    const auto m = flat_metrics(a);
+    const float unbounded = ask::card_h(a, 1, false, 0, m, 0.0f);
+    const float two = ask::card_h(a, 2, false, 0, m, 0.0f);
+    CHECK(two - unbounded == ask::kMessageH);
+    CHECK(ask::card_h(a, 1, true, 0, m, 0.0f) - unbounded == ask::kNoteH);
+    CHECK(unbounded > ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH);
+
+    const float chrome = ask::chrome_h(a, 1, false);
+    for (const float budget : {200.0f, 300.0f, 420.0f, 4000.0f}) {
+        const float h = ask::card_h(a, 1, false, 0, m, budget);
+        CHECK(h <= (budget > unbounded ? unbounded : budget) + 0.01f);
+        CHECK(h >= chrome);
+    }
+    CHECK(ask::card_h(a, 1, false, 0, m, 40.0f) ==
+          chrome + ask::kMinBodyH);
+
+    PendingAsk huge;
+    huge.message = a.message;
+    for (int qi = 0; qi < 4; ++qi) {
+        api::AskQuestion q;
+        q.key = "q" + std::to_string(qi);
+        q.control = AskControl::Single;
+        q.free_text_key = q.key + "_other";
+        for (int oi = 0; oi < 4; ++oi)
+            q.options.push_back({"v" + std::to_string(oi), "label", ""});
+        huge.questions.push_back(q);
+    }
+    const auto hm = flat_metrics(huge);
+    CHECK(ask::body_h(huge, 0, hm) > 600.0f);
+    CHECK(ask::card_h(huge, 2, true, 0, hm, 340.0f) <= 340.0f + 0.01f);
 
     PendingAsk quiet;
     quiet.kind = AskKind::Approval;
-    CHECK(ask::card_h(quiet, 0, false) ==
+    const std::vector<ask::QuestionMetrics> none;
+    CHECK(ask::card_h(quiet, 0, false, 0, none, 0.0f) ==
           ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH);
     quiet.input = "{\"command\":\"rm\"}";
-    CHECK(ask::card_h(quiet, 0, false) ==
+    CHECK(ask::card_h(quiet, 0, false, 1, none, 0.0f) ==
           ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH + ask::kNoteH);
+    CHECK(ask::card_h(quiet, 0, false, 4, none, 0.0f) -
+              ask::card_h(quiet, 0, false, 1, none, 0.0f) ==
+          ask::kNoteH * 3.0f);
+    CHECK(ask::clamp_input_lines(99) == ask::kMaxInputLines);
+    CHECK(ask::clamp_input_lines(0) == 1);
 
     CHECK(ask::clamp_message_lines(0) == 1);
     CHECK(ask::clamp_message_lines(9) == ask::kMaxMessageLines);
+    CHECK(ask::clamp_option_lines(9) == ask::kMaxOptionLines);
+    CHECK(ask::clamp_prompt_lines(9) == ask::kMaxPromptLines);
+    CHECK(ask::option_row_h(1) == ask::kOptionH);
+    CHECK(ask::option_row_h(2) == ask::kOptionH + ask::kOptionLineH);
 
     PendingAsk broken;
     broken.schema_unreadable = true;
-    CHECK(ask::card_h(broken, 0, false) ==
+    CHECK(ask::card_h(broken, 0, false, 0, none, 0.0f) ==
           ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH + ask::kNoteH);
 
-    const auto* q1 = &a.questions[0];
-    CHECK(ask::question_h(*q1) ==
+    const auto& q1 = a.questions[0];
+    ask::QuestionMetrics q1m;
+    q1m.option_lines.assign(q1.options.size(), 1);
+    CHECK(ask::question_h(q1, q1m) ==
           ask::kPromptH + ask::kOptionH * 2.0f + ask::kFieldH + ask::kNoteH +
               ask::kQuestionGap);
     for (const auto& q : a.questions)
-        if (q.control == AskControl::File)
-            CHECK(ask::question_h(q) ==
+        if (q.control == AskControl::File) {
+            ask::QuestionMetrics fm;
+            CHECK(ask::question_h(q, fm) ==
                   ask::kPromptH + ask::kNoteH + ask::kQuestionGap);
+        }
 }
 
 static void test_head_and_drafts() {

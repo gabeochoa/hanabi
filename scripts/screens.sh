@@ -458,6 +458,9 @@ capture_sized 57_ask_card_narrow_dark "760 x 620" "$NARROW_DARK" \
     HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_ASK_DEMO=1
 capture 58_ask_card_split_dark "$PLAN_SPLIT_DARK" HANABI_ASK_DEMO=1
 capture 59_ask_approval_dark   "$TABS_DARK"       HANABI_ASK_DEMO=approval
+capture_sized 60_ask_full_form_narrow_dark "760 x 620" "$NARROW_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_ASK_DEMO=big
+capture 61_ask_long_approval_dark "$TABS_DARK" HANABI_ASK_DEMO=longapproval
 
 listing && exit 0
 

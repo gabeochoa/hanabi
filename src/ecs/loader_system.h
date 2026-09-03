@@ -93,6 +93,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
                                   bool authoritative) {
         if (!authoritative) return;
+        if (!app.askState.busyId.empty() &&
+            app.ask_session_of(app.askState.busyId) == s.summary.id)
+            return;
         app.apply_attach_asks(s.summary.id, s.pending_asks);
     }
 
@@ -1388,6 +1391,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         api::Session fresh = r.value;
                         reconcile_optimistic(pane, fresh);
                         apply_local_overlay(fresh.summary);
+                        adopt_attach_brakes(app, fresh, /*authoritative=*/true);
+                        adopt_attach_asks(app, fresh, /*authoritative=*/true);
                         pane.openSession = std::move(fresh);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;

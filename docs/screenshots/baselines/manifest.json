@@ -358,6 +358,15 @@
     "59_ask_approval_dark": {
       "threshold_pct": 0.0,
       "note": "An approval-kind ask: the suspended tool call, Approve and Deny, and no form."
+    },
+    "60_ask_full_form_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "The largest form the server can ask, in the smallest supported window: the questions scroll inside the card and Submit stays on screen."
+    },
+    "61_ask_long_approval_dark": {
+      "threshold_pct": 0.0,
+      "note": "A long shell command wrapped across lines rather than ellipsized, because approving what you cannot read is the risk."
     }
   },
   "unbaselined": {}

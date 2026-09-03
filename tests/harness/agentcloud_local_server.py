@@ -119,6 +119,7 @@ def serve_connection(listener):
                 msg = {"type": "hello", "capabilities": ["fork_with_prompt_v1"],
                        "state": state}
             elif kind == "resolve_elicitation":
+                assert command.get("session") != "gone-local", command
                 assert command["elicitation"] == 41, command
                 if command.get("session") == "kid-local":
                     assert command["action"] == "decline", command

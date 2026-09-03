@@ -1,0 +1,15 @@
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=big HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent is asking"
+expect_text "Submit"
+expect_text "Decline"
+
+click_ui ask_option_q1_0
+wait_frames 6
+expect_no_text "Answer any one of these to submit"
+
+click_ui ask_submit
+wait_frames 20
+expect_no_text "The agent is asking"

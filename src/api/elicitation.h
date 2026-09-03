@@ -68,10 +68,7 @@ inline std::string str_field(const json& j, const char* key,
 inline int64_t int_field(const json& j, const char* key, int64_t dflt = 0) {
     if (!j.is_object() || !j.contains(key)) return dflt;
     const json& v = j.at(key);
-    if (v.is_number_integer()) return v.get<int64_t>();
-    if (v.is_number_unsigned())
-        return static_cast<int64_t>(v.get<std::uint64_t>());
-    return dflt;
+    return v.is_number_integer() ? v.get<int64_t>() : dflt;
 }
 
 inline const json* array_field(const json& j, const char* key) {
@@ -135,6 +132,14 @@ inline bool enum_options_from(const json& body, const json& items,
     return !out->empty();
 }
 
+inline AskValueType value_type_of(const json& body) {
+    const std::string type = str_field(body, "type");
+    if (type == "number") return AskValueType::Number;
+    if (type == "integer") return AskValueType::Integer;
+    if (type == "boolean") return AskValueType::Boolean;
+    return AskValueType::String;
+}
+
 inline void classify_property(const json& body, AskQuestion* q) {
     const json kNull = json::object();
     const json& items = body.is_object() && body.contains("items") &&
@@ -161,9 +166,37 @@ inline void classify_property(const json& body, AskQuestion* q) {
     }
     q->options.clear();
     q->control = AskControl::Text;
+    q->value_type = value_type_of(body);
 }
 
 }  // namespace detail
+
+inline json typed_value(AskValueType type, const std::string& text) {
+    if (type == AskValueType::Boolean) {
+        if (text == "true") return true;
+        if (text == "false") return false;
+        return text;
+    }
+    if (type == AskValueType::Integer) {
+        try {
+            std::size_t used = 0;
+            const long long v = std::stoll(text, &used);
+            if (used == text.size()) return v;
+        } catch (const std::exception&) {
+        }
+        return text;
+    }
+    if (type == AskValueType::Number) {
+        try {
+            std::size_t used = 0;
+            const double v = std::stod(text, &used);
+            if (used == text.size()) return v;
+        } catch (const std::exception&) {
+        }
+        return text;
+    }
+    return text;
+}
 
 inline std::vector<AskQuestion> parse_schema(
     const std::string& schema_json,
@@ -224,8 +257,10 @@ inline std::vector<AskQuestion> parse_schema(
 }
 
 inline PendingAsk ask_from_entry(const json& entry,
+                                 const std::string& owner_session,
                                  const std::string& child_session) {
     PendingAsk ask;
+    ask.owner_session = owner_session;
     ask.child_session = child_session;
     ask.seq = static_cast<std::uint64_t>(detail::int_field(entry,
                                                            "elicitation", 0));
@@ -250,12 +285,13 @@ inline PendingAsk ask_from_entry(const json& entry,
     return ask;
 }
 
-inline std::vector<PendingAsk> asks_from_state(const json& state) {
+inline std::vector<PendingAsk> asks_from_state(
+    const json& state, const std::string& owner_session) {
     std::vector<PendingAsk> out;
     if (const json* own = detail::array_field(state, "pending_elicitations"))
         for (const json& e : *own) {
             if (!e.is_object() || !e.contains("elicitation")) continue;
-            out.push_back(ask_from_entry(e, ""));
+            out.push_back(ask_from_entry(e, owner_session, ""));
         }
     std::sort(out.begin(), out.end(),
               [](const PendingAsk& a, const PendingAsk& b) {
@@ -270,11 +306,14 @@ inline std::vector<PendingAsk> asks_from_state(const json& state) {
             const std::string session = detail::str_field(e, "session");
             const json* nested = detail::object_field(e, "elicitation");
             if (session.empty() || nested == nullptr) continue;
-            children.push_back(ask_from_entry(*nested, session));
+            children.push_back(
+                ask_from_entry(*nested, owner_session, session));
         }
     std::sort(children.begin(), children.end(),
               [](const PendingAsk& a, const PendingAsk& b) {
-                  return a.id() < b.id();
+                  if (a.child_session != b.child_session)
+                      return a.child_session < b.child_session;
+                  return a.seq < b.seq;
               });
     out.insert(out.end(), children.begin(), children.end());
     return out;
@@ -290,7 +329,7 @@ inline json content_object(const PendingAsk& ask, const AskAnswer& answer) {
             if (it == answer.text.end()) continue;
             const std::string value = trimmed(it->second);
             if (value.empty()) continue;
-            content[q.key] = value;
+            content[q.key] = typed_value(q.value_type, value);
             continue;
         }
         const auto picked = answer.picks.find(q.key);
@@ -316,15 +355,35 @@ inline json content_object(const PendingAsk& ask, const AskAnswer& answer) {
 inline bool answer_has_content(const PendingAsk& ask,
                                const AskAnswer& answer) {
     if (ask.kind == AskKind::Approval) return true;
-    return !content_object(ask, answer).empty();
+    for (const AskQuestion& q : ask.questions) {
+        if (q.control == AskControl::File) continue;
+        if (q.control == AskControl::Text) {
+            const auto it = answer.text.find(q.key);
+            if (it != answer.text.end() && !trimmed(it->second).empty())
+                return true;
+            continue;
+        }
+        const auto picked = answer.picks.find(q.key);
+        if (picked != answer.picks.end() && !picked->second.empty())
+            return true;
+        if (q.free_text_key.empty()) continue;
+        const auto typed = answer.text.find(q.free_text_key);
+        if (typed != answer.text.end() && !trimmed(typed->second).empty())
+            return true;
+    }
+    return false;
 }
 
 inline constexpr std::size_t kContentCapBytes = 262144;
 
+inline std::size_t escaped_content_len(const json& content) {
+    return json(content.dump()).dump().size();
+}
+
 inline bool answer_within_cap(const PendingAsk& ask,
                               const AskAnswer& answer) {
     if (ask.kind == AskKind::Approval) return true;
-    return content_object(ask, answer).dump().size() <= kContentCapBytes;
+    return escaped_content_len(content_object(ask, answer)) <= kContentCapBytes;
 }
 
 inline const char* action_word(AskAction action) {

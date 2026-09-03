@@ -62,6 +62,10 @@ STATES=(
     "HANABI_EXPAND=1"
     "HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig"
     "HANABI_TEST_OVERLAY=settings"
+    "HANABI_ASK_DEMO=1"
+    "HANABI_ASK_DEMO=big"
+    "HANABI_ASK_DEMO=approval"
+    "HANABI_ASK_DEMO=longapproval"
 )
 
 WORK="$(mktemp -d /tmp/hanabi_bounds.XXXXXX)"

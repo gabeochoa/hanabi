@@ -877,7 +877,8 @@ class MockClient : public Client {
         s.pending_asks = std::move(kept);
     }
 
-    static std::vector<PendingAsk> mock_pending_asks(std::string_view mode) {
+    static std::vector<PendingAsk> mock_pending_asks(
+        std::string_view mode, const std::string& owner) {
         const std::string schema =
             R"({"type":"object","properties":{)"
             R"("q1":{"type":"string","title":"Which mismatch do we trust?",)"
@@ -903,6 +904,68 @@ class MockClient : public Client {
             {"file_keys", nlohmann::json::array({"q4"})},
             {"timeout_ms", 600000},
         };
+        if (mode == "big") {
+            nlohmann::json props = nlohmann::json::object();
+            static const char* kAsks[] = {
+                "Which ledger should the reconciliation trust when the promo "
+                "credit and the bank feed disagree?",
+                "What may I touch while fixing it?",
+                "Which cycle should the corrected batch be booked against?",
+                "Who signs off before the release runs?",
+            };
+            static const char* kOpts[][4] = {
+                {"the bank feed", "the promo ledger", "neither, hold it",
+                 "whichever reconciles more accounts this cycle"},
+                {"ledger rows", "promo credits", "the export job",
+                 "the nightly reconciliation schedule itself"},
+                {"this cycle", "next cycle", "a correction cycle",
+                 "whichever cycle the finance owner nominates"},
+                {"the payout owner", "the finance owner", "oncall",
+                 "nobody, it is already approved in the ticket"},
+            };
+            for (int qi = 0; qi < 4; ++qi) {
+                nlohmann::json options = nlohmann::json::array();
+                for (int oi = 0; oi < 4; ++oi)
+                    options.push_back({{"const", kOpts[qi][oi]},
+                                       {"title", kOpts[qi][oi]}});
+                const std::string key = "q" + std::to_string(qi + 1);
+                props[key] = {{"type", "string"},
+                              {"title", kAsks[qi]},
+                              {"oneOf", options}};
+                props[key + "_other"] = {{"type", "string"},
+                                         {"title", "Other"}};
+            }
+            nlohmann::json big = {
+                {"elicitation", 51},
+                {"tool", "AskUserRichForm"},
+                {"message",
+                 "Four accounts disagree with the ledger and none of the "
+                 "reconciliation rules covers the promo-credit case, so I "
+                 "need you to settle all four before the batch can run."},
+                {"requested_schema",
+                 nlohmann::json{{"type", "object"},
+                                {"properties", props}}.dump()},
+                {"timeout_ms", 600000},
+            };
+            return {elicitation::ask_from_entry(big, owner, "")};
+        }
+        if (mode == "longapproval") {
+            nlohmann::json approval = {
+                {"elicitation", 44},
+                {"tool", "bash"},
+                {"message",
+                 "bash may write outside the workspace; a human has to allow it."},
+                {"kind", "approval"},
+                {"input",
+                 R"({"command":"./scripts/release_batch.sh --force --cycle=2026-09 )"
+                 R"(--ledger=/var/finance/payouts/2026-09/ledger.csv )"
+                 R"(--out=/var/finance/payouts/2026-09/settled.csv )"
+                 R"(--notify=payout-owner@example.test --skip-reconcile-check )"
+                 R"(--allow-outside-workspace"})"},
+                {"timeout_ms", 120000},
+            };
+            return {elicitation::ask_from_entry(approval, owner, "")};
+        }
         if (mode == "approval") {
             nlohmann::json approval = {
                 {"elicitation", 44},
@@ -913,9 +976,10 @@ class MockClient : public Client {
                 {"input", R"({"command":"./scripts/release_batch.sh --force"})"},
                 {"timeout_ms", 120000},
             };
-            return {elicitation::ask_from_entry(approval, "")};
+            return {elicitation::ask_from_entry(approval, owner, "")};
         }
-        std::vector<PendingAsk> out{elicitation::ask_from_entry(entry, "")};
+        std::vector<PendingAsk> out{
+            elicitation::ask_from_entry(entry, owner, "")};
         if (mode == "two") {
             nlohmann::json second = {
                 {"elicitation", 47},
@@ -927,7 +991,8 @@ class MockClient : public Client {
                  R"({"const":"production"}]}}})"},
                 {"timeout_ms", 600000},
             };
-            out.push_back(elicitation::ask_from_entry(second, ""));
+            out.push_back(
+                elicitation::ask_from_entry(second, owner, ""));
         }
         return out;
     }
@@ -1342,7 +1407,8 @@ class MockClient : public Client {
             }
             if (const char* ask = std::getenv("HANABI_ASK_DEMO");
                 ask && *ask) {
-                s.pending_asks = mock_pending_asks(std::string_view(ask));
+                s.pending_asks =
+                    mock_pending_asks(std::string_view(ask), s.summary.id);
             }
             v.push_back(std::move(s));
         }

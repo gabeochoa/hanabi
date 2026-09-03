@@ -219,6 +219,7 @@ CEIL_TABS20="${HANABI_ALLOC_CEIL_TABS20:-770}"
 CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-920}"
 CEIL_SEARCH2000="${HANABI_ALLOC_CEIL_SEARCH2000:-1130}"
 CEIL_PALETTE2000="${HANABI_ALLOC_CEIL_PALETTE2000:-780}"
+CEIL_ASKBIG="${HANABI_ALLOC_CEIL_ASKBIG:-1200}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then
@@ -234,7 +235,7 @@ trap kill_own_runs EXIT
 fail=0
 ONLY="${HANABI_ALLOC_ONLY:-}"
 case "$ONLY" in
-    ""|home20|home2000|tabs20|thread480|draft6|search2000|palette2000) ;;
+    ""|home20|home2000|tabs20|thread480|draft6|search2000|palette2000|askbig) ;;
     *)
         echo "alloc_gate: unknown HANABI_ALLOC_ONLY '$ONLY'" >&2
         exit 2
@@ -381,6 +382,13 @@ ARM_LIVE_COUNTER=sidebar.query_visits ARM_LIVE_FLOOR=1000 \
     run_arm search2000  2000 "$CEIL_SEARCH2000"  '[]' '""' HANABI_STRESS=search
 ARM_LIVE_COUNTER=palette.candidates ARM_LIVE_FLOOR=1000 \
     run_arm palette2000 2000 "$CEIL_PALETTE2000" '[]' '""' HANABI_PALETTE_DEMO=zzq
+
+# The biggest form the first-party producer can emit, on screen and being
+# re-derived every frame. Nothing gated a frame with a card in it before, and
+# the card's submit gate and its wrap both run per frame. Measured 1001.0
+# with the card up against 1124.0 for the same tab with no card -- the card
+# costs less than the transcript rows it displaces -- so the ceiling is 1200.
+run_arm askbig 20 "$CEIL_ASKBIG" '["t2"]' '"t2"' HANABI_ASK_DEMO=big
 
 if [ "$fail" -ne 0 ] && [ "$REPORT_ONLY" != "1" ]; then
     cat >&2 <<'MSG'

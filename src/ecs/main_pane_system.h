@@ -146,6 +146,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app->lastComposerPaneW = layout->composer.width > 0.0f
                                          ? layout->composer.width
                                          : layout->main.width;
+        app->lastPaneContentH = layout->main.height + layout->composer.height;
         layout->composerHeight = 98.0f + attachments_h(*app) +
                                  composer_extra_h(composerRows_) +
                                  ask_card_h(*app);
@@ -4368,35 +4369,46 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return &asks->front();
     }
 
+    static constexpr float kComposerBaseH = 98.0f;
+    static constexpr float kAskMinTranscriptH = 120.0f;
+    static constexpr float kAskArityW = 64.0f;
+    static constexpr float kAskOptionInset = 26.0f;
+    static constexpr const char* kAskFileHint =
+        "A file cannot be attached from hanabi.";
+    static constexpr float kComposerReadCol = 768.0f;
+    static constexpr float kComposerColInset = 12.0f;
+
     static float ask_card_w(const AppComponent& app) {
         const float paneW = app.lastComposerPaneW > 0.0f
                                 ? app.lastComposerPaneW
-                                : 1100.0f;
-        constexpr float kReadCol = 768.0f;
-        constexpr float kColInset = 12.0f;
-        float gutter = (paneW - kReadCol) * 0.5f + kColInset;
+                                : hanabi::viewport::width();
+        float gutter = (paneW - kComposerReadCol) * 0.5f + kComposerColInset;
         if (gutter < kContentInset) gutter = kContentInset;
         const float w = paneW - gutter * 2.0f;
         return w < 240.0f ? 240.0f : w;
     }
 
-    static int ask_message_lines(const api::PendingAsk& ask, float width) {
-        if (ask.message.empty()) return 0;
-        return hanabi::ask::clamp_message_lines(hanabi::text::wrapped_line_count(
-            ask.message, width - hanabi::ask::kPad * 2.0f,
-            [](const std::string& s) {
-                return afterhours::ui::measure_text_line(
-                           s, afterhours::ui::UIComponent::DEFAULT_FONT,
-                           theme::type::SM)
-                    .x;
-            }));
+    static float ask_text_w(const AppComponent& app) {
+        return ask_card_w(app) - hanabi::ask::kPad * 2.0f;
     }
 
-    static void ask_message_spans(
-        const api::PendingAsk& ask, float width,
+    static int ask_message_lines(const api::PendingAsk& ask, float textW) {
+        if (ask.message.empty()) return 0;
+        return hanabi::ask::clamp_message_lines(
+            count_lines(ask.message, textW, theme::type::SM));
+    }
+
+    static int ask_input_lines(const api::PendingAsk& ask, float textW) {
+        if (ask.kind != api::AskKind::Approval || ask.input.empty()) return 0;
+        return hanabi::ask::clamp_input_lines(
+            count_lines(ask.input, textW, theme::type::SM));
+    }
+
+    static void ask_wrap_spans(
+        const std::string& text, float textW,
         std::vector<std::pair<std::size_t, std::size_t>>& out) {
         hanabi::text::wrapped_line_spans(
-            ask.message, width - hanabi::ask::kPad * 2.0f,
+            text, text_wrap_width(textW),
             [](const std::string& s) {
                 return afterhours::ui::measure_text_line(
                            s, afterhours::ui::UIComponent::DEFAULT_FONT,
@@ -4404,6 +4416,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .x;
             },
             out);
+    }
+
+    static std::string ask_wrapped_line(
+        const std::string& text,
+        const std::vector<std::pair<std::size_t, std::size_t>>& spans,
+        std::size_t index) {
+        if (index >= spans.size()) return std::string();
+        return text.substr(spans[index].first,
+                           spans[index].second - spans[index].first);
+    }
+
+    static std::vector<hanabi::ask::QuestionMetrics> ask_metrics(
+        const api::PendingAsk& ask, float textW) {
+        std::vector<hanabi::ask::QuestionMetrics> out;
+        if (ask.kind == api::AskKind::Approval) return out;
+        out.reserve(ask.questions.size());
+        for (const api::AskQuestion& q : ask.questions) {
+            hanabi::ask::QuestionMetrics m;
+            m.prompt_lines = hanabi::ask::clamp_prompt_lines(
+                count_lines(q.prompt, textW - kAskArityW, theme::type::SM));
+            m.option_lines.reserve(q.options.size());
+            for (const api::AskOption& o : q.options)
+                m.option_lines.push_back(hanabi::ask::clamp_option_lines(
+                    count_lines(ask_option_text(o), textW - kAskOptionInset,
+                                theme::type::SM)));
+            out.push_back(std::move(m));
+        }
+        return out;
+    }
+
+    static std::string ask_option_text(const api::AskOption& o) {
+        return o.detail.empty() ? o.label : o.label + "  —  " + o.detail;
     }
 
     static bool ask_note_shown(const AppComponent& app,
@@ -4419,12 +4463,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ask, known == app.askState.answers.end() ? empty : known->second);
     }
 
+    static float ask_height_budget(const AppComponent& app) {
+        const float contentH = app.lastPaneContentH > 0.0f
+                                   ? app.lastPaneContentH
+                                   : hanabi::viewport::height();
+        const float budget =
+            contentH - kComposerBaseH - kAskMinTranscriptH - 8.0f;
+        return budget < hanabi::ask::kMinBodyH ? hanabi::ask::kMinBodyH
+                                               : budget;
+    }
+
     static float ask_card_h(const AppComponent& app) {
         const api::PendingAsk* ask = open_ask(app);
         if (ask == nullptr) return 0.0f;
-        return hanabi::ask::card_h(
-                   *ask, ask_message_lines(*ask, ask_card_w(app)),
-                   ask_note_shown(app, *ask)) +
+        const float textW = ask_text_w(app);
+        return hanabi::ask::card_h(*ask, ask_message_lines(*ask, textW),
+                                   ask_note_shown(app, *ask),
+                                   ask_input_lines(*ask, textW),
+                                   ask_metrics(*ask, textW),
+                                   ask_height_budget(app)) +
                8.0f;
     }
 
@@ -4455,6 +4512,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     api::AskAction action) {
         if (!app.askState.busyId.empty()) return;
         if (!app.pane().openSession) return;
+        if (!app.client || !app.client->supports_resolve_ask()) return;
         if (action == api::AskAction::Accept &&
             hanabi::ask::submit_blocked(ask,
                                         app.askState.answer_for(ask.id())))
@@ -4466,27 +4524,60 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void drive_ask_keyboard(AppComponent& app, const api::PendingAsk& ask) {
         if (!app.askFocused) return;
-        if (hanabi::keys::cmd_down() || hanabi::keys::shift_down()) return;
+        if (hanabi::keys::cmd_down() || hanabi::keys::shift_down() ||
+            hanabi::keys::ctrl_down() || hanabi::keys::option_down())
+            return;
         if (!app.askState.busyId.empty()) return;
         auto& cursor = app.askState.cursor_for(ask.id());
         auto& answer = app.askState.answer_for(ask.id());
-        if (hanabi::keys::pressed(hanabi::keys::kDown))
-            hanabi::ask::move_cursor(ask, &cursor, 1);
-        if (hanabi::keys::pressed(hanabi::keys::kUp))
-            hanabi::ask::move_cursor(ask, &cursor, -1);
-        if (hanabi::keys::pressed(hanabi::keys::kSpace))
-            hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
+        const bool editing = ecs::any_text_field_focused();
+        if (!editing) {
+            if (app.arrow == ArrowIntent::Ask) {
+                if (hanabi::keys::pressed(hanabi::keys::kDown))
+                    hanabi::ask::move_cursor(ask, &cursor, 1);
+                if (hanabi::keys::pressed(hanabi::keys::kUp))
+                    hanabi::ask::move_cursor(ask, &cursor, -1);
+            }
+            if (hanabi::keys::pressed(hanabi::keys::kSpace))
+                hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
+        }
         if (hanabi::keys::pressed(hanabi::keys::kEnter)) {
             switch (hanabi::ask::return_intent(ask, answer, cursor)) {
                 case hanabi::ask::ReturnIntent::Submit:
                     submit_ask(app, ask, api::AskAction::Accept);
                     break;
                 case hanabi::ask::ReturnIntent::PickAtCursor:
-                    hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
+                    if (!editing)
+                        hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
                     break;
                 case hanabi::ask::ReturnIntent::Ignore:
                     break;
             }
+        }
+    }
+
+    void render_ask_wrapped(UIContext<InputAction>& ctx, Entity& parent,
+                            int keyBase, const std::string& text, int lines,
+                            float textW, float lineH, theme::Color ink,
+                            const std::string& name) {
+        if (lines <= 0) return;
+        static std::vector<std::pair<std::size_t, std::size_t>> spans;
+        ask_wrap_spans(text, textW, spans);
+        for (int li = 0; li < lines; ++li) {
+            const bool last = li == lines - 1;
+            const bool cut = last && spans.size() > static_cast<size_t>(lines);
+            div(ctx, mk(parent, keyBase + li),
+                ComponentConfig{}
+                    .with_label(ask_wrapped_line(text, spans,
+                                                 static_cast<size_t>(li)))
+                    .with_size(ComponentSize{percent(1.0f), pixels(lineH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(ink)
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(cut ? TextOverflow::Ellipsis
+                                            : TextOverflow::Clip)
+                    .with_debug_name(name + "_" + std::to_string(li)));
         }
     }
 
@@ -4498,23 +4589,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.askFocused = false;
             return;
         }
-        const api::PendingAsk ask = *found;
+        const api::PendingAsk& ask = *found;
         const std::string askId = ask.id();
         const bool busy = app.askState.busyId == askId;
         const bool approval = ask.kind == api::AskKind::Approval;
         auto& answer = app.askState.answer_for(askId);
         auto& cursor = app.askState.cursor_for(askId);
         const bool blocked = hanabi::ask::submit_blocked(ask, answer);
-        const bool showNote = ask_note_shown(app, ask);
+        const bool answerable =
+            app.client != nullptr && app.client->supports_resolve_ask();
+        const bool showNote = ask_note_shown(app, ask) || !answerable;
         const float cardW = ask_card_w(app);
-        const int messageLines = ask_message_lines(ask, cardW);
+        const float textW = ask_text_w(app);
+        const int messageLines = ask_message_lines(ask, textW);
+        const int inputLines = ask_input_lines(ask, textW);
+        const auto metrics = ask_metrics(ask, textW);
+        const float chromeH = hanabi::ask::chrome_h(ask, messageLines, showNote);
+        const float bodyNaturalH =
+            hanabi::ask::body_h(ask, inputLines, metrics);
+        const float bodyH = hanabi::ask::body_view_h(
+            bodyNaturalH, ask_height_budget(app) - chromeH);
         bool clicked = false;
 
         auto card = div(ctx, mk(bar.ent(), 7),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(cardW),
-                                         pixels(hanabi::ask::card_h(
-                                             ask, messageLines, showNote))})
+                                         pixels(chromeH + bodyH)})
                 .with_margin(Margin{.top = pixels(8), .left = pixels(gutter)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
@@ -4544,50 +4644,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_text_overflow(TextOverflow::Ellipsis)
                 .with_debug_name("ask_head"));
 
-        if (messageLines > 0) {
-            static std::vector<std::pair<std::size_t, std::size_t>> spans;
-            ask_message_spans(ask, cardW, spans);
-            for (int li = 0; li < messageLines; ++li) {
-                const std::string line =
-                    li < static_cast<int>(spans.size())
-                        ? ask.message.substr(
-                              spans[static_cast<std::size_t>(li)].first,
-                              spans[static_cast<std::size_t>(li)].second -
-                                  spans[static_cast<std::size_t>(li)].first)
-                        : std::string();
-                div(ctx, mk(card.ent(), 2 + li),
-                    ComponentConfig{}
-                        .with_label(line)
-                        .with_size(ComponentSize{
-                            percent(1.0f), pixels(hanabi::ask::kMessageH)})
-                        .with_transparent_bg()
-                        .with_custom_text_color(theme::text_primary())
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
-                        .with_text_overflow(TextOverflow::Ellipsis)
-                        .with_debug_name("ask_message_" + std::to_string(li)));
-            }
-        }
+        render_ask_wrapped(ctx, card.ent(), 2, ask.message, messageLines, textW,
+                           hanabi::ask::kMessageH, theme::text_primary(),
+                           "ask_message");
+
+        auto body = div(ctx, mk(card.ent(), 10),
+            preset::ScrollPanel()
+                .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
+                .with_transparent_bg()
+                .with_padding(Padding{.top = pixels(0),
+                                      .right = pixels(bodyNaturalH > bodyH
+                                                          ? 10.0f
+                                                          : 0.0f),
+                                      .bottom = pixels(0),
+                                      .left = pixels(0)})
+                .with_debug_name("ask_body"));
+        hanabi::apply_scroll_prefs(body.ent());
+        const float bodyTextW =
+            textW - (bodyNaturalH > bodyH ? 10.0f : 0.0f);
 
         int key = 20;
         if (approval) {
-            if (!ask.input.empty())
-                div(ctx, mk(card.ent(), key++),
-                    ComponentConfig{}
-                        .with_label(ask.input)
-                        .with_size(ComponentSize{percent(1.0f),
-                                                 pixels(hanabi::ask::kNoteH)})
-                        .with_transparent_bg()
-                        .with_custom_text_color(theme::text_secondary())
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
-                        .with_text_overflow(TextOverflow::Ellipsis)
-                        .with_debug_name("ask_approval_input"));
-        } else if (ask.schema_unreadable || ask.questions.empty()) {
-            div(ctx, mk(card.ent(), key++),
+            render_ask_wrapped(ctx, body.ent(), key, ask.input, inputLines,
+                               bodyTextW, hanabi::ask::kNoteH,
+                               theme::text_secondary(), "ask_approval_input");
+            key += hanabi::ask::kMaxInputLines;
+        } else if (ask.schema_unreadable) {
+            div(ctx, mk(body.ent(), key++),
                 ComponentConfig{}
                     .with_label("This build cannot draw the form this "
-                                "question uses. The web app can.")
+                                "question uses.")
                     .with_size(ComponentSize{percent(1.0f),
                                              pixels(hanabi::ask::kNoteH)})
                     .with_transparent_bg()
@@ -4596,31 +4682,70 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_debug_name("ask_unreadable"));
-        }
-
-        for (std::size_t qi = 0; qi < ask.questions.size() && !approval; ++qi) {
-            const api::AskQuestion& q = ask.questions[qi];
-            std::string prompt = q.prompt;
-            if (q.control == api::AskControl::Single) prompt += "  ·  Pick one";
-            if (q.control == api::AskControl::Multi) prompt += "  ·  Pick any";
-            div(ctx, mk(card.ent(), key++),
+        } else if (ask.questions.empty()) {
+            div(ctx, mk(body.ent(), key++),
                 ComponentConfig{}
-                    .with_label(prompt)
+                    .with_label("This one asks for nothing but an answer.")
                     .with_size(ComponentSize{percent(1.0f),
-                                             pixels(hanabi::ask::kPromptH)})
-                    .with_margin(Margin{.top = pixels(hanabi::ask::kQuestionGap)})
+                                             pixels(hanabi::ask::kNoteH)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
                     .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("ask_no_questions"));
+        }
+
+        for (std::size_t qi = 0; qi < ask.questions.size() && !approval; ++qi) {
+            const api::AskQuestion& q = ask.questions[qi];
+            const char* arity = q.control == api::AskControl::Single
+                                    ? "Pick one"
+                                    : (q.control == api::AskControl::Multi
+                                           ? "Pick any"
+                                           : "");
+            const hanabi::ask::QuestionMetrics& qm =
+                metrics[static_cast<std::size_t>(qi)];
+            auto promptRow = div(ctx, mk(body.ent(), key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{
+                        percent(1.0f),
+                        pixels(hanabi::ask::prompt_row_h(qm.prompt_lines))})
+                    .with_margin(Margin{.top = pixels(hanabi::ask::kQuestionGap)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_transparent_bg()
+                    .with_debug_name("ask_prompt_row_" + q.key));
+            auto promptCol = div(ctx, mk(promptRow.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{
+                        pixels(bodyTextW - kAskArityW),
+                        pixels(hanabi::ask::prompt_row_h(qm.prompt_lines))})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_transparent_bg()
                     .with_debug_name("ask_prompt_" + q.key));
+            render_ask_wrapped(ctx, promptCol.ent(), 1, q.prompt,
+                               qm.prompt_lines, bodyTextW - kAskArityW,
+                               hanabi::ask::kOptionLineH,
+                               theme::text_secondary(),
+                               "ask_prompt_line_" + q.key);
+            if (*arity != '\0')
+                div(ctx, mk(promptRow.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(arity)
+                        .with_size(ComponentSize{
+                            pixels(kAskArityW),
+                            pixels(hanabi::ask::kOptionLineH)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Right)
+                        .with_debug_name("ask_arity_" + q.key));
 
             if (q.control == api::AskControl::File) {
-                div(ctx, mk(card.ent(), key++),
+                div(ctx, mk(body.ent(), key++),
                     ComponentConfig{}
-                        .with_label("A file cannot be attached from hanabi — "
-                                    "answer this one in the web app.")
+                        .with_label(kAskFileHint)
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kNoteH)})
                         .with_transparent_bg()
@@ -4633,8 +4758,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
 
             if (q.control == api::AskControl::Text) {
-                auto field = afterhours::ui::imm::text_input(
-                    ctx, mk(card.ent(), key++), answer.text[q.key],
+                afterhours::ui::imm::text_input(
+                    ctx, mk(body.ent(), key++), answer.text[q.key],
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
@@ -4644,7 +4769,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
                         .with_debug_name("ask_text_" + q.key));
-                (void)field;
                 continue;
             }
 
@@ -4654,13 +4778,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 const bool atCursor = app.askFocused &&
                                       cursor.question == q.key &&
                                       cursor.option == option.value;
-                std::string label = option.label;
-                if (!option.detail.empty()) label += "  —  " + option.detail;
-                auto row = button(ctx, mk(card.ent(), key++),
+                const int optLines =
+                    static_cast<std::size_t>(oi) < qm.option_lines.size()
+                        ? qm.option_lines[static_cast<std::size_t>(oi)]
+                        : 1;
+                auto row = button(ctx, mk(body.ent(), key++),
                     ComponentConfig{}
-                        .with_label(label)
-                        .with_size(ComponentSize{percent(1.0f),
-                                                 pixels(hanabi::ask::kOptionH)})
+                        .with_label(optLines > 1 ? std::string()
+                                                 : ask_option_text(option))
+                        .with_size(ComponentSize{
+                            percent(1.0f),
+                            pixels(hanabi::ask::option_row_h(optLines))})
                         .with_transparent_bg()
                         .with_custom_hover_bg(
                             theme::hover_over(theme::panel_bg_2()))
@@ -4681,12 +4809,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         })
                         .with_debug_name("ask_option_" + q.key + "_" +
                                          std::to_string(oi)));
-                ++oi;
-                if (row.ent().has<afterhours::ui::HasLabel>()) {
-                    row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
-                        Vector2Type{26.0f, 0.0f});
-                    row.ent().get<afterhours::ui::HasLabel>().text_x_offset =
-                        21.0f;
+                if (optLines <= 1 && row.ent().has<afterhours::ui::HasLabel>()) {
+                    auto& label = row.ent().get<afterhours::ui::HasLabel>();
+                    label.set_text_inset(Vector2Type{26.0f, 0.0f});
+                    label.text_x_offset = 21.0f;
+                }
+                if (optLines > 1) {
+                    auto wrapCol = div(ctx, mk(row.ent(), 1),
+                        ComponentConfig{}
+                            .with_size(ComponentSize{
+                                pixels(bodyTextW - kAskOptionInset),
+                                pixels(hanabi::ask::option_row_h(optLines))})
+                            .with_margin(Margin{.left = pixels(kAskOptionInset)})
+                            .with_flex_direction(FlexDirection::Column)
+                            .with_flex_wrap(FlexWrap::NoWrap)
+                            .with_transparent_bg()
+                            .with_debug_name("ask_option_wrap_" + q.key + "_" +
+                                             std::to_string(oi)));
+                    render_ask_wrapped(ctx, wrapCol.ent(), 1,
+                                       ask_option_text(option), optLines,
+                                       bodyTextW - kAskOptionInset,
+                                       hanabi::ask::kOptionLineH,
+                                       on ? theme::text_primary()
+                                          : theme::text_secondary(),
+                                       "ask_option_line_" + q.key + "_" +
+                                           std::to_string(oi));
                 }
                 if (row && !busy) {
                     hanabi::ask::toggle(ask, q.key, option.value, &answer);
@@ -4694,10 +4841,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     cursor.option = option.value;
                     clicked = true;
                 }
+                ++oi;
             }
 
             if (!q.free_text_key.empty()) {
-                div(ctx, mk(card.ent(), key++),
+                div(ctx, mk(body.ent(), key++),
                     ComponentConfig{}
                         .with_label("Or write your own answer  ·  " +
                                     q.free_text_label)
@@ -4709,8 +4857,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_text_overflow(TextOverflow::Ellipsis)
                         .with_debug_name("ask_other_label_" + q.key));
-                auto other = afterhours::ui::imm::text_input(
-                    ctx, mk(card.ent(), key++), answer.text[q.free_text_key],
+                afterhours::ui::imm::text_input(
+                    ctx, mk(body.ent(), key++), answer.text[q.free_text_key],
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
@@ -4720,7 +4868,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
                         .with_debug_name("ask_other_" + q.key));
-                (void)other;
             }
         }
 
@@ -4730,6 +4877,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (busy) {
                 note = "Sending your answer…";
                 ink = theme::text_secondary();
+            } else if (!answerable) {
+                note = "This backend cannot answer an agent's question.";
             } else if (!app.askState.errorText.empty() &&
                        app.askState.errorId == askId) {
                 note = app.askState.errorText + " — press Submit to try again.";
@@ -4755,16 +4904,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto actions = div(ctx, mk(card.ent(), 901),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f),
-                                         pixels(hanabi::ask::kButtonsH)})
-                .with_margin(Margin{.top = pixels(4)})
+                .with_size(ComponentSize{
+                    percent(1.0f),
+                    pixels(hanabi::ask::kButtonsH - hanabi::ask::kActionsGap)})
+                .with_margin(Margin{.top = pixels(hanabi::ask::kActionsGap)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_debug_name("ask_actions"));
 
         const std::string submitLabel = approval ? "Approve" : "Submit";
-        const bool submitOff = busy || blocked;
+        const bool submitOff = busy || blocked || !answerable;
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitLabel)
@@ -4793,19 +4943,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(answerable ? theme::text_secondary()
+                                                   : theme::text_faint())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_corner_radius(6.0f)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_decline"));
-        if (decline && !busy) {
+        if (decline && !busy && answerable) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Decline);
         }
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
-        if (app.escape == EscapeIntent::DeclineAsk && !busy) {
+        if (app.escape == EscapeIntent::DeclineAsk && !busy && answerable) {
             submit_ask(app, ask, api::AskAction::Decline);
             app.askFocused = false;
         }
@@ -5426,9 +5577,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Written as the two constants it came from so the next person reading
         // it can check them against Puffin's source rather than against a
         // downsample.
-        constexpr float kReadCol = 768.0f;
-        constexpr float kColInset = 12.0f;
-        float composerGutter = (paneW - kReadCol) * 0.5f + kColInset;
+        float composerGutter =
+            (paneW - kComposerReadCol) * 0.5f + kComposerColInset;
         if (composerGutter < kContentInset) composerGutter = kContentInset;
 
         auto barCfg = ComponentConfig{}

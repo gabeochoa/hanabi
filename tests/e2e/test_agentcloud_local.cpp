@@ -107,7 +107,10 @@ int main() {
     }
     const api::PendingAsk& own = asked.value.pending_asks[0];
     const api::PendingAsk& child = asked.value.pending_asks[1];
-    if (own.id() != "#41" || child.id() != "kid-local#41") {
+    if (own.id() != "ask-local/#41" ||
+        child.id() != "ask-local/kid-local#41" ||
+        own.answering_session() != "ask-local" ||
+        child.answering_session() != "kid-local") {
         std::fprintf(stderr, "ask identity is not the (session, seq) pair\n");
         return 1;
     }
@@ -144,6 +147,15 @@ int main() {
         client.resolve_ask("ask-local", own, api::AskAction::Accept, nothing);
     if (empty.ok) {
         std::fprintf(stderr, "an empty accept must not reach the wire\n");
+        return 1;
+    }
+
+    const auto stale =
+        client.resolve_ask("gone-local", own, api::AskAction::Accept, answer);
+    if (stale.ok ||
+        stale.error.find("already answered") == std::string::npos) {
+        std::fprintf(stderr, "a stale answer was not refused: ok=%d %s\n",
+                     static_cast<int>(stale.ok), stale.error.c_str());
         return 1;
     }
 

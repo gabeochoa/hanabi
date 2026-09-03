@@ -14,11 +14,17 @@ inline constexpr float kHeadH = 22.0f;
 inline constexpr float kMessageH = 18.0f;
 inline constexpr float kPromptH = 20.0f;
 inline constexpr float kOptionH = 28.0f;
+inline constexpr float kOptionLineH = 16.0f;
+inline constexpr int kMaxOptionLines = 3;
+inline constexpr int kMaxPromptLines = 3;
 inline constexpr float kFieldH = 30.0f;
 inline constexpr float kNoteH = 18.0f;
+inline constexpr float kActionsGap = 4.0f;
 inline constexpr float kButtonsH = 36.0f;
 inline constexpr float kQuestionGap = 6.0f;
-inline constexpr int kMaxMessageLines = 2;
+inline constexpr int kMaxMessageLines = 4;
+inline constexpr int kMaxInputLines = 12;
+inline constexpr float kMinBodyH = 90.0f;
 
 struct Cursor {
     std::string question;
@@ -58,12 +64,43 @@ inline int clamp_message_lines(int measured) {
     return measured;
 }
 
-inline float question_h(const api::AskQuestion& q) {
-    float h = kPromptH;
+struct QuestionMetrics {
+    int prompt_lines = 1;
+    std::vector<int> option_lines;
+};
+
+inline int clamp_prompt_lines(int measured) {
+    if (measured < 1) return 1;
+    if (measured > kMaxPromptLines) return kMaxPromptLines;
+    return measured;
+}
+
+inline int clamp_option_lines(int measured) {
+    if (measured < 1) return 1;
+    if (measured > kMaxOptionLines) return kMaxOptionLines;
+    return measured;
+}
+
+inline float option_row_h(int lines) {
+    const int n = clamp_option_lines(lines);
+    return kOptionH + kOptionLineH * static_cast<float>(n - 1);
+}
+
+inline float prompt_row_h(int lines) {
+    return kPromptH + kOptionLineH * static_cast<float>(
+                                        clamp_prompt_lines(lines) - 1);
+}
+
+inline float question_h(const api::AskQuestion& q,
+                        const QuestionMetrics& metrics) {
+    float h = prompt_row_h(metrics.prompt_lines);
     switch (q.control) {
         case api::AskControl::Single:
         case api::AskControl::Multi:
-            h += kOptionH * static_cast<float>(q.options.size());
+            for (std::size_t i = 0; i < q.options.size(); ++i)
+                h += option_row_h(i < metrics.option_lines.size()
+                                      ? metrics.option_lines[i]
+                                      : 1);
             if (!q.free_text_key.empty()) h += kFieldH + kNoteH;
             break;
         case api::AskControl::Text:
@@ -87,20 +124,49 @@ inline std::string blocked_reason(const api::PendingAsk& ask) {
     return "Answer to submit";
 }
 
-inline float card_h(const api::PendingAsk& ask, int messageLines,
-                    bool showNote) {
+inline int clamp_input_lines(int measured) {
+    if (measured < 1) return 1;
+    if (measured > kMaxInputLines) return kMaxInputLines;
+    return measured;
+}
+
+inline float chrome_h(const api::PendingAsk& ask, int messageLines,
+                      bool showNote) {
     float h = kPad * 2.0f + kHeadH + kButtonsH;
     if (!ask.message.empty())
         h += kMessageH * static_cast<float>(clamp_message_lines(messageLines));
-    if (ask.kind == api::AskKind::Approval) {
-        if (!ask.input.empty()) h += kNoteH;
-    } else if (ask.schema_unreadable || ask.questions.empty()) {
-        h += kNoteH;
-    } else {
-        for (const auto& q : ask.questions) h += question_h(q);
-    }
     if (showNote) h += kNoteH;
     return h;
+}
+
+inline float body_h(const api::PendingAsk& ask, int inputLines,
+                    const std::vector<QuestionMetrics>& metrics) {
+    if (ask.kind == api::AskKind::Approval)
+        return ask.input.empty()
+                   ? 0.0f
+                   : kNoteH * static_cast<float>(clamp_input_lines(inputLines));
+    if (ask.schema_unreadable || ask.questions.empty()) return kNoteH;
+    float h = 0.0f;
+    static const QuestionMetrics kFallback;
+    for (std::size_t i = 0; i < ask.questions.size(); ++i)
+        h += question_h(ask.questions[i],
+                        i < metrics.size() ? metrics[i] : kFallback);
+    return h;
+}
+
+inline float body_view_h(float natural, float budget) {
+    if (budget < kMinBodyH) budget = kMinBodyH;
+    return natural > budget ? budget : natural;
+}
+
+inline float card_h(const api::PendingAsk& ask, int messageLines,
+                    bool showNote, int inputLines,
+                    const std::vector<QuestionMetrics>& metrics,
+                    float budget) {
+    const float chrome = chrome_h(ask, messageLines, showNote);
+    const float body = body_h(ask, inputLines, metrics);
+    if (budget <= 0.0f) return chrome + body;
+    return chrome + body_view_h(body, budget - chrome);
 }
 
 inline const api::PendingAsk* first_pending(

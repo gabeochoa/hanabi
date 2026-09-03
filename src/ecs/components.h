@@ -82,6 +82,7 @@ enum class ArrowIntent {
     TextField,
     Transcript,
     List,
+    Ask,
 };
 
 // The `collapsedFolders` sentinel under which a group's "Show N more" opt-in
@@ -706,6 +707,7 @@ struct AppComponent : public afterhours::BaseComponent {
     hanabi::ask::State askState;
     bool askFocused = false;
     float lastComposerPaneW = 0.0f;
+    float lastPaneContentH = 0.0f;
 
     void apply_attach_asks(const std::string& id,
                            const std::vector<api::PendingAsk>& asks) {
@@ -717,6 +719,11 @@ struct AppComponent : public afterhours::BaseComponent {
                 if (live.count(a.id()) == 0) askState.forget(a.id());
         if (asks.empty()) attachAsks.erase(id);
         else attachAsks[id] = asks;
+    }
+
+    [[nodiscard]] std::string ask_session_of(const std::string& askId) const {
+        const auto at = askId.find('/');
+        return at == std::string::npos ? std::string() : askId.substr(0, at);
     }
 
     void drop_attach_ask(const std::string& id, const std::string& askId) {

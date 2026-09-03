@@ -4,10 +4,11 @@
 require_thread t2
 expect_text "The agent is asking"
 expect_text "Two accounts disagree with the ledger and I cannot pick for you."
-expect_text "Which mismatch do we trust?  ·  Pick one"
-expect_text "What may I touch to fix it?  ·  Pick any"
+expect_text "Which mismatch do we trust?"
+expect_text "Pick one"
+expect_text "What may I touch to fix it?"
+expect_text "Pick any"
 expect_text "Anything I should know first?"
-expect_text "A file cannot be attached from hanabi — answer this one in the web app."
 expect_text "Answer any one of these to submit"
 
 click_ui composer_reply_input

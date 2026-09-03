@@ -76,6 +76,8 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         // `main` (which shrinks by its height) so the content area and the
         // composer never overlap.
         float compH = layout.composerHeight;
+        const float compRoom = contentH - tabH;
+        if (compH > compRoom) compH = compRoom < 0.0f ? 0.0f : compRoom;
         float mainH = contentH - tabH - compH;
         if (mainH < 0) mainH = 0;
 

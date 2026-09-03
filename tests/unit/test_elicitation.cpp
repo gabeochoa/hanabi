@@ -230,9 +230,15 @@ static void test_commands() {
     CHECK(!cmd.contains("content"));
     CHECK(el::answer_has_content(approval, AskAnswer{}));
 
-    CHECK(ask.id() == "#12");
-    CHECK(child.id() == "child-1#12");
+    CHECK(ask.id() == "/#12");
+    CHECK(child.id() == "/child-1#12");
     CHECK(ask.id() != child.id());
+    PendingAsk other = ask;
+    other.owner_session = "session-b";
+    PendingAsk mine = ask;
+    mine.owner_session = "session-a";
+    CHECK(mine.id() != other.id());
+    CHECK(mine.id() == "session-a/#12");
 }
 
 static void test_state_decode() {
@@ -247,7 +253,7 @@ static void test_state_decode() {
         {"session":"kid","elicitation":{"elicitation":4,"message":"child ask",
          "requested_schema":"{\"properties\":{\"b\":{\"type\":\"string\"}}}"}}]
     })");
-    const auto asks = el::asks_from_state(state);
+    const auto asks = el::asks_from_state(state, "own");
     CHECK(asks.size() == 3);
     CHECK(asks[0].seq == 4);
     CHECK(asks[0].kind == AskKind::Approval);
@@ -259,21 +265,24 @@ static void test_state_decode() {
     CHECK(asks[1].questions.size() == 1);
     CHECK(asks[2].child_session == "kid");
     CHECK(asks[2].seq == 4);
-    CHECK(asks[2].id() == "kid#4");
+    CHECK(asks[2].id() == "own/kid#4");
+    CHECK(asks[0].id() == "own/#4");
+    CHECK(asks[0].answering_session() == "own");
+    CHECK(asks[2].answering_session() == "kid");
     CHECK(asks[0].id() != asks[2].id());
 
-    CHECK(el::asks_from_state(json::object()).empty());
+    CHECK(el::asks_from_state(json::object(), "own").empty());
 
     const json unreadable = json::parse(R"({"pending_elicitations":[
         {"elicitation":1,"requested_schema":"{not json"}]})");
-    const auto broken = el::asks_from_state(unreadable);
+    const auto broken = el::asks_from_state(unreadable, "own");
     CHECK(broken.size() == 1);
     CHECK(broken[0].schema_unreadable);
     CHECK(broken[0].questions.empty());
 
     const json approval_only = json::parse(R"({"pending_elicitations":[
         {"elicitation":1,"kind":"approval"}]})");
-    CHECK(!el::asks_from_state(approval_only)[0].schema_unreadable);
+    CHECK(!el::asks_from_state(approval_only, "own")[0].schema_unreadable);
 }
 
 static void test_settlement() {
@@ -323,6 +332,84 @@ static void test_settlement() {
     CHECK(el::answered_summary("{}").empty());
 }
 
+static void test_typed_and_cap() {
+    std::printf("typed values and the escaped cap\n");
+    PendingAsk ask;
+    ask.questions = el::parse_schema(
+        R"({"properties":{"n":{"type":"number"},"i":{"type":"integer"},
+            "b":{"type":"boolean"},"s":{"type":"string"}}})",
+        {});
+    CHECK(ask.questions.size() == 4);
+    CHECK(find_q(ask.questions, "n")->value_type == api::AskValueType::Number);
+    CHECK(find_q(ask.questions, "i")->value_type == api::AskValueType::Integer);
+    CHECK(find_q(ask.questions, "b")->value_type == api::AskValueType::Boolean);
+    CHECK(find_q(ask.questions, "s")->value_type == api::AskValueType::String);
+
+    AskAnswer a;
+    a.text["n"] = " 4.5 ";
+    a.text["i"] = "42";
+    a.text["b"] = "true";
+    a.text["s"] = "42";
+    const json c = el::content_object(ask, a);
+    CHECK(c["n"].is_number_float() && c["n"] == 4.5);
+    CHECK(c["i"].is_number_integer() && c["i"] == 42);
+    CHECK(c["b"].is_boolean() && c["b"] == true);
+    CHECK(c["s"].is_string() && c["s"] == "42");
+
+    AskAnswer junk;
+    junk.text["i"] = "not a number";
+    CHECK(el::content_object(ask, junk)["i"] == "not a number");
+
+    PendingAsk one;
+    one.questions =
+        el::parse_schema(R"({"properties":{"q1":{"type":"string"}}})", {});
+    AskAnswer fits;
+    fits.text["q1"] = std::string(1000, 'x');
+    CHECK(el::answer_within_cap(one, fits));
+    AskAnswer quoted;
+    quoted.text["q1"] = std::string(90000, '"');
+    CHECK(el::content_object(one, quoted).dump().size() <
+          el::kContentCapBytes);
+    CHECK(!el::answer_within_cap(one, quoted));
+    CHECK(el::escaped_content_len(el::content_object(one, quoted)) >
+          el::kContentCapBytes);
+}
+
+static void test_has_content_matches_the_object() {
+    std::printf("the submit gate agrees with the payload\n");
+    PendingAsk ask;
+    ask.questions = el::parse_schema(
+        R"({"properties":{"q1":{"oneOf":[{"const":"a"}]},
+            "q1_other":{"type":"string"},"q2":{"type":"string"},
+            "q3":{"type":"string"}}})",
+        {"q3"});
+    const std::vector<AskAnswer> cases = [] {
+        std::vector<AskAnswer> v(6);
+        v[1].text["q2"] = "  ";
+        v[2].text["q2"] = "yes";
+        v[3].picks["q1"] = {"a"};
+        v[4].text["q1_other"] = "mine";
+        v[5].text["q3"] = "a file cannot go this way";
+        return v;
+    }();
+    for (const AskAnswer& a : cases)
+        CHECK(el::answer_has_content(ask, a) ==
+              !el::content_object(ask, a).empty());
+}
+
+static void test_child_order() {
+    std::printf("child asks sort numerically\n");
+    json state = json::parse(R"({"child_pending_elicitations":[
+        {"session":"kid","elicitation":{"elicitation":10}},
+        {"session":"kid","elicitation":{"elicitation":4}},
+        {"session":"aaa","elicitation":{"elicitation":9}}]})");
+    const auto asks = el::asks_from_state(state, "own");
+    CHECK(asks.size() == 3);
+    CHECK(asks[0].child_session == "aaa");
+    CHECK(asks[1].child_session == "kid" && asks[1].seq == 4);
+    CHECK(asks[2].child_session == "kid" && asks[2].seq == 10);
+}
+
 int main() {
     test_shapes();
     test_ordering_and_options();
@@ -331,6 +418,9 @@ int main() {
     test_commands();
     test_state_decode();
     test_settlement();
+    test_typed_and_cap();
+    test_has_content_matches_the_object();
+    test_child_order();
     if (g_failures == 0) {
         std::printf("elicitation: all checks passed\n");
         return 0;

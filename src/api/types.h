@@ -444,6 +444,13 @@ enum class AskControl {
     File,
 };
 
+enum class AskValueType {
+    String,
+    Number,
+    Integer,
+    Boolean,
+};
+
 enum class AskAction {
     Accept,
     Decline,
@@ -460,6 +467,7 @@ struct AskQuestion {
     std::string key;
     std::string prompt;
     AskControl control = AskControl::Text;
+    AskValueType value_type = AskValueType::String;
     std::vector<AskOption> options;
     std::string free_text_key;
     std::string free_text_label;
@@ -467,6 +475,7 @@ struct AskQuestion {
 
 struct PendingAsk {
     uint64_t seq = 0;
+    std::string owner_session;
     std::string child_session;
     std::string tool;
     std::string message;
@@ -477,7 +486,12 @@ struct PendingAsk {
     bool schema_unreadable = false;
 
     [[nodiscard]] std::string id() const {
-        return child_session + "#" + std::to_string(seq);
+        return owner_session + "/" + child_session + "#" +
+               std::to_string(seq);
+    }
+
+    [[nodiscard]] std::string answering_session() const {
+        return child_session.empty() ? owner_session : child_session;
     }
 
     [[nodiscard]] bool has_file_question() const {

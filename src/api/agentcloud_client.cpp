@@ -24,6 +24,8 @@ using json = nlohmann::json;
 constexpr int kReplyTimeoutSecs = 30;
 constexpr int kForkTimeoutSecs = 60;
 
+constexpr int kRetractTimeoutSecs = 8;
+
 // A turn is bounded by SILENCE, not by total time: tool rounds and model calls
 // legitimately take minutes, but a socket that has said nothing for this long
 // has stopped talking to us.
@@ -741,7 +743,8 @@ void parse_pending_asks(const std::string& hello_json, Session& out) {
         out.pending_asks.clear();
         return;
     }
-    out.pending_asks = elicitation::asks_from_state(obj_at(hello, "state"));
+    out.pending_asks =
+        elicitation::asks_from_state(obj_at(hello, "state"), out.summary.id);
 }
 
 std::vector<Message> parse_page_frames(const std::string& msg_json) {
@@ -1510,6 +1513,13 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
                     str_or(hello, "message", "(no message)"));
     }
 
+    bool still_pending = false;
+    for (const PendingAsk& live :
+         elicitation::asks_from_state(obj_at(hello, "state"), session_id))
+        if (live.id() == ask.id()) still_pending = true;
+    if (!still_pending)
+        return fail("this question was already answered somewhere else");
+
     const std::string resolve_payload =
         elicitation::resolve_command_json(ask, action, answer);
     const json resolve_env = {
@@ -1519,8 +1529,10 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
     if (!ws_send_text(conn, resolve_wire.data(), resolve_wire.size()))
         return fail("socket closed before the answer was sent");
 
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds(kReplyTimeoutSecs);
+    const auto deadline =
+        std::chrono::steady_clock::now() +
+        std::chrono::seconds(ask.child_session.empty() ? kReplyTimeoutSecs
+                                                       : kRetractTimeoutSecs);
     for (;;) {
         const json msg = q.wait_for_next(deadline);
         if (msg.is_discarded())
