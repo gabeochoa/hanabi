@@ -37,6 +37,54 @@ int main() {
         std::fprintf(stderr, "sub-agent catalog failed\n");
         return 1;
     }
+
+    const auto asked = client.get_session("ask-local", 200);
+    if (!asked.ok || asked.value.pending_asks.size() != 2) {
+        std::fprintf(stderr, "pending asks not parsed off the attach\n");
+        return 1;
+    }
+    const api::PendingAsk& own = asked.value.pending_asks[0];
+    const api::PendingAsk& child = asked.value.pending_asks[1];
+    if (own.id() != "#41" || child.id() != "kid-local#41") {
+        std::fprintf(stderr, "ask identity is not the (session, seq) pair\n");
+        return 1;
+    }
+    if (own.questions.size() != 4 || own.answerable_questions() != 3 ||
+        !own.has_file_question()) {
+        std::fprintf(stderr, "schema did not fold into the expected form\n");
+        return 1;
+    }
+
+    api::AskAnswer answer;
+    answer.picks["q1"] = {"promo"};
+    answer.picks["q2"] = {"rows", "credits"};
+    answer.text["q1_other"] = "  or the bank feed  ";
+    answer.text["q3"] = "check the promo ledger first";
+    answer.text["q4"] = "this must never reach the wire";
+    const auto accepted =
+        client.resolve_ask("ask-local", own, api::AskAction::Accept, answer);
+    if (!accepted.ok || accepted.value != "accept") {
+        std::fprintf(stderr, "resolve_elicitation failed: %s\n",
+                     accepted.error.c_str());
+        return 1;
+    }
+
+    const auto declined = client.resolve_ask("ask-local", child,
+                                             api::AskAction::Decline, answer);
+    if (!declined.ok || declined.value != "decline") {
+        std::fprintf(stderr, "child decline failed: %s\n",
+                     declined.error.c_str());
+        return 1;
+    }
+
+    api::AskAnswer nothing;
+    const auto empty =
+        client.resolve_ask("ask-local", own, api::AskAction::Accept, nothing);
+    if (empty.ok) {
+        std::fprintf(stderr, "an empty accept must not reach the wire\n");
+        return 1;
+    }
+
     std::printf("OK\n");
     return 0;
 }

@@ -337,6 +337,27 @@
     "54_plan_cancelled_blocked_dark": {
       "threshold_pct": 0.0,
       "note": "A blocked goal with a terminal plan that includes a cancelled step."
+    },
+    "55_ask_card_dark": {
+      "threshold_pct": 0.0,
+      "note": "An agent question answered from the card: one picker, one multi-select, a prose box, and the file question that cannot be answered here."
+    },
+    "56_ask_card_light": {
+      "threshold_pct": 0.0,
+      "note": "The same ask card in the light theme."
+    },
+    "57_ask_card_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "The ask card in a narrow window, where it takes the reading column's full width."
+    },
+    "58_ask_card_split_dark": {
+      "threshold_pct": 0.0,
+      "note": "The focused pane owns the ask card while two conversations are split."
+    },
+    "59_ask_approval_dark": {
+      "threshold_pct": 0.0,
+      "note": "An approval-kind ask: the suspended tool call, Approve and Deny, and no form."
     }
   },
   "unbaselined": {}

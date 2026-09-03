@@ -452,6 +452,13 @@ capture_sized 52_plan_goal_narrow_dark "760 x 620" "$NARROW_DARK" \
 capture 53_plan_goal_split_dark "$PLAN_SPLIT_DARK" HANABI_PLAN_DEMO=1 HANABI_TEST_OVERLAY=plan
 capture 54_plan_cancelled_blocked_dark "$TABS_DARK" HANABI_PLAN_DEMO=blocked HANABI_TEST_OVERLAY=plan
 
+capture 55_ask_card_dark  "$TABS_DARK"  HANABI_ASK_DEMO=1
+capture 56_ask_card_light "$TABS_LIGHT" HANABI_ASK_DEMO=1
+capture_sized 57_ask_card_narrow_dark "760 x 620" "$NARROW_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_ASK_DEMO=1
+capture 58_ask_card_split_dark "$PLAN_SPLIT_DARK" HANABI_ASK_DEMO=1
+capture 59_ask_approval_dark   "$TABS_DARK"       HANABI_ASK_DEMO=approval
+
 listing && exit 0
 
 echo

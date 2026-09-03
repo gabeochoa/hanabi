@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval
+
+require_thread t2
+expect_text "The agent needs approval"
+expect_text "bash may write outside the workspace; a human has to allow it."
+expect_text "./scripts/release_batch.sh --force"
+expect_no_text "Answer to submit"
+
+click_ui ask_decline
+wait_frames 20
+expect_no_text "The agent needs approval"

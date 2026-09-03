@@ -27,10 +27,12 @@
 #include <ctime>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "client.h"
+#include "elicitation.h"
 
 namespace api {
 
@@ -121,6 +123,32 @@ class MockClient : public Client {
         return Result<std::vector<SessionSummary>>::success(std::move(out));
     }
 
+    bool supports_resolve_ask() const override { return true; }
+
+    Result<std::string> resolve_ask(const std::string& session_id,
+                                    const PendingAsk& ask, AskAction action,
+                                    const AskAnswer& answer) override {
+        (void)session_id;
+        if (ask.kind == AskKind::Approval && action == AskAction::Accept &&
+            !elicitation::content_object(ask, answer).empty())
+            return Result<std::string>::failure(
+                "an approval accept carries no content");
+        if (ask.kind == AskKind::Form && action == AskAction::Accept &&
+            !elicitation::answer_has_content(ask, answer))
+            return Result<std::string>::failure(
+                "an elicitation accept must carry its content.");
+        if (action == AskAction::Accept &&
+            !elicitation::answer_within_cap(ask, answer))
+            return Result<std::string>::failure(
+                "that answer is too long for one reply");
+        if (const char* fail = std::getenv("HANABI_ASK_FAIL");
+            fail != nullptr && *fail != '\0')
+            return Result<std::string>::failure(fail);
+        resolvedAsks_.insert(ask.id());
+        return Result<std::string>::success(
+            elicitation::action_word(action));
+    }
+
     Result<Session> get_session(const std::string& id) override {
         for (auto& s : created_) {
             if (s.summary.id == id) {
@@ -131,8 +159,9 @@ class MockClient : public Client {
         const SeedPtr seedRef = seed_ptr();
         for (const auto& s : *seedRef) {
             if (s.summary.id == id) {
-                // Already filled by seed_ptr(); copy the one row out.
-                return Result<Session>::success(s);
+                Session copy = s;
+                drop_resolved_asks(copy);
+                return Result<Session>::success(std::move(copy));
             }
         }
         const auto children = list_subagents(2000);
@@ -655,6 +684,7 @@ class MockClient : public Client {
     // Sessions created via the composer during this run (mock is otherwise
     // stateless). Merged into list_sessions/get_session above.
     std::vector<Session> created_;
+    std::set<std::string> resolvedAsks_;
     std::size_t fork_count_ = 0;
 
     // In-memory sink for the settings-write path (see update_settings). Lets
@@ -816,6 +846,7 @@ class MockClient : public Client {
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
+        "HANABI_ASK_DEMO",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -838,6 +869,69 @@ class MockClient : public Client {
     // DETERMINISTIC FROM (session, turn) ALONE — no clock, no randomness, no
     // counter. Two runs generate identical bytes, which is what
     // scripts/soak.sh's diffable report and every scaling ratio depend on.
+    void drop_resolved_asks(Session& s) const {
+        if (resolvedAsks_.empty()) return;
+        std::vector<PendingAsk> kept;
+        for (const auto& a : s.pending_asks)
+            if (resolvedAsks_.count(a.id()) == 0) kept.push_back(a);
+        s.pending_asks = std::move(kept);
+    }
+
+    static std::vector<PendingAsk> mock_pending_asks(std::string_view mode) {
+        const std::string schema =
+            R"({"type":"object","properties":{)"
+            R"("q1":{"type":"string","title":"Which mismatch do we trust?",)"
+            R"("oneOf":[)"
+            R"({"const":"ledger","title":"ledger \u2014 the bank's own figure"},)"
+            R"({"const":"promo","title":"promo \u2014 the promo-credit ledger"},)"
+            R"({"const":"neither","title":"neither \u2014 hold the batch"}]},)"
+            R"("q1_other":{"type":"string","title":"Other"},)"
+            R"("q2":{"type":"array","title":"What may I touch to fix it?",)"
+            R"("items":{"anyOf":[)"
+            R"({"const":"ledger rows","title":"ledger rows"},)"
+            R"({"const":"promo credits","title":"promo credits"},)"
+            R"({"const":"the export job","title":"the export job"}]}},)"
+            R"("q3":{"type":"string","title":"Anything I should know first?"},)"
+            R"("q4":{"type":"string","title":"The signed approval, if you have it"})"
+            R"(}})";
+        nlohmann::json entry = {
+            {"elicitation", 41},
+            {"tool", "AskUserRichForm"},
+            {"message",
+             "Two accounts disagree with the ledger and I cannot pick for you."},
+            {"requested_schema", schema},
+            {"file_keys", nlohmann::json::array({"q4"})},
+            {"timeout_ms", 600000},
+        };
+        if (mode == "approval") {
+            nlohmann::json approval = {
+                {"elicitation", 44},
+                {"tool", "bash"},
+                {"message",
+                 "bash may write outside the workspace; a human has to allow it."},
+                {"kind", "approval"},
+                {"input", R"({"command":"./scripts/release_batch.sh --force"})"},
+                {"timeout_ms", 120000},
+            };
+            return {elicitation::ask_from_entry(approval, "")};
+        }
+        std::vector<PendingAsk> out{elicitation::ask_from_entry(entry, "")};
+        if (mode == "two") {
+            nlohmann::json second = {
+                {"elicitation", 47},
+                {"tool", "AskUserQuestion"},
+                {"message", "Where should the reconciled batch land?"},
+                {"requested_schema",
+                 R"({"type":"object","properties":{"q1":{"type":"string",)"
+                 R"("title":"Destination","oneOf":[{"const":"staging"},)"
+                 R"({"const":"production"}]}}})"},
+                {"timeout_ms", 600000},
+            };
+            out.push_back(elicitation::ask_from_entry(second, ""));
+        }
+        return out;
+    }
+
     static std::vector<Message> stress_turn(int k, int t) {
         static const char* kNouns2[] = {
             "the quota shard", "row 212's ledger", "the retry queue",
@@ -1245,6 +1339,10 @@ class MockClient : public Client {
                     "user",
                     blocked || complete ? 3 : 2,
                 };
+            }
+            if (const char* ask = std::getenv("HANABI_ASK_DEMO");
+                ask && *ask) {
+                s.pending_asks = mock_pending_asks(std::string_view(ask));
             }
             v.push_back(std::move(s));
         }

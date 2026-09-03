@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_FAIL='the orchestrator refused that answer'
+
+require_thread t2
+expect_text "The agent is asking"
+
+click_ui ask_option_q1_2
+wait_frames 6
+click_ui ask_submit
+wait_frames 20
+expect_text "the orchestrator refused that answer — press Submit to try again."
+expect_text "The agent is asking"

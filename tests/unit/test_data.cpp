@@ -817,6 +817,14 @@ static void test_disk_cache_round_trips_the_brakes() {
     CHECK(back->plan->title == "Ship");
     CHECK(back->plan->current() != nullptr);
     CHECK(back->plan->current()->note == "running now");
+    api::PendingAsk parked;
+    parked.seq = 41;
+    parked.message = "a question the server was still waiting on";
+    s.pending_asks.push_back(parked);
+    api::disk_cache::save_transcript(s);
+    auto reread = api::disk_cache::load_transcript("ice");
+    CHECK(reread.has_value());
+    CHECK(reread->pending_asks.empty());
     CHECK(back->goal.has_value());
     CHECK(back->goal->objective == "Ship the fix");
     CHECK(back->goal->done_when == "tests pass");

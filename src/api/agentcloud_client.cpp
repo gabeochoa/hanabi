@@ -733,6 +733,15 @@ void parse_plan_goal_state(const std::string& hello_json, Session& out) {
     apply_plan_goal_state(obj_at(hello, "state"), out);
 }
 
+void parse_pending_asks(const std::string& hello_json, Session& out) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) {
+        out.pending_asks.clear();
+        return;
+    }
+    out.pending_asks = elicitation::asks_from_state(obj_at(hello, "state"));
+}
+
 std::vector<Message> parse_page_frames(const std::string& msg_json) {
     json msg = json::parse(msg_json, nullptr, false);
     if (msg.is_discarded() || !msg.contains("frames") ||
@@ -1168,6 +1177,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     out->context = context_usage_from_state(state);
     apply_brakes_from_state(state, *out);
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
+    agentcloud::parse_pending_asks(hello.dump(), *out);
 
     // Page BACKWARD from the newest until the server says done.
     //
@@ -1445,6 +1455,96 @@ Result<std::string> AgentcloudClient::rename_session(
         SessionSummary echoed;
         if (agentcloud::fold_session_renamed(msg.dump(), echoed))
             return Result<std::string>::success(echoed.title);
+    }
+}
+
+Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
+                                                  const PendingAsk& ask,
+                                                  AskAction action,
+                                                  const AskAnswer& answer) {
+    const auto fail = [](const std::string& why) {
+        return Result<std::string>::failure(why);
+    };
+    if (ask.kind == AskKind::Form && action == AskAction::Accept &&
+        !elicitation::answer_has_content(ask, answer))
+        return fail("nothing to submit yet");
+    if (action == AskAction::Accept &&
+        !elicitation::answer_within_cap(ask, answer))
+        return fail("that answer is too long for one reply");
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    FrameQueue q;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded())
+        return fail("no hello for " + session_id + " (" + q.closed_reason + ")");
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " +
+                    str_or(hello, "message", "(no message)"));
+    }
+
+    const std::string resolve_payload =
+        elicitation::resolve_command_json(ask, action, answer);
+    const json resolve_env = {
+        {"sub", 1},
+        {"payload", json::parse(resolve_payload, nullptr, false)}};
+    const std::string resolve_wire = resolve_env.dump();
+    if (!ws_send_text(conn, resolve_wire.data(), resolve_wire.size()))
+        return fail("socket closed before the answer was sent");
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(kReplyTimeoutSecs);
+    for (;;) {
+        const json msg = q.wait_for_next(deadline);
+        if (msg.is_discarded())
+            return fail(q.closed ? "connection closed before the answer "
+                                   "settled: " +
+                                       q.closed_reason
+                                 : "no settlement for this question");
+        if (str_or(msg, "type", "") == "error")
+            return fail(str_or(msg, "message", "the answer was refused"));
+        if (str_or(msg, "type", "") != "frame") continue;
+        const std::string frame = msg.dump();
+        if (!ask.child_session.empty()) {
+            if (elicitation::fold_child_ask_retracted(frame, ask.child_session,
+                                                      ask.seq))
+                return Result<std::string>::success(
+                    elicitation::action_word(action));
+            continue;
+        }
+        std::uint64_t seq = 0;
+        std::string settled;
+        std::string by;
+        if (elicitation::fold_ask_resolved(frame, &seq, &settled, &by) &&
+            seq == ask.seq)
+            return Result<std::string>::success(settled);
     }
 }
 

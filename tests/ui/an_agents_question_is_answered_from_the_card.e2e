@@ -1,0 +1,34 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+expect_text "Two accounts disagree with the ledger and I cannot pick for you."
+expect_text "Which mismatch do we trust?  ·  Pick one"
+expect_text "What may I touch to fix it?  ·  Pick any"
+expect_text "Anything I should know first?"
+expect_text "A file cannot be attached from hanabi — answer this one in the web app."
+expect_text "Answer any one of these to submit"
+
+click_ui composer_reply_input
+type "keep this draft"
+wait_frames 6
+expect_input_text composer_reply_input "keep this draft"
+
+click_ui ask_option_q1_1
+wait_frames 6
+expect_no_text "Answer any one of these to submit"
+expect_text "The file question will be left unanswered."
+expect_input_text composer_reply_input "keep this draft"
+
+click_ui ask_option_q2_1
+wait_frames 4
+click_ui ask_text_q3
+type "check the promo ledger first"
+wait_frames 6
+expect_input_text ask_text_q3 "check the promo ledger first"
+
+click_ui ask_submit
+wait_frames 20
+expect_no_text "The agent is asking"
+expect_input_text composer_reply_input "keep this draft"

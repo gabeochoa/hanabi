@@ -20,6 +20,7 @@
 #include "../api/outbox.h"
 #include "../settings.h"
 #include "../search/find_memo.h"
+#include "ask_card.h"
 #include "transcript_cache.h"
 #include "transcript_item_index.h"
 
@@ -66,6 +67,7 @@ enum class EscapeIntent {
     CloseEffortPicker,
     ClosePlanPicker,
     CloseFoldPicker,
+    DeclineAsk,
     ClearTranscript,
 };
 
@@ -699,6 +701,47 @@ struct AppComponent : public afterhours::BaseComponent {
     bool planPopoverOpen = false;
     // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
     bool foldPopoverOpen = false;
+
+    std::map<std::string, std::vector<api::PendingAsk>> attachAsks;
+    hanabi::ask::State askState;
+    bool askFocused = false;
+    float lastComposerPaneW = 0.0f;
+
+    void apply_attach_asks(const std::string& id,
+                           const std::vector<api::PendingAsk>& asks) {
+        std::set<std::string> live;
+        for (const auto& a : asks) live.insert(a.id());
+        const auto known = attachAsks.find(id);
+        if (known != attachAsks.end())
+            for (const auto& a : known->second)
+                if (live.count(a.id()) == 0) askState.forget(a.id());
+        if (asks.empty()) attachAsks.erase(id);
+        else attachAsks[id] = asks;
+    }
+
+    void drop_attach_ask(const std::string& id, const std::string& askId) {
+        const auto it = attachAsks.find(id);
+        if (it == attachAsks.end()) return;
+        std::vector<api::PendingAsk> kept;
+        for (const auto& a : it->second)
+            if (a.id() != askId) kept.push_back(a);
+        if (kept.empty()) attachAsks.erase(it);
+        else it->second = std::move(kept);
+        askState.forget(askId);
+    }
+
+    std::string requestAskSessionId;
+    api::PendingAsk requestAsk;
+    api::AskAction requestAskAction = api::AskAction::Accept;
+    std::string askInFlightSession;
+    std::future<api::Result<std::string>> askFuture;
+
+    [[nodiscard]] const std::vector<api::PendingAsk>* asks_for(
+        const std::string& id) const {
+        const auto it = attachAsks.find(id);
+        if (it == attachAsks.end() || it->second.empty()) return nullptr;
+        return &it->second;
+    }
 
     // Kickoff async state (create_session).
     std::future<api::Result<std::string>> kickoffFuture;

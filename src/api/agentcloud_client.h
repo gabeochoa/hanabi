@@ -23,6 +23,7 @@
 #include <nlohmann/json.hpp>
 
 #include "client.h"
+#include "elicitation.h"
 #include "agentcloud_auth.h"
 
 namespace api {
@@ -51,6 +52,11 @@ class AgentcloudClient : public Client {
     bool supports_rename() const override { return ready(); }
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override;
+
+    bool supports_resolve_ask() const override { return ready(); }
+    Result<std::string> resolve_ask(const std::string& session_id,
+                                    const PendingAsk& ask, AskAction action,
+                                    const AskAnswer& answer) override;
 
     bool supports_fork() const override { return ready(); }
     Result<std::string> fork_session(const std::string& session_id) override;
@@ -147,6 +153,7 @@ ContextUsage parse_context_usage(const std::string& hello_json);
 // fixture, not a socket.
 void parse_session_brakes(const std::string& hello_json, Session& out);
 void parse_plan_goal_state(const std::string& hello_json, Session& out);
+void parse_pending_asks(const std::string& hello_json, Session& out);
 
 
 //

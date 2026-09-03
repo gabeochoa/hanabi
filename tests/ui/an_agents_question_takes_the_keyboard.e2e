@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+focus_ui ask_option_q1_0
+expect_focused ask_option_q1_0
+key DOWN
+wait_frames 4
+key SPACE
+wait_frames 6
+expect_no_text "Answer any one of these to submit"
+
+key ENTER
+wait_frames 20
+expect_no_text "The agent is asking"

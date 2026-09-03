@@ -4,7 +4,10 @@
 
 #include <atomic>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "ws_socket.h"
 #include <branding.h>
@@ -25,6 +28,22 @@ struct ws_conn {
     std::atomic<bool> closed{false};
 };
 
+static std::mutex& ws_live_lock() {
+    static std::mutex m;
+    return m;
+}
+
+static std::unordered_map<ws_conn*, std::shared_ptr<ws_conn>>& ws_live() {
+    static std::unordered_map<ws_conn*, std::shared_ptr<ws_conn>> m;
+    return m;
+}
+
+static std::shared_ptr<ws_conn> ws_hold(ws_conn* c) {
+    std::lock_guard<std::mutex> guard(ws_live_lock());
+    const auto it = ws_live().find(c);
+    return it == ws_live().end() ? nullptr : it->second;
+}
+
 // Fires on_close the first time anyone gets here and nowhere else.
 static void ws_finish(ws_conn* c, const std::string& reason) {
     if (c == nullptr) return;
@@ -36,16 +55,16 @@ static void ws_finish(ws_conn* c, const std::string& reason) {
 // Re-arms itself after every message. There must always be a receive pending:
 // URLSession only answers the server's 5s pings while one is, and without it
 // an idle socket wedges with the task still reporting .running.
-static void ws_pump(ws_conn* c) {
-    if (c == nullptr || c->closed.load()) return;
+static void ws_pump(std::shared_ptr<ws_conn> c) {
+    if (!c || c->closed.load()) return;
     NSURLSessionWebSocketTask* task = c->task;
     if (task == nil) return;
 
     [task receiveMessageWithCompletionHandler:^(
               NSURLSessionWebSocketMessage* message, NSError* error) {
         if (error != nil) {
-            ws_finish(c, std::string("receive failed: ") +
-                             [[error localizedDescription] UTF8String]);
+            ws_finish(c.get(), std::string("receive failed: ") +
+                                   [[error localizedDescription] UTF8String]);
             return;
         }
         if (message != nil &&
@@ -70,7 +89,8 @@ ws_conn* ws_open(const ws_config* cfg) {
     NSURL* url = (urlStr != nil) ? [NSURL URLWithString:urlStr] : nil;
     if (url == nil) return nullptr;
 
-    ws_conn* c = new ws_conn();
+    std::shared_ptr<ws_conn> owned = std::make_shared<ws_conn>();
+    ws_conn* c = owned.get();
     c->on_text = cfg->on_text;
     c->on_close = cfg->on_close;
     c->user = cfg->user;
@@ -108,8 +128,12 @@ ws_conn* ws_open(const ws_config* cfg) {
 
     c->task = [c->session webSocketTaskWithRequest:req];
     c->task.maximumMessageSize = kMaxMessageBytes;
+    {
+        std::lock_guard<std::mutex> guard(ws_live_lock());
+        ws_live().emplace(c, owned);
+    }
     [c->task resume];
-    ws_pump(c);
+    ws_pump(owned);
     return c;
 }
 
@@ -121,27 +145,26 @@ bool ws_send_text(ws_conn* c, const char* text, size_t len) {
     if (s == nil) return false;
     NSURLSessionWebSocketMessage* msg =
         [[NSURLSessionWebSocketMessage alloc] initWithString:s];
+    std::shared_ptr<ws_conn> held = ws_hold(c);
     [c->task sendMessage:msg
         completionHandler:^(NSError* error) {
           if (error != nil)
-              ws_finish(c, std::string("send failed: ") +
-                               [[error localizedDescription] UTF8String]);
+              ws_finish(held.get(), std::string("send failed: ") +
+                                        [[error localizedDescription] UTF8String]);
         }];
     return true;
 }
 
 void ws_close(ws_conn* c) {
     if (c == nullptr) return;
+    std::shared_ptr<ws_conn> held = ws_hold(c);
     ws_finish(c, "closed by client");
-    if (c->task != nil) {
+    if (c->task != nil)
         [c->task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure
                               reason:nil];
-        c->task = nil;
+    if (c->session != nil) [c->session invalidateAndCancel];
+    {
+        std::lock_guard<std::mutex> guard(ws_live_lock());
+        ws_live().erase(c);
     }
-    if (c->session != nil) {
-        [c->session invalidateAndCancel];
-        c->session = nil;
-    }
-    c->queue = nil;
-    delete c;
 }

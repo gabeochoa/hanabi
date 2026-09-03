@@ -607,6 +607,20 @@ class Client {
     // a backend without the verb never offers an action that cannot work.
     virtual bool supports_rename() const { return false; }
 
+    virtual Result<std::string> resolve_ask(const std::string& session_id,
+                                            const PendingAsk& ask,
+                                            AskAction action,
+                                            const AskAnswer& answer) {
+        (void)session_id;
+        (void)ask;
+        (void)action;
+        (void)answer;
+        return Result<std::string>::failure(
+            "this backend does not support answering agent questions");
+    }
+
+    virtual bool supports_resolve_ask() const { return false; }
+
     // Whether this client can send (kickoff + reply). The composer uses this to
     // decide between an enabled Send and the honest disabled caption. The mock
     // supports send; the http adapter supports it only when a chat path is

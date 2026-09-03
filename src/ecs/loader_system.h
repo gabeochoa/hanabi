@@ -90,6 +90,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
 
 
+    static void adopt_attach_asks(AppComponent& app, const api::Session& s,
+                                  bool authoritative) {
+        if (!authoritative) return;
+        app.apply_attach_asks(s.summary.id, s.pending_asks);
+    }
+
     // Persist a freshly-fetched transcript AND enforce the user's cache cap.
     // Trimming right after a save is the natural "cache grew" trigger; the cap
     // comes from Settings (0 = Unlimited => trim_to_cap is a no-op). Archived +
@@ -184,6 +190,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (auto hit = app.transcriptCache.get(id)) {
                 apply_local_overlay(hit->summary);
                 adopt_attach_brakes(app, *hit, /*authoritative=*/false);
+                adopt_attach_asks(app, *hit, /*authoritative=*/false);
                 pane.openSession = std::move(*hit);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
@@ -256,6 +263,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.transcriptCache.put(*disk);
                 apply_local_overlay(disk->summary);
                 adopt_attach_brakes(app, *disk, /*authoritative=*/false);
+                adopt_attach_asks(app, *disk, /*authoritative=*/false);
                 pane.openSession = std::move(*disk);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
@@ -286,6 +294,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         r.value.summary.id == completedId) {
                         apply_local_overlay(r.value.summary);
                         adopt_attach_brakes(app, r.value, /*authoritative=*/true);
+                        adopt_attach_asks(app, r.value, /*authoritative=*/true);
                         pane.openSession = std::move(r.value);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
@@ -685,6 +694,38 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.renameError = r.error;
             }
             app.renameInFlightId.clear();
+        }
+
+        if (!app.requestAskSessionId.empty() && !app.askFuture.valid()) {
+            const std::string sid = app.requestAskSessionId;
+            const api::PendingAsk ask = app.requestAsk;
+            const api::AskAction action = app.requestAskAction;
+            const api::AskAnswer answer = app.askState.answer_for(ask.id());
+            app.requestAskSessionId.clear();
+            app.askInFlightSession = sid;
+            app.askState.busyId = ask.id();
+            app.askState.errorId.clear();
+            app.askState.errorText.clear();
+            api::Client* c = app.client.get();
+            app.askFuture =
+                std::async(std::launch::async, [c, sid, ask, action, answer] {
+                    return c->resolve_ask(sid, ask, action, answer);
+                });
+        }
+        if (app.askFuture.valid() &&
+            app.askFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.askFuture.get();
+            const std::string askId = app.askState.busyId;
+            const std::string sid = app.askInFlightSession;
+            app.askState.busyId.clear();
+            app.askInFlightSession.clear();
+            if (r.ok) {
+                app.drop_attach_ask(sid, askId);
+            } else {
+                app.askState.errorId = askId;
+                app.askState.errorText = r.error;
+            }
         }
 
         if (!app.requestForkSourceId.empty() && !app.forkFuture.valid()) {

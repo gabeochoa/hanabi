@@ -45,7 +45,10 @@ def send_frame(conn, value):
 
 
 def serve_connection(listener):
-    conn, _ = listener.accept()
+    try:
+        conn, _ = listener.accept()
+    except socket.timeout:
+        return False
     with conn:
         request = b""
         while b"\r\n\r\n" not in request:
@@ -69,12 +72,78 @@ def serve_connection(listener):
             try:
                 envelope = read_frame(conn)
             except EOFError:
-                return
+                return True
             sub = envelope.get("sub", 0)
             command = envelope.get("payload", {})
             kind = command.get("cmd")
             if kind == "attach":
-                msg = {"type": "hello", "capabilities": ["fork_with_prompt_v1"], "state": {}}
+                state = {}
+                if command.get("session_id") == "ask-local":
+                    state["pending_elicitations"] = [{
+                        "elicitation": 41,
+                        "tool": "AskUserRichForm",
+                        "message": "Which ledger do we trust?",
+                        "requested_schema": json.dumps({
+                            "type": "object",
+                            "properties": {
+                                "q1": {
+                                    "type": "string",
+                                    "title": "Which mismatch?",
+                                    "oneOf": [{"const": "ledger"},
+                                              {"const": "promo"}],
+                                },
+                                "q1_other": {"type": "string",
+                                             "title": "Other"},
+                                "q2": {
+                                    "type": "array",
+                                    "title": "What may I touch?",
+                                    "items": {"anyOf": [{"const": "rows"},
+                                                        {"const": "credits"}]},
+                                },
+                                "q3": {"type": "string", "title": "Notes"},
+                                "q4": {"type": "string", "title": "Approval"},
+                            },
+                        }),
+                        "file_keys": ["q4"],
+                        "timeout_ms": 600000,
+                    }]
+                    state["child_pending_elicitations"] = [{
+                        "session": "kid-local",
+                        "elicitation": {
+                            "elicitation": 41,
+                            "tool": "AskUserQuestion",
+                            "message": "A child is asking too",
+                            "requested_schema": "",
+                        },
+                    }]
+                msg = {"type": "hello", "capabilities": ["fork_with_prompt_v1"],
+                       "state": state}
+            elif kind == "resolve_elicitation":
+                assert command["elicitation"] == 41, command
+                if command.get("session") == "kid-local":
+                    assert command["action"] == "decline", command
+                    assert "content" not in command, command
+                    send_frame(conn, {"sub": sub, "msg": {
+                        "type": "frame", "frame": "durable", "seq": 91,
+                        "event": {"type": "child_elicitation_update",
+                                  "session": "kid-local", "elicitation": 41,
+                                  "cause": 12}}})
+                    continue
+                assert command["action"] == "accept", command
+                assert "session" not in command, command
+                assert command["content"] == {
+                    "q1": "promo",
+                    "q1_other": "or the bank feed",
+                    "q2": ["credits", "rows"],
+                    "q3": "check the promo ledger first",
+                }, command["content"]
+                send_frame(conn, {"sub": sub, "msg": {
+                    "type": "frame", "frame": "durable", "seq": 90,
+                    "event": {"type": "elicitation_resolved",
+                              "elicitation": 41, "action": "accept",
+                              "content": json.dumps(command["content"]),
+                              "by": {"by": "user"}}}})
+                continue
             elif kind == "page":
                 msg = {"type": "page", "frames": [], "done": True}
             elif kind == "fork_with_prompt":
@@ -95,6 +164,7 @@ def serve_connection(listener):
             else:
                 msg = {"type": "error", "message": f"unexpected {kind}"}
             send_frame(conn, {"sub": sub, "msg": msg})
+    return True
 
 
 def main():
@@ -107,8 +177,15 @@ def main():
     listener.listen(4)
     with open(args.port_file, "w") as out:
         out.write(str(listener.getsockname()[1]))
-    for _ in range(4):
-        serve_connection(listener)
+    listener.settimeout(20)
+    served = 0
+    while True:
+        if serve_connection(listener) is False:
+            break
+        served += 1
+        listener.settimeout(5)
+    if served == 0:
+        raise SystemExit("no client ever connected")
 
 
 if __name__ == "__main__":

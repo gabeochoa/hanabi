@@ -7,7 +7,9 @@
 // is responsible for mapping whatever the configured backend returns into
 // these plain structs. The rest of the app only ever sees these.
 
+#include <algorithm>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -430,6 +432,81 @@ struct SessionGoal {
     int64_t revision = 0;
 };
 
+enum class AskKind {
+    Form,
+    Approval,
+};
+
+enum class AskControl {
+    Text,
+    Single,
+    Multi,
+    File,
+};
+
+enum class AskAction {
+    Accept,
+    Decline,
+    Cancel,
+};
+
+struct AskOption {
+    std::string value;
+    std::string label;
+    std::string detail;
+};
+
+struct AskQuestion {
+    std::string key;
+    std::string prompt;
+    AskControl control = AskControl::Text;
+    std::vector<AskOption> options;
+    std::string free_text_key;
+    std::string free_text_label;
+};
+
+struct PendingAsk {
+    uint64_t seq = 0;
+    std::string child_session;
+    std::string tool;
+    std::string message;
+    AskKind kind = AskKind::Form;
+    std::string input;
+    int64_t timeout_ms = 0;
+    std::vector<AskQuestion> questions;
+    bool schema_unreadable = false;
+
+    [[nodiscard]] std::string id() const {
+        return child_session + "#" + std::to_string(seq);
+    }
+
+    [[nodiscard]] bool has_file_question() const {
+        for (const auto& q : questions)
+            if (q.control == AskControl::File) return true;
+        return false;
+    }
+
+    [[nodiscard]] int answerable_questions() const {
+        int total = 0;
+        for (const auto& q : questions)
+            if (q.control != AskControl::File) ++total;
+        return total;
+    }
+};
+
+struct AskAnswer {
+    std::map<std::string, std::vector<std::string>> picks;
+    std::map<std::string, std::string> text;
+
+    [[nodiscard]] bool picked(const std::string& key,
+                              const std::string& value) const {
+        const auto it = picks.find(key);
+        if (it == picks.end()) return false;
+        return std::find(it->second.begin(), it->second.end(), value) !=
+               it->second.end();
+    }
+};
+
 // A full session: summary + ordered transcript.
 struct Session {
     SessionSummary summary;
@@ -451,6 +528,7 @@ struct Session {
     ContextUsage context;
     std::optional<SessionPlan> plan;
     std::optional<SessionGoal> goal;
+    std::vector<PendingAsk> pending_asks;
 
     // --- Halt, which only an attach can see -------------------------------
     // `halted` is this session's OWN journal-folded flag. `halted_by` is a
