@@ -16,4 +16,8 @@ for _ in $(seq 1 100); do
 done
 [ -s "$PORT_FILE" ] || { cat "$LOG_FILE" >&2; exit 1; }
 HANABI_AC_LOCAL_PORT="$(cat "$PORT_FILE")" "$ROOT/output/tests/test_agentcloud_local"
+CLIENT_RC=$?
 wait "$SERVER_PID"
+SERVER_RC=$?
+[ "$CLIENT_RC" -eq 0 ] || exit "$CLIENT_RC"
+exit "$SERVER_RC"

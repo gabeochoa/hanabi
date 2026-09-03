@@ -27,6 +27,7 @@
 #include <ctime>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <set>
 #include <string>
 #include <vector>
@@ -153,6 +154,7 @@ class MockClient : public Client {
     }
 
     Result<Session> get_session(const std::string& id) override {
+        session_reads().fetch_add(1);
         for (auto& s : created_) {
             if (s.summary.id == id) {
                 fill_sub_agent_counts(s);
@@ -193,6 +195,18 @@ class MockClient : public Client {
     // (see the big HANABI_BIG_TRANSCRIPT fixture). limit <= 0 => full
     // transcript (delegates to get_session(id)). This mirrors the verified
     // live API: ?limit=N returns the newest N ascending + hasMore=true.
+    static int vanish_after() {
+        if (const char* v = std::getenv("HANABI_ASK_VANISH_AFTER");
+            v != nullptr && *v != '\0')
+            return std::atoi(v);
+        return 2;
+    }
+
+    static std::atomic<int>& session_reads() {
+        static std::atomic<int> n{0};
+        return n;
+    }
+
     Result<Session> get_session(const std::string& id, int limit) override {
         auto r = get_session(id);
         if (!r.ok || limit <= 0) return r;
@@ -873,6 +887,10 @@ class MockClient : public Client {
     // counter. Two runs generate identical bytes, which is what
     // scripts/soak.sh's diffable report and every scaling ratio depend on.
     void drop_resolved_asks(Session& s) const {
+        if (const char* ask = std::getenv("HANABI_ASK_DEMO");
+            ask != nullptr && std::string_view(ask) == "vanish" &&
+            session_reads().load() > vanish_after())
+            s.pending_asks.clear();
         if (resolvedAsks_.empty()) return;
         std::vector<PendingAsk> kept;
         for (const auto& a : s.pending_asks)
@@ -907,7 +925,7 @@ class MockClient : public Client {
             {"file_keys", nlohmann::json::array({"q4"})},
             {"timeout_ms", 600000},
         };
-        if (mode == "big") {
+        if (mode == "big" || mode == "vanish") {
             nlohmann::json props = nlohmann::json::object();
             static const char* kAsks[] = {
                 "Which ledger should the reconciliation trust when the promo "

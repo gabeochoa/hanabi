@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=vanish HANABI_ASK_REFRESH_SECS=1 HANABI_ASK_VANISH_AFTER=2
+
+require_thread t2
+expect_text "The agent is asking"
+
+wait_frames 240
+expect_no_text "The agent is asking"

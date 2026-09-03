@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <cstdint>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -17,19 +18,32 @@ namespace {
 struct Sentinel {
     std::atomic<bool> entered{false};
     std::atomic<bool> left{false};
+    std::atomic<int> parkMs{600};
+    std::shared_ptr<std::atomic<bool>> done =
+        std::make_shared<std::atomic<bool>>(false);
+    ~Sentinel() { magic = 0; }
+    std::uint32_t magic = 0x5eed5eed;
 };
 
 void sentinel_text(void* user, const char*, size_t) {
     auto* s = static_cast<Sentinel*>(user);
     s->entered.store(true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    const auto done = s->done;
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(s->parkMs.load()));
+    if (s->magic != 0x5eed5eed) std::abort();
     s->left.store(true);
+    done->store(true);
 }
 
 void sentinel_close(void*, const char*) {}
 
-int close_waits_for_a_running_callback(const std::string& host) {
-    Sentinel sentinel;
+int close_waits_for_a_running_callback(const std::string& host,
+                                       int parkMs, bool expectWait) {
+    auto ownedHolder = std::make_shared<Sentinel>();
+    Sentinel& sentinel = *ownedHolder;
+    const std::shared_ptr<std::atomic<bool>> watchDone = ownedHolder->done;
+    sentinel.parkMs.store(parkMs);
     const std::string url = "ws://" + host + "/ws/chat?v=1";
     ws_config wc{};
     wc.url = url.c_str();
@@ -37,10 +51,9 @@ int close_waits_for_a_running_callback(const std::string& host) {
     wc.proxy_port = 0;
     wc.on_text = sentinel_text;
     wc.on_close = sentinel_close;
-    wc.user = &sentinel;
+    wc.user = ownedHolder.get();
 
-    const auto owned = std::make_shared<Sentinel*>(&sentinel);
-    ws_conn* conn = ws_open_owned(&wc, owned);
+    ws_conn* conn = ws_open_owned(&wc, ownedHolder);
     if (conn == nullptr) return -1;
     const std::string wire = R"({"sub":0,"payload":{"cmd":"list"}})";
     if (!ws_send_text(conn, wire.data(), wire.size())) {
@@ -61,6 +74,30 @@ int close_waits_for_a_running_callback(const std::string& host) {
                             .count();
     const bool finished = sentinel.left.load();
     ws_close(conn);
+    if (!expectWait) {
+        if (finished) {
+            std::fprintf(stderr,
+                         "a callback parked past the bound should still be "
+                         "running when ws_close returns\n");
+            return 1;
+        }
+        if (waited > 8000) {
+            std::fprintf(stderr, "ws_close waited %lldms; the bound is 5s\n",
+                         static_cast<long long>(waited));
+            return 1;
+        }
+        const auto watch = watchDone;
+        ownedHolder.reset();
+        for (int i = 0; i < 500 && !watch->load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (!watch->load()) {
+            std::fprintf(stderr,
+                         "the parked callback never finished after the "
+                         "caller let go of its target\n");
+            return 1;
+        }
+        return 0;
+    }
     if (!finished) {
         std::fprintf(stderr, "ws_close returned before the callback finished\n");
         return 1;
@@ -174,8 +211,8 @@ int main() {
         }
     }
 
-    const int quiescent =
-        close_waits_for_a_running_callback(std::string("127.0.0.1:") + port);
+    const int quiescent = close_waits_for_a_running_callback(
+        std::string("127.0.0.1:") + port, 600, /*expectWait=*/true);
     if (quiescent != 0) {
         if (quiescent < 0)
             std::fprintf(stderr,
@@ -183,17 +220,17 @@ int main() {
         return 1;
     }
 
-    api::PendingAsk skew = own;
-    skew.owner_session = "skew-local";
-    skew.child_session.clear();
-    skew.seq = 77;
-    const auto skewed =
-        client.resolve_ask("skew-local", skew, api::AskAction::Accept, answer);
-    if (!skewed.ok) {
+    api::PendingAsk gone = own;
+    gone.owner_session = "skew-local";
+    gone.child_session.clear();
+    gone.seq = 77;
+    const auto vanished =
+        client.resolve_ask("skew-local", gone, api::AskAction::Accept, answer);
+    if (vanished.ok || vanished.error != api::elicitation::kAskGoneReason) {
         std::fprintf(stderr,
-                     "a hello with no pending list must not read as "
-                     "already-answered: %s\n",
-                     skewed.error.c_str());
+                     "a hello that omits the pending list means the ask is "
+                     "gone; got ok=%d %s\n",
+                     static_cast<int>(vanished.ok), vanished.error.c_str());
         return 1;
     }
 
@@ -285,6 +322,45 @@ int main() {
                          reported.c_str());
             return 1;
         }
+    }
+
+    std::vector<std::string> retractAsks;
+    api::StreamSink retractSink;
+    retractSink.on_event = [&retractAsks](const api::StreamEvent& ev) {
+        if (ev.kind == api::StreamEventKind::AsksChanged)
+            retractAsks.push_back(ev.payload);
+    };
+    client.send_message_streaming("turn-retract", "done with it", retractSink);
+    if (retractAsks.size() < 2) {
+        std::fprintf(stderr,
+                     "a child retract produced no second report (%zu)\n",
+                     retractAsks.size());
+        return 1;
+    }
+    {
+        const auto seeded =
+            nlohmann::json::parse(retractAsks.front(), nullptr, false);
+        const auto after =
+            nlohmann::json::parse(retractAsks.back(), nullptr, false);
+        const auto before =
+            api::elicitation::asks_from_state(seeded, "turn-retract");
+        const auto cleared =
+            api::elicitation::asks_from_state(after, "turn-retract");
+        if (before.size() != 1 || !cleared.empty()) {
+            std::fprintf(stderr,
+                         "the child retract did not clear the card: "
+                         "%zu -> %zu\n",
+                         before.size(), cleared.size());
+            return 1;
+        }
+    }
+
+    const int bounded = close_waits_for_a_running_callback(
+        std::string("127.0.0.1:") + port, 7000, /*expectWait=*/false);
+    if (bounded != 0) {
+        if (bounded < 0)
+            std::fprintf(stderr, "the bound arm never delivered a message\n");
+        return 1;
     }
 
     std::printf("OK\n");

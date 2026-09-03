@@ -1172,16 +1172,12 @@ bool LiveTurn::fold_child_update(const std::string& frame_json) {
     if (!elicitation::fold_child_update(frame_json, &session, &seq, &pending,
                                         &entry))
         return false;
+    (void)seq;
     json kept = json::array();
     bool changed = false;
     for (const json& row : children_) {
-        const bool same =
-            row.is_object() && row.value("session", std::string()) == session &&
-            row.contains("elicitation") && row.at("elicitation").is_object() &&
-            static_cast<std::uint64_t>(row.at("elicitation")
-                                           .value("elicitation", int64_t{0})) ==
-                seq;
-        if (same) {
+        if (row.is_object() &&
+            row.value("session", std::string()) == session) {
             changed = true;
             continue;
         }
@@ -1624,16 +1620,11 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
                     str_or(hello, "message", "(no message)"));
     }
 
-    const json& hello_state = obj_at(hello, "state");
-    const bool carried_a_list =
-        hello_state.contains("pending_elicitations") ||
-        hello_state.contains("child_pending_elicitations");
     bool still_pending = false;
-    for (const PendingAsk& live :
-         elicitation::asks_from_state(hello_state, session_id))
+    for (const PendingAsk& live : elicitation::asks_from_state(
+             obj_at(hello, "state"), session_id))
         if (live.id() == ask.id()) still_pending = true;
-    if (carried_a_list && !still_pending)
-        return fail(elicitation::kAskGoneReason);
+    if (!still_pending) return fail(elicitation::kAskGoneReason);
 
     const std::string resolve_payload =
         elicitation::resolve_command_json(ask, action, answer);

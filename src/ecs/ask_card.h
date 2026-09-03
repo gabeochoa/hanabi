@@ -187,7 +187,7 @@ inline int message_lines_for(const api::PendingAsk& ask, int messageLines,
 }
 
 inline float irreducible_h(const api::PendingAsk& ask) {
-    return chrome_h(ask, 0, false);
+    return chrome_h(ask, 0, true);
 }
 
 inline float card_h(const api::PendingAsk& ask, int messageLines,

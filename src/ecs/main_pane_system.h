@@ -4494,8 +4494,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static bool ask_note_shown(const AppComponent& app,
                                const api::PendingAsk& ask) {
-        if (!ask.questions.empty() || ask.kind == api::AskKind::Approval)
-            return true;
         if (!app.askState.errorText.empty() &&
             app.askState.errorId == ask.id())
             return true;
@@ -4520,6 +4518,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             budget = withoutTranscript < hanabi::ask::kMinBodyH
                          ? withoutTranscript
                          : hanabi::ask::kMinBodyH;
+        const api::PendingAsk* ask = open_ask(app);
+        const float floor =
+            ask == nullptr ? 0.0f : hanabi::ask::irreducible_h(*ask);
+        if (budget < floor) budget = floor;
         return budget < 0.0f ? 0.0f : budget;
     }
 

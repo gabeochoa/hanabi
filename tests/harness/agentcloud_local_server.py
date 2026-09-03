@@ -5,6 +5,9 @@ import hashlib
 import json
 
 
+session_of_sub = {}
+
+
 def _dumps(v):
     return json.dumps(v, separators=(",", ":"))
 import socket
@@ -81,6 +84,15 @@ def serve_connection(listener):
             command = envelope.get("payload", {})
             kind = command.get("cmd")
             if kind == "input":
+                if session_of_sub.get(sub) == "turn-retract":
+                    send_frame(conn, {"sub": sub, "msg": {
+                        "type": "frame", "frame": "durable", "seq": 90,
+                        "event": {"type": "child_elicitation_update",
+                                  "session": "kid-local"}}})
+                    send_frame(conn, {"sub": sub, "msg": {
+                        "type": "frame", "frame": "durable", "seq": 91,
+                        "event": {"type": "run_finished"}}})
+                    continue
                 send_frame(conn, {"sub": sub, "msg": {
                     "type": "frame", "frame": "durable", "seq": 70,
                     "event": {"type": "block", "index": 0,
@@ -104,9 +116,8 @@ def serve_connection(listener):
                 state = {}
                 if command.get("session_id") == "turn-local":
                     state["pending_elicitations"] = []
-                if command.get("session_id") == "gone-local":
-                    state["pending_elicitations"] = []
-                if command.get("session_id") == "turn-child":
+                session_of_sub[sub] = command.get("session_id")
+                if command.get("session_id") in ("turn-child", "turn-retract"):
                     state["pending_elicitations"] = []
                     state["child_pending_elicitations"] = [{
                         "session": "kid-local",
@@ -166,13 +177,7 @@ def serve_connection(listener):
                        "state": state}
             elif kind == "resolve_elicitation":
                 assert command.get("session") != "gone-local", command
-                if command.get("elicitation") == 77:
-                    send_frame(conn, {"sub": sub, "msg": {
-                        "type": "frame", "frame": "durable", "seq": 41,
-                        "event": {"type": "elicitation_resolved",
-                                  "elicitation": 77, "action": "accept",
-                                  "by": {"by": "user"}}}})
-                    continue
+                assert command.get("elicitation") != 77, command
                 assert command["elicitation"] == 41, command
                 if command.get("session") == "kid-local":
                     assert command["action"] == "decline", command

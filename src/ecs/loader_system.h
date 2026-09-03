@@ -91,12 +91,28 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
 
     static void request_ask_refresh(AppComponent& app, const std::string& id) {
-        for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
-            Pane& pane = app.panes[i];
-            if (pane.selectedId != id) continue;
-            if (pane.transcriptPending) continue;
-            pane.requestOpenId = id;
-        }
+        if (id.empty() || app.askRefreshFuture.valid()) return;
+        if (!app.client) return;
+        app.askRefreshSessionId = id;
+        app.askRefreshStamp = app.next_ask_load_stamp();
+        api::Client* c = app.client.get();
+        app.askRefreshFuture = std::async(std::launch::async, [c, id] {
+            return c->get_session(id, kMessagesWindow);
+        });
+    }
+
+    static void drain_ask_refresh(AppComponent& app) {
+        if (!app.askRefreshFuture.valid()) return;
+        if (app.askRefreshFuture.wait_for(std::chrono::seconds(0)) !=
+            std::future_status::ready)
+            return;
+        auto r = app.askRefreshFuture.get();
+        const std::string id = app.askRefreshSessionId;
+        const std::uint64_t stamp = app.askRefreshStamp;
+        app.askRefreshSessionId.clear();
+        app.askRefreshStamp = 0;
+        if (!r.ok || r.value.summary.id != id) return;
+        adopt_attach_asks(app, r.value, /*authoritative=*/true, stamp);
     }
 
     static void adopt_turn_asks(AppComponent& app, const std::string& id,
@@ -106,28 +122,31 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (app.ask_load_is_stale(id, stamp)) return;
         const auto state = nlohmann::json::parse(asksJson, nullptr, false);
         if (state.is_discarded() || !state.is_object()) return;
-        auto fresh = api::elicitation::asks_from_state(state, id);
-        if (!app.askState.busyId.empty() &&
-            app.ask_session_of(app.askState.busyId) == id) {
-            const std::string busy = app.askState.busyId;
-            bool held = false;
-            for (const auto& a : fresh) held = held || a.id() == busy;
-            if (!held)
-                if (const auto* known = app.asks_for(id))
-                    for (const auto& a : *known)
-                        if (a.id() == busy) fresh.push_back(a);
-        }
-        app.apply_attach_asks(id, fresh);
+        app.apply_attach_asks(
+            id, keep_busy_ask(app, id,
+                              api::elicitation::asks_from_state(state, id)));
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
                                   bool authoritative, std::uint64_t stamp) {
         if (!authoritative) return;
-        if (!app.askState.busyId.empty() &&
-            app.ask_session_of(app.askState.busyId) == s.summary.id)
-            return;
         if (app.ask_load_is_stale(s.summary.id, stamp)) return;
-        app.apply_attach_asks(s.summary.id, s.pending_asks);
+        app.apply_attach_asks(s.summary.id,
+                              keep_busy_ask(app, s.summary.id, s.pending_asks));
+    }
+
+    static std::vector<api::PendingAsk> keep_busy_ask(
+        const AppComponent& app, const std::string& id,
+        std::vector<api::PendingAsk> fresh) {
+        if (app.askState.busyId.empty()) return fresh;
+        if (app.ask_session_of(app.askState.busyId) != id) return fresh;
+        const std::string busy = app.askState.busyId;
+        for (const auto& a : fresh)
+            if (a.id() == busy) return fresh;
+        if (const auto* known = app.asks_for(id))
+            for (const auto& a : *known)
+                if (a.id() == busy) fresh.push_back(a);
+        return fresh;
     }
 
     // Persist a freshly-fetched transcript AND enforce the user's cache cap.
@@ -1392,16 +1411,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // (futures polled here). Subscriptions themselves are opened/reaped by
     // sync_subscriptions().
     void drive_ask_refresh(AppComponent& app, float dt) {
+        drain_ask_refresh(app);
         if (app.attachAsks.empty()) return;
         if (!app.askState.busyId.empty()) return;
         app.askRefreshDue -= dt;
         if (app.askRefreshDue > 0.0f) return;
-        app.askRefreshDue = AppComponent::kAskRefreshSeconds;
+        app.askRefreshDue = AppComponent::ask_refresh_seconds();
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
-            Pane& pane = app.panes[i];
-            if (pane.selectedId.empty() || pane.transcriptPending) continue;
+            const Pane& pane = app.panes[i];
+            if (pane.selectedId.empty()) continue;
             if (app.asks_for(pane.selectedId) == nullptr) continue;
-            pane.requestOpenId = pane.selectedId;
+            request_ask_refresh(app, pane.selectedId);
+            return;
         }
     }
 

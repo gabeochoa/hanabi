@@ -448,6 +448,43 @@ static void test_approval_cap_and_frames() {
           std::string::npos);
 }
 
+static void test_child_file_questions_are_not_answerable() {
+    std::printf("a child's plain-string question is not answerable here\n");
+    const std::string schema = R"({"type":"object","properties":{
+        "q1":{"type":"string","title":"Say something"},
+        "q2":{"type":"string","title":"Pick","oneOf":[{"const":"a"},
+                                                      {"const":"b"}]},
+        "q2_other":{"type":"string","title":"Other"}}})";
+    json state = json::object();
+    json kid = json::object();
+    kid["session"] = "kid";
+    kid["elicitation"] = {{"elicitation", 41},
+                          {"message", "the child asks"},
+                          {"requested_schema", schema}};
+    state["child_pending_elicitations"] = json::array({kid});
+
+    const auto asks = el::asks_from_state(state, "owner");
+    CHECK(asks.size() == 1);
+    CHECK(asks[0].child_session == "kid");
+    CHECK(asks[0].has_file_question());
+    for (const auto& q : asks[0].questions) {
+        CHECK(q.control != api::AskControl::Text);
+        CHECK(q.free_text_key.empty());
+    }
+    CHECK(asks[0].answerable_questions() == 1);
+
+    json own = json::object();
+    own["pending_elicitations"] = json::array({
+        {{"elicitation", 41}, {"requested_schema", schema}}});
+    const auto mine = el::asks_from_state(own, "owner");
+    CHECK(mine.size() == 1);
+    CHECK(!mine[0].has_file_question());
+    bool hasText = false;
+    for (const auto& q : mine[0].questions)
+        if (q.control == api::AskControl::Text) hasText = true;
+    CHECK(hasText);
+}
+
 int main() {
     test_shapes();
     test_ordering_and_options();
@@ -460,6 +497,7 @@ int main() {
     test_has_content_matches_the_object();
     test_child_order();
     test_approval_cap_and_frames();
+    test_child_file_questions_are_not_answerable();
     if (g_failures == 0) {
         std::printf("elicitation: all checks passed\n");
         return 0;

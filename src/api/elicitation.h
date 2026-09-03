@@ -279,6 +279,12 @@ inline PendingAsk ask_from_entry(const json& entry,
 
     const std::string schema = detail::str_field(entry, "requested_schema");
     ask.questions = parse_schema(schema, file_keys);
+    if (!child_session.empty())
+        for (AskQuestion& q : ask.questions) {
+            if (q.control == AskControl::Text) q.control = AskControl::File;
+            q.free_text_key.clear();
+            q.free_text_label.clear();
+        }
     ask.schema_unreadable =
         ask.kind == AskKind::Form && !trimmed(schema).empty() &&
         ask.questions.empty();

@@ -708,8 +708,18 @@ struct AppComponent : public afterhours::BaseComponent {
     std::map<std::string, std::vector<api::PendingAsk>> attachAsks;
     hanabi::ask::State askState;
     bool askFocused = false;
-    static constexpr float kAskRefreshSeconds = 20.0f;
-    float askRefreshDue = kAskRefreshSeconds;
+    static float ask_refresh_seconds() {
+        if (const char* v = std::getenv("HANABI_ASK_REFRESH_SECS");
+            v != nullptr && *v != '\0') {
+            const float secs = static_cast<float>(std::atof(v));
+            if (secs > 0.0f) return secs;
+        }
+        return 20.0f;
+    }
+    float askRefreshDue = ask_refresh_seconds();
+    std::future<api::Result<api::Session>> askRefreshFuture;
+    std::string askRefreshSessionId;
+    std::uint64_t askRefreshStamp = 0;
     float lastComposerPaneW = 0.0f;
     float lastPaneContentH = 0.0f;
     float lastComposerChromeH = 0.0f;
