@@ -1,9 +1,71 @@
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <thread>
 
 #include "../../src/api/agentcloud_client.h"
+#include "../../src/ws_socket.h"
+
+namespace {
+
+struct Sentinel {
+    std::atomic<bool> entered{false};
+    std::atomic<bool> left{false};
+    std::atomic<bool> close_returned{false};
+    std::atomic<int> ran_after_close{0};
+};
+
+void sentinel_text(void* user, const char*, size_t) {
+    auto* s = static_cast<Sentinel*>(user);
+    s->entered.store(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    if (s->close_returned.load()) s->ran_after_close.fetch_add(1);
+    s->left.store(true);
+}
+
+void sentinel_close(void* user, const char*) {
+    auto* s = static_cast<Sentinel*>(user);
+    if (s->close_returned.load()) s->ran_after_close.fetch_add(1);
+}
+
+int close_waits_for_a_running_callback(const std::string& host) {
+    Sentinel sentinel;
+    const std::string url = "ws://" + host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = "";
+    wc.proxy_port = 0;
+    wc.on_text = sentinel_text;
+    wc.on_close = sentinel_close;
+    wc.user = &sentinel;
+
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return -1;
+    const std::string wire = R"({"sub":0,"payload":{"cmd":"list"}})";
+    if (!ws_send_text(conn, wire.data(), wire.size())) {
+        ws_close(conn);
+        return -1;
+    }
+    for (int i = 0; i < 200 && !sentinel.entered.load(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (!sentinel.entered.load()) {
+        ws_close(conn);
+        return -1;
+    }
+
+    ws_close(conn);
+    const bool finished = sentinel.left.load();
+    sentinel.close_returned.store(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    ws_close(conn);
+    if (!finished) return 1;
+    return sentinel.ran_after_close.load() > 0 ? 1 : 0;
+}
+
+}  // namespace
 
 int main() {
     const char* port = std::getenv("HANABI_AC_LOCAL_PORT");
@@ -82,6 +144,16 @@ int main() {
         client.resolve_ask("ask-local", own, api::AskAction::Accept, nothing);
     if (empty.ok) {
         std::fprintf(stderr, "an empty accept must not reach the wire\n");
+        return 1;
+    }
+
+    const int quiescent =
+        close_waits_for_a_running_callback(std::string("127.0.0.1:") + port);
+    if (quiescent != 0) {
+        std::fprintf(stderr,
+                     quiescent < 0
+                         ? "the quiescence arm never delivered a message\n"
+                         : "ws_close returned while a callback was running\n");
         return 1;
     }
 

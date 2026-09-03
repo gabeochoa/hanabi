@@ -39,13 +39,11 @@ struct Waiter {
     bool done = false;
 
     void finish(std::string text, std::string reason) {
-        {
-            std::lock_guard<std::mutex> lock(m);
-            if (done) return;  // first outcome wins
-            reply = std::move(text);
-            closed_reason = std::move(reason);
-            done = true;
-        }
+        std::lock_guard<std::mutex> lock(m);
+        if (done) return;  // first outcome wins
+        reply = std::move(text);
+        closed_reason = std::move(reason);
+        done = true;
         cv.notify_all();
     }
 };
@@ -100,19 +98,15 @@ struct FrameQueue {
     bool closed = false;
 
     void push(std::string f) {
-        {
-            std::lock_guard<std::mutex> lock(m);
-            frames.push_back(std::move(f));
-        }
+        std::lock_guard<std::mutex> lock(m);
+        frames.push_back(std::move(f));
         cv.notify_all();
     }
     void close(std::string reason) {
-        {
-            std::lock_guard<std::mutex> lock(m);
-            if (closed) return;
-            closed = true;
-            closed_reason = std::move(reason);
-        }
+        std::lock_guard<std::mutex> lock(m);
+        if (closed) return;
+        closed = true;
+        closed_reason = std::move(reason);
         cv.notify_all();
     }
     // Next queued message of ANY type, for reading a turn out frame by frame.
@@ -131,6 +125,19 @@ struct FrameQueue {
                 return json(json::value_t::discarded);
         }
     }
+    bool is_closed() {
+        std::lock_guard<std::mutex> lock(m);
+        return closed;
+    }
+    std::string why_closed() {
+        std::lock_guard<std::mutex> lock(m);
+        return closed_reason;
+    }
+    std::string closed_note(const std::string& if_open) {
+        std::lock_guard<std::mutex> lock(m);
+        return closed ? closed_reason : if_open;
+    }
+
     size_t next_ = 0;  // read cursor for wait_for_next
 
     // Next queued message whose msg.type == want, waiting up to timeout.
@@ -395,6 +402,7 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
 
     ws_conn* conn = ws_open(&wc);
     if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
     // The credential travels IN the command, not as a header: control commands
     // (list/create/attach) must each carry it.
@@ -403,10 +411,8 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
     const json envelope = {{"sub", 0}, {"payload", cmd}};
     const std::string wire = envelope.dump();
 
-    if (!ws_send_text(conn, wire.data(), wire.size())) {
-        ws_close(conn);
+    if (!ws_send_text(conn, wire.data(), wire.size()))
         return fail("socket closed before the command was sent");
-    }
 
     std::string reply, closed;
     {
@@ -414,16 +420,12 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
         const bool got =
             waiter.cv.wait_for(lock, std::chrono::seconds(timeout_secs),
                                [&] { return waiter.done; });
-        if (!got) {
-            lock.unlock();
-            ws_close(conn);
+        if (!got)
             return fail("timed out after " + std::to_string(timeout_secs) +
                         "s waiting for '" + expect_type + "'");
-        }
         reply = waiter.reply;
         closed = waiter.closed_reason;
     }
-    ws_close(conn);
 
     if (reply.empty()) return fail("connection closed: " + closed);
 
@@ -1162,7 +1164,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
 
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
     if (hello.is_discarded())
-        return fail("no hello for " + id + " (" + q.closed_reason + ")");
+        return fail("no hello for " + id + " (" + q.why_closed() + ")");
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
         return fail("attach refused: " + str_or(hello, "message", "(no message)"));
@@ -1210,7 +1212,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
 
         const json page = q.wait_for_type("page", kReplyTimeoutSecs);
         if (page.is_discarded())
-            return fail("no page for " + id + " (" + q.closed_reason + ")");
+            return fail("no page for " + id + " (" + q.why_closed() + ")");
         if (str_or(page, "type", "") == "error")
             return fail("page refused: " +
                         str_or(page, "message", "(no message)"));
@@ -1276,7 +1278,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     }
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
     if (hello.is_discarded()) {
-        sink.emit_error("no hello for " + session_id + " (" + q.closed_reason + ")");
+        sink.emit_error("no hello for " + session_id + " (" + q.why_closed() + ")");
         return;
     }
     if (str_or(hello, "type", "") == "error") {
@@ -1314,8 +1316,8 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     for (;;) {
         const json msg = q.wait_for_next(idle_deadline);
         if (msg.is_discarded()) {
-            if (q.closed) {
-                sink.emit_error("connection closed mid-turn: " + q.closed_reason);
+            if (q.is_closed()) {
+                sink.emit_error("connection closed mid-turn: " + q.why_closed());
                 return;
             }
             // Silence for the whole idle window. Hand back what did arrive
@@ -1416,7 +1418,7 @@ Result<std::string> AgentcloudClient::rename_session(
 
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
     if (hello.is_discarded())
-        return fail("no hello for " + session_id + " (" + q.closed_reason + ")");
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
         return fail("attach refused: " +
@@ -1446,9 +1448,7 @@ Result<std::string> AgentcloudClient::rename_session(
     for (;;) {
         const json msg = q.wait_for_next(deadline);
         if (msg.is_discarded())
-            return fail(q.closed ? "connection closed before the rename echo: " +
-                                       q.closed_reason
-                                 : "no rename echo for " + session_id);
+            return fail(q.closed_note("no rename echo for " + session_id));
         if (str_or(msg, "type", "") == "error")
             return fail(str_or(msg, "message", "rename refused"));
         if (str_or(msg, "type", "") != "frame") continue;
@@ -1503,7 +1503,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
 
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
     if (hello.is_discarded())
-        return fail("no hello for " + session_id + " (" + q.closed_reason + ")");
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
         return fail("attach refused: " +
@@ -1524,10 +1524,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
     for (;;) {
         const json msg = q.wait_for_next(deadline);
         if (msg.is_discarded())
-            return fail(q.closed ? "connection closed before the answer "
-                                   "settled: " +
-                                       q.closed_reason
-                                 : "no settlement for this question");
+            return fail(q.closed_note("no settlement for this question"));
         if (str_or(msg, "type", "") == "error")
             return fail(str_or(msg, "message", "the answer was refused"));
         if (str_or(msg, "type", "") != "frame") continue;

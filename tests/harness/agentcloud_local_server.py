@@ -177,7 +177,7 @@ def main():
     listener.listen(4)
     with open(args.port_file, "w") as out:
         out.write(str(listener.getsockname()[1]))
-    listener.settimeout(20)
+    listener.settimeout(30)
     served = 0
     while True:
         if serve_connection(listener) is False:

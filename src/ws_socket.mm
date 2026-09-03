@@ -10,7 +10,6 @@
 #include <unordered_map>
 
 #include "ws_socket.h"
-#include <branding.h>
 
 // The server's own /ws/chat read bound. Anything larger is a protocol error on
 // their side, so matching it here turns a silent truncation into a close.
@@ -19,7 +18,7 @@ static const NSInteger kMaxMessageBytes = 64 * 1024 * 1024;
 struct ws_conn {
     NSURLSession* session = nil;
     NSURLSessionWebSocketTask* task = nil;
-    dispatch_queue_t queue = nil;
+    dispatch_group_t inflight = nil;
     ws_on_text_fn on_text = nullptr;
     ws_on_close_fn on_close = nullptr;
     void* user = nullptr;
@@ -60,11 +59,13 @@ static void ws_pump(std::shared_ptr<ws_conn> c) {
     NSURLSessionWebSocketTask* task = c->task;
     if (task == nil) return;
 
+    dispatch_group_enter(c->inflight);
     [task receiveMessageWithCompletionHandler:^(
               NSURLSessionWebSocketMessage* message, NSError* error) {
         if (error != nil) {
             ws_finish(c.get(), std::string("receive failed: ") +
                                    [[error localizedDescription] UTF8String]);
+            dispatch_group_leave(c->inflight);
             return;
         }
         if (message != nil &&
@@ -79,6 +80,7 @@ static void ws_pump(std::shared_ptr<ws_conn> c) {
         // Binary frames are ignored: this protocol is JSON text only, and
         // silently dropping one is better than guessing at an encoding.
         ws_pump(c);
+        dispatch_group_leave(c->inflight);
     }];
 }
 
@@ -94,8 +96,7 @@ ws_conn* ws_open(const ws_config* cfg) {
     c->on_text = cfg->on_text;
     c->on_close = cfg->on_close;
     c->user = cfg->user;
-    c->queue = dispatch_queue_create(product_branding::kWebSocketQueueLabel,
-                                     DISPATCH_QUEUE_SERIAL);
+    c->inflight = dispatch_group_create();
 
     NSURLSessionConfiguration* sc =
         [NSURLSessionConfiguration ephemeralSessionConfiguration];
@@ -138,31 +139,38 @@ ws_conn* ws_open(const ws_config* cfg) {
 }
 
 bool ws_send_text(ws_conn* c, const char* text, size_t len) {
-    if (c == nullptr || text == nullptr || c->closed.load()) return false;
+    if (c == nullptr || text == nullptr) return false;
+    std::shared_ptr<ws_conn> held = ws_hold(c);
+    if (!held || held->closed.load()) return false;
     NSString* s = [[NSString alloc] initWithBytes:text
                                            length:len
                                          encoding:NSUTF8StringEncoding];
     if (s == nil) return false;
     NSURLSessionWebSocketMessage* msg =
         [[NSURLSessionWebSocketMessage alloc] initWithString:s];
-    std::shared_ptr<ws_conn> held = ws_hold(c);
-    [c->task sendMessage:msg
-        completionHandler:^(NSError* error) {
-          if (error != nil)
-              ws_finish(held.get(), std::string("send failed: ") +
-                                        [[error localizedDescription] UTF8String]);
-        }];
+    dispatch_group_enter(held->inflight);
+    [held->task sendMessage:msg
+          completionHandler:^(NSError* error) {
+            if (error != nil)
+                ws_finish(held.get(),
+                          std::string("send failed: ") +
+                              [[error localizedDescription] UTF8String]);
+            dispatch_group_leave(held->inflight);
+          }];
     return true;
 }
 
 void ws_close(ws_conn* c) {
     if (c == nullptr) return;
     std::shared_ptr<ws_conn> held = ws_hold(c);
-    ws_finish(c, "closed by client");
-    if (c->task != nil)
-        [c->task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure
-                              reason:nil];
-    if (c->session != nil) [c->session invalidateAndCancel];
+    if (!held) return;
+    ws_finish(held.get(), "closed by client");
+    if (held->task != nil)
+        [held->task
+            cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure
+                         reason:nil];
+    if (held->session != nil) [held->session invalidateAndCancel];
+    dispatch_group_wait(held->inflight, DISPATCH_TIME_FOREVER);
     {
         std::lock_guard<std::mutex> guard(ws_live_lock());
         ws_live().erase(c);

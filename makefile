@@ -171,6 +171,11 @@ $(OBJ_DIR)/main/%.o: src/%.mm $(BRANDING_HEADER) | $(OBJ_DIR)/main
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ $(CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
 
+$(OBJ_DIR)/main/ws_socket.o: src/ws_socket.mm $(BRANDING_HEADER) | $(OBJ_DIR)/main
+	@echo "Compiling (ObjC++, ARC) $<..."
+	@mkdir -p $(dir $@)
+	$(CXX) -ObjC++ -fobjc-arc $(CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
+
 $(OBJ_DIR)/main/vendor_afterhours_files.o: vendor/afterhours/src/plugins/files.cpp | $(OBJ_DIR)/main
 	@echo "Compiling vendor/afterhours/src/plugins/files.cpp..."
 	@mkdir -p $(dir $@)
@@ -1025,6 +1030,11 @@ $(UITEST_OBJ_DIR)/%.o: src/%.mm $(BRANDING_HEADER)
 	@echo "Compiling (uitest, ObjC++) $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
+
+$(UITEST_OBJ_DIR)/ws_socket.o: src/ws_socket.mm $(BRANDING_HEADER)
+	@echo "Compiling (uitest, ObjC++, ARC) $<..."
+	@mkdir -p $(dir $@)
+	$(CXX) -ObjC++ -fobjc-arc $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
 
 $(UITEST_OBJ_DIR)/vendor_afterhours_files.o: vendor/afterhours/src/plugins/files.cpp
 	@echo "Compiling (uitest) vendor/afterhours/src/plugins/files.cpp..."

@@ -20,6 +20,12 @@
 // thread. Marshal to app state the way the SSE sink does; do not touch the
 // widget tree from them.
 //
+// CALLBACK LIFETIME. Neither callback runs after ws_close returns: ws_close
+// waits for every in-flight receive and send to finish before it returns. That
+// is what makes the usual `user` -- the address of a stack object owned by the
+// calling frame -- safe, because the frame may unwind the instant ws_close
+// returns. Do not call ws_close FROM either callback; it would wait on itself.
+//
 // LIVENESS. A receive is always pending internally. The reference client
 // measured that without one the socket wedges on an idle connection, and that
 // task state alone is not proof of liveness.
@@ -65,8 +71,9 @@ ws_conn* ws_open(const ws_config* cfg);
 // any thread.
 bool ws_send_text(ws_conn* c, const char* text, size_t len);
 
-// Closes and frees. on_close fires before this returns if it has not already.
-// Safe to call twice; safe on null.
+// Closes and frees. on_close fires before this returns if it has not already,
+// and no callback runs after it returns (see CALLBACK LIFETIME). Blocks until
+// the in-flight callbacks are done. Safe to call twice; safe on null.
 void ws_close(ws_conn* c);
 
 #ifdef __cplusplus
