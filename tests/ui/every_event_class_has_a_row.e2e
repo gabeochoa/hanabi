@@ -31,6 +31,12 @@ expect_text "tenant class 4 dry-run"
 expect_text "status"
 expect_text "shadowing class 3"
 
+# The plan and goal durables have their own transcript rows.
+expect_text "plan"
+expect_text "Migration cutover — 2 of 4"
+expect_text "goal"
+expect_text "Move tenant classes to new quota"
+
 # A delivery is folded — it has a body worth reading, so it discloses rather
 # than being ellipsized into a stamp. Closed, the head shows; the body does not.
 expect_text "delivered"

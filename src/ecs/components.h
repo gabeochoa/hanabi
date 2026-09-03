@@ -64,6 +64,7 @@ enum class EscapeIntent {
     CloseSlashMenu,
     CloseModelPicker,
     CloseEffortPicker,
+    ClosePlanPicker,
     CloseFoldPicker,
     ClearTranscript,
 };
@@ -695,6 +696,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // The composer strip's effort picker. One flag: the popover is a list of
     // levels and a click, with nothing in flight behind it.
     bool effortPopoverOpen = false;
+    bool planPopoverOpen = false;
     // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
     bool foldPopoverOpen = false;
 

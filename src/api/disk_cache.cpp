@@ -240,6 +240,64 @@ SubAgent subagent_from_json(const json& j) {
     return a;
 }
 
+json to_json(const SessionPlan& plan) {
+    json steps = json::array();
+    for (const auto& step : plan.steps) {
+        steps.push_back({{"id", step.id},
+                         {"text", step.text},
+                         {"note", step.note},
+                         {"status", static_cast<int>(step.status)}});
+    }
+    return {{"title", plan.title},
+            {"steps", std::move(steps)},
+            {"revision", plan.revision}};
+}
+
+std::optional<SessionPlan> plan_from_json(const json& j) {
+    if (!j.is_object() || !j.contains("steps") || !j.at("steps").is_array() ||
+        j.at("steps").empty())
+        return std::nullopt;
+    SessionPlan plan;
+    plan.title = j.value("title", "");
+    plan.revision = j.value("revision", int64_t{0});
+    for (const auto& value : j.at("steps")) {
+        if (!value.is_object()) continue;
+        SessionPlanStep step;
+        step.id = value.value("id", "");
+        step.text = value.value("text", "");
+        step.note = value.value("note", "");
+        step.status = static_cast<SessionPlanStep::Status>(value.value(
+            "status", static_cast<int>(SessionPlanStep::Status::Unknown)));
+        plan.steps.push_back(std::move(step));
+    }
+    return plan.steps.empty() ? std::nullopt
+                              : std::optional<SessionPlan>(std::move(plan));
+}
+
+json to_json(const SessionGoal& goal) {
+    return {{"objective", goal.objective},
+            {"done_when", goal.done_when},
+            {"phase", static_cast<int>(goal.phase)},
+            {"note", goal.note},
+            {"set_by", goal.set_by},
+            {"revision", goal.revision}};
+}
+
+std::optional<SessionGoal> goal_from_json(const json& j) {
+    if (!j.is_object()) return std::nullopt;
+    SessionGoal goal;
+    goal.objective = j.value("objective", "");
+    goal.done_when = j.value("done_when", "");
+    goal.phase = static_cast<GoalPhase>(
+        j.value("phase", static_cast<int>(GoalPhase::Unknown)));
+    goal.note = j.value("note", "");
+    goal.set_by = j.value("set_by", "");
+    goal.revision = j.value("revision", int64_t{0});
+    if (goal.objective.empty() && goal.phase == GoalPhase::Unknown)
+        return std::nullopt;
+    return goal;
+}
+
 std::string sessions_file() {
     const std::string dir = cache_dir();
     return dir.empty() ? "" : (fs::path(dir) / "sessions.json").string();
@@ -357,6 +415,8 @@ void save_transcript(const Session& session) {
              {"messages", std::move(msgs)},
              {"sub_agents", std::move(subs)},
              {"has_more_older", session.has_more_older}};
+    if (session.plan) doc["plan"] = to_json(*session.plan);
+    if (session.goal) doc["goal"] = to_json(*session.goal);
     write_file(transcript_file(session.summary.id), doc.dump());
     invalidate_content_index();  // the corpus changed under the search memo
 }
@@ -378,6 +438,8 @@ std::optional<Session> load_transcript(const std::string& id) {
         if (doc.contains("sub_agents") && doc["sub_agents"].is_array())
             for (const auto& e : doc["sub_agents"])
                 s.sub_agents.push_back(subagent_from_json(e));
+        if (doc.contains("plan")) s.plan = plan_from_json(doc["plan"]);
+        if (doc.contains("goal")) s.goal = goal_from_json(doc["goal"]);
         // Absent in files written before this was saved; false matches how
         // they behaved, and the next fetch replaces them anyway.
         if (doc.contains("has_more_older") && doc["has_more_older"].is_boolean())

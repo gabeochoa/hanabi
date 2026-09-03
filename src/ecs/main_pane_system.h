@@ -1330,6 +1330,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool findStepApplied_ = false;
     bool modelPopoverWasOpen_ = false;
     bool effortPopoverWasOpen_ = false;
+    bool planPopoverWasOpen_ = false;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -4482,6 +4483,243 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.composerAttachments.erase(app.composerAttachments.begin() +
                                           removeAt);
     }
+    static const char* goal_phase_label(api::GoalPhase phase) {
+        switch (phase) {
+            case api::GoalPhase::Active: return "ACTIVE";
+            case api::GoalPhase::Paused: return "PAUSED";
+            case api::GoalPhase::Blocked: return "BLOCKED";
+            case api::GoalPhase::Completed: return "COMPLETED";
+            case api::GoalPhase::Cleared: return "CLEARED";
+            case api::GoalPhase::Unknown: return "UPDATED";
+        }
+        return "UPDATED";
+    }
+
+    static const char* plan_status_label(api::SessionPlanStep::Status status) {
+        switch (status) {
+            case api::SessionPlanStep::Status::Completed: return "complete";
+            case api::SessionPlanStep::Status::InProgress: return "in progress";
+            case api::SessionPlanStep::Status::Pending: return "pending";
+            case api::SessionPlanStep::Status::Cancelled: return "cancelled";
+            case api::SessionPlanStep::Status::Unknown: return "unknown";
+        }
+        return "unknown";
+    }
+
+    static theme::Color plan_status_color(api::SessionPlanStep::Status status) {
+        switch (status) {
+            case api::SessionPlanStep::Status::Completed:
+                return theme::status_review();
+            case api::SessionPlanStep::Status::InProgress:
+                return theme::accent();
+            case api::SessionPlanStep::Status::Pending:
+                return theme::text_secondary();
+            case api::SessionPlanStep::Status::Cancelled:
+            case api::SessionPlanStep::Status::Unknown:
+                return theme::text_faint();
+        }
+        return theme::text_faint();
+    }
+
+    static void draw_plan_status(RectangleType r,
+                                 api::SessionPlanStep::Status status) {
+        const float cx = r.x + 13.0f;
+        const float cy = r.y + r.height * 0.5f;
+        const theme::Color color = plan_status_color(status);
+        switch (status) {
+            case api::SessionPlanStep::Status::Completed:
+                afterhours::draw_line_ex(afterhours::vec2{cx - 4.0f, cy},
+                                         afterhours::vec2{cx - 1.0f, cy + 3.0f},
+                                         1.6f, color);
+                afterhours::draw_line_ex(afterhours::vec2{cx - 1.0f, cy + 3.0f},
+                                         afterhours::vec2{cx + 5.0f, cy - 4.0f},
+                                         1.6f, color);
+                break;
+            case api::SessionPlanStep::Status::InProgress:
+                afterhours::draw_triangle(
+                    afterhours::vec2{cx - 3.0f, cy - 5.0f},
+                    afterhours::vec2{cx - 3.0f, cy + 5.0f},
+                    afterhours::vec2{cx + 5.0f, cy}, color);
+                break;
+            case api::SessionPlanStep::Status::Pending:
+                afterhours::draw_ring_segment(cx, cy, 3.0f, 4.0f, 0.0f,
+                                              360.0f, 20, color);
+                break;
+            case api::SessionPlanStep::Status::Cancelled:
+                afterhours::draw_line_ex(afterhours::vec2{cx - 4.0f, cy - 4.0f},
+                                         afterhours::vec2{cx + 4.0f, cy + 4.0f},
+                                         1.4f, color);
+                afterhours::draw_line_ex(afterhours::vec2{cx + 4.0f, cy - 4.0f},
+                                         afterhours::vec2{cx - 4.0f, cy + 4.0f},
+                                         1.4f, color);
+                break;
+            case api::SessionPlanStep::Status::Unknown:
+                afterhours::draw_ring_segment(cx, cy, 0.0f, 2.0f, 0.0f,
+                                              360.0f, 16, color);
+                break;
+        }
+    }
+
+    void render_plan_popover(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app, Entity& anchorEnt,
+                             const api::Session& session) {
+        const bool hasPlan = session.plan && !session.plan->steps.empty();
+        const bool hasGoal = session.goal &&
+                             session.goal->phase != api::GoalPhase::Cleared;
+        if (!hasPlan && !hasGoal) app.planPopoverOpen = false;
+        if (!app.planPopoverOpen && !planPopoverWasOpen_) return;
+
+        auto popRoot = mk(parent, 3400);
+        RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
+        if (!app.planPopoverOpen) {
+            afterhours::ui::imm::popover(
+                ctx, popRoot, anchor, app.planPopoverOpen,
+                afterhours::ui::overlay::Placement::Above);
+            planPopoverWasOpen_ = false;
+            return;
+        }
+        planPopoverWasOpen_ = true;
+
+        constexpr float kPopW = 372.0f;
+        constexpr float kRowH = 30.0f;
+        float popH = 42.0f;
+        if (hasGoal) {
+            popH += 46.0f;
+            if (!session.goal->done_when.empty()) popH += 20.0f;
+            if (!session.goal->note.empty()) popH += 20.0f;
+        }
+        if (hasPlan)
+            popH += 30.0f + kRowH * static_cast<float>(session.plan->steps.size());
+        popH += 8.0f;
+
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, popRoot, anchor, app.planPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            hanabi::surface::menu(kPopW, popH, 7)
+                .with_padding(Padding{.top = pixels(8),
+                                      .right = pixels(10),
+                                      .bottom = pixels(8),
+                                      .left = pixels(10)})
+                .with_debug_name("plan_popover"));
+        ctx.theme.surface = previousSurface;
+        if (!pop) return;
+
+        const std::string title = hasGoal && hasPlan
+                                      ? "Goal and plan"
+                                      : (hasPlan ? "Plan" : "Goal");
+        div(ctx, mk(pop.ent(), 1),
+            ComponentConfig{}
+                .with_label(title)
+                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("plan_popover_title"));
+
+        int key = 10;
+        if (hasGoal) {
+            const api::SessionGoal& goal = *session.goal;
+            const std::string heading =
+                std::string("GOAL  ·  ") + goal_phase_label(goal.phase);
+            div(ctx, mk(pop.ent(), key++),
+                ComponentConfig{}
+                    .with_label(heading)
+                    .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(
+                        goal.phase == api::GoalPhase::Blocked
+                            ? theme::status_blocked()
+                            : (goal.phase == api::GoalPhase::Completed
+                                   ? theme::status_review()
+                                   : theme::accent()))
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("goal_phase"));
+            div(ctx, mk(pop.ent(), key++),
+                ComponentConfig{}
+                    .with_label(goal.objective)
+                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("goal_objective"));
+            if (!goal.done_when.empty()) {
+                div(ctx, mk(pop.ent(), key++),
+                    ComponentConfig{}
+                        .with_label("Done when: " + goal.done_when)
+                        .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("goal_done_when"));
+            }
+            if (!goal.note.empty()) {
+                div(ctx, mk(pop.ent(), key++),
+                    ComponentConfig{}
+                        .with_label(goal.note)
+                        .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("goal_note"));
+            }
+        }
+
+        if (hasPlan) {
+            const api::SessionPlan& plan = *session.plan;
+            std::string heading = plan.title.empty() ? "PLAN" : plan.title;
+            heading += "  ·  " + std::to_string(plan.completed()) + " of " +
+                       std::to_string(plan.steps.size());
+            div(ctx, mk(pop.ent(), key++),
+                ComponentConfig{}
+                    .with_label(heading)
+                    .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                    .with_margin(Margin{.top = pixels(hasGoal ? 4.0f : 0.0f)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("plan_heading"));
+            for (size_t i = 0; i < plan.steps.size(); ++i) {
+                const auto& step = plan.steps[i];
+                const std::string stepText =
+                    step.text.empty() ? "(unnamed step)" : step.text;
+                const std::string rowText =
+                    stepText + "  · " + plan_status_label(step.status);
+                auto row = div(ctx, mk(pop.ent(), key++),
+                    ComponentConfig{}
+                        .with_label(rowText)
+                        .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(
+                            step.status == api::SessionPlanStep::Status::Cancelled
+                                ? theme::text_secondary()
+                                : theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_on_draw_fg([status = step.status](RectangleType r) {
+                            draw_plan_status(r, status);
+                        })
+                        .with_debug_name("plan_step_" + std::to_string(i)));
+                row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
+                    Vector2Type{28.0f, 0.0f});
+                row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
+            }
+        }
+    }
 
 
     // The tool-fold picker: three modes, per session, written straight to
@@ -4941,6 +5179,59 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.effortPopoverOpen = false;
             render_effort_popover(ctx, parent, app, effortChip.ent(),
                                   currentEffort);
+        }
+
+        const api::Session* stripSession =
+            app.pane().openSession ? &*app.pane().openSession : nullptr;
+        const bool hasPlan = stripSession && stripSession->plan &&
+                             !stripSession->plan->steps.empty();
+        const bool hasGoal = stripSession && stripSession->goal &&
+                             stripSession->goal->phase != api::GoalPhase::Cleared;
+        if (hasPlan || hasGoal) {
+            constexpr float kPillPad = 6.0f;
+            constexpr float kPillIcon = 10.0f;
+            constexpr float kPillIconGap = 3.0f;
+            constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
+            std::string planText;
+            if (hasPlan) {
+                planText = stripSession->plan->chip_label();
+            } else {
+                planText = "Goal";
+            }
+            auto planChip = button(ctx, mk(rightMeta.ent(), 2),
+                ComponentConfig{}
+                    .with_label(planText)
+                    .with_size(ComponentSize{
+                        pixels(kPillTextX +
+                               theme::text_px(planText, theme::type::SM) +
+                               kPillPad),
+                        pixels(18)})
+                    .with_margin(Margin{.left = pixels(4)})
+                    .with_transparent_bg()
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(9.0f)
+                    .with_on_draw_fg([](RectangleType rr) {
+                        hanabi::icons::draw_at(
+                            "layers", rr.x + kPillPad + kPillIcon * 0.5f,
+                            rr.y + rr.height * 0.5f, kPillIcon,
+                            theme::text_secondary());
+                    })
+                    .with_debug_name("composer_plan"));
+            if (planChip.ent().has<afterhours::ui::HasLabel>())
+                planChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kPillTextX - kLabelInset;
+            if (planChip) app.planPopoverOpen = !app.planPopoverOpen;
+            if (app.escape == EscapeIntent::ClosePlanPicker)
+                app.planPopoverOpen = false;
+            render_plan_popover(ctx, parent, app, planChip.ent(), *stripSession);
+        } else {
+            app.planPopoverOpen = false;
         }
 
         // The tool-fold chip, at the right: how much of a tool call this
@@ -9095,7 +9386,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::EventKind::Node:
             case api::EventKind::Skill:
             case api::EventKind::Notice:
-            case api::EventKind::Status: return true;
+            case api::EventKind::Status:
+            case api::EventKind::Plan:
+            case api::EventKind::Goal: return true;
             default: return false;
         }
     }
@@ -9112,6 +9405,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::EventKind::Node:     return {"node", theme::status_active()};
             case api::EventKind::Skill:    return {"skill", theme::link()};
             case api::EventKind::Status:   return {"status", theme::status_review()};
+            case api::EventKind::Plan:     return {"plan", theme::accent()};
+            case api::EventKind::Goal:     return {"goal", theme::status_active()};
             case api::EventKind::Notice:   return {"notice", theme::destructive()};
             case api::EventKind::Delivery: return {"delivered", theme::accent()};
             default:                       return {"event", theme::text_faint()};

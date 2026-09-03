@@ -639,6 +639,100 @@ Result<std::string> AgentcloudClient::fork_with_prompt(
 
 namespace agentcloud {
 
+namespace {
+
+SessionPlanStep::Status plan_status(const std::string& value) {
+    if (value == "pending") return SessionPlanStep::Status::Pending;
+    if (value == "in_progress") return SessionPlanStep::Status::InProgress;
+    if (value == "completed") return SessionPlanStep::Status::Completed;
+    if (value == "cancelled") return SessionPlanStep::Status::Cancelled;
+    return SessionPlanStep::Status::Unknown;
+}
+
+GoalPhase goal_phase(const std::string& value) {
+    if (value == "active") return GoalPhase::Active;
+    if (value == "paused") return GoalPhase::Paused;
+    if (value == "blocked") return GoalPhase::Blocked;
+    if (value == "completed") return GoalPhase::Completed;
+    if (value == "cleared") return GoalPhase::Cleared;
+    return GoalPhase::Unknown;
+}
+
+std::optional<SessionPlan> plan_from_json(const json& value) {
+    if (!value.is_object() || !value.contains("steps") ||
+        !value.at("steps").is_array() || value.at("steps").empty())
+        return std::nullopt;
+    SessionPlan plan;
+    plan.title = str_or(value, "title", "");
+    plan.revision = int_or(value, "revision", 0);
+    for (const auto& item : value.at("steps")) {
+        if (!item.is_object()) continue;
+        SessionPlanStep step;
+        step.id = str_or(item, "id", "");
+        step.text = str_or(item, "text", str_or(item, "step", ""));
+        step.note = str_or(item, "note", "");
+        step.status = plan_status(str_or(item, "status", ""));
+        plan.steps.push_back(std::move(step));
+    }
+    if (plan.steps.empty()) return std::nullopt;
+    return plan;
+}
+
+std::optional<SessionGoal> goal_from_json(const json& value) {
+    if (!value.is_object()) return std::nullopt;
+    SessionGoal goal;
+    goal.objective = str_or(value, "objective", "");
+    goal.done_when = str_or(value, "done_when", "");
+    goal.phase = goal_phase(str_or(value, "phase", ""));
+    goal.note = str_or(value, "note", "");
+    goal.set_by = str_or(value, "set_by", "");
+    goal.revision = int_or(value, "revision", 0);
+    if (goal.objective.empty() && goal.phase == GoalPhase::Unknown)
+        return std::nullopt;
+    return goal;
+}
+
+std::string plan_line(const SessionPlan& plan, const std::string& explanation = "") {
+    std::string out;
+    if (!explanation.empty()) out = explanation + " — ";
+    if (!plan.title.empty()) out += plan.title + " — ";
+    out += std::to_string(plan.completed()) + " of " +
+           std::to_string(plan.steps.size());
+    if (const auto* current = plan.current(); current && !current->text.empty())
+        out += " — " + current->text;
+    return out;
+}
+
+std::string goal_line(const SessionGoal& goal) {
+    std::string phase;
+    switch (goal.phase) {
+        case GoalPhase::Active: break;
+        case GoalPhase::Paused: phase = "paused"; break;
+        case GoalPhase::Blocked: phase = "blocked"; break;
+        case GoalPhase::Completed: phase = "completed"; break;
+        case GoalPhase::Cleared: phase = "cleared"; break;
+        case GoalPhase::Unknown: phase = "updated"; break;
+    }
+    if (phase.empty()) return goal.objective;
+    if (goal.objective.empty()) return phase;
+    return phase + " — " + goal.objective;
+}
+
+void apply_plan_goal_state(const json& state, Session& out) {
+    out.plan = state.contains("plan") ? plan_from_json(state.at("plan"))
+                                      : std::nullopt;
+    out.goal = state.contains("goal") ? goal_from_json(state.at("goal"))
+                                      : std::nullopt;
+}
+
+}  // namespace
+
+void parse_plan_goal_state(const std::string& hello_json, Session& out) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) return;
+    apply_plan_goal_state(obj_at(hello, "state"), out);
+}
+
 std::vector<Message> parse_page_frames(const std::string& msg_json) {
     json msg = json::parse(msg_json, nullptr, false);
     if (msg.is_discarded() || !msg.contains("frames") ||
@@ -795,12 +889,23 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
         } else if (type == "status_reported") {
             push_event(EventKind::Status, str_or(e, "state", ""),
                        str_or(e, "headline", ""));
+        } else if (type == "plan_updated") {
+            if (auto plan = plan_from_json(obj_at(e, "plan")))
+                push_event(EventKind::Plan, "",
+                           plan_line(*plan, str_or(e, "explanation", "")));
+        } else if (type == "goal_updated") {
+            if (auto goal = goal_from_json(obj_at(e, "goal")))
+                push_event(EventKind::Goal, "", goal_line(*goal));
         }
         // Everything else -- run_started, model_call_*, epoch_change_*, noop
         // and the rest of a vocabulary the server says will grow -- folds as
         // nothing on purpose.
     }
     return out;
+}
+
+void install_paged_transcript(const std::string& page_json, Session& out) {
+    out.messages = parse_page_frames(page_json);
 }
 
 }  // namespace agentcloud
@@ -1062,6 +1167,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     apply_state(state, out->summary);
     out->context = context_usage_from_state(state);
     apply_brakes_from_state(state, *out);
+    agentcloud::parse_plan_goal_state(hello.dump(), *out);
 
     // Page BACKWARD from the newest until the server says done.
     //
@@ -1118,7 +1224,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
         for (const json& f : *it) all.push_back(f);
 
     const json combined = {{"type", "page"}, {"frames", all}};
-    out->messages = agentcloud::parse_page_frames(combined.dump());
+    agentcloud::install_paged_transcript(combined.dump(), *out);
     // Only claim there is more when the server said so and we stopped asking.
     out->has_more_older = !done;
     return hello.dump();

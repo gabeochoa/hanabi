@@ -68,6 +68,8 @@ enum class EventKind {
     // can see "this build cannot draw a X" can say so, and a reader looking
     // at a gap cannot.
     Unsupported,
+    Plan,
+    Goal,
 };
 
 // High-signal attention state of a thread. This is the single notion the UI
@@ -355,6 +357,79 @@ struct ContextUsage {
     [[nodiscard]] bool has_denominator() const { return budget_tokens > 0; }
 };
 
+struct SessionPlanStep {
+    enum class Status {
+        Pending,
+        InProgress,
+        Completed,
+        Cancelled,
+        Unknown,
+    };
+
+    std::string id;
+    std::string text;
+    std::string note;
+    Status status = Status::Unknown;
+};
+
+struct SessionPlan {
+    std::string title;
+    std::vector<SessionPlanStep> steps;
+    int64_t revision = 0;
+
+    [[nodiscard]] int completed() const {
+        int total = 0;
+        for (const auto& step : steps)
+            if (step.status == SessionPlanStep::Status::Completed) ++total;
+        return total;
+    }
+
+    [[nodiscard]] const SessionPlanStep* current() const {
+        for (const auto& step : steps)
+            if (step.status == SessionPlanStep::Status::InProgress) return &step;
+        return nullptr;
+    }
+
+    [[nodiscard]] bool finished() const {
+        if (steps.empty()) return false;
+        for (const auto& step : steps)
+            if (step.status != SessionPlanStep::Status::Completed &&
+                step.status != SessionPlanStep::Status::Cancelled)
+                return false;
+        return true;
+    }
+
+    [[nodiscard]] bool has_cancelled() const {
+        for (const auto& step : steps)
+            if (step.status == SessionPlanStep::Status::Cancelled) return true;
+        return false;
+    }
+
+    [[nodiscard]] std::string chip_label() const {
+        if (finished()) return has_cancelled() ? "Plan cancelled" : "Plan complete";
+        return "Plan " + std::to_string(completed()) + "/" +
+               std::to_string(steps.size());
+    }
+};
+
+enum class GoalPhase {
+    Active,
+    Paused,
+    Blocked,
+    Completed,
+    Cleared,
+    Unknown,
+};
+
+struct SessionGoal {
+    std::string objective;
+    std::string done_when;
+    GoalPhase phase = GoalPhase::Unknown;
+    std::string note;
+    std::string set_by;
+    int64_t revision = 0;
+};
+
 // A full session: summary + ordered transcript.
 struct Session {
     SessionSummary summary;
@@ -374,6 +449,8 @@ struct Session {
     // Token accounting from the backend (see ContextUsage). Left at its
     // defaults by any adapter that reports none.
     ContextUsage context;
+    std::optional<SessionPlan> plan;
+    std::optional<SessionGoal> goal;
 
     // --- Halt, which only an attach can see -------------------------------
     // `halted` is this session's OWN journal-folded flag. `halted_by` is a

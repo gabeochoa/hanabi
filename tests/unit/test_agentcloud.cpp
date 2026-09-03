@@ -530,6 +530,12 @@ static const char* const kEventClassPage = R"({"type":"page","frames":[
   {"seq":61,"created_at_unix_ms":1787711601000,
    "event":{"type":"status_reported","state":"working",
             "headline":"reading the transcript renderer"}},
+  {"seq":62,"created_at_unix_ms":1787711602000,
+   "event":{"type":"plan_updated","plan":{"revision":1,"steps":[
+     {"id":"s1-0","text":"Read the source","status":"in_progress"}]}}},
+  {"seq":63,"created_at_unix_ms":1787711603000,
+   "event":{"type":"goal_updated","goal":{"objective":"ship the audit",
+     "phase":"active","set_by":"user","revision":1}}},
   {"seq":70,"created_at_unix_ms":1787711700000,
    "event":{"type":"node_detached","node_id":"mac-GRQ7Y259H4"}}
 ]})";
@@ -552,6 +558,8 @@ static void test_every_event_class_gets_a_row() {
     CHECK(row_of(rows, api::EventKind::Skill, "meta-cli") != nullptr);
     CHECK(row_of(rows, api::EventKind::Notice, "refusal") != nullptr);
     CHECK(row_of(rows, api::EventKind::Status, "working") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Plan, "") != nullptr);
+    CHECK(row_of(rows, api::EventKind::Goal, "") != nullptr);
     CHECK(row_of(rows, api::EventKind::Delivery, "child") != nullptr);
 
     // A node row says WHICH node and WHAT happened to it -- three node events
@@ -1092,6 +1100,102 @@ static void test_the_row_does_not_carry_paused() {
     CHECK(!out[0].replies_paused);
 }
 
+static void test_backward_paging_never_rewinds_the_live_plan() {
+    api::Session session;
+    api::agentcloud::parse_plan_goal_state(
+        R"({"type":"hello","state":{
+          "goal":{"objective":"ship the fix","done_when":"all tests pass",
+                  "phase":"active","note":"one failure left","set_by":"user",
+                  "revision":2},
+          "plan":{"title":"Release","revision":4,"steps":[
+            {"id":"s4-0","text":"Reproduce","status":"completed","note":"done"},
+            {"id":"s4-1","text":"Fix","status":"in_progress"},
+            {"id":"s4-2","text":"Verify","status":"pending"},
+            {"id":"s4-3","text":"Drop old path","status":"cancelled"},
+            {"id":"s4-4","text":"Future state","status":"new_status"}]}}})",
+        session);
+    CHECK(session.plan.has_value());
+    CHECK(session.goal.has_value());
+    CHECK(session.plan->title == "Release");
+    CHECK(session.plan->steps.size() == 5);
+    CHECK(session.plan->steps[0].id == "s4-0");
+    CHECK(session.plan->steps[0].note == "done");
+    CHECK(session.plan->steps[0].text == "Reproduce");
+    CHECK(session.plan->steps[3].status ==
+          api::SessionPlanStep::Status::Cancelled);
+    CHECK(session.plan->steps[4].status == api::SessionPlanStep::Status::Unknown);
+    CHECK(session.plan->completed() == 1);
+    CHECK(session.plan->current() != nullptr);
+    CHECK(session.plan->current()->text == "Fix");
+    CHECK(!session.plan->finished());
+    CHECK(session.plan->chip_label() == "Plan 1/5");
+    CHECK(session.goal->objective == "ship the fix");
+    CHECK(session.goal->done_when == "all tests pass");
+    CHECK(session.goal->phase == api::GoalPhase::Active);
+
+    api::Session mismatched;
+    api::agentcloud::parse_plan_goal_state(
+        R"({"state":{"plan":{"steps":[
+          {"step":"Tolerated decoder spelling","status":"completed"}]}}})",
+        mismatched);
+    CHECK(mismatched.plan.has_value());
+    CHECK(mismatched.plan->steps[0].text == "Tolerated decoder spelling");
+
+    api::SessionPlan completed;
+    completed.steps = {
+        {"a", "One", "", api::SessionPlanStep::Status::Completed},
+        {"b", "Two", "", api::SessionPlanStep::Status::Completed},
+    };
+    CHECK(completed.finished());
+    CHECK(completed.chip_label() == "Plan complete");
+    completed.steps[1].status = api::SessionPlanStep::Status::Cancelled;
+    CHECK(completed.finished());
+    CHECK(completed.chip_label() == "Plan cancelled");
+
+    const auto read_phase = [](const std::string& phase) {
+        api::Session value;
+        api::agentcloud::parse_plan_goal_state(
+            "{\"state\":{\"goal\":{\"objective\":\"x\",\"phase\":\"" +
+                phase + "\"}}}",
+            value);
+        return value.goal->phase;
+    };
+    CHECK(read_phase("active") == api::GoalPhase::Active);
+    CHECK(read_phase("paused") == api::GoalPhase::Paused);
+    CHECK(read_phase("blocked") == api::GoalPhase::Blocked);
+    CHECK(read_phase("completed") == api::GoalPhase::Completed);
+    CHECK(read_phase("cleared") == api::GoalPhase::Cleared);
+    CHECK(read_phase("future") == api::GoalPhase::Unknown);
+
+    const std::string old_page = R"({"type":"page","frames":[
+      {"seq":80,"created_at_unix_ms":1700000000000,
+       "event":{"type":"plan_updated","explanation":"Dropped the rollout step",
+         "plan":{"revision":1,"steps":[
+           {"id":"s1-0","text":"Old plan","status":"completed"}]}}},
+      {"seq":81,"created_at_unix_ms":1700000001000,
+       "event":{"type":"goal_updated","goal":{"objective":"old goal",
+         "phase":"completed","set_by":"user","revision":1}}}]})";
+    api::agentcloud::install_paged_transcript(old_page, session);
+    CHECK(session.plan->revision == 4);
+    CHECK(session.plan->current()->text == "Fix");
+    CHECK(session.goal->revision == 2);
+    CHECK(session.goal->phase == api::GoalPhase::Active);
+    CHECK(session.messages.size() == 2);
+    CHECK(session.messages[0].kind == api::EventKind::Plan);
+    CHECK(session.messages[0].subtitle.empty());
+    CHECK(session.messages[0].text.find("Dropped the rollout step") !=
+          std::string::npos);
+    CHECK(session.messages[1].kind == api::EventKind::Goal);
+
+    api::agentcloud::parse_plan_goal_state(R"({"state":{}})", session);
+    CHECK(!session.plan.has_value());
+    CHECK(!session.goal.has_value());
+    api::agentcloud::install_paged_transcript(old_page, session);
+    CHECK(!session.plan.has_value());
+    CHECK(!session.goal.has_value());
+    CHECK(session.messages.size() == 2);
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -1150,6 +1254,7 @@ int main() {
     test_rename_echo_folds_into_the_title();
     test_only_a_rename_frame_touches_the_title();
     test_fork_wire_contract_and_child_catalog();
+    test_backward_paging_never_rewinds_the_live_plan();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -316,6 +316,27 @@
     "38_workspace_groups_dark": {
       "threshold_pct": 0.0,
       "note": "Workspace-backed sessions appear as named collapsible groups instead of disappearing from the flat list."
+    },
+    "50_plan_goal_dark": {
+      "threshold_pct": 0.0,
+      "note": "The active goal and durable plan checklist above the composer, dark."
+    },
+    "51_plan_goal_light": {
+      "threshold_pct": 0.0,
+      "note": "The active goal and durable plan checklist above the composer, light."
+    },
+    "52_plan_goal_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "The compact plan chip and full checklist in a narrow window."
+    },
+    "53_plan_goal_split_dark": {
+      "threshold_pct": 0.0,
+      "note": "The focused pane owns the plan checklist while two conversations are split."
+    },
+    "54_plan_cancelled_blocked_dark": {
+      "threshold_pct": 0.0,
+      "note": "A blocked goal with a terminal plan that includes a cancelled step."
     }
   },
   "unbaselined": {}

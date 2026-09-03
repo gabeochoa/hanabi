@@ -815,7 +815,7 @@ class MockClient : public Client {
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
-        "HANABI_BRAKES_DEMO",
+        "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -1191,6 +1191,61 @@ class MockClient : public Client {
                 {"t2s2", "Duplicate-payout check", SubAgentState::Done,
                  "no duplicates found"},
             };
+            if (const char* demo = std::getenv("HANABI_PLAN_DEMO");
+                demo && *demo) {
+                const std::string_view mode(demo);
+                const bool blocked = mode == "blocked";
+                const bool complete = mode == "complete";
+                SessionPlan plan;
+                plan.title = "Reconcile the payout batch";
+                plan.revision = blocked || complete ? 5 : 4;
+                if (blocked) {
+                    plan.steps = {
+                        {"s5-0", "Load the payout ledger", "4,812 rows loaded",
+                         SessionPlanStep::Status::Completed},
+                        {"s5-1", "Compare every account", "two mismatches found",
+                         SessionPlanStep::Status::Completed},
+                        {"s5-2", "Resolve the two mismatches", "needs an owner",
+                         SessionPlanStep::Status::Completed},
+                        {"s5-3", "Release the batch", "blocked before release",
+                         SessionPlanStep::Status::Cancelled},
+                    };
+                } else if (complete) {
+                    plan.steps = {
+                        {"s5-0", "Load the payout ledger", "4,812 rows loaded",
+                         SessionPlanStep::Status::Completed},
+                        {"s5-1", "Compare every account", "all accounts matched",
+                         SessionPlanStep::Status::Completed},
+                        {"s5-2", "Release the batch", "released safely",
+                         SessionPlanStep::Status::Completed},
+                    };
+                } else {
+                    plan.steps = {
+                        {"s4-0", "Load the payout ledger", "4,812 rows loaded",
+                         SessionPlanStep::Status::Completed},
+                        {"s4-1", "Compare every account", "two mismatches remain",
+                         SessionPlanStep::Status::Completed},
+                        {"s4-2", "Resolve the two mismatches", "checking promo credits",
+                         SessionPlanStep::Status::InProgress},
+                        {"s4-3", "Release or hold the batch", "",
+                         SessionPlanStep::Status::Pending},
+                        {"s4-4", "Replace the ledger source", "not needed",
+                         SessionPlanStep::Status::Cancelled},
+                    };
+                }
+                s.plan = std::move(plan);
+                s.goal = SessionGoal{
+                    "Ship a payout batch that exactly matches the ledger",
+                    "All 4,812 accounts reconcile before release",
+                    blocked ? GoalPhase::Blocked
+                            : (complete ? GoalPhase::Completed : GoalPhase::Active),
+                    blocked ? "Waiting for the payout owner to resolve the mismatch"
+                            : (complete ? "Released after every account matched"
+                                        : "Two promo-credit mismatches still need a decision"),
+                    "user",
+                    blocked || complete ? 3 : 2,
+                };
+            }
             v.push_back(std::move(s));
         }
         {
@@ -1286,6 +1341,12 @@ class MockClient : public Client {
             s.messages.push_back(
                 event_row(EventKind::Status, "working",
                           "shadowing class 3", mins_ago(26)));
+            s.messages.push_back(
+                event_row(EventKind::Plan, "",
+                          "Migration cutover — 2 of 4", mins_ago(25)));
+            s.messages.push_back(
+                event_row(EventKind::Goal, "",
+                          "Move tenant classes to new quota", mins_ago(24)));
             v.push_back(std::move(s));
         }
         {

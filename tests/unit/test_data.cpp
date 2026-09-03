@@ -802,12 +802,24 @@ static void test_disk_cache_round_trips_the_brakes() {
     api::Session s;
     s.summary = frozen;
     s.messages.push_back({"m1", api::Role::User, "hello", 1000, ""});
+    s.plan = api::SessionPlan{
+        "Ship", {{"s1", "Verify", "running now",
+                   api::SessionPlanStep::Status::InProgress}}, 3};
+    s.goal = api::SessionGoal{"Ship the fix", "tests pass",
+                              api::GoalPhase::Active, "", "user", 2};
     api::disk_cache::save_transcript(s);
     auto back = api::disk_cache::load_transcript("ice");
     CHECK(back.has_value());
     CHECK(back->summary.frozen);
     CHECK(back->summary.frozen_by == "root7");
     CHECK(back->summary.frozen_reason == "canary owner is reviewing");
+    CHECK(back->plan.has_value());
+    CHECK(back->plan->title == "Ship");
+    CHECK(back->plan->current() != nullptr);
+    CHECK(back->plan->current()->note == "running now");
+    CHECK(back->goal.has_value());
+    CHECK(back->goal->objective == "Ship the fix");
+    CHECK(back->goal->done_when == "tests pass");
 
     api::disk_cache::wipe_all();
 }

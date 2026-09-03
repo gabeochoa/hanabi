@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PLAN_DEMO=blocked
+
+require_thread t2
+expect_text "Plan cancelled"
+
+click_ui composer_plan
+wait_frames 8
+expect_text "GOAL  ·  BLOCKED"
+expect_text "Waiting for the payout owner to resolve the mismatch"
+expect_text "Load the payout ledger  · complete"
+expect_text "Release the batch  · cancelled"
+
+key ESCAPE
+wait_frames 6
+expect_no_text "GOAL  ·  BLOCKED"
+expect_text "Plan cancelled"

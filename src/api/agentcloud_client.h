@@ -130,6 +130,7 @@ bool hello_has_capability(const std::string& hello_json,
 // contract is that the vocabulary grows, and one new variant must not take the
 // transcript down with it.
 std::vector<Message> parse_page_frames(const std::string& msg_json);
+void install_paged_transcript(const std::string& page_json, Session& out);
 
 // The `tokens` bag on an attach greeting -> ContextUsage.
 //
@@ -145,6 +146,7 @@ ContextUsage parse_context_usage(const std::string& hello_json);
 // the whole of the contract and the only thing that can hold it still is a
 // fixture, not a socket.
 void parse_session_brakes(const std::string& hello_json, Session& out);
+void parse_plan_goal_state(const std::string& hello_json, Session& out);
 
 
 //

@@ -275,6 +275,7 @@ BRAKES_HALTED_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["bz5"
 BRAKES_TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["bz1","bz3","bz2","t9","bz4","r11"],"active_tab":"bz3","theme":"dark"}'
 BRAKES_TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["bz1","bz3","bz2","t9","bz4","r11"],"active_tab":"bz3","theme":"light"}'
 BRAKES_TABS_NARROW='{"window_width":760,"window_height":620,"open_tabs":["bz1","bz3","bz2","t9","bz4","r11"],"active_tab":"bz3","theme":"dark"}'
+PLAN_SPLIT_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 
 # --- Home digest ------------------------------------------------------------
 capture 01_home_dark  "$NOTABS_DARK"
@@ -443,6 +444,13 @@ capture_sized 47_tab_status_narrow_dark "760 x 620" "$BRAKES_TABS_NARROW" \
     HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_BRAKES_DEMO=1
 capture 48_server_archived_dark  "$BRAKES_ARCHIVED_DARK"  HANABI_BRAKES_DEMO=1 HANABI_VIEW=archived
 capture 49_server_archived_light "$BRAKES_ARCHIVED_LIGHT" HANABI_BRAKES_DEMO=1 HANABI_VIEW=archived
+
+capture 50_plan_goal_dark "$TABS_DARK" HANABI_PLAN_DEMO=1 HANABI_TEST_OVERLAY=plan
+capture 51_plan_goal_light "$TABS_LIGHT" HANABI_PLAN_DEMO=1 HANABI_TEST_OVERLAY=plan
+capture_sized 52_plan_goal_narrow_dark "760 x 620" "$NARROW_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_PLAN_DEMO=1 HANABI_TEST_OVERLAY=plan
+capture 53_plan_goal_split_dark "$PLAN_SPLIT_DARK" HANABI_PLAN_DEMO=1 HANABI_TEST_OVERLAY=plan
+capture 54_plan_cancelled_blocked_dark "$TABS_DARK" HANABI_PLAN_DEMO=blocked HANABI_TEST_OVERLAY=plan
 
 listing && exit 0
 

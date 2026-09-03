@@ -1,0 +1,34 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PLAN_DEMO=1
+
+require_thread t2
+expect_text "Plan 2/5"
+
+click_ui composer_reply_input
+type "keep this draft"
+wait_frames 6
+expect_input_text composer_reply_input "keep this draft"
+
+click_ui composer_plan
+wait_frames 8
+expect_text "Goal and plan"
+expect_text "Ship a payout batch that exactly matches the ledger"
+expect_text "All 4,812 accounts reconcile before release"
+expect_text "Load the payout ledger  · complete"
+expect_text "Resolve the two mismatches  · in progress"
+expect_text "Release or hold the batch  · pending"
+expect_text "Replace the ledger source  · cancelled"
+expect_input_text composer_reply_input "keep this draft"
+
+key ESCAPE
+wait_frames 6
+expect_no_text "Goal and plan"
+expect_input_text composer_reply_input "keep this draft"
+
+focus_ui composer_plan
+expect_focused composer_plan
+enter
+wait_frames 8
+expect_text "Goal and plan"
+expect_text "Release or hold the batch"
+expect_input_text composer_reply_input "keep this draft"
