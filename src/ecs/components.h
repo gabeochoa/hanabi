@@ -1013,6 +1013,96 @@ struct AppComponent : public afterhours::BaseComponent {
         if (changed) mark_session_catalog_changed();
     }
 
+    // --- Attach-learned brakes, carried to the catalog --------------------
+    //
+    // Two brakes can be known to a thread that has been ATTACHED and not to
+    // the catalog row beside it, and they differ in ONE decisive way:
+    //
+    //   replies_paused — a `WireState` key with NO summary-row equivalent. The
+    //                    catalog can never carry it, so a fetched row saying
+    //                    nothing says nothing at all. It must be remembered
+    //                    and re-applied to every catalog that arrives, or the
+    //                    next poll erases a fact the server never contradicted.
+    //   frozen         — a summary-row key TOO. A row that arrives without it
+    //                    is the server AFFIRMING the thread is not frozen, so
+    //                    re-applying a remembered freeze over it would outvote
+    //                    the server and pin a thaw the user can never clear.
+    //
+    // So the write-through is shared and the STICKINESS is not: an attach
+    // publishes both to the catalog immediately (which is the whole point --
+    // everything deciding what the UI does reads `find_summary`, not the
+    // pane's copy), and only `replies_paused` survives the next catalog
+    // replacement. A freeze lives exactly as long as a source keeps reporting
+    // it, and a reattach that omits it clears it on the spot.
+    struct AttachBrakes {
+        bool replies_paused = false;
+        bool frozen = false;
+        std::string frozen_by;
+        std::string frozen_reason;
+
+        [[nodiscard]] bool any() const { return replies_paused || frozen; }
+    };
+
+    // The sticky set is paused ONLY, for the reason above. Ids, not brakes:
+    // there is nothing else about a pause to remember.
+    std::set<std::string> attachPausedIds;
+
+    void remember_attach_brakes(const std::string& id,
+                                const AttachBrakes& brakes) {
+        if (brakes.replies_paused) attachPausedIds.insert(id);
+        else attachPausedIds.erase(id);
+    }
+
+    // Seed from anything that already carries the flag -- the cached catalog
+    // and cached transcripts on a cold start. Without this the first refresh
+    // after a restart arrives key-absent, replaces the cached row, and the
+    // pause mark is gone until the thread is opened again.
+    //
+    // A cached FREEZE is deliberately not seeded: the first live poll is a
+    // fresher answer than the disk, and if the thread thawed while the app was
+    // closed a seeded freeze would survive the poll that lifted it.
+    void seed_attach_brakes_from(
+        const std::vector<api::SessionSummary>& rows) {
+        for (const auto& s : rows)
+            if (s.replies_paused) attachPausedIds.insert(s.id);
+    }
+
+    void overlay_attach_brakes(std::vector<api::SessionSummary>& rows) const {
+        if (attachPausedIds.empty()) return;
+        for (auto& s : rows)
+            if (attachPausedIds.count(s.id) != 0) s.replies_paused = true;
+    }
+
+    // Write one attached session's brakes through to the catalog row and to
+    // every pane showing it, so `find_summary` answers with them immediately
+    // -- including the freeze, which is the point of doing this at all: a
+    // freeze that landed after the last poll brakes the composer now rather
+    // than at the next refresh.
+    void apply_attach_brakes(const std::string& id,
+                             const AttachBrakes& brakes) {
+        remember_attach_brakes(id, brakes);
+        const auto write = [&](api::SessionSummary& s) {
+            s.replies_paused = brakes.replies_paused;
+            s.frozen = brakes.frozen;
+            s.frozen_by = brakes.frozen_by;
+            s.frozen_reason = brakes.frozen_reason;
+        };
+        bool changed = false;
+        for (auto& s : sessions)
+            if (s.id == id) {
+                if (s.replies_paused != brakes.replies_paused ||
+                    s.frozen != brakes.frozen ||
+                    s.frozen_by != brakes.frozen_by ||
+                    s.frozen_reason != brakes.frozen_reason)
+                    changed = true;
+                write(s);
+            }
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                write(p.openSession->summary);
+        if (changed) mark_session_catalog_changed();
+    }
+
     void apply_muted(const std::string& id, bool muted) {
         bool changed = false;
         for (auto& s : sessions)

@@ -1,0 +1,32 @@
+# A brake outranks the slash help. Typing `/` pops the command menu and sets a
+# notice, and the notice used to win the caption -- so the one line telling you
+# the thread will not answer disappeared the moment you reached for a command.
+#
+# Both brakes are covered here because they take different composer paths: the
+# freeze also disables the send, the halt does not, and only the caption is
+# common to the two.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz1","bz5"],"active_tab":"bz1","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+
+require_thread bz1
+wait_frames 12
+expect_text "Frozen — under review by the canary owner"
+
+click_ui composer_reply_input
+wait_frames 2
+type "/"
+wait_frames 10
+expect_text "Frozen — under review by the canary owner"
+
+key ESCAPE
+wait_frames 6
+
+# The halted thread, same rule.
+click_ui tab_bz5
+wait_frames 12
+expect_text "Halted by an ancestor thread — the parent halted the whole subtree"
+click_ui composer_reply_input
+wait_frames 2
+type "/"
+wait_frames 10
+expect_text "Halted by an ancestor thread — the parent halted the whole subtree"

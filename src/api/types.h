@@ -119,6 +119,15 @@ enum class ThreadState {
 // view (see ecs::model::in_blocked_view) — Puffin puts it there too — it just
 // stops claiming to be a decision you owe someone.
 //
+// Waiting is the sixth, and it is the half of `waiting` that is not Review.
+// The backend's five status words are working / waiting / blocked / done /
+// failed, and hanabi folded `waiting` into Blocked unless it also carried an
+// explicit review flag — so a thread waiting for an ANSWER and a thread whose
+// run is blocked wore the same mark. Puffin 0.6.5 split them (IconTable's
+// `blocked` and `review` share a shape and differ in colour), and this is the
+// same split one layer down: both still want the reader, and the mark says
+// which kind of wanting it is.
+//
 // APPEND-ONLY, for the same reason ThreadState is.
 enum class ThreadTag {
     None,
@@ -126,6 +135,7 @@ enum class ThreadTag {
     Review,
     Done,
     Failed,
+    Waiting,
 };
 
 // Local-first sync state for anything with a "on this device" vs "confirmed on
@@ -273,6 +283,37 @@ struct SessionSummary {
 
     std::string parent_id;
     std::string forked_from;
+
+    // --- Brakes the SERVER holds ------------------------------------------
+    //
+    //   frozen  — `frozen: {by, reason}` on the LIST ROW and on the attach
+    //             greeting both (WireSessionSummary and WireState each carry
+    //             it), which is what lets the list mark it without opening
+    //             anything. Serve-time derived over the containment chain, so
+    //             `frozen_by` is the SESSION at the root of the freeze and is
+    //             not this thread when an ancestor is the one frozen. It
+    //             outranks every other mark: a frozen thread can be running,
+    //             and nothing the reader does changes that. The object's
+    //             PRESENCE is the brake and `by`/`reason` are display metadata
+    //             only, so a malformed `{}` still freezes -- fail closed.
+    //   paused  — `channel_replies_paused`. ATTACH ONLY: it is a `WireState`
+    //             key and the list row does not carry it, so this is known
+    //             for a thread that has been opened and for no other. Copied
+    //             onto the catalog row on load
+    //             (AppComponent::apply_attach_brakes) so the mark survives the
+    //             pane it was learned in -- everything that decides what the
+    //             UI does reads the catalog row, not the pane's own copy.
+    bool frozen = false;
+    std::string frozen_by;
+    std::string frozen_reason;
+    bool replies_paused = false;
+
+    // `archived_at_unix_ms` on the list row, the server's own archive stamp
+    // (0 = unarchived). Held apart from `archive_override` — that one is this
+    // Mac's answer and must still be able to say NOT archived about a thread
+    // the server has archived — and REPLACED, never merged, on every refresh:
+    // a row that lost its stamp was unarchived somewhere else.
+    int64_t server_archived_at_ms = 0;
 };
 
 // A sub-agent (child worker) running under a session. The transcript's
@@ -333,6 +374,29 @@ struct Session {
     // Token accounting from the backend (see ContextUsage). Left at its
     // defaults by any adapter that reports none.
     ContextUsage context;
+
+    // --- Halt, which only an attach can see -------------------------------
+    // `halted` is this session's OWN journal-folded flag. `halted_by` is a
+    // SEPARATE fact -- halt CONTAINMENT, present when a halt over the ancestor
+    // chain contains this session, and the server's contract calls it
+    // "distinct from `halted`". A descendant therefore arrives as
+    // halted:false WITH a halted_by, so `halt_contained` is what the brake
+    // asks: either is enough to stop the thread.
+    //
+    // `halted_by` names the SESSION to resume, never a person, so it is never
+    // printed where a name belongs.
+    //
+    // Absence clears, in both cases: the state bag replaces, and reading a
+    // missing key as "unchanged" leaves a resumed thread wearing a brake it no
+    // longer has.
+    bool halted = false;
+    bool halt_contained = false;
+    std::string halted_by;
+    std::string halted_reason;
+
+    [[nodiscard]] bool halt_engaged() const {
+        return halted || halt_contained;
+    }
 };
 
 // User/account settings read back from the backend, so the app can verify it

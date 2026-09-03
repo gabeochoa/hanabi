@@ -41,6 +41,7 @@
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/snippet_highlight.h"
+#include "../ui/status_mark.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "sidebar_buckets.h"
 #include "line_draw_state.h"
@@ -500,7 +501,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                ++active;
            else if (child.tag == api::ThreadTag::Failed)
                ++failed;
-           else if (child.tag == api::ThreadTag::Blocked)
+           else if (child.tag == api::ThreadTag::Blocked ||
+                    child.tag == api::ThreadTag::Waiting)
                ++blocked;
            else
                ++completed;
@@ -1134,7 +1136,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return c;
     }
 
-    enum class SidebarGlyph { Running, Blocked, Done, Idle };
+    // One vocabulary, shared with the tab strip: ecs::model::StatusGlyph.
+    using SidebarGlyph = ecs::model::StatusGlyph;
     static constexpr float kCountTextPad = 6.0f;
     static constexpr float kAhTextInset = 5.0f;
     static float count_font_px() { return theme::type::SM; }
@@ -1150,28 +1153,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kBadgeRightPad = theme::chrome::SPACE_3;
 
     static SidebarGlyph sidebar_glyph(const api::SessionSummary& s) {
-        if (s.tag == api::ThreadTag::Blocked ||
-            s.tag == api::ThreadTag::Failed ||
-            s.state == api::ThreadState::Attention)
-            return SidebarGlyph::Blocked;
-        if (s.state == api::ThreadState::Running ||
-            s.state == api::ThreadState::Working)
-            return SidebarGlyph::Running;
-        if (s.tag == api::ThreadTag::Done ||
-            s.tag == api::ThreadTag::Review ||
-            s.state == api::ThreadState::Ready)
-            return SidebarGlyph::Done;
-        return SidebarGlyph::Idle;
+        return ecs::model::status_glyph(s);
     }
 
     static theme::Color mark_color(SidebarGlyph glyph) {
-        switch (glyph) {
-            case SidebarGlyph::Running: return theme::accent();
-            case SidebarGlyph::Blocked: return theme::status_blocked();
-            case SidebarGlyph::Done: return theme::status_review();
-            case SidebarGlyph::Idle: return theme::text_faint();
-        }
-        return theme::text_faint();
+        return hanabi::status_mark::color_for(glyph);
     }
 
     // The mute mark: a small ring with a slash through it, the universal
@@ -1191,121 +1177,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                  hanabi::viewport::px(1.5f), c);
     }
 
-    // Draw the status mark centered inside `rect` (the on-screen rect of the
-    // small glyph slot). Uses afterhours' real shape primitives, so the five
-    // statuses are distinct by SHAPE as well as by colour. Every row draws
-    // SOMETHING here — a settled row gets the plain dot, never a blank — so no
-    // row reads as unlabeled or second-class.
-    //
-    // Geometry is measured off ref/01_home.png, glyph by glyph: the three dots
-    // (live / alert / calm) are one 8px circle in three colours, the bang is a
-    // 9px stroke over a 2px tittle, the cross spans 8px corner to corner, and
-    // the chevron is 8px tall and 4px wide with its vertex to the right.
-    // Every mark's geometry, re-derived against the reference's own HALF-
-    // COVERAGE silhouette rather than by eye. afterhours does not antialias
-    // primitives (afterhours_gaps.md #92), so hanabi's marks are hard-edged
-    // where Puffin's have a soft fringe -- which means a mark drawn to the
-    // reference's OUTER extent lands 30-85% more ink on screen than it has.
-    // Drawn to its half-coverage extent instead, the ink lands about right and
-    // the silhouette still matches.
-    static constexpr float kArcInner = 3.3f;
-    static constexpr float kArcOuter = 4.6f;
-    // The bang, measured by per-pixel coverage rather than by silhouette: the
-    // reference's stroke is 1.95px wide and runs from 5.5px above the mark's
-    // centre to 2.46 below it, and its tittle is the same width, 2.28 tall,
-    // centred 5.26 below.
-    static constexpr float kBangT = 1.95f;
-    static constexpr float kBangTop = 5.5f;
-    static constexpr float kBangBot = 2.46f;
-    static constexpr float kBangDotY = 5.26f;
-    static constexpr float kBangDotH = 2.28f;
-    static constexpr float kDotR = 3.4f;
-    static constexpr float kCheckT = 1.8f;
-
-    // Where the mark's centre sits relative to the slot's own. Puffin draws it
-    // above the row's midline and right of a 13px slot's centre; both are
-    // measured, and without them every glyph reads a row-half low.
-    static constexpr float kMarkDx = 0.0f;
-    static constexpr float kMarkDy = -1.0f;
-
-    // `bg` is what this row is actually painting on: the bang is the one mark
-    // drawn with hand-composited antialiasing (gap #92 has no other way out),
-    // and a fringe pre-mixed against the wrong colour is a visible halo. The
-    // row's own fill changes under the pointer, so the caller passes it rather
-    // than this assuming the sidebar's.
+    // The mark's ink lives in src/ui/status_mark.h so the tab strip draws the
+    // same picture from the same source rather than a second copy of it.
     static void draw_mark(RectangleType rect, SidebarGlyph glyph,
                           theme::Color bg) {
-        const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
-        const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
-        const theme::Color c = mark_color(glyph);
-        switch (glyph) {
-            case SidebarGlyph::Running: {
-                // The gap is at the TOP, and this is the one thing in the
-                // glyph column that was not a pixel-nudge: hanabi drew the gap
-                // in the LOWER LEFT, so the mark read as a hook where the
-                // reference draws a bowl.
-                //
-                // Measured on all four running rows of `ref/02_thread.png`,
-                // which are identical to the pixel: ink covers 290 degrees and
-                // the 70-degree gap is centred on 275.5, five degrees clockwise
-                // of straight up. Angles run clockwise from three o'clock, so
-                // that is -49 to 240.
-                //
-                // Puffin's source cannot settle this. `SessionRowView.statusDot`
-                // in the v0.5.2 checkout is a 7pt filled `Circle()` -- the five
-                // shapes arrived after it (REFERENCE.md), so the frozen PNG is
-                // the only authority for the arc's geometry and every number
-                // above comes off it.
-                afterhours::draw_ring_segment(cx, cy, hanabi::viewport::px(kArcInner), hanabi::viewport::px(kArcOuter),
-                                              -49.0f, 240.0f, 28, c);
-                break;
-            }
-            case SidebarGlyph::Idle: {
-                // draw_circle_v truncates its centre to int (gap #78), which
-                // at this size lands the dot half a pixel off and reads as a
-                // lumpy polygon. A zero-inner-radius ring segment is the same
-                // shape with a float centre.
-                afterhours::draw_ring_segment(cx, cy, 0.0f, hanabi::viewport::px(kDotR), 0.0f,
-                                              360.0f, 28, c);
-                break;
-            }
-            case SidebarGlyph::Blocked: {
-                // The most common mark in the list -- six of the eighteen
-                // visible rows -- and it was carrying twice the reference's
-                // ink: three hard columns at full strength where the reference
-                // measures 0.44 / 0.97 / 0.50, a 1.95px stroke with a fringe
-                // down each side. It also sat a pixel left of every other mark
-                // in the column, from a `- px(1)` nobody had re-measured.
-                //
-                // Both axes of both parts are read off `ref/02_thread.png` by
-                // per-pixel coverage, and laid down through `rect_aa`, which
-                // paints the fringe itself (afterhours has no primitive
-                // antialiasing -- gap #92). A bang and its tittle are the two
-                // marks in this vocabulary that are axis-aligned, so they are
-                // the two that can have it.
-                const float u = hanabi::viewport::px(1.0f);
-                const float half = kBangT * 0.5f * u;
-                hanabi::glyph::rect_aa(cx - half, cy - kBangTop * u, cx + half,
-                                       cy + kBangBot * u, c, bg);
-                hanabi::glyph::rect_aa(cx - half, cy + kBangDotY * u - kBangDotH * 0.5f * u,
-                                       cx + half,
-                                       cy + kBangDotY * u + kBangDotH * 0.5f * u,
-                                       c, bg);
-                break;
-            }
-            case SidebarGlyph::Done: {
-                const float u = hanabi::viewport::px(1.0f);
-                afterhours::draw_line_ex(
-                    afterhours::vec2{cx - 4.0f * u, cy},
-                    afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u},
-                    kCheckT * u, c);
-                afterhours::draw_line_ex(
-                    afterhours::vec2{cx - 1.0f * u, cy + 3.0f * u},
-                    afterhours::vec2{cx + 5.0f * u, cy - 4.0f * u},
-                    kCheckT * u, c);
-                break;
-            }
-        }
+        hanabi::status_mark::draw(rect, glyph, bg);
     }
 
     // ---- Blocked smart-view nav icon (defect #5) ----

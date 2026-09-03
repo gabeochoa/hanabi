@@ -144,6 +144,10 @@ std::string safe_name(const std::string& id) {
 }
 
 // ---- (de)serialization ---------------------------------------------------
+// Every field added after the first cache file was written is read with a
+// default that means "the file predates it": false, 0, empty. A cache from an
+// older build therefore loads as a thread with no brakes rather than failing
+// to load, and the first refresh replaces the guess with the server's answer.
 json to_json(const SessionSummary& s) {
     return json{{"id", s.id},
                 {"title", s.title},
@@ -153,7 +157,12 @@ json to_json(const SessionSummary& s) {
                 {"state", static_cast<int>(s.state)},
                 {"tag", static_cast<int>(s.tag)},
                 {"folder", s.folder},
-                {"starred", s.starred}};
+                {"starred", s.starred},
+                {"frozen", s.frozen},
+                {"frozen_by", s.frozen_by},
+                {"frozen_reason", s.frozen_reason},
+                {"replies_paused", s.replies_paused},
+                {"server_archived_at_ms", s.server_archived_at_ms}};
 }
 
 SessionSummary summary_from_json(const json& j) {
@@ -169,6 +178,11 @@ SessionSummary summary_from_json(const json& j) {
         j.value("tag", static_cast<int>(ThreadTag::None)));
     s.folder = j.value("folder", "");
     s.starred = j.value("starred", false);
+    s.frozen = j.value("frozen", false);
+    s.frozen_by = j.value("frozen_by", "");
+    s.frozen_reason = j.value("frozen_reason", "");
+    s.replies_paused = j.value("replies_paused", false);
+    s.server_archived_at_ms = j.value("server_archived_at_ms", (int64_t)0);
     return s;
 }
 
@@ -801,7 +815,9 @@ std::pair<bool, std::size_t> peek_archived_and_count(const fs::path& p) {
         if (doc.contains("summary") && doc["summary"].is_object()) {
             const int st = doc["summary"].value(
                 "state", static_cast<int>(ThreadState::Unknown));
-            archived = (st == static_cast<int>(ThreadState::Archived));
+            archived = (st == static_cast<int>(ThreadState::Archived)) ||
+                       doc["summary"].value("server_archived_at_ms",
+                                            (int64_t)0) > 0;
         }
         std::size_t n = 0;
         if (doc.contains("messages") && doc["messages"].is_array())

@@ -1,0 +1,51 @@
+# A tab carries its thread's status, from the same model and the same ink the
+# sidebar row uses. Before this the strip said nothing at all: every tab looked
+# identical whether its thread was frozen, waiting on you, or finished.
+#
+# The marks are addressed PER SESSION (`tab_status_<id>`), so this proves which
+# thread each one belongs to rather than "a mark exists somewhere". bz3 is
+# waiting on you and bz1 is frozen -- both are summary-row facts, so their tabs
+# wear a mark from the catalog alone, with no attach.
+#
+# bz2 is deliberately checked LAST and only after it is opened:
+# `channel_replies_paused` is attach-only, so its mark cannot exist until the
+# thread has been attached. A script that asserted it up front would be
+# asserting something the real client can never show.
+#
+# The other half of the rule -- an IDLE tab draws no mark at all -- cannot be
+# asserted here, because `assert_ui` retries a name it cannot find until the
+# script times out and so has no way to say "absent". Note it is IDLE, not
+# merely settled: a settled thread tagged Done wears the green tick. It is
+# covered by `status_shows_on_tab` in tests/e2e/test_e2e.cpp and by r11, the
+# idle tab, in the 45/46 screenshot baselines.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz3","bz1","bz2"],"active_tab":"bz3","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+
+require_thread bz3
+wait_frames 12
+
+# Row-carried marks, both present in one frame with no attach of their own.
+assert_ui tab_status_bz3 hidden=false
+assert_ui tab_status_bz1 hidden=false
+expect_text "which region first?"
+
+# Switching panes does not change what any tab says about its own thread.
+click_ui tab_bz1
+wait_frames 12
+assert_ui tab_status_bz1 hidden=false
+assert_ui tab_status_bz3 hidden=false
+expect_text "Frozen — under review by the canary owner"
+
+# Now open bz2. The attach is what teaches the client its replies are paused,
+# and the mark appears on its tab only once that has happened.
+click_ui tab_bz2
+wait_frames 14
+expect_text "nightly digest"
+assert_ui tab_status_bz2 hidden=false
+
+# It survives leaving the thread: the overlay holds it on the catalog row
+# after the pane has moved on, so the tab keeps its mark.
+click_ui tab_bz3
+wait_frames 12
+assert_ui tab_status_bz2 hidden=false
+assert_ui tab_status_bz3 hidden=false

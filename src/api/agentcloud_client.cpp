@@ -203,8 +203,13 @@ void apply_state(const json& s, SessionSummary& out) {
             out.state = ThreadState::Attention;
             out.tag = ThreadTag::Blocked;
         } else if (state == "waiting") {
+            // `waiting` and `blocked` are two different asks and used to wear
+            // one tag: a thread waiting for an ANSWER read as a thread whose
+            // run is blocked. Both still want the reader -- they stay in the
+            // Blocked smart view together -- but the mark now says which.
             out.state = ThreadState::Attention;
-            out.tag = attention == "review" ? ThreadTag::Review : ThreadTag::Blocked;
+            out.tag = attention == "review" ? ThreadTag::Review
+                                            : ThreadTag::Waiting;
         } else if (state == "failed") {
             // The fifth state this bag can carry, and the one hanabi used to
             // drop on the floor: with no branch here a failed session fell
@@ -246,6 +251,27 @@ void apply_state(const json& s, SessionSummary& out) {
     }
 }
 
+// `frozen` -> the summary's freeze, from a summary row or an attach state.
+//
+// FAIL CLOSED: the PRESENCE of the object is the brake. `by` and `reason` are
+// display metadata, and a server that sends `{}` or omits `by` has still said
+// this session is frozen -- treating that as unfrozen would let the composer
+// accept a message nothing will ever answer, which is the one failure this
+// exists to prevent. Absence, and only absence, means not frozen.
+void apply_frozen_from(const json& src, SessionSummary& sum) {
+    if (!src.is_object() || !src.contains("frozen") ||
+        src.at("frozen").is_null()) {
+        sum.frozen = false;
+        sum.frozen_by.clear();
+        sum.frozen_reason.clear();
+        return;
+    }
+    const json& frozen = src.at("frozen");
+    sum.frozen = true;
+    sum.frozen_by = str_or(frozen, "by", "");
+    sum.frozen_reason = str_or(frozen, "reason", "");
+}
+
 SessionSummary summary_from_row(const json& s) {
     SessionSummary sum;
     sum.id = str_or(s, "session_id", "");
@@ -258,8 +284,52 @@ SessionSummary summary_from_row(const json& s) {
     sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
     sum.parent_id = str_or(s, "parent", "");
     sum.forked_from = str_or(obj_at(s, "forked_from"), "session_id", "");
+    // `frozen` and `archived_at_unix_ms` are summary-row keys
+    // (`WireSessionSummary`), which is what lets the list mark them without
+    // attaching.
+    apply_frozen_from(s, sum);
+    sum.server_archived_at_ms = int_or(s, "archived_at_unix_ms", 0);
     apply_state(s, sum);
     return sum;
+}
+
+
+
+// state bag is a snapshot, so a key that stopped being sent means the brake
+// was lifted, not that it should be kept.
+//
+//   halted     = bool, skip-if-false. The session's OWN journal-folded flag.
+//   halted_by  = { by, reason }, skip-if-none. Halt CONTAINMENT, a separate
+//                fact: it is present when a halt over this session's ancestor
+//                chain contains it, and the server's own contract calls it
+//                "distinct from `halted`, the exact journal-folded own flag".
+//                So a descendant can arrive as halted:false WITH a halted_by,
+//                and reading the containment only when the own flag is set
+//                would leave that thread unbraked. `by` names the SESSION to
+//                resume -- never a person.
+//   channel_replies_paused = bool, skip-if-false. A `WireState` key with no
+//                summary-row equivalent, so an attach is the only place this
+//                client can learn it.
+//   frozen     = { by, reason }, skip-if-none. Rides the summary row AND the
+//                attach greeting; read here too so a freeze that landed after
+//                the last catalog poll brakes the composer immediately rather
+//                than at the next refresh.
+void apply_brakes_from_state(const json& state, Session& out) {
+    out.summary.replies_paused =
+        bool_or(state, "channel_replies_paused", false);
+    out.halted = bool_or(state, "halted", false);
+    // Independent of `halted`, and cleared only by ABSENCE.
+    if (state.is_object() && state.contains("halted_by")) {
+        const json& by = obj_at(state, "halted_by");
+        out.halted_by = str_or(by, "by", "");
+        out.halted_reason = str_or(by, "reason", "");
+        out.halt_contained = true;
+    } else {
+        out.halted_by.clear();
+        out.halted_reason.clear();
+        out.halt_contained = false;
+    }
+    apply_frozen_from(state, out.summary);
 }
 
 // hello.state.tokens -> ContextUsage.
@@ -494,6 +564,12 @@ ContextUsage parse_context_usage(const std::string& hello_json) {
     const json hello = json::parse(hello_json, nullptr, false);
     if (hello.is_discarded()) return {};
     return context_usage_from_state(obj_at(hello, "state"));
+}
+
+void parse_session_brakes(const std::string& hello_json, Session& out) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) return;
+    apply_brakes_from_state(obj_at(hello, "state"), out);
 }
 
 }  // namespace agentcloud
@@ -985,6 +1061,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     if (!title.empty()) out->summary.title = title;
     apply_state(state, out->summary);
     out->context = context_usage_from_state(state);
+    apply_brakes_from_state(state, *out);
 
     // Page BACKWARD from the newest until the server says done.
     //

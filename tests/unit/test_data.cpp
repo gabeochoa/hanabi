@@ -23,6 +23,7 @@
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/pane_state.h"
+#include "../../src/ecs/thread_model.h"
 #include "../../src/util/format.h"
 #include "../../src/util/textscan.h"
 #include "../../src/ui/slash_commands.h"
@@ -748,9 +749,389 @@ static void test_mock_forks_and_subagent_catalog() {
     }
 }
 
+// --- (1b) disk cache: the brakes survive a restart ------------------------
+// A frozen thread that came back unfrozen from the cache would draw the wrong
+// mark and take a message the server will never answer, for the whole window
+// between startup and the first refresh. Both cache files share one
+// serializer, so both are checked here; and a file written by a build that
+// predates these fields must still load, as a thread with no brakes.
+static void test_disk_cache_round_trips_the_brakes() {
+    std::printf("test_disk_cache_round_trips_the_brakes\n");
+    std::string dir = "/tmp/hanabi_test_brakes_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    api::SessionSummary frozen;
+    frozen.id = "ice";
+    frozen.title = "canary cohort rollout";
+    frozen.frozen = true;
+    frozen.frozen_by = "root7";
+    frozen.frozen_reason = "canary owner is reviewing";
+    api::SessionSummary paused;
+    paused.id = "quiet";
+    paused.title = "nightly digest";
+    paused.replies_paused = true;
+    api::SessionSummary filed;
+    filed.id = "filed";
+    filed.title = "filed from the web";
+    filed.server_archived_at_ms = 1781520000000LL;
+    api::disk_cache::save_sessions({frozen, paused, filed});
+
+    auto rows = api::disk_cache::load_sessions();
+    CHECK(rows.has_value());
+    if (!rows.has_value()) return;
+    CHECK(rows->size() == 3);
+    if (rows->size() != 3) return;
+    CHECK((*rows)[0].frozen);
+    CHECK((*rows)[0].frozen_by == "root7");
+    CHECK((*rows)[0].frozen_reason == "canary owner is reviewing");
+    CHECK(!(*rows)[0].replies_paused);
+    CHECK((*rows)[1].replies_paused);
+    CHECK(!(*rows)[1].frozen);
+    CHECK((*rows)[2].server_archived_at_ms == 1781520000000LL);
+    // The whole point of persisting them: the mark and the archive view are
+    // right on the first frame, before any refresh has happened.
+    CHECK(ecs::model::status_glyph((*rows)[0]) ==
+          ecs::model::StatusGlyph::Frozen);
+    CHECK(ecs::model::status_glyph((*rows)[1]) ==
+          ecs::model::StatusGlyph::Paused);
+    CHECK(ecs::model::is_archived((*rows)[2]));
+
+    // The transcript cache uses the same serializer, so it carries them too.
+    api::Session s;
+    s.summary = frozen;
+    s.messages.push_back({"m1", api::Role::User, "hello", 1000, ""});
+    api::disk_cache::save_transcript(s);
+    auto back = api::disk_cache::load_transcript("ice");
+    CHECK(back.has_value());
+    CHECK(back->summary.frozen);
+    CHECK(back->summary.frozen_by == "root7");
+    CHECK(back->summary.frozen_reason == "canary owner is reviewing");
+
+    api::disk_cache::wipe_all();
+}
+
+// A cache file written before these fields existed has none of the keys. It
+// must load as a thread with no brakes rather than failing to load.
+static void test_an_old_cache_file_still_loads() {
+    std::printf("test_an_old_cache_file_still_loads\n");
+    std::string dir = "/tmp/hanabi_test_oldcache_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    // Exactly the shape the previous build wrote: nine keys, no brakes.
+    const std::string legacy =
+        R"({"sessions":[{"id":"old","title":"Before the brakes",)"
+        R"("updated_at":1781520000,"status":"idle","preview":"",)"
+        R"("state":0,"tag":0,"folder":"","starred":false}]})";
+    std::filesystem::create_directories(api::disk_cache::cache_dir());
+    const std::string path = api::disk_cache::cache_dir() + "/sessions.json";
+    std::ofstream(path) << legacy;
+
+    auto rows = api::disk_cache::load_sessions();
+    CHECK(rows.has_value());
+    if (!rows.has_value()) return;
+    CHECK(rows->size() == 1);
+    if (rows->size() != 1) return;
+    CHECK((*rows)[0].id == "old");
+    CHECK((*rows)[0].title == "Before the brakes");
+    CHECK(!(*rows)[0].frozen);
+    CHECK((*rows)[0].frozen_by.empty());
+    CHECK((*rows)[0].frozen_reason.empty());
+    CHECK(!(*rows)[0].replies_paused);
+    CHECK((*rows)[0].server_archived_at_ms == 0);
+    CHECK(!ecs::model::is_archived((*rows)[0]));
+
+    api::disk_cache::wipe_all();
+}
+
+// THE RESTART PATH, end to end: a paused thread must survive a relaunch AND
+// the key-absent catalog refresh that immediately follows it.
+//
+// The sequence that broke it: the cache restores `replies_paused=true`, the
+// app paints it, the first poll returns rows with no such key (the server
+// never sends it on a summary row), the fresh rows REPLACE the cached ones,
+// and the mark is gone -- then the re-save writes the unpaused rows back, so
+// the next launch has lost it too. Seeding the overlay from the cache at
+// restore time is what closes it, and this walks the whole loop.
+static void test_paused_survives_restart_and_the_next_refresh() {
+    std::printf("test_paused_survives_restart_and_the_next_refresh\n");
+    std::string dir = "/tmp/hanabi_test_restart_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    // Launch 1 learned the pause on an attach and saved the catalog.
+    api::SessionSummary paused;
+    paused.id = "quiet";
+    paused.title = "nightly digest";
+    paused.replies_paused = true;
+    api::SessionSummary other;
+    other.id = "busy";
+    other.title = "profiling the disk";
+    api::disk_cache::save_sessions({paused, other});
+
+    // Launch 2: restore from cache, and SEED the overlay from what it carries.
+    ecs::AppComponent app;
+    auto restored = api::disk_cache::load_sessions();
+    CHECK(restored.has_value());
+    if (!restored.has_value()) return;
+    app.seed_attach_brakes_from(*restored);
+    app.overlay_attach_brakes(*restored);
+    CHECK((*restored)[0].replies_paused);
+    CHECK(ecs::model::status_glyph((*restored)[0]) ==
+          ecs::model::StatusGlyph::Paused);
+
+    // The first poll of the new launch. The server sends no such key -- this
+    // is exactly what the real catalog looks like -- and these rows replace
+    // the restored ones.
+    std::vector<api::SessionSummary> fresh;
+    api::SessionSummary q;
+    q.id = "quiet";
+    q.title = "nightly digest";
+    api::SessionSummary b;
+    b.id = "busy";
+    b.title = "profiling the disk";
+    fresh.push_back(q);
+    fresh.push_back(b);
+    CHECK(!fresh[0].replies_paused);  // the wire really is silent
+    app.overlay_attach_brakes(fresh);
+    CHECK(fresh[0].replies_paused);   // ...and the overlay speaks for it
+    CHECK(!fresh[1].replies_paused);  // without inventing one for anyone else
+    CHECK(ecs::model::status_glyph(fresh[0]) ==
+          ecs::model::StatusGlyph::Paused);
+
+    // The re-save writes the OVERLAID rows, so launch 3 starts where launch 2
+    // did rather than losing the flag one launch later.
+    api::disk_cache::save_sessions(fresh);
+    auto again = api::disk_cache::load_sessions();
+    CHECK(again.has_value());
+    if (!again.has_value()) return;
+    CHECK((*again)[0].replies_paused);
+
+    // A resume clears it everywhere: the set, the catalog, and the next save.
+    app.replace_sessions(std::vector<api::SessionSummary>(*again));
+    app.apply_attach_brakes("quiet", ecs::AppComponent::AttachBrakes{});
+    CHECK(app.attachPausedIds.empty());
+    std::vector<api::SessionSummary> after = app.sessions;
+    app.overlay_attach_brakes(after);
+    CHECK(!after[0].replies_paused);
+
+    api::disk_cache::wipe_all();
+}
+
+
+// THE CATALOG IS WHAT THE UI READS. `brake_for` is handed
+// `app.find_summary(id)`, not the pane's own copy -- so an attach fact that
+// stays on `Session::summary` changes nothing anybody can see. This is the
+// stale-row race a live client hits whenever a freeze lands between two polls.
+static void test_an_attach_freeze_reaches_the_catalog_row() {
+    std::printf("test_an_attach_freeze_reaches_the_catalog_row\n");
+    ecs::AppComponent app;
+
+    // The catalog, as the last poll left it: running, no freeze.
+    api::SessionSummary stale;
+    stale.id = "bz6";
+    stale.title = "frozen since the last poll";
+    stale.state = api::ThreadState::Running;
+    std::vector<api::SessionSummary> rows{stale};
+    app.replace_sessions(std::move(rows));
+    CHECK(app.find_summary("bz6") != nullptr);
+    CHECK(!app.find_summary("bz6")->frozen);
+    CHECK(!ecs::model::brake_for("bz6", app.find_summary("bz6"), nullptr)
+               .engaged);
+
+    // The attach says otherwise, and it is the fresher answer.
+    ecs::AppComponent::AttachBrakes frozen;
+    frozen.frozen = true;
+    frozen.frozen_by = "bz6";
+    frozen.frozen_reason = "frozen after the catalog was read";
+    app.apply_attach_brakes("bz6", frozen);
+
+    // The CATALOG row carries it now -- which is what the composer reads.
+    const api::SessionSummary* row = app.find_summary("bz6");
+    CHECK(row != nullptr);
+    if (row == nullptr) return;
+    CHECK(row->frozen);
+    CHECK(row->frozen_reason == "frozen after the catalog was read");
+    CHECK(ecs::model::status_glyph(*row) == ecs::model::StatusGlyph::Frozen);
+    const ecs::model::Brake b = ecs::model::brake_for("bz6", row, nullptr);
+    CHECK(b.engaged);
+    CHECK(b.refuses_input);
+
+    // ...and the NEXT LIVE POLL is allowed to take it away again. `frozen` is
+    // a summary-row key, so a row that arrives without it is the server
+    // AFFIRMING the thread is not frozen -- not a row that simply cannot
+    // speak. Re-applying the remembered freeze here would outvote the server
+    // and pin a brake the user could never clear, which is why the sticky
+    // overlay covers `replies_paused` and nothing else.
+    std::vector<api::SessionSummary> poll{stale};
+    CHECK(!poll[0].frozen);
+    app.overlay_attach_brakes(poll);
+    CHECK(!poll[0].frozen);
+    app.replace_sessions(std::move(poll));
+    CHECK(!app.find_summary("bz6")->frozen);
+    CHECK(!ecs::model::brake_for("bz6", app.find_summary("bz6"), nullptr)
+               .engaged);
+
+    // A reattach thaw clears it on the spot too, without waiting for a poll.
+    app.apply_attach_brakes("bz6", frozen);
+    CHECK(app.find_summary("bz6")->frozen);
+    app.apply_attach_brakes("bz6", ecs::AppComponent::AttachBrakes{});
+    CHECK(!app.find_summary("bz6")->frozen);
+    CHECK(app.find_summary("bz6")->frozen_by.empty());
+    CHECK(!ecs::model::brake_for("bz6", app.find_summary("bz6"), nullptr)
+               .engaged);
+}
+
+// COLD START, then a thaw that happened while the app was closed. The cache
+// remembers a freeze; the first live poll does not. The server wins: the mark
+// goes, the brake lifts, and the re-save must not write the freeze back --
+// otherwise the stale brake reappears on every launch forever.
+static void test_a_server_thaw_beats_a_cached_freeze() {
+    std::printf("test_a_server_thaw_beats_a_cached_freeze\n");
+    std::string dir = "/tmp/hanabi_test_thaw_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    api::SessionSummary cached;
+    cached.id = "ice";
+    cached.title = "canary cohort rollout";
+    cached.frozen = true;
+    cached.frozen_by = "ice";
+    cached.frozen_reason = "under review by the canary owner";
+    api::SessionSummary alsoPaused;
+    alsoPaused.id = "quiet";
+    alsoPaused.title = "nightly digest";
+    alsoPaused.replies_paused = true;
+    api::disk_cache::save_sessions({cached, alsoPaused});
+
+    // Launch: the cached rows paint immediately, freeze and all.
+    ecs::AppComponent app;
+    auto restored = api::disk_cache::load_sessions();
+    CHECK(restored.has_value());
+    if (!restored.has_value()) return;
+    app.seed_attach_brakes_from(*restored);
+    app.overlay_attach_brakes(*restored);
+    CHECK((*restored)[0].frozen);
+    CHECK(ecs::model::status_glyph((*restored)[0]) ==
+          ecs::model::StatusGlyph::Frozen);
+    app.replace_sessions(std::vector<api::SessionSummary>(*restored));
+
+    // The first live poll: the thread was thawed while the app was closed, so
+    // the row simply has no `frozen`.
+    std::vector<api::SessionSummary> live;
+    api::SessionSummary thawed;
+    thawed.id = "ice";
+    thawed.title = "canary cohort rollout";
+    thawed.state = api::ThreadState::Running;
+    api::SessionSummary quiet;
+    quiet.id = "quiet";
+    quiet.title = "nightly digest";
+    live.push_back(thawed);
+    live.push_back(quiet);
+    app.overlay_attach_brakes(live);
+
+    // The freeze is GONE -- the seed did not resurrect it...
+    CHECK(!live[0].frozen);
+    CHECK(live[0].frozen_by.empty());
+    CHECK(ecs::model::status_glyph(live[0]) !=
+          ecs::model::StatusGlyph::Frozen);
+    CHECK(!ecs::model::brake_for("ice", &live[0], nullptr).engaged);
+    // ...while the pause, which no row can carry, is still there.
+    CHECK(live[1].replies_paused);
+    CHECK(ecs::model::status_glyph(live[1]) ==
+          ecs::model::StatusGlyph::Paused);
+
+    app.replace_sessions(std::vector<api::SessionSummary>(live));
+    CHECK(!app.find_summary("ice")->frozen);
+    CHECK(!ecs::model::brake_for("ice", app.find_summary("ice"), nullptr)
+               .engaged);
+
+    // The re-save writes the THAWED row, so the next launch starts clean
+    // rather than reviving the freeze from disk.
+    api::disk_cache::save_sessions(app.sessions);
+    auto next = api::disk_cache::load_sessions();
+    CHECK(next.has_value());
+    if (!next.has_value()) return;
+    for (const auto& s : *next) {
+        if (s.id == "ice") CHECK(!s.frozen);
+        if (s.id == "quiet") CHECK(s.replies_paused);
+    }
+
+    api::disk_cache::wipe_all();
+}
+
+// A catalog row can never carry `channel_replies_paused` -- it is a
+// `WireState` key with no `WireSessionSummary` equivalent -- so the MOCK must
+// not project one either. A fixture that leaks it would let the no-attach path
+// look tested when the real client can never reach that state.
+static void test_the_mock_catalog_cannot_carry_paused() {
+    std::printf("test_the_mock_catalog_cannot_carry_paused\n");
+    setenv("HANABI_BRAKES_DEMO", "1", 1);
+    api::MockClient mock;
+
+    // WITHOUT an attach: every row is unpaused, bz2 included.
+    auto listed = mock.list_sessions();
+    CHECK(listed.ok);
+    bool sawBz2 = false;
+    for (const auto& s : listed.value) {
+        CHECK(!s.replies_paused);
+        if (s.id == "bz2") sawBz2 = true;
+    }
+    CHECK(sawBz2);
+    for (const auto& s : listed.value)
+        if (s.id == "bz2")
+            CHECK(ecs::model::status_glyph(s) !=
+                  ecs::model::StatusGlyph::Paused);
+
+    // The ATTACH is where the flag lives, and it does carry it.
+    auto opened = mock.get_session("bz2");
+    CHECK(opened.ok);
+    CHECK(opened.value.summary.replies_paused);
+
+    // Attach -> overlay -> the row, which is the only route there is.
+    ecs::AppComponent app;
+    app.replace_sessions(std::vector<api::SessionSummary>(listed.value));
+    CHECK(!app.find_summary("bz2")->replies_paused);
+    ecs::AppComponent::AttachBrakes brakes;
+    brakes.replies_paused = true;
+    app.apply_attach_brakes("bz2", brakes);
+    CHECK(app.find_summary("bz2")->replies_paused);
+    CHECK(ecs::model::status_glyph(*app.find_summary("bz2")) ==
+          ecs::model::StatusGlyph::Paused);
+
+    // And it survives the next refresh, which still says nothing.
+    auto again = mock.list_sessions();
+    CHECK(again.ok);
+    app.overlay_attach_brakes(again.value);
+    for (const auto& s : again.value)
+        if (s.id == "bz2") CHECK(s.replies_paused);
+
+    // The freeze is NOT stripped: it is a real summary-row key, and bz1 is
+    // frozen on the row with no attach at all.
+    bool sawFrozen = false;
+    for (const auto& s : again.value)
+        if (s.id == "bz1") {
+            CHECK(s.frozen);
+            sawFrozen = true;
+        }
+    CHECK(sawFrozen);
+    unsetenv("HANABI_BRAKES_DEMO");
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
+    test_disk_cache_round_trips_the_brakes();
+    test_an_old_cache_file_still_loads();
+    test_paused_survives_restart_and_the_next_refresh();
+    test_an_attach_freeze_reaches_the_catalog_row();
+    test_a_server_thaw_beats_a_cached_freeze();
+    test_the_mock_catalog_cannot_carry_paused();
     test_cache_wipe_keeps_visible_panes_and_rejects_old_reads();
     test_message_queue_ordering();
     test_sending_for_covers_stream();

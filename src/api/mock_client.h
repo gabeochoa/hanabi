@@ -70,6 +70,31 @@ class MockClient : public Client {
   public:
     std::string backend_label() const override { return "mock"; }
 
+    // Attach-only fields, stripped from every catalog row.
+    //
+    // A `SessionSummary` is the shape of BOTH a list row and the summary the
+    // attach hands back, and the mock stores one struct per session -- so a
+    // field only the attach can carry would otherwise ride the list too, and
+    // the fixture would prove a thing the real client can never do. The wire
+    // is the authority here: `channel_replies_paused` is a `WireState` key
+    // with no `WireSessionSummary` equivalent, so the catalog cannot know it,
+    // and a mock that leaks it lets an untested code path look tested.
+    //
+    // `frozen` and `archived_at_unix_ms` are NOT stripped: those really are
+    // summary-row keys.
+    static SessionSummary catalog_row(SessionSummary s) {
+        s.replies_paused = false;
+        // bz6 exists to be a STALE row beside a fresher attach: its freeze is
+        // deliberately withheld from the catalog so the only way the UI can
+        // learn it is the attach, which is the propagation path under test.
+        if (s.id == "bz6") {
+            s.frozen = false;
+            s.frozen_by.clear();
+            s.frozen_reason.clear();
+        }
+        return s;
+    }
+
     Result<std::vector<SessionSummary>> list_sessions() override {
         const SeedPtr seedRef = seed_ptr();
         const auto& sessions = *seedRef;
@@ -82,11 +107,11 @@ class MockClient : public Client {
         // sub-agent counts are already folded into the cached seed rows.
         for (const auto& s : sessions) {
             if (is_overridden(s.summary.id)) continue;
-            out.push_back(s.summary);
+            out.push_back(catalog_row(s.summary));
         }
         for (auto& s : created_) {
             fill_sub_agent_counts(s);
-            out.push_back(s.summary);
+            out.push_back(catalog_row(s.summary));
         }
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),
@@ -790,6 +815,7 @@ class MockClient : public Client {
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
+        "HANABI_BRAKES_DEMO",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -2087,6 +2113,129 @@ class MockClient : public Client {
             v[0].summary.folder = "/work/subscriptions";
             v[1].summary.folder = "/work/subscriptions";
             v[2].summary.folder = "/work/monetization";
+        }
+
+        // THE BRAKES AND THE TWO NEW MARKS, on demand.
+        //
+        // Env-gated rather than seeded, because these rows exist to be
+        // PHOTOGRAPHED and asserted on: adding them to the default catalog
+        // would move every baseline that shows the list, for states most
+        // sessions never reach. The knob is in kFixtureEnv above, which is what
+        // keeps the catalog cache honest across a suite that runs many scripts
+        // in one process.
+        if (const char* brakes = std::getenv("HANABI_BRAKES_DEMO");
+            brakes != nullptr && *brakes != '\0') {
+            {
+                Session s;
+                s.summary = pf("bz1", "canary cohort rollout", 4, "active",
+                               ThreadState::Running, ThreadTag::None,
+                               "held while the cohort is under review");
+                s.summary.frozen = true;
+                s.summary.frozen_by = "bz1";
+                s.summary.frozen_reason = "under review by the canary owner";
+                s.messages = {
+                    {"m1", Role::User,
+                     "roll the new pricing copy to the canary cohort.",
+                     mins_ago(9), ""},
+                    {"m2", Role::Assistant,
+                     "Staged and ready. Waiting on the cohort owner before "
+                     "anything touches production.",
+                     mins_ago(4), ""},
+                };
+                v.push_back(std::move(s));
+            }
+            {
+                Session s;
+                s.summary = pf("bz2", "nightly digest", 5, "idle",
+                               ThreadState::Parked, ThreadTag::None,
+                               "replies are off until morning");
+                // Paused arrives on the ATTACH, never on a catalog row (see
+                // types.h). The mock's get_session hands the whole Session, so
+                // setting it here is the same route the real client takes:
+                // attach -> apply_attach_brakes -> the list overlay.
+                s.summary.replies_paused = true;
+                s.messages = {
+                    {"m1", Role::System,
+                     "Recurring: assemble the nightly digest.", mins_ago(40),
+                     ""},
+                };
+                v.push_back(std::move(s));
+            }
+            {
+                Session s;
+                s.summary = pf("bz3", "which region first?", 7, "active",
+                               ThreadState::Attention, ThreadTag::Waiting,
+                               "waiting for you to pick a region");
+                s.messages = {
+                    {"m1", Role::User, "start the regional backfill.",
+                     mins_ago(12), ""},
+                    {"m2", Role::Assistant,
+                     "Ready to start. Which region should go first - eu-west "
+                     "or us-east? Nothing runs until you say.",
+                     mins_ago(7), ""},
+                };
+                v.push_back(std::move(s));
+            }
+            {
+                Session s;
+                s.summary = pf("bz4", "filed from the web", 6, "idle",
+                               ThreadState::Ready, ThreadTag::Done,
+                               "archived somewhere that is not this Mac");
+                s.summary.server_archived_at_ms = 1781520000000;
+                s.messages = {
+                    {"m1", Role::Assistant, "Filed. Nothing left to do here.",
+                     mins_ago(55), ""},
+                };
+                v.push_back(std::move(s));
+            }
+            {
+                // A freeze the CATALOG has not caught up with: the row is
+                // stale (the poll that fetched it predates the freeze) and the
+                // attach carries the truth. `catalog_row` does not strip
+                // `frozen` -- it is a real summary-row key -- so this fixture
+                // makes the row honestly unfrozen and lets the attach be the
+                // only source, which is the race a live client hits whenever a
+                // freeze lands between two polls.
+                Session s;
+                s.summary = pf("bz6", "frozen since the last poll", 3,
+                               "active", ThreadState::Running, ThreadTag::None,
+                               "the row still thinks this is running");
+                s.summary.frozen = true;
+                s.summary.frozen_by = "bz6";
+                s.summary.frozen_reason = "frozen after the catalog was read";
+                s.messages = {
+                    {"m1", Role::User, "keep the shard rebalance going.",
+                     mins_ago(8), ""},
+                    {"m2", Role::Assistant,
+                     "Rebalancing. Two shards moved, four to go.", mins_ago(3),
+                     ""},
+                };
+                v.push_back(std::move(s));
+            }
+            {
+                // Halt is attach-only, so it lives on the DETAIL rather than
+                // on the row: this thread's list mark is ordinary and the
+                // composer is the only place that says it.
+                Session s;
+                s.summary = pf("bz5", "queue drain, paused by an ancestor", 11,
+                               "active", ThreadState::Working, ThreadTag::None,
+                               "no run will start until it is resumed");
+                // Containment, not an own halt: `halted` stays false and the
+                // brake comes from the ancestor chain, which is the exact
+                // combination the wire sends to a descendant.
+                s.halted = false;
+                s.halt_contained = true;
+                s.halted_by = "bz0";
+                s.halted_reason = "the parent halted the whole subtree";
+                s.messages = {
+                    {"m1", Role::User, "drain the retry queue.", mins_ago(18),
+                     ""},
+                    {"m2", Role::Assistant,
+                     "Drained 212 of 940 before the halt landed.", mins_ago(11),
+                     ""},
+                };
+                v.push_back(std::move(s));
+            }
         }
 
         return v;

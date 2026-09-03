@@ -912,7 +912,8 @@ static void app_frame() {
             for (const auto& s : app.sessions) {
                 if (s.id.empty()) continue;
                 auto activity = hanabi::notify::Activity::Other;
-                if (s.tag == api::ThreadTag::Blocked)
+                if (s.tag == api::ThreadTag::Blocked ||
+                    s.tag == api::ThreadTag::Waiting)
                     activity = hanabi::notify::Activity::Blocked;
                 else if (s.tag == api::ThreadTag::Done)
                     activity = hanabi::notify::Activity::Finished;

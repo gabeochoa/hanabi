@@ -213,7 +213,10 @@ reference's waiting rows measure to the same (164,208,255) bang. The run always
 owns the slot — the chevron appears only when the run has nothing left to say,
 which is why `coordinating 3 shard workers` (3 sub-agents, running) draws the
 arc and `Navi PRs: oak + juno` (1 sub-agent, settled) draws the chevron. See
-the long note on `ecs::model::mark_for`.
+the long note on `ecs::model::status_glyph` (src/ecs/thread_model.h). NOTE:
+the chevron and the cross were retired with `mark_for` — the shipped
+vocabulary is `StatusGlyph`, seven values over five shapes, and the sub-agent
+count rather than a chevron is what says a row opens.
 
 Two of those seven needed states hanabi's model did not hold — `Working` (a
 `working` claim with no run behind it, which Puffin calls a corpse and buckets

@@ -1,0 +1,43 @@
+# A freeze that landed AFTER the last catalog poll must brake the composer as
+# soon as the thread is opened -- not at the next refresh.
+#
+# bz6's catalog row is deliberately stale: the mock withholds `frozen` from the
+# row and puts it only on the attach, which is exactly what a live client sees
+# when a freeze lands between two polls. The composer's brake is computed from
+# `app.find_summary()` -- the CATALOG summary, not the pane's own copy -- so
+# unless the attach writes through to the catalog, everything here still says
+# the thread is running and happily takes a message nothing will answer.
+#
+# Both refusal paths are exercised, because they are separate gates: the Send
+# button's own enablement, and the Enter keystroke, which reaches the backend
+# without consulting it.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz6"],"active_tab":"bz6","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+
+require_thread bz6
+wait_frames 14
+
+# The row said "running"; the attach says frozen, and the attach wins. The
+# caption is the assertable half -- the composer's placeholder is drawn by the
+# text-input widget and is not text the harness can see.
+expect_text "Frozen — frozen after the catalog was read"
+
+# The keystroke path refuses and KEEPS the draft.
+click_ui composer_reply_input
+wait_frames 2
+type "this must not be sent"
+wait_frames 8
+key ENTER
+wait_frames 20
+expect_input_text composer_reply_input "this must not be sent"
+expect_text "Frozen — frozen after the catalog was read"
+
+# The button path refuses too, and still keeps it.
+click_ui composer_send
+wait_frames 20
+expect_input_text composer_reply_input "this must not be sent"
+expect_text "Frozen — frozen after the catalog was read"
+
+# The sidebar row learned it as well, which is the proof the freeze reached the
+# catalog rather than stopping at the pane.
+assert_ui tab_status_bz6 hidden=false

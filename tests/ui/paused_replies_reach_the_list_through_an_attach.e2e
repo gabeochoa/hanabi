@@ -1,0 +1,23 @@
+# Paused replies reach the list the only way the wire allows: the flag is a
+# `hello.state` key with no catalog-row equivalent, so it is learned when the
+# thread is ATTACHED and then carried onto the row by the overlay.
+#
+# That is why this script OPENS bz2 first, and why the mock's `catalog_row`
+# strips the flag from every listed row: a catalog-row fixture would prove
+# nothing about the real client, which never sees the key on a row.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz2"],"active_tab":"bz2","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+
+require_thread bz2
+wait_frames 14
+expect_text "nightly digest"
+
+# The tab wears the mark, which it can only do if the attach-learned flag
+# reached the summary the tab reads.
+assert_ui tab_status_bz2 hidden=false
+
+# And the mark survives leaving the thread: the overlay holds it on the
+# catalog row after the pane has moved on.
+click_text Home
+wait_frames 12
+expect_text "nightly digest"

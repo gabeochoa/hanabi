@@ -1,0 +1,23 @@
+# The other brake, and the difference between them is the point: a halted
+# thread will start no run until someone resumes it, but input still queues
+# against that resume -- so it WARNS and the send goes through.
+#
+# The freeze is the one that refuses (see a_frozen_thread_refuses_the_composer);
+# treating the two the same would either swallow a message a halted thread can
+# still take, or accept one a frozen thread will never answer.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz5"],"active_tab":"bz5","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+
+require_thread bz5
+wait_frames 12
+expect_text "Halted by an ancestor thread — the parent halted the whole subtree"
+
+click_ui composer_reply_input
+wait_frames 2
+type "queue this for the resume"
+wait_frames 8
+expect_input_text composer_reply_input "queue this for the resume"
+
+key ENTER
+wait_frames 20
+expect_input_text composer_reply_input ""

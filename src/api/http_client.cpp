@@ -299,9 +299,14 @@ void derive_state_heuristic(SessionSummary& s, const json& e) {
 
     // Marker vocab kept small, plain, lowercase. These are conservative: only
     // an unambiguous "on you" phrase flips a thread to needs-you.
+    // Two lists, not one. Both mean the thread wants a person and both ride
+    // the Blocked view, but "waiting on you" is an answer being awaited and
+    // "blocked" is a run that stopped -- the same split the agentcloud adapter
+    // reads off `status.state`, made here from the only evidence this backend
+    // gives: the words in the title.
     static const std::vector<std::string> kWaiting = {
-        "on you",   "on gabe",  "waiting", "awaiting",
-        "blocked",  "gated on", "needs you", "back to you"};
+        "on you", "on gabe", "waiting", "awaiting", "needs you", "back to you"};
+    static const std::vector<std::string> kBlocked = {"blocked", "gated on"};
     static const std::vector<std::string> kDone = {
         "done", " landed", "landed ", "shipped", "concluded",
         "\xe2\x9c\x93" /* ✓ */};
@@ -310,10 +315,13 @@ void derive_state_heuristic(SessionSummary& s, const json& e) {
 
     if (processing || sub == "running") {
         s.state = ThreadState::Running;
+    } else if (contains_any(t, kBlocked)) {
+        s.state = ThreadState::Attention;
+        s.tag = ThreadTag::Blocked;
     } else if (parked || contains_any(t, kWaiting)) {
         // Parked/needs-you: the actionable "waiting on you" bucket.
         s.state = ThreadState::Attention;
-        s.tag = ThreadTag::Blocked;
+        s.tag = ThreadTag::Waiting;
     } else if (contains_any(t, kDone)) {
         // Reads as resolved with no outstanding ask on the user.
         s.state = ThreadState::Attention;
@@ -468,8 +476,10 @@ void derive_state(SessionSummary& s, const json& e, const Config& cfg) {
             return;
         }
         if (reported == to_lower(cfg.field_attention_needs_user)) {
+            // The field's own name is "needs user": an answer is awaited,
+            // which is Waiting rather than a run that stopped.
             s.state = ThreadState::Attention;
-            s.tag = ThreadTag::Blocked;
+            s.tag = ThreadTag::Waiting;
             return;
         }
         // Anything else (including "done"): fall through — see note above.

@@ -54,6 +54,42 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         for (auto& s : out) apply_local_overlay(s);
     }
 
+    // Every route a transcript reaches a pane by -- LRU hit, cached disk read,
+    // network attach -- runs through here, so the attach-learned brakes reach
+    // the CATALOG summary whichever one wins the race. That matters because
+    // everything deciding what the UI does reads `find_summary`, not the
+    // pane's own copy.
+    //
+    // An attach is AUTHORITATIVE: a thaw or a resume sends the key absent and
+    // the brake must lift. A CACHED restore is not -- it is a copy that
+    // predates the answer -- so it may only speak for `replies_paused`, which
+    // no catalog row can contradict. Its FREEZE is dropped: the live row
+    // beside it is fresher, and a row with no `frozen` key is the server
+    // saying the thread is not frozen.
+    static void adopt_attach_brakes(AppComponent& app, const api::Session& s,
+                                    bool authoritative) {
+        AppComponent::AttachBrakes brakes;
+        brakes.replies_paused = s.summary.replies_paused;
+        if (authoritative) {
+            brakes.frozen = s.summary.frozen;
+            brakes.frozen_by = s.summary.frozen_by;
+            brakes.frozen_reason = s.summary.frozen_reason;
+            app.apply_attach_brakes(s.summary.id, brakes);
+            return;
+        }
+        if (!brakes.replies_paused) return;
+        // Keep whatever the live catalog already says about the freeze rather
+        // than clearing it with a stale copy's silence.
+        if (const auto* known = app.find_summary(s.summary.id)) {
+            brakes.frozen = known->frozen;
+            brakes.frozen_by = known->frozen_by;
+            brakes.frozen_reason = known->frozen_reason;
+        }
+        app.apply_attach_brakes(s.summary.id, brakes);
+    }
+
+
+
     // Persist a freshly-fetched transcript AND enforce the user's cache cap.
     // Trimming right after a save is the natural "cache grew" trigger; the cap
     // comes from Settings (0 = Unlimited => trim_to_cap is a no-op). Archived +
@@ -147,6 +183,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // so "last 5 interacted with" stays accurate on every open/switch.
             if (auto hit = app.transcriptCache.get(id)) {
                 apply_local_overlay(hit->summary);
+                adopt_attach_brakes(app, *hit, /*authoritative=*/false);
                 pane.openSession = std::move(*hit);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
@@ -218,6 +255,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptState != LoadState::Loaded) {
                 app.transcriptCache.put(*disk);
                 apply_local_overlay(disk->summary);
+                adopt_attach_brakes(app, *disk, /*authoritative=*/false);
                 pane.openSession = std::move(*disk);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
@@ -247,6 +285,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (pane.selectedId == completedId &&
                         r.value.summary.id == completedId) {
                         apply_local_overlay(r.value.summary);
+                        adopt_attach_brakes(app, r.value, /*authoritative=*/true);
                         pane.openSession = std::move(r.value);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
@@ -351,6 +390,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     cached && !cached->empty()) {
                     auto sessions = std::move(*cached);
                     apply_local_overlays(sessions);
+                    app.seed_attach_brakes_from(sessions);
+                    app.overlay_attach_brakes(sessions);
                     app.replace_sessions(std::move(sessions));
                     app.listState = LoadState::Loaded;  // show stale now
                     // sessions is provably non-empty here (loaded from a
@@ -372,6 +413,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.listPending = false;
                 if (r.ok) {
                     apply_local_overlays(r.value);
+                    app.overlay_attach_brakes(r.value);
                     app.replace_sessions(std::move(r.value));
                     app.listState = LoadState::Loaded;
                     app.listError.clear();

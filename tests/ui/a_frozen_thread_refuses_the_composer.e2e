@@ -1,0 +1,24 @@
+# A frozen thread answers nothing, so the composer says why and REFUSES the
+# send -- and the draft stays exactly where it was typed.
+#
+# The draft is the half worth asserting. Clearing the field for a send that was
+# never made loses what the reader wrote, and the keystroke path reaches the
+# backend without consulting the Send button's own enablement, so the two are
+# separate gates and this covers the one a button click would miss.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz1"],"active_tab":"bz1","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+
+require_thread bz1
+wait_frames 12
+expect_text "Frozen — under review by the canary owner"
+
+click_ui composer_reply_input
+wait_frames 2
+type "this should not go anywhere"
+wait_frames 8
+expect_input_text composer_reply_input "this should not go anywhere"
+
+key ENTER
+wait_frames 20
+expect_input_text composer_reply_input "this should not go anywhere"
+expect_text "Frozen — under review by the canary owner"

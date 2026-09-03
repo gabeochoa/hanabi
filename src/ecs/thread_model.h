@@ -24,84 +24,113 @@ inline bool is_attention(api::ThreadState s) {
     return s == api::ThreadState::Attention;
 }
 
-// ---- The row's state mark -------------------------------------------------
+// ---- The status glyph, for EVERY surface that shows one -------------------
 //
-// EVERY session row opens with exactly one mark, and it is not decoration: it
-// is the whole of what the list says about that thread's run. Two axes carry
-// it — a SHAPE and a TONE — because a status read by colour alone is a status
-// half the readers cannot read.
+// One function, because "the sidebar and the tab bar disagree about this
+// thread" is a bug the reader cannot resolve.
 //
-// The rule is Puffin's, and it is worth stating as a sentence before it is
-// stated as code: THE RUN OWNS THE SLOT. Whatever the thread is doing wins
-// the mark; the fold chevron — the only thing here that is about the row
-// rather than the run — takes the slot only when the run has nothing left to
-// say. Puffin's own source puts it the same way one axis down, where the mark
-// was still only a colour: "A live status always wins: attention, awaiting and
-// working are what the dot exists to say... Only `idle` — nothing to report —
-// reaches for the thread's own colour" (`Views/TabStatus.swift`,
-// `rowColor(threadAccent:)`), and `SessionRowView` gives the chevron to
-// `childCount > 0` rows only. The reference capture applies that same
-// precedence to the SHAPE, which is what this reproduces:
+// The four-glyph vocabulary is deliberate (Reduce sidebar statuses to four
+// glyphs) and is not reopened here. What grows is the set of MEANINGS the wire
+// carries and hanabi dropped -- a freeze, a pause, and the half of `waiting`
+// that is not a review.
 //
-//   failed, and the agent said so   -> Cross    alert   (the run died)
-//   failed, nothing testified       -> Dot      alert   (only an outcome)
-//   wants you (blocked / review)    -> Bang     live    (a decision is owed)
-//   a run is live right now         -> Arc      live    (and it spins)
-//   working, but no live run        -> Dot      live    (last word, not a run)
-//   settled, has sub-agents         -> Chevron  calm    (nothing to say; opens)
-//   settled                         -> Dot      calm
-//
-// Why blocked and review share one mark: they are one question — "does this
-// need me?" — and the reference draws them identically, same shape and same
-// colour, on all six of its waiting rows. hanabi used to spend a shape on the
-// difference and spend the CROSS on it, which said "this run died" about a
-// thread that was only waiting for an answer.
-//
-// Why failure splits by state: the tag says what happened, the state says
-// whether the thread itself reported it. `Attention + Failed` is the agent
-// testifying that it failed; `Unknown + Failed` is a run that ended badly and
-// never said a word, which is a weaker fact and draws the weaker shape. That
-// is the same split the reference draws (a cross on the two rows whose agent
-// reported the failure, a plain red dot on the diff-gate row that only has an
-// outcome), and it needs no new state to say it.
-enum class Glyph { Dot, Arc, Bang, Cross, Chevron };
+// PRECEDENCE, top to bottom. Frozen leads because nothing the reader does
+// changes it and it can be true of a running thread at the same time; Paused
+// sits above Idle only, because a thread that is blocked AND not answering is
+// still blocked first. Puffin ranks `paused` above `working` (IconTable's
+// declaration order); hanabi ranks it below, because its Running glyph covers
+// both of Puffin's `working` and its dial, and demoting a live run to a pause
+// mark would lose the run.
+enum class StatusGlyph { Running, Blocked, Waiting, Done, Idle, Frozen, Paused };
 
-// What the mark is saying, independent of its shape. Kept separate from the
-// palette on purpose: this layer is graphics-free, so it names the MEANING and
-// the renderer owns the three colours.
-//   Live  — the run is alive or the thread wants you (the accent)
-//   Alert — the run failed (the danger colour)
-//   Calm  — nothing to report (muted)
-enum class Tone { Live, Alert, Calm };
+inline StatusGlyph status_glyph(const api::SessionSummary& s) {
+    if (s.frozen) return StatusGlyph::Frozen;
+    if (s.tag == api::ThreadTag::Waiting) return StatusGlyph::Waiting;
+    if (s.tag == api::ThreadTag::Blocked || s.tag == api::ThreadTag::Failed ||
+        s.state == api::ThreadState::Attention)
+        return StatusGlyph::Blocked;
+    if (s.state == api::ThreadState::Running ||
+        s.state == api::ThreadState::Working)
+        return StatusGlyph::Running;
+    if (s.tag == api::ThreadTag::Done || s.tag == api::ThreadTag::Review ||
+        s.state == api::ThreadState::Ready)
+        return StatusGlyph::Done;
+    if (s.replies_paused) return StatusGlyph::Paused;
+    return StatusGlyph::Idle;
+}
 
-struct Mark {
-    Glyph shape = Glyph::Dot;
-    Tone tone = Tone::Calm;
+// Whether a TAB draws this status at all. An IDLE tab draws nothing -- and
+// only an idle one: a settled thread can still be Done, which wears the tick.
+// Idle is "nothing to report", which an empty gutter already says, and a mark
+// on every tab hides the ones that mean something.
+// Puffin's IconTable returns nil on `IconSurface.tab` for `idle` and `unseen`;
+// hanabi has no `unseen` glyph, so `Idle` is the whole of the rule here.
+inline bool status_shows_on_tab(StatusGlyph g) {
+    return g != StatusGlyph::Idle;
+}
 
-    bool operator==(const Mark&) const = default;
+// What the mark means, in words -- the accessible name every surface gives it.
+inline std::string_view status_label(StatusGlyph g) {
+    switch (g) {
+        case StatusGlyph::Running: return "Working";
+        case StatusGlyph::Blocked: return "Blocked";
+        case StatusGlyph::Waiting: return "Waiting on you";
+        case StatusGlyph::Done: return "Ready for review";
+        case StatusGlyph::Frozen: return "Frozen";
+        case StatusGlyph::Paused: return "Replies paused";
+        case StatusGlyph::Idle: return "Nothing to report";
+    }
+    return "";
+}
+
+// ---- Brakes, as the composer has to say them ------------------------------
+//
+// Two things stop a thread that its run's own state does not describe, and
+// they are not the same brake:
+//
+//   FROZEN  — held by the server over a containment chain. Nothing the reader
+//             does clears it and no message they send will be answered, so the
+//             composer refuses input rather than accepting a message that goes
+//             nowhere. Rides the catalog row, so the list marks it too.
+//   HALTED  — no new run will start until someone resumes it. Input is still
+//             worth taking (it queues), so this warns and does not refuse.
+//             Attach-only, so the composer is the only surface that can say it.
+//
+// `by` on either brake is the SESSION at the root of it, never a person: when
+// it names something other than this thread the brake was inherited, and the
+// line says so rather than printing an id where a name belongs.
+struct Brake {
+    bool engaged = false;
+    bool refuses_input = false;
+    std::string caption;
+
+    bool operator==(const Brake&) const = default;
 };
 
-inline Mark mark_for(const api::SessionSummary& s) {
-    // Failure first: a dead run is not a pending decision, however the row is
-    // otherwise tagged.
-    if (s.tag == api::ThreadTag::Failed)
-        return {s.state == api::ThreadState::Attention ? Glyph::Cross
-                                                       : Glyph::Dot,
-                Tone::Alert};
-    // Then anything asking for the reader. `Attention` covers the http
-    // adapter's title-derived needs-you rows, which carry no tag at all, and
-    // `Ready` covers the agentcloud adapter's agent-verified ones.
-    if (s.tag == api::ThreadTag::Blocked || s.tag == api::ThreadTag::Review ||
-        s.state == api::ThreadState::Attention ||
-        s.state == api::ThreadState::Ready)
-        return {Glyph::Bang, Tone::Live};
-    if (s.state == api::ThreadState::Running) return {Glyph::Arc, Tone::Live};
-    if (s.state == api::ThreadState::Working) return {Glyph::Dot, Tone::Live};
-    // Settled: the only case where the slot is free for the fold chevron. A
-    // childless settled row keeps the dot, so the chevron still means "this
-    // one opens" — give every settled row a chevron and a collapsed parent is
-    // indistinguishable from a leaf until you click it.
-    return {s.sub_agent_count > 0 ? Glyph::Chevron : Glyph::Dot, Tone::Calm};
+inline Brake brake_for(const std::string& id, const api::SessionSummary* sum,
+                       const api::Session* open) {
+    // `by` is a SESSION ID, never a person and never a name -- so it is not
+    // printed. What the reader needs from it is one bit: is this thread's own
+    // brake, or one it inherited.
+    const auto line = [&](const std::string& head, const std::string& by,
+                          const std::string& reason,
+                          const std::string& fallback) {
+        std::string out = head;
+        if (!by.empty() && by != id) out += " by an ancestor thread";
+        const std::string& tail = reason.empty() ? fallback : reason;
+        if (!tail.empty()) out += " \xe2\x80\x94 " + tail;
+        return out;
+    };
+    // Frozen first: it is the stronger of the two and the one that changes
+    // what the composer will accept. A thread carrying both says the stronger.
+    if (sum != nullptr && sum->frozen)
+        return {true, true,
+                line("Frozen", sum->frozen_by, sum->frozen_reason, "")};
+    if (open != nullptr && open->halt_engaged())
+        return {true, false,
+                line("Halted", open->halted_by, open->halted_reason,
+                     "no run will start until it is resumed")};
+    return {};
 }
 
 // ---- Sub-agent count, as the row draws it ---------------------------------
@@ -146,7 +175,13 @@ inline bool in_blocked_view(const api::SessionSummary& s) {
     // == .blocked || kind == .failed }` in `HomeSessionList.swift` — and the
     // reference's Blocked badge counts six, which is only true if the two
     // failed rows are in it.
-    return s.tag == api::ThreadTag::Blocked || s.tag == api::ThreadTag::Failed;
+    //
+    // Waiting rides here too, and it MUST: before the mark told the two
+    // apart, a `waiting` thread was tagged Blocked and counted here. Splitting
+    // the tag without this line would quietly drop those threads out of the
+    // only view that collects the ones needing an answer.
+    return s.tag == api::ThreadTag::Blocked ||
+           s.tag == api::ThreadTag::Waiting || s.tag == api::ThreadTag::Failed;
 }
 inline bool in_review_view(const api::SessionSummary& s) {
     return s.state == api::ThreadState::Ready;  // agent-verified
@@ -157,7 +192,14 @@ inline bool in_starred_view(const api::SessionSummary& s) {
 // Archived-ness as the whole app should ask it: the user's machine-local
 // overlay when they have expressed one, the backend's own state otherwise.
 inline bool is_archived(const api::SessionSummary& s) {
-    return s.archive_override.value_or(s.state == api::ThreadState::Archived);
+    // The server's own stamp counts as archived-ness the same way the state
+    // word does, which is what makes a thread archived from the web or from
+    // another Mac read as archived here. The local override still wins when
+    // the user has expressed one -- it is the only thing that can say NOT
+    // archived about a row the server has stamped, so Unarchive still means
+    // something.
+    return s.archive_override.value_or(s.state == api::ThreadState::Archived ||
+                                       s.server_archived_at_ms > 0);
 }
 inline bool in_archived_view(const api::SessionSummary& s) {
     return is_archived(s);

@@ -12,6 +12,7 @@
 
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
+#include "../../src/ecs/thread_model.h"
 #include "../../vendor/nlohmann/json.hpp"
 
 static int g_failures = 0;
@@ -895,6 +896,202 @@ static void test_fork_wire_contract_and_child_catalog() {
     }
 }
 
+// A thread WAITING for an answer and a thread whose run is BLOCKED are two
+// different asks, and hanabi used to tag them both Blocked. The split is the
+// point of the mark, so it is pinned here rather than only where it is drawn.
+static void test_waiting_is_not_blocked() {
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"waiting","last_seq":2,"status":{"state":"waiting"}},
+      {"session_id":"blocked","last_seq":1,"status":{"state":"blocked"}},
+      {"session_id":"asked","last_seq":0,
+       "status":{"state":"waiting","attention":"review"}}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 3);
+    CHECK(out[0].tag == ThreadTag::Waiting);
+    CHECK(out[1].tag == ThreadTag::Blocked);
+    // An explicit review ask still outranks the plain wait: it says which KIND
+    // of answer is owed, which is more than "waiting" does.
+    CHECK(out[2].tag == ThreadTag::Review);
+    // Both still want the reader.
+    CHECK(out[0].state == ThreadState::Attention);
+    CHECK(out[1].state == ThreadState::Attention);
+}
+
+// The three brakes/stamps the CATALOG ROW carries. They ride the row rather
+// than an attach, which is the whole reason the list can mark them.
+static void test_row_carries_the_server_brakes() {
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"ice","last_seq":3,"running":true,
+       "frozen":{"by":"root7","reason":"canary owner is reviewing"}},
+      {"session_id":"filed","last_seq":1,"archived_at_unix_ms":1781520000000},
+      {"session_id":"plain","last_seq":0}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 3);
+    CHECK(out[0].frozen);
+    CHECK(out[0].frozen_by == "root7");
+    CHECK(out[0].frozen_reason == "canary owner is reviewing");
+    // A frozen thread can be running at the same time; the freeze does not
+    // overwrite what the run is doing, it sits on top of it.
+    CHECK(out[0].state == ThreadState::Running);
+    CHECK(out[1].server_archived_at_ms == 1781520000000LL);
+    // Absent everywhere means absent, not defaulted-on.
+    CHECK(!out[2].frozen);
+    CHECK(out[2].server_archived_at_ms == 0);
+    CHECK(out[2].frozen_by.empty());
+}
+
+// The brakes an ATTACH carries. `channel_replies_paused` is a `WireState` key
+// with no summary-row equivalent, so this is the only path that can learn it:
+// a row-shaped fixture would pass while the real client saw nothing.
+static void test_attach_state_carries_the_brakes() {
+    api::Session s;
+    api::agentcloud::parse_session_brakes(
+        R"({"type":"hello","state":{"channel_replies_paused":true,
+            "halted":true,
+            "halted_by":{"by":"root9","reason":"parent halted the subtree"}}})",
+        s);
+    CHECK(s.summary.replies_paused);
+    CHECK(s.halted);
+    CHECK(s.halt_engaged());
+    CHECK(s.halted_by == "root9");
+    CHECK(s.halted_reason == "parent halted the subtree");
+
+    // Both are skip-if-false, and both REPLACE: a re-attach after the brakes
+    // were lifted sends neither key, and neither may survive it.
+    api::agentcloud::parse_session_brakes(R"({"type":"hello","state":{}})", s);
+    CHECK(!s.summary.replies_paused);
+    CHECK(!s.halted);
+    CHECK(!s.halt_engaged());
+    CHECK(s.halted_by.empty());
+    CHECK(s.halted_reason.empty());
+
+    // Paused alone, which is the ordinary case: a live thread that will not
+    // answer is not a halted one.
+    api::agentcloud::parse_session_brakes(
+        R"({"type":"hello","state":{"channel_replies_paused":true}})", s);
+    CHECK(s.summary.replies_paused);
+    CHECK(!s.halted);
+
+    // Explicit false clears, and unreadable input changes nothing.
+    api::agentcloud::parse_session_brakes(
+        R"({"type":"hello","state":{"channel_replies_paused":false,
+            "halted":false}})",
+        s);
+    CHECK(!s.summary.replies_paused);
+    s.summary.replies_paused = true;
+    s.halted = true;
+    api::agentcloud::parse_session_brakes("{not json", s);
+    CHECK(s.summary.replies_paused);
+    CHECK(s.halted);
+}
+
+// A DESCENDANT of a halted session: `halted` is its own journal-folded flag
+// and stays false, while `halted_by` is the containment the server derived
+// over the ancestor chain. The two are separate facts -- the wire's own doc
+// calls halted_by "distinct from `halted`" -- so reading the containment only
+// when the own flag is set leaves the descendant unbraked, which is a thread
+// that will start no run while the composer says everything is fine.
+static void test_containment_engages_without_the_own_flag() {
+    api::Session s;
+    api::agentcloud::parse_session_brakes(
+        R"({"type":"hello","state":{"halted":false,
+            "halted_by":{"by":"root9","reason":"the parent halted the whole subtree"}}})",
+        s);
+    CHECK(!s.halted);
+    CHECK(s.halt_contained);
+    CHECK(s.halt_engaged());
+    CHECK(s.halted_by == "root9");
+
+    // The brake the composer reads engages on it, and warns rather than
+    // refusing -- input still queues against the resume.
+    const ecs::model::Brake b = ecs::model::brake_for("child1", nullptr, &s);
+    CHECK(b.engaged);
+    CHECK(!b.refuses_input);
+    CHECK(b.caption ==
+          "Halted by an ancestor thread \xe2\x80\x94 the parent halted the "
+          "whole subtree");
+
+    // `halted_by` is cleared by ABSENCE alone. An own-halt with no containment
+    // is the other half of the pair and still engages.
+    api::agentcloud::parse_session_brakes(
+        R"({"type":"hello","state":{"halted":true}})", s);
+    CHECK(s.halted);
+    CHECK(!s.halt_contained);
+    CHECK(s.halt_engaged());
+    CHECK(s.halted_by.empty());
+    CHECK(ecs::model::brake_for("s", nullptr, &s).caption ==
+          "Halted \xe2\x80\x94 no run will start until it is resumed");
+
+    // Neither key: nothing engaged.
+    api::agentcloud::parse_session_brakes(R"({"type":"hello","state":{}})", s);
+    CHECK(!s.halt_engaged());
+    CHECK(!ecs::model::brake_for("s", nullptr, &s).engaged);
+}
+
+// A freeze FAILS CLOSED: the object's presence is the brake, and `by`/`reason`
+// are display metadata. A malformed one that read as unfrozen would let the
+// composer take a message nothing will ever answer.
+static void test_a_malformed_freeze_still_freezes() {
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"empty","last_seq":4,"frozen":{}},
+      {"session_id":"noby","last_seq":3,"frozen":{"reason":"x"}},
+      {"session_id":"full","last_seq":2,
+       "frozen":{"by":"root7","reason":"canary owner is reviewing"}},
+      {"session_id":"none","last_seq":1},
+      {"session_id":"null","last_seq":0,"frozen":null}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 5);
+    CHECK(out[0].frozen);
+    CHECK(out[0].frozen_by.empty());
+    CHECK(out[1].frozen);
+    CHECK(out[1].frozen_reason == "x");
+    CHECK(out[2].frozen);
+    CHECK(out[2].frozen_by == "root7");
+    // Absence, and only absence, means unfrozen.
+    CHECK(!out[3].frozen);
+    CHECK(!out[4].frozen);
+    // A freeze with no prose still refuses the composer.
+    CHECK(ecs::model::brake_for("empty", &out[0], nullptr).refuses_input);
+    CHECK(ecs::model::brake_for("empty", &out[0], nullptr).caption == "Frozen");
+    CHECK(ecs::model::status_glyph(out[0]) == ecs::model::StatusGlyph::Frozen);
+}
+
+// The attach greeting carries `frozen` too. Without reading it there, a freeze
+// that lands after the last catalog poll leaves the composer open until the
+// next refresh -- the window in which the reader types into a dead thread.
+static void test_attach_state_carries_the_freeze() {
+    api::Session s;
+    api::agentcloud::parse_session_brakes(
+        R"({"type":"hello","state":{"frozen":{"by":"root7","reason":"under review"}}})",
+        s);
+    CHECK(s.summary.frozen);
+    CHECK(s.summary.frozen_by == "root7");
+    CHECK(s.summary.frozen_reason == "under review");
+    CHECK(ecs::model::brake_for("s", &s.summary, &s).refuses_input);
+
+    // REPLACE, like every other key in the bag: a re-attach after the thaw
+    // omits it, and the brake must lift rather than persist.
+    api::agentcloud::parse_session_brakes(R"({"type":"hello","state":{}})", s);
+    CHECK(!s.summary.frozen);
+    CHECK(s.summary.frozen_by.empty());
+    CHECK(!ecs::model::brake_for("s", &s.summary, &s).engaged);
+}
+
+// The row carries the OTHER two and not this one. A `channel_replies_paused`
+// on a summary row is not a thing the server sends, and reading one would be
+// a field that is always false pretending to be a feature.
+static void test_the_row_does_not_carry_paused() {
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"quiet","last_seq":2,"channel_replies_paused":true}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 1);
+    CHECK(!out[0].replies_paused);
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -911,6 +1108,13 @@ int main() {
     test_a_childless_row_carries_no_count();
     test_an_orphan_child_is_still_not_a_root_row();
     test_status_bag_drives_attention();
+    test_waiting_is_not_blocked();
+    test_row_carries_the_server_brakes();
+    test_attach_state_carries_the_brakes();
+    test_the_row_does_not_carry_paused();
+    test_containment_engages_without_the_own_flag();
+    test_a_malformed_freeze_still_freezes();
+    test_attach_state_carries_the_freeze();
     test_falls_back_to_coarse_status_without_the_bag();
     test_unreadable_input_is_empty_not_a_crash();
     test_workspace_becomes_the_folder();

@@ -5,6 +5,7 @@
 
 #include "../../src/api/http_client.h"
 #include "../../src/api/mock_client.h"
+#include "../../src/ecs/thread_model.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -164,10 +165,12 @@ static void test_attention_state_field() {
         return s;
     };
 
-    // needs_user is trusted outright — even for a calm-sounding title.
+    // needs_user is trusted outright — even for a calm-sounding title. The
+    // field's own name says an answer is awaited, so it reads as Waiting.
     auto blocked = derive(R"({"attentionState":"needs_user"})", "just a title");
     CHECK(blocked.state == api::ThreadState::Attention);
-    CHECK(blocked.tag == api::ThreadTag::Blocked);
+    CHECK(blocked.tag == api::ThreadTag::Waiting);
+    CHECK(ecs::model::in_blocked_view(blocked));
 
     // running is trusted outright — even when the title screams "waiting".
     auto running = derive(R"({"attentionState":"running"})", "waiting on you");
@@ -184,7 +187,19 @@ static void test_attention_state_field() {
     // get their say on a parked thread.
     auto parked = derive(R"({"attentionState":"done"})", "[P] needs my call");
     CHECK(parked.state == api::ThreadState::Attention);
-    CHECK(parked.tag == api::ThreadTag::Blocked);
+    CHECK(parked.tag == api::ThreadTag::Waiting);
+
+    // The title heuristic tells the two asks apart the same way the agentcloud
+    // adapter does: a run that STOPPED is Blocked, an answer awaited is
+    // Waiting, and both still ride the Blocked view.
+    auto stopped = derive(R"({})", "blocked on the migration");
+    CHECK(stopped.state == api::ThreadState::Attention);
+    CHECK(stopped.tag == api::ThreadTag::Blocked);
+    auto asked = derive(R"({})", "awaiting your call");
+    CHECK(asked.state == api::ThreadState::Attention);
+    CHECK(asked.tag == api::ThreadTag::Waiting);
+    CHECK(ecs::model::in_blocked_view(stopped));
+    CHECK(ecs::model::in_blocked_view(asked));
 
     // An unrecognised value is treated like an absent one (forward-compatible).
     auto future = derive(R"({"attentionState":"needs_robot"})", "shipped it");
@@ -210,7 +225,7 @@ static void test_attention_state_field() {
     auto e = nlohmann::json::parse(R"({"triage":"on_user"})");
     api::derive_state(s, e, renamed);
     CHECK(s.state == api::ThreadState::Attention);
-    CHECK(s.tag == api::ThreadTag::Blocked);
+    CHECK(s.tag == api::ThreadTag::Waiting);
 }
 
 int main() {

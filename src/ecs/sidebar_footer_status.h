@@ -21,10 +21,11 @@
 // in words on the macOS menu bar whether or not the window is on screen.
 //
 // And the duplicate had already drifted. The strip counted `tag == Blocked`
-// and said 3; the badge counts `ecs::model::in_blocked_view` -- Blocked OR
-// Failed, Puffin's own `case .blocked` rule, the one the reference's badge of
-// six confirms -- and said 6. Two numbers for one fact, one frame, 800px
-// apart. Full argument: docs/visual-parity/REFERENCE.md, "The status bar".
+// and said 3; the badge counts `ecs::model::in_blocked_view` -- Blocked,
+// Waiting OR Failed, Puffin's own `case .blocked` rule, the one the
+// reference's badge of six confirms -- and said 6. Two numbers for one fact,
+// one frame, 800px apart. Full argument: docs/visual-parity/REFERENCE.md,
+// "The status bar".
 
 #include <cstdlib>
 #include <string>

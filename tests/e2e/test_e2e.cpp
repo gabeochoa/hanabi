@@ -113,99 +113,25 @@ static void test_state_model_and_glyphs() {
     CHECK(!is_attention(ThreadState::Archived));
     CHECK(!is_attention(ThreadState::Unknown));
 
-    // The mark rule, in precedence order. THE RUN OWNS THE SLOT: failure, then
-    // anything asking for the reader, then the live run, then the last word a
-    // finished run left, and only a thread with nothing to say gives the slot
-    // to its fold chevron. Mirrors Puffin (Views/TabStatus.swift's "a live
-    // status always wins ... only idle reaches for the thread's own colour",
-    // and SessionRowView's chevron-only-when-childCount>0), verified glyph by
-    // glyph against docs/visual-parity/ref/01_home.png.
-
-    // A testified failure is a cross; the same failure with nothing testified
-    // is the weaker shape, and both are alert-toned.
-    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Failed)) ==
-           Mark{Glyph::Cross, Tone::Alert}));
-    CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::Failed)) ==
-           Mark{Glyph::Dot, Tone::Alert}));
-    // Failure outranks every other reading of the row.
-    CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::Failed)) ==
-           Mark{Glyph::Dot, Tone::Alert}));
-
-    // Wants-you is ONE mark, whether it is blocked on a decision or waiting to
-    // be read: the reference draws all six of its waiting rows the same bang.
-    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Blocked)) ==
-           Mark{Glyph::Bang, Tone::Live}));
-    CHECK((mark_for(mk_sum(ThreadState::Ready, ThreadTag::Review)) ==
-           Mark{Glyph::Bang, Tone::Live}));
-    // Done-but-unlooked-at ("finished since you looked") is still an ask.
-    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::Done)) ==
-           Mark{Glyph::Bang, Tone::Live}));
-    // Bare attention / bare ready, the shapes the http adapter produces.
-    CHECK((mark_for(mk_sum(ThreadState::Attention, ThreadTag::None)) ==
-           Mark{Glyph::Bang, Tone::Live}));
-    CHECK((mark_for(mk_sum(ThreadState::Ready, ThreadTag::None)) ==
-           Mark{Glyph::Bang, Tone::Live}));
-    // A blocked tag wins over a live run: the run does not stop the ask.
-    CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::Blocked)) ==
-           Mark{Glyph::Bang, Tone::Live}));
-
-    // A live run spins. Testimony that merely SAYS working does not: the run
-    // has ended, and a spinner on it would be a lie about the present tense.
-    CHECK((mark_for(mk_sum(ThreadState::Running, ThreadTag::None)) ==
-           Mark{Glyph::Arc, Tone::Live}));
-    CHECK((mark_for(mk_sum(ThreadState::Working, ThreadTag::None)) ==
-           Mark{Glyph::Dot, Tone::Live}));
-
-    // Settled: a calm dot, and a calm CHEVRON when there is a subtree to open.
-    CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::None)) ==
-           Mark{Glyph::Dot, Tone::Calm}));
-    CHECK((mark_for(mk_sum(ThreadState::Unknown, ThreadTag::Done)) ==
-           Mark{Glyph::Dot, Tone::Calm}));
-    CHECK((mark_for(mk_sum(ThreadState::Parked, ThreadTag::None)) ==
-           Mark{Glyph::Dot, Tone::Calm}));
-    CHECK((mark_for(mk_sum(ThreadState::Archived, ThreadTag::None)) ==
-           Mark{Glyph::Dot, Tone::Calm}));
-    {
-        auto parent = mk_sum(ThreadState::Unknown, ThreadTag::None);
-        parent.sub_agent_count = 1;
-        CHECK((mark_for(parent) == Mark{Glyph::Chevron, Tone::Calm}));
-        // ...but only while the run has nothing to say. A parent that is
-        // running keeps the spinner; the chevron never outranks a status.
-        auto busy = parent;
-        busy.state = ThreadState::Running;
-        CHECK((mark_for(busy) == Mark{Glyph::Arc, Tone::Live}));
-        auto asking = parent;
-        asking.tag = ThreadTag::Blocked;
-        CHECK((mark_for(asking) == Mark{Glyph::Bang, Tone::Live}));
-    }
-
-    // The mock's own rows, which are a copy of the reference's twenty: each of
-    // these is the row the capture draws that mark on.
+    // The mock's own rows, which are a copy of the reference's twenty: each
+    // of these is the row the capture draws that mark on. Asserted through
+    // `status_glyph`, the one vocabulary every surface reads.
     api::MockClient mm;
     auto r = mm.list_sessions();
     CHECK(r.ok);
+    using SG = StatusGlyph;
     for (const auto& s : r.value) {
-        if (s.id == "t1")  // "stickers broke" — blocked
-            CHECK((mark_for(s) == Mark{Glyph::Bang, Tone::Live}));
-        if (s.id == "r7")  // "two shards died" — the run died
-            CHECK((mark_for(s) == Mark{Glyph::Cross, Tone::Alert}));
-        if (s.id == "r9")  // "banyan diff gate" — failed, nothing testified
-            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Alert}));
-        if (s.id == "t4")  // "finished, and wants you to read it"
-            CHECK((mark_for(s) == Mark{Glyph::Bang, Tone::Live}));
-        if (s.id == "t3")  // "style guide written" — settled, no children
-            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Calm}));
-        if (s.id == "r5")  // "profiling the disk" — a live run
-            CHECK((mark_for(s) == Mark{Glyph::Arc, Tone::Live}));
-        if (s.id == "t9")  // "kicker-tick" — a live run like any other, and
-                           // NOT de-emphasized for the shape of its title
-            CHECK((mark_for(s) == Mark{Glyph::Arc, Tone::Live}));
-        if (s.id == "t6")  // "SKU backfill" — working, no live run
-            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Live}));
-        if (s.id == "t10")  // "parent — nothing to report" — settled, 1 child
-            CHECK((mark_for(s) == Mark{Glyph::Chevron, Tone::Calm}));
-        if (s.id == "r11")  // "PSC daily post generator" — settled leaf
-            CHECK((mark_for(s) == Mark{Glyph::Dot, Tone::Calm}));
+        if (s.id == "t1") CHECK(status_glyph(s) == SG::Blocked);
+        if (s.id == "r7") CHECK(status_glyph(s) == SG::Blocked);
+        if (s.id == "r9") CHECK(status_glyph(s) == SG::Blocked);
+        if (s.id == "t4") CHECK(status_glyph(s) == SG::Done);
+        if (s.id == "t3") CHECK(status_glyph(s) == SG::Done);
+        if (s.id == "r5") CHECK(status_glyph(s) == SG::Running);
+        // A live run like any other, NOT de-emphasized for its title's shape.
+        if (s.id == "t9") CHECK(status_glyph(s) == SG::Running);
+        if (s.id == "t6") CHECK(status_glyph(s) == SG::Running);
+        if (s.id == "t10") CHECK(status_glyph(s) == SG::Idle);
+        if (s.id == "r11") CHECK(status_glyph(s) == SG::Idle);
     }
 }
 
@@ -213,6 +139,143 @@ static void test_state_model_and_glyphs() {
 // 3) Smart-view filtering: Blocked = tag==Blocked; Review = state==Ready
 //    (agent-verified); Starred = starred. Counts match, over the real mock.
 // ---------------------------------------------------------------------------
+// The status vocabulary BOTH surfaces read. It is one function precisely so a
+// tab and its sidebar row cannot disagree about the same thread, and the three
+// meanings the wire grew are the ones this pins down.
+static void test_status_glyph_is_one_vocabulary() {
+    std::printf("test_status_glyph_is_one_vocabulary\n");
+    using namespace ecs::model;
+    using api::ThreadState;
+    using api::ThreadTag;
+    using SG = StatusGlyph;
+
+    // The four that were already shipped are UNCHANGED -- this wave adds
+    // meanings, it does not reopen the four-glyph reduction.
+    CHECK(status_glyph(mk_sum(ThreadState::Attention, ThreadTag::Blocked)) ==
+          SG::Blocked);
+    CHECK(status_glyph(mk_sum(ThreadState::Attention, ThreadTag::Failed)) ==
+          SG::Blocked);
+    CHECK(status_glyph(mk_sum(ThreadState::Running, ThreadTag::None)) ==
+          SG::Running);
+    CHECK(status_glyph(mk_sum(ThreadState::Working, ThreadTag::None)) ==
+          SG::Running);
+    CHECK(status_glyph(mk_sum(ThreadState::Ready, ThreadTag::Review)) ==
+          SG::Done);
+    CHECK(status_glyph(mk_sum(ThreadState::Unknown, ThreadTag::None)) ==
+          SG::Idle);
+
+    // Waiting is its own mark now, and it must not be caught by the Attention
+    // catch-all that used to swallow it.
+    CHECK(status_glyph(mk_sum(ThreadState::Attention, ThreadTag::Waiting)) ==
+          SG::Waiting);
+
+    // A freeze outranks everything, including a live run: nothing the reader
+    // does clears it, so it is the most useful thing the row can say.
+    api::SessionSummary frozen = mk_sum(ThreadState::Running, ThreadTag::None);
+    frozen.frozen = true;
+    CHECK(status_glyph(frozen) == SG::Frozen);
+    api::SessionSummary frozenBlocked =
+        mk_sum(ThreadState::Attention, ThreadTag::Blocked);
+    frozenBlocked.frozen = true;
+    CHECK(status_glyph(frozenBlocked) == SG::Frozen);
+
+    // A pause is the quietest thing on the row: it says something only when
+    // there is nothing louder to say.
+    api::SessionSummary paused = mk_sum(ThreadState::Unknown, ThreadTag::None);
+    paused.replies_paused = true;
+    CHECK(status_glyph(paused) == SG::Paused);
+    api::SessionSummary pausedBlocked =
+        mk_sum(ThreadState::Attention, ThreadTag::Blocked);
+    pausedBlocked.replies_paused = true;
+    CHECK(status_glyph(pausedBlocked) == SG::Blocked);
+
+    // A tab draws every status EXCEPT the settled one: an empty gutter already
+    // says "nothing to report", and a dot on every tab hides the three that
+    // mean something.
+    CHECK(!status_shows_on_tab(SG::Idle));
+    CHECK(status_shows_on_tab(SG::Frozen));
+    CHECK(status_shows_on_tab(SG::Paused));
+    CHECK(status_shows_on_tab(SG::Waiting));
+    CHECK(status_shows_on_tab(SG::Blocked));
+    CHECK(status_shows_on_tab(SG::Running));
+    CHECK(status_shows_on_tab(SG::Done));
+
+    // Blocked and Waiting share a SHAPE and differ in what they say, which is
+    // the distinction the tab bar exists to draw.
+    CHECK(status_label(SG::Blocked) == "Blocked");
+    CHECK(status_label(SG::Waiting) == "Waiting on you");
+}
+
+// The composer's brake. Frozen refuses input; halted only warns.
+static void test_brake_refuses_only_what_it_must() {
+    std::printf("test_brake_refuses_only_what_it_must\n");
+    using namespace ecs::model;
+
+    CHECK(!brake_for("s1", nullptr, nullptr).engaged);
+
+    api::SessionSummary sum;
+    sum.id = "s1";
+    api::Session open;
+    CHECK(!brake_for("s1", &sum, &open).engaged);
+
+    // A freeze this thread owns names no session; one it inherited does.
+    sum.frozen = true;
+    sum.frozen_by = "s1";
+    sum.frozen_reason = "canary owner is reviewing";
+    Brake own = brake_for("s1", &sum, &open);
+    CHECK(own.engaged);
+    CHECK(own.refuses_input);
+    CHECK(own.caption == "Frozen \xe2\x80\x94 canary owner is reviewing");
+
+    // An inherited brake says so WITHOUT naming the session: `by` is an id,
+    // and an id is not a name.
+    sum.frozen_by = "root7";
+    CHECK(brake_for("s1", &sum, &open).caption ==
+          "Frozen by an ancestor thread \xe2\x80\x94 canary owner is reviewing");
+
+    // A halt takes input -- it queues against a resume -- so it warns only.
+    sum.frozen = false;
+    sum.frozen_by.clear();
+    sum.frozen_reason.clear();
+    open.halted = true;
+    Brake halt = brake_for("s1", &sum, &open);
+    CHECK(halt.engaged);
+    CHECK(!halt.refuses_input);
+    CHECK(halt.caption ==
+          "Halted \xe2\x80\x94 no run will start until it is resumed");
+    open.halted_by = "root9";
+    open.halted_reason = "the parent halted the whole subtree";
+    CHECK(brake_for("s1", &sum, &open).caption ==
+          "Halted by an ancestor thread \xe2\x80\x94 the parent halted the "
+          "whole subtree");
+
+    // Both at once says the stronger one, because it is the one that changes
+    // what the composer will accept.
+    sum.frozen = true;
+    CHECK(brake_for("s1", &sum, &open).refuses_input);
+    CHECK(brake_for("s1", &sum, &open).caption == "Frozen");
+}
+
+// A thread archived from the web or another Mac reads as archived here -- and
+// this Mac can still say otherwise, or Unarchive would mean nothing.
+static void test_server_archive_stamp_is_adopted() {
+    std::printf("test_server_archive_stamp_is_adopted\n");
+    using namespace ecs::model;
+
+    api::SessionSummary s;
+    CHECK(!is_archived(s));
+    s.server_archived_at_ms = 1781520000000LL;
+    CHECK(is_archived(s));
+    CHECK(in_archived_view(s));
+    // The local answer still wins both ways.
+    s.archive_override = false;
+    CHECK(!is_archived(s));
+    s.archive_override.reset();
+    s.server_archived_at_ms = 0;
+    s.archive_override = true;
+    CHECK(is_archived(s));
+}
+
 static void test_smart_view_filters() {
     std::printf("test_smart_view_filters\n");
     using namespace ecs::model;
@@ -1090,10 +1153,9 @@ static void test_backend_agnostic_defaults() {
     CHECK(def.tag == api::ThreadTag::None);
     CHECK(!def.starred);
     CHECK(def.folder.empty());
-    // And it draws the settled leaf's calm dot — every row has a mark, so
-    // "nothing to report" is a mark too, never a blank slot.
-    CHECK((ecs::model::mark_for(def) ==
-           ecs::model::Mark{ecs::model::Glyph::Dot, ecs::model::Tone::Calm}));
+    // And it draws the settled mark — every row has one, so "nothing to
+    // report" is a mark too, never a blank slot.
+    CHECK(ecs::model::status_glyph(def) == ecs::model::StatusGlyph::Idle);
 }
 
 // ---------------------------------------------------------------------------
@@ -1750,6 +1812,9 @@ int main() {
     std::printf("=== test_e2e ===\n");
     test_list_loads_sorted_and_has_samples();
     test_state_model_and_glyphs();
+    test_status_glyph_is_one_vocabulary();
+    test_brake_refuses_only_what_it_must();
+    test_server_archive_stamp_is_adopted();
     test_smart_view_filters();
     test_tab_open_focus_no_duplicate();
     test_tab_preview_keeps_one_slot();

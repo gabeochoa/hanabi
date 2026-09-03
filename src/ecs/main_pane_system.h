@@ -1222,6 +1222,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static const char* tag_label(api::ThreadTag t) {        switch (t) {
             case api::ThreadTag::Blocked: return "BLOCKED";
+            case api::ThreadTag::Waiting: return "WAITING";
             case api::ThreadTag::Review: return "REVIEW";
             case api::ThreadTag::Done: return "DONE";
             case api::ThreadTag::Failed: return "FAILED";
@@ -1230,6 +1231,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }    static theme::Color tag_fg(api::ThreadTag t) {
         switch (t) {
             case api::ThreadTag::Blocked: return theme::tag_blocked_fg();
+            // The same green the row's Waiting mark uses, so the chip and the
+            // mark agree about which kind of wanting this is.
+            case api::ThreadTag::Waiting: return theme::tag_ready_fg();
             case api::ThreadTag::Review: return theme::tag_ready_fg();
             case api::ThreadTag::Done: return theme::tag_done_fg();
             case api::ThreadTag::Failed: return theme::destructive();
@@ -1245,6 +1249,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         switch (t) {
             case api::ThreadTag::Blocked:
                 return theme::over(theme::tag_blocked_bg(), surface);
+            case api::ThreadTag::Waiting:
+                return theme::over(theme::tag_ready_bg(), surface);
             case api::ThreadTag::Review:
                 return theme::over(theme::tag_ready_bg(), surface);
             case api::ThreadTag::Done:
@@ -4648,6 +4654,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool canSend = app.client && app.client->supports_send();
         const bool canStream = app.client && app.client->supports_stream();
         const std::string& openId = draftKey;  // same value: the open thread id
+        // A brake the SERVER holds. Frozen refuses input outright -- a message
+        // typed into a frozen thread is never answered -- and halted only
+        // warns, because input still queues against a resume.
+        const ecs::model::Brake brake = ecs::model::brake_for(
+            openId, app.find_summary(openId),
+            app.pane().openSession ? &*app.pane().openSession : nullptr);
 
         // Enter parked its text here (see the listener at the bottom of this
         // function). Route it the same way the Send button does, with the mode
@@ -4663,7 +4675,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the field is emptied HERE, on the decision, instead of by the
         // listener that merely saw the key.
         bool clearFieldAfterSubmit = false;
-        if (!app.composerSubmit.empty()) {
+        if (!app.composerSubmit.empty() && brake.refuses_input) {
+            // The keystroke path reaches the backend without consulting the
+            // Send button's own enablement, so the brake has to be applied
+            // here as well -- and the draft is LEFT WHERE IT IS. Clearing the
+            // field for a send that was never made loses what the reader
+            // typed, which is worse than the send they cannot make.
+            app.composerSubmit.clear();
+            app.composerSubmitWithCmd = false;
+        } else if (!app.composerSubmit.empty()) {
             const std::string text = std::move(app.composerSubmit);
             const bool withCmd = app.composerSubmitWithCmd;
             app.composerSubmit.clear();
@@ -4697,7 +4717,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (create_session shares the chat_path) and no in-flight kickoff.
         const bool sendEnabled =
             kickoff ? (canSend && hasText && !app.kickoffPending)
-                    : (canSend && hasText);
+                    : (canSend && hasText && !brake.refuses_input);
 
         // Center the composer's CONTENT under the reading column. Two numbers,
         // not one, because Puffin's composer is a column inside a column: the
@@ -4984,7 +5004,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
         }
         std::string caption;
-        if (!app.slashNotice.empty())
+        // A brake outranks the slash notice: the notice is a transient answer
+        // to something the reader just typed, and the brake is the reason the
+        // thing they typed will not be answered at all.
+        if (brake.engaged)
+            caption = brake.caption;
+        else if (!app.slashNotice.empty())
             caption = app.slashNotice;
         else if (!canSend)
             caption =
@@ -5096,7 +5121,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{children(), pixels(16)})
                     .with_margin(Margin{.left = pixels(10)})
                     .with_transparent_bg()
-                    .with_custom_text_color(theme::text_faint())
+                    // A brake reads at the secondary weight, not the faint
+                    // one every other caption uses: the faint token is for
+                    // hints the reader may ignore, and this is the reason
+                    // their message will not be answered.
+                    .with_custom_text_color(brake.engaged
+                                                ? theme::text_secondary()
+                                                : theme::text_faint())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
                     .with_debug_name("composer_status"));
@@ -5215,9 +5246,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // widget owns the string and its layout. The key that sends is named
         // in words in the meter row's caption instead.
         const bool phSteer = steerMode;
-        const char* placeholder = kickoff ? "Start a new conversation\xe2\x80\xa6"
-                                  : phSteer ? "Steer the running agent\xe2\x80\xa6"
-                                            : "Message hanabi\xe2\x80\xa6";
+        // A refusing brake overrides both: "Steer the running agent" invites
+        // the reader to do the one thing a frozen thread cannot be made to do,
+        // and a frozen thread can be running, so that is the string it would
+        // otherwise draw.
+        const char* placeholder =
+            brake.refuses_input  ? "This thread is frozen"
+            : kickoff            ? "Start a new conversation\xe2\x80\xa6"
+            : phSteer            ? "Steer the running agent\xe2\x80\xa6"
+                                 : "Message hanabi\xe2\x80\xa6";
         // The FIELD inside the box is 29px, not the box's 45. Not a style
         // choice: text_input derives its inner padding from the field height
         // (pad_w = h*0.35) and overwrites whatever with_padding the caller
@@ -5783,6 +5820,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // verb and not a name -- it is "wait" -- and a 78px box of nothing-
         // to-press reads as disabled in a way a small circle does not.
         const char* sendLabel = "";
+        // A frozen thread is often a RUNNING one, so the button would draw the
+        // steer mark: an invitation to steer an agent that cannot be reached.
+        // The plain arrow, disabled, is the honest face.
+        const bool steerIcon = steerMode && !brake.refuses_input;
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary() : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
@@ -5801,7 +5842,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_corner_radius(kSendDia * 0.5f)
-                .with_on_draw_fg([steerMode, sending,
+                .with_on_draw_fg([steerIcon, sending,
                                   sendEnabled](RectangleType rr) {
                     const theme::Color ink = sendEnabled
                                                  ? theme::window_bg()
@@ -5810,7 +5851,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         afterhours::draw_ring(
                             rr.x + rr.width * 0.5f, rr.y + rr.height * 0.5f,
                             2.5f, 4.5f, 18, ink);
-                    } else if (steerMode) {
+                    } else if (steerIcon) {
                         hanabi::glyph::steer(rr, ink);
                     } else {
                         hanabi::glyph::arrow_up(rr, ink);

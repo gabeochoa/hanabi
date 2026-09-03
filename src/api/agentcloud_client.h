@@ -139,6 +139,13 @@ std::vector<Message> parse_page_frames(const std::string& msg_json);
 // whole point of the meter, and only a fixture can hold it still.
 ContextUsage parse_context_usage(const std::string& hello_json);
 
+// The brake keys on an attach greeting -> the Session.
+//
+// Exposed for the same reason parse_context_usage is: absence-means-false is
+// the whole of the contract and the only thing that can hold it still is a
+// fixture, not a socket.
+void parse_session_brakes(const std::string& hello_json, Session& out);
+
 
 //
 // Live text arrives BOTH ways, which is the trap. `block_delta{delta:"append"}`

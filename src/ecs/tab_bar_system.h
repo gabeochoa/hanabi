@@ -27,6 +27,8 @@
 #include "../ui/accessibility.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
+#include "../ui/status_mark.h"
+#include "thread_model.h"
 
 namespace ecs {
 
@@ -351,6 +353,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
             float tabW = uniformW;
             tabX = render_x(i);
+            // Whether the strip had to cut this tab short. A clipped tab keeps
+            // its × (clamped inside the edge, deliberately -- a tab you can
+            // see is a tab you can close) but gives up its status mark: the
+            // mark sits in the LEFT gutter, and on a sliver of a tab it lands
+            // beside the previous tab's chrome reading as a stray glyph rather
+            // than as that thread's status.
+            bool clipped = false;
 
             // Overflow / scroll clipping: skip tabs that are ENTIRELY outside
             // the visible strip (scrolled off either edge). For a tab that
@@ -362,7 +371,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // skipped/clamped here.
             if (!isDragged) {
                 if (tabX + tabW <= runLeft || tabX >= stripRight) continue;
-                if (tabX + tabW > stripRight) tabW = stripRight - tabX;
+                if (tabX + tabW > stripRight) {
+                    tabW = stripRight - tabX;
+                    clipped = true;
+                }
+                if (tabX < runLeft) clipped = true;
             }
 
             // The dragged tab lifts above the others (higher render layer +
@@ -408,6 +421,24 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // REFERENCE.md; invisible in both references, which capture no
             // hover.
             bool showClose = hovered || !tab.pinned;
+            // The thread's status, drawn from the same model and the same ink
+            // the sidebar row uses -- a tab that disagreed with the row about
+            // the same thread would be a question the reader cannot settle.
+            //
+            // An IDLE tab draws nothing (`status_shows_on_tab`) -- and only
+            // an idle one: a thread that is merely settled can still be Done,
+            // which wears the tick. Idle is "nothing to report", which an
+            // empty gutter already says, and a mark on every tab would hide
+            // the ones that mean something.
+            const api::SessionSummary* statusOf =
+                app.find_summary(tab.sessionId);
+            const ecs::model::StatusGlyph status =
+                statusOf != nullptr ? ecs::model::status_glyph(*statusOf)
+                                    : ecs::model::StatusGlyph::Idle;
+            const bool showStatus =
+                statusOf != nullptr && !clipped &&
+                ecs::model::status_shows_on_tab(status);
+            constexpr float kStatusSlotPx = 14.0f;
             // A pinned tab spends its left gutter on the pin, so the title
             // starts further in. Both numbers are measured off the reference:
             // pin at left+12, title at left+26 (left+12 when unpinned).
@@ -419,7 +450,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // measured rather than conceded -- see FRICTION_LOG.md,
             // `## The tab strip, round four`. Moving both to Puffin's own
             // constants took 01 2.81% -> 2.82% and 02 1.91% -> 1.97%.
-            const float padL = (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx;
+            const float padL = (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx +
+                               (showStatus ? kStatusSlotPx : 0.0f);
             // Ellipsize the title to the room the tab actually has: ~7px/char
             // at ROW size, minus left pad + (× reserve when shown).
             float rightReserve =
@@ -432,6 +464,17 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const std::string& fullLabel = model::refresh_tab_label(app, tab);
             const std::string& tabAccessible =
                 model::tab_accessible_label(tab, isActive);
+            // A sliver of a clipped tab has room for no real character, and
+            // `ellipsize` to a budget of one returns the ellipsis alone -- so
+            // the strip drew a 3px dash floating in the gap past the last
+            // whole tab, which reads as a rendering fault rather than as a
+            // truncated title. Below two characters the label is dropped: the
+            // tab's fill and its × still say a tab is there.
+            constexpr float kMinLabelRoomPx = 14.0f;
+            const std::string labelText =
+                textRoom < kMinLabelRoomPx
+                    ? std::string()
+                    : fmtutil::ellipsize(fullLabel, labelBudget);
 
             auto tabBtn = button(
                 ctx, mk(uiRoot, 910 + static_cast<int>(i)),
@@ -467,7 +510,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // pushing the glyphs low (same recipe as the sidebar chat rows).
             div(ctx, mk(tabBtn.ent(), 1),
                 ComponentConfig{}
-                    .with_label(fmtutil::ellipsize(fullLabel, labelBudget))
+                    .with_label(labelText)
                     .with_size(ComponentSize{
                         percent(1.0f), pixels(tabH - tab_colors::kRasterGrow)})
                     .with_transparent_bg()
@@ -533,6 +576,38 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             })
                             .with_debug_name("tab_pin"));
                 hanabi::a11y::set_name(pin.ent(), "Pinned tab");
+            }
+
+            // The status mark, in the gutter after the pin. Same slot size and
+            // same renderer as the sidebar's row glyph; `bg` is passed because
+            // the bang composites its own fringe against what it sits on and
+            // the tab's fill differs from the sidebar's.
+            if (showStatus) {
+                // The loop index alone. A widget's identity is (parent, this
+                // index, CALL SITE) -- `hanabi::ui::widget_key` mixes the
+                // source location into the hash -- so an index only has to be
+                // unique among the widgets THIS line makes, which `i` is for
+                // any number of tabs. The 9xx+i offsets on the neighbouring
+                // lines buy nothing and imply a cap that does not exist;
+                // tests/unit/test_widget_key.cpp pins the rule.
+                auto smark =
+                    div(ctx, mk(uiRoot, static_cast<int>(i)),
+                        ComponentConfig{}
+                            .with_label(" ")
+                            .with_size(ComponentSize{pixels(12), pixels(16)})
+                            .with_absolute_position()
+                            .with_translate(tabX + (tab.pinned ? 25.0f : 11.0f),
+                                            tabY + (tabH - 16.0f) * 0.5f)
+                            .with_transparent_bg()
+                            .with_roundness(0.0f)
+                            .with_render_layer(baseLayer + 1)
+                            .with_on_draw_fg([status, bg](RectangleType rc) {
+                                hanabi::status_mark::draw(rc, status, bg);
+                            })
+                            .with_debug_name("tab_status_" + tab.sessionId));
+                hanabi::a11y::set_name(
+                    smark.ent(),
+                    std::string(ecs::model::status_label(status)));
             }
 
             // No accent bar and no bridge: the fill delta IS the

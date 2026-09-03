@@ -261,6 +261,20 @@ SETTINGS_NARROW='{"window_width":600,"window_height":500,"open_tabs":[],"active_
 NARROW_SPLIT='{"window_width":760,"window_height":620,"open_tabs":["r8","t2"],"active_tab":"r8","split_open":true,"split_ratio":0.2,"split_panes":["r8","t2"],"theme":"dark","sidebar_collapsed":true}'
 FOLDED='{"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}'
 SUBAGENTS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","subagent_sidebar_open":true}'
+# The brake fixtures (HANABI_BRAKES_DEMO): bz1 frozen, bz2 replies-paused,
+# bz3 waiting on you, bz4 archived on the server, bz5 halted.
+# bz2 is the ACTIVE tab in 39/40 on purpose -- see the note by those captures.
+BRAKES_NOTABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["bz2"],"active_tab":"bz2","theme":"dark"}'
+BRAKES_NOTABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["bz2"],"active_tab":"bz2","theme":"light"}'
+BRAKES_ARCHIVED_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
+BRAKES_ARCHIVED_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light"}'
+BRAKES_FROZEN_DARK='{"window_width":1100,"window_height":760,"open_tabs":["bz1"],"active_tab":"bz1","theme":"dark"}'
+BRAKES_FROZEN_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["bz1"],"active_tab":"bz1","theme":"light"}'
+BRAKES_HALTED_DARK='{"window_width":1100,"window_height":760,"open_tabs":["bz5"],"active_tab":"bz5","theme":"dark"}'
+BRAKES_HALTED_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["bz5"],"active_tab":"bz5","theme":"light"}'
+BRAKES_TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["bz1","bz3","bz2","t9","bz4","r11"],"active_tab":"bz3","theme":"dark"}'
+BRAKES_TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["bz1","bz3","bz2","t9","bz4","r11"],"active_tab":"bz3","theme":"light"}'
+BRAKES_TABS_NARROW='{"window_width":760,"window_height":620,"open_tabs":["bz1","bz3","bz2","t9","bz4","r11"],"active_tab":"bz3","theme":"dark"}'
 
 # --- Home digest ------------------------------------------------------------
 capture 01_home_dark  "$NOTABS_DARK"
@@ -375,6 +389,60 @@ capture_sized 35_settings_narrow_dark "600 x 500" "$SETTINGS_NARROW" HANABI_WIN_
 capture_sized 36_shortcuts_narrow_dark "600 x 500" "$SETTINGS_NARROW" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=shortcuts
 capture_sized 37_narrow_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620
 capture 38_workspace_groups_dark "$NOTABS_DARK" HANABI_FOLDER_DEMO=1
+
+# --- Brakes and the two new marks (HANABI_BRAKES_DEMO). Six fixture threads:
+#     bz1 frozen on the catalog row, bz2 replies-paused (attach only -- no
+#     catalog row can carry that key), bz3 waiting on you, bz4 archived by the
+#     server, bz5 halted by an ancestor, and bz6 frozen ONLY on the attach
+#     while its row still reads as running -- the freeze-between-polls race.
+#     Eleven captures, 39-49:
+#
+#  39/40 — the SIDEBAR MARKS, dark and light, where the freeze, the pause and
+#          the plain wait each wear a mark of their own. Before this they were
+#          a bang, a dot and a bang.
+#          bz2 is the ACTIVE tab on purpose: `channel_replies_paused` is an
+#          attach-only key that no catalog row can carry, so the pause mark is
+#          only real once the thread has been opened. Opening it is what makes
+#          this capture evidence of the shipped path (attach ->
+#          apply_attach_brakes -> the catalog row the sidebar reads) rather
+#          than of a fixture that set a field the wire never sends.
+#  41/42 — the frozen COMPOSER, dark and light: it says why and refuses.
+#  43/44 — the halted composer, dark and light, which warns and still takes a
+#          draft. Separate from 41/42 because "which brake refuses" is the
+#          distinction the wave turns on and one picture cannot hold both.
+#  45/46 — the TAB STRIP carrying status, dark and light, which it never did
+#          before. Six tabs so the marks sit side by side: bz1 frozen, bz3
+#          waiting (the active one), t9 working, bz4 -- which is tagged Done
+#          and so draws the green TICK, not nothing -- and r11, a genuinely
+#          IDLE thread, which is the one tab that correctly draws no mark at
+#          all. `status_shows_on_tab` in tests/e2e/test_e2e.cpp pins that rule.
+#          bz2 is open too and draws NO mark here, which is also correct: its
+#          pause is attach-only and only the active tab is attached. 39/40 are
+#          where the pause mark is shown, with bz2 active.
+#     47 — the same strip at 760x620, where the tabs are at their narrowest.
+#          Its right edge shows a CLIPPED tab: one × for the last whole tab and
+#          one for the clipped one, whose × is deliberately clamped inside the
+#          edge ("a tab you can see is a tab you can close" -- tab_bar_system.h,
+#          and the same pair is in the pre-wave 34 baseline, so it is not this
+#          wave's). What IS this wave's is that the clipped tab draws no status
+#          mark: on a sliver the left-gutter mark lands beside the previous
+#          tab's chrome and reads as a stray glyph. This capture is the
+#          assertion for both halves.
+#  48/49 — the ARCHIVED view, dark and light: bz4 carries only the server's
+#          `archived_at_unix_ms` and no local override, so its presence here is
+#          the whole proof that a thread archived elsewhere reads as archived.
+capture 39_brakes_sidebar_dark  "$BRAKES_NOTABS_DARK"  HANABI_BRAKES_DEMO=1
+capture 40_brakes_sidebar_light "$BRAKES_NOTABS_LIGHT" HANABI_BRAKES_DEMO=1
+capture 41_frozen_composer_dark  "$BRAKES_FROZEN_DARK"  HANABI_BRAKES_DEMO=1
+capture 42_frozen_composer_light "$BRAKES_FROZEN_LIGHT" HANABI_BRAKES_DEMO=1
+capture 43_halted_composer_dark  "$BRAKES_HALTED_DARK"  HANABI_BRAKES_DEMO=1
+capture 44_halted_composer_light "$BRAKES_HALTED_LIGHT" HANABI_BRAKES_DEMO=1
+capture 45_tab_status_dark  "$BRAKES_TABS_DARK"  HANABI_BRAKES_DEMO=1
+capture 46_tab_status_light "$BRAKES_TABS_LIGHT" HANABI_BRAKES_DEMO=1
+capture_sized 47_tab_status_narrow_dark "760 x 620" "$BRAKES_TABS_NARROW" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_BRAKES_DEMO=1
+capture 48_server_archived_dark  "$BRAKES_ARCHIVED_DARK"  HANABI_BRAKES_DEMO=1 HANABI_VIEW=archived
+capture 49_server_archived_light "$BRAKES_ARCHIVED_LIGHT" HANABI_BRAKES_DEMO=1 HANABI_VIEW=archived
 
 listing && exit 0
 

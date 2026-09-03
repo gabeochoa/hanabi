@@ -37,7 +37,11 @@ class HomeBuckets {
 
         for (const api::SessionSummary& session : sessions) {
             if (session.state == api::ThreadState::Attention) {
-                if (session.tag == api::ThreadTag::Blocked)
+                // Blocked and Waiting are two kinds of the same ask, so they
+                // share the shelf: the digest's question is "does this need
+                // me", and the mark is where the two are told apart.
+                if (session.tag == api::ThreadTag::Blocked ||
+                    session.tag == api::ThreadTag::Waiting)
                     waiting_.push_back(&session);
                 else
                     finished_.push_back(&session);

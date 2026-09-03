@@ -120,7 +120,10 @@ inline std::string_view card_meta(const api::SessionSummary& s,
     std::string_view phrase;  // the state-matched verdict word.
     switch (s.tag) {
         case api::ThreadTag::Blocked:
-            phrase = "waiting on you";  // matches the red BLOCKED chip.
+        case api::ThreadTag::Waiting:
+            // One phrase for the pair -- both mean "this needs me". The chip
+            // beside it (BLOCKED / WAITING) is what says which kind.
+            phrase = "waiting on you";
             break;
         case api::ThreadTag::Done:
             phrase = "done";  // matches the DONE chip.

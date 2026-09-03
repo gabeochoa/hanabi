@@ -383,6 +383,10 @@ is enough to move real things, and it has:
   reference draws five shapes (arc, dot, bang, cross, chevron) in three
   colours. Read the checkout's `statusDot` as gospel and you will conclude
   hanabi should throw its glyph vocabulary away.
+  SHIPPED TODAY: `ecs::model::status_glyph`, seven values over five shapes —
+  arc (Running), bang (Blocked and Waiting, one shape split by colour, as
+  Puffin's own `IconTable` splits them), tick (Done), bars (Paused), snowflake
+  (Frozen), dot (Idle). The cross and the chevron are retired.
 - **The mock catalog.** Five of the reference's twenty rows are not in the
   checkout's `Mock/MockBackend.swift` at all.
 
@@ -809,9 +813,12 @@ the same edit, and every list figure in this workstream with it.
 up-triangle for blocked, green diamond for review, blue dot for done — derived
 from an analysis of ~200 real threads. The shipped sidebar has not drawn that
 legend for some time, and as of `feat/vis-glyphs` the shared model does not
-either: `ecs::model::mark_for` speaks the reference's vocabulary. Shape still
-carries the status independently of colour, so the colour-blind property the
-doc was protecting survives; the shapes themselves are the reference's.
+either: `ecs::model::status_glyph` speaks the reference's vocabulary. Shape
+still carries the status independently of colour with ONE deliberate
+exception — Blocked and Waiting share the bang and differ by colour plus the
+accessible name `status_label`, which is how Puffin draws the same pair. Both
+mean "this needs me", so a reader who cannot tell them apart is not misled
+about anything they must do.
 
 
 ### hanabi paints an icon and the label beside it in TWO colours where Puffin uses one

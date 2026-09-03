@@ -69,11 +69,13 @@ static Expected prior_behavior(const std::vector<SessionSummary>& sessions,
     Expected out;
     out.waiting = prior_scan(sessions, [](const SessionSummary& s) {
         return s.state == api::ThreadState::Attention &&
-               s.tag == api::ThreadTag::Blocked;
+               (s.tag == api::ThreadTag::Blocked ||
+                s.tag == api::ThreadTag::Waiting);
     });
     out.finished = prior_scan(sessions, [](const SessionSummary& s) {
         return s.state == api::ThreadState::Attention &&
-               s.tag != api::ThreadTag::Blocked;
+               s.tag != api::ThreadTag::Blocked &&
+               s.tag != api::ThreadTag::Waiting;
     });
     out.running = prior_scan(sessions, [](const SessionSummary& s) {
         return s.state == api::ThreadState::Running;
@@ -155,8 +157,43 @@ static void test_same_revision_keeps_the_existing_snapshot() {
     check_result(buckets, prior_behavior(first, limit), limit);
 }
 
+// A thread WAITING on you belongs on the "waiting on you" shelf, not under
+// "finished since you looked". It reached the wrong shelf the moment the tag
+// was split -- the bucket asked only about Blocked and everything else with an
+// Attention state fell through to finished -- and the digest is where that is
+// most visibly wrong, because the shelf is captioned with the opposite claim.
+static void test_a_waiting_thread_is_not_finished() {
+    std::vector<SessionSummary> sessions;
+    std::vector<SessionSummary>& v = sessions;
+    SessionSummary waiting;
+    waiting.id = "waiting";
+    waiting.updated_at = 500;
+    waiting.state = api::ThreadState::Attention;
+    waiting.tag = api::ThreadTag::Waiting;
+    v.push_back(waiting);
+    SessionSummary blocked;
+    blocked.id = "blocked";
+    blocked.updated_at = 400;
+    blocked.state = api::ThreadState::Attention;
+    blocked.tag = api::ThreadTag::Blocked;
+    v.push_back(blocked);
+    SessionSummary done;
+    done.id = "done";
+    done.updated_at = 300;
+    done.state = api::ThreadState::Attention;
+    done.tag = api::ThreadTag::Done;
+    v.push_back(done);
+
+    ecs::model::HomeBuckets buckets(20);
+    buckets.update(1, sessions);
+    CHECK(buckets.waiting().size() == 2);
+    CHECK(buckets.finished().size() == 1);
+    CHECK(buckets.finished()[0]->id == "done");
+}
+
 int main() {
     test_matches_prior_independent_scans();
+    test_a_waiting_thread_is_not_finished();
     test_revision_change_rebuilds_once();
     test_same_revision_keeps_the_existing_snapshot();
     if (failures == 0) std::printf("test_home_buckets: all checks passed\n");
