@@ -104,6 +104,19 @@ def serve_connection(listener):
                 state = {}
                 if command.get("session_id") == "turn-local":
                     state["pending_elicitations"] = []
+                if command.get("session_id") == "gone-local":
+                    state["pending_elicitations"] = []
+                if command.get("session_id") == "turn-child":
+                    state["pending_elicitations"] = []
+                    state["child_pending_elicitations"] = [{
+                        "session": "kid-local",
+                        "elicitation": {
+                            "elicitation": 41,
+                            "tool": "AskUserQuestion",
+                            "message": "the child is asking",
+                            "requested_schema": "",
+                        },
+                    }]
                 if command.get("session_id") == "turn-settled":
                     state["pending_elicitations"] = [{
                         "elicitation": 71,
@@ -153,6 +166,13 @@ def serve_connection(listener):
                        "state": state}
             elif kind == "resolve_elicitation":
                 assert command.get("session") != "gone-local", command
+                if command.get("elicitation") == 77:
+                    send_frame(conn, {"sub": sub, "msg": {
+                        "type": "frame", "frame": "durable", "seq": 41,
+                        "event": {"type": "elicitation_resolved",
+                                  "elicitation": 77, "action": "accept",
+                                  "by": {"by": "user"}}}})
+                    continue
                 assert command["elicitation"] == 41, command
                 if command.get("session") == "kid-local":
                     assert command["action"] == "decline", command

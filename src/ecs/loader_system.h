@@ -90,17 +90,34 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
 
 
+    static void request_ask_refresh(AppComponent& app, const std::string& id) {
+        for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
+            Pane& pane = app.panes[i];
+            if (pane.selectedId != id) continue;
+            if (pane.transcriptPending) continue;
+            pane.requestOpenId = id;
+        }
+    }
+
     static void adopt_turn_asks(AppComponent& app, const std::string& id,
-                                const std::string& asksJson) {
+                                const std::string& asksJson,
+                                std::uint64_t stamp) {
         if (asksJson.empty()) return;
+        if (app.ask_load_is_stale(id, stamp)) return;
+        const auto state = nlohmann::json::parse(asksJson, nullptr, false);
+        if (state.is_discarded() || !state.is_object()) return;
+        auto fresh = api::elicitation::asks_from_state(state, id);
         if (!app.askState.busyId.empty() &&
-            app.ask_session_of(app.askState.busyId) == id)
-            return;
-        const auto parsed = nlohmann::json::parse(asksJson, nullptr, false);
-        if (parsed.is_discarded() || !parsed.is_array()) return;
-        nlohmann::json state = nlohmann::json::object();
-        state["pending_elicitations"] = parsed;
-        app.apply_attach_asks(id, api::elicitation::asks_from_state(state, id));
+            app.ask_session_of(app.askState.busyId) == id) {
+            const std::string busy = app.askState.busyId;
+            bool held = false;
+            for (const auto& a : fresh) held = held || a.id() == busy;
+            if (!held)
+                if (const auto* known = app.asks_for(id))
+                    for (const auto& a : *known)
+                        if (a.id() == busy) fresh.push_back(a);
+        }
+        app.apply_attach_asks(id, fresh);
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
@@ -348,7 +365,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
     }
 
-    void for_each_with(Entity&, AppComponent& app, float) override {
+    void for_each_with(Entity&, AppComponent& app, float dt) override {
         if (!app.client) return;
 
         // --- Auth: deferred device-code begin() (launch-perf) ---
@@ -741,6 +758,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.askInFlightSession.clear();
             if (r.ok) {
                 app.drop_attach_ask(sid, askId);
+                request_ask_refresh(app, sid);
             } else if (r.error == api::elicitation::kAskGoneReason) {
                 app.drop_attach_ask(sid, askId);
                 app.raise_toast(r.error, "",
@@ -892,6 +910,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         drive_load_older(app);
         sync_subscriptions(app);
         drive_live_events(app);
+        drive_ask_refresh(app, dt);
         drive_send_queue(app);
         drive_outbox(app);
         drive_settings(app);
@@ -1372,6 +1391,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // (the visible transcript updates live). Never blocks the UI thread
     // (futures polled here). Subscriptions themselves are opened/reaped by
     // sync_subscriptions().
+    void drive_ask_refresh(AppComponent& app, float dt) {
+        if (app.attachAsks.empty()) return;
+        if (!app.askState.busyId.empty()) return;
+        app.askRefreshDue -= dt;
+        if (app.askRefreshDue > 0.0f) return;
+        app.askRefreshDue = AppComponent::kAskRefreshSeconds;
+        for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
+            Pane& pane = app.panes[i];
+            if (pane.selectedId.empty() || pane.transcriptPending) continue;
+            if (app.asks_for(pane.selectedId) == nullptr) continue;
+            pane.requestOpenId = pane.selectedId;
+        }
+    }
+
     void drive_live_events(AppComponent& app) {
         if (!app.client) return;
         const auto now = std::chrono::steady_clock::now();
@@ -1586,9 +1619,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamPhase = AppComponent::StreamPhase::Thinking;
             app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
             api::Client* c = app.client.get();
+            const std::uint64_t askStamp = app.next_ask_load_stamp();
             app.streamCollectFuture = std::async(
-                std::launch::async, [c, id, prompt]() {
+                std::launch::async, [c, id, prompt, askStamp]() {
                     AppComponent::StreamCollected out;
+                    out.askStamp = askStamp;
                     api::StreamSink sink;
                     sink.on_delta = [&out](const std::string& d) {
                         out.chunks.push_back(d);
@@ -1626,13 +1661,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // verdict does not depend on that: whether the server took the
             // prompt is decided by got.error, not by what the user is looking
             // at now.
-            adopt_turn_asks(app, id, got.asksJson);
             if (got.error.empty()) {
                 api::disk_cache::outbox_remove(id, prompt);
                 app.outboxRetry.confirmed(id, prompt);
             } else {
                 note_outbox_failure(app, id, prompt);
             }
+            if (got.error.empty())
+                adopt_turn_asks(app, id, got.asksJson, got.askStamp);
             if (!streamPane.openSession || streamPane.openSession->summary.id != id) {
                 app.streamPhase = AppComponent::StreamPhase::Idle;
             } else if (!got.error.empty()) {

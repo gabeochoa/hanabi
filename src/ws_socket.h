@@ -21,11 +21,11 @@
 // connection: then it runs on whatever thread called ws_close. Marshal to app
 // state the way the SSE sink does; do not touch the widget tree from either.
 //
-// CALLBACK LIFETIME. Neither callback runs after ws_close returns: ws_close
-// waits for every in-flight receive and send to finish before it returns. That
-// is what makes the usual `user` -- the address of a stack object owned by the
-// calling frame -- safe, because the frame may unwind the instant ws_close
-// returns. Do not call ws_close FROM either callback; it would wait on itself.
+// CALLBACK LIFETIME. ws_close waits for the in-flight callbacks, but the wait
+// is BOUNDED: past that bound one can still be running when it returns. So
+// `user` must outlive the socket, not the calling frame -- hand it to
+// ws_open_owned, which keeps it alive until the last callback has finished.
+// Do not call ws_close FROM a callback; it would wait on itself.
 //
 // LIVENESS. A receive is always pending internally. The reference client
 // measured that without one the socket wedges on an idle connection, and that
@@ -60,6 +60,7 @@ typedef struct {
     size_t header_count;
     ws_on_text_fn on_text;
     ws_on_close_fn on_close;
+    // The callbacks' argument; see CALLBACK LIFETIME for who must own it.
     void* user;
 } ws_config;
 
@@ -72,11 +73,18 @@ ws_conn* ws_open(const ws_config* cfg);
 // any thread.
 bool ws_send_text(ws_conn* c, const char* text, size_t len);
 
-// Closes and frees. on_close fires before this returns if it has not already,
-// and no callback runs after it returns (see CALLBACK LIFETIME). Blocks until
-// the in-flight callbacks are done. Safe to call twice; safe on null.
+// Closes and frees. on_close fires before this returns if it has not already.
+// Blocks until the in-flight callbacks are done, up to a bounded wait; past
+// that bound a callback may still be running, which is why the socket owns
+// `user` (see CALLBACK LIFETIME). Safe to call twice; safe on null.
 void ws_close(ws_conn* c);
 
 #ifdef __cplusplus
 }  // extern "C"
+
+#include <memory>
+
+// ws_open, plus ownership of the callbacks' target. Every caller here uses
+// this one; plain ws_open is the C seam and leaves the lifetime to you.
+ws_conn* ws_open_owned(const ws_config* cfg, std::shared_ptr<void> owner);
 #endif

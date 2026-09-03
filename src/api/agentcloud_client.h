@@ -233,6 +233,7 @@ class LiveTurn {
 
    private:
     bool drop_settled_ask(const std::string& frame_json);
+    bool fold_child_update(const std::string& frame_json);
     void upsert_ask(nlohmann::json entry);
     void emit_asks(const StreamSink& sink) const;
 
@@ -241,6 +242,7 @@ class LiveTurn {
     // What the sink has already been told about the OPEN text block.
     std::string emitted_;
     std::vector<nlohmann::json> asks_;
+    nlohmann::json children_ = nlohmann::json::array();
     bool asksKnown_ = false;
 };
 

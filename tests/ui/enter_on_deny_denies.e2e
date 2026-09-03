@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval HANABI_ASK_FAIL=echo
+
+require_thread t2
+expect_text "The agent needs approval"
+
+focus_ui ask_decline
+expect_focused ask_decline
+key ENTER
+wait_frames 20
+expect_text "decline — press Submit to try again."
+expect_no_text "accept — press Submit to try again."

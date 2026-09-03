@@ -391,7 +391,8 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
     const auto token = auth_.get(&auth_err);
     if (token.empty()) return fail(auth_err);
 
-    Waiter waiter;
+    const auto waiterOwned = std::make_shared<Waiter>();
+    Waiter& waiter = *waiterOwned;
     const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
 
     ws_config wc{};
@@ -402,7 +403,7 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
     wc.on_close = on_close_cb;
     wc.user = &waiter;
 
-    ws_conn* conn = ws_open(&wc);
+    ws_conn* conn = ws_open_owned(&wc, waiterOwned);
     if (conn == nullptr) return fail("could not parse " + url);
     struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
@@ -1109,7 +1110,8 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
             return false;
         }
         case LiveFrame::Kind::AskSettled:
-            if (drop_settled_ask(msg.dump())) emit_asks(sink);
+            if (drop_settled_ask(msg.dump()) || fold_child_update(msg.dump()))
+                emit_asks(sink);
             break;
         case LiveFrame::Kind::ToolInputAppend:
         case LiveFrame::Kind::Ignore:
@@ -1120,10 +1122,14 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
 
 void LiveTurn::seed_asks(const json& state, const StreamSink& sink) {
     asks_.clear();
+    children_ = json::array();
     if (state.is_object() && state.contains("pending_elicitations") &&
         state.at("pending_elicitations").is_array())
         for (const json& e : state.at("pending_elicitations"))
             if (e.is_object()) asks_.push_back(e);
+    if (state.is_object() && state.contains("child_pending_elicitations") &&
+        state.at("child_pending_elicitations").is_array())
+        children_ = state.at("child_pending_elicitations");
     asksKnown_ = true;
     emit_asks(sink);
 }
@@ -1158,11 +1164,44 @@ bool LiveTurn::drop_settled_ask(const std::string& frame_json) {
     return asks_.size() != before;
 }
 
+bool LiveTurn::fold_child_update(const std::string& frame_json) {
+    std::string session;
+    std::uint64_t seq = 0;
+    bool pending = false;
+    json entry;
+    if (!elicitation::fold_child_update(frame_json, &session, &seq, &pending,
+                                        &entry))
+        return false;
+    json kept = json::array();
+    bool changed = false;
+    for (const json& row : children_) {
+        const bool same =
+            row.is_object() && row.value("session", std::string()) == session &&
+            row.contains("elicitation") && row.at("elicitation").is_object() &&
+            static_cast<std::uint64_t>(row.at("elicitation")
+                                           .value("elicitation", int64_t{0})) ==
+                seq;
+        if (same) {
+            changed = true;
+            continue;
+        }
+        kept.push_back(row);
+    }
+    if (pending) {
+        kept.push_back({{"session", session}, {"elicitation", entry}});
+        changed = true;
+    }
+    children_ = std::move(kept);
+    return changed;
+}
+
 void LiveTurn::emit_asks(const StreamSink& sink) const {
     if (!asksKnown_) return;
-    json arr = json::array();
-    for (const json& e : asks_) arr.push_back(e);
-    sink.emit_event({StreamEventKind::AsksChanged, arr.dump()});
+    json own = json::array();
+    for (const json& e : asks_) own.push_back(e);
+    const json state = {{"pending_elicitations", own},
+                        {"child_pending_elicitations", children_}};
+    sink.emit_event({StreamEventKind::AsksChanged, state.dump()});
 }
 
 // The stateless form, kept for callers that classify one frame in isolation.
@@ -1205,7 +1244,8 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     const auto token = auth_.get(&auth_err);
     if (token.empty()) return fail(auth_err);
 
-    FrameQueue q;
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
     const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
     ws_config wc{};
     wc.url = url.c_str();
@@ -1215,7 +1255,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     wc.on_close = fq_close_cb;
     wc.user = &q;
 
-    ws_conn* conn = ws_open(&wc);
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
     if (conn == nullptr) return fail("could not parse " + url);
 
     struct Closer {
@@ -1321,7 +1361,8 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     const auto token = auth_.get(&auth_err);
     if (token.empty()) { sink.emit_error(auth_err); return; }
 
-    FrameQueue q;
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
     const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
     ws_config wc{};
     wc.url = url.c_str();
@@ -1331,7 +1372,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     wc.on_close = fq_close_cb;
     wc.user = &q;
 
-    ws_conn* conn = ws_open(&wc);
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
     if (conn == nullptr) { sink.emit_error("could not parse " + url); return; }
     struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
@@ -1463,7 +1504,8 @@ Result<std::string> AgentcloudClient::rename_session(
     const auto token = auth_.get(&auth_err);
     if (token.empty()) return fail(auth_err);
 
-    FrameQueue q;
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
     const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
     ws_config wc{};
     wc.url = url.c_str();
@@ -1473,7 +1515,7 @@ Result<std::string> AgentcloudClient::rename_session(
     wc.on_close = fq_close_cb;
     wc.user = &q;
 
-    ws_conn* conn = ws_open(&wc);
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
     if (conn == nullptr) return fail("could not parse " + url);
     struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
@@ -1548,7 +1590,8 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
     const auto token = auth_.get(&auth_err);
     if (token.empty()) return fail(auth_err);
 
-    FrameQueue q;
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
     const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
     ws_config wc{};
     wc.url = url.c_str();
@@ -1558,7 +1601,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
     wc.on_close = fq_close_cb;
     wc.user = &q;
 
-    ws_conn* conn = ws_open(&wc);
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
     if (conn == nullptr) return fail("could not parse " + url);
     struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
@@ -1581,11 +1624,16 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
                     str_or(hello, "message", "(no message)"));
     }
 
+    const json& hello_state = obj_at(hello, "state");
+    const bool carried_a_list =
+        hello_state.contains("pending_elicitations") ||
+        hello_state.contains("child_pending_elicitations");
     bool still_pending = false;
     for (const PendingAsk& live :
-         elicitation::asks_from_state(obj_at(hello, "state"), session_id))
+         elicitation::asks_from_state(hello_state, session_id))
         if (live.id() == ask.id()) still_pending = true;
-    if (!still_pending) return fail(elicitation::kAskGoneReason);
+    if (carried_a_list && !still_pending)
+        return fail(elicitation::kAskGoneReason);
 
     const std::string resolve_payload =
         elicitation::resolve_command_json(ask, action, answer);

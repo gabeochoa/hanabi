@@ -143,7 +143,10 @@ class MockClient : public Client {
                 "that answer is too long for one reply");
         if (const char* fail = std::getenv("HANABI_ASK_FAIL");
             fail != nullptr && *fail != '\0')
-            return Result<std::string>::failure(fail);
+            return Result<std::string>::failure(
+                std::string(fail) == "echo"
+                    ? std::string(elicitation::action_word(action))
+                    : std::string(fail));
         resolvedAsks_.insert(ask.id());
         return Result<std::string>::success(
             elicitation::action_word(action));

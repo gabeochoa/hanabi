@@ -56,6 +56,20 @@ if [ ! -x "$EXE" ]; then
     exit 1
 fi
 
+run_ask() {
+    local h
+    h=$(mktemp -d)
+    mkdir -p "$h/Library/Application Support/hanabi"
+    cat > "$h/Library/Application Support/hanabi/settings.json" <<J
+{"window_width":1180,"window_height":949,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+J
+    env HOME="$h" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
+        HANABI_CONFIG=/tmp/none HANABI_ASK_DEMO=big HANABI_PROF=1 \
+        HANABI_SOAK="${FRAMES}" HANABI_STRESS=idle \
+        "$EXE" --screenshot "$h/shot.png" 2>&1 | grep '^\[prof\]'
+    rm -rf "$h"
+}
+
 run() {
     local turns=$1 h
     h=$(mktemp -d)
@@ -132,6 +146,21 @@ printf "  %-30s %8s -> %-8s                    limit %6s   %s\n" \
 # running is worth nothing), so the limit is set for 300. A per-message
 # measurement that escaped the memo would read at least 1.0 here, twenty times
 # over.
+ASK_OUT=$(run_ask)
+ASK_CARDS=$(field "$ASK_OUT" 'ask\.cards_drawn' 3)
+ASK_MISS=$(field "$ASK_OUT" 'cache\.ask_spans_miss' 3)
+ASK_HIT=$(field "$ASK_OUT" 'cache\.ask_spans_hit' 3)
+ask_verdict="ok"
+if [ "${ASK_CARDS:-0}" -lt 1 ]; then
+    ask_verdict="NOT MEASURED"
+    fail=1
+elif awk -v m="$ASK_MISS" -v c="$ASK_CARDS" 'BEGIN{exit !(m+0 > c+0)}'; then
+    ask_verdict="FAIL"
+    fail=1
+fi
+printf "  %-30s %8s -> %-8s                    limit %6s   %s\n" \
+    "ask card wraps (miss/hit)" "$ASK_MISS" "$ASK_HIT" "<=cards" "$ask_verdict"
+
 SLOPE_LIMIT=0.05
 verdict="ok"
 awk -v x="$SLOPE" -v m="$SLOPE_LIMIT" 'BEGIN{exit !(x > m)}' && { verdict="FAIL"; fail=1; }

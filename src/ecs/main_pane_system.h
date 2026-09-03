@@ -1338,6 +1338,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool modelPopoverWasOpen_ = false;
     bool effortPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
+    struct AskRowId {
+        const std::string* question;
+        const std::string* option;
+        afterhours::EntityID id;
+    };
+    std::vector<AskRowId> askRowIds_;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -4448,14 +4454,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const api::PendingAsk& ask, float textW) {
         static std::string memoId;
         static float memoW = -1.0f;
+        static unsigned memoEpoch = 0;
         static std::vector<hanabi::ask::QuestionMetrics> memo;
-        if (memoW == textW && memoId == ask.id()) {
+        const unsigned epoch = hanabi::text::font_epoch();
+        if (memoW == textW && memoEpoch == epoch && memoId == ask.id()) {
             hanabi::prof::tick("cache.ask_metrics_hit");
             return memo;
         }
         hanabi::prof::tick("cache.ask_metrics_miss");
         memoId = ask.id();
         memoW = textW;
+        memoEpoch = epoch;
         memo = build_ask_metrics(ask, textW);
         return memo;
     }
@@ -4485,6 +4494,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static bool ask_note_shown(const AppComponent& app,
                                const api::PendingAsk& ask) {
+        if (!ask.questions.empty() || ask.kind == api::AskKind::Approval)
+            return true;
         if (!app.askState.errorText.empty() &&
             app.askState.errorId == ask.id())
             return true;
@@ -4503,20 +4514,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float chrome = app.lastComposerChromeH > 0.0f
                                  ? app.lastComposerChromeH
                                  : kComposerBaseH;
-        const float budget = contentH - chrome - kAskMinTranscriptH - 8.0f;
-        return budget < hanabi::ask::kMinBodyH ? hanabi::ask::kMinBodyH
-                                               : budget;
+        float budget = contentH - chrome - kAskMinTranscriptH - 8.0f;
+        const float withoutTranscript = contentH - chrome - 8.0f;
+        if (budget < hanabi::ask::kMinBodyH)
+            budget = withoutTranscript < hanabi::ask::kMinBodyH
+                         ? withoutTranscript
+                         : hanabi::ask::kMinBodyH;
+        return budget < 0.0f ? 0.0f : budget;
     }
 
     static float ask_body_text_w(const AppComponent& app,
                                  const api::PendingAsk& ask) {
+        static std::string memoId;
+        static float memoTextW = -1.0f;
+        static unsigned memoEpoch = 0;
+        static float memo = 0.0f;
         const float textW = ask_text_w(app);
+        const unsigned epoch = hanabi::text::font_epoch();
+        if (memoTextW == textW && memoEpoch == epoch && memoId == ask.id())
+            return memo;
         const float chrome = hanabi::ask::chrome_h(
             ask, ask_message_lines(ask, textW), ask_note_shown(app, ask));
         const float budget = ask_height_budget(app) - chrome;
+        const float narrow = textW - kAskScrollbarW;
         const float natural = hanabi::ask::body_h(
-            ask, ask_input_lines(ask, textW), ask_metrics(ask, textW));
-        return natural > budget ? textW - kAskScrollbarW : textW;
+            ask, ask_input_lines(ask, narrow), ask_metrics(ask, narrow));
+        memoId = ask.id();
+        memoTextW = textW;
+        memoEpoch = epoch;
+        memo = natural > budget ? narrow : textW;
+        return memo;
     }
 
     static float ask_card_h(const AppComponent& app) {
@@ -4594,8 +4621,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    void drive_ask_keyboard(AppComponent& app, const api::PendingAsk& ask,
-                            Entity* body) {
+    afterhours::EntityID ask_row_id(const std::string& question,
+                                    const std::string& option) const {
+        for (const AskRowId& row : askRowIds_)
+            if (*row.question == question && *row.option == option)
+                return row.id;
+        return 0;
+    }
+
+    void drive_ask_keyboard(UIContext<InputAction>& ctx, AppComponent& app,
+                            const api::PendingAsk& ask, Entity* body,
+                            bool widgetOwnsEnter) {
         if (!app.askFocused) return;
         if (hanabi::keys::cmd_down() || hanabi::keys::shift_down() ||
             hanabi::keys::ctrl_down() || hanabi::keys::option_down())
@@ -4613,16 +4649,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     hanabi::ask::move_cursor(ask, &cursor, 1);
                 if (hanabi::keys::pressed(hanabi::keys::kUp))
                     hanabi::ask::move_cursor(ask, &cursor, -1);
-                if (moved && body != nullptr && cursor.set())
-                    scroll_ask_cursor_into_view(
-                        *body, "ask_option_" + cursor.question + "_" +
-                                   std::to_string(hanabi::ask::option_index(
-                                       ask, cursor)));
+                if (moved && cursor.set()) {
+                    if (body != nullptr)
+                        scroll_ask_cursor_into_view(
+                            *body, "ask_option_" + cursor.question + "_" +
+                                       std::to_string(hanabi::ask::option_index(
+                                           ask, cursor)));
+                    if (const afterhours::EntityID rowId =
+                            ask_row_id(cursor.question, cursor.option))
+                        ctx.set_focus(rowId);
+                }
             }
             if (hanabi::keys::pressed(hanabi::keys::kSpace))
                 hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
         }
-        if (hanabi::keys::pressed(hanabi::keys::kEnter)) {
+        if (hanabi::keys::pressed(hanabi::keys::kEnter) && !widgetOwnsEnter) {
             switch (hanabi::ask::return_intent(ask, answer, cursor)) {
                 case hanabi::ask::ReturnIntent::Submit:
                     submit_ask(app, ask, api::AskAction::Accept);
@@ -4692,6 +4733,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const auto& metrics = ask_metrics(ask, bodyTextW);
         const int messageLines = hanabi::ask::message_lines_for(
             ask, wantedMessageLines, showNote, ask_height_budget(app));
+        askRowIds_.clear();
         const float chromeH = hanabi::ask::chrome_h(ask, messageLines, showNote);
         const float bodyNaturalH =
             hanabi::ask::body_h(ask, inputLines, metrics);
@@ -4739,6 +4781,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            hanabi::ask::kMessageH, theme::text_primary(),
                            "ask_message");
 
+        const bool tooShort =
+            hanabi::ask::body_too_short(bodyH, bodyNaturalH);
+
         auto body = div(ctx, mk(card.ent(), 10),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
@@ -4751,7 +4796,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::apply_scroll_prefs(body.ent());
 
         int key = 20;
-        if (approval) {
+        if (tooShort) {
+            div(ctx, mk(body.ent(), key++),
+                ComponentConfig{}
+                    .with_label("Too short to show the questions — make the "
+                                "window taller.")
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels(hanabi::ask::kNoteH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::status_blocked())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("ask_too_short"));
+        } else if (approval) {
             render_ask_wrapped(ctx, body.ent(), key, ask_input_text(ask),
                                inputLines, bodyTextW, hanabi::ask::kNoteH,
                                theme::text_secondary(), "ask_approval_input",
@@ -4784,7 +4842,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("ask_no_questions"));
         }
 
-        for (std::size_t qi = 0; qi < ask.questions.size() && !approval; ++qi) {
+        for (std::size_t qi = 0;
+             qi < ask.questions.size() && !approval && !tooShort; ++qi) {
             const api::AskQuestion& q = ask.questions[qi];
             const char* arity = q.control == api::AskControl::Single
                                     ? "Pick one"
@@ -4923,6 +4982,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                        "ask_option_line_" + q.key + "_" +
                                            std::to_string(oi));
                 }
+                askRowIds_.push_back({&q.key, &option.value, row.ent().id});
                 if (row && !busy) {
                     hanabi::ask::toggle(ask, q.key, option.value, &answer);
                     cursor.question = q.key;
@@ -4970,6 +5030,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else if (!app.askState.errorText.empty() &&
                        app.askState.errorId == askId) {
                 note = app.askState.errorText + " — press Submit to try again.";
+                ink = theme::status_blocked();
+            } else if (tooShort) {
+                note = "Too short to show the questions — make the window "
+                       "taller.";
                 ink = theme::status_blocked();
             } else if (blocked) {
                 note = hanabi::ask::blocked_reason(ask);
@@ -5044,11 +5108,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
+        bool widgetOwnsEnter =
+            ctx.has_focus(submit.ent().id) || ctx.has_focus(decline.ent().id);
+        for (const AskRowId& row : askRowIds_)
+            if (ctx.has_focus(row.id)) widgetOwnsEnter = true;
         if (app.escape == EscapeIntent::DeclineAsk && !busy && answerable) {
             submit_ask(app, ask, api::AskAction::Decline);
             app.askFocused = false;
         }
-        drive_ask_keyboard(app, ask, &body.ent());
+        drive_ask_keyboard(ctx, app, ask, &body.ent(), widgetOwnsEnter);
     }
 
     // A chip per pasted/dropped image, and one line saying plainly that they

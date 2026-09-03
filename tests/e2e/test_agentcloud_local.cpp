@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -16,22 +17,16 @@ namespace {
 struct Sentinel {
     std::atomic<bool> entered{false};
     std::atomic<bool> left{false};
-    std::atomic<int> ran_after_close{0};
-    std::atomic<bool> close_returned{false};
 };
 
 void sentinel_text(void* user, const char*, size_t) {
     auto* s = static_cast<Sentinel*>(user);
     s->entered.store(true);
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
-    if (s->close_returned.load()) s->ran_after_close.fetch_add(1);
     s->left.store(true);
 }
 
-void sentinel_close(void* user, const char*) {
-    auto* s = static_cast<Sentinel*>(user);
-    if (s->close_returned.load()) s->ran_after_close.fetch_add(1);
-}
+void sentinel_close(void*, const char*) {}
 
 int close_waits_for_a_running_callback(const std::string& host) {
     Sentinel sentinel;
@@ -44,7 +39,8 @@ int close_waits_for_a_running_callback(const std::string& host) {
     wc.on_close = sentinel_close;
     wc.user = &sentinel;
 
-    ws_conn* conn = ws_open(&wc);
+    const auto owned = std::make_shared<Sentinel*>(&sentinel);
+    ws_conn* conn = ws_open_owned(&wc, owned);
     if (conn == nullptr) return -1;
     const std::string wire = R"({"sub":0,"payload":{"cmd":"list"}})";
     if (!ws_send_text(conn, wire.data(), wire.size())) {
@@ -64,7 +60,6 @@ int close_waits_for_a_running_callback(const std::string& host) {
                             std::chrono::steady_clock::now() - t0)
                             .count();
     const bool finished = sentinel.left.load();
-    sentinel.close_returned.store(true);
     ws_close(conn);
     if (!finished) {
         std::fprintf(stderr, "ws_close returned before the callback finished\n");
@@ -188,6 +183,20 @@ int main() {
         return 1;
     }
 
+    api::PendingAsk skew = own;
+    skew.owner_session = "skew-local";
+    skew.child_session.clear();
+    skew.seq = 77;
+    const auto skewed =
+        client.resolve_ask("skew-local", skew, api::AskAction::Accept, answer);
+    if (!skewed.ok) {
+        std::fprintf(stderr,
+                     "a hello with no pending list must not read as "
+                     "already-answered: %s\n",
+                     skewed.error.c_str());
+        return 1;
+    }
+
     std::vector<std::string> turnAsks;
     api::StreamSink sink;
     sink.on_event = [&turnAsks](const api::StreamEvent& ev) {
@@ -214,17 +223,13 @@ int main() {
         return 1;
     }
     {
-        const auto raised =
+        const auto state =
             nlohmann::json::parse(turnAsks.back(), nullptr, false);
-        if (raised.is_discarded() || !raised.is_array() ||
-            raised.size() != 1 ||
-            raised[0].value("elicitation", 0) != 71) {
+        if (state.is_discarded() || !state.is_object()) {
             std::fprintf(stderr, "the raise did not reach the reader: %s\n",
                          turnAsks.back().c_str());
             return 1;
         }
-        nlohmann::json state = nlohmann::json::object();
-        state["pending_elicitations"] = raised;
         const auto folded =
             api::elicitation::asks_from_state(state, "turn-local");
         if (folded.size() != 1 || folded[0].questions.size() != 1 ||
@@ -248,8 +253,36 @@ int main() {
     {
         const auto first =
             nlohmann::json::parse(settledAsks.front(), nullptr, false);
-        if (first.is_discarded() || first.size() != 1) {
+        const auto seeded =
+            api::elicitation::asks_from_state(first, "turn-settled");
+        if (seeded.size() != 1 || seeded[0].seq != 71) {
             std::fprintf(stderr, "the turn did not seed from its own hello\n");
+            return 1;
+        }
+    }
+
+    std::vector<std::string> keepAsks;
+    api::StreamSink keepSink;
+    keepSink.on_event = [&keepAsks](const api::StreamEvent& ev) {
+        if (ev.kind == api::StreamEventKind::AsksChanged)
+            keepAsks.push_back(ev.payload);
+    };
+    client.send_message_streaming("turn-child", "carry on", keepSink);
+    if (keepAsks.empty()) {
+        std::fprintf(stderr, "a turn over a child-parked session said nothing\n");
+        return 1;
+    }
+    for (const std::string& reported : keepAsks) {
+        const auto state = nlohmann::json::parse(reported, nullptr, false);
+        const auto folded =
+            api::elicitation::asks_from_state(state, "turn-child");
+        bool child = false;
+        for (const auto& a : folded)
+            if (a.child_session == "kid-local" && a.seq == 41) child = true;
+        if (!child) {
+            std::fprintf(stderr,
+                         "a parent turn dropped the child's pending ask: %s\n",
+                         reported.c_str());
             return 1;
         }
     }

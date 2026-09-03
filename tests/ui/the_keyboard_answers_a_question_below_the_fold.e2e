@@ -28,6 +28,8 @@ expect_no_text "Answer any one of these to submit"
 expect_text "Submit"
 expect_text "Decline"
 
+focus_ui ask_submit
+expect_focused ask_submit
 key ENTER
 wait_frames 20
 expect_no_text "The agent is asking"

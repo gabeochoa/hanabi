@@ -145,7 +145,7 @@ inline int clamp_input_lines(int measured) {
 inline float chrome_h(const api::PendingAsk& ask, int messageLines,
                       bool showNote) {
     float h = kPad * 2.0f + kHeadH + kButtonsH;
-    if (!ask.message.empty())
+    if (!ask.message.empty() && messageLines > 0)
         h += kMessageH * static_cast<float>(clamp_message_lines(messageLines));
     if (showNote) h += kNoteH;
     return h;
@@ -166,19 +166,28 @@ inline float body_h(const api::PendingAsk& ask, int inputLines,
     return h;
 }
 
+inline bool body_too_short(float view, float natural) {
+    return natural > view && view < kOptionH;
+}
+
 inline float body_view_h(float natural, float budget) {
     if (budget < 0.0f) budget = 0.0f;
-    return natural > budget ? budget : natural;
+    const float view = natural > budget ? budget : natural;
+    if (!body_too_short(view, natural)) return view;
+    return budget < kNoteH ? 0.0f : kNoteH;
 }
 
 inline int message_lines_for(const api::PendingAsk& ask, int messageLines,
                              bool showNote, float budget) {
     if (budget <= 0.0f) return messageLines;
     int lines = messageLines;
-    while (lines > 0 &&
-           chrome_h(ask, lines, showNote) + kMinBodyH > budget)
+    while (lines > 0 && chrome_h(ask, lines, showNote) + kMinBodyH > budget)
         --lines;
     return lines;
+}
+
+inline float irreducible_h(const api::PendingAsk& ask) {
+    return chrome_h(ask, 0, false);
 }
 
 inline float card_h(const api::PendingAsk& ask, int messageLines,

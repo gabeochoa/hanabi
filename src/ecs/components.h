@@ -708,6 +708,8 @@ struct AppComponent : public afterhours::BaseComponent {
     std::map<std::string, std::vector<api::PendingAsk>> attachAsks;
     hanabi::ask::State askState;
     bool askFocused = false;
+    static constexpr float kAskRefreshSeconds = 20.0f;
+    float askRefreshDue = kAskRefreshSeconds;
     float lastComposerPaneW = 0.0f;
     float lastPaneContentH = 0.0f;
     float lastComposerChromeH = 0.0f;
@@ -860,6 +862,7 @@ struct AppComponent : public afterhours::BaseComponent {
         api::Message finalMsg;
         std::string error;
         std::string asksJson;
+        std::uint64_t askStamp = 0;
     };
     std::future<StreamCollected> streamCollectFuture;
     bool streamCollecting = false;      // a worker is gathering the reply.

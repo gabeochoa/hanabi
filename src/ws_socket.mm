@@ -19,7 +19,7 @@ static const NSInteger kMaxMessageBytes = 64 * 1024 * 1024;
 static const int64_t kQuiesceTimeoutNs = 5LL * NSEC_PER_SEC;
 
 struct ws_conn {
-    std::uint64_t handle = 0;
+    std::uintptr_t handle = 0;
     NSURLSession* session = nil;
     NSURLSessionWebSocketTask* task = nil;
     dispatch_group_t inflight = nil;
@@ -29,7 +29,7 @@ struct ws_conn {
     // on_close fires exactly once. Both the receive loop and ws_close can
     // reach it, from different threads.
     std::atomic<bool> closed{false};
-    std::atomic<bool> leaked{false};
+    std::shared_ptr<void> owner;
 };
 
 static std::mutex& ws_live_lock() {
@@ -37,22 +37,23 @@ static std::mutex& ws_live_lock() {
     return m;
 }
 
-static std::unordered_map<std::uint64_t, std::shared_ptr<ws_conn>>& ws_live() {
-    static std::unordered_map<std::uint64_t, std::shared_ptr<ws_conn>> m;
+static std::unordered_map<std::uintptr_t, std::shared_ptr<ws_conn>>& ws_live() {
+    static std::unordered_map<std::uintptr_t, std::shared_ptr<ws_conn>> m;
     return m;
 }
 
-static std::uint64_t ws_mint_handle() {
-    static std::atomic<std::uint64_t> next{1};
+static std::uintptr_t ws_mint_handle() {
+    static std::atomic<std::uintptr_t> next{1};
     return next.fetch_add(1);
 }
 
+// The token callers hold IS the handle, never the address: the address is
+// freed by the first ws_close and a later ws_open can reuse it.
 static std::shared_ptr<ws_conn> ws_hold(ws_conn* c) {
     if (c == nullptr) return nullptr;
     std::lock_guard<std::mutex> guard(ws_live_lock());
-    for (const auto& [handle, held] : ws_live())
-        if (held.get() == c) return held;
-    return nullptr;
+    const auto it = ws_live().find(reinterpret_cast<std::uintptr_t>(c));
+    return it == ws_live().end() ? nullptr : it->second;
 }
 
 struct ws_inflight_armed {
@@ -92,10 +93,11 @@ static void ws_pump(std::shared_ptr<ws_conn> c) {
         if (message != nil &&
             message.type == NSURLSessionWebSocketMessageTypeString) {
             NSString* s = message.string;
-            if (s != nil && c->on_text != nullptr && !c->closed.load()) {
+            ws_on_text_fn on_text = c->on_text;
+            void* user = c->user;
+            if (s != nil && on_text != nullptr && !c->closed.load()) {
                 const char* utf8 = [s UTF8String];
-                if (utf8 != nullptr)
-                    c->on_text(c->user, utf8, std::strlen(utf8));
+                if (utf8 != nullptr) on_text(user, utf8, std::strlen(utf8));
             }
         }
         // Binary frames are ignored: this protocol is JSON text only, and
@@ -104,7 +106,7 @@ static void ws_pump(std::shared_ptr<ws_conn> c) {
     }];
 }
 
-ws_conn* ws_open(const ws_config* cfg) {
+ws_conn* ws_open_owned(const ws_config* cfg, std::shared_ptr<void> owner) {
     if (cfg == nullptr || cfg->url == nullptr) return nullptr;
 
     NSString* urlStr = [NSString stringWithUTF8String:cfg->url];
@@ -116,6 +118,7 @@ ws_conn* ws_open(const ws_config* cfg) {
     c->on_text = cfg->on_text;
     c->on_close = cfg->on_close;
     c->user = cfg->user;
+    c->owner = std::move(owner);
     c->handle = ws_mint_handle();
     c->inflight = dispatch_group_create();
 
@@ -156,7 +159,11 @@ ws_conn* ws_open(const ws_config* cfg) {
     }
     [c->task resume];
     ws_pump(owned);
-    return c;
+    return reinterpret_cast<ws_conn*>(c->handle);
+}
+
+ws_conn* ws_open(const ws_config* cfg) {
+    return ws_open_owned(cfg, nullptr);
 }
 
 bool ws_send_text(ws_conn* c, const char* text, size_t len) {
@@ -195,14 +202,10 @@ void ws_close(ws_conn* c) {
     if (held->session != nil) [held->session invalidateAndCancel];
     const dispatch_time_t limit =
         dispatch_time(DISPATCH_TIME_NOW, kQuiesceTimeoutNs);
-    if (dispatch_group_wait(held->inflight, limit) != 0) {
-        NSLog(@"ws_close: callbacks still running after %.0fs; dropping them",
+    if (dispatch_group_wait(held->inflight, limit) != 0)
+        NSLog(@"ws_close: a callback is still running after %.0fs; its target "
+               "stays alive on the connection",
               (double)kQuiesceTimeoutNs / 1e9);
-        held->on_text = nullptr;
-        held->on_close = nullptr;
-        held->user = nullptr;
-        held->leaked.store(true);
-    }
     {
         std::lock_guard<std::mutex> guard(ws_live_lock());
         ws_live().erase(held->handle);

@@ -472,6 +472,33 @@ inline bool fold_ask_resolved(const std::string& frame_json,
     return true;
 }
 
+inline bool fold_child_update(const std::string& frame_json,
+                              std::string* session, std::uint64_t* seq,
+                              bool* pending, json* entry) {
+    const json root = json::parse(frame_json, nullptr, false);
+    if (root.is_discarded()) return false;
+    const json* wrapped = detail::object_field(root, "event");
+    const json& event = wrapped != nullptr ? *wrapped : root;
+    const std::string type = detail::str_field(event, "type");
+    if (type != "child_elicitation_update" &&
+        type != "child_elicitation_notice")
+        return false;
+    const std::string who = detail::str_field(event, "session");
+    if (who.empty()) return false;
+    if (session != nullptr) *session = who;
+    if (seq != nullptr)
+        *seq = static_cast<std::uint64_t>(
+            detail::int_field(event, "elicitation", 0));
+    const json* held = detail::object_field(event, "pending");
+    if (pending != nullptr) *pending = held != nullptr;
+    if (entry != nullptr && held != nullptr) {
+        json out = *held;
+        out["elicitation"] = detail::int_field(event, "elicitation", 0);
+        *entry = std::move(out);
+    }
+    return true;
+}
+
 inline bool fold_child_ask_retracted(const std::string& frame_json,
                                      const std::string& child_session,
                                      std::uint64_t seq) {
