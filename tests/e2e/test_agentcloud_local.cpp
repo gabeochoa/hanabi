@@ -316,10 +316,41 @@ int main() {
         bool child = false;
         for (const auto& a : folded)
             if (a.child_session == "kid-local" && a.seq == 42) child = true;
+
         if (!child) {
             std::fprintf(stderr,
                          "a parent turn dropped the child's pending ask: %s\n",
                          reported.c_str());
+            return 1;
+        }
+    }
+
+    {
+        const auto kid = client.get_session("turn-child", 1);
+        if (!kid.ok) {
+            std::fprintf(stderr, "child probe attach failed: %s\n",
+                         kid.error.c_str());
+            return 1;
+        }
+        bool sawChild = false;
+        for (const auto& a : kid.value.pending_asks) {
+            if (a.child_session != "kid-local" || a.seq != 41) continue;
+            sawChild = true;
+            int text = 0, file = 0;
+            for (const auto& q : a.questions) {
+                if (q.control == api::AskControl::Text) ++text;
+                if (q.control == api::AskControl::File) ++file;
+            }
+            if (text != 1 || file != 1) {
+                std::fprintf(stderr,
+                             "a child's prose question was not recovered: "
+                             "%d text, %d file\n",
+                             text, file);
+                return 1;
+            }
+        }
+        if (!sawChild) {
+            std::fprintf(stderr, "the child ask never reached the parent\n");
             return 1;
         }
     }

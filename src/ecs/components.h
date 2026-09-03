@@ -739,6 +739,8 @@ struct AppComponent : public afterhours::BaseComponent {
         if (known != attachAsks.end())
             for (const auto& a : known->second)
                 if (live.count(a.id()) == 0) askState.forget(a.id());
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        for (const auto& a : asks) askState.seenAt.emplace(a.id(), now);
         if (asks.empty()) attachAsks.erase(id);
         else attachAsks[id] = asks;
     }
@@ -1349,6 +1351,20 @@ inline bool ask_keys_live(const AppComponent& app, bool tabMenuOpen) {
     for (const Pane& pane : app.panes)
         own.transientUi = own.transientUi || pane.findOpen;
     return hanabi::ask::keys_live(own);
+}
+
+inline bool ask_input_live(const AppComponent& app, bool tabMenuOpen) {
+    hanabi::ask::KeyOwnership own;
+    own.cardFocused = true;
+    own.modalSheet = overlay_up(app);
+    own.recordingShortcut = app.shortcutRecording >= 0;
+    own.transientUi = app.sessionSearchOpen || app.slashMenuOpen ||
+                      app.modelPopoverOpen || app.effortPopoverOpen ||
+                      app.planPopoverOpen || app.foldPopoverOpen ||
+                      app.rowMenuOpen || tabMenuOpen;
+    for (const Pane& pane : app.panes)
+        own.transientUi = own.transientUi || pane.findOpen;
+    return hanabi::ask::input_live(own);
 }
 
 }  // namespace ecs

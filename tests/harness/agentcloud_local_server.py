@@ -119,6 +119,19 @@ def serve_connection(listener):
                 if command.get("session_id") == "turn-local":
                     state["pending_elicitations"] = []
                 session_of_sub[sub] = command.get("session_id")
+                if command.get("session_id") == "kid-local":
+                    state["pending_elicitations"] = [{
+                        "elicitation": 41,
+                        "tool": "AskUserQuestion",
+                        "message": "the child is asking",
+                        "requested_schema": _dumps({
+                            "type": "object",
+                            "properties": {
+                                "q1": {"type": "string", "title": "Say why"},
+                                "q4": {"type": "string", "title": "A file"}}}),
+                        "timeout_ms": 600000,
+                        "file_keys": ["q4"],
+                    }]
                 if command.get("session_id") in ("turn-child", "turn-retract"):
                     state["pending_elicitations"] = []
                     state["child_pending_elicitations"] = [
@@ -128,7 +141,13 @@ def serve_connection(listener):
                                 "elicitation": 41,
                                 "tool": "AskUserQuestion",
                                 "message": "the child is asking",
-                                "requested_schema": "",
+                                "requested_schema": _dumps({
+                                    "type": "object",
+                                    "properties": {
+                                        "q1": {"type": "string",
+                                               "title": "Say why"},
+                                        "q4": {"type": "string",
+                                               "title": "A file"}}}),
                                 "timeout_ms": 600000,
                             },
                         },

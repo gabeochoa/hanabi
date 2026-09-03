@@ -4381,9 +4381,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kAskMinCardW = 240.0f;
     static constexpr float kAskActionW = 96.0f;
     static constexpr float kAskActionGap = 8.0f;
-    static constexpr float kAskActionMinW = 44.0f;
     static constexpr float kAskScrollbarW = 10.0f;
     static constexpr float kAskArityW = 64.0f;
+
+    static float ask_arity_w(float rowW) {
+        const float half = rowW * 0.5f;
+        if (half <= 0.0f) return 0.0f;
+        return kAskArityW < half ? kAskArityW : half;
+    }
     static constexpr float kAskOptionInset = 26.0f;
 
     static float ask_option_text_w(float bodyTextW) {
@@ -4400,7 +4405,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float inner = ask_text_w(app);
         const float pair = (inner - kAskActionGap) * 0.5f;
         if (pair >= kAskActionW) return kAskActionW;
-        return pair < kAskActionMinW ? kAskActionMinW : pair;
+        return pair < 1.0f ? 1.0f : pair;
     }
 
     static float ask_card_w(const AppComponent& app) {
@@ -4496,7 +4501,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         for (const api::AskQuestion& q : ask.questions) {
             hanabi::ask::QuestionMetrics m;
             m.prompt_lines = hanabi::ask::clamp_prompt_lines(
-                count_lines(q.prompt, textW - kAskArityW, theme::type::SM));
+                count_lines(q.prompt, textW - ask_arity_w(textW),
+                            theme::type::SM));
             m.option_lines.reserve(q.options.size());
             for (const api::AskOption& o : q.options)
                 m.option_lines.push_back(hanabi::ask::clamp_option_lines(
@@ -4515,9 +4521,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return app.client != nullptr && app.client->supports_resolve_ask();
     }
 
+    static bool ask_expired(const AppComponent& app,
+                            const api::PendingAsk& ask) {
+        if (ask.timeout_ms <= 0) return false;
+        const auto at = app.askState.seenAt.find(ask.id());
+        if (at == app.askState.seenAt.end()) return false;
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        return (now - at->second) * 1000 > ask.timeout_ms;
+    }
+
     static bool ask_note_shown(const AppComponent& app,
                                const api::PendingAsk& ask) {
         if (!ask_can_resolve(app)) return true;
+        if (ask_expired(app, ask)) return true;
         if (!app.askState.errorText.empty() &&
             app.askState.errorId == ask.id())
             return true;
@@ -4899,14 +4915,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto promptCol = div(ctx, mk(promptRow.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{
-                        pixels(bodyTextW - kAskArityW),
+                        pixels(bodyTextW - ask_arity_w(bodyTextW)),
                         pixels(hanabi::ask::prompt_row_h(qm.prompt_lines))})
                     .with_flex_direction(FlexDirection::Column)
                     .with_flex_wrap(FlexWrap::NoWrap)
                     .with_transparent_bg()
                     .with_debug_name("ask_prompt_" + q.key));
             render_ask_wrapped(ctx, promptCol.ent(), 1, q.prompt,
-                               qm.prompt_lines, bodyTextW - kAskArityW,
+                               qm.prompt_lines,
+                               bodyTextW - ask_arity_w(bodyTextW),
                                hanabi::ask::kOptionLineH,
                                theme::text_secondary(),
                                "ask_prompt_line_" + q.key);
@@ -4915,7 +4932,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ComponentConfig{}
                         .with_label(arity)
                         .with_size(ComponentSize{
-                            pixels(kAskArityW),
+                            pixels(ask_arity_w(bodyTextW)),
                             pixels(hanabi::ask::kOptionLineH)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_faint())
@@ -5063,6 +5080,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        const auto* tabStrip = find_singleton<TabStripComponent>();
+        const bool tabMenu = tabStrip != nullptr && tabStrip->menuOpen;
+        const bool keysLive = ecs::ask_keys_live(app, tabMenu);
+        const bool inputLive = ecs::ask_input_live(app, tabMenu);
+        const std::string submitLabel = approval ? "Approve" : "Submit";
+        const std::string declineLabel = approval ? "Deny" : "Decline";
+
         if (showNote) {
             std::string note;
             theme::Color ink = theme::text_faint();
@@ -5071,9 +5095,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ink = theme::text_secondary();
             } else if (!answerable) {
                 note = "This backend cannot answer an agent's question.";
+            } else if (ask_expired(app, ask)) {
+                note = "This question timed out — the agent stopped waiting.";
+                ink = theme::status_blocked();
             } else if (!app.askState.errorText.empty() &&
                        app.askState.errorId == askId) {
-                note = app.askState.errorText + " — press Submit to try again.";
+                note = app.askState.errorText + " — press " + submitLabel +
+                       " to try again.";
                 ink = theme::status_blocked();
             } else if (tooShort) {
                 note = "Too short to show the questions — make the window "
@@ -5109,11 +5137,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_debug_name("ask_actions"));
 
-        const std::string submitLabel = approval ? "Approve" : "Submit";
-        const bool submitOff = busy || blocked || !answerable;
+        const bool expired = ask_expired(app, ask);
+        const bool submitOff =
+            busy || blocked || !answerable || !inputLive || expired;
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitLabel)
+                .with_disabled(submitOff)
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
                 .with_custom_background(submitOff ? theme::panel_bg_2()
@@ -5127,14 +5157,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_corner_radius(6.0f)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_submit"));
-        if (submit && !submitOff) {
+        if (submit && !submitOff && inputLive) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Accept);
         }
 
         auto decline = button(ctx, mk(actions.ent(), 2),
             ComponentConfig{}
-                .with_label(approval ? "Deny" : "Decline")
+                .with_label(declineLabel)
+                .with_disabled(busy || !answerable || !inputLive ||
+                               expired)
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
                 .with_margin(Margin{.left = pixels(kAskActionGap)})
@@ -5148,16 +5180,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_corner_radius(6.0f)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_decline"));
-        if (decline && !busy && answerable) {
+        if (decline && !busy && answerable && inputLive && !expired) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Decline);
         }
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
-        const auto* strip = find_singleton<TabStripComponent>();
-        const bool keysLive =
-            ecs::ask_keys_live(app, strip != nullptr && strip->menuOpen);
-
         const bool actionFocused =
             ctx.has_focus(submit.ent().id) || ctx.has_focus(decline.ent().id);
         bool widgetOwnsEnter = actionFocused;
@@ -5176,8 +5204,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (keysLive && app.escape == EscapeIntent::DeclineAsk && !busy &&
             answerable) {
-            submit_ask(app, ask, api::AskAction::Decline);
-            app.askFocused = false;
+            if (hanabi::ask::has_draft(ask, answer)) {
+                app.askFocused = false;
+            } else {
+                submit_ask(app, ask, api::AskAction::Cancel);
+                app.askFocused = false;
+            }
         }
         drive_ask_keyboard(ctx, app, ask, &body.ent(), widgetOwnsEnter,
                            keysLive);

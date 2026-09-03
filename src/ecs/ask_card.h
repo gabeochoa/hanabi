@@ -45,6 +45,7 @@ struct State {
     std::string errorId;
     std::string errorText;
 
+    std::map<std::string, int64_t> seenAt;
     std::uint64_t loadSeq = 0;
     std::map<std::string, std::uint64_t> dropStamp;
 
@@ -62,6 +63,7 @@ struct State {
     void forget(const std::string& id) {
         answers.erase(id);
         cursors.erase(id);
+        seenAt.erase(id);
         if (errorId == id) {
             errorId.clear();
             errorText.clear();
@@ -123,6 +125,11 @@ inline float question_h(const api::AskQuestion& q,
             break;
     }
     return h + kQuestionGap;
+}
+
+inline bool has_draft(const api::PendingAsk& ask,
+                      const api::AskAnswer& answer) {
+    return api::elicitation::answer_has_content(ask, answer);
 }
 
 inline bool submit_blocked(const api::PendingAsk& ask,
@@ -193,9 +200,12 @@ struct KeyOwnership {
     bool recordingShortcut = false;
 };
 
+inline bool input_live(const KeyOwnership& own) {
+    return !own.modalSheet && !own.transientUi && !own.recordingShortcut;
+}
+
 inline bool keys_live(const KeyOwnership& own) {
-    return own.cardFocused && !own.modalSheet && !own.transientUi &&
-           !own.recordingShortcut;
+    return own.cardFocused && input_live(own);
 }
 
 inline float irreducible_h(const api::PendingAsk& ask) {

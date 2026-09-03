@@ -351,6 +351,50 @@ static void test_who_owns_the_cards_keys() {
     CHECK(!ask::keys_live(own));
 }
 
+static void test_a_draft_survives_a_refresh() {
+    std::printf("a typed answer survives a re-adopt\n");
+    ask::State state;
+    api::PendingAsk a;
+    a.owner_session = "s1";
+    a.seq = 41;
+    api::PendingAsk b;
+    b.owner_session = "s1";
+    b.seq = 42;
+
+    state.answers[a.id()].text["q1"] = "half a sentence";
+    state.answers[b.id()].picks["q1"].push_back("ledger");
+    state.seenAt[a.id()] = 100;
+
+    for (const auto& id : {a.id(), b.id()})
+        CHECK(state.answers.count(id) == 1);
+
+    state.forget(b.id());
+    CHECK(state.answers.count(a.id()) == 1);
+    CHECK(state.answers[a.id()].text["q1"] == "half a sentence");
+    CHECK(state.answers.count(b.id()) == 0);
+    CHECK(state.seenAt.count(a.id()) == 1);
+
+    state.forget(a.id());
+    CHECK(state.answers.empty());
+    CHECK(state.seenAt.empty());
+}
+
+static void test_escape_never_throws_away_typing() {
+    std::printf("Escape is not destructive over a draft\n");
+    const PendingAsk a = demo_form();
+    api::AskAnswer empty;
+    CHECK(!ask::has_draft(a, empty));
+    api::AskAnswer typed;
+    typed.text["q3"] = "check the promo ledger first";
+    CHECK(ask::has_draft(a, typed));
+    api::AskAnswer picked;
+    picked.picks["q1"].push_back("ledger");
+    CHECK(ask::has_draft(a, picked));
+    api::AskAnswer blank;
+    blank.text["q3"] = "   ";
+    CHECK(!ask::has_draft(a, blank));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -362,6 +406,8 @@ int main() {
     test_a_stale_load_cannot_resurrect();
     test_a_reserved_note_costs_exactly_one_note();
     test_who_owns_the_cards_keys();
+    test_a_draft_survives_a_refresh();
+    test_escape_never_throws_away_typing();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

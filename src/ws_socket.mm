@@ -2,6 +2,11 @@
 
 #import <Foundation/Foundation.h>
 
+#if !__has_feature(objc_arc)
+#error "ws_socket.mm requires -fobjc-arc: ws_conn's ObjC members and the two \
+sends' allocations are released by ARC alone (see makefile)."
+#endif
+
 #include <atomic>
 #include <cstdint>
 #include <cstring>

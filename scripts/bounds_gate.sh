@@ -112,6 +112,61 @@ done
 
 sort -u "$FOUND" -o "$FOUND"
 
+# SPLIT ARMS, ask-scoped. The composer's narrow-pane geometry overflows at
+# every split width -- reproduced with the ask card off screen entirely, and
+# `git diff 73d5cffe..HEAD` touches none of it -- so these states cannot be
+# checked whole without gating a pre-existing defect this feature did not
+# cause. What IS this feature's to keep clean is every `ask_*` element, and
+# that is what these check.
+ASK_STATES=(
+    "HANABI_WIN_W=487 HANABI_WIN_H=620 HANABI_SPLIT=t3 HANABI_ASK_DEMO=approval"
+    "HANABI_WIN_W=487 HANABI_WIN_H=620 HANABI_SPLIT=t3 HANABI_ASK_DEMO=1"
+    "HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_SPLIT=t3 HANABI_ASK_DEMO=big"
+)
+
+ASK_FOUND="$WORK/ask_found.txt"
+: > "$ASK_FOUND"
+for st in "${ASK_STATES[@]}"; do
+    H="$WORK/askhome"
+    rm -rf "$H"
+    mkdir -p "$H/Library/Application Support/hanabi"
+    cat > "$H/Library/Application Support/hanabi/settings.json" <<JSON
+{"window_width":1180,"window_height":949,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
+JSON
+    # shellcheck disable=SC2086
+    env HOME="$H" HANABI_BACKEND=mock HANABI_CONFIG="/tmp/none_bounds_$$" \
+        HANABI_BOUNDS_AUDIT=1 $st \
+        "$EXE" --screenshot "$H/shot.png" > "$WORK/asklog.txt" 2>&1 &
+    pid=$!
+    for _ in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    kill -9 "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    pkill -9 -f "^$EXE" >/dev/null 2>&1
+    /usr/bin/python3 - "$WORK/asklog.txt" >> "$ASK_FOUND" <<'PY'
+import re, sys
+for line in open(sys.argv[1], errors="replace"):
+    m = re.match(r"\[bounds\]\s+(\S+)\s+in\s+(\S+)\s+over by (.*?)(?:\s+\[|$)", line)
+    if not m:
+        continue
+    if not (m.group(1).startswith("ask_") and m.group(2).startswith("ask_")):
+        continue
+    sides = " ".join(sorted(s for s in ("left", "right", "top", "bottom")
+                            if s + "=" in m.group(3)))
+    print(f"{m.group(1)} in {m.group(2)} {sides}")
+PY
+done
+sort -u "$ASK_FOUND" -o "$ASK_FOUND"
+
+if [ -s "$ASK_FOUND" ]; then
+    echo "bounds-gate: FAIL: the ask card escapes its own boxes in a split:" >&2
+    sed 's/^/  /' "$ASK_FOUND" >&2
+    echo "" >&2
+    echo "  The card and its rows must fit whatever pane they are given." >&2
+    exit 1
+fi
+echo "bounds-gate: ask split arms clean (${#ASK_STATES[@]} states)."
+
+
 if [ "${1:-}" = "--update" ]; then
     # Keep the baseline's leading comment block: it is the argument for the
     # freeze, and an --update that silently deleted it would leave the next

@@ -7,6 +7,7 @@
 #include <limits>
 #include <vector>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 #include <string>
 
@@ -24,7 +25,8 @@ using json = nlohmann::json;
 constexpr int kReplyTimeoutSecs = 30;
 constexpr int kForkTimeoutSecs = 60;
 
-constexpr int kRetractTimeoutSecs = 8;
+constexpr int kOwnSettleTimeoutSecs = 8;
+constexpr int kChildSettleTimeoutSecs = 30;
 
 // A turn is bounded by SILENCE, not by total time: tool rounds and model calls
 // legitimately take minutes, but a socket that has said nothing for this long
@@ -1248,6 +1250,37 @@ bool fold_session_renamed(const std::string& msg_json, SessionSummary& summary) 
 
 }  // namespace agentcloud
 
+static void resolve_child_file_keys(ws_conn* conn, FrameQueue& q,
+                                    std::vector<PendingAsk>& asks) {
+    std::set<std::string> kids;
+    for (const PendingAsk& a : asks)
+        if (!a.child_session.empty() && a.has_file_question())
+            kids.insert(a.child_session);
+    if (kids.empty()) return;
+
+    int sub = 40;
+    for (const std::string& kid : kids) {
+        const json env = {
+            {"sub", sub},
+            {"payload", {{"cmd", "attach"}, {"session_id", kid}}}};
+        const std::string wire = env.dump();
+        ++sub;
+        if (!ws_send_text(conn, wire.data(), wire.size())) return;
+        const json hello = q.wait_for_type("hello", kOwnSettleTimeoutSecs);
+        if (hello.is_discarded()) continue;
+        const auto truth =
+            elicitation::asks_from_state(obj_at(hello, "state"), kid);
+        for (PendingAsk& a : asks) {
+            if (a.child_session != kid) continue;
+            for (const PendingAsk& real : truth) {
+                if (real.seq != a.seq) continue;
+                a.questions = real.questions;
+                break;
+            }
+        }
+    }
+}
+
 std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
                                               Session* out,
                                               std::string* error) {
@@ -1307,6 +1340,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     apply_brakes_from_state(state, *out);
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
     agentcloud::parse_pending_asks(hello.dump(), *out);
+    resolve_child_file_keys(conn, q, out->pending_asks);
 
     // Page BACKWARD from the newest until the server says done.
     //
@@ -1588,6 +1622,22 @@ Result<std::string> AgentcloudClient::rename_session(
     }
 }
 
+static bool still_pending_now(ws_conn* conn, FrameQueue& q,
+                              const std::string& session_id,
+                              const PendingAsk& ask) {
+    const json attach_env = {
+        {"sub", 2},
+        {"payload", {{"cmd", "attach"}, {"session_id", session_id}}}};
+    const std::string wire = attach_env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size())) return true;
+    const json hello = q.wait_for_type("hello", kOwnSettleTimeoutSecs);
+    if (hello.is_discarded()) return true;
+    for (const PendingAsk& live :
+         elicitation::asks_from_state(obj_at(hello, "state"), session_id))
+        if (live.id() == ask.id()) return true;
+    return false;
+}
+
 Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
                                                   const PendingAsk& ask,
                                                   AskAction action,
@@ -1658,12 +1708,18 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
 
     const auto deadline =
         std::chrono::steady_clock::now() +
-        std::chrono::seconds(ask.child_session.empty() ? kReplyTimeoutSecs
-                                                       : kRetractTimeoutSecs);
+        std::chrono::seconds(ask.child_session.empty() ? kOwnSettleTimeoutSecs
+                                                       : kChildSettleTimeoutSecs);
     for (;;) {
         const json msg = q.wait_for_next(deadline);
-        if (msg.is_discarded())
-            return fail(q.closed_note("no settlement for this question"));
+        if (msg.is_discarded()) {
+            if (q.is_closed())
+                return fail(q.closed_note("no settlement for this question"));
+            if (!still_pending_now(conn, q, session_id, ask))
+                return Result<std::string>::success(
+                    std::string(elicitation::action_word(action)));
+            return fail("no settlement for this question");
+        }
         if (str_or(msg, "type", "") == "error")
             return fail(str_or(msg, "message", "the answer was refused"));
         if (str_or(msg, "type", "") != "frame") continue;

@@ -492,6 +492,47 @@ static void test_child_file_questions_are_not_answerable() {
     CHECK(hasText);
 }
 
+static void test_the_cause_watermark_orders_frames() {
+    std::printf("latest-cause-wins per (session, seq)\n");
+    const auto frame = [](std::uint64_t seq, std::uint64_t cause,
+                          bool pending) {
+        json ev = json::object();
+        ev["type"] = "child_elicitation_update";
+        ev["session"] = "kid";
+        ev["elicitation"] = seq;
+        ev["cause"] = cause;
+        if (pending)
+            ev["pending"] = {{"tool", "AskUserQuestion"},
+                             {"message", "hi"},
+                             {"requested_schema", ""}};
+        return json({{"type", "frame"}, {"seq", cause}, {"event", ev}}).dump();
+    };
+
+    std::string session;
+    std::uint64_t seq = 0, cause = 0;
+    bool known = false, pending = false;
+    json entry;
+    CHECK(el::fold_child_update(frame(41, 55, false), &session, &seq, &cause,
+                                &known, &pending, &entry));
+    CHECK(session == "kid");
+    CHECK(seq == 41);
+    CHECK(cause == 55);
+    CHECK(known);
+    CHECK(!pending);
+
+    CHECK(el::fold_child_update(frame(41, 41, true), &session, &seq, &cause,
+                                &known, &pending, &entry));
+    CHECK(cause == 41);
+    CHECK(pending);
+
+    json noCause = json::parse(frame(41, 55, false));
+    noCause["event"].erase("cause");
+    CHECK(el::fold_child_update(noCause.dump(), &session, &seq, &cause, &known,
+                                &pending, &entry));
+    CHECK(!known);
+    CHECK(cause == 0);
+}
+
 int main() {
     test_shapes();
     test_ordering_and_options();
@@ -505,6 +546,7 @@ int main() {
     test_child_order();
     test_approval_cap_and_frames();
     test_child_file_questions_are_not_answerable();
+    test_the_cause_watermark_orders_frames();
     if (g_failures == 0) {
         std::printf("elicitation: all checks passed\n");
         return 0;
