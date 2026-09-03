@@ -129,6 +129,7 @@ def serve_connection(listener):
                                 "tool": "AskUserQuestion",
                                 "message": "the child is asking",
                                 "requested_schema": "",
+                                "timeout_ms": 600000,
                             },
                         },
                         {
@@ -138,6 +139,7 @@ def serve_connection(listener):
                                 "tool": "AskUserQuestion",
                                 "message": "and asking again",
                                 "requested_schema": "",
+                                "timeout_ms": 600000,
                             },
                         },
                     ]
@@ -147,6 +149,7 @@ def serve_connection(listener):
                         "tool": "AskUserQuestion",
                         "message": "Which ledger do we trust?",
                         "requested_schema": "",
+                        "timeout_ms": 600000,
                     }]
                 if command.get("session_id") == "ask-local":
                     state["pending_elicitations"] = [{
@@ -199,7 +202,7 @@ def serve_connection(listener):
                         "type": "frame", "frame": "durable", "seq": 91,
                         "event": {"type": "child_elicitation_update",
                                   "session": "kid-local", "elicitation": 41,
-                                  "cause": 12}}})
+                                  "cause": 55}}})
                     continue
                 assert command["action"] == "accept", command
                 assert "session" not in command, command

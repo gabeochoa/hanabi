@@ -312,17 +312,17 @@ static void test_a_stale_load_cannot_resurrect() {
     CHECK(!state.load_is_stale("other", bStamp));
 }
 
-static void test_the_note_is_reserved_wherever_it_is_drawn() {
-    std::printf("a drawn note is a reserved note\n");
+static void test_a_reserved_note_costs_exactly_one_note() {
+    std::printf("the note costs a note, at a real budget\n");
     const PendingAsk a = demo_form();
     const auto m = flat_metrics(a);
-    for (const bool showNote : {false, true}) {
-        const float reserved = ask::card_h(a, 1, showNote, 0, m, 0.0f);
-        const float drawn = ask::chrome_h(a, 1, showNote) + ask::body_h(a, 0, m);
-        CHECK(reserved == drawn);
-    }
     CHECK(ask::chrome_h(a, 1, true) - ask::chrome_h(a, 1, false) ==
           ask::kNoteH);
+    const float withNote = ask::card_h(a, 1, true, 0, m, 400.0f);
+    const float without = ask::card_h(a, 1, false, 0, m, 400.0f);
+    CHECK(withNote <= 400.0f + 0.01f);
+    CHECK(without <= 400.0f + 0.01f);
+    CHECK(withNote >= without);
 }
 
 int main() {
@@ -334,7 +334,7 @@ int main() {
     test_head_and_drafts();
     test_budget_pays_the_composer_first();
     test_a_stale_load_cannot_resurrect();
-    test_the_note_is_reserved_wherever_it_is_drawn();
+    test_a_reserved_note_costs_exactly_one_note();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

@@ -124,7 +124,10 @@ class MockClient : public Client {
         return Result<std::vector<SessionSummary>>::success(std::move(out));
     }
 
-    bool supports_resolve_ask() const override { return true; }
+    bool supports_resolve_ask() const override {
+        const char* off = std::getenv("HANABI_ASK_NO_RESOLVE");
+        return off == nullptr || *off == '\0';
+    }
 
     Result<std::string> resolve_ask(const std::string& session_id,
                                     const PendingAsk& ask, AskAction action,
@@ -857,6 +860,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
+        "HANABI_ASK_NO_RESOLVE",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",

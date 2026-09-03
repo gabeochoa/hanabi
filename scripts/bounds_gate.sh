@@ -67,6 +67,8 @@ STATES=(
     "HANABI_ASK_DEMO=approval"
     "HANABI_ASK_DEMO=longapproval"
     "HANABI_ASK_DEMO=big HANABI_ATTACH_DEMO=/tmp/none.png"
+    "HANABI_ASK_DEMO=big HANABI_ASK_NO_RESOLVE=1"
+    "HANABI_ASK_DEMO=approval HANABI_ASK_NO_RESOLVE=1"
 )
 
 WORK="$(mktemp -d /tmp/hanabi_bounds.XXXXXX)"

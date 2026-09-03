@@ -1123,6 +1123,7 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
 void LiveTurn::seed_asks(const json& state, const StreamSink& sink) {
     asks_.clear();
     children_ = json::array();
+    childCause_.clear();
     if (state.is_object() && state.contains("pending_elicitations") &&
         state.at("pending_elicitations").is_array())
         for (const json& e : state.at("pending_elicitations"))
@@ -1174,11 +1175,17 @@ static const json* detail_child_entry(const json& row) {
 bool LiveTurn::fold_child_update(const std::string& frame_json) {
     std::string session;
     std::uint64_t seq = 0;
+    std::uint64_t cause = 0;
     bool pending = false;
     json entry;
-    if (!elicitation::fold_child_update(frame_json, &session, &seq, &pending,
-                                        &entry))
+    if (!elicitation::fold_child_update(frame_json, &session, &seq, &cause,
+                                        &pending, &entry))
         return false;
+
+    const auto key = std::make_pair(session, seq);
+    const auto seen = childCause_.find(key);
+    if (seen != childCause_.end() && cause <= seen->second) return false;
+    childCause_[key] = cause;
     json kept = json::array();
     bool changed = false;
     for (const json& row : children_) {

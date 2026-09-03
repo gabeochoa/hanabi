@@ -4378,6 +4378,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static constexpr float kComposerBaseH = 98.0f;
     static constexpr float kAskMinTranscriptH = 120.0f;
+    static constexpr float kAskMinCardW = 240.0f;
     static constexpr float kAskScrollbarW = 10.0f;
     static constexpr float kAskArityW = 64.0f;
     static constexpr float kAskOptionInset = 26.0f;
@@ -4395,7 +4396,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float gutter = (paneW - kComposerReadCol) * 0.5f + kComposerColInset;
         if (gutter < kContentInset) gutter = kContentInset;
         const float w = paneW - gutter * 2.0f;
-        return w < 240.0f ? 240.0f : w;
+        const float floor = paneW - kContentInset * 2.0f;
+        const float want = kAskMinCardW < floor ? kAskMinCardW : floor;
+        return w < want ? want : w;
     }
 
     static float ask_text_w(const AppComponent& app) {
@@ -4642,6 +4645,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             const api::PendingAsk& ask, Entity* body,
                             bool widgetOwnsEnter) {
         if (!app.askFocused) return;
+        if (ecs::overlay_up(app)) return;
         if (hanabi::keys::cmd_down() || hanabi::keys::shift_down() ||
             hanabi::keys::ctrl_down() || hanabi::keys::option_down())
             return;
@@ -5121,7 +5125,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         bool widgetOwnsEnter =
             ctx.has_focus(submit.ent().id) || ctx.has_focus(decline.ent().id);
         for (const AskRowId& row : askRowIds_)
-            if (ctx.has_focus(row.id)) widgetOwnsEnter = true;
+            if (ctx.has_focus(row.id)) {
+                widgetOwnsEnter = true;
+                auto& cur = app.askState.cursor_for(ask.id());
+                if (cur.question != *row.question ||
+                    cur.option != *row.option) {
+                    cur.question = *row.question;
+                    cur.option = *row.option;
+                }
+            }
         if (app.escape == EscapeIntent::DeclineAsk && !busy && answerable) {
             submit_ask(app, ask, api::AskAction::Decline);
             app.askFocused = false;

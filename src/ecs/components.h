@@ -68,6 +68,7 @@ enum class EscapeIntent {
     ClosePlanPicker,
     CloseFoldPicker,
     DeclineAsk,
+    BlurAskField,
     ClearTranscript,
 };
 

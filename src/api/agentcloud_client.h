@@ -16,8 +16,10 @@
 // A synchronous list is therefore honest: connect, ask, read one reply, close.
 // The long-lived socket arrives with attach, in the slice that needs it.
 
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include <unordered_map>
 
@@ -243,6 +245,8 @@ class LiveTurn {
     std::string emitted_;
     std::vector<nlohmann::json> asks_;
     nlohmann::json children_ = nlohmann::json::array();
+    std::map<std::pair<std::string, std::uint64_t>, std::uint64_t>
+        childCause_;
     bool asksKnown_ = false;
 };
 
