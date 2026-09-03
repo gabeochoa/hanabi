@@ -368,6 +368,11 @@
       "threshold_pct": 0.0,
       "note": "A long shell command wrapped across lines rather than ellipsized, because approving what you cannot read is the risk."
     },
+    "64_ask_wrapped_options_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "487x620",
+      "note": "Option labels that wrap at a narrow width: each row gets the height its lines need, the glyph sits beside the FIRST line rather than through the second, and the scroll body absorbs what is left over."
+    },
     "63_ask_unanswerable_backend_dark": {
       "threshold_pct": 0.0,
       "note": "A backend that cannot resolve: the card says so, both actions are disabled, and the note it draws is the note it reserved -- reserve and draw are one predicate, and this pixel pins that."

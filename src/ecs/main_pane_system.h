@@ -4820,9 +4820,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_body"));
         hanabi::apply_scroll_prefs(body.ent());
 
+        auto content = div(ctx, mk(body.ent(), 11),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(bodyNaturalH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_debug_name("ask_body_content"));
+
         int key = 20;
         if (tooShort) {
-            div(ctx, mk(body.ent(), key++),
+            div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
                     .with_label("Too short to show the questions — make the "
                                 "window taller.")
@@ -4835,13 +4844,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_debug_name("ask_too_short"));
         } else if (approval) {
-            render_ask_wrapped(ctx, body.ent(), key, ask_input_text(ask),
+            render_ask_wrapped(ctx, content.ent(), key, ask_input_text(ask),
                                inputLines, bodyTextW, hanabi::ask::kNoteH,
                                theme::text_secondary(), "ask_approval_input",
                                /*selectable=*/true);
             key += hanabi::ask::kMaxInputLines;
         } else if (ask.schema_unreadable) {
-            div(ctx, mk(body.ent(), key++),
+            div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
                     .with_label("This build cannot draw the form this "
                                 "question uses.")
@@ -4854,7 +4863,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_debug_name("ask_unreadable"));
         } else if (ask.questions.empty()) {
-            div(ctx, mk(body.ent(), key++),
+            div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
                     .with_label("This one asks for nothing but an answer.")
                     .with_size(ComponentSize{percent(1.0f),
@@ -4877,7 +4886,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                            : "");
             const hanabi::ask::QuestionMetrics& qm =
                 metrics[static_cast<std::size_t>(qi)];
-            auto promptRow = div(ctx, mk(body.ent(), key++),
+            auto promptRow = div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
                     .with_size(ComponentSize{
                         percent(1.0f),
@@ -4915,7 +4924,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("ask_arity_" + q.key));
 
             if (q.control == api::AskControl::File) {
-                div(ctx, mk(body.ent(), key++),
+                div(ctx, mk(content.ent(), key++),
                     ComponentConfig{}
                         .with_label(ask.child_session.empty()
                                         ? kAskFileHint
@@ -4933,7 +4942,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
             if (q.control == api::AskControl::Text) {
                 afterhours::ui::imm::text_input(
-                    ctx, mk(body.ent(), key++), answer.text[q.key],
+                    ctx, mk(content.ent(), key++), answer.text[q.key],
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
@@ -4956,13 +4965,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     static_cast<std::size_t>(oi) < qm.option_lines.size()
                         ? qm.option_lines[static_cast<std::size_t>(oi)]
                         : 1;
-                auto row = button(ctx, mk(body.ent(), key++),
+                auto row = button(ctx, mk(content.ent(), key++),
                     ComponentConfig{}
                         .with_label(optLines > 1 ? std::string()
                                                  : ask_option_text(option))
                         .with_size(ComponentSize{
                             percent(1.0f),
                             pixels(hanabi::ask::option_row_h(optLines))})
+                        .with_padding(Padding{.top = pixels(0),
+                                              .right = pixels(0),
+                                              .bottom = pixels(0),
+                                              .left = pixels(0)})
                         .with_transparent_bg()
                         .with_custom_hover_bg(
                             theme::hover_over(theme::panel_bg_2()))
@@ -4973,13 +4986,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
                         .with_click_activation(ClickActivationMode::Press)
-                        .with_on_draw_fg([on, atCursor,
+                        .with_on_draw_fg([on, atCursor, optLines,
                                           control = q.control](RectangleType r) {
                             if (atCursor)
                                 afterhours::draw_rectangle_outline(
                                     RectangleType{r.x, r.y, r.width, r.height},
                                     theme::accent());
-                            draw_ask_glyph(r, control, on);
+                            RectangleType gr = r;
+                            if (optLines > 1)
+                                gr.height = hanabi::ask::kOptionH;
+                            draw_ask_glyph(gr, control, on);
                         })
                         .with_debug_name("ask_option_" + q.key + "_" +
                                          std::to_string(oi)));
@@ -4991,8 +5007,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (optLines > 1) {
                     auto wrapCol = div(ctx, mk(row.ent(), 1),
                         ComponentConfig{}
-                            .with_size(ComponentSize{percent(1.0f),
-                                                     percent(1.0f)})
+                            .with_size(ComponentSize{
+                                pixels(ask_option_text_w(bodyTextW)),
+                                pixels(hanabi::ask::kOptionLineH *
+                                       static_cast<float>(optLines))})
+                            .with_margin(Margin{.left = pixels(kAskOptionInset)})
                             .with_flex_direction(FlexDirection::Column)
                             .with_flex_wrap(FlexWrap::NoWrap)
                             .with_transparent_bg()
@@ -5018,7 +5037,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
 
             if (!q.free_text_key.empty()) {
-                div(ctx, mk(body.ent(), key++),
+                div(ctx, mk(content.ent(), key++),
                     ComponentConfig{}
                         .with_label("Or write your own answer  ·  " +
                                     q.free_text_label)
@@ -5031,7 +5050,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_text_overflow(TextOverflow::Ellipsis)
                         .with_debug_name("ask_other_label_" + q.key));
                 afterhours::ui::imm::text_input(
-                    ctx, mk(body.ent(), key++), answer.text[q.free_text_key],
+                    ctx, mk(content.ent(), key++), answer.text[q.free_text_key],
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
