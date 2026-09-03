@@ -24,6 +24,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // context. Passed to get_session(id, N); the mock + http adapter both honor
     // it (http appends "?limit=N", mock returns the last N).
     static constexpr int kMessagesWindow = 40;
+    static constexpr int kAskRefreshWindow = 1;
 
     // Debounce for LIVE (SSE) refetches: coalesce a burst of events into at
     // most one newest-N refetch per interval so we don't hammer the backend.
@@ -91,28 +92,35 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
 
     static void request_ask_refresh(AppComponent& app, const std::string& id) {
-        if (id.empty() || app.askRefreshFuture.valid()) return;
-        if (!app.client) return;
-        app.askRefreshSessionId = id;
-        app.askRefreshStamp = app.next_ask_load_stamp();
+        if (id.empty() || !app.client) return;
+        if (app.askRefreshes.count(id) != 0) return;
+        auto& entry = app.askRefreshes[id];
+        entry.stamp = app.next_ask_load_stamp();
         api::Client* c = app.client.get();
-        app.askRefreshFuture = std::async(std::launch::async, [c, id] {
-            return c->get_session(id, kMessagesWindow);
+        entry.future = std::async(std::launch::async, [c, id] {
+            return c->get_session(id, kAskRefreshWindow);
         });
     }
 
     static void drain_ask_refresh(AppComponent& app) {
-        if (!app.askRefreshFuture.valid()) return;
-        if (app.askRefreshFuture.wait_for(std::chrono::seconds(0)) !=
-            std::future_status::ready)
-            return;
-        auto r = app.askRefreshFuture.get();
-        const std::string id = app.askRefreshSessionId;
-        const std::uint64_t stamp = app.askRefreshStamp;
-        app.askRefreshSessionId.clear();
-        app.askRefreshStamp = 0;
-        if (!r.ok || r.value.summary.id != id) return;
-        adopt_attach_asks(app, r.value, /*authoritative=*/true, stamp);
+        for (auto it = app.askRefreshes.begin();
+             it != app.askRefreshes.end();) {
+            if (!it->second.future.valid()) {
+                it = app.askRefreshes.erase(it);
+                continue;
+            }
+            if (it->second.future.wait_for(std::chrono::seconds(0)) !=
+                std::future_status::ready) {
+                ++it;
+                continue;
+            }
+            auto r = it->second.future.get();
+            const std::string id = it->first;
+            const std::uint64_t stamp = it->second.stamp;
+            it = app.askRefreshes.erase(it);
+            if (r.ok && r.value.summary.id == id)
+                adopt_attach_asks(app, r.value, /*authoritative=*/true, stamp);
+        }
     }
 
     static void adopt_turn_asks(AppComponent& app, const std::string& id,
@@ -1422,7 +1430,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (pane.selectedId.empty()) continue;
             if (app.asks_for(pane.selectedId) == nullptr) continue;
             request_ask_refresh(app, pane.selectedId);
-            return;
         }
     }
 

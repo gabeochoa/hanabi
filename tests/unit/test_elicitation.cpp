@@ -467,10 +467,17 @@ static void test_child_file_questions_are_not_answerable() {
     CHECK(asks.size() == 1);
     CHECK(asks[0].child_session == "kid");
     CHECK(asks[0].has_file_question());
+
+    bool sawPicker = false;
     for (const auto& q : asks[0].questions) {
-        CHECK(q.control != api::AskControl::Text);
-        CHECK(q.free_text_key.empty());
+        if (q.key == "q1") CHECK(q.control == api::AskControl::File);
+        if (q.key == "q2") {
+            sawPicker = true;
+            CHECK(q.control == api::AskControl::Single);
+            CHECK(q.free_text_key == "q2_other");
+        }
     }
+    CHECK(sawPicker);
     CHECK(asks[0].answerable_questions() == 1);
 
     json own = json::object();

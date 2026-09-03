@@ -1164,6 +1164,13 @@ bool LiveTurn::drop_settled_ask(const std::string& frame_json) {
     return asks_.size() != before;
 }
 
+static const json* detail_child_entry(const json& row) {
+    if (!row.is_object()) return nullptr;
+    const auto it = row.find("elicitation");
+    if (it == row.end() || !it->is_object()) return nullptr;
+    return &*it;
+}
+
 bool LiveTurn::fold_child_update(const std::string& frame_json) {
     std::string session;
     std::uint64_t seq = 0;
@@ -1172,12 +1179,16 @@ bool LiveTurn::fold_child_update(const std::string& frame_json) {
     if (!elicitation::fold_child_update(frame_json, &session, &seq, &pending,
                                         &entry))
         return false;
-    (void)seq;
     json kept = json::array();
     bool changed = false;
     for (const json& row : children_) {
-        if (row.is_object() &&
-            row.value("session", std::string()) == session) {
+        const json* held = detail_child_entry(row);
+        const bool same =
+            row.value("session", std::string()) == session &&
+            held != nullptr &&
+            static_cast<std::uint64_t>(held->value("elicitation",
+                                                   int64_t{0})) == seq;
+        if (same) {
             changed = true;
             continue;
         }

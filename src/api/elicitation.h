@@ -24,6 +24,11 @@ inline std::string trimmed(const std::string& in) {
     return in.substr(b, e - b);
 }
 
+inline bool ends_with(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() &&
+           s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 inline bool natural_less(const std::string& a, const std::string& b) {
     std::size_t i = 0;
     std::size_t j = 0;
@@ -280,11 +285,9 @@ inline PendingAsk ask_from_entry(const json& entry,
     const std::string schema = detail::str_field(entry, "requested_schema");
     ask.questions = parse_schema(schema, file_keys);
     if (!child_session.empty())
-        for (AskQuestion& q : ask.questions) {
-            if (q.control == AskControl::Text) q.control = AskControl::File;
-            q.free_text_key.clear();
-            q.free_text_label.clear();
-        }
+        for (AskQuestion& q : ask.questions)
+            if (q.control == AskControl::Text && !ends_with(q.key, "_other"))
+                q.control = AskControl::File;
     ask.schema_unreadable =
         ask.kind == AskKind::Form && !trimmed(schema).empty() &&
         ask.questions.empty();

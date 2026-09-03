@@ -315,7 +315,7 @@ int main() {
             api::elicitation::asks_from_state(state, "turn-child");
         bool child = false;
         for (const auto& a : folded)
-            if (a.child_session == "kid-local" && a.seq == 41) child = true;
+            if (a.child_session == "kid-local" && a.seq == 42) child = true;
         if (!child) {
             std::fprintf(stderr,
                          "a parent turn dropped the child's pending ask: %s\n",
@@ -344,13 +344,21 @@ int main() {
             nlohmann::json::parse(retractAsks.back(), nullptr, false);
         const auto before =
             api::elicitation::asks_from_state(seeded, "turn-retract");
-        const auto cleared =
+        const auto after_asks =
             api::elicitation::asks_from_state(after, "turn-retract");
-        if (before.size() != 1 || !cleared.empty()) {
+        if (before.size() != 2) {
+            std::fprintf(stderr, "the child seed did not carry two asks: %zu\n",
+                         before.size());
+            return 1;
+        }
+        if (after_asks.size() != 1 || after_asks[0].seq != 42 ||
+            after_asks[0].child_session != "kid-local") {
             std::fprintf(stderr,
-                         "the child retract did not clear the card: "
-                         "%zu -> %zu\n",
-                         before.size(), cleared.size());
+                         "retracting kid-local#41 did not leave exactly "
+                         "kid-local#42: %zu remain\n",
+                         after_asks.size());
+            for (const auto& a : after_asks)
+                std::fprintf(stderr, "  still: %s\n", a.id().c_str());
             return 1;
         }
     }

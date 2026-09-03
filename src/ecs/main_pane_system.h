@@ -4383,6 +4383,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kAskOptionInset = 26.0f;
     static constexpr const char* kAskFileHint =
         "A file cannot be attached from hanabi.";
+    static constexpr const char* kAskChildFileHint =
+        "This one may take a file — answer it in the sub-agent's thread.";
     static constexpr float kComposerReadCol = 768.0f;
     static constexpr float kComposerColInset = 12.0f;
 
@@ -4492,8 +4494,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return o.detail.empty() ? o.label : o.label + "  —  " + o.detail;
     }
 
+    static bool ask_can_resolve(const AppComponent& app) {
+        return app.client != nullptr && app.client->supports_resolve_ask();
+    }
+
     static bool ask_note_shown(const AppComponent& app,
                                const api::PendingAsk& ask) {
+        if (!ask_can_resolve(app)) return true;
         if (!app.askState.errorText.empty() &&
             app.askState.errorId == ask.id())
             return true;
@@ -4724,9 +4731,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto& answer = app.askState.answer_for(askId);
         auto& cursor = app.askState.cursor_for(askId);
         const bool blocked = hanabi::ask::submit_blocked(ask, answer);
-        const bool answerable =
-            app.client != nullptr && app.client->supports_resolve_ask();
-        const bool showNote = ask_note_shown(app, ask) || !answerable;
+        const bool answerable = ask_can_resolve(app);
+        const bool showNote = ask_note_shown(app, ask);
         const float cardW = ask_card_w(app);
         const float textW = ask_text_w(app);
         const float bodyTextW = ask_body_text_w(app, ask);
@@ -4894,7 +4900,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (q.control == api::AskControl::File) {
                 div(ctx, mk(body.ent(), key++),
                     ComponentConfig{}
-                        .with_label(kAskFileHint)
+                        .with_label(ask.child_session.empty()
+                                        ? kAskFileHint
+                                        : kAskChildFileHint)
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kNoteH)})
                         .with_transparent_bg()

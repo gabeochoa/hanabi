@@ -717,9 +717,11 @@ struct AppComponent : public afterhours::BaseComponent {
         return 20.0f;
     }
     float askRefreshDue = ask_refresh_seconds();
-    std::future<api::Result<api::Session>> askRefreshFuture;
-    std::string askRefreshSessionId;
-    std::uint64_t askRefreshStamp = 0;
+    struct AskRefresh {
+        std::future<api::Result<api::Session>> future;
+        std::uint64_t stamp = 0;
+    };
+    std::map<std::string, AskRefresh> askRefreshes;
     float lastComposerPaneW = 0.0f;
     float lastPaneContentH = 0.0f;
     float lastComposerChromeH = 0.0f;

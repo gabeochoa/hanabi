@@ -88,7 +88,9 @@ def serve_connection(listener):
                     send_frame(conn, {"sub": sub, "msg": {
                         "type": "frame", "frame": "durable", "seq": 90,
                         "event": {"type": "child_elicitation_update",
-                                  "session": "kid-local"}}})
+                                  "session": "kid-local",
+                                  "elicitation": 41,
+                                  "cause": 55}}})
                     send_frame(conn, {"sub": sub, "msg": {
                         "type": "frame", "frame": "durable", "seq": 91,
                         "event": {"type": "run_finished"}}})
@@ -119,15 +121,26 @@ def serve_connection(listener):
                 session_of_sub[sub] = command.get("session_id")
                 if command.get("session_id") in ("turn-child", "turn-retract"):
                     state["pending_elicitations"] = []
-                    state["child_pending_elicitations"] = [{
-                        "session": "kid-local",
-                        "elicitation": {
-                            "elicitation": 41,
-                            "tool": "AskUserQuestion",
-                            "message": "the child is asking",
-                            "requested_schema": "",
+                    state["child_pending_elicitations"] = [
+                        {
+                            "session": "kid-local",
+                            "elicitation": {
+                                "elicitation": 41,
+                                "tool": "AskUserQuestion",
+                                "message": "the child is asking",
+                                "requested_schema": "",
+                            },
                         },
-                    }]
+                        {
+                            "session": "kid-local",
+                            "elicitation": {
+                                "elicitation": 42,
+                                "tool": "AskUserQuestion",
+                                "message": "and asking again",
+                                "requested_schema": "",
+                            },
+                        },
+                    ]
                 if command.get("session_id") == "turn-settled":
                     state["pending_elicitations"] = [{
                         "elicitation": 71,
