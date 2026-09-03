@@ -410,6 +410,44 @@ static void test_child_order() {
     CHECK(asks[2].child_session == "kid" && asks[2].seq == 10);
 }
 
+static void test_approval_cap_and_frames() {
+    std::printf("approval cap and turn frames\n");
+    CHECK(el::capped_input("short") == "short");
+    const std::string huge(el::kApprovalInputCap + 500, 'x');
+    const std::string capped = el::capped_input(huge);
+    CHECK(capped.size() < huge.size());
+    CHECK(capped.rfind("… (truncated)") != std::string::npos);
+    CHECK(capped.size() == el::kApprovalInputCap + std::string("… (truncated)").size());
+
+    const std::string raised = R"({"type":"frame","seq":71,"event":{
+        "type":"elicitation_requested","tool":"AskUserQuestion",
+        "message":"Which ledger?","requested_schema":"{}",
+        "timeout_ms":600000,"file_keys":["q4"]}})";
+    json entry;
+    CHECK(el::ask_entry_from_frame(raised, &entry));
+    CHECK(entry["elicitation"] == 71);
+    CHECK(entry["tool"] == "AskUserQuestion");
+    CHECK(entry["message"] == "Which ledger?");
+    CHECK(entry["timeout_ms"] == 600000);
+    CHECK(entry["file_keys"][0] == "q4");
+    CHECK(!entry.contains("kind"));
+
+    const std::string approvalFrame = R"({"type":"frame","seq":9,"event":{
+        "type":"elicitation_requested","kind":"approval","input":"{}"}})";
+    CHECK(el::ask_entry_from_frame(approvalFrame, &entry));
+    CHECK(entry["kind"] == "approval");
+    CHECK(entry["elicitation"] == 9);
+
+    CHECK(!el::ask_entry_from_frame(
+        R"({"seq":5,"event":{"type":"block"}})", &entry));
+    CHECK(!el::ask_entry_from_frame(
+        R"({"event":{"type":"elicitation_requested"}})", &entry));
+    CHECK(!el::ask_entry_from_frame("not json", &entry));
+
+    CHECK(std::string(el::kAskGoneReason).find("already answered") !=
+          std::string::npos);
+}
+
 int main() {
     test_shapes();
     test_ordering_and_options();
@@ -421,6 +459,7 @@ int main() {
     test_typed_and_cap();
     test_has_content_matches_the_object();
     test_child_order();
+    test_approval_cap_and_frames();
     if (g_failures == 0) {
         std::printf("elicitation: all checks passed\n");
         return 0;

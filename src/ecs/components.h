@@ -708,6 +708,7 @@ struct AppComponent : public afterhours::BaseComponent {
     bool askFocused = false;
     float lastComposerPaneW = 0.0f;
     float lastPaneContentH = 0.0f;
+    float lastComposerChromeH = 0.0f;
 
     void apply_attach_asks(const std::string& id,
                            const std::vector<api::PendingAsk>& asks) {
@@ -846,6 +847,7 @@ struct AppComponent : public afterhours::BaseComponent {
         std::vector<std::string> chunks;
         api::Message finalMsg;
         std::string error;
+        std::string asksJson;
     };
     std::future<StreamCollected> streamCollectFuture;
     bool streamCollecting = false;      // a worker is gathering the reply.

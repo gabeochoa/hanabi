@@ -461,6 +461,9 @@ capture 59_ask_approval_dark   "$TABS_DARK"       HANABI_ASK_DEMO=approval
 capture_sized 60_ask_full_form_narrow_dark "760 x 620" "$NARROW_DARK" \
     HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_ASK_DEMO=big
 capture 61_ask_long_approval_dark "$TABS_DARK" HANABI_ASK_DEMO=longapproval
+capture_sized 62_ask_with_attachment_narrow_dark "760 x 620" "$NARROW_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_ASK_DEMO=big \
+    HANABI_ATTACH_DEMO=/tmp/hanabi_ask_fixture.png
 
 listing && exit 0
 

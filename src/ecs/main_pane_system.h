@@ -147,9 +147,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          ? layout->composer.width
                                          : layout->main.width;
         app->lastPaneContentH = layout->main.height + layout->composer.height;
-        layout->composerHeight = 98.0f + attachments_h(*app) +
-                                 composer_extra_h(composerRows_) +
-                                 ask_card_h(*app);
+        app->lastComposerChromeH = kComposerBaseH + attachments_h(*app) +
+                                   composer_extra_h(composerRows_);
+        layout->composerHeight =
+            app->lastComposerChromeH + ask_card_h(*app);
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
         const bool composerKickoff =
@@ -4398,10 +4399,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             count_lines(ask.message, textW, theme::type::SM));
     }
 
+    static std::string ask_input_text(const api::PendingAsk& ask) {
+        return api::elicitation::capped_input(ask.input);
+    }
+
     static int ask_input_lines(const api::PendingAsk& ask, float textW) {
         if (ask.kind != api::AskKind::Approval || ask.input.empty()) return 0;
         return hanabi::ask::clamp_input_lines(
-            count_lines(ask.input, textW, theme::type::SM));
+            count_lines(ask_input_text(ask), textW, theme::type::SM));
     }
 
     static void ask_wrap_spans(
@@ -4467,8 +4472,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float contentH = app.lastPaneContentH > 0.0f
                                    ? app.lastPaneContentH
                                    : hanabi::viewport::height();
-        const float budget =
-            contentH - kComposerBaseH - kAskMinTranscriptH - 8.0f;
+        const float chrome = app.lastComposerChromeH > 0.0f
+                                 ? app.lastComposerChromeH
+                                 : kComposerBaseH;
+        const float budget = contentH - chrome - kAskMinTranscriptH - 8.0f;
         return budget < hanabi::ask::kMinBodyH ? hanabi::ask::kMinBodyH
                                                : budget;
     }
@@ -4665,8 +4672,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         int key = 20;
         if (approval) {
-            render_ask_wrapped(ctx, body.ent(), key, ask.input, inputLines,
-                               bodyTextW, hanabi::ask::kNoteH,
+            render_ask_wrapped(ctx, body.ent(), key, ask_input_text(ask),
+                               inputLines, bodyTextW, hanabi::ask::kNoteH,
                                theme::text_secondary(), "ask_approval_input");
             key += hanabi::ask::kMaxInputLines;
         } else if (ask.schema_unreadable) {
@@ -5466,6 +5473,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             replyDemoSeeded = true;
             if (const char* d = std::getenv("HANABI_REPLY_DEMO"); d && *d)
                 replyDraft = d;
+            if (const char* a = std::getenv("HANABI_ATTACH_DEMO"); a && *a)
+                app.composerAttachments.push_back(
+                    {std::string(a), "ledger-mismatch.png"});
         }
 
         // Screenshot affordance: HANABI_SEND_DEMO=<text> fires an actual reply

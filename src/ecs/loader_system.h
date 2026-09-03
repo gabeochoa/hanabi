@@ -90,6 +90,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
 
 
+    static void adopt_turn_asks(AppComponent& app, const std::string& id,
+                                const std::string& asksJson) {
+        if (asksJson.empty()) return;
+        if (!app.askState.busyId.empty() &&
+            app.ask_session_of(app.askState.busyId) == id)
+            return;
+        const auto parsed = nlohmann::json::parse(asksJson, nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_array()) return;
+        nlohmann::json state = nlohmann::json::object();
+        state["pending_elicitations"] = parsed;
+        app.apply_attach_asks(id, api::elicitation::asks_from_state(state, id));
+    }
+
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
                                   bool authoritative) {
         if (!authoritative) return;
@@ -725,6 +738,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.askInFlightSession.clear();
             if (r.ok) {
                 app.drop_attach_ask(sid, askId);
+            } else if (r.error == api::elicitation::kAskGoneReason) {
+                app.drop_attach_ask(sid, askId);
+                app.raise_toast(r.error, "",
+                               AppComponent::ToastUndo::None);
             } else {
                 app.askState.errorId = askId;
                 app.askState.errorText = r.error;
@@ -1577,6 +1594,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     sink.on_error = [&out](const std::string& e) {
                         out.error = e;
                     };
+                    sink.on_event = [&out](const api::StreamEvent& ev) {
+                        if (ev.kind == api::StreamEventKind::AsksChanged)
+                            out.asksJson = ev.payload;
+                    };
                     c->send_message_streaming(id, prompt, sink);
                     return out;
                 });
@@ -1600,6 +1621,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // verdict does not depend on that: whether the server took the
             // prompt is decided by got.error, not by what the user is looking
             // at now.
+            adopt_turn_asks(app, id, got.asksJson);
             if (got.error.empty()) {
                 api::disk_cache::outbox_remove(id, prompt);
                 app.outboxRetry.confirmed(id, prompt);

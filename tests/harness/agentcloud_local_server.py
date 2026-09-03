@@ -3,6 +3,10 @@ import argparse
 import base64
 import hashlib
 import json
+
+
+def _dumps(v):
+    return json.dumps(v, separators=(",", ":"))
 import socket
 import struct
 
@@ -76,8 +80,37 @@ def serve_connection(listener):
             sub = envelope.get("sub", 0)
             command = envelope.get("payload", {})
             kind = command.get("cmd")
+            if kind == "input":
+                send_frame(conn, {"sub": sub, "msg": {
+                    "type": "frame", "frame": "durable", "seq": 70,
+                    "event": {"type": "block", "index": 0,
+                              "kind": {"kind": "text"},
+                              "text": "Looking at the ledger now."}}})
+                send_frame(conn, {"sub": sub, "msg": {
+                    "type": "frame", "frame": "durable", "seq": 71,
+                    "event": {
+                        "type": "elicitation_requested",
+                        "tool": "AskUserQuestion",
+                        "message": "Which ledger do we trust?",
+                        "requested_schema": _dumps({
+                            "type": "object",
+                            "properties": {
+                                "q1": {"type": "string", "title": "Which?",
+                                       "oneOf": [{"const": "ledger"},
+                                                 {"const": "promo"}]}}}),
+                        "timeout_ms": 600000}}})
+                continue
             if kind == "attach":
                 state = {}
+                if command.get("session_id") == "turn-local":
+                    state["pending_elicitations"] = []
+                if command.get("session_id") == "turn-settled":
+                    state["pending_elicitations"] = [{
+                        "elicitation": 71,
+                        "tool": "AskUserQuestion",
+                        "message": "Which ledger do we trust?",
+                        "requested_schema": "",
+                    }]
                 if command.get("session_id") == "ask-local":
                     state["pending_elicitations"] = [{
                         "elicitation": 41,

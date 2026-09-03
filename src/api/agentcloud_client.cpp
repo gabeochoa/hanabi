@@ -1027,6 +1027,15 @@ LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
         lf.kind = LiveFrame::Kind::Finished;
         return lf;
     }
+    if (type == "elicitation_requested") {
+        lf.kind = LiveFrame::Kind::AskRaised;
+        return lf;
+    }
+    if (type == "elicitation_resolved" || type == "child_elicitation_update" ||
+        type == "child_elicitation_notice") {
+        lf.kind = LiveFrame::Kind::AskSettled;
+        return lf;
+    }
     return lf;
 }
 
@@ -1091,11 +1100,69 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
             break;
         case LiveFrame::Kind::Finished:
             return false;
+        case LiveFrame::Kind::AskRaised: {
+            json entry;
+            if (elicitation::ask_entry_from_frame(msg.dump(), &entry)) {
+                upsert_ask(std::move(entry));
+                emit_asks(sink);
+            }
+            return false;
+        }
+        case LiveFrame::Kind::AskSettled:
+            if (drop_settled_ask(msg.dump())) emit_asks(sink);
+            break;
         case LiveFrame::Kind::ToolInputAppend:
         case LiveFrame::Kind::Ignore:
             break;
     }
     return true;
+}
+
+void LiveTurn::seed_asks(const json& state, const StreamSink& sink) {
+    asks_.clear();
+    if (state.is_object() && state.contains("pending_elicitations") &&
+        state.at("pending_elicitations").is_array())
+        for (const json& e : state.at("pending_elicitations"))
+            if (e.is_object()) asks_.push_back(e);
+    asksKnown_ = true;
+    emit_asks(sink);
+}
+
+void LiveTurn::upsert_ask(json entry) {
+    const int64_t seq = entry.value("elicitation", int64_t{0});
+    for (json& held : asks_)
+        if (held.value("elicitation", int64_t{-1}) == seq) {
+            held = std::move(entry);
+            return;
+        }
+    asks_.push_back(std::move(entry));
+}
+
+bool LiveTurn::drop_settled_ask(const std::string& frame_json) {
+    std::uint64_t seq = 0;
+    std::string action;
+    std::string by;
+    if (!elicitation::fold_ask_resolved(frame_json, &seq, &action, &by))
+        return false;
+    const std::size_t before = asks_.size();
+    std::vector<json> kept;
+    for (const json& e : asks_) {
+        const bool same =
+            e.is_object() && e.contains("elicitation") &&
+            e.at("elicitation").is_number_integer() &&
+            static_cast<std::uint64_t>(e.at("elicitation").get<int64_t>()) ==
+                seq;
+        if (!same) kept.push_back(e);
+    }
+    asks_ = std::move(kept);
+    return asks_.size() != before;
+}
+
+void LiveTurn::emit_asks(const StreamSink& sink) const {
+    if (!asksKnown_) return;
+    json arr = json::array();
+    for (const json& e : asks_) arr.push_back(e);
+    sink.emit_event({StreamEventKind::AsksChanged, arr.dump()});
 }
 
 // The stateless form, kept for callers that classify one frame in isolation.
@@ -1309,6 +1376,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     // calls -- so the wait is bounded by SILENCE, not by total duration:
     // as long as frames keep arriving we keep reading.
     agentcloud::LiveTurn turn;
+    turn.seed_asks(obj_at(hello, "state"), sink);
 
     const auto deadline_from_now = [] {
         return std::chrono::steady_clock::now() +
@@ -1517,8 +1585,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
     for (const PendingAsk& live :
          elicitation::asks_from_state(obj_at(hello, "state"), session_id))
         if (live.id() == ask.id()) still_pending = true;
-    if (!still_pending)
-        return fail("this question was already answered somewhere else");
+    if (!still_pending) return fail(elicitation::kAskGoneReason);
 
     const std::string resolve_payload =
         elicitation::resolve_command_json(ask, action, answer);

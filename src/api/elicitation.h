@@ -285,6 +285,35 @@ inline PendingAsk ask_from_entry(const json& entry,
     return ask;
 }
 
+inline bool ask_entry_from_frame(const std::string& frame_json,
+                                 json* entry) {
+    const json root = json::parse(frame_json, nullptr, false);
+    if (root.is_discarded()) return false;
+    const json* wrapped = detail::object_field(root, "event");
+    const json& event = wrapped != nullptr ? *wrapped : root;
+    if (detail::str_field(event, "type") != "elicitation_requested")
+        return false;
+    const int64_t seq = detail::int_field(root, "seq", 0);
+    if (seq <= 0) return false;
+    json out = json::object();
+    out["elicitation"] = seq;
+    out["tool"] = detail::str_field(event, "tool");
+    out["message"] = detail::str_field(event, "message");
+    out["requested_schema"] = detail::str_field(event, "requested_schema");
+    out["timeout_ms"] = detail::int_field(event, "timeout_ms", 0);
+    const std::string kind = detail::str_field(event, "kind");
+    if (!kind.empty()) out["kind"] = kind;
+    if (event.is_object() && event.contains("input") &&
+        event.at("input").is_string())
+        out["input"] = event.at("input");
+    if (const json* keys = detail::array_field(event, "file_keys"))
+        out["file_keys"] = *keys;
+    if (const json* limits = detail::object_field(event, "file_limits"))
+        out["file_limits"] = *limits;
+    *entry = std::move(out);
+    return true;
+}
+
 inline std::vector<PendingAsk> asks_from_state(
     const json& state, const std::string& owner_session) {
     std::vector<PendingAsk> out;
@@ -375,6 +404,16 @@ inline bool answer_has_content(const PendingAsk& ask,
 }
 
 inline constexpr std::size_t kContentCapBytes = 262144;
+
+inline constexpr const char* kAskGoneReason =
+    "this question was already answered somewhere else";
+
+inline constexpr std::size_t kApprovalInputCap = 4000;
+
+inline std::string capped_input(const std::string& in) {
+    if (in.size() <= kApprovalInputCap) return in;
+    return in.substr(0, kApprovalInputCap) + "… (truncated)";
+}
 
 inline std::size_t escaped_content_len(const json& content) {
     return json(content.dump()).dump().size();

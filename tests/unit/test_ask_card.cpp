@@ -269,6 +269,27 @@ static void test_head_and_drafts() {
     CHECK(state.answer_for("#41").text["q3"] == "kept");
 }
 
+static void test_budget_pays_the_composer_first() {
+    std::printf("budget counts the whole strip\n");
+    const PendingAsk a = demo_form();
+    const auto m = flat_metrics(a);
+    const float chrome = ask::chrome_h(a, 1, false);
+    const float body = ask::body_h(a, 0, m);
+    const float whole = chrome + body;
+
+    const float content = 620.0f;
+    for (const float composerChrome : {98.0f, 160.0f, 240.0f}) {
+        const float budget = content - composerChrome - 120.0f - 8.0f;
+        const float h = ask::card_h(a, 1, false, 0, m, budget);
+        CHECK(h + composerChrome + 8.0f <= content - 120.0f + 0.01f ||
+              h == chrome + ask::kMinBodyH);
+        CHECK(h <= whole + 0.01f);
+    }
+    const float roomy = ask::card_h(a, 1, false, 0, m, 620.0f - 98.0f - 128.0f);
+    const float tight = ask::card_h(a, 1, false, 0, m, 620.0f - 240.0f - 128.0f);
+    CHECK(tight <= roomy);
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -276,6 +297,7 @@ int main() {
     test_return_intent();
     test_geometry();
     test_head_and_drafts();
+    test_budget_pays_the_composer_first();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

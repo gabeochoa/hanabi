@@ -367,6 +367,11 @@
     "61_ask_long_approval_dark": {
       "threshold_pct": 0.0,
       "note": "A long shell command wrapped across lines rather than ellipsized, because approving what you cannot read is the risk."
+    },
+    "62_ask_with_attachment_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "The card yields exactly the height a staged attachment takes, so Submit stays on screen when the composer grows under it."
     }
   },
   "unbaselined": {}

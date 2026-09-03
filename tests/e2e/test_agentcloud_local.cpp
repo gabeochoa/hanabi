@@ -5,9 +5,11 @@
 #include <ctime>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "../../src/api/agentcloud_client.h"
 #include "../../src/ws_socket.h"
+#include "../../vendor/nlohmann/json.hpp"
 
 namespace {
 
@@ -167,6 +169,72 @@ int main() {
                          ? "the quiescence arm never delivered a message\n"
                          : "ws_close returned while a callback was running\n");
         return 1;
+    }
+
+    std::vector<std::string> turnAsks;
+    api::StreamSink sink;
+    sink.on_event = [&turnAsks](const api::StreamEvent& ev) {
+        if (ev.kind == api::StreamEventKind::AsksChanged)
+            turnAsks.push_back(ev.payload);
+    };
+    std::string streamed;
+    sink.on_delta = [&streamed](const std::string& d) { streamed += d; };
+
+    const auto before = std::chrono::steady_clock::now();
+    client.send_message_streaming("turn-local", "reconcile it", sink);
+    const auto spent = std::chrono::duration_cast<std::chrono::seconds>(
+                           std::chrono::steady_clock::now() - before)
+                           .count();
+    if (turnAsks.empty()) {
+        std::fprintf(stderr, "the turn reported no pending-ask state\n");
+        return 1;
+    }
+    if (spent > 30) {
+        std::fprintf(stderr,
+                     "a parked run held the turn for %llds; it must settle "
+                     "on the raise, not on the idle timeout\n",
+                     static_cast<long long>(spent));
+        return 1;
+    }
+    {
+        const auto raised =
+            nlohmann::json::parse(turnAsks.back(), nullptr, false);
+        if (raised.is_discarded() || !raised.is_array() ||
+            raised.size() != 1 ||
+            raised[0].value("elicitation", 0) != 71) {
+            std::fprintf(stderr, "the raise did not reach the reader: %s\n",
+                         turnAsks.back().c_str());
+            return 1;
+        }
+        nlohmann::json state = nlohmann::json::object();
+        state["pending_elicitations"] = raised;
+        const auto folded =
+            api::elicitation::asks_from_state(state, "turn-local");
+        if (folded.size() != 1 || folded[0].questions.size() != 1 ||
+            folded[0].id() != "turn-local/#71") {
+            std::fprintf(stderr, "the raised ask did not fold into a card\n");
+            return 1;
+        }
+    }
+
+    std::vector<std::string> settledAsks;
+    api::StreamSink settleSink;
+    settleSink.on_event = [&settledAsks](const api::StreamEvent& ev) {
+        if (ev.kind == api::StreamEventKind::AsksChanged)
+            settledAsks.push_back(ev.payload);
+    };
+    client.send_message_streaming("turn-settled", "and now?", settleSink);
+    if (settledAsks.empty()) {
+        std::fprintf(stderr, "a turn over a parked session reported nothing\n");
+        return 1;
+    }
+    {
+        const auto first =
+            nlohmann::json::parse(settledAsks.front(), nullptr, false);
+        if (first.is_discarded() || first.size() != 1) {
+            std::fprintf(stderr, "the turn did not seed from its own hello\n");
+            return 1;
+        }
     }
 
     std::printf("OK\n");

@@ -15,6 +15,8 @@
 // their side, so matching it here turns a silent truncation into a close.
 static const NSInteger kMaxMessageBytes = 64 * 1024 * 1024;
 
+static const int64_t kQuiesceTimeoutNs = 5LL * NSEC_PER_SEC;
+
 struct ws_conn {
     NSURLSession* session = nil;
     NSURLSessionWebSocketTask* task = nil;
@@ -170,7 +172,11 @@ void ws_close(ws_conn* c) {
             cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure
                          reason:nil];
     if (held->session != nil) [held->session invalidateAndCancel];
-    dispatch_group_wait(held->inflight, DISPATCH_TIME_FOREVER);
+    const dispatch_time_t limit =
+        dispatch_time(DISPATCH_TIME_NOW, kQuiesceTimeoutNs);
+    if (dispatch_group_wait(held->inflight, limit) != 0)
+        NSLog(@"ws_close: callbacks still running after %.0fs",
+              (double)kQuiesceTimeoutNs / 1e9);
     {
         std::lock_guard<std::mutex> guard(ws_live_lock());
         ws_live().erase(c);

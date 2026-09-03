@@ -428,6 +428,7 @@ enum class StreamEventKind {
     Done,         // the reply is complete; on_done() carries the final Message
     TitleUpdate,  // the session title changed (payload = the new title)
     Error,        // the stream failed (payload = a human-readable reason)
+    AsksChanged,
 };
 
 // One streaming event: a kind plus an optional string payload whose meaning

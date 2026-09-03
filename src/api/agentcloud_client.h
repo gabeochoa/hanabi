@@ -18,6 +18,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 #include <unordered_map>
 
 #include <nlohmann/json.hpp>
@@ -179,6 +180,8 @@ struct LiveFrame {
         // apart needs the block's kind, which only the `start` delta carries.
         ThinkingAppend,
         ToolInputAppend,
+        AskRaised,
+        AskSettled,
     };
     Kind kind = Kind::Ignore;
     // TextAppend/ThinkingAppend: the new text only. Text/Thinking: the whole
@@ -226,11 +229,19 @@ class LiveTurn {
     [[nodiscard]] const Message& assembled() const { return final_; }
     [[nodiscard]] Message& assembled() { return final_; }
 
+    void seed_asks(const nlohmann::json& state, const StreamSink& sink);
+
    private:
+    bool drop_settled_ask(const std::string& frame_json);
+    void upsert_ask(nlohmann::json entry);
+    void emit_asks(const StreamSink& sink) const;
+
     LiveBlocks blocks_;
     Message final_;
     // What the sink has already been told about the OPEN text block.
     std::string emitted_;
+    std::vector<nlohmann::json> asks_;
+    bool asksKnown_ = false;
 };
 
 // Classify one `{"type":"frame",...}` server message. Never throws; anything
