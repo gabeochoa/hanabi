@@ -182,8 +182,14 @@ static void test_geometry() {
         CHECK(h <= (budget > unbounded ? unbounded : budget) + 0.01f);
         CHECK(h >= chrome);
     }
-    CHECK(ask::card_h(a, 1, false, 0, m, 40.0f) ==
-          chrome + ask::kMinBodyH);
+    const float floorH = ask::chrome_h(a, 0, true);
+    for (const float budget : {40.0f, 80.0f, 120.0f, 200.0f, 395.0f, 431.0f}) {
+        const float h = ask::card_h(a, 2, true, 0, m, budget);
+        CHECK(h <= (budget > floorH ? budget : floorH) + 0.01f);
+    }
+    CHECK(ask::message_lines_for(a, 4, true, 4000.0f) == 4);
+    CHECK(ask::message_lines_for(a, 4, true, 150.0f) <
+          ask::message_lines_for(a, 4, true, 4000.0f));
 
     PendingAsk huge;
     huge.message = a.message;
@@ -290,6 +296,22 @@ static void test_budget_pays_the_composer_first() {
     CHECK(tight <= roomy);
 }
 
+static void test_a_stale_load_cannot_resurrect() {
+    std::printf("stale loads cannot resurrect a card\n");
+    ask::State state;
+    const std::string sid = "s1";
+
+    const std::uint64_t bStamp = state.next_load_stamp();
+    const std::uint64_t aStamp = state.next_load_stamp();
+    state.note_drop(sid);
+
+    CHECK(state.load_is_stale(sid, bStamp));
+    CHECK(state.load_is_stale(sid, aStamp));
+    const std::uint64_t fresh = state.next_load_stamp();
+    CHECK(!state.load_is_stale(sid, fresh));
+    CHECK(!state.load_is_stale("other", bStamp));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -298,6 +320,7 @@ int main() {
     test_geometry();
     test_head_and_drafts();
     test_budget_pays_the_composer_first();
+    test_a_stale_load_cannot_resurrect();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

@@ -16,14 +16,14 @@ namespace {
 struct Sentinel {
     std::atomic<bool> entered{false};
     std::atomic<bool> left{false};
-    std::atomic<bool> close_returned{false};
     std::atomic<int> ran_after_close{0};
+    std::atomic<bool> close_returned{false};
 };
 
 void sentinel_text(void* user, const char*, size_t) {
     auto* s = static_cast<Sentinel*>(user);
     s->entered.store(true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
     if (s->close_returned.load()) s->ran_after_close.fetch_add(1);
     s->left.store(true);
 }
@@ -51,20 +51,33 @@ int close_waits_for_a_running_callback(const std::string& host) {
         ws_close(conn);
         return -1;
     }
-    for (int i = 0; i < 200 && !sentinel.entered.load(); ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (int i = 0; i < 400 && !sentinel.entered.load(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     if (!sentinel.entered.load()) {
         ws_close(conn);
         return -1;
     }
 
+    const auto t0 = std::chrono::steady_clock::now();
     ws_close(conn);
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
     const bool finished = sentinel.left.load();
     sentinel.close_returned.store(true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
     ws_close(conn);
-    if (!finished) return 1;
-    return sentinel.ran_after_close.load() > 0 ? 1 : 0;
+    if (!finished) {
+        std::fprintf(stderr, "ws_close returned before the callback finished\n");
+        return 1;
+    }
+    if (waited < 200) {
+        std::fprintf(stderr,
+                     "ws_close returned in %lldms without waiting for a "
+                     "callback parked for 600ms\n",
+                     static_cast<long long>(waited));
+        return 1;
+    }
+    return 0;
 }
 
 }  // namespace
@@ -152,22 +165,26 @@ int main() {
         return 1;
     }
 
-    const auto stale =
-        client.resolve_ask("gone-local", own, api::AskAction::Accept, answer);
-    if (stale.ok ||
-        stale.error.find("already answered") == std::string::npos) {
-        std::fprintf(stderr, "a stale answer was not refused: ok=%d %s\n",
-                     static_cast<int>(stale.ok), stale.error.c_str());
-        return 1;
+    for (const api::AskAction action :
+         {api::AskAction::Accept, api::AskAction::Decline,
+          api::AskAction::Cancel}) {
+        const auto stale = client.resolve_ask("gone-local", own, action, answer);
+        if (stale.ok || stale.error != api::elicitation::kAskGoneReason) {
+            std::fprintf(stderr,
+                         "a stale %s was not refused with the drop reason: "
+                         "ok=%d %s\n",
+                         api::elicitation::action_word(action),
+                         static_cast<int>(stale.ok), stale.error.c_str());
+            return 1;
+        }
     }
 
     const int quiescent =
         close_waits_for_a_running_callback(std::string("127.0.0.1:") + port);
     if (quiescent != 0) {
-        std::fprintf(stderr,
-                     quiescent < 0
-                         ? "the quiescence arm never delivered a message\n"
-                         : "ws_close returned while a callback was running\n");
+        if (quiescent < 0)
+            std::fprintf(stderr,
+                         "the quiescence arm never delivered a message\n");
         return 1;
     }
 

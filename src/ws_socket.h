@@ -16,9 +16,10 @@
 // happily talk cleartext to the network, so the proxy is not optional — see
 // agentcloud_auth.h, which mints the credential through the same one.
 //
-// THREADING. on_text and on_close fire on a private serial queue, never the UI
-// thread. Marshal to app state the way the SSE sink does; do not touch the
-// widget tree from them.
+// THREADING. on_text fires on URLSession's delegate queue, never the UI
+// thread. on_close fires there too, EXCEPT when ws_close is what ends the
+// connection: then it runs on whatever thread called ws_close. Marshal to app
+// state the way the SSE sink does; do not touch the widget tree from either.
 //
 // CALLBACK LIFETIME. Neither callback runs after ws_close returns: ws_close
 // waits for every in-flight receive and send to finish before it returns. That

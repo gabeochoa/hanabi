@@ -220,6 +220,7 @@ CEIL_DRAFT6="${HANABI_ALLOC_CEIL_DRAFT6:-920}"
 CEIL_SEARCH2000="${HANABI_ALLOC_CEIL_SEARCH2000:-1130}"
 CEIL_PALETTE2000="${HANABI_ALLOC_CEIL_PALETTE2000:-780}"
 CEIL_ASKBIG="${HANABI_ALLOC_CEIL_ASKBIG:-1200}"
+CEIL_ASKNARROW="${HANABI_ALLOC_CEIL_ASKNARROW:-1200}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then
@@ -235,7 +236,7 @@ trap kill_own_runs EXIT
 fail=0
 ONLY="${HANABI_ALLOC_ONLY:-}"
 case "$ONLY" in
-    ""|home20|home2000|tabs20|thread480|draft6|search2000|palette2000|askbig) ;;
+    ""|home20|home2000|tabs20|thread480|draft6|search2000|palette2000|askbig|asknarrow) ;;
     *)
         echo "alloc_gate: unknown HANABI_ALLOC_ONLY '$ONLY'" >&2
         exit 2
@@ -269,7 +270,8 @@ J
     # which does not word-split unquoted expansions. That mistake silently
     # measured the wrong fixture for an afternoon.
     local run_rc=0
-    env HOME="$h" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
+    env HOME="$h" HANABI_WIN_W="${HANABI_ALLOC_WIN_W:-1180}" \
+        HANABI_WIN_H="${HANABI_ALLOC_WIN_H:-949}" HANABI_BACKEND=mock \
         HANABI_CONFIG=/nonexistent/hanabi/alloc-gate.json HANABI_PROF=1 \
         HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$EVERY" \
         HANABI_SOAK_WARM_FRAMES=0 HANABI_STRESS_SESSIONS="$sessions" \
@@ -388,7 +390,16 @@ ARM_LIVE_COUNTER=palette.candidates ARM_LIVE_FLOOR=1000 \
 # the card's submit gate and its wrap both run per frame. Measured 1001.0
 # with the card up against 1124.0 for the same tab with no card -- the card
 # costs less than the transcript rows it displaces -- so the ceiling is 1200.
-run_arm askbig 20 "$CEIL_ASKBIG" '["t2"]' '"t2"' HANABI_ASK_DEMO=big
+# A LIVE FLOOR, because this arm is cheaper WITH the card than without it
+# (1001.0 against 1124.0 for the same tab): a fixture that silently stopped
+# producing a card would read ~1124 and pass. The floor is on the card being
+# SCROLLING -- the state the new code path lives in -- and it is a per-frame
+# rate, so 1 means "every frame drew a scrolling card".
+ARM_LIVE_COUNTER=ask.cards_scrolling ARM_LIVE_FLOOR=1 \
+    run_arm askbig 20 "$CEIL_ASKBIG" '["t2"]' '"t2"' HANABI_ASK_DEMO=big
+ARM_LIVE_COUNTER=ask.cards_scrolling ARM_LIVE_FLOOR=1 \
+    HANABI_ALLOC_WIN_W=760 HANABI_ALLOC_WIN_H=620 \
+    run_arm asknarrow 20 "$CEIL_ASKNARROW" '["t2"]' '"t2"' HANABI_ASK_DEMO=big
 
 if [ "$fail" -ne 0 ] && [ "$REPORT_ONLY" != "1" ]; then
     cat >&2 <<'MSG'

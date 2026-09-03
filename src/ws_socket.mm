@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -18,6 +19,7 @@ static const NSInteger kMaxMessageBytes = 64 * 1024 * 1024;
 static const int64_t kQuiesceTimeoutNs = 5LL * NSEC_PER_SEC;
 
 struct ws_conn {
+    std::uint64_t handle = 0;
     NSURLSession* session = nil;
     NSURLSessionWebSocketTask* task = nil;
     dispatch_group_t inflight = nil;
@@ -27,6 +29,7 @@ struct ws_conn {
     // on_close fires exactly once. Both the receive loop and ws_close can
     // reach it, from different threads.
     std::atomic<bool> closed{false};
+    std::atomic<bool> leaked{false};
 };
 
 static std::mutex& ws_live_lock() {
@@ -34,16 +37,31 @@ static std::mutex& ws_live_lock() {
     return m;
 }
 
-static std::unordered_map<ws_conn*, std::shared_ptr<ws_conn>>& ws_live() {
-    static std::unordered_map<ws_conn*, std::shared_ptr<ws_conn>> m;
+static std::unordered_map<std::uint64_t, std::shared_ptr<ws_conn>>& ws_live() {
+    static std::unordered_map<std::uint64_t, std::shared_ptr<ws_conn>> m;
     return m;
 }
 
-static std::shared_ptr<ws_conn> ws_hold(ws_conn* c) {
-    std::lock_guard<std::mutex> guard(ws_live_lock());
-    const auto it = ws_live().find(c);
-    return it == ws_live().end() ? nullptr : it->second;
+static std::uint64_t ws_mint_handle() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1);
 }
+
+static std::shared_ptr<ws_conn> ws_hold(ws_conn* c) {
+    if (c == nullptr) return nullptr;
+    std::lock_guard<std::mutex> guard(ws_live_lock());
+    for (const auto& [handle, held] : ws_live())
+        if (held.get() == c) return held;
+    return nullptr;
+}
+
+struct ws_inflight_armed {
+    dispatch_group_t group;
+    explicit ws_inflight_armed(dispatch_group_t g) : group(g) {}
+    ~ws_inflight_armed() { dispatch_group_leave(group); }
+    ws_inflight_armed(const ws_inflight_armed&) = delete;
+    ws_inflight_armed& operator=(const ws_inflight_armed&) = delete;
+};
 
 // Fires on_close the first time anyone gets here and nowhere else.
 static void ws_finish(ws_conn* c, const std::string& reason) {
@@ -61,13 +79,14 @@ static void ws_pump(std::shared_ptr<ws_conn> c) {
     NSURLSessionWebSocketTask* task = c->task;
     if (task == nil) return;
 
-    dispatch_group_enter(c->inflight);
+    dispatch_group_t group = c->inflight;
+    dispatch_group_enter(group);
     [task receiveMessageWithCompletionHandler:^(
               NSURLSessionWebSocketMessage* message, NSError* error) {
+        const ws_inflight_armed busy(group);
         if (error != nil) {
             ws_finish(c.get(), std::string("receive failed: ") +
                                    [[error localizedDescription] UTF8String]);
-            dispatch_group_leave(c->inflight);
             return;
         }
         if (message != nil &&
@@ -82,7 +101,6 @@ static void ws_pump(std::shared_ptr<ws_conn> c) {
         // Binary frames are ignored: this protocol is JSON text only, and
         // silently dropping one is better than guessing at an encoding.
         ws_pump(c);
-        dispatch_group_leave(c->inflight);
     }];
 }
 
@@ -98,6 +116,7 @@ ws_conn* ws_open(const ws_config* cfg) {
     c->on_text = cfg->on_text;
     c->on_close = cfg->on_close;
     c->user = cfg->user;
+    c->handle = ws_mint_handle();
     c->inflight = dispatch_group_create();
 
     NSURLSessionConfiguration* sc =
@@ -133,7 +152,7 @@ ws_conn* ws_open(const ws_config* cfg) {
     c->task.maximumMessageSize = kMaxMessageBytes;
     {
         std::lock_guard<std::mutex> guard(ws_live_lock());
-        ws_live().emplace(c, owned);
+        ws_live().emplace(c->handle, owned);
     }
     [c->task resume];
     ws_pump(owned);
@@ -148,16 +167,18 @@ bool ws_send_text(ws_conn* c, const char* text, size_t len) {
                                            length:len
                                          encoding:NSUTF8StringEncoding];
     if (s == nil) return false;
+    if (held->task == nil) return false;
     NSURLSessionWebSocketMessage* msg =
         [[NSURLSessionWebSocketMessage alloc] initWithString:s];
-    dispatch_group_enter(held->inflight);
+    dispatch_group_t group = held->inflight;
+    dispatch_group_enter(group);
     [held->task sendMessage:msg
           completionHandler:^(NSError* error) {
+            const ws_inflight_armed busy(group);
             if (error != nil)
                 ws_finish(held.get(),
                           std::string("send failed: ") +
                               [[error localizedDescription] UTF8String]);
-            dispatch_group_leave(held->inflight);
           }];
     return true;
 }
@@ -174,11 +195,16 @@ void ws_close(ws_conn* c) {
     if (held->session != nil) [held->session invalidateAndCancel];
     const dispatch_time_t limit =
         dispatch_time(DISPATCH_TIME_NOW, kQuiesceTimeoutNs);
-    if (dispatch_group_wait(held->inflight, limit) != 0)
-        NSLog(@"ws_close: callbacks still running after %.0fs",
+    if (dispatch_group_wait(held->inflight, limit) != 0) {
+        NSLog(@"ws_close: callbacks still running after %.0fs; dropping them",
               (double)kQuiesceTimeoutNs / 1e9);
+        held->on_text = nullptr;
+        held->on_close = nullptr;
+        held->user = nullptr;
+        held->leaked.store(true);
+    }
     {
         std::lock_guard<std::mutex> guard(ws_live_lock());
-        ws_live().erase(c);
+        ws_live().erase(held->handle);
     }
 }

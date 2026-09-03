@@ -215,6 +215,7 @@ struct Pane {
     bool diskReadPending = false;
     std::string diskReadId;  // the thread the disk read targets
     std::uint64_t diskReadEpoch = 0;
+    std::uint64_t askLoadStamp = 0;
     std::vector<std::future<std::optional<api::Session>>>
         supersededDiskReadFutures;
 
@@ -409,6 +410,7 @@ struct AppComponent : public afterhours::BaseComponent {
         std::chrono::steady_clock::time_point lastRefetch{};
         bool pending = false;  // a background refetch for this id is in flight
         std::future<api::Result<api::Session>> future;
+        std::uint64_t askLoadStamp = 0;
     };
     std::map<std::string, LiveSub> liveSubs;  // session id -> live subscription
     // Steady-clock ms of the last live event across ANY subscription (0=none),
@@ -710,6 +712,11 @@ struct AppComponent : public afterhours::BaseComponent {
     float lastPaneContentH = 0.0f;
     float lastComposerChromeH = 0.0f;
 
+    [[nodiscard]] bool ask_load_is_stale(const std::string& id,
+                                         std::uint64_t stamp) const {
+        return askState.load_is_stale(id, stamp);
+    }
+
     void apply_attach_asks(const std::string& id,
                            const std::vector<api::PendingAsk>& asks) {
         std::set<std::string> live;
@@ -727,7 +734,12 @@ struct AppComponent : public afterhours::BaseComponent {
         return at == std::string::npos ? std::string() : askId.substr(0, at);
     }
 
+    std::uint64_t next_ask_load_stamp() {
+        return askState.next_load_stamp();
+    }
+
     void drop_attach_ask(const std::string& id, const std::string& askId) {
+        askState.note_drop(id);
         const auto it = attachAsks.find(id);
         if (it == attachAsks.end()) return;
         std::vector<api::PendingAsk> kept;

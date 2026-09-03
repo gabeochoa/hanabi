@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -43,6 +44,17 @@ struct State {
     std::string busyId;
     std::string errorId;
     std::string errorText;
+
+    std::uint64_t loadSeq = 0;
+    std::map<std::string, std::uint64_t> dropStamp;
+
+    std::uint64_t next_load_stamp() { return ++loadSeq; }
+    void note_drop(const std::string& session) { dropStamp[session] = loadSeq; }
+    [[nodiscard]] bool load_is_stale(const std::string& session,
+                                     std::uint64_t stamp) const {
+        const auto at = dropStamp.find(session);
+        return at != dropStamp.end() && stamp <= at->second;
+    }
 
     api::AskAnswer& answer_for(const std::string& id) { return answers[id]; }
     Cursor& cursor_for(const std::string& id) { return cursors[id]; }
@@ -155,17 +167,28 @@ inline float body_h(const api::PendingAsk& ask, int inputLines,
 }
 
 inline float body_view_h(float natural, float budget) {
-    if (budget < kMinBodyH) budget = kMinBodyH;
+    if (budget < 0.0f) budget = 0.0f;
     return natural > budget ? budget : natural;
+}
+
+inline int message_lines_for(const api::PendingAsk& ask, int messageLines,
+                             bool showNote, float budget) {
+    if (budget <= 0.0f) return messageLines;
+    int lines = messageLines;
+    while (lines > 0 &&
+           chrome_h(ask, lines, showNote) + kMinBodyH > budget)
+        --lines;
+    return lines;
 }
 
 inline float card_h(const api::PendingAsk& ask, int messageLines,
                     bool showNote, int inputLines,
                     const std::vector<QuestionMetrics>& metrics,
                     float budget) {
-    const float chrome = chrome_h(ask, messageLines, showNote);
     const float body = body_h(ask, inputLines, metrics);
-    if (budget <= 0.0f) return chrome + body;
+    if (budget <= 0.0f) return chrome_h(ask, messageLines, showNote) + body;
+    const float chrome = chrome_h(
+        ask, message_lines_for(ask, messageLines, showNote, budget), showNote);
     return chrome + body_view_h(body, budget - chrome);
 }
 
@@ -221,6 +244,15 @@ inline void move_cursor(const api::PendingAsk& ask, Cursor* cursor, int delta) {
         next = static_cast<int>(run.size()) - 1;
     cursor->question = run[static_cast<std::size_t>(next)].first;
     cursor->option = run[static_cast<std::size_t>(next)].second;
+}
+
+inline int option_index(const api::PendingAsk& ask, const Cursor& cursor) {
+    for (const auto& q : ask.questions) {
+        if (q.key != cursor.question) continue;
+        for (std::size_t i = 0; i < q.options.size(); ++i)
+            if (q.options[i].value == cursor.option) return static_cast<int>(i);
+    }
+    return 0;
 }
 
 inline void toggle(const api::PendingAsk& ask, const std::string& key,

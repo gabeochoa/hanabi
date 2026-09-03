@@ -104,11 +104,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
-                                  bool authoritative) {
+                                  bool authoritative, std::uint64_t stamp) {
         if (!authoritative) return;
         if (!app.askState.busyId.empty() &&
             app.ask_session_of(app.askState.busyId) == s.summary.id)
             return;
+        if (app.ask_load_is_stale(s.summary.id, stamp)) return;
         app.apply_attach_asks(s.summary.id, s.pending_asks);
     }
 
@@ -206,7 +207,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (auto hit = app.transcriptCache.get(id)) {
                 apply_local_overlay(hit->summary);
                 adopt_attach_brakes(app, *hit, /*authoritative=*/false);
-                adopt_attach_asks(app, *hit, /*authoritative=*/false);
+                adopt_attach_asks(app, *hit, /*authoritative=*/false, 0);
                 pane.openSession = std::move(*hit);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
@@ -250,6 +251,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // (b) Network revalidate / first-ever load, newest-N only.
                 pane.transcriptPending = true;
                 pane.transcriptPendingId = id;
+                pane.askLoadStamp = app.next_ask_load_stamp();
                 api::Client* c = app.client.get();
                 pane.transcriptFuture = std::async(std::launch::async, [c, id] {
                     return c->get_session(id, kMessagesWindow);
@@ -279,7 +281,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.transcriptCache.put(*disk);
                 apply_local_overlay(disk->summary);
                 adopt_attach_brakes(app, *disk, /*authoritative=*/false);
-                adopt_attach_asks(app, *disk, /*authoritative=*/false);
+                adopt_attach_asks(app, *disk, /*authoritative=*/false, 0);
                 pane.openSession = std::move(*disk);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
@@ -310,7 +312,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         r.value.summary.id == completedId) {
                         apply_local_overlay(r.value.summary);
                         adopt_attach_brakes(app, r.value, /*authoritative=*/true);
-                        adopt_attach_asks(app, r.value, /*authoritative=*/true);
+                        adopt_attach_asks(app, r.value, /*authoritative=*/true,
+                                          pane.askLoadStamp);
                         pane.openSession = std::move(r.value);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
@@ -1382,6 +1385,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 if (id == app.pane().selectedId) app.requestListRefresh = true;
                 api::Client* c = app.client.get();
                 std::string sid = id;
+                ls.askLoadStamp = app.next_ask_load_stamp();
                 ls.future = std::async(std::launch::async, [c, sid] {
                     return c->get_session(sid, kMessagesWindow);
                 });
@@ -1409,7 +1413,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         reconcile_optimistic(pane, fresh);
                         apply_local_overlay(fresh.summary);
                         adopt_attach_brakes(app, fresh, /*authoritative=*/true);
-                        adopt_attach_asks(app, fresh, /*authoritative=*/true);
+                        adopt_attach_asks(app, fresh, /*authoritative=*/true,
+                                          ls.askLoadStamp);
                         pane.openSession = std::move(fresh);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;

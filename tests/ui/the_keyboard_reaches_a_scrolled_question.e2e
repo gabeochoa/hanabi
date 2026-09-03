@@ -1,0 +1,33 @@
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=big HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent is asking"
+expect_text "Answer any one of these to submit"
+
+focus_ui ask_option_q1_0
+expect_focused ask_option_q1_0
+
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+key DOWN
+wait_frames 12
+
+key SPACE
+wait_frames 8
+expect_no_text "Answer any one of these to submit"
+expect_text "Submit"
+expect_text "Decline"
+
+key ENTER
+wait_frames 20
+expect_no_text "The agent is asking"

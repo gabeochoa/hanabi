@@ -4372,6 +4372,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static constexpr float kComposerBaseH = 98.0f;
     static constexpr float kAskMinTranscriptH = 120.0f;
+    static constexpr float kAskScrollbarW = 10.0f;
     static constexpr float kAskArityW = 64.0f;
     static constexpr float kAskOptionInset = 26.0f;
     static constexpr const char* kAskFileHint =
@@ -4412,6 +4413,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static void ask_wrap_spans(
         const std::string& text, float textW,
         std::vector<std::pair<std::size_t, std::size_t>>& out) {
+        using Spans = std::vector<std::pair<std::size_t, std::size_t>>;
+        constexpr std::size_t kAskSpanEntries = 64;
+        static hanabi::text::TextKeyCache<Spans> memo(kAskSpanEntries);
+        if (const Spans* hit = memo.find(text, textW, theme::type::SM)) {
+            hanabi::prof::tick("cache.ask_spans_hit");
+            out = *hit;
+            return;
+        }
+        hanabi::prof::tick("cache.ask_spans_miss");
         hanabi::text::wrapped_line_spans(
             text, text_wrap_width(textW),
             [](const std::string& s) {
@@ -4421,6 +4431,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .x;
             },
             out);
+        memo.put(text, textW, theme::type::SM, out);
+        hanabi::prof::gauge("cache.ask_spans_entries", memo.size());
     }
 
     static std::string ask_wrapped_line(
@@ -4432,7 +4444,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            spans[index].second - spans[index].first);
     }
 
-    static std::vector<hanabi::ask::QuestionMetrics> ask_metrics(
+    static const std::vector<hanabi::ask::QuestionMetrics>& ask_metrics(
+        const api::PendingAsk& ask, float textW) {
+        static std::string memoId;
+        static float memoW = -1.0f;
+        static std::vector<hanabi::ask::QuestionMetrics> memo;
+        if (memoW == textW && memoId == ask.id()) {
+            hanabi::prof::tick("cache.ask_metrics_hit");
+            return memo;
+        }
+        hanabi::prof::tick("cache.ask_metrics_miss");
+        memoId = ask.id();
+        memoW = textW;
+        memo = build_ask_metrics(ask, textW);
+        return memo;
+    }
+
+    static std::vector<hanabi::ask::QuestionMetrics> build_ask_metrics(
         const api::PendingAsk& ask, float textW) {
         std::vector<hanabi::ask::QuestionMetrics> out;
         if (ask.kind == api::AskKind::Approval) return out;
@@ -4480,14 +4508,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                : budget;
     }
 
+    static float ask_body_text_w(const AppComponent& app,
+                                 const api::PendingAsk& ask) {
+        const float textW = ask_text_w(app);
+        const float chrome = hanabi::ask::chrome_h(
+            ask, ask_message_lines(ask, textW), ask_note_shown(app, ask));
+        const float budget = ask_height_budget(app) - chrome;
+        const float natural = hanabi::ask::body_h(
+            ask, ask_input_lines(ask, textW), ask_metrics(ask, textW));
+        return natural > budget ? textW - kAskScrollbarW : textW;
+    }
+
     static float ask_card_h(const AppComponent& app) {
         const api::PendingAsk* ask = open_ask(app);
         if (ask == nullptr) return 0.0f;
         const float textW = ask_text_w(app);
+        const float bodyW = ask_body_text_w(app, *ask);
         return hanabi::ask::card_h(*ask, ask_message_lines(*ask, textW),
                                    ask_note_shown(app, *ask),
-                                   ask_input_lines(*ask, textW),
-                                   ask_metrics(*ask, textW),
+                                   ask_input_lines(*ask, bodyW),
+                                   ask_metrics(*ask, bodyW),
                                    ask_height_budget(app)) +
                8.0f;
     }
@@ -4529,7 +4569,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         app.requestAskAction = action;
     }
 
-    void drive_ask_keyboard(AppComponent& app, const api::PendingAsk& ask) {
+    static void scroll_ask_cursor_into_view(Entity& body,
+                                            const std::string& rowName) {
+        if (!body.has<afterhours::ui::HasScrollView>()) return;
+        auto& sv = body.get<afterhours::ui::HasScrollView>();
+        const auto& bodyBox = body.get<afterhours::ui::UIComponent>();
+        for (auto childId : bodyBox.children) {
+            auto opt = afterhours::ui::UICollectionHolder::getEntityForID(childId);
+            if (!opt.valid() || !opt->has<afterhours::ui::UIComponent>())
+                continue;
+            if (!opt->has<afterhours::ui::UIComponentDebug>()) continue;
+            if (opt->get<afterhours::ui::UIComponentDebug>().name_value !=
+                rowName)
+                continue;
+            const auto row = opt->get<afterhours::ui::UIComponent>().rect();
+            const auto view = bodyBox.rect();
+            const float top = row.y - view.y + sv.scroll_offset.y;
+            const float bottom = top + row.height;
+            if (top < sv.scroll_target.y)
+                sv.scroll_target.y = top;
+            else if (bottom > sv.scroll_target.y + view.height)
+                sv.scroll_target.y = bottom - view.height;
+            return;
+        }
+    }
+
+    void drive_ask_keyboard(AppComponent& app, const api::PendingAsk& ask,
+                            Entity* body) {
         if (!app.askFocused) return;
         if (hanabi::keys::cmd_down() || hanabi::keys::shift_down() ||
             hanabi::keys::ctrl_down() || hanabi::keys::option_down())
@@ -4540,10 +4606,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool editing = ecs::any_text_field_focused();
         if (!editing) {
             if (app.arrow == ArrowIntent::Ask) {
+                const bool moved =
+                    hanabi::keys::pressed(hanabi::keys::kDown) ||
+                    hanabi::keys::pressed(hanabi::keys::kUp);
                 if (hanabi::keys::pressed(hanabi::keys::kDown))
                     hanabi::ask::move_cursor(ask, &cursor, 1);
                 if (hanabi::keys::pressed(hanabi::keys::kUp))
                     hanabi::ask::move_cursor(ask, &cursor, -1);
+                if (moved && body != nullptr && cursor.set())
+                    scroll_ask_cursor_into_view(
+                        *body, "ask_option_" + cursor.question + "_" +
+                                   std::to_string(hanabi::ask::option_index(
+                                       ask, cursor)));
             }
             if (hanabi::keys::pressed(hanabi::keys::kSpace))
                 hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
@@ -4566,17 +4640,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_ask_wrapped(UIContext<InputAction>& ctx, Entity& parent,
                             int keyBase, const std::string& text, int lines,
                             float textW, float lineH, theme::Color ink,
-                            const std::string& name) {
+                            const std::string& name,
+                            bool selectable = false) {
         if (lines <= 0) return;
-        static std::vector<std::pair<std::size_t, std::size_t>> spans;
+        std::vector<std::pair<std::size_t, std::size_t>> spans;
         ask_wrap_spans(text, textW, spans);
         for (int li = 0; li < lines; ++li) {
             const bool last = li == lines - 1;
             const bool cut = last && spans.size() > static_cast<size_t>(lines);
-            div(ctx, mk(parent, keyBase + li),
+            const std::string line =
+                ask_wrapped_line(text, spans, static_cast<size_t>(li));
+            auto row = div(ctx, mk(parent, keyBase + li),
                 ComponentConfig{}
-                    .with_label(ask_wrapped_line(text, spans,
-                                                 static_cast<size_t>(li)))
+                    .with_label(line)
                     .with_size(ComponentSize{percent(1.0f), pixels(lineH)})
                     .with_transparent_bg()
                     .with_custom_text_color(ink)
@@ -4585,6 +4661,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_text_overflow(cut ? TextOverflow::Ellipsis
                                             : TextOverflow::Clip)
                     .with_debug_name(name + "_" + std::to_string(li)));
+            if (selectable)
+                selectable_text(ctx, row.ent(), line, theme::type::SM);
         }
     }
 
@@ -4608,9 +4686,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool showNote = ask_note_shown(app, ask) || !answerable;
         const float cardW = ask_card_w(app);
         const float textW = ask_text_w(app);
-        const int messageLines = ask_message_lines(ask, textW);
-        const int inputLines = ask_input_lines(ask, textW);
-        const auto metrics = ask_metrics(ask, textW);
+        const float bodyTextW = ask_body_text_w(app, ask);
+        const int wantedMessageLines = ask_message_lines(ask, textW);
+        const int inputLines = ask_input_lines(ask, bodyTextW);
+        const auto& metrics = ask_metrics(ask, bodyTextW);
+        const int messageLines = hanabi::ask::message_lines_for(
+            ask, wantedMessageLines, showNote, ask_height_budget(app));
         const float chromeH = hanabi::ask::chrome_h(ask, messageLines, showNote);
         const float bodyNaturalH =
             hanabi::ask::body_h(ask, inputLines, metrics);
@@ -4633,6 +4714,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border(theme::accent(), pixels(1.0f))
                 .with_corner_radius(8.0f)
                 .with_debug_name("ask_card"));
+
+        hanabi::prof::tick("ask.cards_drawn");
+        if (bodyNaturalH > bodyH) hanabi::prof::tick("ask.cards_scrolling");
 
         const auto* asks = app.asks_for(app.pane().openSession->summary.id);
         std::string head = hanabi::ask::head_text(ask);
@@ -4660,21 +4744,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
                 .with_transparent_bg()
                 .with_padding(Padding{.top = pixels(0),
-                                      .right = pixels(bodyNaturalH > bodyH
-                                                          ? 10.0f
-                                                          : 0.0f),
+                                      .right = pixels(textW - bodyTextW),
                                       .bottom = pixels(0),
                                       .left = pixels(0)})
                 .with_debug_name("ask_body"));
         hanabi::apply_scroll_prefs(body.ent());
-        const float bodyTextW =
-            textW - (bodyNaturalH > bodyH ? 10.0f : 0.0f);
 
         int key = 20;
         if (approval) {
             render_ask_wrapped(ctx, body.ent(), key, ask_input_text(ask),
                                inputLines, bodyTextW, hanabi::ask::kNoteH,
-                               theme::text_secondary(), "ask_approval_input");
+                               theme::text_secondary(), "ask_approval_input",
+                               /*selectable=*/true);
             key += hanabi::ask::kMaxInputLines;
         } else if (ask.schema_unreadable) {
             div(ctx, mk(body.ent(), key++),
@@ -4967,7 +5048,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             submit_ask(app, ask, api::AskAction::Decline);
             app.askFocused = false;
         }
-        drive_ask_keyboard(app, ask);
+        drive_ask_keyboard(app, ask, &body.ent());
     }
 
     // A chip per pasted/dropped image, and one line saying plainly that they

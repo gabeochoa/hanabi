@@ -171,7 +171,7 @@ $(OBJ_DIR)/main/%.o: src/%.mm $(BRANDING_HEADER) | $(OBJ_DIR)/main
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ $(CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
 
-$(OBJ_DIR)/main/ws_socket.o: src/ws_socket.mm $(BRANDING_HEADER) | $(OBJ_DIR)/main
+$(OBJ_DIR)/main/ws_socket.o: src/ws_socket.mm makefile $(BRANDING_HEADER) | $(OBJ_DIR)/main
 	@echo "Compiling (ObjC++, ARC) $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ -fobjc-arc $(CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
@@ -1031,7 +1031,7 @@ $(UITEST_OBJ_DIR)/%.o: src/%.mm $(BRANDING_HEADER)
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
 
-$(UITEST_OBJ_DIR)/ws_socket.o: src/ws_socket.mm $(BRANDING_HEADER)
+$(UITEST_OBJ_DIR)/ws_socket.o: src/ws_socket.mm makefile $(BRANDING_HEADER)
 	@echo "Compiling (uitest, ObjC++, ARC) $<..."
 	@mkdir -p $(dir $@)
 	$(CXX) -ObjC++ -fobjc-arc $(UITEST_CXXFLAGS) $(INCLUDES) -c $< -o $@ -MD -MP -MF $(@:.o=.d) -MT $@
