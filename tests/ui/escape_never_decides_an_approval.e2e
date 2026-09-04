@@ -5,7 +5,18 @@ require_thread t2
 expect_text "The agent needs approval"
 
 focus_ui ask_submit
+expect_focused ask_submit
 key ESCAPE
 wait_frames 25
 expect_no_text "cancel — press Escape to try again."
 expect_text "The agent needs approval"
+
+key ENTER
+wait_frames 25
+expect_no_text "cancel — press Escape to try again."
+expect_no_text "accept — press Approve to try again."
+expect_text "The agent needs approval"
+
+click_ui ask_submit
+wait_frames 25
+expect_text "accept — press Approve to try again."

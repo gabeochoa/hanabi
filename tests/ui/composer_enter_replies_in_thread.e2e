@@ -25,6 +25,8 @@ wait_frames 4
 key ENTER
 wait_frames 40
 
+expect_input_text composer_reply_input ""
+
 # Still the same thread: its title, and its existing content, are both present.
 expect_text "needs a decision"
 expect_text "Reconciled 4,812 accounts"

@@ -5,19 +5,21 @@ require_thread t2
 expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
 
-click_ui ask_option_q1_1
+click_ui ask_text_q3
+wait_frames 8
+key SPACE
+wait_frames 10
+expect_text "Answer any one of these to submit"
+
+focus_ui ask_option_q1_1
 wait_frames 6
+key SPACE
+wait_frames 10
 expect_no_text "Answer any one of these to submit"
 expect_text "file question will be left unanswered"
 
 click_ui ask_text_q3
-wait_frames 6
-
-key SPACE
 wait_frames 8
-expect_no_text "Answer any one of these to submit"
-expect_text "file question will be left unanswered"
-
 type "a b c"
 wait_frames 8
 expect_input_text ask_text_q3 "a b c"

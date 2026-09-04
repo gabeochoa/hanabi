@@ -8,11 +8,11 @@ focus_ui ask_option_q1_0
 expect_focused ask_option_q1_0
 key DOWN
 wait_frames 4
+expect_focused ask_option_q1_1
 key SPACE
 wait_frames 6
 expect_no_text "Answer any one of these to submit"
 
-expect_no_text "Answer any one of these to submit"
 wait_frames 10
 focus_ui ask_submit
 expect_focused ask_submit

@@ -15,16 +15,20 @@
 require_thread rbig
 
 expect_no_text #0:
+assert_ui transcript_bottom_pad y=646
 
 key HOME
 wait_frames 10
 expect_text "Follow-up question #0:"
+assert_ui transcript_bottom_pad y=12611
 
 key END
 wait_frames 10
 expect_no_text #0:
+assert_ui transcript_bottom_pad y=646
 
 # A page back from the end moves, but not all the way to the top.
 key PAGE_UP
-wait_frames 10
+wait_frames 14
+assert_ui transcript_bottom_pad y=1209
 expect_no_text #0:

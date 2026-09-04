@@ -21,24 +21,34 @@ require_thread t2
 
 click_ui composer_reply_input
 wait_frames 6
+type "first send"
+wait_frames 6
+key ENTER
+wait_frames 40
+expect_input_text composer_reply_input ""
+
 type "hello"
 wait_frames 6
 expect_text "ring off"
+expect_input_selection composer_reply_input 5 5
 
 # Left moves the caret. The field's own focused border is the indicator here,
 # and it is already drawn — nothing about this keystroke asks for a ring.
 key LEFT
 wait_frames 8
 expect_text "ring off"
+expect_input_selection composer_reply_input 4 4
 
 key RIGHT
 wait_frames 8
 expect_text "ring off"
+expect_input_selection composer_reply_input 5 5
 
 # Up and Down in the composer walk the send history, which is the same story.
 key UP
-wait_frames 8
+wait_frames 10
 expect_text "ring off"
+expect_input_text composer_reply_input "first send"
 
 # Tab still arms it: the rule narrowed, it did not go away.
 key TAB

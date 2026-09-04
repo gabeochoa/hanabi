@@ -3,6 +3,7 @@
 
 require_thread t2
 expect_text "The agent is asking"
+expect_text "Appearance, behavior, notifications, and local data"
 
 focus_ui ask_text_q3
 type "leaked"
@@ -13,3 +14,21 @@ focus_ui ask_other_q1
 type "leaked"
 wait_frames 12
 expect_input_text ask_other_q1 ""
+
+click_ui settings_close
+wait_frames 20
+expect_no_text "Appearance, behavior, notifications, and local data"
+expect_input_text ask_text_q3 ""
+expect_input_text ask_other_q1 ""
+
+type "lands"
+wait_frames 4
+click_ui ask_text_q3
+wait_frames 14
+expect_input_text ask_text_q3 "lands"
+
+focus_ui ask_other_q1
+wait_frames 8
+type "lands"
+wait_frames 14
+expect_input_text ask_other_q1 "lands"

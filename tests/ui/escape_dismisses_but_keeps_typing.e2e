@@ -15,6 +15,7 @@ expect_text "The agent is asking"
 expect_input_text ask_text_q3 "half a sentence"
 expect_no_text "cancel — press Escape to try again."
 
-key ESCAPE
+type " ignored"
 wait_frames 12
 expect_input_text ask_text_q3 "half a sentence"
+expect_text "The agent is asking"

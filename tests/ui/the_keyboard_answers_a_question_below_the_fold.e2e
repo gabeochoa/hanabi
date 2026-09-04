@@ -4,6 +4,7 @@
 require_thread t2
 expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
+expect_no_text "nobody, it is already approved in the ticket"
 
 focus_ui ask_option_q1_0
 expect_focused ask_option_q1_0
@@ -21,6 +22,8 @@ key DOWN
 key DOWN
 key DOWN
 wait_frames 12
+expect_focused ask_option_q4_0
+expect_text "nobody, it is already approved in the ticket"
 
 key SPACE
 wait_frames 8
@@ -28,7 +31,6 @@ expect_no_text "Answer any one of these to submit"
 expect_text "Submit"
 expect_text "Decline"
 
-expect_no_text "Answer any one of these to submit"
 wait_frames 10
 focus_ui ask_submit
 expect_focused ask_submit

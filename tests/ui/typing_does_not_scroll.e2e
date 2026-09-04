@@ -10,6 +10,7 @@
 require_thread rbig
 
 expect_no_text #0:
+assert_ui transcript_bottom_pad y=646
 
 # Focus the composer and type, then press Home: the caret moves, the thread
 # stays where it was.
@@ -24,7 +25,10 @@ click_ui composer_reply_input
 wait_frames 4
 type "still at the bottom"
 wait_frames 4
+expect_input_selection composer_reply_input 19 19
 key HOME
 wait_frames 12
+expect_input_selection composer_reply_input 0 0
 expect_no_text #0:
+assert_ui transcript_bottom_pad y=646
 expect_text "still at the bottom"

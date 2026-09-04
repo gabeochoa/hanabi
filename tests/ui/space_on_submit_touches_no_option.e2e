@@ -17,7 +17,14 @@ key SPACE
 wait_frames 12
 expect_no_text "Answer any one of these to submit"
 expect_text "The agent is asking"
+expect_no_text "accept — press Submit to try again."
 
 key SPACE
 wait_frames 12
 expect_no_text "Answer any one of these to submit"
+expect_text "The agent is asking"
+expect_no_text "accept — press Submit to try again."
+
+key ENTER
+wait_frames 25
+expect_text "accept — press Submit to try again."

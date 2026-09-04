@@ -16,3 +16,12 @@ wait_frames 20
 expect_no_text "Sending your answer…"
 expect_text "The agent needs approval"
 expect_text "./scripts/release_batch.sh --force"
+
+key ESCAPE
+wait_frames 20
+expect_no_text "Appearance, behavior, notifications, and local data"
+
+focus_ui ask_submit
+key ENTER
+wait_frames 25
+expect_no_text "The agent needs approval"
