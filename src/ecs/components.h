@@ -618,6 +618,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string themeChoice = "dark";
     bool composerOpen = false;
     std::string composerDraft;
+    std::string askRescuedDraft;
 
     // Phase G (menu-bar): set by the frame loop when the menu-bar "New task…"
     // action fires; serviced there by opening the composer. A one-shot request
@@ -735,8 +736,23 @@ struct AppComponent : public afterhours::BaseComponent {
                            const std::vector<api::PendingAsk>& asks) {
         const auto known = attachAsks.find(id);
         static const std::vector<api::PendingAsk> kNone;
-        askState.adopt(asks,
-                       known == attachAsks.end() ? kNone : known->second);
+        const auto& before = known == attachAsks.end() ? kNone : known->second;
+        std::set<std::string> live;
+        for (const auto& a : asks) live.insert(a.id());
+        for (const auto& a : before) {
+            if (live.count(a.id()) != 0) continue;
+            const auto at = askState.answers.find(a.id());
+            if (at == askState.answers.end()) continue;
+            std::string kept;
+            for (const auto& [key, text] : at->second.text) {
+                const std::string t = api::elicitation::trimmed(text);
+                if (t.empty()) continue;
+                if (!kept.empty()) kept += "\n";
+                kept += t;
+            }
+            if (!kept.empty()) askRescuedDraft = kept;
+        }
+        askState.adopt(asks, before);
         if (asks.empty()) {
             attachAsks.erase(id);
             askState.forget_session(id);

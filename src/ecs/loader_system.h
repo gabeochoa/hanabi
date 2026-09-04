@@ -122,6 +122,12 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 adopt_attach_asks(app, r.value, /*authoritative=*/true, stamp);
         }
     }
+    static bool park_ask_draft(AppComponent& app, const std::string& kept) {
+        if (kept.empty()) return false;
+        if (!app.pane().openSession) return false;
+        app.askRescuedDraft = kept;
+        return true;
+    }
 
     static std::string ask_draft_text(const AppComponent& app,
                                       const std::string& askId) {
@@ -824,9 +830,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else if (r.error == api::elicitation::kAskGoneReason) {
                 const std::string kept = ask_draft_text(app, askId);
                 app.drop_attach_ask(sid, askId);
-                if (!kept.empty()) {
-                    std::string& draft = app.composerDraft;
-                    draft = draft.empty() ? kept : draft + "\n" + kept;
+                if (park_ask_draft(app, kept)) {
                     app.raise_toast(
                         std::string(r.error) + " — your answer is in the "
                         "composer",

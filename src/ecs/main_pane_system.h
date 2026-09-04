@@ -201,8 +201,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     render_split(ctx, content.ent(), *app, r.width, contentH,
                                  layout->composer.height);
                 } else {
-                    render_transcript(ctx, content.ent(), *app,
-                                      app->panes[0], r.width, contentH);
+                    render_transcript(ctx, content.ent(), *app, app->pane(),
+                                      r.width, contentH);
                 }
                 break;
             case SmartView::Home:
@@ -4563,12 +4563,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         static unsigned memoEpoch = 0;
         static std::vector<hanabi::ask::QuestionMetrics> memo;
         const unsigned epoch = hanabi::text::font_epoch();
-        if (memoW == textW && memoEpoch == epoch && memoId == ask.id()) {
+        const std::string key = hanabi::ask::metrics_key(ask);
+        if (memoW == textW && memoEpoch == epoch && memoId == key) {
             hanabi::prof::tick("cache.ask_metrics_hit");
             return memo;
         }
         hanabi::prof::tick("cache.ask_metrics_miss");
-        memoId = ask.id();
+        memoId = key;
         memoW = textW;
         memoEpoch = epoch;
         memo = build_ask_metrics(ask, textW);
@@ -5847,6 +5848,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         model::PaneState& composerState =
             model::pane_states().touch(composerStateKey);
         std::string& replyDraft = composerState.replyDraft;
+        if (!app.askRescuedDraft.empty() && !kickoff) {
+            replyDraft = replyDraft.empty()
+                             ? app.askRescuedDraft
+                             : replyDraft + "\n" + app.askRescuedDraft;
+            app.askRescuedDraft.clear();
+        }
         const std::string persistedDraftKey =
             model::persisted_reply_key(app.focusedPane, draftKey);
         if (!kickoff && !draftKey.empty() && !composerState.replyDraftLoaded) {

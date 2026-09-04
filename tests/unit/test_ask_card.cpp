@@ -519,6 +519,49 @@ static void test_the_shared_overlay_set_is_declared() {
     CHECK(!ask::keys_live(own));
 }
 
+static void test_metrics_track_the_questions_not_the_id() {
+    std::printf("metrics follow the question list, not the ask id\n");
+    api::PendingAsk one;
+    one.owner_session = "s1";
+    one.child_session = "kid";
+    one.seq = 41;
+    api::AskQuestion q;
+    q.key = "q1";
+    q.prompt = "Which?";
+    one.questions.push_back(q);
+
+    api::PendingAsk two = one;
+    api::AskQuestion q2;
+    q2.key = "q2";
+    q2.prompt = "And?";
+    two.questions.push_back(q2);
+
+    CHECK(one.id() == two.id());
+    CHECK(one.questions.size() != two.questions.size());
+    CHECK(ask::metrics_key(one) != ask::metrics_key(two));
+}
+
+static void test_a_dropped_session_cannot_resurrect_an_ask() {
+    std::printf("a stale load cannot revive a resolved ask\n");
+    ask::State st;
+    api::PendingAsk a;
+    a.owner_session = "s1";
+    a.seq = 41;
+
+    const std::uint64_t inflight = st.next_load_stamp();
+    st.adopt({a}, {});
+    st.answers[a.id()].text["q1"] = "typed";
+
+    st.note_drop("s1");
+    st.adopt({}, {a});
+    st.forget_session("s1");
+    CHECK(st.answers.count(a.id()) == 0);
+    CHECK(st.bornStamp.count(a.id()) == 0);
+
+    CHECK(st.load_is_stale("s1", inflight));
+    CHECK(!st.born_after(a.id(), inflight));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -539,6 +582,8 @@ int main() {
     test_a_stale_load_cannot_retire_a_live_ask();
     test_dropped_text_is_marked();
     test_the_shared_overlay_set_is_declared();
+    test_metrics_track_the_questions_not_the_id();
+    test_a_dropped_session_cannot_resurrect_an_ask();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

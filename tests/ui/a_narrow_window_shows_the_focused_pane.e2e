@@ -1,0 +1,7 @@
+# settings: {"window_width":700,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t6","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":1,"theme":"dark"}
+
+# env: HANABI_WIN_W=700 HANABI_WIN_H=620
+
+wait_frames 20
+expect_text "Task: backfill the entitlement table for legacy subscribers."
+expect_no_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs."

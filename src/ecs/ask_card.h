@@ -89,7 +89,7 @@ struct State {
     }
 
     void forget_session(const std::string& session) {
-        dropStamp.erase(session);
+        dropStamp[session] = loadSeq;
     }
 
     void forget(const std::string& id) {
@@ -121,6 +121,19 @@ inline int clamp_prompt_lines(int measured) {
     if (measured < 1) return 1;
     if (measured > kMaxPromptLines) return kMaxPromptLines;
     return measured;
+}
+
+inline std::string metrics_key(const api::PendingAsk& ask) {
+    std::string key = ask.id();
+    key += '#';
+    key += std::to_string(ask.questions.size());
+    for (const auto& q : ask.questions) {
+        key += '|';
+        key += q.key;
+        key += ':';
+        key += std::to_string(static_cast<int>(q.control));
+    }
+    return key;
 }
 
 inline std::string with_ellipsis(std::string line) {
