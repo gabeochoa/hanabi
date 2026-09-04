@@ -302,6 +302,7 @@ verify-vendor-patches:
 ask-contrast-gate:
 	@python3 scripts/ask_contrast_gate.py
 
+
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)
 # ==============================================================================

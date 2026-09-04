@@ -5226,18 +5226,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else {
                 note = hanabi::ask::with_file_caveat(ask, std::string());
             }
-            if (!note.empty())
-                div(ctx, mk(card.ent(), 900),
+            if (!note.empty()) {
+                const float noteW = ask_text_w(app);
+                std::vector<std::pair<std::size_t, std::size_t>> lines;
+                ask_wrap_spans(note, noteW, lines);
+                const int wrapped = lines.empty()
+                                        ? 1
+                                        : static_cast<int>(lines.size());
+                const int rows =
+                    std::min(wrapped, hanabi::ask::noteLines(ask));
+                auto noteBox = div(ctx, mk(card.ent(), 900),
                     ComponentConfig{}
-                        .with_label(note)
-                        .with_size(ComponentSize{percent(1.0f),
-                                                 pixels(hanabi::ask::kNoteH)})
+                        .with_size(ComponentSize{
+                            percent(1.0f),
+                            pixels(hanabi::ask::kNoteH *
+                                   static_cast<float>(rows))})
                         .with_transparent_bg()
-                        .with_custom_text_color(ink)
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
-                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_flex_direction(FlexDirection::Column)
                         .with_debug_name("ask_note"));
+                render_ask_wrapped(ctx, noteBox.ent(), 0, note, rows, noteW,
+                                   hanabi::ask::kNoteH, ink, "ask_note_line");
+            }
         }
 
         auto actions = div(ctx, mk(card.ent(), 901),
@@ -5252,8 +5261,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_actions"));
 
         const bool expired = ask_expired(app, ask);
-        const bool submitOff =
-            busy || blocked || !answerable || !inputLive || expired;
+        const bool submitOff = busy || blocked || !answerable || !inputLive ||
+                               expired || tooShort;
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitOff ? std::string() : submitLabel)
@@ -5316,13 +5325,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto decline = button(ctx, mk(actions.ent(), 2),
             ComponentConfig{}
-                .with_label((busy || !answerable || !inputLive || expired)
+                .with_label((busy || !answerable || !inputLive || expired ||
+                             tooShort)
                                 ? std::string()
                                 : declineLabel)
                 .with_disabled(busy || !answerable || !inputLive ||
-                               expired)
+                               expired || tooShort)
                 .with_on_draw_fg([off = (busy || !answerable || !inputLive ||
-                                         expired),
+                                         expired || tooShort),
                                   declineLabel](RectangleType r) {
                     if (off)
                         draw_ask_action_label(r, declineLabel,
@@ -5332,10 +5342,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(28)})
                 .with_margin(Margin{.left = pixels(kAskActionGap)})
                 .with_custom_background(
-                    (busy || !answerable || !inputLive || expired)
+                    (busy || !answerable || !inputLive || expired || tooShort)
                         ? theme::ask_action_disabled_fill()
                         : theme::Color{0, 0, 0, 0})
-                .with_border((busy || !answerable || !inputLive || expired)
+                .with_border((busy || !answerable || !inputLive || expired ||
+                              tooShort)
                                  ? ask_disabled_border()
                                  : theme::border(),
                              pixels(1.0f))
@@ -5351,7 +5362,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_decline"));
         ask_set_tab_stop(decline.ent(),
                          !(busy || !answerable || !inputLive || expired));
-        if (decline && !busy && answerable && inputLive && !expired) {
+        if (decline && !busy && answerable && inputLive && !expired &&
+            !tooShort) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Decline);
         }

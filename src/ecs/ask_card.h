@@ -324,12 +324,46 @@ inline int clamp_input_lines(int measured) {
     return measured;
 }
 
+inline int wrapped_line_count(const std::string& text, float width,
+                              float (*measure)(const char*, float),
+                              float fontPx) {
+    if (text.empty() || width <= 0.0f) return 1;
+    int lines = 1;
+    float used = 0.0f;
+    std::string word;
+    const auto flush = [&]() {
+        if (word.empty()) return;
+        const float w = measure(word.c_str(), fontPx);
+        const float space = used > 0.0f ? measure(" ", fontPx) : 0.0f;
+        if (used + space + w > width && used > 0.0f) {
+            ++lines;
+            used = w;
+        } else {
+            used += space + w;
+        }
+        word.clear();
+    };
+    for (const char c : text) {
+        if (c == ' ') {
+            flush();
+            continue;
+        }
+        word += c;
+    }
+    flush();
+    return lines;
+}
+
+inline int noteLines(const api::PendingAsk& ask) {
+    return ask.has_file_question() ? 3 : 1;
+}
+
 inline float chrome_h(const api::PendingAsk& ask, int messageLines,
                       bool showNote) {
     float h = kPad * 2.0f + kHeadH + kButtonsH;
     if (!ask.message.empty() && messageLines > 0)
         h += kMessageH * static_cast<float>(clamp_message_lines(messageLines));
-    if (showNote) h += kNoteH;
+    if (showNote) h += kNoteH * static_cast<float>(noteLines(ask));
     return h;
 }
 

@@ -28,21 +28,21 @@ MAX_DISABLED_RATIO = 6.0
 # compared WITHIN a row -- same card, same theme, same state -- so a disabled
 # label can never be checked against an unrelated control's enabled one.
 ROWS = [
-    ("55_ask_card_dark.png", 620, 650, 320, 1040,
+    ("55_ask_card_dark.png", 599, 629, 320, 1040,
      [("Submit", True), ("Decline", False)]),
-    ("56_ask_card_light.png", 620, 650, 320, 1040,
+    ("56_ask_card_light.png", 599, 629, 320, 1040,
      [("Submit", True), ("Decline", False)]),
-    ("59_ask_approval_dark.png", 620, 650, 320, 1040,
+    ("59_ask_approval_dark.png", 631, 661, 320, 1040,
      [("Approve", False), ("Deny", False)]),
-    ("61_ask_long_approval_dark.png", 620, 650, 320, 1040,
+    ("61_ask_long_approval_dark.png", 631, 661, 320, 1040,
      [("Approve", False), ("Deny", False)]),
-    ("63_ask_unanswerable_backend_dark.png", 620, 650, 320, 1040,
+    ("63_ask_unanswerable_backend_dark.png", 631, 661, 320, 1040,
      [("Approve", True), ("Deny", True)]),
-    ("57_ask_card_narrow_dark.png", 480, 510, 250, 740,
+    ("57_ask_card_narrow_dark.png", 459, 489, 250, 740,
      [("Submit", True), ("Decline", False)]),
-    ("65_ask_two_questions_narrow_dark.png", 480, 510, 250, 470,
+    ("65_ask_two_questions_narrow_dark.png", 492, 522, 250, 470,
      [("Submit", True), ("Next", False), ("Decline", False)]),
-    ("66_ask_two_questions_tiny_dark.png", 480, 510, 190, 325,
+    ("66_ask_two_questions_tiny_dark.png", 491, 521, 190, 325,
      [("Send", True), ("Next", False), ("Skip", False)]),
 ]
 
@@ -106,6 +106,22 @@ def button_rects(image, y0, y1, x0, card_fill):
         else:
             merged.append(run)
     return [tuple(r) for r in merged if r[1] - r[0] >= 28]
+
+
+def button_extent(image, box, seed_y, card_fill):
+    def differs(y):
+        return any(
+            sum(abs(image.getpixel((x, y))[c] - card_fill[c])
+                for c in range(3)) > 18
+            for x in range(box[0] + 2, box[1] - 2))
+
+    top = seed_y
+    while top > 0 and differs(top - 1):
+        top -= 1
+    bottom = seed_y
+    while bottom + 1 < image.size[1] and differs(bottom + 1):
+        bottom += 1
+    return top, bottom + 1
 
 
 def measure(image, box, y0, y1):
@@ -173,7 +189,8 @@ def main():
 
         measured = []
         for (label, disabled), box in zip(labels, runs):
-            fill, ink, ratio = measure(image, box, y0, y1)
+            top, bottom = button_extent(image, box, y0 + 4, card_fill)
+            fill, ink, ratio = measure(image, box, top, bottom)
             total += 1
             print(f"  {name.split('_')[0]:>3} {label:<9} "
                   f"x={box[0]}..{box[1]} fill={fill} ink={ink} -> {ratio:.2f}:1")

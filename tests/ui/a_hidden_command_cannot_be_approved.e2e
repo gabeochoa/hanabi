@@ -1,0 +1,18 @@
+# settings: {"window_width":1100,"window_height":300,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_ASK_FAIL=echo HANABI_WIN_W=1100 HANABI_WIN_H=300
+
+require_thread t2
+expect_text "Too short to show the questions"
+
+click_ui ask_submit
+wait_frames 20
+expect_no_text "accept — press Approve to try again."
+
+focus_ui ask_submit
+key ENTER
+wait_frames 20
+expect_no_text "accept — press Approve to try again."
+
+click_ui ask_decline
+wait_frames 20
+expect_no_text "decline — press Deny to try again."

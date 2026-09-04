@@ -173,7 +173,8 @@ static void test_geometry() {
     const float unbounded = ask::card_h(a, 1, false, 0, m, 0.0f);
     const float two = ask::card_h(a, 2, false, 0, m, 0.0f);
     CHECK(two - unbounded == ask::kMessageH);
-    CHECK(ask::card_h(a, 1, true, 0, m, 0.0f) - unbounded == ask::kNoteH);
+    CHECK(ask::card_h(a, 1, true, 0, m, 0.0f) - unbounded ==
+          ask::kNoteH * static_cast<float>(ask::noteLines(a)));
     CHECK(unbounded > ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH);
 
     const float chrome = ask::chrome_h(a, 1, false);
@@ -317,7 +318,7 @@ static void test_a_reserved_note_costs_exactly_one_note() {
     const PendingAsk a = demo_form();
     const auto m = flat_metrics(a);
     CHECK(ask::chrome_h(a, 1, true) - ask::chrome_h(a, 1, false) ==
-          ask::kNoteH);
+          ask::kNoteH * static_cast<float>(ask::noteLines(a)));
     const float withNote = ask::card_h(a, 1, true, 0, m, 400.0f);
     const float without = ask::card_h(a, 1, false, 0, m, 400.0f);
     CHECK(withNote <= 400.0f + 0.01f);
@@ -612,6 +613,36 @@ static void test_clicked_answers_are_rescued_too() {
     CHECK(ask::draft_text_of(ask, api::AskAnswer{}).empty());
 }
 
+static float fake_px(const char* text, float px) {
+    return static_cast<float>(std::string(text).size()) * px * 0.55f;
+}
+
+static void test_the_caveat_fits_the_lines_reserved_for_it() {
+    std::printf("the file caveat fits the rows the card reserves\n");
+    api::PendingAsk ask;
+    ask.owner_session = "s1";
+    ask.seq = 41;
+    api::AskQuestion q;
+    q.key = "q4";
+    q.control = api::AskControl::File;
+    ask.questions.push_back(q);
+    CHECK(ask.has_file_question());
+
+    const std::string note =
+        ask::with_file_caveat(ask, ask::blocked_reason(ask));
+    CHECK(note.find("unanswered") != std::string::npos);
+
+    const int reserved = ask::noteLines(ask);
+    for (const float width : {196.0f, 232.0f, 288.0f, 439.0f, 696.0f}) {
+        const int needed =
+            ask::wrapped_line_count(note, width, fake_px, 12.0f);
+        if (needed > reserved)
+            std::printf("  width %.0f needs %d lines, reserved %d\n", width,
+                        needed, reserved);
+        CHECK(needed <= reserved);
+    }
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -636,6 +667,7 @@ int main() {
     test_a_dropped_session_cannot_resurrect_an_ask();
     test_rescues_do_not_overwrite_each_other();
     test_clicked_answers_are_rescued_too();
+    test_the_caveat_fits_the_lines_reserved_for_it();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;
