@@ -1346,6 +1346,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         afterhours::EntityID id;
     };
     std::vector<AskRowId> askRowIds_;
+    afterhours::EntityID askEnterRow_ = 0;
+    afterhours::EntityID askFocusedRow_ = 0;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -4943,6 +4945,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
         }
         if (hanabi::keys::pressed(hanabi::keys::kEnter) && !widgetOwnsEnter) {
+            askEnterRow_ = ask_row_id(cursor.question, cursor.option);
             switch (hanabi::ask::return_intent(ask, answer, cursor)) {
                 case hanabi::ask::ReturnIntent::Submit:
                     submit_ask(app, ask, api::AskAction::Accept);
@@ -5287,7 +5290,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                            std::to_string(oi));
                 }
                 askRowIds_.push_back({&q.key, &option.value, row.ent().id});
-                if (row && !busy && inputLive) {
+                if (row && !busy && inputLive &&
+                    row.ent().id != askEnterRow_) {
                     hanabi::ask::toggle(ask, q.key, option.value, &answer);
                     cursor.question = q.key;
                     cursor.option = option.value;
@@ -5470,30 +5474,43 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
         const bool actionFocused = ctx.focus_in_subtree(actions.ent().id);
-        bool widgetOwnsEnter = actionFocused;
+        const bool widgetOwnsEnter = actionFocused;
         auto& cur = app.askState.cursor_for(ask.id());
         if (keysLive) {
             if (actionFocused) {
                 cur.question.clear();
                 cur.option.clear();
             }
+            afterhours::EntityID focusedRow = 0;
             for (const AskRowId& row : askRowIds_)
                 if (ctx.has_focus(row.id)) {
-                    widgetOwnsEnter = true;
+                    focusedRow = row.id;
                     cur.question = *row.question;
                     cur.option = *row.option;
                 }
+            if (focusedRow != askFocusedRow_) {
+                if (focusedRow != 0)
+                    scroll_ask_cursor_into_view(
+                        body.ent(),
+                        "ask_option_" + cur.question + "_" +
+                            std::to_string(
+                                hanabi::ask::option_index(ask, cur)));
+                askFocusedRow_ = focusedRow;
+            }
         }
         if (keysLive && app.escape == EscapeIntent::DeclineAsk && !busy &&
             answerable) {
             if (ask.kind == api::AskKind::Approval ||
                 hanabi::ask::has_draft(ask, answer)) {
                 app.askFocused = false;
+                ctx.set_focus(ctx.ROOT);
             } else {
                 submit_ask(app, ask, api::AskAction::Cancel);
                 app.askFocused = false;
+                ctx.set_focus(ctx.ROOT);
             }
         }
+        askEnterRow_ = 0;
         drive_ask_keyboard(ctx, app, ask, &body.ent(), widgetOwnsEnter,
                            keysLive);
     }

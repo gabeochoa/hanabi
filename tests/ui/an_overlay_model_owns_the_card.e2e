@@ -1,16 +1,28 @@
+# A popover behind-click is a DISMISSAL, so an ask row cannot be focused
+# underneath one.
+#
+# WHAT THIS USED TO ASSERT, AND WHY IT COULD NOT. It focused ask_option_q1_0,
+# pressed SPACE and ENTER, and required the card untouched. Two things were
+# wrong with that. afterhours' imm::popover takes the open flag by REFERENCE and
+# closes itself when focus leaves, so `focus_ui` on a row behind the popover
+# dismisses it -- measured at the SPACE frame, modelPopoverOpen was already 0,
+# so no overlay owned anything. And ask_keys_live needs the card focused, so the
+# two halves of the old premise are mutually exclusive: there is no state in
+# which a popover is up AND the card holds the keyboard. It passed anyway
+# because ENTER on a focused row un-picked the option (the S1 defect) and put
+# the "Answer any one of these" note back, which is the text it asserted.
+#
+# What IS true and worth guarding is the dismissal itself. Both assertions are
+# live: the first fails if the overlay never opened, the second if reaching
+# behind it left it up.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=model
 
 require_thread t2
 expect_text "The agent is asking"
-expect_text "Answer any one of these to submit"
+expect_text "Default for new tasks"
 
 focus_ui ask_option_q1_0
-key SPACE
-wait_frames 10
-expect_text "Answer any one of these to submit"
-
-key ENTER
-wait_frames 10
-expect_text "Answer any one of these to submit"
-expect_no_text "Sending your answer…"
+wait_frames 12
+expect_no_text "Default for new tasks"

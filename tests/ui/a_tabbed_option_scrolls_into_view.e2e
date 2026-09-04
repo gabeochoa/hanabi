@@ -1,0 +1,20 @@
+# A row Tab reaches below the fold gets scrolled into view.
+#
+# Option rows are buttons, nothing ever marks them SkipWhenTabbing, and
+# was_rendered_to_screen ignores scissor clipping -- so Tab walks straight into
+# rows the renderer culled and the mouse cannot hit. They are not inert: focus
+# syncs the ask cursor, so SPACE toggles a row the user cannot see and changes
+# an answer they never read. Only the ARROW handler scrolled.
+#
+# 760x620 with the four-question `big` fixture puts q4 well below the fold.
+#
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=big
+
+require_thread t2
+expect_text "Four accounts disagree with the ledger"
+expect_no_text "nobody, it is already approved in the ticket"
+
+focus_ui ask_option_q4_3
+wait_frames 20
+expect_text "nobody, it is already approved in the ticket"

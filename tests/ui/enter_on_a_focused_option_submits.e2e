@@ -1,0 +1,26 @@
+# Enter on a focused option row submits the answer.
+#
+# It used to UN-PICK it. Any focused row set widgetOwnsEnter, which closed the
+# card's own Enter gate; afterhours' keyboard branch then fired the row's click
+# listener, and the next frame's imm::button returned `down` and toggled the
+# option straight back off. Down, Space, Enter -- the whole keyboard-only flow --
+# sent nothing and quietly threw the answer away.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "Two accounts disagree with the ledger and I cannot pick for you."
+
+focus_ui ask_option_q1_0
+expect_focused ask_option_q1_0
+key SPACE
+wait_frames 10
+# The pick took: the card no longer says it has nothing to send.
+expect_no_text "Answer any one of these to submit"
+
+key ENTER
+wait_frames 40
+# The pick SURVIVED Enter, and Enter sent the card.
+expect_no_text "Answer any one of these to submit"
+expect_no_text "Two accounts disagree with the ledger and I cannot pick for you."

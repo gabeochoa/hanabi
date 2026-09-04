@@ -1,0 +1,29 @@
+# Escape on an approval hands the keyboard back.
+#
+# Escape cleared app.askFocused and left UI focus exactly where it was, and
+# askFocused is re-derived from real focus on the very next frame -- so the
+# write survived about 16ms and nothing a human or a script could do would ever
+# see it. With focus still parked on Approve, Escape-then-Enter APPROVED the
+# command: the one key a user presses to back out of a decision was one keypress
+# away from making it.
+#
+# HANABI_ASK_FAIL=echo makes the accept come back refused with a retry note, so
+# an approval that DID go out says so on screen.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval HANABI_ASK_FAIL=echo
+
+require_thread t2
+expect_text "The agent needs approval"
+
+focus_ui ask_submit
+expect_focused ask_submit
+key ESCAPE
+wait_frames 10
+
+# Enter must now reach nothing. There is no expect_not_focused, so this asserts
+# the consequence: the approval is still sitting there, unapproved.
+key ENTER
+wait_frames 30
+expect_text "The agent needs approval"
+expect_no_text "accept — press Approve to try again."

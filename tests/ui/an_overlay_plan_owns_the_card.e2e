@@ -1,16 +1,21 @@
+# The plan popover dismisses when an ask row behind it takes focus.
+#
+# This one was worse than its two siblings: without HANABI_PLAN_DEMO the thread
+# has neither a plan nor a goal, and main_pane_system force-closes the popover
+# on that very frame ("if (!hasPlan && !hasGoal) app.planPopoverOpen = false"),
+# so plan_popover_title never rendered once in the whole run. The overlay it
+# named was never on screen. HANABI_PLAN_DEMO=1 gives it one, the way
+# scripts/screens.sh does for baselines 50-54.
+#
+# See an_overlay_model_owns_the_card.e2e for the rest.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=plan
+# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=plan HANABI_PLAN_DEMO=1
 
 require_thread t2
 expect_text "The agent is asking"
-expect_text "Answer any one of these to submit"
+expect_text "Goal"
 
 focus_ui ask_option_q1_0
-key SPACE
-wait_frames 10
-expect_text "Answer any one of these to submit"
-
-key ENTER
-wait_frames 10
-expect_text "Answer any one of these to submit"
-expect_no_text "Sending your answer…"
+wait_frames 12
+expect_no_text "Goal"

@@ -1,16 +1,16 @@
+# The effort popover dismisses when an ask row behind it takes focus.
+#
+# See an_overlay_model_owns_the_card.e2e for why the old form of this test
+# (focus a row, press SPACE and ENTER, require the card untouched) asserted a
+# state that cannot exist, and passed only on the back of the ENTER un-pick.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=effort
 
 require_thread t2
 expect_text "The agent is asking"
-expect_text "Answer any one of these to submit"
+expect_text "Thinking effort"
 
 focus_ui ask_option_q1_0
-key SPACE
-wait_frames 10
-expect_text "Answer any one of these to submit"
-
-key ENTER
-wait_frames 10
-expect_text "Answer any one of these to submit"
-expect_no_text "Sending your answer…"
+wait_frames 12
+expect_no_text "Thinking effort"
