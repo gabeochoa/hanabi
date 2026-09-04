@@ -117,6 +117,35 @@ def measure(image, box, y0, y1):
     return fill, ink, contrast(ink, fill)
 
 
+def self_check():
+    """The ceiling must reject a disabled label repainted bright."""
+    row = "63_ask_unanswerable_backend_dark.png"
+    y0, y1, x0, card_right = 620, 650, 320, 1040
+    image = Image.open(BASELINES / row).convert("RGB").copy()
+    card_fill = Counter(
+        image.getpixel((x, y0 + 1)) for x in range(x0, image.size[0])
+    ).most_common(1)[0][0]
+    boxes = [b for b in button_rects(image, y0, y1, x0, card_fill)
+             if b[1] <= card_right]
+    if not boxes:
+        raise SystemExit("ask-contrast self-check: no button to tamper")
+    painted = 0
+    for x in range(boxes[0][0] + 2, boxes[0][1] - 2):
+        for y in range(y0 + 2, y1 - 2):
+            pixel = image.getpixel((x, y))
+            if sum(abs(pixel[c] - card_fill[c]) for c in range(3)) > 90:
+                image.putpixel((x, y), (255, 255, 255))
+                painted += 1
+    if painted == 0:
+        raise SystemExit("ask-contrast self-check: found no label to tamper")
+    _, _, ratio = measure(image, boxes[0], y0, y1)
+    if ratio <= MAX_DISABLED_RATIO:
+        raise SystemExit(
+            f"ask-contrast self-check: a white disabled label measured "
+            f"{ratio:.2f}:1, which the {MAX_DISABLED_RATIO}:1 ceiling would "
+            "accept")
+
+
 def main():
     failures = []
     total = 0
@@ -202,4 +231,5 @@ def main():
 
 
 if __name__ == "__main__":
+    self_check()
     main()

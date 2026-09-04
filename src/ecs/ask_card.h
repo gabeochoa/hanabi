@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <ctime>
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <set>
 #include <string>
@@ -296,6 +297,20 @@ inline bool submit_blocked(const api::PendingAsk& ask,
                            const api::AskAnswer& answer) {
     if (ask.kind == api::AskKind::Approval) return false;
     return !api::elicitation::answer_has_content(ask, answer);
+}
+
+inline constexpr const char* kFileDeferralNote =
+    "the file question will be left unanswered";
+
+inline std::string with_file_caveat(const api::PendingAsk& ask,
+                                    std::string note) {
+    if (!ask.has_file_question()) return note;
+    if (note.empty()) {
+        std::string one = kFileDeferralNote;
+        one[0] = static_cast<char>(std::toupper(one[0]));
+        return one;
+    }
+    return note + " — " + kFileDeferralNote;
 }
 
 inline std::string blocked_reason(const api::PendingAsk& ask) {

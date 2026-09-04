@@ -826,7 +826,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 request_ask_refresh(app, sid);
             } else if (r.error == api::elicitation::kAskGoneReason ||
                        r.error ==
-                           api::elicitation::kAskLikelyLandedReason) {
+                           api::elicitation::kAskLikelyLandedReason ||
+                       r.error == api::elicitation::kChildUnknownReason) {
                 const std::string kept = ask_draft_text(app, askId);
                 app.drop_attach_ask(sid, askId);
                 if (park_ask_draft(app, kept, sid)) {

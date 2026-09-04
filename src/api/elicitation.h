@@ -419,6 +419,17 @@ inline bool answer_has_content(const PendingAsk& ask,
 
 inline constexpr std::size_t kContentCapBytes = 262144;
 
+inline const char* unconfirmed_reason(bool is_child) {
+    return is_child
+               ? "no confirmation came back — this question's outcome is "
+                 "unknown"
+               : "no confirmation came back — your answer probably went "
+                 "through";
+}
+
+inline constexpr const char* kChildUnknownReason =
+    "no confirmation came back — this question's outcome is unknown";
+
 inline constexpr const char* kAskLikelyLandedReason =
     "no confirmation came back — your answer probably went through";
 

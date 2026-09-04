@@ -1,0 +1,13 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_GONE=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+click_ui ask_option_q1_1
+wait_frames 10
+
+click_ui ask_decline
+wait_frames 30
+expect_text "your answer is in the composer"
+expect_input_text composer_reply_input "Which mismatch do we trust?: promo"

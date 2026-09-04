@@ -444,6 +444,16 @@ static void test_approval_cap_and_frames() {
         R"({"event":{"type":"elicitation_requested"}})", &entry));
     CHECK(!el::ask_entry_from_frame("not json", &entry));
 
+    {
+        const std::string own = el::unconfirmed_reason(false);
+        const std::string kid = el::unconfirmed_reason(true);
+        CHECK(own != kid);
+        CHECK(own.find("probably went through") != std::string::npos);
+        CHECK(kid.find("outcome is unknown") != std::string::npos);
+        CHECK(kid.find("probably") == std::string::npos);
+        CHECK(own.find("somewhere else") == std::string::npos);
+        CHECK(kid.find("somewhere else") == std::string::npos);
+    }
     CHECK(std::string(el::kAskLikelyLandedReason).find("probably") !=
           std::string::npos);
     CHECK(std::string(el::kAskLikelyLandedReason).find("somewhere else") ==

@@ -19,7 +19,7 @@ expect_input_text composer_reply_input "keep this draft"
 click_ui ask_option_q1_1
 wait_frames 6
 expect_no_text "Answer any one of these to submit"
-expect_text "The file question will be left unanswered."
+expect_text "file question will be left unanswered"
 expect_input_text composer_reply_input "keep this draft"
 
 click_ui ask_option_q2_1

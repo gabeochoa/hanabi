@@ -5221,9 +5221,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        "taller.";
                 ink = theme::status_blocked();
             } else if (blocked) {
-                note = hanabi::ask::blocked_reason(ask);
-            } else if (ask.has_file_question()) {
-                note = "The file question will be left unanswered.";
+                note = hanabi::ask::with_file_caveat(
+                    ask, hanabi::ask::blocked_reason(ask));
+            } else {
+                note = hanabi::ask::with_file_caveat(ask, std::string());
             }
             if (!note.empty())
                 div(ctx, mk(card.ent(), 900),

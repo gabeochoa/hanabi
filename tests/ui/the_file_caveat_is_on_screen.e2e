@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+assert_ui ask_note hidden=false
+expect_text "file question will be left unanswered"
+expect_text "Answer any one of these to submit"
